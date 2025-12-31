@@ -1,7 +1,7 @@
-import subprocess
-import time
-import sys
 import signal
+import subprocess
+import sys
+import time
 
 from testutils import assert_raises
 

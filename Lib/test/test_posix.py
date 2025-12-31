@@ -1063,7 +1063,6 @@ class PosixTester(unittest.TestCase):
         self.assertEqual(os.stat(target).st_mode, target_mode)
         self.assertEqual(os.lstat(link).st_mode, new_mode)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
     @os_helper.skip_unless_symlink
     def test_chmod_file_symlink(self):
         target = os_helper.TESTFN

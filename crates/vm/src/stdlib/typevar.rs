@@ -1,7 +1,7 @@
 // spell-checker:ignore typevarobject funcobj
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    builtins::{PyTupleRef, PyType, PyTypeRef, pystr::AsPyStr},
     common::lock::PyMutex,
     function::{FuncArgs, IntoFuncArgs, PyComparisonValue},
     protocol::PyNumberMethods,
@@ -44,7 +44,7 @@ fn caller(vm: &VirtualMachine) -> Option<PyObjectRef> {
 
 /// Set __module__ attribute for an object based on the caller's module.
 /// This follows CPython's behavior for TypeVar and similar objects.
-fn set_module_from_caller(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+fn set_module_from_caller(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
     // Note: CPython gets module from frame->f_funcobj, but RustPython's Frame
     // architecture is different - we use globals['__name__'] instead
     if let Some(module_name) = caller(vm) {
@@ -261,7 +261,15 @@ impl AsNumber for TypeVar {
 impl Constructor for TypeVar {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let typevar = <Self as Constructor>::py_new(&cls, args, vm)?;
+        let obj = typevar.into_ref_with_type(vm, cls)?;
+        let obj_ref: PyObjectRef = obj.into();
+        set_module_from_caller(&obj_ref, vm)?;
+        Ok(obj_ref)
+    }
+
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let mut kwargs = args.kwargs;
         // Parse arguments manually
         let (name, constraints) = if args.args.is_empty() {
@@ -353,7 +361,7 @@ impl Constructor for TypeVar {
             (vm.ctx.typing_no_default.clone().into(), vm.ctx.none())
         };
 
-        let typevar = Self {
+        Ok(Self {
             name,
             bound: parking_lot::Mutex::new(bound_obj),
             evaluate_bound,
@@ -364,12 +372,7 @@ impl Constructor for TypeVar {
             covariant,
             contravariant,
             infer_variance,
-        };
-
-        let obj = typevar.into_ref_with_type(vm, cls)?;
-        let obj_ref: PyObjectRef = obj.into();
-        set_module_from_caller(&obj_ref, vm)?;
-        Ok(obj_ref)
+        })
     }
 }
 
@@ -533,7 +536,7 @@ impl AsNumber for ParamSpec {
 impl Constructor for ParamSpec {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let mut kwargs = args.kwargs;
         // Parse arguments manually
         let name = if args.args.is_empty() {
@@ -604,6 +607,10 @@ impl Constructor for ParamSpec {
         let obj_ref: PyObjectRef = obj.into();
         set_module_from_caller(&obj_ref, vm)?;
         Ok(obj_ref)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unimplemented!("use slot_new")
     }
 }
 
@@ -715,7 +722,7 @@ impl Iterable for TypeVarTuple {
 impl Constructor for TypeVarTuple {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let mut kwargs = args.kwargs;
         // Parse arguments manually
         let name = if args.args.is_empty() {
@@ -763,6 +770,10 @@ impl Constructor for TypeVarTuple {
         set_module_from_caller(&obj_ref, vm)?;
         Ok(obj_ref)
     }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unimplemented!("use slot_new")
+    }
 }
 
 impl Representable for TypeVarTuple {
@@ -805,10 +816,9 @@ impl ParamSpecArgs {
 impl Constructor for ParamSpecArgs {
     type Args = (PyObjectRef,);
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
         let origin = args.0;
-        let psa = Self { __origin__: origin };
-        psa.into_ref_with_type(vm, cls).map(Into::into)
+        Ok(Self { __origin__: origin })
     }
 }
 
@@ -884,10 +894,9 @@ impl ParamSpecKwargs {
 impl Constructor for ParamSpecKwargs {
     type Args = (PyObjectRef,);
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
         let origin = args.0;
-        let psa = Self { __origin__: origin };
-        psa.into_ref_with_type(vm, cls).map(Into::into)
+        Ok(Self { __origin__: origin })
     }
 }
 
@@ -972,6 +981,11 @@ pub struct Generic {}
 
 #[pyclass(flags(BASETYPE))]
 impl Generic {
+    #[pyattr]
+    fn __slots__(ctx: &Context) -> PyTupleRef {
+        ctx.empty_tuple.clone()
+    }
+
     #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         call_typing_args_kwargs("_generic_class_getitem", cls, args, vm)
@@ -992,15 +1006,15 @@ pub fn set_typeparam_default(
 ) -> PyResult {
     // Inner function to handle common pattern of setting evaluate_default
     fn try_set_default<T>(
-        obj: &PyObjectRef,
-        evaluate_default: &PyObjectRef,
+        obj: &PyObject,
+        evaluate_default: &PyObject,
         get_field: impl FnOnce(&T) -> &PyMutex<PyObjectRef>,
     ) -> bool
     where
         T: PyPayload,
     {
         if let Some(typed_obj) = obj.downcast_ref::<T>() {
-            *get_field(typed_obj).lock() = evaluate_default.clone();
+            *get_field(typed_obj).lock() = evaluate_default.to_owned();
             true
         } else {
             false

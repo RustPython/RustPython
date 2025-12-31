@@ -4,11 +4,11 @@ use crate::util::{
     ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, pyclass_ident_and_attrs,
     pyexception_ident_and_attrs, text_signature,
 };
+use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
 use rustpython_doc::DB;
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::*;
@@ -25,8 +25,8 @@ enum AttrName {
     Member,
 }
 
-impl std::fmt::Display for AttrName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for AttrName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let s = match self {
             Self::Method => "pymethod",
             Self::ClassMethod => "pyclassmethod",
@@ -44,7 +44,7 @@ impl std::fmt::Display for AttrName {
 impl FromStr for AttrName {
     type Err = String;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         Ok(match s {
             "pymethod" => Self::Method,
             "pyclassmethod" => Self::ClassMethod,
@@ -63,6 +63,7 @@ impl FromStr for AttrName {
 
 #[derive(Default)]
 struct ImplContext {
+    is_trait: bool,
     attribute_items: ItemNursery,
     method_items: MethodNursery,
     getset_items: GetSetNursery,
@@ -164,6 +165,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 with_impl,
                 with_method_defs,
                 with_slots,
+                itemsize,
             } = extract_impl_attrs(attr, &impl_ty)?;
             let payload_ty = attr_payload.unwrap_or(payload_guess);
             let method_def = &context.method_items;
@@ -188,9 +190,17 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         #(#class_extensions)*
                     }
                 },
-                parse_quote! {
-                    fn __extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
-                        #slots_impl
+                {
+                    let itemsize_impl = itemsize.as_ref().map(|size| {
+                        quote! {
+                            slots.itemsize = #size;
+                        }
+                    });
+                    parse_quote! {
+                        fn __extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
+                            #itemsize_impl
+                            #slots_impl
+                        }
                     }
                 },
             ];
@@ -222,8 +232,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         const METHOD_DEFS: &'static [::rustpython_vm::function::PyMethodDef] = &#method_defs;
 
                         fn extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
-                            #impl_ty::__extend_slots(slots);
                             #with_slots
+                            #impl_ty::__extend_slots(slots);
                         }
                     }
                 }
@@ -232,7 +242,10 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             }
         }
         Item::Trait(mut trai) => {
-            let mut context = ImplContext::default();
+            let mut context = ImplContext {
+                is_trait: true,
+                ..Default::default()
+            };
             let mut has_extend_slots = false;
             for item in &trai.items {
                 let has = match item {
@@ -305,6 +318,85 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
     Ok(tokens)
 }
 
+/// Validates that when a base class is specified, the struct has the base type as its first field.
+/// This ensures proper memory layout for subclassing (required for #[repr(transparent)] to work correctly).
+fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
+    let Item::Struct(item_struct) = item else {
+        // Only validate structs - enums with base are already an error elsewhere
+        return Ok(());
+    };
+
+    // Get the base type name for error messages
+    let base_name = base_path
+        .segments
+        .last()
+        .map(|s| s.ident.to_string())
+        .unwrap_or_else(|| quote!(#base_path).to_string());
+
+    match &item_struct.fields {
+        syn::Fields::Named(fields) => {
+            let Some(first_field) = fields.named.first() else {
+                bail_span!(
+                    item_struct,
+                    "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}, but the struct has no fields"
+                );
+            };
+            if !type_matches_path(&first_field.ty, base_path) {
+                bail_span!(
+                    first_field,
+                    "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
+                );
+            }
+        }
+        syn::Fields::Unnamed(fields) => {
+            let Some(first_field) = fields.unnamed.first() else {
+                bail_span!(
+                    item_struct,
+                    "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}, but the struct has no fields"
+                );
+            };
+            if !type_matches_path(&first_field.ty, base_path) {
+                bail_span!(
+                    first_field,
+                    "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
+                );
+            }
+        }
+        syn::Fields::Unit => {
+            bail_span!(
+                item_struct,
+                "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}, but the struct is a unit struct"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Check if a type matches a given path (handles simple cases like `Foo` or `path::to::Foo`)
+fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
+    // Compare by converting both to string representation for macro hygiene
+    let ty_str = quote!(#ty).to_string().replace(' ', "");
+    let path_str = quote!(#path).to_string().replace(' ', "");
+
+    // Check if both are the same or if the type ends with the path's last segment
+    if ty_str == path_str {
+        return true;
+    }
+
+    // Also match if just the last segment matches (e.g., foo::Bar matches Bar)
+    let syn::Type::Path(type_path) = ty else {
+        return false;
+    };
+    let Some(type_last) = type_path.path.segments.last() else {
+        return false;
+    };
+    let Some(path_last) = path.segments.last() else {
+        return false;
+    };
+    type_last.ident == path_last.ident
+}
+
 fn generate_class_def(
     ident: &Ident,
     name: &str,
@@ -339,7 +431,6 @@ fn generate_class_def(
     } else {
         quote!(false)
     };
-    let basicsize = quote!(std::mem::size_of::<#ident>());
     let is_pystruct = attrs.iter().any(|attr| {
         attr.path().is_ident("derive")
             && if let Ok(Meta::List(l)) = attr.parse_meta() {
@@ -350,6 +441,26 @@ fn generate_class_def(
                 false
             }
     });
+    // Check if the type has #[repr(transparent)] - only then we can safely
+    // generate PySubclass impl (requires same memory layout as base type)
+    let is_repr_transparent = attrs.iter().any(|attr| {
+        attr.path().is_ident("repr")
+            && if let Ok(Meta::List(l)) = attr.parse_meta() {
+                l.nested
+                    .into_iter()
+                    .any(|n| n.get_ident().is_some_and(|p| p == "transparent"))
+            } else {
+                false
+            }
+    });
+    // If repr(transparent) with a base, the type has the same memory layout as base,
+    // so basicsize should be 0 (no additional space beyond the base type)
+    // Otherwise, basicsize = sizeof(payload). The header size is added in __basicsize__ getter.
+    let basicsize = if is_repr_transparent && base.is_some() {
+        quote!(0)
+    } else {
+        quote!(std::mem::size_of::<#ident>())
+    };
     if base.is_some() && is_pystruct {
         bail_span!(ident, "PyStructSequence cannot have `base` class attr",);
     }
@@ -379,10 +490,29 @@ fn generate_class_def(
         }
     });
 
-    let base_or_object = if let Some(base) = base {
+    let base_or_object = if let Some(ref base) = base {
         quote! { #base }
     } else {
         quote! { ::rustpython_vm::builtins::PyBaseObject }
+    };
+
+    // Generate PySubclass impl for #[repr(transparent)] types with base class
+    // (tuple struct assumed, so &self.0 works)
+    let subclass_impl = if !is_pystruct && is_repr_transparent {
+        base.as_ref().map(|typ| {
+            quote! {
+                impl ::rustpython_vm::class::PySubclass for #ident {
+                    type Base = #typ;
+
+                    #[inline]
+                    fn as_base(&self) -> &Self::Base {
+                        &self.0
+                    }
+                }
+            }
+        })
+    } else {
+        None
     };
 
     let tokens = quote! {
@@ -409,6 +539,8 @@ fn generate_class_def(
 
             #base_class
         }
+
+        #subclass_impl
     };
     Ok(tokens)
 }
@@ -426,11 +558,16 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     let metaclass = class_meta.metaclass()?;
     let unhashable = class_meta.unhashable()?;
 
+    // Validate that if base is specified, the first field must be of the base type
+    if let Some(ref base_path) = base {
+        validate_base_field(&item, base_path)?;
+    }
+
     let class_def = generate_class_def(
         ident,
         &class_name,
         module_name.as_deref(),
-        base,
+        base.clone(),
         metaclass,
         unhashable,
         attrs,
@@ -485,19 +622,47 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         }
     };
 
-    let impl_payload = if let Some(ctx_type_name) = class_meta.ctx_name()? {
-        let ctx_type_ident = Ident::new(&ctx_type_name, ident.span()); // FIXME span
+    // Generate PyPayload impl based on whether base exists
+    #[allow(clippy::collapsible_else_if)]
+    let impl_payload = if let Some(base_type) = &base {
+        let class_fn = if let Some(ctx_type_name) = class_meta.ctx_name()? {
+            let ctx_type_ident = Ident::new(&ctx_type_name, ident.span());
+            quote! { ctx.types.#ctx_type_ident }
+        } else {
+            quote! { <Self as ::rustpython_vm::class::StaticType>::static_type() }
+        };
 
-        // We need this to make extend mechanism work:
         quote! {
+            // static_assertions::const_assert!(std::mem::size_of::<#base_type>() <= std::mem::size_of::<#ident>());
             impl ::rustpython_vm::PyPayload for #ident {
+                #[inline]
+                fn payload_type_id() -> ::std::any::TypeId {
+                    <#base_type as ::rustpython_vm::PyPayload>::payload_type_id()
+                }
+
+                #[inline]
+                fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
+                    <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+                }
+
                 fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                    ctx.types.#ctx_type_ident
+                    #class_fn
                 }
             }
         }
     } else {
-        quote! {}
+        if let Some(ctx_type_name) = class_meta.ctx_name()? {
+            let ctx_type_ident = Ident::new(&ctx_type_name, ident.span());
+            quote! {
+                impl ::rustpython_vm::PyPayload for #ident {
+                    fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+                        ctx.types.#ctx_type_ident
+                    }
+                }
+            }
+        } else {
+            quote! {}
+        }
     };
 
     let empty_impl = if let Some(attrs) = class_meta.impl_attrs()? {
@@ -536,26 +701,6 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     let class_name = class_meta.class_name()?;
 
     let base_class_name = class_meta.base()?;
-    let impl_payload = if let Some(ctx_type_name) = class_meta.ctx_name()? {
-        let ctx_type_ident = Ident::new(&ctx_type_name, ident.span()); // FIXME span
-
-        // We need this to make extend mechanism work:
-        quote! {
-            impl ::rustpython_vm::PyPayload for #ident {
-                fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                    ctx.exceptions.#ctx_type_ident
-                }
-            }
-        }
-    } else {
-        quote! {
-            impl ::rustpython_vm::PyPayload for #ident {
-                fn class(_ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                    <Self as ::rustpython_vm::class::StaticType>::static_type()
-                }
-            }
-        }
-    };
     let impl_pyclass = if class_meta.has_impl()? {
         quote! {
             #[pyexception]
@@ -568,7 +713,6 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     let ret = quote! {
         #[pyclass(module = false, name = #class_name, base = #base_class_name)]
         #item
-        #impl_payload
         #impl_pyclass
     };
     Ok(ret)
@@ -579,49 +723,60 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
         return Ok(item.into_token_stream());
     };
 
-    if !attr.is_empty() {
-        return Err(syn::Error::new_spanned(
-            &attr[0],
-            "#[pyexception] impl doesn't allow attrs. Use #[pyclass] instead.",
-        ));
+    // Check if with(Constructor) is specified. If Constructor trait is used, don't generate slot_new
+    let mut extra_attrs = Vec::new();
+    let mut with_items = vec![];
+    for nested in &attr {
+        if let NestedMeta::Meta(Meta::List(MetaList { path, nested, .. })) = nested {
+            // If we already found the constructor trait, no need to keep looking for it
+            if path.is_ident("with") {
+                for meta in nested {
+                    with_items.push(meta.get_ident().expect("with() has non-ident item").clone());
+                }
+                continue;
+            }
+            extra_attrs.push(NestedMeta::Meta(Meta::List(MetaList {
+                path: path.clone(),
+                paren_token: Default::default(),
+                nested: nested.clone(),
+            })));
+        }
     }
 
-    let mut has_slot_new = false;
-    let mut has_slot_init = false;
+    let with_contains = |with_items: &[Ident], s: &str| {
+        // Check if Constructor is in the list
+        with_items.iter().any(|ident| ident == s)
+    };
+
     let syn::ItemImpl {
         generics,
         self_ty,
         items,
         ..
     } = &imp;
-    for item in items {
-        // FIXME: better detection or correct wrapper implementation
-        let Some(ident) = item.get_ident() else {
-            continue;
-        };
-        let item_name = ident.to_string();
-        match item_name.as_str() {
-            "slot_new" => {
-                has_slot_new = true;
-            }
-            "slot_init" => {
-                has_slot_init = true;
-            }
-            _ => continue,
-        }
-    }
 
-    let slot_new = if has_slot_new {
+    let slot_new = if with_contains(&with_items, "Constructor") {
         quote!()
     } else {
+        with_items.push(Ident::new("Constructor", Span::call_site()));
         quote! {
-            #[pyslot]
-            pub fn slot_new(
-                cls: ::rustpython_vm::builtins::PyTypeRef,
-                args: ::rustpython_vm::function::FuncArgs,
-                vm: &::rustpython_vm::VirtualMachine,
-            ) -> ::rustpython_vm::PyResult {
-                <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_new(cls, args, vm)
+            impl ::rustpython_vm::types::Constructor for #self_ty {
+                type Args = ::rustpython_vm::function::FuncArgs;
+
+                fn slot_new(
+                    cls: ::rustpython_vm::builtins::PyTypeRef,
+                    args: ::rustpython_vm::function::FuncArgs,
+                    vm: &::rustpython_vm::VirtualMachine,
+                ) -> ::rustpython_vm::PyResult {
+                    <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_new(cls, args, vm)
+                }
+                fn py_new(
+                    _cls: &::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
+                    _args: Self::Args,
+                    _vm: &::rustpython_vm::VirtualMachine
+                ) -> ::rustpython_vm::PyResult<Self> {
+                    unreachable!("slot_new is defined")
+                }
             }
         }
     };
@@ -630,30 +785,47 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
     // from `BaseException` in `SimpleExtendsException` macro.
     // See: `(initproc)BaseException_init`
     // spell-checker:ignore initproc
-    let slot_init = if has_slot_init {
+    let slot_init = if with_contains(&with_items, "Initializer") {
         quote!()
     } else {
-        // FIXME: this is a generic logic for types not only for exceptions
+        with_items.push(Ident::new("Initializer", Span::call_site()));
         quote! {
-            #[pyslot]
-            #[pymethod(name="__init__")]
-            pub fn slot_init(
-                zelf: ::rustpython_vm::PyObjectRef,
-                args: ::rustpython_vm::function::FuncArgs,
-                vm: &::rustpython_vm::VirtualMachine,
-            ) -> ::rustpython_vm::PyResult<()> {
-                <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_init(zelf, args, vm)
+            impl ::rustpython_vm::types::Initializer for #self_ty {
+                type Args = ::rustpython_vm::function::FuncArgs;
+
+                fn slot_init(
+                    zelf: ::rustpython_vm::PyObjectRef,
+                    args: ::rustpython_vm::function::FuncArgs,
+                    vm: &::rustpython_vm::VirtualMachine,
+                ) -> ::rustpython_vm::PyResult<()> {
+                    <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_init(zelf, args, vm)
+                }
+
+                fn init(
+                    _zelf: ::rustpython_vm::PyRef<Self>,
+                    _args: Self::Args,
+                    _vm: &::rustpython_vm::VirtualMachine
+                ) -> ::rustpython_vm::PyResult<()> {
+                    unreachable!("slot_init is defined")
+                }
             }
         }
     };
+
+    let extra_attrs_tokens = if extra_attrs.is_empty() {
+        quote!()
+    } else {
+        quote!(, #(#extra_attrs),*)
+    };
+
     Ok(quote! {
-        #[pyclass(flags(BASETYPE, HAS_DICT))]
+        #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*) #extra_attrs_tokens)]
         impl #generics #self_ty {
             #(#items)*
-
-            #slot_new
-            #slot_init
         }
+
+        #slot_new
+        #slot_init
     })
 }
 
@@ -736,6 +908,23 @@ where
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
+
+        // Disallow __new__ and __init__ as pymethod in impl blocks (not in traits)
+        if !args.context.is_trait {
+            if py_name == "__new__" {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    "#[pymethod] cannot define '__new__'. Use #[pyclass(with(Constructor))] instead.",
+                ));
+            }
+            if py_name == "__init__" {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    "#[pymethod] cannot define '__init__'. Use #[pyclass(with(Initializer))] instead.",
+                ));
+            }
+        }
+
         let raw = item_meta.raw()?;
         let sig_doc = text_signature(func.sig(), &py_name);
 
@@ -798,7 +987,10 @@ where
         } else if let Ok(f) = args.item.function_or_method() {
             (&f.sig().ident, f.span())
         } else {
-            return Err(self.new_syn_error(args.item.span(), "can only be on a method"));
+            return Err(self.new_syn_error(
+                args.item.span(),
+                "can only be on a method or const function pointer",
+            ));
         };
 
         let item_attr = args.attrs.remove(self.index());
@@ -1053,9 +1245,8 @@ impl GetSetNursery {
         item_ident: Ident,
     ) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
-        if !matches!(kind, GetSetItemKind::Get) && !cfgs.is_empty() {
-            bail_span!(item_ident, "Only the getter can have #[cfg]",);
-        }
+        // Note: Both getter and setter can have #[cfg], but they must have matching cfgs
+        // since the map key is (name, cfgs). This ensures getter and setter are paired correctly.
         let entry = self.map.entry((name.clone(), cfgs)).or_default();
         let func = match kind {
             GetSetItemKind::Get => &mut entry.0,
@@ -1297,7 +1488,7 @@ impl ItemMeta for SlotItemMeta {
 
     fn from_nested<I>(item_ident: Ident, meta_ident: Ident, mut nested: I) -> Result<Self>
     where
-        I: std::iter::Iterator<Item = NestedMeta>,
+        I: core::iter::Iterator<Item = NestedMeta>,
     {
         let meta_map = if let Some(nested_meta) = nested.next() {
             match nested_meta {
@@ -1341,7 +1532,9 @@ impl SlotItemMeta {
             }
         } else {
             let ident_str = self.inner().item_name();
-            let name = if let Some(stripped) = ident_str.strip_prefix("slot_") {
+            // Convert to lowercase to handle both SLOT_NEW and slot_new
+            let ident_lower = ident_str.to_lowercase();
+            let name = if let Some(stripped) = ident_lower.strip_prefix("slot_") {
                 proc_macro2::Ident::new(stripped, inner.item_ident.span())
             } else {
                 inner.item_ident.clone()
@@ -1435,6 +1628,7 @@ struct ExtractedImplAttrs {
     with_impl: TokenStream,
     with_method_defs: Vec<TokenStream>,
     with_slots: TokenStream,
+    itemsize: Option<syn::Expr>,
 }
 
 fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<ExtractedImplAttrs> {
@@ -1453,8 +1647,8 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
         }
     }];
     let mut payload = None;
+    let mut itemsize = None;
 
-    let mut has_constructor = false;
     for attr in attr {
         match attr {
             NestedMeta::Meta(Meta::List(MetaList { path, nested, .. })) => {
@@ -1479,9 +1673,6 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                                     "Try `#[pyclass(with(Constructor, ...))]` instead of `#[pyclass(with(DefaultConstructor, ...))]`. DefaultConstructor implicitly implements Constructor."
                                 )
                             }
-                            if path.is_ident("Constructor") || path.is_ident("Unconstructible") {
-                                has_constructor = true;
-                            }
                             (
                                 quote!(<Self as #path>::__extend_py_class),
                                 quote!(<Self as #path>::__OWN_METHOD_DEFS),
@@ -1493,9 +1684,24 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                             #extend_class(ctx, class);
                         });
                         with_method_defs.push(method_defs);
-                        with_slots.push(quote_spanned! { item_span =>
-                            #extend_slots(slots);
-                        });
+                        // For Initializer and Constructor traits, directly set the slot
+                        // instead of calling __extend_slots. This ensures that the trait
+                        // impl's override (e.g., slot_init in impl Initializer) is used,
+                        // not the trait's default implementation.
+                        let slot_code = if path.is_ident("Initializer") {
+                            quote_spanned! { item_span =>
+                                slots.init.store(Some(<Self as ::rustpython_vm::types::Initializer>::slot_init as _));
+                            }
+                        } else if path.is_ident("Constructor") {
+                            quote_spanned! { item_span =>
+                                slots.new.store(Some(<Self as ::rustpython_vm::types::Constructor>::slot_new as _));
+                            }
+                        } else {
+                            quote_spanned! { item_span =>
+                                #extend_slots(slots);
+                            }
+                        };
+                        with_slots.push(slot_code);
                     }
                 } else if path.is_ident("flags") {
                     for meta in nested {
@@ -1527,6 +1733,8 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                     } else {
                         bail_span!(value, "payload must be a string literal")
                     }
+                } else if path.is_ident("itemsize") {
+                    itemsize = Some(value);
                 } else {
                     bail_span!(path, "Unknown pyimpl attribute")
                 }
@@ -1534,11 +1742,6 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
             attr => bail_span!(attr, "Unknown pyimpl attribute"),
         }
     }
-    // TODO: DISALLOW_INSTANTIATION check is required
-    let _ = has_constructor;
-    // if !withs.is_empty() && !has_constructor {
-    //     bail_span!(item, "#[pyclass(with(...))] does not have a Constructor. Either #[pyclass(with(Constructor, ...))] or #[pyclass(with(Unconstructible, ...))] is mandatory. Consider to add `impl DefaultConstructor for T {{}}` or `impl Unconstructible for T {{}}`.")
-    // }
 
     Ok(ExtractedImplAttrs {
         payload,
@@ -1552,6 +1755,7 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
         with_slots: quote! {
             #(#with_slots)*
         },
+        itemsize,
     })
 }
 

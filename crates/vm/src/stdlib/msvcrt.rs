@@ -9,7 +9,6 @@ mod msvcrt {
         builtins::{PyBytes, PyStrRef},
         common::{crt_fd, suppress_iph},
         convert::IntoPyException,
-        stdlib::os::errno_err,
     };
     use itertools::Itertools;
     use std::os::windows::io::AsRawHandle;
@@ -82,21 +81,17 @@ mod msvcrt {
     fn setmode(fd: crt_fd::Borrowed<'_>, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let flags = unsafe { suppress_iph!(_setmode(fd, flags)) };
         if flags == -1 {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(flags)
         }
     }
 
-    unsafe extern "C" {
-        fn _open_osfhandle(osfhandle: isize, flags: i32) -> i32;
-    }
-
     #[pyfunction]
     fn open_osfhandle(handle: isize, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        let ret = unsafe { suppress_iph!(_open_osfhandle(handle, flags)) };
+        let ret = unsafe { suppress_iph!(libc::open_osfhandle(handle, flags)) };
         if ret == -1 {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(ret)
         }
@@ -107,6 +102,12 @@ mod msvcrt {
         crt_fd::as_handle(fd)
             .map(|h| h.as_raw_handle() as _)
             .map_err(|e| e.into_pyexception(vm))
+    }
+
+    #[allow(non_snake_case)]
+    #[pyfunction]
+    fn GetErrorMode() -> u32 {
+        unsafe { suppress_iph!(Debug::GetErrorMode()) }
     }
 
     #[allow(non_snake_case)]

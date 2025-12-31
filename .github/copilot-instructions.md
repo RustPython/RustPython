@@ -44,7 +44,7 @@ cargo run -- script.py
 cargo run
 
 # With specific features
-cargo run --features ssl
+cargo run --features jit
 
 # Release mode (recommended for better performance)
 cargo run --release -- script.py
@@ -72,6 +72,14 @@ The `Lib/` directory contains Python standard library files copied from the CPyt
   - Add a `# TODO: RUSTPYTHON` comment when modifications are made
   - `unittest.skip("TODO: RustPython <reason>")`
   - `unittest.expectedFailure` with `# TODO: RUSTPYTHON <reason>` comment
+
+### Clean Build
+
+When you modify bytecode instructions, a full clean is required:
+
+```bash
+rm -r target/debug/build/rustpython-* && find . | grep -E "\.pyc$" | xargs rm -r
+```
 
 ### Testing
 
@@ -174,13 +182,6 @@ cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdli
 ```bash
 # Enable JIT support
 cargo run --features jit
-```
-
-### SSL Support
-
-```bash
-# Enable SSL support
-cargo run --features ssl
 ```
 
 ## Test Code Modification Rules

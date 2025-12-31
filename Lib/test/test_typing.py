@@ -5269,7 +5269,6 @@ class GenericTests(BaseTestCase):
         for t in things:
             self.assertEqual(weakref.ref(t)(), t)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parameterized_slots(self):
         T = TypeVar('T')
         class C(Generic[T]):
@@ -5289,7 +5288,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(get_type_hints(foo, globals(), locals())['x'], C[C])
         self.assertEqual(copy(C[int]), deepcopy(C[int]))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parameterized_slots_dict(self):
         T = TypeVar('T')
         class D(Generic[T]):
@@ -8146,7 +8144,6 @@ class NamedTupleTests(BaseTestCase):
                 self.assertEqual(struct.__annotations__, {})
                 self.assertIsInstance(struct(), struct)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_namedtuple_errors(self):
         with self.assertRaises(TypeError):
             NamedTuple.__new__()
@@ -10498,7 +10495,6 @@ class DataclassTransformTests(BaseTestCase):
 
 
 class NoDefaultTests(BaseTestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             s = pickle.dumps(NoDefault, proto)

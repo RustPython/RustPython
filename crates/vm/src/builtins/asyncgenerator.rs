@@ -3,11 +3,12 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
     class::PyClassImpl,
-    coroutine::Coro,
+    common::lock::PyMutex,
+    coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
+    types::{IterNext, Iterable, Representable, SelfIter},
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -17,6 +18,10 @@ use crossbeam_utils::atomic::AtomicCell;
 pub struct PyAsyncGen {
     inner: Coro,
     running_async: AtomicCell<bool>,
+    // whether hooks have been initialized
+    ag_hooks_inited: AtomicCell<bool>,
+    // ag_origin_or_finalizer - stores the finalizer callback
+    ag_finalizer: PyMutex<Option<PyObjectRef>>,
 }
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
@@ -27,16 +32,58 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyclass(with(PyRef, Unconstructible, Representable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(PyRef, Representable))]
 impl PyAsyncGen {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
     }
 
-    pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
+    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
-            inner: Coro::new(frame, name),
+            inner: Coro::new(frame, name, qualname),
             running_async: AtomicCell::new(false),
+            ag_hooks_inited: AtomicCell::new(false),
+            ag_finalizer: PyMutex::new(None),
+        }
+    }
+
+    /// Initialize async generator hooks.
+    /// Returns Ok(()) if successful, Err if firstiter hook raised an exception.
+    fn init_hooks(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        // = async_gen_init_hooks
+        if zelf.ag_hooks_inited.load() {
+            return Ok(());
+        }
+
+        zelf.ag_hooks_inited.store(true);
+
+        // Get and store finalizer from thread-local storage
+        let finalizer = crate::vm::thread::ASYNC_GEN_FINALIZER.with_borrow(|f| f.as_ref().cloned());
+        if let Some(finalizer) = finalizer {
+            *zelf.ag_finalizer.lock() = Some(finalizer);
+        }
+
+        // Call firstiter hook
+        let firstiter = crate::vm::thread::ASYNC_GEN_FIRSTITER.with_borrow(|f| f.as_ref().cloned());
+        if let Some(firstiter) = firstiter {
+            let obj: PyObjectRef = zelf.to_owned().into();
+            firstiter.call((obj,), vm)?;
+        }
+
+        Ok(())
+    }
+
+    /// Call finalizer hook if set
+    #[allow(dead_code)]
+    fn call_finalizer(zelf: &Py<Self>, vm: &VirtualMachine) {
+        // = gen_dealloc
+        let finalizer = zelf.ag_finalizer.lock().clone();
+        if let Some(finalizer) = finalizer
+            && !zelf.inner.closed.load()
+        {
+            // Call finalizer, ignore any errors (PyErr_WriteUnraisable)
+            let obj: PyObjectRef = zelf.to_owned().into();
+            let _ = finalizer.call((obj,), vm);
         }
     }
 
@@ -48,6 +95,16 @@ impl PyAsyncGen {
     #[pygetset(setter)]
     fn set___name__(&self, name: PyStrRef) {
         self.inner.set_name(name)
+    }
+
+    #[pygetset]
+    fn __qualname__(&self) -> PyStrRef {
+        self.inner.qualname()
+    }
+
+    #[pygetset(setter)]
+    fn set___qualname__(&self, qualname: PyStrRef) {
+        self.inner.set_qualname(qualname)
     }
 
     #[pygetset]
@@ -81,17 +138,23 @@ impl PyRef<PyAsyncGen> {
     }
 
     #[pymethod]
-    fn __anext__(self, vm: &VirtualMachine) -> PyAsyncGenASend {
-        Self::asend(self, vm.ctx.none(), vm)
+    fn __anext__(self, vm: &VirtualMachine) -> PyResult<PyAsyncGenASend> {
+        PyAsyncGen::init_hooks(&self, vm)?;
+        Ok(PyAsyncGenASend {
+            ag: self,
+            state: AtomicCell::new(AwaitableState::Init),
+            value: vm.ctx.none(),
+        })
     }
 
     #[pymethod]
-    const fn asend(self, value: PyObjectRef, _vm: &VirtualMachine) -> PyAsyncGenASend {
-        PyAsyncGenASend {
+    fn asend(self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyAsyncGenASend> {
+        PyAsyncGen::init_hooks(&self, vm)?;
+        Ok(PyAsyncGenASend {
             ag: self,
             state: AtomicCell::new(AwaitableState::Init),
             value,
-        }
+        })
     }
 
     #[pymethod]
@@ -101,8 +164,9 @@ impl PyRef<PyAsyncGen> {
         exc_val: OptionalArg,
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
-    ) -> PyAsyncGenAThrow {
-        PyAsyncGenAThrow {
+    ) -> PyResult<PyAsyncGenAThrow> {
+        PyAsyncGen::init_hooks(&self, vm)?;
+        Ok(PyAsyncGenAThrow {
             ag: self,
             aclose: false,
             state: AtomicCell::new(AwaitableState::Init),
@@ -111,12 +175,13 @@ impl PyRef<PyAsyncGen> {
                 exc_val.unwrap_or_none(vm),
                 exc_tb.unwrap_or_none(vm),
             ),
-        }
+        })
     }
 
     #[pymethod]
-    fn aclose(self, vm: &VirtualMachine) -> PyAsyncGenAThrow {
-        PyAsyncGenAThrow {
+    fn aclose(self, vm: &VirtualMachine) -> PyResult<PyAsyncGenAThrow> {
+        PyAsyncGen::init_hooks(&self, vm)?;
+        Ok(PyAsyncGenAThrow {
             ag: self,
             aclose: true,
             state: AtomicCell::new(AwaitableState::Init),
@@ -125,7 +190,7 @@ impl PyRef<PyAsyncGen> {
                 vm.ctx.none(),
                 vm.ctx.none(),
             ),
-        }
+        })
     }
 }
 
@@ -135,8 +200,6 @@ impl Representable for PyAsyncGen {
         Ok(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm))
     }
 }
-
-impl Unconstructible for PyAsyncGen {}
 
 #[pyclass(module = false, name = "async_generator_wrapped_value")]
 #[derive(Debug)]
@@ -249,6 +312,7 @@ impl PyAsyncGenASend {
             return Err(vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()"));
         }
 
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         let res = self.ag.inner.throw(
             self.ag.as_object(),
             exc_type,
@@ -368,6 +432,7 @@ impl PyAsyncGenAThrow {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         let ret = self.ag.inner.throw(
             self.ag.as_object(),
             exc_type,
@@ -424,8 +489,166 @@ impl IterNext for PyAsyncGenAThrow {
     }
 }
 
+/// Awaitable wrapper for anext() builtin with default value.
+/// When StopAsyncIteration is raised, it converts it to StopIteration(default).
+#[pyclass(module = false, name = "anext_awaitable")]
+#[derive(Debug)]
+pub struct PyAnextAwaitable {
+    wrapped: PyObjectRef,
+    default_value: PyObjectRef,
+    state: AtomicCell<AwaitableState>,
+}
+
+impl PyPayload for PyAnextAwaitable {
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.anext_awaitable
+    }
+}
+
+#[pyclass(with(IterNext, Iterable))]
+impl PyAnextAwaitable {
+    pub fn new(wrapped: PyObjectRef, default_value: PyObjectRef) -> Self {
+        Self {
+            wrapped,
+            default_value,
+            state: AtomicCell::new(AwaitableState::Init),
+        }
+    }
+
+    #[pymethod(name = "__await__")]
+    fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+
+    fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if let AwaitableState::Closed = self.state.load() {
+            return Err(vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()"));
+        }
+        Ok(())
+    }
+
+    /// Get the awaitable iterator from wrapped object.
+    // = anextawaitable_getiter.
+    fn get_awaitable_iter(&self, vm: &VirtualMachine) -> PyResult {
+        use crate::builtins::PyCoroutine;
+        use crate::protocol::PyIter;
+
+        let wrapped = &self.wrapped;
+
+        // If wrapped is already an async_generator_asend, it's an iterator
+        if wrapped.class().is(vm.ctx.types.async_generator_asend)
+            || wrapped.class().is(vm.ctx.types.async_generator_athrow)
+        {
+            return Ok(wrapped.clone());
+        }
+
+        // _PyCoro_GetAwaitableIter equivalent
+        let awaitable = if wrapped.class().is(vm.ctx.types.coroutine_type) {
+            // Coroutine - get __await__ later
+            wrapped.clone()
+        } else {
+            // Try to get __await__ method
+            if let Some(await_method) = vm.get_method(wrapped.clone(), identifier!(vm, __await__)) {
+                await_method?.call((), vm)?
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "object {} can't be used in 'await' expression",
+                    wrapped.class().name()
+                )));
+            }
+        };
+
+        // If awaitable is a coroutine, get its __await__
+        if awaitable.class().is(vm.ctx.types.coroutine_type) {
+            let coro_await = vm.call_method(&awaitable, "__await__", ())?;
+            // Check that __await__ returned an iterator
+            if !PyIter::check(&coro_await) {
+                return Err(vm.new_type_error("__await__ returned a non-iterable"));
+            }
+            return Ok(coro_await);
+        }
+
+        // Check the result is an iterator, not a coroutine
+        if awaitable.downcast_ref::<PyCoroutine>().is_some() {
+            return Err(vm.new_type_error("__await__() returned a coroutine"));
+        }
+
+        // Check that the result is an iterator
+        if !PyIter::check(&awaitable) {
+            return Err(vm.new_type_error(format!(
+                "__await__() returned non-iterator of type '{}'",
+                awaitable.class().name()
+            )));
+        }
+
+        Ok(awaitable)
+    }
+
+    #[pymethod]
+    fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.check_closed(vm)?;
+        self.state.store(AwaitableState::Iter);
+        let awaitable = self.get_awaitable_iter(vm)?;
+        let result = vm.call_method(&awaitable, "send", (val,));
+        self.handle_result(result, vm)
+    }
+
+    #[pymethod]
+    fn throw(
+        &self,
+        exc_type: PyObjectRef,
+        exc_val: OptionalArg,
+        exc_tb: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.check_closed(vm)?;
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
+        self.state.store(AwaitableState::Iter);
+        let awaitable = self.get_awaitable_iter(vm)?;
+        let result = vm.call_method(
+            &awaitable,
+            "throw",
+            (
+                exc_type,
+                exc_val.unwrap_or_none(vm),
+                exc_tb.unwrap_or_none(vm),
+            ),
+        );
+        self.handle_result(result, vm)
+    }
+
+    #[pymethod]
+    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.state.store(AwaitableState::Closed);
+        if let Ok(awaitable) = self.get_awaitable_iter(vm) {
+            let _ = vm.call_method(&awaitable, "close", ());
+        }
+        Ok(())
+    }
+
+    /// Convert StopAsyncIteration to StopIteration(default_value)
+    fn handle_result(&self, result: PyResult, vm: &VirtualMachine) -> PyResult {
+        match result {
+            Ok(value) => Ok(value),
+            Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) => {
+                Err(vm.new_stop_iteration(Some(self.default_value.clone())))
+            }
+            Err(exc) => Err(exc),
+        }
+    }
+}
+
+impl SelfIter for PyAnextAwaitable {}
+impl IterNext for PyAnextAwaitable {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
+    }
+}
+
 pub fn init(ctx: &Context) {
     PyAsyncGen::extend_class(ctx, ctx.types.async_generator);
     PyAsyncGenASend::extend_class(ctx, ctx.types.async_generator_asend);
     PyAsyncGenAThrow::extend_class(ctx, ctx.types.async_generator_athrow);
+    PyAnextAwaitable::extend_class(ctx, ctx.types.anext_awaitable);
 }

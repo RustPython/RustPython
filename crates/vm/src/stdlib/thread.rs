@@ -6,17 +6,19 @@ pub(crate) use _thread::{RawRMutex, make_module};
 pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStr, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef},
         convert::ToPyException,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
+    use alloc::fmt;
+    use core::{cell::RefCell, time::Duration};
     use crossbeam_utils::atomic::AtomicCell;
     use parking_lot::{
         RawMutex, RawThreadId,
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
-    use std::{cell::RefCell, fmt, thread, time::Duration};
+    use std::thread;
     use thread_local::ThreadLocal;
 
     // PYTHREAD_NAME: show current thread name
@@ -151,7 +153,7 @@ pub(crate) mod _thread {
 
             let new_mut = RawMutex::INIT;
             unsafe {
-                let old_mutex: &AtomicCell<RawMutex> = std::mem::transmute(&self.mu);
+                let old_mutex: &AtomicCell<RawMutex> = core::mem::transmute(&self.mu);
                 old_mutex.swap(new_mut);
             }
 
@@ -171,7 +173,8 @@ pub(crate) mod _thread {
 
     impl Constructor for Lock {
         type Args = FuncArgs;
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             Err(vm.new_type_error("cannot create '_thread.lock' instances"))
         }
     }
@@ -189,6 +192,7 @@ pub(crate) mod _thread {
     #[derive(PyPayload)]
     struct RLock {
         mu: RawRMutex,
+        count: core::sync::atomic::AtomicUsize,
     }
 
     impl fmt::Debug for RLock {
@@ -203,6 +207,7 @@ pub(crate) mod _thread {
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self {
                 mu: RawRMutex::INIT,
+                count: core::sync::atomic::AtomicUsize::new(0),
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
@@ -212,7 +217,12 @@ pub(crate) mod _thread {
         #[pymethod(name = "acquire_lock")]
         #[pymethod(name = "__enter__")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            acquire_lock_impl!(&self.mu, args, vm)
+            let result = acquire_lock_impl!(&self.mu, args, vm)?;
+            if result {
+                self.count
+                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            Ok(result)
         }
         #[pymethod]
         #[pymethod(name = "release_lock")]
@@ -220,6 +230,12 @@ pub(crate) mod _thread {
             if !self.mu.is_locked() {
                 return Err(vm.new_runtime_error("release unlocked lock"));
             }
+            debug_assert!(
+                self.count.load(core::sync::atomic::Ordering::Relaxed) > 0,
+                "RLock count underflow"
+            );
+            self.count
+                .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
             unsafe { self.mu.unlock() };
             Ok(())
         }
@@ -231,6 +247,7 @@ pub(crate) mod _thread {
                     self.mu.unlock();
                 };
             }
+            self.count.store(0, core::sync::atomic::Ordering::Relaxed);
             let new_mut = RawRMutex::INIT;
 
             let old_mutex: AtomicCell<&RawRMutex> = AtomicCell::new(&self.mu);
@@ -242,6 +259,15 @@ pub(crate) mod _thread {
         #[pymethod]
         fn _is_owned(&self) -> bool {
             self.mu.is_owned_by_current_thread()
+        }
+
+        #[pymethod]
+        fn _recursion_count(&self) -> usize {
+            if self.mu.is_owned_by_current_thread() {
+                self.count.load(core::sync::atomic::Ordering::Relaxed)
+            } else {
+                0
+            }
         }
 
         #[pymethod]
@@ -263,7 +289,7 @@ pub(crate) mod _thread {
     }
 
     fn thread_to_id(t: &thread::Thread) -> u64 {
-        use std::hash::{Hash, Hasher};
+        use core::hash::{Hash, Hasher};
         struct U64Hash {
             v: Option<u64>,
         }

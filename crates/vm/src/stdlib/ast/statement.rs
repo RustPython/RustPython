@@ -257,7 +257,7 @@ impl Node for ruff::StmtFunctionDef {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field(_vm, &_object, "type_params", "FunctionDef")?,
+                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
             )?,
             range: range_from_object(_vm, source_file, _object, "FunctionDef")?,
             is_async,
@@ -341,7 +341,7 @@ impl Node for ruff::StmtClassDef {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field(_vm, &_object, "type_params", "ClassDef")?,
+                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
             )?,
             range: range_from_object(_vm, source_file, _object, "ClassDef")?,
         })
@@ -503,7 +503,7 @@ impl Node for ruff::StmtTypeAlias {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field(_vm, &_object, "type_params", "TypeAlias")?,
+                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
             )?,
             value: Node::ast_from_object(
                 _vm,
@@ -1105,10 +1105,13 @@ impl Node for ruff::StmtImportFrom {
                 source_file,
                 get_node_field(vm, &_object, "names", "ImportFrom")?,
             )?,
-            level: get_node_field(vm, &_object, "level", "ImportFrom")?
-                .downcast_exact::<PyInt>(vm)
-                .unwrap()
-                .try_to_primitive::<u32>(vm)?,
+            level: get_node_field_opt(vm, &_object, "level")?
+                .map(|obj| -> PyResult<u32> {
+                    let int: PyRef<PyInt> = obj.try_into_value(vm)?;
+                    int.try_to_primitive(vm)
+                })
+                .transpose()?
+                .unwrap_or(0),
             range: range_from_object(vm, source_file, _object, "ImportFrom")?,
         })
     }

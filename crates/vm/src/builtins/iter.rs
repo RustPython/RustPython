@@ -8,7 +8,7 @@ use crate::{
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
-    protocol::{PyIterReturn, PySequence, PySequenceMethods},
+    protocol::PyIterReturn,
     types::{IterNext, Iterable, SelfIter},
 };
 use rustpython_common::{
@@ -177,9 +177,6 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
 #[pyclass(module = false, name = "iterator", traverse)]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    // cached sequence methods
-    #[pytraverse(skip)]
-    seq_methods: &'static PySequenceMethods,
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
@@ -193,9 +190,8 @@ impl PyPayload for PySequenceIterator {
 #[pyclass(with(IterNext, Iterable))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let seq = PySequence::try_protocol(&obj, vm)?;
+        let _seq = obj.try_sequence(vm)?;
         Ok(Self {
-            seq_methods: seq.methods,
             internal: PyMutex::new(PositionIterInternal::new(obj, 0)),
         })
     }
@@ -204,10 +200,7 @@ impl PySequenceIterator {
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyObjectRef {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
-            let seq = PySequence {
-                obj,
-                methods: self.seq_methods,
-            };
+            let seq = obj.sequence_unchecked();
             seq.length(vm)
                 .map(|x| PyInt::from(x).into_pyobject(vm))
                 .unwrap_or_else(|_| vm.ctx.not_implemented())
@@ -231,10 +224,7 @@ impl SelfIter for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|obj, pos| {
-            let seq = PySequence {
-                obj,
-                methods: zelf.seq_methods,
-            };
+            let seq = obj.sequence_unchecked();
             PyIterReturn::from_getitem_result(seq.get_item(pos as isize, vm), vm)
         })
     }

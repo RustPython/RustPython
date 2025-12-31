@@ -9,6 +9,7 @@
 //! - Building and verifying certificate chains
 //! - Loading certificates from files, directories, and bytes
 
+use alloc::sync::Arc;
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock as ParkingRwLock;
 use rustls::{
@@ -19,7 +20,6 @@ use rustls::{
 };
 use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
 use std::collections::HashSet;
-use std::sync::Arc;
 use x509_parser::prelude::*;
 
 use super::compat::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT};
@@ -51,8 +51,9 @@ const ALL_SIGNATURE_SCHEMES: &[SignatureScheme] = &[
 /// operations, reducing code duplication and ensuring uniform error messages
 /// across the codebase.
 mod cert_error {
+    use alloc::sync::Arc;
+    use core::fmt::{Debug, Display};
     use std::io;
-    use std::sync::Arc;
 
     /// Create InvalidData error with formatted message
     pub fn invalid_data(msg: impl Into<String>) -> io::Error {
@@ -67,11 +68,11 @@ mod cert_error {
             invalid_data(format!("no start line: {context}"))
         }
 
-        pub fn parse_failed(e: impl std::fmt::Display) -> io::Error {
+        pub fn parse_failed(e: impl Display) -> io::Error {
             invalid_data(format!("Failed to parse PEM certificate: {e}"))
         }
 
-        pub fn parse_failed_debug(e: impl std::fmt::Debug) -> io::Error {
+        pub fn parse_failed_debug(e: impl Debug) -> io::Error {
             invalid_data(format!("Failed to parse PEM certificate: {e:?}"))
         }
 
@@ -88,7 +89,7 @@ mod cert_error {
             invalid_data(format!("not enough data: {context}"))
         }
 
-        pub fn parse_failed(e: impl std::fmt::Display) -> io::Error {
+        pub fn parse_failed(e: impl Display) -> io::Error {
             invalid_data(format!("Failed to parse DER certificate: {e}"))
         }
     }
@@ -101,15 +102,15 @@ mod cert_error {
             invalid_data(format!("No private key found in {context}"))
         }
 
-        pub fn parse_failed(e: impl std::fmt::Display) -> io::Error {
+        pub fn parse_failed(e: impl Display) -> io::Error {
             invalid_data(format!("Failed to parse private key: {e}"))
         }
 
-        pub fn parse_encrypted_failed(e: impl std::fmt::Display) -> io::Error {
+        pub fn parse_encrypted_failed(e: impl Display) -> io::Error {
             invalid_data(format!("Failed to parse encrypted private key: {e}"))
         }
 
-        pub fn decrypt_failed(e: impl std::fmt::Display) -> io::Error {
+        pub fn decrypt_failed(e: impl Display) -> io::Error {
             io::Error::other(format!(
                 "Failed to decrypt private key (wrong password?): {e}",
             ))
@@ -383,7 +384,7 @@ pub fn cert_der_to_dict_helper(vm: &VirtualMachine, cert_der: &[u8]) -> PyResult
                     s.to_string()
                 } else {
                     let value_bytes = attr.attr_value().data;
-                    match std::str::from_utf8(value_bytes) {
+                    match core::str::from_utf8(value_bytes) {
                         Ok(s) => s.to_string(),
                         Err(_) => String::from_utf8_lossy(value_bytes).into_owned(),
                     }
@@ -1067,15 +1068,16 @@ impl ClientCertVerifier for DeferredClientCertVerifier {
             .inner
             .verify_client_cert(end_entity, intermediates, now);
 
-        // If verification failed, store the error for later
-        if result.is_err() {
-            let error_msg = "TLS handshake failed: received fatal alert: UnknownCA".to_string();
+        // If verification failed, store the error for the server's Python code
+        // AND return the error so rustls sends the appropriate TLS alert
+        if let Err(ref e) = result {
+            let error_msg = format!("certificate verify failed: {e}");
             *self.deferred_error.write() = Some(error_msg);
+            // Return the error to rustls so it sends the alert to the client
+            return result;
         }
 
-        // Always return success to allow handshake to complete
-        // The error will be raised during the first I/O operation
-        Ok(ClientCertVerified::assertion())
+        result
     }
 
     fn verify_tls12_signature(
@@ -1125,7 +1127,7 @@ pub(super) fn load_cert_chain_from_file(
     cert_path: &str,
     key_path: &str,
     password: Option<&str>,
-) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Box<dyn std::error::Error>> {
+) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Box<dyn core::error::Error>> {
     // Load certificate file - preserve io::Error for errno
     let cert_contents = std::fs::read(cert_path)?;
 
@@ -1726,13 +1728,13 @@ fn verify_ip_address(
     cert: &X509Certificate<'_>,
     expected_ip: &rustls::pki_types::IpAddr,
 ) -> Result<(), rustls::Error> {
-    use std::net::IpAddr;
+    use core::net::IpAddr;
     use x509_parser::extensions::GeneralName;
 
     // Convert rustls IpAddr to std::net::IpAddr for comparison
     let expected_std_ip: IpAddr = match expected_ip {
-        rustls::pki_types::IpAddr::V4(octets) => IpAddr::V4(std::net::Ipv4Addr::from(*octets)),
-        rustls::pki_types::IpAddr::V6(octets) => IpAddr::V6(std::net::Ipv6Addr::from(*octets)),
+        rustls::pki_types::IpAddr::V4(octets) => IpAddr::V4(core::net::Ipv4Addr::from(*octets)),
+        rustls::pki_types::IpAddr::V6(octets) => IpAddr::V6(core::net::Ipv6Addr::from(*octets)),
     };
 
     // Check Subject Alternative Names for IP addresses
@@ -1744,7 +1746,7 @@ fn verify_ip_address(
                     4 => {
                         // IPv4
                         if let Ok(octets) = <[u8; 4]>::try_from(*cert_ip_bytes) {
-                            IpAddr::V4(std::net::Ipv4Addr::from(octets))
+                            IpAddr::V4(core::net::Ipv4Addr::from(octets))
                         } else {
                             continue;
                         }
@@ -1752,7 +1754,7 @@ fn verify_ip_address(
                     16 => {
                         // IPv6
                         if let Ok(octets) = <[u8; 16]>::try_from(*cert_ip_bytes) {
-                            IpAddr::V6(std::net::Ipv6Addr::from(octets))
+                            IpAddr::V6(core::net::Ipv6Addr::from(octets))
                         } else {
                             continue;
                         }

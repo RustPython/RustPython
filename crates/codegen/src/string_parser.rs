@@ -5,7 +5,7 @@
 //! after ruff has already successfully parsed the string literal, meaning
 //! we don't need to do any validation or error handling.
 
-use std::convert::Infallible;
+use core::convert::Infallible;
 
 use ruff_python_ast::{AnyStringFlags, StringFlags};
 use rustpython_wtf8::{CodePoint, Wtf8, Wtf8Buf};
@@ -96,7 +96,7 @@ impl StringParser {
         }
 
         // OK because radix_bytes is always going to be in the ASCII range.
-        let radix_str = std::str::from_utf8(&radix_bytes[..len]).expect("ASCII bytes");
+        let radix_str = core::str::from_utf8(&radix_bytes[..len]).expect("ASCII bytes");
         let value = u32::from_str_radix(radix_str, 8).unwrap();
         char::from_u32(value).unwrap()
     }

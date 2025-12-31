@@ -6,15 +6,15 @@ mod _json {
     use super::machinery;
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyStrRef, PyType},
         convert::{ToPyObject, ToPyResult},
         function::{IntoFuncArgs, OptionalArg},
         protocol::PyIterReturn,
         types::{Callable, Constructor},
     };
+    use core::str::FromStr;
     use malachite_bigint::BigInt;
     use rustpython_common::wtf8::Wtf8Buf;
-    use std::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner", traverse)]
@@ -33,7 +33,7 @@ mod _json {
     impl Constructor for JsonScanner {
         type Args = PyObjectRef;
 
-        fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, ctx: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let strict = ctx.get_attr("strict", vm)?.try_to_bool(vm)?;
             let object_hook = vm.option_if_none(ctx.get_attr("object_hook", vm)?);
             let object_pairs_hook = vm.option_if_none(ctx.get_attr("object_pairs_hook", vm)?);
@@ -52,7 +52,7 @@ mod _json {
             };
             let parse_constant = ctx.get_attr("parse_constant", vm)?;
 
-            Self {
+            Ok(Self {
                 strict,
                 object_hook,
                 object_pairs_hook,
@@ -60,9 +60,7 @@ mod _json {
                 parse_int,
                 parse_constant,
                 ctx,
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -218,7 +216,7 @@ mod _json {
         let mut buf = Vec::<u8>::with_capacity(s.len() + 2);
         machinery::write_json_string(s, ascii_only, &mut buf)
             // SAFETY: writing to a vec can't fail
-            .unwrap_or_else(|_| unsafe { std::hint::unreachable_unchecked() });
+            .unwrap_or_else(|_| unsafe { core::hint::unreachable_unchecked() });
         // SAFETY: we only output valid utf8 from write_json_string
         unsafe { String::from_utf8_unchecked(buf) }
     }

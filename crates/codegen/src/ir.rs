@@ -1,4 +1,4 @@
-use std::ops;
+use core::ops;
 
 use crate::{IndexMap, IndexSet, error::InternalError};
 use rustpython_compiler_core::{
@@ -29,11 +29,27 @@ pub struct CodeUnitMetadata {
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct BlockIdx(pub u32);
+pub struct BlockIdx(u32);
+
 impl BlockIdx {
-    pub const NULL: Self = Self(u32::MAX);
-    const fn idx(self) -> usize {
+    pub const NULL: Self = Self::new(u32::MAX);
+
+    /// Creates a new instance of [`BlockIdx`] from a [`u32`].
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the inner value as a [`usize`].
+    #[must_use]
+    pub const fn idx(self) -> usize {
         self.0 as usize
+    }
+}
+
+impl From<BlockIdx> for u32 {
+    fn from(block_idx: BlockIdx) -> Self {
+        block_idx.0
     }
 }
 
@@ -70,9 +86,8 @@ pub struct InstructionInfo {
     pub instr: Instruction,
     pub arg: OpArg,
     pub target: BlockIdx,
-    // pub range: TextRange,
     pub location: SourceLocation,
-    // TODO: end_location for debug ranges
+    pub end_location: SourceLocation,
 }
 
 // spell-checker:ignore petgraph
@@ -117,8 +132,11 @@ pub struct CodeInfo {
 }
 
 impl CodeInfo {
-    pub fn finalize_code(mut self, optimize: u8) -> crate::InternalResult<CodeObject> {
-        if optimize > 0 {
+    pub fn finalize_code(
+        mut self,
+        opts: &crate::compile::CompileOpts,
+    ) -> crate::InternalResult<CodeObject> {
+        if opts.optimize > 0 {
             self.dce();
         }
 
@@ -182,7 +200,10 @@ impl CodeInfo {
                         *arg = new_arg;
                     }
                     let (extras, lo_arg) = arg.split();
-                    locations.extend(std::iter::repeat_n(info.location, arg.instr_size()));
+                    locations.extend(core::iter::repeat_n(
+                        (info.location, info.end_location),
+                        arg.instr_size(),
+                    ));
                     instructions.extend(
                         extras
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))
@@ -201,7 +222,11 @@ impl CodeInfo {
         }
 
         // Generate linetable from locations
-        let linetable = generate_linetable(&locations, first_line_number.get() as i32);
+        let linetable = generate_linetable(
+            &locations,
+            first_line_number.get() as i32,
+            opts.debug_ranges,
+        );
 
         Ok(CodeObject {
             flags,
@@ -385,7 +410,7 @@ fn stackdepth_push(
 
 fn iter_blocks(blocks: &[Block]) -> impl Iterator<Item = (BlockIdx, &Block)> + '_ {
     let mut next = BlockIdx(0);
-    std::iter::from_fn(move || {
+    core::iter::from_fn(move || {
         if next == BlockIdx::NULL {
             return None;
         }
@@ -396,7 +421,11 @@ fn iter_blocks(blocks: &[Block]) -> impl Iterator<Item = (BlockIdx, &Block)> + '
 }
 
 /// Generate CPython 3.11+ format linetable from source locations
-fn generate_linetable(locations: &[SourceLocation], first_line: i32) -> Box<[u8]> {
+fn generate_linetable(
+    locations: &[(SourceLocation, SourceLocation)],
+    first_line: i32,
+    debug_ranges: bool,
+) -> Box<[u8]> {
     if locations.is_empty() {
         return Box::new([]);
     }
@@ -408,7 +437,7 @@ fn generate_linetable(locations: &[SourceLocation], first_line: i32) -> Box<[u8]
     let mut i = 0;
 
     while i < locations.len() {
-        let loc = &locations[i];
+        let (loc, end_loc) = &locations[i];
 
         // Count consecutive instructions with the same location
         let mut length = 1;
@@ -420,18 +449,33 @@ fn generate_linetable(locations: &[SourceLocation], first_line: i32) -> Box<[u8]
         while length > 0 {
             let entry_length = length.min(8);
 
-            // Get line and column information
-            // SourceLocation always has row and column (both are OneIndexed)
+            // Get line information
             let line = loc.line.get() as i32;
-            let col = loc.character_offset.to_zero_indexed() as i32;
-
+            let end_line = end_loc.line.get() as i32;
             let line_delta = line - prev_line;
+            let end_line_delta = end_line - line;
+
+            // When debug_ranges is disabled, only emit line info (NoColumns format)
+            if !debug_ranges {
+                // NoColumns format (code 13): line info only, no column data
+                linetable.push(
+                    0x80 | ((PyCodeLocationInfoKind::NoColumns as u8) << 3)
+                        | ((entry_length - 1) as u8),
+                );
+                write_signed_varint(&mut linetable, line_delta);
+
+                prev_line = line;
+                length -= entry_length;
+                i += entry_length;
+                continue;
+            }
+
+            // Get column information (only when debug_ranges is enabled)
+            let col = loc.character_offset.to_zero_indexed() as i32;
+            let end_col = end_loc.character_offset.to_zero_indexed() as i32;
 
             // Choose the appropriate encoding based on line delta and column info
-            // Note: SourceLocation always has valid column, so we never get NO_COLUMNS case
-            if line_delta == 0 {
-                let end_col = col; // Use same column for end (no range info available)
-
+            if line_delta == 0 && end_line_delta == 0 {
                 if col < 80 && end_col - col < 16 && end_col >= col {
                     // Short form (codes 0-9) for common cases
                     let code = (col / 8).min(9) as u8; // Short0 to Short9
@@ -454,42 +498,37 @@ fn generate_linetable(locations: &[SourceLocation], first_line: i32) -> Box<[u8]
                     );
                     write_signed_varint(&mut linetable, 0); // line_delta = 0
                     write_varint(&mut linetable, 0); // end_line delta = 0
-                    write_varint(&mut linetable, (col as u32) + 1); // column + 1 for encoding
-                    write_varint(&mut linetable, (end_col as u32) + 1); // end_col + 1
+                    write_varint(&mut linetable, (col as u32) + 1);
+                    write_varint(&mut linetable, (end_col as u32) + 1);
                 }
-            } else if line_delta > 0 && line_delta < 3
-            /* && column.is_some() */
-            {
+            } else if line_delta > 0 && line_delta < 3 && end_line_delta == 0 {
                 // One-line form (codes 11-12) for line deltas 1-2
-                let end_col = col; // Use same column for end
-
                 if col < 128 && end_col < 128 {
-                    let code = (PyCodeLocationInfoKind::OneLine0 as u8) + (line_delta as u8); // 11 for delta=1, 12 for delta=2
+                    let code = (PyCodeLocationInfoKind::OneLine0 as u8) + (line_delta as u8);
                     linetable.push(0x80 | (code << 3) | ((entry_length - 1) as u8));
                     linetable.push(col as u8);
                     linetable.push(end_col as u8);
                 } else {
-                    // Long form for columns >= 128 or negative line delta
+                    // Long form for columns >= 128
                     linetable.push(
                         0x80 | ((PyCodeLocationInfoKind::Long as u8) << 3)
                             | ((entry_length - 1) as u8),
                     );
                     write_signed_varint(&mut linetable, line_delta);
                     write_varint(&mut linetable, 0); // end_line delta = 0
-                    write_varint(&mut linetable, (col as u32) + 1); // column + 1 for encoding
-                    write_varint(&mut linetable, (end_col as u32) + 1); // end_col + 1
+                    write_varint(&mut linetable, (col as u32) + 1);
+                    write_varint(&mut linetable, (end_col as u32) + 1);
                 }
             } else {
                 // Long form (code 14) for all other cases
-                // This handles: line_delta < 0, line_delta >= 3, or columns >= 128
-                let end_col = col; // Use same column for end
+                // Handles: line_delta < 0, line_delta >= 3, multi-line spans, or columns >= 128
                 linetable.push(
                     0x80 | ((PyCodeLocationInfoKind::Long as u8) << 3) | ((entry_length - 1) as u8),
                 );
                 write_signed_varint(&mut linetable, line_delta);
-                write_varint(&mut linetable, 0); // end_line delta = 0
-                write_varint(&mut linetable, (col as u32) + 1); // column + 1 for encoding
-                write_varint(&mut linetable, (end_col as u32) + 1); // end_col + 1
+                write_varint(&mut linetable, end_line_delta as u32);
+                write_varint(&mut linetable, (col as u32) + 1);
+                write_varint(&mut linetable, (end_col as u32) + 1);
             }
 
             prev_line = line;

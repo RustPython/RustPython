@@ -43,7 +43,8 @@ impl From<PyObjectRef> for PyStaticMethod {
 impl Constructor for PyStaticMethod {
     type Args = PyObjectRef;
 
-    fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let callable: Self::Args = args.bind(vm)?;
         let doc = callable.get_attr("__doc__", vm);
 
         let result = Self {
@@ -57,6 +58,10 @@ impl Constructor for PyStaticMethod {
         }
 
         Ok(obj)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unimplemented!("use slot_new")
     }
 }
 

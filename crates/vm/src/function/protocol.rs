@@ -1,14 +1,13 @@
 use super::IntoFuncArgs;
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyDict, PyDictRef, iter::PySequenceIterator},
+    builtins::{PyDictRef, iter::PySequenceIterator},
     convert::ToPyObject,
-    identifier,
     object::{Traverse, TraverseFn},
-    protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
-    types::{AsMapping, GenericMethod},
+    protocol::{PyIter, PyIterIter, PyMapping},
+    types::GenericMethod,
 };
-use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
+use core::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
 #[derive(Clone, Traverse)]
 pub struct ArgCallable {
@@ -25,8 +24,8 @@ impl ArgCallable {
     }
 }
 
-impl std::fmt::Debug for ArgCallable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for ArgCallable {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ArgCallable")
             .field("obj", &self.obj)
             .field("call", &format!("{:08x}", self.call as usize))
@@ -105,14 +104,11 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let iter_fn = {
-            let cls = obj.class();
-            let iter_fn = cls.mro_find_map(|x| x.slots.iter.load());
-            if iter_fn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
-                return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
-            }
-            iter_fn
-        };
+        let cls = obj.class();
+        let iter_fn = cls.slots.iter.load();
+        if iter_fn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
+            return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
+        }
         Ok(Self {
             iterable: obj,
             iter_fn,
@@ -124,30 +120,22 @@ where
 #[derive(Debug, Clone, Traverse)]
 pub struct ArgMapping {
     obj: PyObjectRef,
-    #[pytraverse(skip)]
-    methods: &'static PyMappingMethods,
 }
 
 impl ArgMapping {
     #[inline]
-    pub const fn with_methods(obj: PyObjectRef, methods: &'static PyMappingMethods) -> Self {
-        Self { obj, methods }
+    pub const fn new(obj: PyObjectRef) -> Self {
+        Self { obj }
     }
 
     #[inline(always)]
     pub fn from_dict_exact(dict: PyDictRef) -> Self {
-        Self {
-            obj: dict.into(),
-            methods: PyDict::as_mapping(),
-        }
+        Self { obj: dict.into() }
     }
 
     #[inline(always)]
     pub fn mapping(&self) -> PyMapping<'_> {
-        PyMapping {
-            obj: &self.obj,
-            methods: self.methods,
-        }
+        self.obj.mapping_unchecked()
     }
 }
 
@@ -189,9 +177,8 @@ impl ToPyObject for ArgMapping {
 
 impl TryFromObject for ArgMapping {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let mapping = PyMapping::try_protocol(&obj, vm)?;
-        let methods = mapping.methods;
-        Ok(Self { obj, methods })
+        let _mapping = obj.try_mapping(vm)?;
+        Ok(Self { obj })
     }
 }
 
@@ -216,7 +203,7 @@ impl<T> ArgSequence<T> {
     }
 }
 
-impl<T> std::ops::Deref for ArgSequence<T> {
+impl<T> core::ops::Deref for ArgSequence<T> {
     type Target = [T];
     #[inline(always)]
     fn deref(&self) -> &[T] {
@@ -226,14 +213,14 @@ impl<T> std::ops::Deref for ArgSequence<T> {
 
 impl<'a, T> IntoIterator for &'a ArgSequence<T> {
     type Item = &'a T;
-    type IntoIter = std::slice::Iter<'a, T>;
+    type IntoIter = core::slice::Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 impl<T> IntoIterator for ArgSequence<T> {
     type Item = T;
-    type IntoIter = std::vec::IntoIter<T>;
+    type IntoIter = alloc::vec::IntoIter<T>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }

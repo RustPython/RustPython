@@ -43,7 +43,7 @@ mod _functools {
     }
 
     #[pyattr]
-    #[pyclass(name = "partial", module = "_functools")]
+    #[pyclass(name = "partial", module = "functools")]
     #[derive(Debug, PyPayload)]
     pub struct PyPartial {
         inner: PyRwLock<PyPartialInner>,
@@ -73,8 +73,8 @@ mod _functools {
             self.inner.read().keywords.clone()
         }
 
-        #[pymethod(name = "__reduce__")]
-        fn reduce(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
             let inner = zelf.inner.read();
             let partial_type = zelf.class();
 
@@ -204,7 +204,11 @@ mod _functools {
     impl Constructor for PyPartial {
         type Args = FuncArgs;
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(
+            _cls: &crate::Py<crate::builtins::PyType>,
+            args: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             let (func, args_slice) = args
                 .args
                 .split_first()
@@ -230,15 +234,13 @@ mod _functools {
                 final_keywords.set_item(vm.ctx.intern_str(key.as_str()), value, vm)?;
             }
 
-            let partial = Self {
+            Ok(Self {
                 inner: PyRwLock::new(PyPartialInner {
                     func: final_func,
                     args: vm.ctx.new_tuple(final_args),
                     keywords: final_keywords,
                 }),
-            };
-
-            partial.into_ref_with_type(vm, cls).map(Into::into)
+            })
         }
     }
 
@@ -246,15 +248,24 @@ mod _functools {
         type Args = FuncArgs;
 
         fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let inner = zelf.inner.read();
-            let mut combined_args = inner.args.as_slice().to_vec();
+            // Clone and release lock before calling Python code to prevent deadlock
+            let (func, stored_args, keywords) = {
+                let inner = zelf.inner.read();
+                (
+                    inner.func.clone(),
+                    inner.args.clone(),
+                    inner.keywords.clone(),
+                )
+            };
+
+            let mut combined_args = stored_args.as_slice().to_vec();
             combined_args.extend_from_slice(&args.args);
 
             // Merge keywords from self.keywords and args.kwargs
             let mut final_kwargs = IndexMap::new();
 
             // Add keywords from self.keywords
-            for (key, value) in &*inner.keywords {
+            for (key, value) in &*keywords {
                 let key_str = key
                     .downcast::<crate::builtins::PyStr>()
                     .map_err(|_| vm.new_type_error("keywords must be strings"))?;
@@ -266,9 +277,7 @@ mod _functools {
                 final_kwargs.insert(key, value);
             }
 
-            inner
-                .func
-                .call(FuncArgs::new(combined_args, KwArgs::new(final_kwargs)), vm)
+            func.call(FuncArgs::new(combined_args, KwArgs::new(final_kwargs)), vm)
         }
     }
 
@@ -278,15 +287,24 @@ mod _functools {
             // Check for recursive repr
             let obj = zelf.as_object();
             if let Some(_guard) = ReprGuard::enter(vm, obj) {
-                let inner = zelf.inner.read();
-                let func_repr = inner.func.repr(vm)?;
+                // Clone and release lock before calling Python code to prevent deadlock
+                let (func, args, keywords) = {
+                    let inner = zelf.inner.read();
+                    (
+                        inner.func.clone(),
+                        inner.args.clone(),
+                        inner.keywords.clone(),
+                    )
+                };
+
+                let func_repr = func.repr(vm)?;
                 let mut parts = vec![func_repr.as_str().to_owned()];
 
-                for arg in inner.args.as_slice() {
+                for arg in args.as_slice() {
                     parts.push(arg.repr(vm)?.as_str().to_owned());
                 }
 
-                for (key, value) in inner.keywords.clone() {
+                for (key, value) in &*keywords {
                     // For string keys, use them directly without quotes
                     let key_part = if let Ok(s) = key.clone().downcast::<crate::builtins::PyStr>() {
                         s.as_str().to_owned()
@@ -301,28 +319,22 @@ mod _functools {
                     ));
                 }
 
-                let class_name = zelf.class().name();
+                let qualname = zelf.class().__qualname__(vm);
+                let qualname_str = qualname
+                    .downcast::<crate::builtins::PyStr>()
+                    .map(|s| s.as_str().to_owned())
+                    .unwrap_or_else(|_| zelf.class().name().to_owned());
                 let module = zelf.class().__module__(vm);
 
-                let qualified_name = if zelf.class().is(Self::class(&vm.ctx)) {
-                    // For the base partial class, always use functools.partial
-                    "functools.partial".to_owned()
-                } else {
-                    // For subclasses, check if they're defined in __main__ or test modules
-                    match module.downcast::<crate::builtins::PyStr>() {
-                        Ok(module_str) => {
-                            let module_name = module_str.as_str();
-                            match module_name {
-                                "builtins" | "" | "__main__" => class_name.to_owned(),
-                                name if name.starts_with("test.") || name == "test" => {
-                                    // For test modules, just use the class name without module prefix
-                                    class_name.to_owned()
-                                }
-                                _ => format!("{module_name}.{class_name}"),
-                            }
+                let qualified_name = match module.downcast::<crate::builtins::PyStr>() {
+                    Ok(module_str) => {
+                        let module_name = module_str.as_str();
+                        match module_name {
+                            "builtins" | "" => qualname_str,
+                            _ => format!("{module_name}.{qualname_str}"),
                         }
-                        Err(_) => class_name.to_owned(),
                     }
+                    Err(_) => qualname_str,
                 };
 
                 Ok(format!(

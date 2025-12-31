@@ -1,5 +1,6 @@
+use alloc::fmt;
+use core::fmt::Display;
 use rustpython_compiler_core::SourceLocation;
-use std::fmt::{self, Display};
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -88,10 +89,12 @@ pub enum CodegenErrorType {
     UnreachablePattern(PatternUnreachableReason),
     RepeatedAttributePattern,
     ConflictingNameBindPattern,
+    /// break/continue/return inside except* block
+    BreakContinueReturnInExceptStar,
     NotImplementedYet, // RustPython marker for unimplemented features
 }
 
-impl std::error::Error for CodegenErrorType {}
+impl core::error::Error for CodegenErrorType {}
 
 impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -147,6 +150,12 @@ impl fmt::Display for CodegenErrorType {
             }
             ConflictingNameBindPattern => {
                 write!(f, "alternative patterns bind different names")
+            }
+            BreakContinueReturnInExceptStar => {
+                write!(
+                    f,
+                    "'break', 'continue' and 'return' cannot appear in an except* block"
+                )
             }
             NotImplementedYet => {
                 write!(f, "RustPython does not implement this feature yet")

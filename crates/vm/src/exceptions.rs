@@ -9,7 +9,7 @@ use crate::{
     },
     class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
-    function::{ArgIterable, FuncArgs, IntoFuncArgs},
+    function::{ArgIterable, FuncArgs, IntoFuncArgs, PySetterValue},
     py_io::{self, Write},
     stdlib::sys,
     suggestion::offer_suggestions,
@@ -22,6 +22,8 @@ use std::{
     io::{self, BufRead, BufReader},
 };
 
+pub use super::exception_group::exception_group;
+
 unsafe impl Traverse for PyBaseException {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.traceback.traverse(tracer_fn);
@@ -31,8 +33,8 @@ unsafe impl Traverse for PyBaseException {
     }
 }
 
-impl std::fmt::Debug for PyBaseException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyBaseException {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("PyBaseException")
     }
@@ -77,7 +79,7 @@ impl VirtualMachine {
     pub fn write_exception<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
     ) -> Result<(), W::Error> {
         let seen = &mut HashSet::<usize>::new();
         self.write_exception_recursive(output, exc, seen)
@@ -86,7 +88,7 @@ impl VirtualMachine {
     fn write_exception_recursive<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
         seen: &mut HashSet<usize>,
     ) -> Result<(), W::Error> {
         // This function should not be called directly,
@@ -130,7 +132,7 @@ impl VirtualMachine {
     pub fn write_exception_inner<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
     ) -> Result<(), W::Error> {
         let vm = self;
         if let Some(tb) = exc.traceback.read().clone() {
@@ -175,7 +177,7 @@ impl VirtualMachine {
     fn write_syntaxerror<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
         exc_type: &Py<PyType>,
         args_repr: &[PyRef<PyStr>],
     ) -> Result<(), W::Error> {
@@ -367,7 +369,7 @@ fn print_source_line<W: Write>(
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(
     output: &mut W,
-    tb_entry: &PyTracebackRef,
+    tb_entry: &Py<PyTraceback>,
 ) -> Result<(), W::Error> {
     let filename = tb_entry.frame.code.source_path.as_str();
     writeln!(
@@ -445,11 +447,10 @@ impl ExceptionCtor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExceptionZoo {
     pub base_exception_type: &'static Py<PyType>,
     pub base_exception_group: &'static Py<PyType>,
-    pub exception_group: &'static Py<PyType>,
     pub system_exit: &'static Py<PyType>,
     pub keyboard_interrupt: &'static Py<PyType>,
     pub generator_exit: &'static Py<PyType>,
@@ -492,6 +493,7 @@ pub struct ExceptionZoo {
     pub runtime_error: &'static Py<PyType>,
     pub not_implemented_error: &'static Py<PyType>,
     pub recursion_error: &'static Py<PyType>,
+    pub python_finalization_error: &'static Py<PyType>,
     pub syntax_error: &'static Py<PyType>,
     pub incomplete_input_error: &'static Py<PyType>,
     pub indentation_error: &'static Py<PyType>,
@@ -559,7 +561,7 @@ impl PyBaseException {
 }
 
 #[pyclass(
-    with(PyRef, Constructor, Initializer, Representable),
+    with(Py, PyRef, Constructor, Initializer, Representable),
     flags(BASETYPE, HAS_DICT)
 )]
 impl PyBaseException {
@@ -623,8 +625,8 @@ impl PyBaseException {
         *self.context.write() = context;
     }
 
-    #[pygetset(name = "__suppress_context__")]
-    pub(super) fn get_suppress_context(&self) -> bool {
+    #[pygetset]
+    pub(super) fn __suppress_context__(&self) -> bool {
         self.suppress_context.load()
     }
 
@@ -632,15 +634,18 @@ impl PyBaseException {
     fn set_suppress_context(&self, suppress_context: bool) {
         self.suppress_context.store(suppress_context);
     }
+}
 
+#[pyclass]
+impl Py<PyBaseException> {
     #[pymethod]
-    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
+    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let str_args = vm.exception_args_as_string(self.args(), true);
-        match str_args.into_iter().exactly_one() {
+        Ok(match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => vm.ctx.empty_str.to_owned(),
             Ok(s) => s,
             Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(&vm.ctx),
-        }
+        })
     }
 }
 
@@ -706,13 +711,17 @@ impl PyRef<PyBaseException> {
 impl Constructor for PyBaseException {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if cls.is(Self::class(&vm.ctx)) && !args.kwargs.is_empty() {
             return Err(vm.new_type_error("BaseException() takes no keyword arguments"));
         }
         Self::new(args.args, vm)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+        unimplemented!("use slot_new")
     }
 }
 
@@ -742,7 +751,6 @@ impl ExceptionZoo {
 
         // Sorted By Hierarchy then alphabetized.
         let base_exception_group = PyBaseExceptionGroup::init_builtin_type();
-        let exception_group = PyExceptionGroup::init_builtin_type();
         let system_exit = PySystemExit::init_builtin_type();
         let keyboard_interrupt = PyKeyboardInterrupt::init_builtin_type();
         let generator_exit = PyGeneratorExit::init_builtin_type();
@@ -797,6 +805,7 @@ impl ExceptionZoo {
         let runtime_error = PyRuntimeError::init_builtin_type();
         let not_implemented_error = PyNotImplementedError::init_builtin_type();
         let recursion_error = PyRecursionError::init_builtin_type();
+        let python_finalization_error = PyPythonFinalizationError::init_builtin_type();
 
         let syntax_error = PySyntaxError::init_builtin_type();
         let incomplete_input_error = PyIncompleteInputError::init_builtin_type();
@@ -830,7 +839,6 @@ impl ExceptionZoo {
         Self {
             base_exception_type,
             base_exception_group,
-            exception_group,
             system_exit,
             keyboard_interrupt,
             generator_exit,
@@ -873,6 +881,7 @@ impl ExceptionZoo {
             runtime_error,
             not_implemented_error,
             recursion_error,
+            python_finalization_error,
             syntax_error,
             incomplete_input_error,
             indentation_error,
@@ -917,7 +926,7 @@ impl ExceptionZoo {
             "message" => ctx.new_readonly_getset("message", excs.base_exception_group, make_arg_getter(0)),
             "exceptions" => ctx.new_readonly_getset("exceptions", excs.base_exception_group, make_arg_getter(1)),
         });
-        extend_exception!(PyExceptionGroup, ctx, excs.exception_group);
+
         extend_exception!(PySystemExit, ctx, excs.system_exit, {
             "code" => ctx.new_readonly_getset("code", excs.system_exit, system_exit_code),
         });
@@ -961,32 +970,8 @@ impl ExceptionZoo {
         extend_exception!(PyUnboundLocalError, ctx, excs.unbound_local_error);
 
         // os errors:
-        let errno_getter =
-            ctx.new_readonly_getset("errno", excs.os_error, |exc: PyBaseExceptionRef| {
-                let args = exc.args();
-                args.first()
-                    .filter(|_| args.len() > 1 && args.len() <= 5)
-                    .cloned()
-            });
-        let strerror_getter =
-            ctx.new_readonly_getset("strerror", excs.os_error, |exc: PyBaseExceptionRef| {
-                let args = exc.args();
-                args.get(1)
-                    .filter(|_| args.len() >= 2 && args.len() <= 5)
-                    .cloned()
-            });
-        extend_exception!(PyOSError, ctx, excs.os_error, {
-            // POSIX exception code
-            "errno" => errno_getter.clone(),
-            // exception strerror
-            "strerror" => strerror_getter.clone(),
-            // exception filename
-            "filename" => ctx.none(),
-            // second exception filename
-            "filename2" => ctx.none(),
-        });
-        #[cfg(windows)]
-        excs.os_error.set_str_attr("winerror", ctx.none(), ctx);
+        // PyOSError now uses struct fields with pygetset, no need for dynamic attributes
+        extend_exception!(PyOSError, ctx, excs.os_error);
 
         extend_exception!(PyBlockingIOError, ctx, excs.blocking_io_error);
         extend_exception!(PyChildProcessError, ctx, excs.child_process_error);
@@ -1010,9 +995,19 @@ impl ExceptionZoo {
         extend_exception!(PyRuntimeError, ctx, excs.runtime_error);
         extend_exception!(PyNotImplementedError, ctx, excs.not_implemented_error);
         extend_exception!(PyRecursionError, ctx, excs.recursion_error);
+        extend_exception!(
+            PyPythonFinalizationError,
+            ctx,
+            excs.python_finalization_error
+        );
 
         extend_exception!(PySyntaxError, ctx, excs.syntax_error, {
-            "msg" => ctx.new_readonly_getset("msg", excs.syntax_error, make_arg_getter(0)),
+            "msg" => ctx.new_static_getset(
+                "msg",
+                excs.syntax_error,
+                make_arg_getter(0),
+                syntax_error_set_msg,
+            ),
             // TODO: members
             "filename" => ctx.none(),
             "lineno" => ctx.none(),
@@ -1059,6 +1054,25 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObject
     move |exc| exc.get_arg(idx)
 }
 
+fn syntax_error_set_msg(
+    exc: PyBaseExceptionRef,
+    value: PySetterValue,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let mut args = exc.args.write();
+    let mut new_args = args.as_slice().to_vec();
+    // Ensure the message slot at index 0 always exists for SyntaxError.args.
+    if new_args.is_empty() {
+        new_args.push(vm.ctx.none());
+    }
+    match value {
+        PySetterValue::Assign(value) => new_args[0] = value,
+        PySetterValue::Delete => new_args[0] = vm.ctx.none(),
+    }
+    *args = PyTuple::new_ref(new_args, &vm.ctx);
+    Ok(())
+}
+
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
     exc.args.read().first().map(|code| {
         match_class!(match code {
@@ -1074,12 +1088,12 @@ fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
 #[cfg(feature = "serde")]
 pub struct SerializeException<'vm, 's> {
     vm: &'vm VirtualMachine,
-    exc: &'s PyBaseExceptionRef,
+    exc: &'s Py<PyBaseException>,
 }
 
 #[cfg(feature = "serde")]
 impl<'vm, 's> SerializeException<'vm, 's> {
-    pub fn new(vm: &'vm VirtualMachine, exc: &'s PyBaseExceptionRef) -> Self {
+    pub fn new(vm: &'vm VirtualMachine, exc: &'s Py<PyBaseException>) -> Self {
         SerializeException { vm, exc }
     }
 }
@@ -1133,7 +1147,7 @@ impl serde::Serialize for SerializeException<'_, '_> {
                 .__context__()
                 .map(|exc| SerializeExceptionOwned { vm: self.vm, exc }),
         )?;
-        struc.serialize_field("suppress_context", &self.exc.get_suppress_context())?;
+        struc.serialize_field("suppress_context", &self.exc.__suppress_context__())?;
 
         let args = {
             struct Args<'vm>(&'vm VirtualMachine, PyTupleRef);
@@ -1167,7 +1181,7 @@ pub fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_value_error("embedded null character")
 }
 
-impl ToPyException for std::ffi::NulError {
+impl ToPyException for alloc::ffi::NulError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         cstring_error(vm)
     }
@@ -1214,15 +1228,20 @@ pub(crate) fn errno_to_exc_type(_errno: i32, _vm: &VirtualMachine) -> Option<&'s
     None
 }
 
+pub(crate) use types::{OSErrorBuilder, ToOSErrorBuilder};
+
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
+    use crate::object::{MaybeTraverse, Traverse, TraverseFn};
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use crate::{
-        AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        VirtualMachine,
         builtins::{
-            PyGenericAlias, PyInt, PyStrRef, PyTupleRef, PyTypeRef, traceback::PyTracebackRef,
+            PyInt, PyStrRef, PyTupleRef, PyType, PyTypeRef, traceback::PyTracebackRef,
             tuple::IntoPyTuple,
         },
+        convert::ToPyObject,
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs},
         types::{Constructor, Initializer},
@@ -1230,6 +1249,120 @@ pub(super) mod types {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use rustpython_common::str::UnicodeEscapeCodepoint;
+
+    pub(crate) trait ToOSErrorBuilder {
+        fn to_os_error_builder(&self, vm: &VirtualMachine) -> OSErrorBuilder;
+    }
+
+    pub struct OSErrorBuilder {
+        exc_type: PyTypeRef,
+        errno: Option<i32>,
+        strerror: Option<PyObjectRef>,
+        filename: Option<PyObjectRef>,
+        #[cfg(windows)]
+        winerror: Option<PyObjectRef>,
+        filename2: Option<PyObjectRef>,
+    }
+
+    impl OSErrorBuilder {
+        #[must_use]
+        pub fn with_subtype(
+            exc_type: PyTypeRef,
+            errno: Option<i32>,
+            strerror: impl ToPyObject,
+            vm: &VirtualMachine,
+        ) -> Self {
+            let strerror = strerror.to_pyobject(vm);
+            Self {
+                exc_type,
+                errno,
+                strerror: Some(strerror),
+                filename: None,
+                #[cfg(windows)]
+                winerror: None,
+                filename2: None,
+            }
+        }
+        #[must_use]
+        pub fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
+            let exc_type = crate::exceptions::errno_to_exc_type(errno, vm)
+                .unwrap_or(vm.ctx.exceptions.os_error)
+                .to_owned();
+            Self::with_subtype(exc_type, Some(errno), strerror, vm)
+        }
+
+        // #[must_use]
+        // pub(crate) fn errno(mut self, errno: i32) -> Self {
+        //     self.errno.replace(errno);
+        //     self
+        // }
+
+        #[must_use]
+        pub(crate) fn filename(mut self, filename: PyObjectRef) -> Self {
+            self.filename.replace(filename);
+            self
+        }
+
+        #[must_use]
+        pub(crate) fn filename2(mut self, filename: PyObjectRef) -> Self {
+            self.filename2.replace(filename);
+            self
+        }
+
+        #[must_use]
+        #[cfg(windows)]
+        pub(crate) fn winerror(mut self, winerror: PyObjectRef) -> Self {
+            self.winerror.replace(winerror);
+            self
+        }
+
+        pub fn build(self, vm: &VirtualMachine) -> PyRef<PyOSError> {
+            let OSErrorBuilder {
+                exc_type,
+                errno,
+                strerror,
+                filename,
+                #[cfg(windows)]
+                winerror,
+                filename2,
+            } = self;
+
+            let args = if let Some(errno) = errno {
+                #[cfg(windows)]
+                let winerror = winerror.to_pyobject(vm);
+                #[cfg(not(windows))]
+                let winerror = vm.ctx.none();
+
+                vec![
+                    errno.to_pyobject(vm),
+                    strerror.to_pyobject(vm),
+                    filename.to_pyobject(vm),
+                    winerror,
+                    filename2.to_pyobject(vm),
+                ]
+            } else {
+                vec![strerror.to_pyobject(vm)]
+            };
+
+            let payload = PyOSError::py_new(&exc_type, args.clone().into(), vm)
+                .expect("new_os_error usage error");
+            let os_error = payload
+                .into_ref_with_type(vm, exc_type)
+                .expect("new_os_error usage error");
+            PyOSError::slot_init(os_error.as_object().to_owned(), args.into(), vm)
+                .expect("new_os_error usage error");
+            os_error
+        }
+    }
+
+    impl crate::convert::IntoPyException for OSErrorBuilder {
+        fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+            self.build(vm).upcast()
+        }
+    }
+
+    // Re-export exception group types from dedicated module
+    pub use crate::exception_group::types::PyBaseExceptionGroup;
 
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
@@ -1250,95 +1383,85 @@ pub(super) mod types {
 
     #[pyexception(name, base = PyBaseException, ctx = "system_exit", impl)]
     #[derive(Debug)]
-    pub struct PySystemExit {}
-
-    #[pyexception(name, base = PyBaseException, ctx = "base_exception_group")]
-    #[derive(Debug)]
-    pub struct PyBaseExceptionGroup {}
-
-    #[pyexception]
-    impl PyBaseExceptionGroup {
-        #[pyclassmethod]
-        fn __class_getitem__(
-            cls: PyTypeRef,
-            args: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyGenericAlias {
-            PyGenericAlias::from_args(cls, args, vm)
-        }
-    }
-
-    #[pyexception(name, base = PyBaseExceptionGroup, ctx = "exception_group", impl)]
-    #[derive(Debug)]
-    pub struct PyExceptionGroup {}
+    #[repr(transparent)]
+    pub struct PySystemExit(PyBaseException);
 
     #[pyexception(name, base = PyBaseException, ctx = "generator_exit", impl)]
     #[derive(Debug)]
-    pub struct PyGeneratorExit {}
+    #[repr(transparent)]
+    pub struct PyGeneratorExit(PyBaseException);
 
     #[pyexception(name, base = PyBaseException, ctx = "keyboard_interrupt", impl)]
     #[derive(Debug)]
-    pub struct PyKeyboardInterrupt {}
+    #[repr(transparent)]
+    pub struct PyKeyboardInterrupt(PyBaseException);
 
     #[pyexception(name, base = PyBaseException, ctx = "exception_type", impl)]
     #[derive(Debug)]
-    pub struct PyException {}
+    #[repr(transparent)]
+    pub struct PyException(PyBaseException);
 
     #[pyexception(name, base = PyException, ctx = "stop_iteration")]
     #[derive(Debug)]
-    pub struct PyStopIteration {}
+    #[repr(transparent)]
+    pub struct PyStopIteration(PyException);
 
-    #[pyexception]
-    impl PyStopIteration {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: ::rustpython_vm::function::FuncArgs,
-            vm: &::rustpython_vm::VirtualMachine,
-        ) -> ::rustpython_vm::PyResult<()> {
+    #[pyexception(with(Initializer))]
+    impl PyStopIteration {}
+
+    impl Initializer for PyStopIteration {
+        type Args = FuncArgs;
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.set_attr("value", vm.unwrap_or_none(args.args.first().cloned()), vm)?;
             Ok(())
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
     #[pyexception(name, base = PyException, ctx = "stop_async_iteration", impl)]
     #[derive(Debug)]
-    pub struct PyStopAsyncIteration {}
+    #[repr(transparent)]
+    pub struct PyStopAsyncIteration(PyException);
 
     #[pyexception(name, base = PyException, ctx = "arithmetic_error", impl)]
     #[derive(Debug)]
-    pub struct PyArithmeticError {}
+    #[repr(transparent)]
+    pub struct PyArithmeticError(PyException);
 
     #[pyexception(name, base = PyArithmeticError, ctx = "floating_point_error", impl)]
     #[derive(Debug)]
-    pub struct PyFloatingPointError {}
-
+    #[repr(transparent)]
+    pub struct PyFloatingPointError(PyArithmeticError);
     #[pyexception(name, base = PyArithmeticError, ctx = "overflow_error", impl)]
     #[derive(Debug)]
-    pub struct PyOverflowError {}
+    #[repr(transparent)]
+    pub struct PyOverflowError(PyArithmeticError);
 
     #[pyexception(name, base = PyArithmeticError, ctx = "zero_division_error", impl)]
     #[derive(Debug)]
-    pub struct PyZeroDivisionError {}
+    #[repr(transparent)]
+    pub struct PyZeroDivisionError(PyArithmeticError);
 
     #[pyexception(name, base = PyException, ctx = "assertion_error", impl)]
     #[derive(Debug)]
-    pub struct PyAssertionError {}
+    #[repr(transparent)]
+    pub struct PyAssertionError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "attribute_error")]
     #[derive(Debug)]
-    pub struct PyAttributeError {}
+    #[repr(transparent)]
+    pub struct PyAttributeError(PyException);
 
-    #[pyexception]
-    impl PyAttributeError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: ::rustpython_vm::function::FuncArgs,
-            vm: &::rustpython_vm::VirtualMachine,
-        ) -> ::rustpython_vm::PyResult<()> {
+    #[pyexception(with(Initializer))]
+    impl PyAttributeError {}
+
+    impl Initializer for PyAttributeError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.set_attr(
                 "name",
                 vm.unwrap_or_none(args.kwargs.get("name").cloned()),
@@ -1351,45 +1474,29 @@ pub(super) mod types {
             )?;
             Ok(())
         }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
     }
 
     #[pyexception(name, base = PyException, ctx = "buffer_error", impl)]
     #[derive(Debug)]
-    pub struct PyBufferError {}
+    #[repr(transparent)]
+    pub struct PyBufferError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "eof_error", impl)]
     #[derive(Debug)]
-    pub struct PyEOFError {}
+    #[repr(transparent)]
+    pub struct PyEOFError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "import_error")]
     #[derive(Debug)]
-    pub struct PyImportError {}
+    #[repr(transparent)]
+    pub struct PyImportError(PyException);
 
-    #[pyexception]
+    #[pyexception(with(Initializer))]
     impl PyImportError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: ::rustpython_vm::function::FuncArgs,
-            vm: &::rustpython_vm::VirtualMachine,
-        ) -> ::rustpython_vm::PyResult<()> {
-            let mut kwargs = args.kwargs.clone();
-            let name = kwargs.swap_remove("name");
-            let path = kwargs.swap_remove("path");
-
-            // Check for any remaining invalid keyword arguments
-            if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "'{invalid_key}' is an invalid keyword argument for ImportError"
-                )));
-            }
-
-            let dict = zelf.dict().unwrap();
-            dict.set_item("name", vm.unwrap_or_none(name), vm)?;
-            dict.set_item("path", vm.unwrap_or_none(path), vm)?;
-            PyBaseException::slot_init(zelf, args, vm)
-        }
         #[pymethod]
         fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
             let obj = exc.as_object().to_owned();
@@ -1406,141 +1513,373 @@ pub(super) mod types {
         }
     }
 
+    impl Initializer for PyImportError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let mut kwargs = args.kwargs.clone();
+            let name = kwargs.swap_remove("name");
+            let path = kwargs.swap_remove("path");
+
+            // Check for any remaining invalid keyword arguments
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(vm.new_type_error(format!(
+                    "'{invalid_key}' is an invalid keyword argument for ImportError"
+                )));
+            }
+
+            let dict = zelf.dict().unwrap();
+            dict.set_item("name", vm.unwrap_or_none(name), vm)?;
+            dict.set_item("path", vm.unwrap_or_none(path), vm)?;
+            PyBaseException::slot_init(zelf, args, vm)
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
+    }
+
     #[pyexception(name, base = PyImportError, ctx = "module_not_found_error", impl)]
     #[derive(Debug)]
-    pub struct PyModuleNotFoundError {}
+    #[repr(transparent)]
+    pub struct PyModuleNotFoundError(PyImportError);
 
     #[pyexception(name, base = PyException, ctx = "lookup_error", impl)]
     #[derive(Debug)]
-    pub struct PyLookupError {}
+    #[repr(transparent)]
+    pub struct PyLookupError(PyException);
 
     #[pyexception(name, base = PyLookupError, ctx = "index_error", impl)]
     #[derive(Debug)]
-    pub struct PyIndexError {}
+    #[repr(transparent)]
+    pub struct PyIndexError(PyLookupError);
 
     #[pyexception(name, base = PyLookupError, ctx = "key_error")]
     #[derive(Debug)]
-    pub struct PyKeyError {}
+    #[repr(transparent)]
+    pub struct PyKeyError(PyLookupError);
 
     #[pyexception]
     impl PyKeyError {
         #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
-            let args = exc.args();
-            if args.len() == 1 {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let args = zelf.args();
+            Ok(if args.len() == 1 {
                 vm.exception_args_as_string(args, false)
                     .into_iter()
                     .exactly_one()
                     .unwrap()
             } else {
-                exc.__str__(vm)
-            }
+                zelf.__str__(vm)?
+            })
         }
     }
 
     #[pyexception(name, base = PyException, ctx = "memory_error", impl)]
     #[derive(Debug)]
-    pub struct PyMemoryError {}
+    #[repr(transparent)]
+    pub struct PyMemoryError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "name_error", impl)]
     #[derive(Debug)]
-    pub struct PyNameError {}
+    #[repr(transparent)]
+    pub struct PyNameError(PyException);
 
     #[pyexception(name, base = PyNameError, ctx = "unbound_local_error", impl)]
     #[derive(Debug)]
-    pub struct PyUnboundLocalError {}
+    #[repr(transparent)]
+    pub struct PyUnboundLocalError(PyNameError);
 
     #[pyexception(name, base = PyException, ctx = "os_error")]
-    #[derive(Debug)]
-    pub struct PyOSError {}
+    #[repr(C)]
+    pub struct PyOSError {
+        base: PyException,
+        errno: PyAtomicRef<Option<PyObject>>,
+        strerror: PyAtomicRef<Option<PyObject>>,
+        filename: PyAtomicRef<Option<PyObject>>,
+        filename2: PyAtomicRef<Option<PyObject>>,
+        #[cfg(windows)]
+        winerror: PyAtomicRef<Option<PyObject>>,
+        // For BlockingIOError: characters written before blocking occurred
+        // -1 means not set (AttributeError when accessed)
+        written: AtomicCell<isize>,
+    }
 
-    // OS Errors:
-    #[pyexception]
-    impl PyOSError {
-        #[cfg(not(target_arch = "wasm32"))]
-        fn optional_new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
-            let len = args.len();
-            if (2..=5).contains(&len) {
-                let errno = &args[0];
-                errno
-                    .downcast_ref::<PyInt>()
-                    .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
-                    .and_then(|errno| super::errno_to_exc_type(errno, vm))
-                    .and_then(|typ| vm.invoke_exception(typ.to_owned(), args.to_vec()).ok())
-            } else {
-                None
+    impl crate::class::PySubclass for PyOSError {
+        type Base = PyException;
+        fn as_base(&self) -> &Self::Base {
+            &self.base
+        }
+    }
+
+    impl core::fmt::Debug for PyOSError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("PyOSError").finish_non_exhaustive()
+        }
+    }
+
+    unsafe impl Traverse for PyOSError {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.base.try_traverse(tracer_fn);
+            if let Some(obj) = self.errno.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.strerror.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.filename.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.filename2.deref() {
+                tracer_fn(obj);
+            }
+            #[cfg(windows)]
+            if let Some(obj) = self.winerror.deref() {
+                tracer_fn(obj);
             }
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        #[pyslot]
-        pub fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    }
+
+    // OS Errors:
+    impl Constructor for PyOSError {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let len = args.args.len();
+            // CPython only sets errno/strerror when args len is 2-5
+            let (errno, strerror) = if (2..=5).contains(&len) {
+                (Some(args.args[0].clone()), Some(args.args[1].clone()))
+            } else {
+                (None, None)
+            };
+            let filename = if (3..=5).contains(&len) {
+                Some(args.args[2].clone())
+            } else {
+                None
+            };
+            let filename2 = if len == 5 {
+                args.args.get(4).cloned()
+            } else {
+                None
+            };
+            // Truncate args for base exception when 3-5 args
+            let base_args = if (3..=5).contains(&len) {
+                args.args[..2].to_vec()
+            } else {
+                args.args.to_vec()
+            };
+            let base_exception = PyBaseException::new(base_args, vm);
+            Ok(Self {
+                base: PyException(base_exception),
+                errno: errno.into(),
+                strerror: strerror.into(),
+                filename: filename.into(),
+                filename2: filename2.into(),
+                #[cfg(windows)]
+                winerror: None.into(),
+                written: AtomicCell::new(-1),
+            })
+        }
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // We need this method, because of how `CPython` copies `init`
             // from `BaseException` in `SimpleExtendsException` macro.
             // See: `BaseException_new`
             if *cls.name() == *vm.ctx.exceptions.os_error.name() {
-                match Self::optional_new(args.args.to_vec(), vm) {
-                    Some(error) => error.to_pyresult(vm),
-                    None => PyBaseException::slot_new(cls, args, vm),
+                let args_vec = args.args.to_vec();
+                let len = args_vec.len();
+                if (2..=5).contains(&len) {
+                    let errno = &args_vec[0];
+                    if let Some(error) = errno
+                        .downcast_ref::<PyInt>()
+                        .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
+                        .and_then(|errno| super::errno_to_exc_type(errno, vm))
+                        .and_then(|typ| vm.invoke_exception(typ.to_owned(), args_vec).ok())
+                    {
+                        return error.to_pyresult(vm);
+                    }
                 }
-            } else {
-                PyBaseException::slot_new(cls, args, vm)
             }
+            let payload = Self::py_new(&cls, args, vm)?;
+            payload.into_ref_with_type(vm, cls).map(Into::into)
         }
-        #[cfg(target_arch = "wasm32")]
-        #[pyslot]
-        pub fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            PyBaseException::slot_new(cls, args, vm)
-        }
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    }
+
+    impl Initializer for PyOSError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let len = args.args.len();
             let mut new_args = args;
-            if (3..=5).contains(&len) {
-                zelf.set_attr("filename", new_args.args[2].clone(), vm)?;
-                #[cfg(windows)]
-                if let Some(winerror) = new_args.args.get(3) {
-                    zelf.set_attr("winerror", winerror.clone(), vm)?;
-                }
-                if let Some(filename2) = new_args.args.get(4) {
-                    zelf.set_attr("filename2", filename2.clone(), vm)?;
-                }
 
+            // All OSError subclasses use #[repr(transparent)] wrapping PyOSError,
+            // so we can safely access the PyOSError fields through pointer cast
+            // SAFETY: All OSError subclasses (FileNotFoundError, etc.) are
+            // #[repr(transparent)] wrappers around PyOSError with identical memory layout
+            #[allow(deprecated)]
+            let exc: &Py<PyOSError> = zelf.downcast_ref::<PyOSError>().unwrap();
+
+            // Check if this is BlockingIOError - need to handle characters_written
+            let is_blocking_io_error =
+                zelf.class()
+                    .is(vm.ctx.exceptions.blocking_io_error.as_ref());
+
+            // SAFETY: slot_init is called during object initialization,
+            // so fields are None and swap result can be safely ignored
+            let mut set_filename = true;
+            if len <= 5 {
+                // Only set errno/strerror when args len is 2-5
+                if 2 <= len {
+                    let _ = unsafe { exc.errno.swap(Some(new_args.args[0].clone())) };
+                    let _ = unsafe { exc.strerror.swap(Some(new_args.args[1].clone())) };
+                }
+                if 3 <= len {
+                    let third_arg = &new_args.args[2];
+                    // BlockingIOError's 3rd argument can be the number of characters written
+                    if is_blocking_io_error
+                        && !vm.is_none(third_arg)
+                        && crate::protocol::PyNumber::check(third_arg)
+                        && let Ok(written) = third_arg.try_index(vm)
+                        && let Ok(n) = written.try_to_primitive::<isize>(vm)
+                    {
+                        exc.written.store(n);
+                        set_filename = false;
+                        // Clear filename that was set in py_new
+                        let _ = unsafe { exc.filename.swap(None) };
+                    }
+                    if set_filename {
+                        let _ = unsafe { exc.filename.swap(Some(third_arg.clone())) };
+                    }
+                }
+                #[cfg(windows)]
+                if 4 <= len {
+                    let winerror = new_args.args.get(3).cloned();
+                    // Store original winerror
+                    let _ = unsafe { exc.winerror.swap(winerror.clone()) };
+
+                    // Convert winerror to errno and update errno + args[0]
+                    if let Some(errno) = winerror
+                        .as_ref()
+                        .and_then(|w| w.downcast_ref::<crate::builtins::PyInt>())
+                        .and_then(|w| w.try_to_primitive::<i32>(vm).ok())
+                        .map(crate::common::os::winerror_to_errno)
+                    {
+                        let errno_obj = vm.new_pyobj(errno);
+                        let _ = unsafe { exc.errno.swap(Some(errno_obj.clone())) };
+                        new_args.args[0] = errno_obj;
+                    }
+                }
+                if len == 5 {
+                    let _ = unsafe { exc.filename2.swap(new_args.args.get(4).cloned()) };
+                }
+            }
+
+            // args are truncated to 2 for compatibility (only when 2-5 args and filename is not None)
+            // truncation happens inside "if (filename && filename != Py_None)" block
+            let has_filename = exc.filename.to_owned().filter(|f| !vm.is_none(f)).is_some();
+            if (3..=5).contains(&len) && has_filename {
                 new_args.args.truncate(2);
             }
             PyBaseException::slot_init(zelf, new_args, vm)
         }
 
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer))]
+    impl PyOSError {
         #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let args = exc.args();
-            let obj = exc.as_object().to_owned();
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let obj = zelf.as_object();
 
-            let str = if args.len() == 2 {
-                // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
-                let errno = exc.get_arg(0).unwrap().str(vm)?;
-                let msg = exc.get_arg(1).unwrap().str(vm)?;
+            // Get OSError fields directly
+            let errno_field = obj.get_attr("errno", vm).ok().filter(|v| !vm.is_none(v));
+            let strerror = obj.get_attr("strerror", vm).ok().filter(|v| !vm.is_none(v));
+            let filename = obj.get_attr("filename", vm).ok().filter(|v| !vm.is_none(v));
+            let filename2 = obj
+                .get_attr("filename2", vm)
+                .ok()
+                .filter(|v| !vm.is_none(v));
+            #[cfg(windows)]
+            let winerror = obj.get_attr("winerror", vm).ok().filter(|v| !vm.is_none(v));
 
-                let s = match obj.get_attr("filename", vm) {
-                    Ok(filename) if !vm.is_none(&filename) => match obj.get_attr("filename2", vm) {
-                        Ok(filename2) if !vm.is_none(&filename2) => format!(
-                            "[Errno {}] {}: '{}' -> '{}'",
-                            errno,
+            // Windows: winerror takes priority over errno
+            #[cfg(windows)]
+            if let Some(ref win_err) = winerror {
+                let code = win_err.str(vm)?;
+                if let Some(ref f) = filename {
+                    let msg = strerror
+                        .as_ref()
+                        .map(|s| s.str(vm))
+                        .transpose()?
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "None".to_owned());
+                    if let Some(ref f2) = filename2 {
+                        return Ok(vm.ctx.new_str(format!(
+                            "[WinError {}] {}: {} -> {}",
+                            code,
                             msg,
-                            filename.str(vm)?,
-                            filename2.str(vm)?
-                        ),
-                        _ => format!("[Errno {}] {}: '{}'", errno, msg, filename.str(vm)?),
-                    },
-                    _ => {
-                        format!("[Errno {errno}] {msg}")
+                            f.repr(vm)?,
+                            f2.repr(vm)?
+                        )));
                     }
-                };
-                vm.ctx.new_str(s)
-            } else {
-                exc.__str__(vm)
-            };
-            Ok(str)
+                    return Ok(vm.ctx.new_str(format!(
+                        "[WinError {}] {}: {}",
+                        code,
+                        msg,
+                        f.repr(vm)?
+                    )));
+                }
+                // winerror && strerror (no filename)
+                if let Some(ref s) = strerror {
+                    return Ok(vm
+                        .ctx
+                        .new_str(format!("[WinError {}] {}", code, s.str(vm)?)));
+                }
+            }
+
+            // Non-Windows or fallback: use errno
+            if let Some(ref f) = filename {
+                let errno_str = errno_field
+                    .as_ref()
+                    .map(|e| e.str(vm))
+                    .transpose()?
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "None".to_owned());
+                let msg = strerror
+                    .as_ref()
+                    .map(|s| s.str(vm))
+                    .transpose()?
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "None".to_owned());
+                if let Some(ref f2) = filename2 {
+                    return Ok(vm.ctx.new_str(format!(
+                        "[Errno {}] {}: {} -> {}",
+                        errno_str,
+                        msg,
+                        f.repr(vm)?,
+                        f2.repr(vm)?
+                    )));
+                }
+                return Ok(vm.ctx.new_str(format!(
+                    "[Errno {}] {}: {}",
+                    errno_str,
+                    msg,
+                    f.repr(vm)?
+                )));
+            }
+
+            // errno && strerror (no filename)
+            if let (Some(e), Some(s)) = (&errno_field, &strerror) {
+                return Ok(vm
+                    .ctx
+                    .new_str(format!("[Errno {}] {}", e.str(vm)?, s.str(vm)?)));
+            }
+
+            // fallback to BaseException.__str__
+            zelf.__str__(vm)
         }
 
         #[pymethod]
@@ -1579,23 +1918,121 @@ pub(super) mod types {
             }
             result.into_pytuple(vm)
         }
+
+        // Getters and setters for OSError fields
+        #[pygetset]
+        fn errno(&self) -> Option<PyObjectRef> {
+            self.errno.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_errno(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) {
+            self.errno.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn strerror(&self) -> Option<PyObjectRef> {
+            self.strerror.to_owned()
+        }
+
+        #[pygetset(setter, name = "strerror")]
+        fn set_strerror(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) {
+            self.strerror.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn filename(&self) -> Option<PyObjectRef> {
+            self.filename.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_filename(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) {
+            self.filename.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn filename2(&self) -> Option<PyObjectRef> {
+            self.filename2.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_filename2(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) {
+            self.filename2.swap_to_temporary_refs(value, vm);
+        }
+
+        #[cfg(windows)]
+        #[pygetset]
+        fn winerror(&self) -> Option<PyObjectRef> {
+            self.winerror.to_owned()
+        }
+
+        #[cfg(windows)]
+        #[pygetset(setter)]
+        fn set_winerror(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) {
+            self.winerror.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn characters_written(&self, vm: &VirtualMachine) -> PyResult<isize> {
+            let written = self.written.load();
+            if written == -1 {
+                Err(vm.new_attribute_error("characters_written".to_owned()))
+            } else {
+                Ok(written)
+            }
+        }
+
+        #[pygetset(setter)]
+        fn set_characters_written(
+            &self,
+            value: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            match value {
+                None => {
+                    // Deleting the attribute
+                    if self.written.load() == -1 {
+                        Err(vm.new_attribute_error("characters_written".to_owned()))
+                    } else {
+                        self.written.store(-1);
+                        Ok(())
+                    }
+                }
+                Some(v) => {
+                    let n = v
+                        .try_index(vm)?
+                        .try_to_primitive::<isize>(vm)
+                        .map_err(|_| {
+                            vm.new_value_error(
+                                "cannot convert characters_written value to isize".to_owned(),
+                            )
+                        })?;
+                    self.written.store(n);
+                    Ok(())
+                }
+            }
+        }
     }
 
     #[pyexception(name, base = PyOSError, ctx = "blocking_io_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyBlockingIOError {}
+    pub struct PyBlockingIOError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "child_process_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyChildProcessError {}
+    pub struct PyChildProcessError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "connection_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyConnectionError {}
+    pub struct PyConnectionError(PyOSError);
 
     #[pyexception(name, base = PyConnectionError, ctx = "broken_pipe_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyBrokenPipeError {}
+    pub struct PyBrokenPipeError(PyConnectionError);
 
     #[pyexception(
         name,
@@ -1603,8 +2040,9 @@ pub(super) mod types {
         ctx = "connection_aborted_error",
         impl
     )]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyConnectionAbortedError {}
+    pub struct PyConnectionAbortedError(PyConnectionError);
 
     #[pyexception(
         name,
@@ -1612,69 +2050,137 @@ pub(super) mod types {
         ctx = "connection_refused_error",
         impl
     )]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyConnectionRefusedError {}
+    pub struct PyConnectionRefusedError(PyConnectionError);
 
     #[pyexception(name, base = PyConnectionError, ctx = "connection_reset_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyConnectionResetError {}
+    pub struct PyConnectionResetError(PyConnectionError);
 
     #[pyexception(name, base = PyOSError, ctx = "file_exists_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyFileExistsError {}
+    pub struct PyFileExistsError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "file_not_found_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyFileNotFoundError {}
+    pub struct PyFileNotFoundError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "interrupted_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyInterruptedError {}
+    pub struct PyInterruptedError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "is_a_directory_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyIsADirectoryError {}
+    pub struct PyIsADirectoryError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "not_a_directory_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyNotADirectoryError {}
+    pub struct PyNotADirectoryError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "permission_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyPermissionError {}
+    pub struct PyPermissionError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "process_lookup_error", impl)]
+    #[repr(transparent)]
     #[derive(Debug)]
-    pub struct PyProcessLookupError {}
+    pub struct PyProcessLookupError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "timeout_error", impl)]
     #[derive(Debug)]
-    pub struct PyTimeoutError {}
+    #[repr(transparent)]
+    pub struct PyTimeoutError(PyOSError);
 
     #[pyexception(name, base = PyException, ctx = "reference_error", impl)]
     #[derive(Debug)]
-    pub struct PyReferenceError {}
+    #[repr(transparent)]
+    pub struct PyReferenceError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "runtime_error", impl)]
     #[derive(Debug)]
-    pub struct PyRuntimeError {}
+    #[repr(transparent)]
+    pub struct PyRuntimeError(PyException);
 
     #[pyexception(name, base = PyRuntimeError, ctx = "not_implemented_error", impl)]
     #[derive(Debug)]
-    pub struct PyNotImplementedError {}
+    #[repr(transparent)]
+    pub struct PyNotImplementedError(PyRuntimeError);
 
     #[pyexception(name, base = PyRuntimeError, ctx = "recursion_error", impl)]
     #[derive(Debug)]
-    pub struct PyRecursionError {}
+    #[repr(transparent)]
+    pub struct PyRecursionError(PyRuntimeError);
+
+    #[pyexception(name, base = PyRuntimeError, ctx = "python_finalization_error", impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PyPythonFinalizationError(PyRuntimeError);
 
     #[pyexception(name, base = PyException, ctx = "syntax_error")]
     #[derive(Debug)]
-    pub struct PySyntaxError {}
+    #[repr(transparent)]
+    pub struct PySyntaxError(PyException);
 
-    #[pyexception]
+    #[pyexception(with(Initializer))]
     impl PySyntaxError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
+        #[pymethod]
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            fn basename(filename: &str) -> &str {
+                let splitted = if cfg!(windows) {
+                    filename.rsplit(&['/', '\\']).next()
+                } else {
+                    filename.rsplit('/').next()
+                };
+                splitted.unwrap_or(filename)
+            }
+
+            let maybe_lineno = zelf.as_object().get_attr("lineno", vm).ok().map(|obj| {
+                obj.str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
+            });
+            let maybe_filename = zelf.as_object().get_attr("filename", vm).ok().map(|obj| {
+                obj.str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
+            });
+
+            let msg = match zelf.as_object().get_attr("msg", vm) {
+                Ok(obj) => obj
+                    .str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<msg str() failed>")),
+                Err(_) => {
+                    // Fallback to the base formatting if the msg attribute was deleted or attribute lookup fails for any reason.
+                    return Py::<PyBaseException>::__str__(zelf, vm);
+                }
+            };
+
+            let msg_with_location_info: String = match (maybe_lineno, maybe_filename) {
+                (Some(lineno), Some(filename)) => {
+                    format!("{} ({}, line {})", msg, basename(filename.as_str()), lineno)
+                }
+                (Some(lineno), None) => {
+                    format!("{msg} (line {lineno})")
+                }
+                (None, Some(filename)) => {
+                    format!("{} ({})", msg, basename(filename.as_str()))
+                }
+                (None, None) => msg.to_string(),
+            };
+
+            Ok(vm.ctx.new_str(msg_with_location_info))
+        }
+    }
+
+    impl Initializer for PySyntaxError {
+        type Args = FuncArgs;
+
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let len = args.args.len();
             let new_args = args;
@@ -1709,51 +2215,8 @@ pub(super) mod types {
             PyBaseException::slot_init(zelf, new_args, vm)
         }
 
-        #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
-            fn basename(filename: &str) -> &str {
-                let splitted = if cfg!(windows) {
-                    filename.rsplit(&['/', '\\']).next()
-                } else {
-                    filename.rsplit('/').next()
-                };
-                splitted.unwrap_or(filename)
-            }
-
-            let maybe_lineno = exc.as_object().get_attr("lineno", vm).ok().map(|obj| {
-                obj.str(vm)
-                    .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
-            });
-            let maybe_filename = exc.as_object().get_attr("filename", vm).ok().map(|obj| {
-                obj.str(vm)
-                    .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
-            });
-
-            let args = exc.args();
-
-            let msg = if args.len() == 1 {
-                vm.exception_args_as_string(args, false)
-                    .into_iter()
-                    .exactly_one()
-                    .unwrap()
-            } else {
-                return exc.__str__(vm);
-            };
-
-            let msg_with_location_info: String = match (maybe_lineno, maybe_filename) {
-                (Some(lineno), Some(filename)) => {
-                    format!("{} ({}, line {})", msg, basename(filename.as_str()), lineno)
-                }
-                (Some(lineno), None) => {
-                    format!("{msg} (line {lineno})")
-                }
-                (None, Some(filename)) => {
-                    format!("{} ({})", msg, basename(filename.as_str()))
-                }
-                (None, None) => msg.to_string(),
-            };
-
-            vm.ctx.new_str(msg_with_location_info)
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
@@ -1763,59 +2226,96 @@ pub(super) mod types {
         ctx = "incomplete_input_error"
     )]
     #[derive(Debug)]
-    pub struct PyIncompleteInputError {}
+    #[repr(transparent)]
+    pub struct PyIncompleteInputError(PySyntaxError);
 
-    #[pyexception]
-    impl PyIncompleteInputError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            _args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+    #[pyexception(with(Initializer))]
+    impl PyIncompleteInputError {}
+
+    impl Initializer for PyIncompleteInputError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.set_attr("name", vm.ctx.new_str("SyntaxError"), vm)?;
-            Ok(())
+            PySyntaxError::slot_init(zelf, args, vm)
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
     #[pyexception(name, base = PySyntaxError, ctx = "indentation_error", impl)]
     #[derive(Debug)]
-    pub struct PyIndentationError {}
+    #[repr(transparent)]
+    pub struct PyIndentationError(PySyntaxError);
 
     #[pyexception(name, base = PyIndentationError, ctx = "tab_error", impl)]
     #[derive(Debug)]
-    pub struct PyTabError {}
+    #[repr(transparent)]
+    pub struct PyTabError(PyIndentationError);
 
     #[pyexception(name, base = PyException, ctx = "system_error", impl)]
     #[derive(Debug)]
-    pub struct PySystemError {}
+    #[repr(transparent)]
+    pub struct PySystemError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "type_error", impl)]
     #[derive(Debug)]
-    pub struct PyTypeError {}
+    #[repr(transparent)]
+    pub struct PyTypeError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "value_error", impl)]
     #[derive(Debug)]
-    pub struct PyValueError {}
+    #[repr(transparent)]
+    pub struct PyValueError(PyException);
 
     #[pyexception(name, base = PyValueError, ctx = "unicode_error", impl)]
     #[derive(Debug)]
-    pub struct PyUnicodeError {}
+    #[repr(transparent)]
+    pub struct PyUnicodeError(PyValueError);
 
     #[pyexception(name, base = PyUnicodeError, ctx = "unicode_decode_error")]
     #[derive(Debug)]
-    pub struct PyUnicodeDecodeError {}
+    #[repr(transparent)]
+    pub struct PyUnicodeDecodeError(PyUnicodeError);
 
-    #[pyexception]
+    #[pyexception(with(Initializer))]
     impl PyUnicodeDecodeError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        #[pymethod]
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let Ok(object) = zelf.as_object().get_attr("object", vm) else {
+                return Ok(vm.ctx.empty_str.to_owned());
+            };
+            let object: ArgBytesLike = object.try_into_value(vm)?;
+            let encoding: PyStrRef = zelf
+                .as_object()
+                .get_attr("encoding", vm)?
+                .try_into_value(vm)?;
+            let start: usize = zelf.as_object().get_attr("start", vm)?.try_into_value(vm)?;
+            let end: usize = zelf.as_object().get_attr("end", vm)?.try_into_value(vm)?;
+            let reason: PyStrRef = zelf
+                .as_object()
+                .get_attr("reason", vm)?
+                .try_into_value(vm)?;
+            Ok(vm.ctx.new_str(if start < object.len() && end <= object.len() && end == start + 1 {
+                let b = object.borrow_buf()[start];
+                format!(
+                    "'{encoding}' codec can't decode byte {b:#02x} in position {start}: {reason}"
+                )
+            } else {
+                format!(
+                    "'{encoding}' codec can't decode bytes in position {start}-{}: {reason}",
+                    end - 1,
+                )
+            }))
+        }
+    }
+
+    impl Initializer for PyUnicodeDecodeError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             type Args = (PyStrRef, ArgBytesLike, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
             zelf.set_attr("encoding", encoding, vm)?;
@@ -1827,46 +2327,53 @@ pub(super) mod types {
             Ok(())
         }
 
-        #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
-            let Ok(object) = exc.as_object().get_attr("object", vm) else {
-                return Ok("".to_owned());
-            };
-            let object: ArgBytesLike = object.try_into_value(vm)?;
-            let encoding: PyStrRef = exc
-                .as_object()
-                .get_attr("encoding", vm)?
-                .try_into_value(vm)?;
-            let start: usize = exc.as_object().get_attr("start", vm)?.try_into_value(vm)?;
-            let end: usize = exc.as_object().get_attr("end", vm)?.try_into_value(vm)?;
-            let reason: PyStrRef = exc.as_object().get_attr("reason", vm)?.try_into_value(vm)?;
-            if start < object.len() && end <= object.len() && end == start + 1 {
-                let b = object.borrow_buf()[start];
-                Ok(format!(
-                    "'{encoding}' codec can't decode byte {b:#02x} in position {start}: {reason}"
-                ))
-            } else {
-                Ok(format!(
-                    "'{encoding}' codec can't decode bytes in position {start}-{}: {reason}",
-                    end - 1,
-                ))
-            }
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
     #[pyexception(name, base = PyUnicodeError, ctx = "unicode_encode_error")]
     #[derive(Debug)]
-    pub struct PyUnicodeEncodeError {}
+    #[repr(transparent)]
+    pub struct PyUnicodeEncodeError(PyUnicodeError);
 
-    #[pyexception]
+    #[pyexception(with(Initializer))]
     impl PyUnicodeEncodeError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        #[pymethod]
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let Ok(object) = zelf.as_object().get_attr("object", vm) else {
+                return Ok(vm.ctx.empty_str.to_owned());
+            };
+            let object: PyStrRef = object.try_into_value(vm)?;
+            let encoding: PyStrRef = zelf
+                .as_object()
+                .get_attr("encoding", vm)?
+                .try_into_value(vm)?;
+            let start: usize = zelf.as_object().get_attr("start", vm)?.try_into_value(vm)?;
+            let end: usize = zelf.as_object().get_attr("end", vm)?.try_into_value(vm)?;
+            let reason: PyStrRef = zelf
+                .as_object()
+                .get_attr("reason", vm)?
+                .try_into_value(vm)?;
+            Ok(vm.ctx.new_str(if start < object.char_len() && end <= object.char_len() && end == start + 1 {
+                let ch = object.as_wtf8().code_points().nth(start).unwrap();
+                format!(
+                    "'{encoding}' codec can't encode character '{}' in position {start}: {reason}",
+                    UnicodeEscapeCodepoint(ch)
+                )
+            } else {
+                format!(
+                    "'{encoding}' codec can't encode characters in position {start}-{}: {reason}",
+                    end - 1,
+                )
+            }))
+        }
+    }
+
+    impl Initializer for PyUnicodeEncodeError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             type Args = (PyStrRef, PyStrRef, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
             zelf.set_attr("encoding", encoding, vm)?;
@@ -1877,47 +2384,51 @@ pub(super) mod types {
             Ok(())
         }
 
-        #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
-            let Ok(object) = exc.as_object().get_attr("object", vm) else {
-                return Ok("".to_owned());
-            };
-            let object: PyStrRef = object.try_into_value(vm)?;
-            let encoding: PyStrRef = exc
-                .as_object()
-                .get_attr("encoding", vm)?
-                .try_into_value(vm)?;
-            let start: usize = exc.as_object().get_attr("start", vm)?.try_into_value(vm)?;
-            let end: usize = exc.as_object().get_attr("end", vm)?.try_into_value(vm)?;
-            let reason: PyStrRef = exc.as_object().get_attr("reason", vm)?.try_into_value(vm)?;
-            if start < object.char_len() && end <= object.char_len() && end == start + 1 {
-                let ch = object.as_wtf8().code_points().nth(start).unwrap();
-                Ok(format!(
-                    "'{encoding}' codec can't encode character '{}' in position {start}: {reason}",
-                    UnicodeEscapeCodepoint(ch)
-                ))
-            } else {
-                Ok(format!(
-                    "'{encoding}' codec can't encode characters in position {start}-{}: {reason}",
-                    end - 1,
-                ))
-            }
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
     #[pyexception(name, base = PyUnicodeError, ctx = "unicode_translate_error")]
     #[derive(Debug)]
-    pub struct PyUnicodeTranslateError {}
+    #[repr(transparent)]
+    pub struct PyUnicodeTranslateError(PyUnicodeError);
 
-    #[pyexception]
+    #[pyexception(with(Initializer))]
     impl PyUnicodeTranslateError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        #[pymethod]
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let Ok(object) = zelf.as_object().get_attr("object", vm) else {
+                return Ok(vm.ctx.empty_str.to_owned());
+            };
+            let object: PyStrRef = object.try_into_value(vm)?;
+            let start: usize = zelf.as_object().get_attr("start", vm)?.try_into_value(vm)?;
+            let end: usize = zelf.as_object().get_attr("end", vm)?.try_into_value(vm)?;
+            let reason: PyStrRef = zelf
+                .as_object()
+                .get_attr("reason", vm)?
+                .try_into_value(vm)?;
+            Ok(vm.ctx.new_str(
+                if start < object.char_len() && end <= object.char_len() && end == start + 1 {
+                    let ch = object.as_wtf8().code_points().nth(start).unwrap();
+                    format!(
+                        "can't translate character '{}' in position {start}: {reason}",
+                        UnicodeEscapeCodepoint(ch)
+                    )
+                } else {
+                    format!(
+                        "can't translate characters in position {start}-{}: {reason}",
+                        end - 1,
+                    )
+                },
+            ))
+        }
+    }
+
+    impl Initializer for PyUnicodeTranslateError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             type Args = (PyStrRef, isize, isize, PyStrRef);
             let (object, start, end, reason): Args = args.bind(vm)?;
             zelf.set_attr("object", object, vm)?;
@@ -1927,27 +2438,8 @@ pub(super) mod types {
             Ok(())
         }
 
-        #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
-            let Ok(object) = exc.as_object().get_attr("object", vm) else {
-                return Ok("".to_owned());
-            };
-            let object: PyStrRef = object.try_into_value(vm)?;
-            let start: usize = exc.as_object().get_attr("start", vm)?.try_into_value(vm)?;
-            let end: usize = exc.as_object().get_attr("end", vm)?.try_into_value(vm)?;
-            let reason: PyStrRef = exc.as_object().get_attr("reason", vm)?.try_into_value(vm)?;
-            if start < object.char_len() && end <= object.char_len() && end == start + 1 {
-                let ch = object.as_wtf8().code_points().nth(start).unwrap();
-                Ok(format!(
-                    "can't translate character '{}' in position {start}: {reason}",
-                    UnicodeEscapeCodepoint(ch)
-                ))
-            } else {
-                Ok(format!(
-                    "can't translate characters in position {start}-{}: {reason}",
-                    end - 1,
-                ))
-            }
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
@@ -1955,54 +2447,345 @@ pub(super) mod types {
     #[cfg(feature = "jit")]
     #[pyexception(name, base = PyException, ctx = "jit_error", impl)]
     #[derive(Debug)]
-    pub struct PyJitError {}
+    #[repr(transparent)]
+    pub struct PyJitError(PyException);
 
     // Warnings
     #[pyexception(name, base = PyException, ctx = "warning", impl)]
     #[derive(Debug)]
-    pub struct PyWarning {}
+    #[repr(transparent)]
+    pub struct PyWarning(PyException);
 
     #[pyexception(name, base = PyWarning, ctx = "deprecation_warning", impl)]
     #[derive(Debug)]
-    pub struct PyDeprecationWarning {}
+    #[repr(transparent)]
+    pub struct PyDeprecationWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "pending_deprecation_warning", impl)]
     #[derive(Debug)]
-    pub struct PyPendingDeprecationWarning {}
+    #[repr(transparent)]
+    pub struct PyPendingDeprecationWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "runtime_warning", impl)]
     #[derive(Debug)]
-    pub struct PyRuntimeWarning {}
+    #[repr(transparent)]
+    pub struct PyRuntimeWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "syntax_warning", impl)]
     #[derive(Debug)]
-    pub struct PySyntaxWarning {}
+    #[repr(transparent)]
+    pub struct PySyntaxWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "user_warning", impl)]
     #[derive(Debug)]
-    pub struct PyUserWarning {}
+    #[repr(transparent)]
+    pub struct PyUserWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "future_warning", impl)]
     #[derive(Debug)]
-    pub struct PyFutureWarning {}
+    #[repr(transparent)]
+    pub struct PyFutureWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "import_warning", impl)]
     #[derive(Debug)]
-    pub struct PyImportWarning {}
+    #[repr(transparent)]
+    pub struct PyImportWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "unicode_warning", impl)]
     #[derive(Debug)]
-    pub struct PyUnicodeWarning {}
+    #[repr(transparent)]
+    pub struct PyUnicodeWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "bytes_warning", impl)]
     #[derive(Debug)]
-    pub struct PyBytesWarning {}
+    #[repr(transparent)]
+    pub struct PyBytesWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "resource_warning", impl)]
     #[derive(Debug)]
-    pub struct PyResourceWarning {}
+    #[repr(transparent)]
+    pub struct PyResourceWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "encoding_warning", impl)]
     #[derive(Debug)]
-    pub struct PyEncodingWarning {}
+    #[repr(transparent)]
+    pub struct PyEncodingWarning(PyWarning);
+}
+
+/// Check if match_type is valid for except* (must be exception type, not ExceptionGroup).
+fn check_except_star_type_valid(match_type: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    let base_exc: PyObjectRef = vm.ctx.exceptions.base_exception_type.to_owned().into();
+    let base_eg: PyObjectRef = vm.ctx.exceptions.base_exception_group.to_owned().into();
+
+    // Helper to check a single type
+    let check_one = |exc_type: &PyObjectRef| -> PyResult<()> {
+        // Must be a subclass of BaseException
+        if !exc_type.is_subclass(&base_exc, vm)? {
+            return Err(vm.new_type_error(
+                "catching classes that do not inherit from BaseException is not allowed".to_owned(),
+            ));
+        }
+        // Must not be a subclass of BaseExceptionGroup
+        if exc_type.is_subclass(&base_eg, vm)? {
+            return Err(vm.new_type_error(
+                "catching ExceptionGroup with except* is not allowed. Use except instead."
+                    .to_owned(),
+            ));
+        }
+        Ok(())
+    };
+
+    // If it's a tuple, check each element
+    if let Ok(tuple) = match_type.clone().downcast::<PyTuple>() {
+        for item in tuple.iter() {
+            check_one(item)?;
+        }
+    } else {
+        check_one(match_type)?;
+    }
+    Ok(())
+}
+
+/// Match exception against except* handler type.
+/// Returns (rest, match) tuple.
+pub fn exception_group_match(
+    exc_value: &PyObjectRef,
+    match_type: &PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<(PyObjectRef, PyObjectRef)> {
+    // Implements _PyEval_ExceptionGroupMatch
+
+    // If exc_value is None, return (None, None)
+    if vm.is_none(exc_value) {
+        return Ok((vm.ctx.none(), vm.ctx.none()));
+    }
+
+    // Validate match_type and reject ExceptionGroup/BaseExceptionGroup
+    check_except_star_type_valid(match_type, vm)?;
+
+    // Check if exc_value matches match_type
+    if exc_value.is_instance(match_type, vm)? {
+        // Full match of exc itself
+        let is_eg = exc_value.fast_isinstance(vm.ctx.exceptions.base_exception_group);
+        let matched = if is_eg {
+            exc_value.clone()
+        } else {
+            // Naked exception - wrap it in ExceptionGroup
+            let excs = vm.ctx.new_tuple(vec![exc_value.clone()]);
+            let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
+            let wrapped = eg_type.call((vm.ctx.new_str(""), excs), vm)?;
+            // Copy traceback from original exception
+            if let Ok(exc) = exc_value.clone().downcast::<types::PyBaseException>()
+                && let Some(tb) = exc.__traceback__()
+                && let Ok(wrapped_exc) = wrapped.clone().downcast::<types::PyBaseException>()
+            {
+                let _ = wrapped_exc.set___traceback__(tb.into(), vm);
+            }
+            wrapped
+        };
+        return Ok((vm.ctx.none(), matched));
+    }
+
+    // Check for partial match if it's an exception group
+    if exc_value.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
+        let pair = vm.call_method(exc_value, "split", (match_type.clone(),))?;
+        if !pair.class().is(vm.ctx.types.tuple_type) {
+            return Err(vm.new_type_error(format!(
+                "{}.split must return a tuple, not {}",
+                exc_value.class().name(),
+                pair.class().name()
+            )));
+        }
+        let pair_tuple: PyTupleRef = pair.try_into_value(vm)?;
+        if pair_tuple.len() < 2 {
+            return Err(vm.new_type_error(format!(
+                "{}.split must return a 2-tuple, got tuple of size {}",
+                exc_value.class().name(),
+                pair_tuple.len()
+            )));
+        }
+        let matched = pair_tuple[0].clone();
+        let rest = pair_tuple[1].clone();
+        return Ok((rest, matched));
+    }
+
+    // No match
+    Ok((exc_value.clone(), vm.ctx.none()))
+}
+
+/// Prepare exception for reraise in except* block.
+/// Implements _PyExc_PrepReraiseStar
+pub fn prep_reraise_star(orig: PyObjectRef, excs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    use crate::builtins::PyList;
+
+    let excs_list = excs
+        .downcast::<PyList>()
+        .map_err(|_| vm.new_type_error("expected list for prep_reraise_star"))?;
+
+    let excs_vec: Vec<PyObjectRef> = excs_list.borrow_vec().to_vec();
+
+    // If no exceptions to process, return None
+    if excs_vec.is_empty() {
+        return Ok(vm.ctx.none());
+    }
+
+    // Special case: naked exception (not an ExceptionGroup)
+    // Only one except* clause could have executed, so there's at most one exception to raise
+    if !orig.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
+        // Find first non-None exception
+        let first = excs_vec.into_iter().find(|e| !vm.is_none(e));
+        return Ok(first.unwrap_or_else(|| vm.ctx.none()));
+    }
+
+    // Split excs into raised (new) and reraised (from original) by comparing metadata
+    let mut raised: Vec<PyObjectRef> = Vec::new();
+    let mut reraised: Vec<PyObjectRef> = Vec::new();
+
+    for exc in excs_vec {
+        if vm.is_none(&exc) {
+            continue;
+        }
+        // Check if this exception came from the original group
+        if is_exception_from_orig(&exc, &orig, vm) {
+            reraised.push(exc);
+        } else {
+            raised.push(exc);
+        }
+    }
+
+    // If no exceptions to reraise, return None
+    if raised.is_empty() && reraised.is_empty() {
+        return Ok(vm.ctx.none());
+    }
+
+    // Project reraised exceptions onto original structure to preserve nesting
+    let reraised_eg = exception_group_projection(&orig, &reraised, vm)?;
+
+    // If no new raised exceptions, just return the reraised projection
+    if raised.is_empty() {
+        return Ok(reraised_eg);
+    }
+
+    // Combine raised with reraised_eg
+    if !vm.is_none(&reraised_eg) {
+        raised.push(reraised_eg);
+    }
+
+    // If only one exception, return it directly
+    if raised.len() == 1 {
+        return Ok(raised.into_iter().next().unwrap());
+    }
+
+    // Create new ExceptionGroup for multiple exceptions
+    let excs_tuple = vm.ctx.new_tuple(raised);
+    let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
+    eg_type.call((vm.ctx.new_str(""), excs_tuple), vm)
+}
+
+/// Check if an exception came from the original group (for reraise detection).
+/// Instead of comparing metadata (which can be modified when caught), we compare
+/// leaf exception object IDs. split() preserves leaf exception identity.
+fn is_exception_from_orig(exc: &PyObjectRef, orig: &PyObjectRef, vm: &VirtualMachine) -> bool {
+    // Collect leaf exception IDs from exc
+    let mut exc_leaf_ids = HashSet::new();
+    collect_exception_group_leaf_ids(exc, &mut exc_leaf_ids, vm);
+
+    if exc_leaf_ids.is_empty() {
+        return false;
+    }
+
+    // Collect leaf exception IDs from orig
+    let mut orig_leaf_ids = HashSet::new();
+    collect_exception_group_leaf_ids(orig, &mut orig_leaf_ids, vm);
+
+    // If ALL of exc's leaves are in orig's leaves, it's a reraise
+    exc_leaf_ids.iter().all(|id| orig_leaf_ids.contains(id))
+}
+
+/// Collect all leaf exception IDs from an exception (group).
+fn collect_exception_group_leaf_ids(
+    exc: &PyObjectRef,
+    leaf_ids: &mut HashSet<usize>,
+    vm: &VirtualMachine,
+) {
+    if vm.is_none(exc) {
+        return;
+    }
+
+    // If not an exception group, it's a leaf - add its ID
+    if !exc.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
+        leaf_ids.insert(exc.get_id());
+        return;
+    }
+
+    // Recurse into exception group's exceptions
+    if let Ok(excs_attr) = exc.get_attr("exceptions", vm)
+        && let Ok(tuple) = excs_attr.downcast::<PyTuple>()
+    {
+        for e in tuple.iter() {
+            collect_exception_group_leaf_ids(e, leaf_ids, vm);
+        }
+    }
+}
+
+/// Project orig onto keep list, preserving nested structure.
+/// Returns an exception group containing only the exceptions from orig
+/// that are also in the keep list.
+fn exception_group_projection(
+    orig: &PyObjectRef,
+    keep: &[PyObjectRef],
+    vm: &VirtualMachine,
+) -> PyResult {
+    if keep.is_empty() {
+        return Ok(vm.ctx.none());
+    }
+
+    // Collect all leaf IDs from keep list
+    let mut leaf_ids = HashSet::new();
+    for e in keep {
+        collect_exception_group_leaf_ids(e, &mut leaf_ids, vm);
+    }
+
+    // Split orig by matching leaf IDs, preserving structure
+    split_by_leaf_ids(orig, &leaf_ids, vm)
+}
+
+/// Recursively split an exception (group) by leaf IDs.
+/// Returns the projection containing only matching leaves with preserved structure.
+fn split_by_leaf_ids(
+    exc: &PyObjectRef,
+    leaf_ids: &HashSet<usize>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    if vm.is_none(exc) {
+        return Ok(vm.ctx.none());
+    }
+
+    // If not an exception group, check if it's in our set
+    if !exc.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
+        if leaf_ids.contains(&exc.get_id()) {
+            return Ok(exc.clone());
+        }
+        return Ok(vm.ctx.none());
+    }
+
+    // Exception group - recurse and reconstruct
+    let excs_attr = exc.get_attr("exceptions", vm)?;
+    let tuple: PyTupleRef = excs_attr.try_into_value(vm)?;
+
+    let mut matched = Vec::new();
+    for e in tuple.iter() {
+        let m = split_by_leaf_ids(e, leaf_ids, vm)?;
+        if !vm.is_none(&m) {
+            matched.push(m);
+        }
+    }
+
+    if matched.is_empty() {
+        return Ok(vm.ctx.none());
+    }
+
+    // Reconstruct using derive() to preserve the structure (not necessarily the subclass type)
+    let matched_tuple = vm.ctx.new_tuple(matched);
+    vm.call_method(exc, "derive", (matched_tuple,))
 }

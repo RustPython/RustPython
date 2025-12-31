@@ -26,11 +26,13 @@ impl PyPayload for PyMap {
 impl Constructor for PyMap {
     type Args = (PyObjectRef, PosArgs<PyIter>);
 
-    fn py_new(cls: PyTypeRef, (mapper, iterators): Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(
+        _cls: &Py<PyType>,
+        (mapper, iterators): Self::Args,
+        _vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         let iterators = iterators.into_vec();
-        Self { mapper, iterators }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        Ok(Self { mapper, iterators })
     }
 }
 
@@ -40,7 +42,7 @@ impl PyMap {
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
             let cur = cur.as_ref().to_owned().length_hint(0, vm)?;
-            let max = std::cmp::max(prev, cur);
+            let max = core::cmp::max(prev, cur);
             Ok(max)
         })
     }

@@ -1,9 +1,9 @@
+use core::ops::ControlFlow;
 use rustpython_compiler_core::bytecode::{
     CodeObject, ConstantData, Instruction, OpArg, OpArgState,
 };
 use rustpython_jit::{CompiledCode, JitType};
 use std::collections::HashMap;
-use std::ops::ControlFlow;
 
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -163,18 +163,6 @@ impl StackMachine {
                     // (since JIT tests mainly care about type annotations)
                     self.stack.push(StackValue::Function(func));
                 }
-            }
-            Instruction::Duplicate => {
-                let value = self.stack.last().unwrap().clone();
-                self.stack.push(value);
-            }
-            Instruction::Rotate2 => {
-                let i = self.stack.len() - 2;
-                self.stack[i..].rotate_right(1);
-            }
-            Instruction::Rotate3 => {
-                let i = self.stack.len() - 3;
-                self.stack[i..].rotate_right(1);
             }
             Instruction::ReturnConst { idx } => {
                 let idx = idx.get(arg);

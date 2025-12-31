@@ -11,6 +11,7 @@ use crate::{
     IndexMap,
     error::{CodegenError, CodegenErrorType},
 };
+use alloc::{borrow::Cow, fmt};
 use bitflags::bitflags;
 use ruff_python_ast::{
     self as ast, Comprehension, Decorator, Expr, Identifier, ModExpression, ModModule, Parameter,
@@ -20,7 +21,6 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
-use std::{borrow::Cow, fmt};
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
@@ -137,12 +137,12 @@ pub enum SymbolScope {
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct SymbolFlags: u16 {
-        const REFERENCED = 0x001;
-        const ASSIGNED = 0x002;
-        const PARAMETER = 0x004;
-        const ANNOTATED = 0x008;
-        const IMPORTED = 0x010;
-        const NONLOCAL = 0x020;
+        const REFERENCED = 0x001;  // USE
+        const ASSIGNED = 0x002;    // DEF_LOCAL
+        const PARAMETER = 0x004;   // DEF_PARAM
+        const ANNOTATED = 0x008;   // DEF_ANNOT
+        const IMPORTED = 0x010;    // DEF_IMPORT
+        const NONLOCAL = 0x020;    // DEF_NONLOCAL
         // indicates if the symbol gets a value assigned by a named expression in a comprehension
         // this is required to correct the scope in the analysis.
         const ASSIGNED_IN_COMPREHENSION = 0x040;
@@ -157,8 +157,12 @@ bitflags! {
         ///         def method(self):
         ///             return x // is_free_class
         /// ```
-        const FREE_CLASS = 0x100;
-        const BOUND = Self::ASSIGNED.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits();
+        const FREE_CLASS = 0x100;  // DEF_FREE_CLASS
+        const GLOBAL = 0x200;      // DEF_GLOBAL
+        const COMP_ITER = 0x400;   // DEF_COMP_ITER
+        const COMP_CELL = 0x800;   // DEF_COMP_CELL
+        const TYPE_PARAM = 0x1000; // DEF_TYPE_PARAM
+        const BOUND = Self::ASSIGNED.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
     }
 }
 
@@ -215,8 +219,8 @@ impl SymbolTableError {
 
 type SymbolTableResult<T = ()> = Result<T, SymbolTableError>;
 
-impl std::fmt::Debug for SymbolTable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for SymbolTable {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "SymbolTable({:?} symbols, {:?} sub scopes)",
@@ -261,8 +265,8 @@ fn drop_class_free(symbol_table: &mut SymbolTable) {
 type SymbolMap = IndexMap<String, Symbol>;
 
 mod stack {
+    use core::ptr::NonNull;
     use std::panic;
-    use std::ptr::NonNull;
     pub struct StackStack<T> {
         v: Vec<NonNull<T>>,
     }
@@ -325,7 +329,7 @@ struct SymbolTableAnalyzer {
 
 impl SymbolTableAnalyzer {
     fn analyze_symbol_table(&mut self, symbol_table: &mut SymbolTable) -> SymbolTableResult {
-        let symbols = std::mem::take(&mut symbol_table.symbols);
+        let symbols = core::mem::take(&mut symbol_table.symbols);
         let sub_tables = &mut *symbol_table.sub_tables;
 
         let mut info = (symbols, symbol_table.typ);
@@ -581,7 +585,11 @@ impl SymbolTableAnalyzer {
                 self.analyze_symbol_comprehension(symbol, parent_offset + 1)?;
             }
             CompilerScope::TypeParams => {
-                todo!("analyze symbol comprehension for type params");
+                // Named expression in comprehension cannot be used in type params
+                return Err(SymbolTableError {
+                    error: "assignment expression within a comprehension cannot be used within the definition of a generic".to_string(),
+                    location: None,
+                });
             }
         }
         Ok(())
@@ -611,6 +619,16 @@ struct SymbolTableBuilder {
     source_file: SourceFile,
     // Current scope's varnames being collected (temporary storage)
     current_varnames: Vec<String>,
+    // Track if we're inside an iterable definition expression (for nested comprehensions)
+    in_iter_def_exp: bool,
+    // Track if we're inside an annotation (yield/await/named expr not allowed)
+    in_annotation: bool,
+    // Track if we're inside a type alias (yield/await/named expr not allowed)
+    in_type_alias: bool,
+    // Track if we're scanning an inner loop iteration target (not the first generator)
+    in_comp_inner_loop_target: bool,
+    // Scope info for error messages (e.g., "a TypeVar bound")
+    scope_info: Option<&'static str>,
 }
 
 /// Enum to indicate in what mode an expression
@@ -634,6 +652,11 @@ impl SymbolTableBuilder {
             future_annotations: false,
             source_file,
             current_varnames: Vec::new(),
+            in_iter_def_exp: false,
+            in_annotation: false,
+            in_type_alias: false,
+            in_comp_inner_loop_target: false,
+            scope_info: None,
         };
         this.enter_scope("top", CompilerScope::Module, 0);
         this
@@ -689,7 +712,7 @@ impl SymbolTableBuilder {
     fn leave_scope(&mut self) {
         let mut table = self.tables.pop().unwrap();
         // Save the collected varnames to the symbol table
-        table.varnames = std::mem::take(&mut self.current_varnames);
+        table.varnames = core::mem::take(&mut self.current_varnames);
         self.tables.last_mut().unwrap().sub_tables.push(table);
     }
 
@@ -720,6 +743,23 @@ impl SymbolTableBuilder {
         } else {
             SymbolUsage::Parameter
         };
+
+        // Check for duplicate parameter names
+        let table = self.tables.last().unwrap();
+        if table.symbols.contains_key(parameter.name.as_str()) {
+            return Err(SymbolTableError {
+                error: format!(
+                    "duplicate parameter '{}' in function definition",
+                    parameter.name
+                ),
+                location: Some(
+                    self.source_file
+                        .to_source_code()
+                        .source_location(parameter.name.range.start(), PositionEncoding::Utf8),
+                ),
+            });
+        }
+
         self.register_ident(&parameter.name, usage)
     }
 
@@ -727,7 +767,11 @@ impl SymbolTableBuilder {
         if self.future_annotations {
             Ok(())
         } else {
-            self.scan_expression(annotation, ExpressionContext::Load)
+            let was_in_annotation = self.in_annotation;
+            self.in_annotation = true;
+            let result = self.scan_expression(annotation, ExpressionContext::Load);
+            self.in_annotation = was_in_annotation;
+            result
         }
     }
 
@@ -871,6 +915,18 @@ impl SymbolTableBuilder {
                     if let Some(alias) = &name.asname {
                         // `import my_module as my_alias`
                         self.register_ident(alias, SymbolUsage::Imported)?;
+                    } else if name.name.as_str() == "*" {
+                        // Star imports are only allowed at module level
+                        if self.tables.last().unwrap().typ != CompilerScope::Module {
+                            return Err(SymbolTableError {
+                                error: "'import *' only allowed at module level".to_string(),
+                                location: Some(self.source_file.to_source_code().source_location(
+                                    name.name.range.start(),
+                                    PositionEncoding::Utf8,
+                                )),
+                            });
+                        }
+                        // Don't register star imports as symbols
                     } else {
                         // `import module`
                         self.register_name(
@@ -984,6 +1040,8 @@ impl SymbolTableBuilder {
                 type_params,
                 ..
             }) => {
+                let was_in_type_alias = self.in_type_alias;
+                self.in_type_alias = true;
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
                         "TypeAlias",
@@ -995,6 +1053,7 @@ impl SymbolTableBuilder {
                 } else {
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }
+                self.in_type_alias = was_in_type_alias;
                 self.scan_expression(name, ExpressionContext::Store)?;
             }
             Stmt::IpyEscapeCommand(_) => todo!(),
@@ -1031,24 +1090,40 @@ impl SymbolTableBuilder {
     ) -> SymbolTableResult {
         use ruff_python_ast::*;
 
-        // Check for expressions not allowed in type parameters scope
-        if let Some(table) = self.tables.last()
-            && table.typ == CompilerScope::TypeParams
-            && let Some(keyword) = match expression {
-                Expr::Yield(_) | Expr::YieldFrom(_) => Some("yield"),
-                Expr::Await(_) => Some("await"),
-                Expr::Named(_) => Some("named"),
-                _ => None,
+        // Check for expressions not allowed in certain contexts
+        // (type parameters, annotations, type aliases, TypeVar bounds/defaults)
+        if let Some(keyword) = match expression {
+            Expr::Yield(_) | Expr::YieldFrom(_) => Some("yield"),
+            Expr::Await(_) => Some("await"),
+            Expr::Named(_) => Some("named"),
+            _ => None,
+        } {
+            // Determine the context name for the error message
+            // scope_info takes precedence (e.g., "a TypeVar bound")
+            let context_name = if let Some(scope_info) = self.scope_info {
+                Some(scope_info)
+            } else if let Some(table) = self.tables.last()
+                && table.typ == CompilerScope::TypeParams
+            {
+                Some("a type parameter")
+            } else if self.in_annotation {
+                Some("an annotation")
+            } else if self.in_type_alias {
+                Some("a type alias")
+            } else {
+                None
+            };
+
+            if let Some(context_name) = context_name {
+                return Err(SymbolTableError {
+                    error: format!("{keyword} expression cannot be used within {context_name}"),
+                    location: Some(
+                        self.source_file
+                            .to_source_code()
+                            .source_location(expression.range().start(), PositionEncoding::Utf8),
+                    ),
+                });
             }
-        {
-            return Err(SymbolTableError {
-                error: format!("{keyword} expression cannot be used within a type parameter"),
-                location: Some(
-                    self.source_file
-                        .to_source_code()
-                        .source_location(expression.range().start(), PositionEncoding::Utf8),
-                ),
-            });
         }
 
         match expression {
@@ -1162,7 +1237,12 @@ impl SymbolTableBuilder {
                 range,
                 ..
             }) => {
+                let was_in_iter_def_exp = self.in_iter_def_exp;
+                if context == ExpressionContext::IterDefinitionExp {
+                    self.in_iter_def_exp = true;
+                }
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
+                self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::ListComp(ExprListComp {
                 elt,
@@ -1170,7 +1250,12 @@ impl SymbolTableBuilder {
                 range,
                 node_index: _,
             }) => {
+                let was_in_iter_def_exp = self.in_iter_def_exp;
+                if context == ExpressionContext::IterDefinitionExp {
+                    self.in_iter_def_exp = true;
+                }
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
+                self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::SetComp(ExprSetComp {
                 elt,
@@ -1178,7 +1263,12 @@ impl SymbolTableBuilder {
                 range,
                 node_index: _,
             }) => {
+                let was_in_iter_def_exp = self.in_iter_def_exp;
+                if context == ExpressionContext::IterDefinitionExp {
+                    self.in_iter_def_exp = true;
+                }
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
+                self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::DictComp(ExprDictComp {
                 key,
@@ -1187,7 +1277,12 @@ impl SymbolTableBuilder {
                 range,
                 node_index: _,
             }) => {
+                let was_in_iter_def_exp = self.in_iter_def_exp;
+                if context == ExpressionContext::IterDefinitionExp {
+                    self.in_iter_def_exp = true;
+                }
                 self.scan_comprehension("genexpr", key, Some(value), generators, *range)?;
+                self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::Call(ExprCall {
                 func,
@@ -1312,8 +1407,8 @@ impl SymbolTableBuilder {
                 node_index: _,
             }) => {
                 // named expressions are not allowed in the definition of
-                // comprehension iterator definitions
-                if let ExpressionContext::IterDefinitionExp = context {
+                // comprehension iterator definitions (including nested comprehensions)
+                if context == ExpressionContext::IterDefinitionExp || self.in_iter_def_exp {
                     return Err(SymbolTableError {
                           error: "assignment expression cannot be used in a comprehension iterable expression".to_string(),
                           location: Some(self.source_file.to_source_code().source_location(target.range().start(), PositionEncoding::Utf8)),
@@ -1374,7 +1469,13 @@ impl SymbolTableBuilder {
 
         let mut is_first_generator = true;
         for generator in generators {
+            // Set flag for INNER_LOOP_CONFLICT check (only for inner loops, not the first)
+            if !is_first_generator {
+                self.in_comp_inner_loop_target = true;
+            }
             self.scan_expression(&generator.target, ExpressionContext::Iter)?;
+            self.in_comp_inner_loop_target = false;
+
             if is_first_generator {
                 is_first_generator = false;
             } else {
@@ -1397,25 +1498,55 @@ impl SymbolTableBuilder {
 
     /// Scan type parameter bound or default in a separate scope
     // = symtable_visit_type_param_bound_or_default
-    fn scan_type_param_bound_or_default(&mut self, expr: &Expr, name: &str) -> SymbolTableResult {
+    fn scan_type_param_bound_or_default(
+        &mut self,
+        expr: &Expr,
+        scope_name: &str,
+        scope_info: &'static str,
+    ) -> SymbolTableResult {
         // Enter a new TypeParams scope for the bound/default expression
         // This allows the expression to access outer scope symbols
         let line_number = self.line_index_start(expr.range());
-        self.enter_scope(name, CompilerScope::TypeParams, line_number);
+        self.enter_scope(scope_name, CompilerScope::TypeParams, line_number);
 
         // Note: In CPython, can_see_class_scope is preserved in the new scope
         // In RustPython, this is handled through the scope hierarchy
 
+        // Set scope_info for better error messages
+        let old_scope_info = self.scope_info;
+        self.scope_info = Some(scope_info);
+
         // Scan the expression in this new scope
         let result = self.scan_expression(expr, ExpressionContext::Load);
 
-        // Exit the scope
+        // Restore scope_info and exit the scope
+        self.scope_info = old_scope_info;
         self.leave_scope();
 
         result
     }
 
     fn scan_type_params(&mut self, type_params: &TypeParams) -> SymbolTableResult {
+        // Check for duplicate type parameter names
+        let mut seen_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for type_param in &type_params.type_params {
+            let (name, range) = match type_param {
+                TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range),
+                TypeParam::ParamSpec(ps) => (ps.name.as_str(), ps.range),
+                TypeParam::TypeVarTuple(tvt) => (tvt.name.as_str(), tvt.range),
+            };
+            if !seen_names.insert(name) {
+                return Err(SymbolTableError {
+                    error: format!("duplicate type parameter '{}'", name),
+                    location: Some(
+                        self.source_file
+                            .to_source_code()
+                            .source_location(range.start(), PositionEncoding::Utf8),
+                    ),
+                });
+            }
+        }
+
         // Register .type_params as a type parameter (automatically becomes cell variable)
         self.register_name(".type_params", SymbolUsage::TypeParam, type_params.range)?;
 
@@ -1433,18 +1564,25 @@ impl SymbolTableBuilder {
 
                     // Process bound in a separate scope
                     if let Some(binding) = bound {
-                        let scope_name = if binding.is_tuple_expr() {
-                            format!("<TypeVar constraint of {name}>")
+                        let (scope_name, scope_info) = if binding.is_tuple_expr() {
+                            (
+                                format!("<TypeVar constraint of {name}>"),
+                                "a TypeVar constraint",
+                            )
                         } else {
-                            format!("<TypeVar bound of {name}>")
+                            (format!("<TypeVar bound of {name}>"), "a TypeVar bound")
                         };
-                        self.scan_type_param_bound_or_default(binding, &scope_name)?;
+                        self.scan_type_param_bound_or_default(binding, &scope_name, scope_info)?;
                     }
 
                     // Process default in a separate scope
                     if let Some(default_value) = default {
                         let scope_name = format!("<TypeVar default of {name}>");
-                        self.scan_type_param_bound_or_default(default_value, &scope_name)?;
+                        self.scan_type_param_bound_or_default(
+                            default_value,
+                            &scope_name,
+                            "a TypeVar default",
+                        )?;
                     }
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec {
@@ -1458,7 +1596,11 @@ impl SymbolTableBuilder {
                     // Process default in a separate scope
                     if let Some(default_value) = default {
                         let scope_name = format!("<ParamSpec default of {name}>");
-                        self.scan_type_param_bound_or_default(default_value, &scope_name)?;
+                        self.scan_type_param_bound_or_default(
+                            default_value,
+                            &scope_name,
+                            "a ParamSpec default",
+                        )?;
                     }
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple {
@@ -1472,7 +1614,11 @@ impl SymbolTableBuilder {
                     // Process default in a separate scope
                     if let Some(default_value) = default {
                         let scope_name = format!("<TypeVarTuple default of {name}>");
-                        self.scan_type_param_bound_or_default(default_value, &scope_name)?;
+                        self.scan_type_param_bound_or_default(
+                            default_value,
+                            &scope_name,
+                            "a TypeVarTuple default",
+                        )?;
                     }
                 }
             }
@@ -1611,6 +1757,23 @@ impl SymbolTableBuilder {
         // Some checks for the symbol that present on this scope level:
         let symbol = if let Some(symbol) = table.symbols.get_mut(name.as_ref()) {
             let flags = &symbol.flags;
+
+            // INNER_LOOP_CONFLICT: comprehension inner loop cannot rebind
+            // a variable that was used as a named expression target
+            // Example: [i for i in range(5) if (j := 0) for j in range(5)]
+            // Here 'j' is used in named expr first, then as inner loop iter target
+            if self.in_comp_inner_loop_target
+                && flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
+            {
+                return Err(SymbolTableError {
+                    error: format!(
+                        "comprehension inner loop cannot rebind assignment expression target '{}'",
+                        name
+                    ),
+                    location,
+                });
+            }
+
             // Role already set..
             match role {
                 SymbolUsage::Global if !symbol.is_global() => {
@@ -1745,6 +1908,7 @@ impl SymbolTableBuilder {
             }
             SymbolUsage::Global => {
                 symbol.scope = SymbolScope::GlobalExplicit;
+                flags.insert(SymbolFlags::GLOBAL);
             }
             SymbolUsage::Used => {
                 flags.insert(SymbolFlags::REFERENCED);
@@ -1753,21 +1917,20 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::ITER);
             }
             SymbolUsage::TypeParam => {
-                // Type parameters are always cell variables in their scope
-                symbol.scope = SymbolScope::Cell;
-                flags.insert(SymbolFlags::ASSIGNED);
+                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::TYPE_PARAM);
             }
         }
 
         // and even more checking
         // it is not allowed to assign to iterator variables (by named expressions)
-        if flags.contains(SymbolFlags::ITER | SymbolFlags::ASSIGNED)
-        /*&& symbol.is_assign_named_expr_in_comprehension*/
+        if flags.contains(SymbolFlags::ITER)
+            && flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
         {
             return Err(SymbolTableError {
-                error:
-                    "assignment expression cannot be used in a comprehension iterable expression"
-                        .to_string(),
+                error: format!(
+                    "assignment expression cannot rebind comprehension iteration variable '{}'",
+                    symbol.name
+                ),
                 location,
             });
         }

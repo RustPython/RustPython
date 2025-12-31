@@ -4,10 +4,9 @@ pub(crate) use _operator::make_module;
 mod _operator {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::wtf8::Wtf8,
         function::{ArgBytesLike, Either, FuncArgs, KwArgs, OptionalArg},
-        identifier,
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
@@ -324,7 +323,7 @@ mod _operator {
     ) -> PyResult<bool> {
         let res = match (a, b) {
             (Either::A(a), Either::A(b)) => {
-                if !a.is_ascii() || !b.is_ascii() {
+                if !a.isascii() || !b.isascii() {
                     return Err(vm.new_type_error(
                         "comparing strings with non-ASCII characters is not supported",
                     ));
@@ -388,7 +387,7 @@ mod _operator {
     impl Constructor for PyAttrGetter {
         type Args = FuncArgs;
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let n_attr = args.args.len();
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
@@ -405,7 +404,7 @@ mod _operator {
                     return Err(vm.new_type_error("attribute name must be a string"));
                 }
             }
-            Self { attrs }.into_ref_with_type(vm, cls).map(Into::into)
+            Ok(Self { attrs })
         }
     }
 
@@ -464,7 +463,7 @@ mod _operator {
     impl Constructor for PyItemGetter {
         type Args = FuncArgs;
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
                 return Err(vm.new_type_error("itemgetter() takes no keyword arguments"));
@@ -472,9 +471,7 @@ mod _operator {
             if args.args.is_empty() {
                 return Err(vm.new_type_error("itemgetter expected 1 argument, got 0."));
             }
-            Self { items: args.args }
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            Ok(Self { items: args.args })
         }
     }
 
@@ -550,11 +547,13 @@ mod _operator {
     impl Constructor for PyMethodCaller {
         type Args = (PyObjectRef, FuncArgs);
 
-        fn py_new(cls: PyTypeRef, (name, args): Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(
+            _cls: &Py<PyType>,
+            (name, args): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             if let Ok(name) = name.try_into_value(vm) {
-                Self { name, args }
-                    .into_ref_with_type(vm, cls)
-                    .map(Into::into)
+                Ok(Self { name, args })
             } else {
                 Err(vm.new_type_error("method name must be a string"))
             }

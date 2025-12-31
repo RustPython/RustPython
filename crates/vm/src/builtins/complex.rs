@@ -5,20 +5,15 @@ use crate::{
     class::PyClassImpl,
     common::format::FormatSpec,
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::{
-        OptionalArg, OptionalOption,
-        PyArithmeticValue::{self, *},
-        PyComparisonValue,
-    },
-    identifier,
+    function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
     stdlib::warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use core::num::Wrapping;
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::hash;
-use std::num::Wrapping;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
@@ -151,22 +146,26 @@ fn powc(a: Complex64, exp: Complex64) -> Complex64 {
 impl Constructor for PyComplex {
     type Args = ComplexArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Optimization: return exact complex as-is (only when imag is not provided)
+        if cls.is(vm.ctx.types.complex_type)
+            && func_args.args.len() == 1
+            && func_args.kwargs.is_empty()
+            && func_args.args[0].class().is(vm.ctx.types.complex_type)
+        {
+            return Ok(func_args.args[0].clone());
+        }
+
+        let args: Self::Args = func_args.bind(vm)?;
+        let payload = Self::py_new(&cls, args, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let imag_missing = args.imag.is_missing();
         let (real, real_was_complex) = match args.real {
             OptionalArg::Missing => (Complex64::new(0.0, 0.0), false),
             OptionalArg::Present(val) => {
-                let val = if cls.is(vm.ctx.types.complex_type) && imag_missing {
-                    match val.downcast_exact::<Self>(vm) {
-                        Ok(c) => {
-                            return Ok(c.into_pyref().into());
-                        }
-                        Err(val) => val,
-                    }
-                } else {
-                    val
-                };
-
                 if let Some(c) = val.try_complex(vm)? {
                     c
                 } else if let Some(s) = val.downcast_ref::<PyStr>() {
@@ -179,9 +178,7 @@ impl Constructor for PyComplex {
                         .to_str()
                         .and_then(rustpython_literal::complex::parse_str)
                         .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
-                    return Self::from(Complex64 { re, im })
-                        .into_ref_with_type(vm, cls)
-                        .map(Into::into);
+                    return Ok(Self::from(Complex64 { re, im }));
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() first argument must be a string or a number, not '{}'",
@@ -221,9 +218,7 @@ impl Constructor for PyComplex {
             imag.re
         };
         let value = Complex64::new(final_real, final_imag);
-        Self::from(value)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        Ok(Self::from(value))
     }
 }
 
@@ -270,130 +265,8 @@ impl PyComplex {
     }
 
     #[pymethod]
-    fn __abs__(&self, vm: &VirtualMachine) -> PyResult<f64> {
-        let Complex64 { im, re } = self.value;
-        let is_finite = im.is_finite() && re.is_finite();
-        let abs_result = re.hypot(im);
-        if is_finite && abs_result.is_infinite() {
-            Err(vm.new_overflow_error("absolute value too large"))
-        } else {
-            Ok(abs_result)
-        }
-    }
-
-    #[inline]
-    fn op<F>(
-        &self,
-        other: PyObjectRef,
-        op: F,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<Complex64>>
-    where
-        F: Fn(Complex64, Complex64) -> PyResult<Complex64>,
-    {
-        to_op_complex(&other, vm)?.map_or_else(
-            || Ok(NotImplemented),
-            |other| Ok(Implemented(op(self.value, other)?)),
-        )
-    }
-
-    #[pymethod(name = "__radd__")]
-    #[pymethod]
-    fn __add__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<Complex64>> {
-        self.op(other, |a, b| Ok(a + b), vm)
-    }
-
-    #[pymethod]
-    fn __sub__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<Complex64>> {
-        self.op(other, |a, b| Ok(a - b), vm)
-    }
-
-    #[pymethod]
-    fn __rsub__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<Complex64>> {
-        self.op(other, |a, b| Ok(b - a), vm)
-    }
-
-    #[pymethod]
     fn conjugate(&self) -> Complex64 {
         self.value.conj()
-    }
-
-    #[pymethod(name = "__rmul__")]
-    #[pymethod]
-    fn __mul__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<Complex64>> {
-        self.op(other, |a, b| Ok(a * b), vm)
-    }
-
-    #[pymethod]
-    fn __truediv__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<Complex64>> {
-        self.op(other, |a, b| inner_div(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rtruediv__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<Complex64>> {
-        self.op(other, |a, b| inner_div(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    const fn __pos__(&self) -> Complex64 {
-        self.value
-    }
-
-    #[pymethod]
-    fn __neg__(&self) -> Complex64 {
-        -self.value
-    }
-
-    #[pymethod]
-    fn __pow__(
-        &self,
-        other: PyObjectRef,
-        mod_val: OptionalOption<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<Complex64>> {
-        if mod_val.flatten().is_some() {
-            Err(vm.new_value_error("complex modulo not allowed"))
-        } else {
-            self.op(other, |a, b| inner_pow(a, b, vm), vm)
-        }
-    }
-
-    #[pymethod]
-    fn __rpow__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<Complex64>> {
-        self.op(other, |a, b| inner_pow(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    fn __bool__(&self) -> bool {
-        !Complex64::is_zero(&self.value)
     }
 
     #[pymethod]
@@ -490,7 +363,12 @@ impl AsNumber for PyComplex {
             }),
             absolute: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
-                value.norm().to_pyresult(vm)
+                let result = value.norm();
+                // Check for overflow: hypot returns inf for finite inputs that overflow
+                if result.is_infinite() && value.re.is_finite() && value.im.is_finite() {
+                    return Err(vm.new_overflow_error("absolute value too large".to_owned()));
+                }
+                result.to_pyresult(vm)
             }),
             boolean: Some(|number, _vm| Ok(!PyComplex::number_downcast(number).value.is_zero())),
             true_divide: Some(|a, b, vm| PyComplex::number_op(a, b, inner_div, vm)),

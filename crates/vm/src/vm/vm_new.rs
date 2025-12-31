@@ -1,13 +1,14 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyStrRef, PyType,
-        PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError, PyStrRef,
+        PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
     },
-    convert::ToPyObject,
+    convert::{ToPyException, ToPyObject},
+    exceptions::OSErrorBuilder,
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
     vm::VirtualMachine,
@@ -92,16 +93,34 @@ impl VirtualMachine {
     /// [`vm.invoke_exception()`][Self::invoke_exception] or
     /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
-        // TODO: add repr of args into logging?
+        debug_assert_eq!(
+            exc_type.slots.basicsize,
+            core::mem::size_of::<PyBaseException>(),
+            "vm.new_exception() is only for exception types without additional payload. The given type '{}' is not allowed.",
+            exc_type.class().name()
+        );
 
         PyRef::new_ref(
-            // TODO: this constructor might be invalid, because multiple
-            // exception (even builtin ones) are using custom constructors,
-            // see `OSError` as an example:
             PyBaseException::new(args, self),
             exc_type,
             Some(self.ctx.new_dict()),
         )
+    }
+
+    pub fn new_os_error(&self, msg: impl ToPyObject) -> PyRef<PyBaseException> {
+        self.new_os_subtype_error(self.ctx.exceptions.os_error.to_owned(), None, msg)
+            .upcast()
+    }
+
+    pub fn new_os_subtype_error(
+        &self,
+        exc_type: PyTypeRef,
+        errno: Option<i32>,
+        msg: impl ToPyObject,
+    ) -> PyRef<PyOSError> {
+        debug_assert_eq!(exc_type.slots.basicsize, core::mem::size_of::<PyOSError>());
+
+        OSErrorBuilder::with_subtype(exc_type, errno, msg, self).build(self)
     }
 
     /// Instantiate an exception with no arguments.
@@ -202,16 +221,29 @@ impl VirtualMachine {
         ))
     }
 
-    pub fn new_errno_error(&self, errno: i32, msg: impl Into<String>) -> PyBaseExceptionRef {
-        let vm = self;
-        let exc_type =
-            crate::exceptions::errno_to_exc_type(errno, vm).unwrap_or(vm.ctx.exceptions.os_error);
+    /// Create a new OSError from the last OS error.
+    ///
+    /// On windows, windows-sys errors are expected to be handled by this function.
+    /// This is identical to `new_last_errno_error` on non-Windows platforms.
+    pub fn new_last_os_error(&self) -> PyBaseExceptionRef {
+        let err = std::io::Error::last_os_error();
+        err.to_pyexception(self)
+    }
 
-        let errno_obj = vm.new_pyobj(errno);
-        vm.new_exception(
-            exc_type.to_owned(),
-            vec![errno_obj, vm.new_pyobj(msg.into())],
-        )
+    /// Create a new OSError from the last POSIX errno.
+    ///
+    /// On windows, CRT errno are expected to be handled by this function.
+    /// This is identical to `new_last_os_error` on non-Windows platforms.
+    pub fn new_last_errno_error(&self) -> PyBaseExceptionRef {
+        let err = crate::common::os::errno_io_error();
+        err.to_pyexception(self)
+    }
+
+    pub fn new_errno_error(&self, errno: i32, msg: impl ToPyObject) -> PyRef<PyOSError> {
+        let exc_type = crate::exceptions::errno_to_exc_type(errno, self)
+            .unwrap_or(self.ctx.exceptions.os_error);
+
+        self.new_os_subtype_error(exc_type.to_owned(), Some(errno), msg)
     }
 
     pub fn new_unicode_decode_error_real(
@@ -509,7 +541,7 @@ impl VirtualMachine {
         #[cfg(debug_assertions)]
         let msg = if class.get_id() == actual_class.get_id() {
             let mut msg = msg;
-            msg += " Did you forget to add `#[pyclass(with(Constructor))]`?";
+            msg += " It might mean this type doesn't support subclassing very well. e.g. Did you forget to add `#[pyclass(with(Constructor))]`?";
             msg
         } else {
             msg
@@ -547,7 +579,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_eof_error, eof_error, EOFError);
     define_exception_fn!(fn new_attribute_error, attribute_error, AttributeError);
     define_exception_fn!(fn new_type_error, type_error, TypeError);
-    define_exception_fn!(fn new_os_error, os_error, OSError);
     define_exception_fn!(fn new_system_error, system_error, SystemError);
 
     // TODO: remove & replace with new_unicode_decode_error_real
@@ -569,5 +600,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_zero_division_error, zero_division_error, ZeroDivisionError);
     define_exception_fn!(fn new_overflow_error, overflow_error, OverflowError);
     define_exception_fn!(fn new_runtime_error, runtime_error, RuntimeError);
+    define_exception_fn!(fn new_python_finalization_error, python_finalization_error, PythonFinalizationError);
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
 }

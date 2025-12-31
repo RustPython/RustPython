@@ -24,8 +24,6 @@ class TestAbstractContextManager(unittest.TestCase):
         manager = DefaultEnter()
         self.assertIs(manager.__enter__(), manager)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slots(self):
         class DefaultContextManager(AbstractContextManager):
             __slots__ = ()

@@ -1,8 +1,40 @@
 #[cfg(feature = "flame-it")]
 use std::ffi::OsString;
 
-/// Struct containing all kind of settings for the python vm.
-/// Mostly `PyConfig` in CPython.
+/// Path configuration computed at runtime (like PyConfig path outputs)
+#[derive(Debug, Clone, Default)]
+pub struct Paths {
+    /// sys.executable
+    pub executable: String,
+    /// sys._base_executable (original interpreter in venv)
+    pub base_executable: String,
+    /// sys.prefix
+    pub prefix: String,
+    /// sys.base_prefix
+    pub base_prefix: String,
+    /// sys.exec_prefix
+    pub exec_prefix: String,
+    /// sys.base_exec_prefix
+    pub base_exec_prefix: String,
+    /// Computed module_search_paths (complete sys.path)
+    pub module_search_paths: Vec<String>,
+}
+
+/// Combined configuration: user settings + computed paths
+/// CPython directly exposes every fields under both of them.
+/// We separate them to maintain better ownership discipline.
+pub struct PyConfig {
+    pub settings: Settings,
+    pub paths: Paths,
+}
+
+impl PyConfig {
+    pub fn new(settings: Settings, paths: Paths) -> Self {
+        Self { settings, paths }
+    }
+}
+
+/// User-configurable settings for the python vm.
 #[non_exhaustive]
 pub struct Settings {
     /// -I
@@ -19,11 +51,14 @@ pub struct Settings {
     /// None means use_hash_seed = 0 in CPython
     pub hash_seed: Option<u32>,
 
-    // int faulthandler;
+    /// -X faulthandler, PYTHONFAULTHANDLER
+    pub faulthandler: bool,
+
     // int tracemalloc;
     // int perf_profiling;
     // int import_time;
-    // int code_debug_ranges;
+    /// -X no_debug_ranges: disable column info in bytecode
+    pub code_debug_ranges: bool,
     // int show_ref_count;
     // int dump_refs;
     // wchar_t *dump_refs_file;
@@ -157,6 +192,8 @@ impl Default for Settings {
             path_list: vec![],
             argv: vec![],
             hash_seed: None,
+            faulthandler: false,
+            code_debug_ranges: true,
             buffered_stdio: true,
             check_hash_pycs_mode: CheckHashPycsMode::Default,
             allow_external_library: cfg!(feature = "importlib"),

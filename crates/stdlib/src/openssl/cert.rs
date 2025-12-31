@@ -5,16 +5,19 @@ pub(super) use ssl_cert::{PySSLCertificate, cert_to_certificate, cert_to_py, obj
 #[pymodule(sub)]
 pub(crate) mod ssl_cert {
     use crate::{
-        common::ascii,
+        common::{ascii, hash::PyHash},
         vm::{
-            PyObjectRef, PyPayload, PyResult, VirtualMachine,
+            Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+            class_or_notimplemented,
             convert::{ToPyException, ToPyObject},
-            function::{FsPath, OptionalArg},
+            function::{FsPath, OptionalArg, PyComparisonValue},
+            types::{Comparable, Hashable, PyComparisonOp, Representable},
         },
     };
     use foreign_types_shared::ForeignTypeRef;
     use openssl::{
         asn1::Asn1ObjectRef,
+        nid::Nid,
         x509::{self, X509, X509Ref},
     };
     use openssl_sys as sys;
@@ -54,7 +57,7 @@ pub(crate) mod ssl_cert {
     #[pyclass(module = "ssl", name = "Certificate")]
     #[derive(PyPayload)]
     pub(crate) struct PySSLCertificate {
-        cert: X509,
+        pub(crate) cert: X509,
     }
 
     impl fmt::Debug for PySSLCertificate {
@@ -63,7 +66,7 @@ pub(crate) mod ssl_cert {
         }
     }
 
-    #[pyclass]
+    #[pyclass(with(Comparable, Hashable, Representable))]
     impl PySSLCertificate {
         #[pymethod]
         fn public_bytes(
@@ -83,12 +86,14 @@ pub(crate) mod ssl_cert {
                     Ok(vm.ctx.new_bytes(der).into())
                 }
                 ENCODING_PEM => {
-                    // PEM encoding
+                    // PEM encoding - returns string
                     let pem = self
                         .cert
                         .to_pem()
                         .map_err(|e| convert_openssl_error(vm, e))?;
-                    Ok(vm.ctx.new_bytes(pem).into())
+                    let pem_str = String::from_utf8(pem)
+                        .map_err(|_| vm.new_value_error("Invalid UTF-8 in PEM"))?;
+                    Ok(vm.ctx.new_str(pem_str).into())
                 }
                 _ => Err(vm.new_value_error("Unsupported format")),
             }
@@ -97,6 +102,66 @@ pub(crate) mod ssl_cert {
         #[pymethod]
         fn get_info(&self, vm: &VirtualMachine) -> PyResult {
             cert_to_dict(vm, &self.cert)
+        }
+    }
+
+    impl Comparable for PySSLCertificate {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            let other = class_or_notimplemented!(Self, other);
+
+            // Only support equality comparison
+            if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
+                return Ok(PyComparisonValue::NotImplemented);
+            }
+
+            // Compare DER encodings
+            let self_der = zelf
+                .cert
+                .to_der()
+                .map_err(|e| convert_openssl_error(vm, e))?;
+            let other_der = other
+                .cert
+                .to_der()
+                .map_err(|e| convert_openssl_error(vm, e))?;
+
+            let eq = self_der == other_der;
+            Ok(op.eval_ord(eq.cmp(&true)).into())
+        }
+    }
+
+    impl Hashable for PySSLCertificate {
+        fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
+            // Use subject name hash as certificate hash
+            let hash = unsafe { sys::X509_subject_name_hash(zelf.cert.as_ptr()) };
+            Ok(hash as PyHash)
+        }
+    }
+
+    impl Representable for PySSLCertificate {
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            // Build subject string like "CN=localhost, O=Python"
+            let subject = zelf.cert.subject_name();
+            let mut parts: Vec<String> = Vec::new();
+            for entry in subject.entries() {
+                // Use short name (SN) if available, otherwise use OID
+                let name = match entry.object().nid().short_name() {
+                    Ok(sn) => sn.to_string(),
+                    Err(_) => obj2txt(entry.object(), true).unwrap_or_default(),
+                };
+                if let Ok(value) = entry.data().as_utf8() {
+                    parts.push(format!("{}={}", name, value));
+                }
+            }
+            if parts.is_empty() {
+                Ok("<Certificate>".to_string())
+            } else {
+                Ok(format!("<Certificate '{}'>", parts.join(", ")))
+            }
         }
     }
 
@@ -133,11 +198,15 @@ pub(crate) mod ssl_cert {
             .to_bn()
             .and_then(|bn| bn.to_hex_str())
             .map_err(|e| convert_openssl_error(vm, e))?;
-        dict.set_item(
-            "serialNumber",
-            vm.ctx.new_str(serial_num.to_owned()).into(),
-            vm,
-        )?;
+        // Serial number must have even length (each byte = 2 hex chars)
+        // BigNum::to_hex_str() strips leading zeros, so we need to pad
+        let serial_str = serial_num.to_string();
+        let serial_str = if serial_str.len() % 2 == 1 {
+            format!("0{}", serial_str)
+        } else {
+            serial_str
+        };
+        dict.set_item("serialNumber", vm.ctx.new_str(serial_str).into(), vm)?;
 
         dict.set_item(
             "notBefore",
@@ -165,7 +234,8 @@ pub(crate) mod ssl_cert {
                             format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
                         } else if ip.len() == 16 {
                             // IPv6 - format with all zeros visible (not compressed)
-                            let ip_addr = std::net::Ipv6Addr::from(ip[0..16]);
+                            let ip_addr =
+                                std::net::Ipv6Addr::from(<[u8; 16]>::try_from(&ip[0..16]).unwrap());
                             let s = ip_addr.segments();
                             format!(
                                 "{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}",
@@ -187,10 +257,23 @@ pub(crate) mod ssl_cert {
                             return vm.new_tuple((ascii!("DirName"), py_name)).into();
                         }
 
-                        // TODO: Handle Registered ID (GEN_RID)
-                        // CPython implementation uses i2t_ASN1_OBJECT to convert OID
-                        // This requires accessing GENERAL_NAME union which is complex in Rust
-                        // For now, we return <unsupported> for unhandled types
+                        // Check for Registered ID (GEN_RID)
+                        // Access raw GENERAL_NAME to check type
+                        let ptr = gen_name.as_ptr();
+                        unsafe {
+                            if (*ptr).type_ == sys::GEN_RID {
+                                // d is ASN1_OBJECT* for GEN_RID
+                                let oid_ptr = (*ptr).d as *const sys::ASN1_OBJECT;
+                                if !oid_ptr.is_null() {
+                                    let oid_ref = Asn1ObjectRef::from_ptr(oid_ptr as *mut _);
+                                    if let Some(oid_str) = obj2txt(oid_ref, true) {
+                                        return vm
+                                            .new_tuple((ascii!("Registered ID"), oid_str))
+                                            .into();
+                                    }
+                                }
+                            }
+                        }
 
                         // For othername and other unsupported types
                         vm.new_tuple((ascii!("othername"), ascii!("<unsupported>")))
@@ -200,6 +283,60 @@ pub(crate) mod ssl_cert {
                 .collect();
             dict.set_item("subjectAltName", vm.ctx.new_tuple(san).into(), vm)?;
         };
+
+        // Authority Information Access: OCSP URIs
+        if let Ok(ocsp_list) = cert.ocsp_responders()
+            && !ocsp_list.is_empty()
+        {
+            let uris: Vec<PyObjectRef> = ocsp_list
+                .iter()
+                .map(|s| vm.ctx.new_str(s.to_string()).into())
+                .collect();
+            dict.set_item("OCSP", vm.ctx.new_tuple(uris).into(), vm)?;
+        }
+
+        // Authority Information Access: CA Issuers URIs
+        if let Some(aia) = cert.authority_info() {
+            let ca_issuers: Vec<PyObjectRef> = aia
+                .iter()
+                .filter_map(|ad| {
+                    // Check if method is CA Issuers (NID_ad_ca_issuers)
+                    if ad.method().nid() != Nid::AD_CA_ISSUERS {
+                        return None;
+                    }
+                    // Get URI from location
+                    ad.location()
+                        .uri()
+                        .map(|uri| vm.ctx.new_str(uri.to_owned()).into())
+                })
+                .collect();
+            if !ca_issuers.is_empty() {
+                dict.set_item("caIssuers", vm.ctx.new_tuple(ca_issuers).into(), vm)?;
+            }
+        }
+
+        // CRL Distribution Points
+        if let Some(crl_dps) = cert.crl_distribution_points() {
+            let mut crl_uris: Vec<PyObjectRef> = Vec::new();
+            for dp in crl_dps.iter() {
+                if let Some(dp_name) = dp.distpoint()
+                    && let Some(fullname) = dp_name.fullname()
+                {
+                    for gn in fullname.iter() {
+                        if let Some(uri) = gn.uri() {
+                            crl_uris.push(vm.ctx.new_str(uri.to_owned()).into());
+                        }
+                    }
+                }
+            }
+            if !crl_uris.is_empty() {
+                dict.set_item(
+                    "crlDistributionPoints",
+                    vm.ctx.new_tuple(crl_uris).into(),
+                    vm,
+                )?;
+            }
+        }
 
         Ok(dict.into())
     }

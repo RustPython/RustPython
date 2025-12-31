@@ -1,7 +1,7 @@
-use super::{PyType, PyTypeRef};
+use super::PyType;
 use crate::{
-    Context, Py, PyPayload, PyRef, PyResult, VirtualMachine, class::PyClassImpl, frame::FrameRef,
-    types::Constructor,
+    AsObject, Context, Py, PyPayload, PyRef, PyResult, VirtualMachine, class::PyClassImpl,
+    frame::FrameRef, types::Constructor,
 };
 use rustpython_common::lock::PyMutex;
 use rustpython_compiler_core::OneIndexed;
@@ -63,26 +63,43 @@ impl PyTraceback {
     }
 
     #[pygetset(setter)]
-    fn set_tb_next(&self, value: Option<PyRef<Self>>) {
-        *self.next.lock() = value;
+    fn set_tb_next(
+        zelf: &Py<Self>,
+        value: Option<PyRef<Self>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(ref new_next) = value {
+            let mut cursor = new_next.clone();
+            loop {
+                if cursor.is(zelf) {
+                    return Err(vm.new_value_error("traceback loop detected".to_owned()));
+                }
+                let next = cursor.next.lock().clone();
+                match next {
+                    Some(n) => cursor = n,
+                    None => break,
+                }
+            }
+        }
+        *zelf.next.lock() = value;
+        Ok(())
     }
 }
 
 impl Constructor for PyTraceback {
     type Args = (Option<PyRef<Self>>, FrameRef, u32, usize);
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let (next, frame, lasti, lineno) = args;
         let lineno = OneIndexed::new(lineno)
             .ok_or_else(|| vm.new_value_error("lineno must be positive".to_owned()))?;
-        let tb = Self::new(next, frame, lasti, lineno);
-        tb.into_ref_with_type(vm, cls).map(Into::into)
+        Ok(Self::new(next, frame, lasti, lineno))
     }
 }
 
 impl PyTracebackRef {
     pub fn iter(&self) -> impl Iterator<Item = Self> {
-        std::iter::successors(Some(self.clone()), |tb| tb.next.lock().clone())
+        core::iter::successors(Some(self.clone()), |tb| tb.next.lock().clone())
     }
 }
 

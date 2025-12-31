@@ -13,14 +13,14 @@ use nix::{
     unistd::{self, Pid},
 };
 use std::{
-    convert::Infallible as Never,
-    ffi::{CStr, CString},
     io::prelude::*,
-    marker::PhantomData,
-    ops::Deref,
     os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
 };
 use unistd::{Gid, Uid};
+
+use alloc::ffi::CString;
+
+use core::{convert::Infallible as Never, ffi::CStr, marker::PhantomData, ops::Deref};
 
 pub(crate) use _posixsubprocess::make_module;
 
@@ -33,9 +33,18 @@ mod _posixsubprocess {
 
     #[pyfunction]
     fn fork_exec(args: ForkExecArgs<'_>, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
-        if args.preexec_fn.is_some() {
-            return Err(vm.new_not_implemented_error("preexec_fn not supported yet"));
+        // Check for interpreter shutdown when preexec_fn is used
+        if args.preexec_fn.is_some()
+            && vm
+                .state
+                .finalizing
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(vm.new_python_finalization_error(
+                "preexec_fn not supported at interpreter shutdown".to_owned(),
+            ));
         }
+
         let extra_groups = args
             .groups_list
             .as_ref()
@@ -49,7 +58,7 @@ mod _posixsubprocess {
             extra_groups: extra_groups.as_deref(),
         };
         match unsafe { nix::unistd::fork() }.map_err(|err| err.into_pyexception(vm))? {
-            nix::unistd::ForkResult::Child => exec(&args, procargs),
+            nix::unistd::ForkResult::Child => exec(&args, procargs, vm),
             nix::unistd::ForkResult::Parent { child } => Ok(child.as_raw()),
         }
     }
@@ -90,7 +99,7 @@ impl<'a, T: AsRef<CStr>> FromIterator<&'a T> for CharPtrVec<'a> {
         let vec = iter
             .into_iter()
             .map(|x| x.as_ref().as_ptr())
-            .chain(std::iter::once(std::ptr::null()))
+            .chain(core::iter::once(core::ptr::null()))
             .collect();
         Self {
             vec,
@@ -227,13 +236,19 @@ struct ProcArgs<'a> {
     extra_groups: Option<&'a [Gid]>,
 }
 
-fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>) -> ! {
+fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>, vm: &VirtualMachine) -> ! {
     let mut ctx = ExecErrorContext::NoExec;
-    match exec_inner(args, procargs, &mut ctx) {
+    match exec_inner(args, procargs, &mut ctx, vm) {
         Ok(x) => match x {},
         Err(e) => {
             let mut pipe = args.errpipe_write;
-            let _ = write!(pipe, "OSError:{}:{}", e as i32, ctx.as_msg());
+            if matches!(ctx, ExecErrorContext::PreExec) {
+                // For preexec_fn errors, use SubprocessError format (errno=0)
+                let _ = write!(pipe, "SubprocessError:0:{}", ctx.as_msg());
+            } else {
+                // errno is written in hex format
+                let _ = write!(pipe, "OSError:{:x}:{}", e as i32, ctx.as_msg());
+            }
             std::process::exit(255)
         }
     }
@@ -242,6 +257,7 @@ fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>) -> ! {
 enum ExecErrorContext {
     NoExec,
     ChDir,
+    PreExec,
     Exec,
 }
 
@@ -250,6 +266,7 @@ impl ExecErrorContext {
         match self {
             Self::NoExec => "noexec",
             Self::ChDir => "noexec:chdir",
+            Self::PreExec => "Exception occurred in preexec_fn.",
             Self::Exec => "",
         }
     }
@@ -259,6 +276,7 @@ fn exec_inner(
     args: &ForkExecArgs<'_>,
     procargs: ProcArgs<'_>,
     ctx: &mut ExecErrorContext,
+    vm: &VirtualMachine,
 ) -> nix::Result<Never> {
     for &fd in args.fds_to_keep.as_slice() {
         if fd.as_raw_fd() != args.errpipe_write.as_raw_fd() {
@@ -315,11 +333,14 @@ fn exec_inner(
     }
 
     if args.child_umask >= 0 {
-        // TODO: umask(child_umask);
+        unsafe { libc::umask(args.child_umask as libc::mode_t) };
     }
 
     if args.restore_signals {
-        // TODO: restore signals SIGPIPE, SIGXFZ, SIGXFSZ to SIG_DFL
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+            libc::signal(libc::SIGXFSZ, libc::SIG_DFL);
+        }
     }
 
     if args.call_setsid {
@@ -343,6 +364,18 @@ fn exec_inner(
     if let Some(uid) = args.uid.filter(|x| x.as_raw() != u32::MAX) {
         let ret = unsafe { libc::setreuid(uid.as_raw(), uid.as_raw()) };
         nix::Error::result(ret)?;
+    }
+
+    // Call preexec_fn after all process setup but before closing FDs
+    if let Some(ref preexec_fn) = args.preexec_fn {
+        match preexec_fn.call((), vm) {
+            Ok(_) => {}
+            Err(_e) => {
+                // Cannot safely stringify exception after fork
+                *ctx = ExecErrorContext::PreExec;
+                return Err(Errno::UnknownErrno);
+            }
+        }
     }
 
     *ctx = ExecErrorContext::Exec;
@@ -441,15 +474,14 @@ fn close_dir_fds(keep: KeepFds<'_>) -> nix::Result<()> {
 fn close_filetable_fds(keep: KeepFds<'_>) -> nix::Result<()> {
     use nix::fcntl;
     use std::os::fd::{FromRawFd, OwnedFd};
-    let fd = fcntl::open(
+    let filetable = fcntl::open(
         c"/scheme/thisproc/current/filetable",
         fcntl::OFlag::O_RDONLY,
         nix::sys::stat::Mode::empty(),
     )?;
-    let filetable = unsafe { OwnedFd::from_raw_fd(fd) };
     let read_one = || -> nix::Result<_> {
         let mut byte = 0;
-        let n = nix::unistd::read(filetable.as_raw_fd(), std::slice::from_mut(&mut byte))?;
+        let n = nix::unistd::read(&filetable, std::slice::from_mut(&mut byte))?;
         Ok((n > 0).then_some(byte))
     };
     while let Some(c) = read_one()? {

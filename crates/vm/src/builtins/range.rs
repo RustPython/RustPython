@@ -11,14 +11,14 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
         AsMapping, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
-        Representable, SelfIter, Unconstructible,
+        Representable, SelfIter,
     },
 };
+use core::cmp::max;
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::cmp::max;
 use std::sync::LazyLock;
 
 // Search flag passed to iter_search
@@ -28,8 +28,6 @@ enum SearchType {
     Index,
 }
 
-// Note: might be a good idea to merge with _membership_iter_search or generalize (_sequence_iter_check?)
-// and place in vm.rs for all sequences to be able to use it.
 #[inline]
 fn iter_search(
     obj: &PyObject,
@@ -550,7 +548,7 @@ impl PyPayload for PyLongRangeIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyLongRangeIterator {
     #[pymethod]
     fn __length_hint__(&self) -> BigInt {
@@ -579,7 +577,6 @@ impl PyLongRangeIterator {
         )
     }
 }
-impl Unconstructible for PyLongRangeIterator {}
 
 impl SelfIter for PyLongRangeIterator {}
 impl IterNext for PyLongRangeIterator {
@@ -616,7 +613,7 @@ impl PyPayload for PyRangeIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyRangeIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -642,7 +639,6 @@ impl PyRangeIterator {
         )
     }
 }
-impl Unconstructible for PyRangeIterator {}
 
 impl SelfIter for PyRangeIterator {}
 impl IterNext for PyRangeIterator {

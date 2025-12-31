@@ -9,9 +9,9 @@
 #[macro_use]
 extern crate log;
 
+use core::error::Error;
 use lexopt::ValueExt;
 use rustpython_compiler as compiler;
-use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -53,7 +53,10 @@ fn main() -> Result<(), lexopt::Error> {
         return Err("expected at least one argument".into());
     }
 
-    let opts = compiler::CompileOpts { optimize };
+    let opts = compiler::CompileOpts {
+        optimize,
+        debug_ranges: true,
+    };
 
     for script in &scripts {
         if script.exists() && script.is_file() {

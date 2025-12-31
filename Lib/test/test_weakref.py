@@ -906,8 +906,6 @@ class ReferencesTestCase(TestBase):
 
         w = Target()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_init(self):
         # Issue 3634
         # <weakref to class>.__init__() doesn't check errors correctly

@@ -11,7 +11,8 @@ mod syslog {
         function::{OptionalArg, OptionalOption},
         utils::ToCString,
     };
-    use std::{ffi::CStr, os::raw::c_char};
+    use core::ffi::CStr;
+    use std::os::raw::c_char;
 
     #[pyattr]
     use libc::{
@@ -26,7 +27,7 @@ mod syslog {
     use libc::{LOG_AUTHPRIV, LOG_CRON, LOG_PERROR};
 
     fn get_argv(vm: &VirtualMachine) -> Option<PyStrRef> {
-        if let Some(argv) = vm.state.settings.argv.first()
+        if let Some(argv) = vm.state.config.settings.argv.first()
             && !argv.is_empty()
         {
             return Some(
@@ -50,7 +51,7 @@ mod syslog {
         fn as_ptr(&self) -> *const c_char {
             match self {
                 Self::Explicit(cstr) => cstr.as_ptr(),
-                Self::Implicit => std::ptr::null(),
+                Self::Implicit => core::ptr::null(),
             }
         }
     }

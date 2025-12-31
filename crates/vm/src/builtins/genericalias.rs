@@ -16,7 +16,7 @@ use crate::{
         PyComparisonOp, Representable,
     },
 };
-use std::fmt;
+use alloc::fmt;
 
 // attr_exceptions
 static ATTR_EXCEPTIONS: [&str; 12] = [
@@ -58,7 +58,7 @@ impl PyPayload for PyGenericAlias {
 impl Constructor for PyGenericAlias {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         if !args.kwargs.is_empty() {
             return Err(vm.new_type_error("GenericAlias() takes no keyword arguments"));
         }
@@ -68,9 +68,7 @@ impl Constructor for PyGenericAlias {
         } else {
             PyTuple::new_ref(vec![arguments], &vm.ctx)
         };
-        Self::new(origin, args, false, vm)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        Ok(Self::new(origin, args, false, vm))
     }
 }
 
@@ -296,11 +294,11 @@ pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupl
 }
 
 #[inline]
-fn tuple_index(vec: &[PyObjectRef], item: &PyObjectRef) -> Option<usize> {
+fn tuple_index(vec: &[PyObjectRef], item: &PyObject) -> Option<usize> {
     vec.iter().position(|element| element.is(item))
 }
 
-fn is_unpacked_typevartuple(arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+fn is_unpacked_typevartuple(arg: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     if arg.class().is(vm.ctx.types.type_type) {
         return Ok(false);
     }
@@ -314,7 +312,7 @@ fn is_unpacked_typevartuple(arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<
 
 fn subs_tvars(
     obj: PyObjectRef,
-    params: &PyTupleRef,
+    params: &Py<PyTuple>,
     arg_items: &[PyObjectRef],
     vm: &VirtualMachine,
 ) -> PyResult {

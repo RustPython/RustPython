@@ -2,14 +2,14 @@
 # in the snippets folder.
 
 
-import sys
-import os
-import unittest
-import glob
-import logging
-import subprocess
 import contextlib
 import enum
+import glob
+import logging
+import os
+import subprocess
+import sys
+import unittest
 from pathlib import Path
 
 

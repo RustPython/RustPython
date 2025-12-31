@@ -1,4 +1,4 @@
-use super::{PyType, PyTypeRef};
+use super::PyType;
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::PyTupleRef,
@@ -33,12 +33,14 @@ pub struct PyZipNewArgs {
 impl Constructor for PyZip {
     type Args = (PosArgs<PyIter>, PyZipNewArgs);
 
-    fn py_new(cls: PyTypeRef, (iterators, args): Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(
+        _cls: &Py<PyType>,
+        (iterators, args): Self::Args,
+        _vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         let iterators = iterators.into_vec();
         let strict = Radium::new(args.strict.unwrap_or(false));
-        Self { iterators, strict }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        Ok(Self { iterators, strict })
     }
 }
 

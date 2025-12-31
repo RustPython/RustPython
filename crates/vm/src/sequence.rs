@@ -6,13 +6,13 @@ use crate::{
     types::PyComparisonOp,
     vm::{MAX_MEMORY_SIZE, VirtualMachine},
 };
+use core::ops::{Deref, Range};
 use optional::Optioned;
-use std::ops::{Deref, Range};
 
 pub trait MutObjectSequenceOp {
     type Inner: ?Sized;
 
-    fn do_get(index: usize, inner: &Self::Inner) -> Option<&PyObjectRef>;
+    fn do_get(index: usize, inner: &Self::Inner) -> Option<&PyObject>;
     fn do_lock(&self) -> impl Deref<Target = Self::Inner>;
 
     fn mut_count(&self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<usize> {
@@ -76,7 +76,7 @@ pub trait MutObjectSequenceOp {
                 }
                 borrower = Some(guard);
             } else {
-                let elem = elem.clone();
+                let elem = elem.to_owned();
                 drop(guard);
 
                 if elem.rich_compare_bool(needle, PyComparisonOp::Eq, vm)? {
@@ -100,7 +100,7 @@ where
     fn mul(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>> {
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
 
-        if n > 1 && std::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
+        if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
             return Err(vm.new_memory_error(""));
         }
 

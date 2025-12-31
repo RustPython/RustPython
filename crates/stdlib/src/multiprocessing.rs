@@ -3,14 +3,14 @@ pub(crate) use _multiprocessing::make_module;
 #[cfg(windows)]
 #[pymodule]
 mod _multiprocessing {
-    use crate::vm::{PyResult, VirtualMachine, function::ArgBytesLike, stdlib::os};
+    use crate::vm::{PyResult, VirtualMachine, function::ArgBytesLike};
     use windows_sys::Win32::Networking::WinSock::{self, SOCKET};
 
     #[pyfunction]
     fn closesocket(socket: usize, vm: &VirtualMachine) -> PyResult<()> {
         let res = unsafe { WinSock::closesocket(socket as SOCKET) };
-        if res == 0 {
-            Err(os::errno_err(vm))
+        if res != 0 {
+            Err(vm.new_last_os_error())
         } else {
             Ok(())
         }
@@ -22,7 +22,7 @@ mod _multiprocessing {
         let n_read =
             unsafe { WinSock::recv(socket as SOCKET, buf.as_mut_ptr() as *mut _, size as i32, 0) };
         if n_read < 0 {
-            Err(os::errno_err(vm))
+            Err(vm.new_last_os_error())
         } else {
             Ok(n_read)
         }
@@ -34,7 +34,7 @@ mod _multiprocessing {
             WinSock::send(socket as SOCKET, b.as_ptr() as *const _, b.len() as i32, 0)
         });
         if ret < 0 {
-            Err(os::errno_err(vm))
+            Err(vm.new_last_os_error())
         } else {
             Ok(ret)
         }

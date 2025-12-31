@@ -342,7 +342,6 @@ class PropertySubclassTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             p = slotted_prop(documented_getter)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_with_slots_and_doc_slot_docstring_present(self):

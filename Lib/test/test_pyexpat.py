@@ -20,28 +20,24 @@ class SetAttributeTest(unittest.TestCase):
     def setUp(self):
         self.parser = expat.ParserCreate(namespace_separator='!')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_buffer_text(self):
         self.assertIs(self.parser.buffer_text, False)
         for x in 0, 1, 2, 0:
             self.parser.buffer_text = x
             self.assertIs(self.parser.buffer_text, bool(x))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_namespace_prefixes(self):
         self.assertIs(self.parser.namespace_prefixes, False)
         for x in 0, 1, 2, 0:
             self.parser.namespace_prefixes = x
             self.assertIs(self.parser.namespace_prefixes, bool(x))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_ordered_attributes(self):
         self.assertIs(self.parser.ordered_attributes, False)
         for x in 0, 1, 2, 0:
             self.parser.ordered_attributes = x
             self.assertIs(self.parser.ordered_attributes, bool(x))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_specified_attributes(self):
         self.assertIs(self.parser.specified_attributes, False)
         for x in 0, 1, 2, 0:
@@ -231,7 +227,6 @@ class ParseTest(unittest.TestCase):
         for operation, expected_operation in zip(operations, expected_operations):
             self.assertEqual(operation, expected_operation)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_bytes(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
@@ -244,7 +239,6 @@ class ParseTest(unittest.TestCase):
         # Issue #6697.
         self.assertRaises(AttributeError, getattr, parser, '\uD800')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_str(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
@@ -255,7 +249,6 @@ class ParseTest(unittest.TestCase):
         operations = out.out
         self._verify_parse_output(operations)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_file(self):
         # Try parsing a file
         out = self.Outputter()
@@ -282,7 +275,6 @@ class ParseTest(unittest.TestCase):
                           expat.errors.XML_ERROR_FINISHED)
 
 class NamespaceSeparatorTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_legal(self):
         # Tests that make sure we get errors when the namespace_separator value
         # is illegal, and that we don't for good values:
@@ -415,14 +407,12 @@ class BufferTextTest(unittest.TestCase):
         self.assertEqual(self.stuff, ["1<2> \n 3"],
                          "buffered text not properly collapsed")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test3(self):
         self.setHandlers(["StartElementHandler"])
         self.parser.Parse(b"<a>1<b/>2<c/>3</a>", True)
         self.assertEqual(self.stuff, ["<a>", "1", "<b>", "2", "<c>", "3"],
                          "buffered text not properly split")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test4(self):
         self.setHandlers(["StartElementHandler", "EndElementHandler"])
         self.parser.CharacterDataHandler = None
@@ -430,14 +420,12 @@ class BufferTextTest(unittest.TestCase):
         self.assertEqual(self.stuff,
                          ["<a>", "<b>", "</b>", "<c>", "</c>", "</a>"])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test5(self):
         self.setHandlers(["StartElementHandler", "EndElementHandler"])
         self.parser.Parse(b"<a>1<b></b>2<c/>3</a>", True)
         self.assertEqual(self.stuff,
             ["<a>", "1", "<b>", "</b>", "2", "<c>", "</c>", "3", "</a>"])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test6(self):
         self.setHandlers(["CommentHandler", "EndElementHandler",
                     "StartElementHandler"])
@@ -535,7 +523,6 @@ class PositionTest(unittest.TestCase):
                 'Expected position %s, got position %s' %(pos, expected))
         self.upto += 1
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test(self):
         self.parser = expat.ParserCreate()
         self.parser.StartElementHandler = self.StartElementHandler

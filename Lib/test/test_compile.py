@@ -1070,8 +1070,6 @@ if 1:
             elif instr.opname in HANDLED_JUMPS:
                 self.assertNotEqual(instr.arg, (line + 1)*INSTR_SIZE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_wraparound_jump(self):
         # See https://bugs.python.org/issue46724
 
@@ -1538,8 +1536,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_star_qualified(self):
         snippet = """
             try:
@@ -1551,8 +1547,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_star_as(self):
         snippet = """
             try:
@@ -1564,8 +1558,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_star_finally(self):
         snippet = """
                 try:

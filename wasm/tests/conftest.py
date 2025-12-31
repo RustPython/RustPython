@@ -1,10 +1,11 @@
-import subprocess
-import os
-import time
-import socket
 import atexit
-import pytest
+import os
+import socket
+import subprocess
 import sys
+import time
+
+import pytest
 
 PORT = 8080
 
@@ -65,11 +66,11 @@ def wait_for_port(port, host="localhost", timeout=5.0):
 
 
 from selenium import webdriver
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import JavascriptException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 
 class Driver(webdriver.Firefox):

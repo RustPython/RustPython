@@ -1,18 +1,19 @@
-from typing import Type
 from types import (
-    GeneratorType,
-    CoroutineType,
     AsyncGeneratorType,
     BuiltinFunctionType,
     BuiltinMethodType,
-    WrapperDescriptorType,
-    MethodWrapperType,
-    MethodDescriptorType,
     ClassMethodDescriptorType,
+    CoroutineType,
     FrameType,
+    GeneratorType,
     GetSetDescriptorType,
     MemberDescriptorType,
+    MethodDescriptorType,
+    MethodWrapperType,
+    WrapperDescriptorType,
 )
+from typing import Type
+
 from testutils import assert_raises
 
 

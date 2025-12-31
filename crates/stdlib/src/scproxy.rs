@@ -5,8 +5,8 @@ mod _scproxy {
     // straight-forward port of Modules/_scproxy.c
 
     use crate::vm::{
-        PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStr},
+        Py, PyResult, VirtualMachine,
+        builtins::{PyDict, PyDictRef, PyStr},
         convert::ToPyObject,
     };
     use system_configuration::core_foundation::{
@@ -22,7 +22,7 @@ mod _scproxy {
 
     fn proxy_dict() -> Option<CFDictionary<CFString, CFType>> {
         // Py_BEGIN_ALLOW_THREADS
-        let proxy_dict = unsafe { SCDynamicStoreCopyProxies(std::ptr::null()) };
+        let proxy_dict = unsafe { SCDynamicStoreCopyProxies(core::ptr::null()) };
         // Py_END_ALLOW_THREADS
         if proxy_dict.is_null() {
             None
@@ -74,7 +74,7 @@ mod _scproxy {
 
         let result = vm.ctx.new_dict();
 
-        let set_proxy = |result: &PyDictRef,
+        let set_proxy = |result: &Py<PyDict>,
                          proto: &str,
                          enabled_key: CFStringRef,
                          host_key: CFStringRef,
@@ -91,7 +91,7 @@ mod _scproxy {
                     .find(host_key)
                     .and_then(|v| v.downcast::<CFString>())
             {
-                let h = std::borrow::Cow::<str>::from(&host);
+                let h = alloc::borrow::Cow::<str>::from(&host);
                 let v = if let Some(port) = proxy_dict
                     .find(port_key)
                     .and_then(|v| v.downcast::<CFNumber>())

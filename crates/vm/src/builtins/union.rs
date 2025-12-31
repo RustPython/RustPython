@@ -8,9 +8,10 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
+    stdlib::typing::TypeAliasType,
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
-use std::fmt;
+use alloc::fmt;
 use std::sync::LazyLock;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
@@ -42,7 +43,7 @@ impl PyUnion {
 
     /// Direct access to args field, matching CPython's _Py_union_args
     #[inline]
-    pub const fn args(&self) -> &PyTupleRef {
+    pub fn args(&self) -> &Py<PyTuple> {
         &self.args
     }
 
@@ -152,10 +153,12 @@ impl PyUnion {
 }
 
 pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
-    obj.class().is(vm.ctx.types.none_type)
+    let cls = obj.class();
+    cls.is(vm.ctx.types.none_type)
         || obj.downcastable::<PyType>()
-        || obj.class().is(vm.ctx.types.generic_alias_type)
-        || obj.class().is(vm.ctx.types.union_type)
+        || cls.fast_issubclass(vm.ctx.types.generic_alias_type)
+        || cls.is(vm.ctx.types.union_type)
+        || obj.downcast_ref::<TypeAliasType>().is_some()
 }
 
 fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
@@ -195,7 +198,7 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef
         if !new_args.iter().any(|param| {
             param
                 .rich_compare_bool(arg, PyComparisonOp::Eq, vm)
-                .expect("types are always comparable")
+                .unwrap_or_default()
         }) {
             new_args.push(arg.clone());
         }

@@ -8,15 +8,13 @@ use crate::{
     class::PyClassImpl,
     frame::{Frame, FrameRef},
     function::PySetterValue,
-    types::{Representable, Unconstructible},
+    types::Representable,
 };
 use num_traits::Zero;
 
 pub fn init(context: &Context) {
     Frame::extend_class(context, context.types.frame_type);
 }
-
-impl Unconstructible for Frame {}
 
 impl Representable for Frame {
     #[inline]
@@ -31,7 +29,7 @@ impl Representable for Frame {
     }
 }
 
-#[pyclass(with(Unconstructible, Py))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
 impl Frame {
     #[pymethod]
     const fn clear(&self) {
@@ -41,6 +39,11 @@ impl Frame {
     #[pygetset]
     fn f_globals(&self) -> PyDictRef {
         self.globals.clone()
+    }
+
+    #[pygetset]
+    fn f_builtins(&self) -> PyDictRef {
+        self.builtins.clone()
     }
 
     #[pygetset]
@@ -55,12 +58,19 @@ impl Frame {
 
     #[pygetset]
     fn f_lasti(&self) -> u32 {
-        self.lasti()
+        // Return byte offset (each instruction is 2 bytes) for compatibility
+        self.lasti() * 2
     }
 
     #[pygetset]
     pub fn f_lineno(&self) -> usize {
-        self.current_location().line.get()
+        // If lasti is 0, execution hasn't started yet - use first line number
+        // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
+        if self.lasti() == 0 {
+            self.code.first_line_number.map(|n| n.get()).unwrap_or(1)
+        } else {
+            self.current_location().line.get()
+        }
     }
 
     #[pygetset]

@@ -5,25 +5,84 @@ use crate::{
     marshal::MarshalError,
     {OneIndexed, SourceLocation},
 };
+use alloc::{collections::BTreeSet, fmt};
 use bitflags::bitflags;
+use core::{hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
-use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem, ops::Deref};
 
+/// Oparg values for [`Instruction::ConvertValue`].
+///
+/// ## See also
+///
+/// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
+#[repr(u8)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-#[repr(i8)]
-#[allow(clippy::cast_possible_wrap)]
-pub enum ConversionFlag {
-    /// No conversion
-    None = -1, // CPython uses -1
+pub enum ConvertValueOparg {
+    /// No conversion.
+    ///
+    /// ```python
+    /// f"{x}"
+    /// f"{x:4}"
+    /// ```
+    None = 0,
     /// Converts by calling `str(<value>)`.
-    Str = b's' as i8,
-    /// Converts by calling `ascii(<value>)`.
-    Ascii = b'a' as i8,
+    ///
+    /// ```python
+    /// f"{x!s}"
+    /// f"{x!s:2}"
+    /// ```
+    Str = 1,
     /// Converts by calling `repr(<value>)`.
-    Repr = b'r' as i8,
+    ///
+    /// ```python
+    /// f"{x!r}"
+    /// f"{x!r:2}"
+    /// ```
+    Repr = 2,
+    /// Converts by calling `ascii(<value>)`.
+    ///
+    /// ```python
+    /// f"{x!a}"
+    /// f"{x!a:2}"
+    /// ```
+    Ascii = 3,
+}
+
+impl fmt::Display for ConvertValueOparg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let out = match self {
+            Self::Str => "1 (str)",
+            Self::Repr => "2 (repr)",
+            Self::Ascii => "3 (ascii)",
+            // We should never reach this. `FVC_NONE` are being handled by `Instruction::FormatSimple`
+            Self::None => "",
+        };
+
+        write!(f, "{out}")
+    }
+}
+
+impl OpArgType for ConvertValueOparg {
+    #[inline]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        Some(match x {
+            // Ruff `ConversionFlag::None` is `-1i8`,
+            // when its converted to `u8` its value is `u8::MAX`
+            0 | 255 => Self::None,
+            1 => Self::Str,
+            2 => Self::Repr,
+            3 => Self::Ascii,
+            _ => return None,
+        })
+    }
+
+    #[inline]
+    fn to_op_arg(self) -> u32 {
+        self as u32
+    }
 }
 
 /// Resume type for the RESUME instruction
@@ -199,7 +258,7 @@ impl ConstantBag for BasicBag {
 #[derive(Clone)]
 pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: CodeUnits,
-    pub locations: Box<[SourceLocation]>,
+    pub locations: Box<[(SourceLocation, SourceLocation)]>,
     pub flags: CodeFlags,
     /// Number of positional-only arguments
     pub posonlyarg_count: u32,
@@ -448,7 +507,7 @@ impl<T: OpArgType> Eq for Arg<T> {}
 
 impl<T: OpArgType> fmt::Debug for Arg<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Arg<{}>", std::any::type_name::<T>())
+        write!(f, "Arg<{}>", core::any::type_name::<T>())
     }
 }
 
@@ -476,24 +535,6 @@ impl fmt::Display for Label {
     }
 }
 
-impl OpArgType for ConversionFlag {
-    #[inline]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        match x as u8 {
-            b's' => Some(Self::Str),
-            b'a' => Some(Self::Ascii),
-            b'r' => Some(Self::Repr),
-            std::u8::MAX => Some(Self::None),
-            _ => None,
-        }
-    }
-
-    #[inline]
-    fn to_op_arg(self) -> u32 {
-        self as i8 as u8 as u32
-    }
-}
-
 op_arg_enum!(
     /// The kind of Raise that occurred.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -511,7 +552,7 @@ op_arg_enum!(
     #[repr(u8)]
     pub enum IntrinsicFunction1 {
         // Invalid = 0,
-        // Print = 1,
+        Print = 1,
         /// Import * operation
         ImportStar = 2,
         // StopIterationError = 3,
@@ -534,7 +575,7 @@ op_arg_enum!(
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
     pub enum IntrinsicFunction2 {
-        // PrepReraiseS tar = 1,
+        PrepReraiseStar = 1,
         TypeVarWithBound = 2,
         TypeVarWithConstraint = 3,
         SetFunctionTypeParams = 4,
@@ -549,164 +590,107 @@ pub type NameIdx = u32;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Instruction {
-    Nop,
-    /// Importing by name
-    ImportName {
-        idx: Arg<NameIdx>,
-    },
-    /// Importing without name
-    ImportNameless,
-    /// from ... import ...
-    ImportFrom {
-        idx: Arg<NameIdx>,
-    },
-    LoadFast(Arg<NameIdx>),
-    LoadNameAny(Arg<NameIdx>),
-    LoadGlobal(Arg<NameIdx>),
-    LoadDeref(Arg<NameIdx>),
-    LoadClassDeref(Arg<NameIdx>),
-    StoreFast(Arg<NameIdx>),
-    StoreLocal(Arg<NameIdx>),
-    StoreGlobal(Arg<NameIdx>),
-    StoreDeref(Arg<NameIdx>),
-    DeleteFast(Arg<NameIdx>),
-    DeleteLocal(Arg<NameIdx>),
-    DeleteGlobal(Arg<NameIdx>),
-    DeleteDeref(Arg<NameIdx>),
-    LoadClosure(Arg<NameIdx>),
-    Subscript,
-    StoreSubscript,
-    DeleteSubscript,
-    StoreAttr {
-        idx: Arg<NameIdx>,
-    },
-    DeleteAttr {
-        idx: Arg<NameIdx>,
-    },
-    LoadConst {
-        /// index into constants vec
-        idx: Arg<u32>,
-    },
-    UnaryOperation {
-        op: Arg<UnaryOperator>,
-    },
-    BinaryOperation {
-        op: Arg<BinaryOperator>,
-    },
-    BinaryOperationInplace {
+    BeforeAsyncWith,
+    BinaryOp {
         op: Arg<BinaryOperator>,
     },
     BinarySubscript,
-    LoadAttr {
-        idx: Arg<NameIdx>,
+    Break {
+        target: Arg<Label>,
     },
-    TestOperation {
-        op: Arg<TestOperator>,
+    BuildListFromTuples {
+        size: Arg<u32>,
     },
-    CompareOperation {
-        op: Arg<ComparisonOperator>,
+    BuildList {
+        size: Arg<u32>,
     },
-    CopyItem {
-        index: Arg<u32>,
+    BuildMapForCall {
+        size: Arg<u32>,
     },
-    Pop,
-    Swap {
-        index: Arg<u32>,
+    BuildMap {
+        size: Arg<u32>,
     },
-    ToBool,
-    Rotate2,
-    Rotate3,
-    Duplicate,
-    Duplicate2,
-    GetIter,
-    GetLen,
+    BuildSetFromTuples {
+        size: Arg<u32>,
+    },
+    BuildSet {
+        size: Arg<u32>,
+    },
+    BuildSlice {
+        argc: Arg<BuildSliceArgCount>,
+    },
+    BuildString {
+        size: Arg<u32>,
+    },
+    BuildTupleFromIter,
+    BuildTupleFromTuples {
+        size: Arg<u32>,
+    },
+    BuildTuple {
+        size: Arg<u32>,
+    },
+    CallFunctionEx {
+        has_kwargs: Arg<bool>,
+    },
+    CallFunctionKeyword {
+        nargs: Arg<u32>,
+    },
+    CallFunctionPositional {
+        nargs: Arg<u32>,
+    },
     CallIntrinsic1 {
         func: Arg<IntrinsicFunction1>,
     },
     CallIntrinsic2 {
         func: Arg<IntrinsicFunction2>,
     },
-    Continue {
-        target: Arg<Label>,
-    },
-    Break {
-        target: Arg<Label>,
-    },
-    Jump {
-        target: Arg<Label>,
-    },
-    /// Pop the top of the stack, and jump if this value is true.
-    PopJumpIfTrue {
-        target: Arg<Label>,
-    },
-    /// Pop the top of the stack, and jump if this value is false.
-    PopJumpIfFalse {
-        target: Arg<Label>,
-    },
-    /// Peek at the top of the stack, and jump if this value is true.
-    /// Otherwise, pop top of stack.
-    JumpIfTrueOrPop {
-        target: Arg<Label>,
-    },
-    /// Peek at the top of the stack, and jump if this value is false.
-    /// Otherwise, pop top of stack.
-    JumpIfFalseOrPop {
-        target: Arg<Label>,
-    },
-    MakeFunction,
-    SetFunctionAttribute {
-        attr: Arg<MakeFunctionFlags>,
-    },
-    CallFunctionPositional {
-        nargs: Arg<u32>,
-    },
-    CallFunctionKeyword {
-        nargs: Arg<u32>,
-    },
-    CallFunctionEx {
+    CallMethodEx {
         has_kwargs: Arg<bool>,
-    },
-    LoadMethod {
-        idx: Arg<NameIdx>,
-    },
-    CallMethodPositional {
-        nargs: Arg<u32>,
     },
     CallMethodKeyword {
         nargs: Arg<u32>,
     },
-    CallMethodEx {
-        has_kwargs: Arg<bool>,
+    CallMethodPositional {
+        nargs: Arg<u32>,
     },
-    ForIter {
+    /// Check if exception matches except* handler type.
+    /// Pops exc_value and match_type, pushes (rest, match).
+    CheckEgMatch,
+    CompareOperation {
+        op: Arg<ComparisonOperator>,
+    },
+    /// Performs `in` comparison, or `not in` if `invert` is 1.
+    ContainsOp(Arg<Invert>),
+    Continue {
         target: Arg<Label>,
     },
-    ReturnValue,
-    ReturnConst {
-        idx: Arg<u32>,
+    /// Convert value to a string, depending on `oparg`:
+    ///
+    /// ```python
+    /// value = STACK.pop()
+    /// result = func(value)
+    /// STACK.append(result)
+    /// ```
+    ///
+    /// Used for implementing formatted string literals (f-strings).
+    ConvertValue {
+        oparg: Arg<ConvertValueOparg>,
     },
-    YieldValue,
-    YieldFrom,
-
-    /// Resume execution (e.g., at function start, after yield, etc.)
-    Resume {
-        arg: Arg<u32>,
+    CopyItem {
+        index: Arg<u32>,
     },
-
-    SetupAnnotation,
-    SetupLoop,
-
-    /// Setup a finally handler, which will be called whenever one of this events occurs:
-    /// - the block is popped
-    /// - the function returns
-    /// - an exception is returned
-    SetupFinally {
-        handler: Arg<Label>,
+    DeleteAttr {
+        idx: Arg<NameIdx>,
     },
-
-    /// Enter a finally block, without returning, excepting, just because we are there.
-    EnterFinally,
-
+    DeleteDeref(Arg<NameIdx>),
+    DeleteFast(Arg<NameIdx>),
+    DeleteGlobal(Arg<NameIdx>),
+    DeleteLocal(Arg<NameIdx>),
+    DeleteSubscript,
+    DictUpdate {
+        index: Arg<u32>,
+    },
+    EndAsyncFor,
     /// Marker bytecode for the end of a finally sequence.
     /// When this bytecode is executed, the eval loop does one of those things:
     /// - Continue at a certain bytecode position
@@ -714,97 +698,182 @@ pub enum Instruction {
     /// - Return from a function
     /// - Do nothing at all, just continue
     EndFinally,
-
-    SetupExcept {
-        handler: Arg<Label>,
+    /// Enter a finally block, without returning, excepting, just because we are there.
+    EnterFinally,
+    ExtendedArg,
+    ForIter {
+        target: Arg<Label>,
     },
-    SetupWith {
-        end: Arg<Label>,
+    /// Formats the value on top of stack:
+    ///
+    /// ```python
+    /// value = STACK.pop()
+    /// result = value.__format__("")
+    /// STACK.append(result)
+    /// ```
+    ///
+    /// Used for implementing formatted string literals (f-strings).
+    FormatSimple,
+    /// Formats the given value with the given format spec:
+    ///
+    /// ```python
+    /// spec = STACK.pop()
+    /// value = STACK.pop()
+    /// result = value.__format__(spec)
+    /// STACK.append(result)
+    /// ```
+    ///
+    /// Used for implementing formatted string literals (f-strings).
+    FormatWithSpec,
+    GetAIter,
+    GetANext,
+    GetAwaitable,
+    GetIter,
+    GetLen,
+    /// from ... import ...
+    ImportFrom {
+        idx: Arg<NameIdx>,
     },
-    WithCleanupStart,
-    WithCleanupFinish,
-    PopBlock,
-    Raise {
-        kind: Arg<RaiseKind>,
+    /// Importing by name
+    ImportName {
+        idx: Arg<NameIdx>,
     },
-    BuildString {
-        size: Arg<u32>,
+    /// Performs `is` comparison, or `is not` if `invert` is 1.
+    IsOp(Arg<Invert>),
+    /// Peek at the top of the stack, and jump if this value is false.
+    /// Otherwise, pop top of stack.
+    JumpIfFalseOrPop {
+        target: Arg<Label>,
     },
-    BuildTuple {
-        size: Arg<u32>,
+    /// Performs exception matching for except.
+    /// Tests whether the STACK[-2] is an exception matching STACK[-1].
+    /// Pops STACK[-1] and pushes the boolean result of the test.
+    JumpIfNotExcMatch(Arg<Label>),
+    /// Peek at the top of the stack, and jump if this value is true.
+    /// Otherwise, pop top of stack.
+    JumpIfTrueOrPop {
+        target: Arg<Label>,
     },
-    BuildTupleFromTuples {
-        size: Arg<u32>,
-    },
-    BuildTupleFromIter,
-    BuildList {
-        size: Arg<u32>,
-    },
-    BuildListFromTuples {
-        size: Arg<u32>,
-    },
-    BuildSet {
-        size: Arg<u32>,
-    },
-    BuildSetFromTuples {
-        size: Arg<u32>,
-    },
-    BuildMap {
-        size: Arg<u32>,
-    },
-    BuildMapForCall {
-        size: Arg<u32>,
-    },
-    DictUpdate {
-        index: Arg<u32>,
-    },
-    BuildSlice {
-        /// whether build a slice with a third step argument
-        step: Arg<bool>,
+    Jump {
+        target: Arg<Label>,
     },
     ListAppend {
         i: Arg<u32>,
     },
-    SetAdd {
-        i: Arg<u32>,
+    LoadAttr {
+        idx: Arg<NameIdx>,
     },
+    LoadBuildClass,
+    LoadClassDeref(Arg<NameIdx>),
+    LoadClosure(Arg<NameIdx>),
+    LoadConst {
+        /// index into constants vec
+        idx: Arg<u32>,
+    },
+    LoadDeref(Arg<NameIdx>),
+    LoadFast(Arg<NameIdx>),
+    LoadGlobal(Arg<NameIdx>),
+    LoadMethod {
+        idx: Arg<NameIdx>,
+    },
+    LoadNameAny(Arg<NameIdx>),
+    MakeFunction,
     MapAdd {
         i: Arg<u32>,
     },
+    MatchClass(Arg<u32>),
+    MatchKeys,
+    MatchMapping,
+    MatchSequence,
+    Nop,
+    PopBlock,
+    PopException,
+    /// Pop the top of the stack, and jump if this value is false.
+    PopJumpIfFalse {
+        target: Arg<Label>,
+    },
+    /// Pop the top of the stack, and jump if this value is true.
+    PopJumpIfTrue {
+        target: Arg<Label>,
+    },
+    /// Removes the top-of-stack item:
+    /// ```py
+    /// STACK.pop()
+    /// ```
+    PopTop,
+    Raise {
+        kind: Arg<RaiseKind>,
+    },
+    /// Resume execution (e.g., at function start, after yield, etc.)
+    Resume {
+        arg: Arg<u32>,
+    },
+    ReturnConst {
+        idx: Arg<u32>,
+    },
+    ReturnValue,
+    Reverse {
+        amount: Arg<u32>,
+    },
+    SetAdd {
+        i: Arg<u32>,
+    },
+    SetFunctionAttribute {
+        attr: Arg<MakeFunctionFlags>,
+    },
+    SetupAnnotation,
+    SetupAsyncWith {
+        end: Arg<Label>,
+    },
 
-    PrintExpr,
-    LoadBuildClass,
-    UnpackSequence {
-        size: Arg<u32>,
+    SetupExcept {
+        handler: Arg<Label>,
+    },
+    /// Setup a finally handler, which will be called whenever one of this events occurs:
+    /// - the block is popped
+    /// - the function returns
+    /// - an exception is returned
+    SetupFinally {
+        handler: Arg<Label>,
+    },
+    SetupLoop,
+    SetupWith {
+        end: Arg<Label>,
+    },
+    StoreAttr {
+        idx: Arg<NameIdx>,
+    },
+    StoreDeref(Arg<NameIdx>),
+    StoreFast(Arg<NameIdx>),
+    StoreGlobal(Arg<NameIdx>),
+    StoreLocal(Arg<NameIdx>),
+    StoreSubscript,
+    Subscript,
+    Swap {
+        index: Arg<u32>,
+    },
+    ToBool,
+    UnaryOperation {
+        op: Arg<UnaryOperator>,
     },
     UnpackEx {
         args: Arg<UnpackExArgs>,
     },
-    FormatValue {
-        conversion: Arg<ConversionFlag>,
+    UnpackSequence {
+        size: Arg<u32>,
     },
-    PopException,
-    Reverse {
-        amount: Arg<u32>,
-    },
-    GetAwaitable,
-    BeforeAsyncWith,
-    SetupAsyncWith {
-        end: Arg<Label>,
-    },
-    GetAIter,
-    GetANext,
-    EndAsyncFor,
-    MatchMapping,
-    MatchSequence,
-    MatchKeys,
-    MatchClass(Arg<u32>),
-    ExtendedArg,
+    WithCleanupFinish,
+    WithCleanupStart,
+    YieldFrom,
+    YieldValue,
+    /// Set the current exception to TOS (for except* handlers).
+    /// Does not pop the value.
+    SetExcInfo,
     // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
 }
 
 // This must be kept up to date to avoid marshaling errors
-const LAST_INSTRUCTION: Instruction = Instruction::ExtendedArg;
+const LAST_INSTRUCTION: Instruction = Instruction::SetExcInfo;
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
@@ -812,7 +881,7 @@ impl From<Instruction> for u8 {
     #[inline]
     fn from(ins: Instruction) -> Self {
         // SAFETY: there's no padding bits
-        unsafe { std::mem::transmute::<Instruction, Self>(ins) }
+        unsafe { core::mem::transmute::<Instruction, Self>(ins) }
     }
 }
 
@@ -822,7 +891,7 @@ impl TryFrom<u8> for Instruction {
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
         if value <= u8::from(LAST_INSTRUCTION) {
-            Ok(unsafe { std::mem::transmute::<u8, Self>(value) })
+            Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
         } else {
             Err(MarshalError::InvalidBytecode)
         }
@@ -959,7 +1028,7 @@ impl PartialEq for ConstantData {
             (Boolean { value: a }, Boolean { value: b }) => a == b,
             (Str { value: a }, Str { value: b }) => a == b,
             (Bytes { value: a }, Bytes { value: b }) => a == b,
-            (Code { code: a }, Code { code: b }) => std::ptr::eq(a.as_ref(), b.as_ref()),
+            (Code { code: a }, Code { code: b }) => core::ptr::eq(a.as_ref(), b.as_ref()),
             (Tuple { elements: a }, Tuple { elements: b }) => a == b,
             (None, None) => true,
             (Ellipsis, Ellipsis) => true,
@@ -985,7 +1054,7 @@ impl hash::Hash for ConstantData {
             Boolean { value } => value.hash(state),
             Str { value } => value.hash(state),
             Bytes { value } => value.hash(state),
-            Code { code } => std::ptr::hash(code.as_ref(), state),
+            Code { code } => core::ptr::hash(code.as_ref(), state),
             Tuple { elements } => elements.hash(state),
             None => {}
             Ellipsis => {}
@@ -1093,45 +1162,142 @@ op_arg_enum!(
 );
 
 op_arg_enum!(
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    /// The possible Binary operators
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, Instruction};
+    /// let (op, _) = Arg::new(BinaryOperator::Add);
+    /// let instruction = Instruction::BinaryOp { op };
+    /// ```
+    ///
+    /// See also:
+    /// - [_PyEval_BinaryOps](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Python/ceval.c#L316-L343)
     #[repr(u8)]
-    pub enum TestOperator {
-        In = 0,
-        NotIn = 1,
-        Is = 2,
-        IsNot = 3,
-        /// two exceptions that match?
-        ExceptionMatch = 4,
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum BinaryOperator {
+        /// `+`
+        Add = 0,
+        /// `&`
+        And = 1,
+        /// `//`
+        FloorDivide = 2,
+        /// `<<`
+        Lshift = 3,
+        /// `@`
+        MatrixMultiply = 4,
+        /// `*`
+        Multiply = 5,
+        /// `%`
+        Remainder = 6,
+        /// `|`
+        Or = 7,
+        /// `**`
+        Power = 8,
+        /// `>>`
+        Rshift = 9,
+        /// `-`
+        Subtract = 10,
+        /// `/`
+        TrueDivide = 11,
+        /// `^`
+        Xor = 12,
+        /// `+=`
+        InplaceAdd = 13,
+        /// `&=`
+        InplaceAnd = 14,
+        /// `//=`
+        InplaceFloorDivide = 15,
+        /// `<<=`
+        InplaceLshift = 16,
+        /// `@=`
+        InplaceMatrixMultiply = 17,
+        /// `*=`
+        InplaceMultiply = 18,
+        /// `%=`
+        InplaceRemainder = 19,
+        /// `|=`
+        InplaceOr = 20,
+        /// `**=`
+        InplacePower = 21,
+        /// `>>=`
+        InplaceRshift = 22,
+        /// `-=`
+        InplaceSubtract = 23,
+        /// `/=`
+        InplaceTrueDivide = 24,
+        /// `^=`
+        InplaceXor = 25,
     }
 );
 
-op_arg_enum!(
-    /// The possible Binary operators
-    /// # Examples
+impl BinaryOperator {
+    /// Get the "inplace" version of the operator.
+    /// This has no effect if `self` is already an "inplace" operator.
     ///
-    /// ```ignore
-    /// use rustpython_compiler_core::Instruction::BinaryOperation;
-    /// use rustpython_compiler_core::BinaryOperator::Add;
-    /// let op = BinaryOperation {op: Add};
+    /// # Example
+    /// ```rust
+    /// use rustpython_compiler_core::bytecode::BinaryOperator;
+    ///
+    /// assert_eq!(BinaryOperator::Power.as_inplace(), BinaryOperator::InplacePower);
+    ///
+    /// assert_eq!(BinaryOperator::InplaceSubtract.as_inplace(), BinaryOperator::InplaceSubtract);
     /// ```
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    #[repr(u8)]
-    pub enum BinaryOperator {
-        Power = 0,
-        Multiply = 1,
-        MatrixMultiply = 2,
-        Divide = 3,
-        FloorDivide = 4,
-        Modulo = 5,
-        Add = 6,
-        Subtract = 7,
-        Lshift = 8,
-        Rshift = 9,
-        And = 10,
-        Xor = 11,
-        Or = 12,
+    #[must_use]
+    pub const fn as_inplace(self) -> Self {
+        match self {
+            Self::Add => Self::InplaceAdd,
+            Self::And => Self::InplaceAnd,
+            Self::FloorDivide => Self::InplaceFloorDivide,
+            Self::Lshift => Self::InplaceLshift,
+            Self::MatrixMultiply => Self::InplaceMatrixMultiply,
+            Self::Multiply => Self::InplaceMultiply,
+            Self::Remainder => Self::InplaceRemainder,
+            Self::Or => Self::InplaceOr,
+            Self::Power => Self::InplacePower,
+            Self::Rshift => Self::InplaceRshift,
+            Self::Subtract => Self::InplaceSubtract,
+            Self::TrueDivide => Self::InplaceTrueDivide,
+            Self::Xor => Self::InplaceXor,
+            _ => self,
+        }
     }
-);
+}
+
+impl fmt::Display for BinaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op = match self {
+            Self::Add => "+",
+            Self::And => "&",
+            Self::FloorDivide => "//",
+            Self::Lshift => "<<",
+            Self::MatrixMultiply => "@",
+            Self::Multiply => "*",
+            Self::Remainder => "%",
+            Self::Or => "|",
+            Self::Power => "**",
+            Self::Rshift => ">>",
+            Self::Subtract => "-",
+            Self::TrueDivide => "/",
+            Self::Xor => "^",
+            Self::InplaceAdd => "+=",
+            Self::InplaceAnd => "&=",
+            Self::InplaceFloorDivide => "//=",
+            Self::InplaceLshift => "<<=",
+            Self::InplaceMatrixMultiply => "@=",
+            Self::InplaceMultiply => "*=",
+            Self::InplaceRemainder => "%=",
+            Self::InplaceOr => "|=",
+            Self::InplacePower => "**=",
+            Self::InplaceRshift => ">>=",
+            Self::InplaceSubtract => "-=",
+            Self::InplaceTrueDivide => "/=",
+            Self::InplaceXor => "^=",
+        };
+        write!(f, "{op}")
+    }
+}
 
 op_arg_enum!(
     /// The possible unary operators
@@ -1144,6 +1310,66 @@ op_arg_enum!(
         Plus = 3,
     }
 );
+
+op_arg_enum!(
+    /// Whether or not to invert the operation.
+    #[repr(u8)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum Invert {
+        /// ```py
+        /// foo is bar
+        /// x in lst
+        /// ```
+        No = 0,
+        /// ```py
+        /// foo is not bar
+        /// x not in lst
+        /// ```
+        Yes = 1,
+    }
+);
+
+/// Specifies if a slice is built with either 2 or 3 arguments.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuildSliceArgCount {
+    /// ```py
+    /// x[5:10]
+    /// ```
+    Two,
+    /// ```py
+    /// x[5:10:2]
+    /// ```
+    Three,
+}
+
+impl OpArgType for BuildSliceArgCount {
+    #[inline(always)]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        Some(match x {
+            2 => Self::Two,
+            3 => Self::Three,
+            _ => return None,
+        })
+    }
+
+    #[inline(always)]
+    fn to_op_arg(self) -> u32 {
+        u32::from(self.argc().get())
+    }
+}
+
+impl BuildSliceArgCount {
+    /// Get the numeric value of `Self`.
+    #[must_use]
+    pub const fn argc(self) -> NonZeroU8 {
+        let inner = match self {
+            Self::Two => 2,
+            Self::Three => 3,
+        };
+        // Safety: `inner` can be either 2 or 3.
+        unsafe { NonZeroU8::new_unchecked(inner) }
+    }
+}
 
 #[derive(Copy, Clone)]
 pub struct UnpackExArgs {
@@ -1257,14 +1483,14 @@ impl<C: Constant> CodeObject<C> {
         level: usize,
     ) -> fmt::Result {
         let label_targets = self.label_targets();
-        let line_digits = (3).max(self.locations.last().unwrap().line.digits().get());
+        let line_digits = (3).max(self.locations.last().unwrap().0.line.digits().get());
         let offset_digits = (4).max(1 + self.instructions.len().ilog10() as usize);
         let mut last_line = OneIndexed::MAX;
         let mut arg_state = OpArgState::default();
         for (offset, &instruction) in self.instructions.iter().enumerate() {
             let (instruction, arg) = arg_state.get(instruction);
             // optional line number
-            let line = self.locations[offset].line;
+            let line = self.locations[offset].0.line;
             if line != last_line {
                 if last_line != OneIndexed::MAX {
                     writeln!(f)?;
@@ -1399,6 +1625,7 @@ impl Instruction {
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
+            | JumpIfNotExcMatch(l)
             | PopJumpIfTrue { target: l }
             | PopJumpIfFalse { target: l }
             | JumpIfTrueOrPop { target: l }
@@ -1452,7 +1679,7 @@ impl Instruction {
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             Nop => 0,
-            ImportName { .. } | ImportNameless => -1,
+            ImportName { .. } => -1,
             ImportFrom { .. } => 1,
             LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
             StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
@@ -1466,18 +1693,12 @@ impl Instruction {
             DeleteAttr { .. } => -1,
             LoadConst { .. } => 1,
             UnaryOperation { .. } => 0,
-            BinaryOperation { .. }
-            | BinaryOperationInplace { .. }
-            | TestOperation { .. }
-            | CompareOperation { .. } => -1,
+            BinaryOp { .. } | CompareOperation { .. } => -1,
             BinarySubscript => -1,
             CopyItem { .. } => 1,
-            Pop => -1,
+            PopTop => -1,
             Swap { .. } => 0,
             ToBool => 0,
-            Rotate2 | Rotate3 => 0,
-            Duplicate => 1,
-            Duplicate2 => 2,
             GetIter => 0,
             GetLen => 1,
             CallIntrinsic1 { .. } => 0,  // Takes 1, pushes 1
@@ -1507,6 +1728,10 @@ impl Instruction {
             CallMethodKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 3 + 1,
             CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
             CallMethodEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
+            CheckEgMatch => 0, // pops 2 (exc, type), pushes 2 (rest, match)
+            ConvertValue { .. } => 0,
+            FormatSimple => 0,
+            FormatWithSpec => -1,
             LoadMethod { .. } => -1 + 3,
             ForIter { .. } => {
                 if jump {
@@ -1515,11 +1740,14 @@ impl Instruction {
                     1
                 }
             }
+            IsOp(_) | ContainsOp(_) => -1,
+            JumpIfNotExcMatch(_) => -2,
             ReturnValue => -1,
             ReturnConst { .. } => 0,
             Resume { .. } => 0,
             YieldValue => 0,
             YieldFrom => -1,
+            SetExcInfo => 0,
             SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
             SetupExcept { .. } => jump as i32,
             SetupWith { .. } => (!jump) as i32,
@@ -1544,17 +1772,19 @@ impl Instruction {
                 -(nargs as i32) + 1
             }
             DictUpdate { .. } => -1,
-            BuildSlice { step } => -2 - (step.get(arg) as i32) + 1,
+            BuildSlice { argc } => {
+                // push 1
+                // pops either 2/3
+                1 - (argc.get(arg).argc().get() as i32)
+            }
             ListAppend { .. } | SetAdd { .. } => -1,
             MapAdd { .. } => -2,
-            PrintExpr => -1,
             LoadBuildClass => 1,
             UnpackSequence { size } => -1 + size.get(arg) as i32,
             UnpackEx { args } => {
                 let UnpackExArgs { before, after } = args.get(arg);
                 -1 + before as i32 + 1 + after as i32
             }
-            FormatValue { .. } => -1,
             PopException => 0,
             Reverse { .. } => 0,
             GetAwaitable => 0,
@@ -1643,116 +1873,114 @@ impl Instruction {
             };
 
         match self {
-            Nop => w!(Nop),
-            ImportName { idx } => w!(ImportName, name = idx),
-            ImportNameless => w!(ImportNameless),
-            ImportFrom { idx } => w!(ImportFrom, name = idx),
-            LoadFast(idx) => w!(LoadFast, varname = idx),
-            LoadNameAny(idx) => w!(LoadNameAny, name = idx),
-            LoadGlobal(idx) => w!(LoadGlobal, name = idx),
-            LoadDeref(idx) => w!(LoadDeref, cell_name = idx),
-            LoadClassDeref(idx) => w!(LoadClassDeref, cell_name = idx),
-            StoreFast(idx) => w!(StoreFast, varname = idx),
-            StoreLocal(idx) => w!(StoreLocal, name = idx),
-            StoreGlobal(idx) => w!(StoreGlobal, name = idx),
-            StoreDeref(idx) => w!(StoreDeref, cell_name = idx),
-            DeleteFast(idx) => w!(DeleteFast, varname = idx),
-            DeleteLocal(idx) => w!(DeleteLocal, name = idx),
-            DeleteGlobal(idx) => w!(DeleteGlobal, name = idx),
-            DeleteDeref(idx) => w!(DeleteDeref, cell_name = idx),
-            LoadClosure(i) => w!(LoadClosure, cell_name = i),
-            Subscript => w!(Subscript),
-            StoreSubscript => w!(StoreSubscript),
-            DeleteSubscript => w!(DeleteSubscript),
-            StoreAttr { idx } => w!(StoreAttr, name = idx),
-            DeleteAttr { idx } => w!(DeleteAttr, name = idx),
-            LoadConst { idx } => fmt_const("LoadConst", arg, f, idx),
-            UnaryOperation { op } => w!(UnaryOperation, ?op),
-            BinaryOperation { op } => w!(BinaryOperation, ?op),
-            BinaryOperationInplace { op } => w!(BinaryOperationInplace, ?op),
-            BinarySubscript => w!(BinarySubscript),
-            LoadAttr { idx } => w!(LoadAttr, name = idx),
-            TestOperation { op } => w!(TestOperation, ?op),
-            CompareOperation { op } => w!(CompareOperation, ?op),
-            CopyItem { index } => w!(CopyItem, index),
-            Pop => w!(Pop),
-            Swap { index } => w!(Swap, index),
-            ToBool => w!(ToBool),
-            Rotate2 => w!(Rotate2),
-            Rotate3 => w!(Rotate3),
-            Duplicate => w!(Duplicate),
-            Duplicate2 => w!(Duplicate2),
-            GetIter => w!(GetIter),
-            // GET_LEN
-            GetLen => w!(GetLen),
-            CallIntrinsic1 { func } => w!(CallIntrinsic1, ?func),
-            CallIntrinsic2 { func } => w!(CallIntrinsic2, ?func),
-            Continue { target } => w!(Continue, target),
-            Break { target } => w!(Break, target),
-            Jump { target } => w!(Jump, target),
-            PopJumpIfTrue { target } => w!(PopJumpIfTrue, target),
-            PopJumpIfFalse { target } => w!(PopJumpIfFalse, target),
-            JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
-            JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
-            MakeFunction => w!(MakeFunction),
-            SetFunctionAttribute { attr } => w!(SetFunctionAttribute, ?attr),
-            CallFunctionPositional { nargs } => w!(CallFunctionPositional, nargs),
-            CallFunctionKeyword { nargs } => w!(CallFunctionKeyword, nargs),
-            CallFunctionEx { has_kwargs } => w!(CallFunctionEx, has_kwargs),
-            LoadMethod { idx } => w!(LoadMethod, name = idx),
-            CallMethodPositional { nargs } => w!(CallMethodPositional, nargs),
-            CallMethodKeyword { nargs } => w!(CallMethodKeyword, nargs),
-            CallMethodEx { has_kwargs } => w!(CallMethodEx, has_kwargs),
-            ForIter { target } => w!(ForIter, target),
-            ReturnValue => w!(ReturnValue),
-            ReturnConst { idx } => fmt_const("ReturnConst", arg, f, idx),
-            Resume { arg } => w!(Resume, arg),
-            YieldValue => w!(YieldValue),
-            YieldFrom => w!(YieldFrom),
-            SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop => w!(SetupLoop),
-            SetupExcept { handler } => w!(SetupExcept, handler),
-            SetupFinally { handler } => w!(SetupFinally, handler),
-            EnterFinally => w!(EnterFinally),
-            EndFinally => w!(EndFinally),
-            SetupWith { end } => w!(SetupWith, end),
-            WithCleanupStart => w!(WithCleanupStart),
-            WithCleanupFinish => w!(WithCleanupFinish),
-            BeforeAsyncWith => w!(BeforeAsyncWith),
-            SetupAsyncWith { end } => w!(SetupAsyncWith, end),
-            PopBlock => w!(PopBlock),
-            Raise { kind } => w!(Raise, ?kind),
-            BuildString { size } => w!(BuildString, size),
-            BuildTuple { size } => w!(BuildTuple, size),
-            BuildTupleFromTuples { size } => w!(BuildTupleFromTuples, size),
-            BuildTupleFromIter => w!(BuildTupleFromIter),
-            BuildList { size } => w!(BuildList, size),
-            BuildListFromTuples { size } => w!(BuildListFromTuples, size),
-            BuildSet { size } => w!(BuildSet, size),
-            BuildSetFromTuples { size } => w!(BuildSetFromTuples, size),
-            BuildMap { size } => w!(BuildMap, size),
-            BuildMapForCall { size } => w!(BuildMapForCall, size),
-            DictUpdate { index } => w!(DictUpdate, index),
-            BuildSlice { step } => w!(BuildSlice, step),
-            ListAppend { i } => w!(ListAppend, i),
-            SetAdd { i } => w!(SetAdd, i),
-            MapAdd { i } => w!(MapAdd, i),
-            PrintExpr => w!(PrintExpr),
-            LoadBuildClass => w!(LoadBuildClass),
-            UnpackSequence { size } => w!(UnpackSequence, size),
-            UnpackEx { args } => w!(UnpackEx, args),
-            FormatValue { conversion } => w!(FormatValue, ?conversion),
-            PopException => w!(PopException),
-            Reverse { amount } => w!(Reverse, amount),
-            GetAwaitable => w!(GetAwaitable),
-            GetAIter => w!(GetAIter),
-            GetANext => w!(GetANext),
-            EndAsyncFor => w!(EndAsyncFor),
-            MatchMapping => w!(MatchMapping),
-            MatchSequence => w!(MatchSequence),
-            MatchKeys => w!(MatchKeys),
-            MatchClass(arg) => w!(MatchClass, arg),
-            ExtendedArg => w!(ExtendedArg, Arg::<u32>::marker()),
+            BeforeAsyncWith => w!(BEFORE_ASYNC_WITH),
+            BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
+            BinarySubscript => w!(BINARY_SUBSCRIPT),
+            Break { target } => w!(BREAK, target),
+            BuildListFromTuples { size } => w!(BUILD_LIST_FROM_TUPLES, size),
+            BuildList { size } => w!(BUILD_LIST, size),
+            BuildMapForCall { size } => w!(BUILD_MAP_FOR_CALL, size),
+            BuildMap { size } => w!(BUILD_MAP, size),
+            BuildSetFromTuples { size } => w!(BUILD_SET_FROM_TUPLES, size),
+            BuildSet { size } => w!(BUILD_SET, size),
+            BuildSlice { argc } => w!(BUILD_SLICE, ?argc),
+            BuildString { size } => w!(BUILD_STRING, size),
+            BuildTupleFromIter => w!(BUILD_TUPLE_FROM_ITER),
+            BuildTupleFromTuples { size } => w!(BUILD_TUPLE_FROM_TUPLES, size),
+            BuildTuple { size } => w!(BUILD_TUPLE, size),
+            CallFunctionEx { has_kwargs } => w!(CALL_FUNCTION_EX, has_kwargs),
+            CallFunctionKeyword { nargs } => w!(CALL_FUNCTION_KEYWORD, nargs),
+            CallFunctionPositional { nargs } => w!(CALL_FUNCTION_POSITIONAL, nargs),
+            CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
+            CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
+            CallMethodEx { has_kwargs } => w!(CALL_METHOD_EX, has_kwargs),
+            CallMethodKeyword { nargs } => w!(CALL_METHOD_KEYWORD, nargs),
+            CallMethodPositional { nargs } => w!(CALL_METHOD_POSITIONAL, nargs),
+            CheckEgMatch => w!(CHECK_EG_MATCH),
+            CompareOperation { op } => w!(COMPARE_OPERATION, ?op),
+            ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
+            Continue { target } => w!(CONTINUE, target),
+            ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
+            CopyItem { index } => w!(COPY, index),
+            DeleteAttr { idx } => w!(DELETE_ATTR, name = idx),
+            DeleteDeref(idx) => w!(DELETE_DEREF, cell_name = idx),
+            DeleteFast(idx) => w!(DELETE_FAST, varname = idx),
+            DeleteGlobal(idx) => w!(DELETE_GLOBAL, name = idx),
+            DeleteLocal(idx) => w!(DELETE_LOCAL, name = idx),
+            DeleteSubscript => w!(DELETE_SUBSCRIPT),
+            DictUpdate { index } => w!(DICT_UPDATE, index),
+            EndAsyncFor => w!(END_ASYNC_FOR),
+            EndFinally => w!(END_FINALLY),
+            EnterFinally => w!(ENTER_FINALLY),
+            ExtendedArg => w!(EXTENDED_ARG, Arg::<u32>::marker()),
+            ForIter { target } => w!(FOR_ITER, target),
+            FormatSimple => w!(FORMAT_SIMPLE),
+            FormatWithSpec => w!(FORMAT_WITH_SPEC),
+            GetAIter => w!(GET_AITER),
+            GetANext => w!(GET_ANEXT),
+            GetAwaitable => w!(GET_AWAITABLE),
+            GetIter => w!(GET_ITER),
+            GetLen => w!(GET_LEN),
+            ImportFrom { idx } => w!(IMPORT_FROM, name = idx),
+            ImportName { idx } => w!(IMPORT_NAME, name = idx),
+            IsOp(inv) => w!(IS_OP, ?inv),
+            JumpIfFalseOrPop { target } => w!(JUMP_IF_FALSE_OR_POP, target),
+            JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
+            JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
+            Jump { target } => w!(JUMP, target),
+            ListAppend { i } => w!(LIST_APPEND, i),
+            LoadAttr { idx } => w!(LOAD_ATTR, name = idx),
+            LoadBuildClass => w!(LOAD_BUILD_CLASS),
+            LoadClassDeref(idx) => w!(LOAD_CLASS_DEREF, cell_name = idx),
+            LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
+            LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
+            LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
+            LoadFast(idx) => w!(LOAD_FAST, varname = idx),
+            LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
+            LoadMethod { idx } => w!(LOAD_METHOD, name = idx),
+            LoadNameAny(idx) => w!(LOAD_NAME_ANY, name = idx),
+            MakeFunction => w!(MAKE_FUNCTION),
+            MapAdd { i } => w!(MAP_ADD, i),
+            MatchClass(arg) => w!(MATCH_CLASS, arg),
+            MatchKeys => w!(MATCH_KEYS),
+            MatchMapping => w!(MATCH_MAPPING),
+            MatchSequence => w!(MATCH_SEQUENCE),
+            Nop => w!(NOP),
+            PopBlock => w!(POP_BLOCK),
+            PopException => w!(POP_EXCEPTION),
+            PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
+            PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
+            PopTop => w!(POP_TOP),
+            Raise { kind } => w!(RAISE, ?kind),
+            Resume { arg } => w!(RESUME, arg),
+            ReturnConst { idx } => fmt_const("RETURN_CONST", arg, f, idx),
+            ReturnValue => w!(RETURN_VALUE),
+            Reverse { amount } => w!(REVERSE, amount),
+            SetAdd { i } => w!(SET_ADD, i),
+            SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
+            SetupAnnotation => w!(SETUP_ANNOTATION),
+            SetupAsyncWith { end } => w!(SETUP_ASYNC_WITH, end),
+            SetupExcept { handler } => w!(SETUP_EXCEPT, handler),
+            SetupFinally { handler } => w!(SETUP_FINALLY, handler),
+            SetupLoop => w!(SETUP_LOOP),
+            SetupWith { end } => w!(SETUP_WITH, end),
+            StoreAttr { idx } => w!(STORE_ATTR, name = idx),
+            StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
+            SetExcInfo => w!(SET_EXC_INFO),
+            StoreFast(idx) => w!(STORE_FAST, varname = idx),
+            StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
+            StoreLocal(idx) => w!(STORE_LOCAL, name = idx),
+            StoreSubscript => w!(STORE_SUBSCRIPT),
+            Subscript => w!(SUBSCRIPT),
+            Swap { index } => w!(SWAP, index),
+            ToBool => w!(TO_BOOL),
+            UnaryOperation { op } => w!(UNARY_OPERATION, ?op),
+            UnpackEx { args } => w!(UNPACK_EX, args),
+            UnpackSequence { size } => w!(UNPACK_SEQUENCE, size),
+            WithCleanupFinish => w!(WITH_CLEANUP_FINISH),
+            WithCleanupStart => w!(WITH_CLEANUP_START),
+            YieldFrom => w!(YIELD_FROM),
+            YieldValue => w!(YIELD_VALUE),
         }
     }
 }

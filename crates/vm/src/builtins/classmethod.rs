@@ -3,6 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::lock::PyMutex,
+    function::FuncArgs,
     types::{Constructor, GetDescriptor, Initializer, Representable},
 };
 
@@ -56,11 +57,11 @@ impl GetDescriptor for PyClassMethod {
     ) -> PyResult {
         let (zelf, _obj) = Self::_unwrap(&zelf, obj, vm)?;
         let cls = cls.unwrap_or_else(|| _obj.class().to_owned().into());
-        let call_descr_get: PyResult<PyObjectRef> = zelf.callable.lock().get_attr("__get__", vm);
+        // Clone and release lock before calling Python code to prevent deadlock
+        let callable = zelf.callable.lock().clone();
+        let call_descr_get: PyResult<PyObjectRef> = callable.get_attr("__get__", vm);
         match call_descr_get {
-            Err(_) => Ok(PyBoundMethod::new(cls, zelf.callable.lock().clone())
-                .into_ref(&vm.ctx)
-                .into()),
+            Err(_) => Ok(PyBoundMethod::new(cls, callable).into_ref(&vm.ctx).into()),
             Ok(call_descr_get) => call_descr_get.call((cls.clone(), cls), vm),
         }
     }
@@ -69,7 +70,8 @@ impl GetDescriptor for PyClassMethod {
 impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
-    fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let callable: Self::Args = args.bind(vm)?;
         // Create a dictionary to hold copied attributes
         let dict = vm.ctx.new_dict();
 
@@ -99,6 +101,10 @@ impl Constructor for PyClassMethod {
         let result = PyRef::new_ref(classmethod, cls, Some(dict));
         Ok(PyObjectRef::from(result))
     }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unimplemented!("use slot_new")
+    }
 }
 
 impl Initializer for PyClassMethod {
@@ -118,7 +124,7 @@ impl PyClassMethod {
 }
 
 #[pyclass(
-    with(GetDescriptor, Constructor, Representable),
+    with(GetDescriptor, Constructor, Initializer, Representable),
     flags(BASETYPE, HAS_DICT)
 )]
 impl PyClassMethod {

@@ -1,6 +1,6 @@
-use super::{Context, VirtualMachine, setting::Settings, thread};
-use crate::{PyResult, stdlib::atexit, vm::PyBaseExceptionRef};
-use std::sync::atomic::Ordering;
+use super::{Context, PyConfig, VirtualMachine, setting::Settings, thread};
+use crate::{PyResult, getpath, stdlib::atexit, vm::PyBaseExceptionRef};
+use core::sync::atomic::Ordering;
 
 /// The general interface for the VM
 ///
@@ -47,10 +47,14 @@ impl Interpreter {
     where
         F: FnOnce(&mut VirtualMachine),
     {
+        // Compute path configuration from settings
+        let paths = getpath::init_path_config(&settings);
+        let config = PyConfig::new(settings, paths);
+
         let ctx = Context::genesis();
         crate::types::TypeZoo::extend(ctx);
         crate::exceptions::ExceptionZoo::extend(ctx);
-        let mut vm = VirtualMachine::new(settings, ctx.clone());
+        let mut vm = VirtualMachine::new(config, ctx.clone());
         init(&mut vm);
         vm.initialize();
         Self { vm }
@@ -96,7 +100,7 @@ impl Interpreter {
     ///
     /// See [`Interpreter::finalize`] for the finalization steps.
     /// See also [`Interpreter::enter`] for pure function call to obtain Python exception.
-    pub fn run<F>(self, f: F) -> u8
+    pub fn run<F>(self, f: F) -> u32
     where
         F: FnOnce(&VirtualMachine) -> PyResult<()>,
     {
@@ -113,7 +117,7 @@ impl Interpreter {
     /// 1. Mark vm as finalized.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
-    pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u8 {
+    pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
         self.enter(|vm| {
             vm.flush_std();
 

@@ -1,4 +1,5 @@
 import zlib
+
 from testutils import assert_raises
 
 # checksum functions

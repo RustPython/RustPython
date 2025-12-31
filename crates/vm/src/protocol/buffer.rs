@@ -9,10 +9,10 @@ use crate::{
     },
     object::PyObjectPayload,
     sliceable::SequenceIndexOp,
-    types::Unconstructible,
 };
+use alloc::borrow::Cow;
+use core::{fmt::Debug, ops::Range};
 use itertools::Itertools;
-use std::{borrow::Cow, fmt::Debug, ops::Range};
 
 pub struct BufferMethods {
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<'_, [u8]>,
@@ -22,7 +22,7 @@ pub struct BufferMethods {
 }
 
 impl Debug for BufferMethods {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BufferMethods")
             .field("obj_bytes", &(self.obj_bytes as usize))
             .field("obj_bytes_mut", &(self.obj_bytes_mut as usize))
@@ -135,8 +135,8 @@ impl PyBuffer {
     pub(crate) unsafe fn drop_without_release(&mut self) {
         // SAFETY: requirements forwarded from caller
         unsafe {
-            std::ptr::drop_in_place(&mut self.obj);
-            std::ptr::drop_in_place(&mut self.desc);
+            core::ptr::drop_in_place(&mut self.obj);
+            core::ptr::drop_in_place(&mut self.desc);
         }
     }
 }
@@ -144,8 +144,7 @@ impl PyBuffer {
 impl<'a> TryFromBorrowedObject<'a> for PyBuffer {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         let cls = obj.class();
-        let as_buffer = cls.mro_find_map(|cls| cls.slots.as_buffer);
-        if let Some(f) = as_buffer {
+        if let Some(f) = cls.slots.as_buffer {
             return f(obj, vm);
         }
         Err(vm.new_type_error(format!(
@@ -202,15 +201,26 @@ impl BufferDescriptor {
 
     #[cfg(debug_assertions)]
     pub fn validate(self) -> Self {
-        assert!(self.itemsize != 0);
-        assert!(self.ndim() != 0);
-        let mut shape_product = 1;
-        for (shape, stride, suboffset) in self.dim_desc.iter().cloned() {
-            shape_product *= shape;
-            assert!(suboffset >= 0);
-            assert!(stride != 0);
+        // ndim=0 is valid for scalar types (e.g., ctypes Structure)
+        if self.ndim() == 0 {
+            // Empty structures (len=0) can have itemsize=0
+            if self.len > 0 {
+                assert!(self.itemsize != 0);
+            }
+            assert!(self.itemsize == self.len);
+        } else {
+            let mut shape_product = 1;
+            let has_zero_dim = self.dim_desc.iter().any(|(s, _, _)| *s == 0);
+            for (shape, stride, suboffset) in self.dim_desc.iter().cloned() {
+                shape_product *= shape;
+                assert!(suboffset >= 0);
+                // For empty arrays (any dimension is 0), strides can be 0
+                if !has_zero_dim {
+                    assert!(stride != 0);
+                }
+            }
+            assert!(shape_product * self.itemsize == self.len);
         }
-        assert!(shape_product * self.itemsize == self.len);
         self
     }
 
@@ -402,10 +412,10 @@ pub struct VecBuffer {
     data: PyMutex<Vec<u8>>,
 }
 
-#[pyclass(flags(BASETYPE), with(Unconstructible))]
+#[pyclass(flags(BASETYPE, DISALLOW_INSTANTIATION))]
 impl VecBuffer {
     pub fn take(&self) -> Vec<u8> {
-        std::mem::take(&mut self.data.lock())
+        core::mem::take(&mut self.data.lock())
     }
 }
 
@@ -416,8 +426,6 @@ impl From<Vec<u8>> for VecBuffer {
         }
     }
 }
-
-impl Unconstructible for VecBuffer {}
 
 impl PyRef<VecBuffer> {
     pub fn into_pybuffer(self, readonly: bool) -> PyBuffer {

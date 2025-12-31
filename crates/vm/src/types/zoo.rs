@@ -21,6 +21,7 @@ pub struct TypeZoo {
     pub async_generator_asend: &'static Py<PyType>,
     pub async_generator_athrow: &'static Py<PyType>,
     pub async_generator_wrapped_value: &'static Py<PyType>,
+    pub anext_awaitable: &'static Py<PyType>,
     pub bytes_type: &'static Py<PyType>,
     pub bytes_iterator_type: &'static Py<PyType>,
     pub bytearray_type: &'static Py<PyType>,
@@ -93,6 +94,8 @@ pub struct TypeZoo {
     pub generic_alias_type: &'static Py<PyType>,
     pub union_type: &'static Py<PyType>,
     pub member_descriptor_type: &'static Py<PyType>,
+    pub wrapper_descriptor_type: &'static Py<PyType>,
+    pub method_wrapper_type: &'static Py<PyType>,
 
     // RustPython-original types
     pub method_def: &'static Py<PyType>,
@@ -139,6 +142,7 @@ impl TypeZoo {
             async_generator_athrow: asyncgenerator::PyAsyncGenAThrow::init_builtin_type(),
             async_generator_wrapped_value:
                 asyncgenerator::PyAsyncGenWrappedValue::init_builtin_type(),
+            anext_awaitable: asyncgenerator::PyAnextAwaitable::init_builtin_type(),
             bound_method_type: function::PyBoundMethod::init_builtin_type(),
             builtin_function_or_method_type: builtin_func::PyNativeFunction::init_builtin_type(),
             builtin_method_type: builtin_func::PyNativeMethod::init_builtin_type(),
@@ -185,6 +189,8 @@ impl TypeZoo {
             generic_alias_type: genericalias::PyGenericAlias::init_builtin_type(),
             union_type: union_::PyUnion::init_builtin_type(),
             member_descriptor_type: descriptor::PyMemberDescriptor::init_builtin_type(),
+            wrapper_descriptor_type: descriptor::PyWrapper::init_builtin_type(),
+            method_wrapper_type: descriptor::PyMethodWrapper::init_builtin_type(),
 
             method_def: crate::function::HeapMethodDef::init_builtin_type(),
         }
@@ -193,8 +199,10 @@ impl TypeZoo {
     /// Fill attributes of builtin types.
     #[cold]
     pub(crate) fn extend(context: &Context) {
-        type_::init(context);
+        // object must be initialized before type to set object.slots.init,
+        // which type will inherit via inherit_slots()
         object::init(context);
+        type_::init(context);
         list::init(context);
         set::init(context);
         tuple::init(context);
@@ -236,5 +244,6 @@ impl TypeZoo {
         genericalias::init(context);
         union_::init(context);
         descriptor::init(context);
+        crate::stdlib::typing::init(context);
     }
 }

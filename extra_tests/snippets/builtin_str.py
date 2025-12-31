@@ -1,4 +1,4 @@
-from testutils import assert_raises, AssertRaises, skip_if_unsupported
+from testutils import AssertRaises, assert_raises, skip_if_unsupported
 
 assert "".__eq__(1) == NotImplemented
 assert "a" == "a"

@@ -7,7 +7,7 @@ use crate::{
     builtins::type_::PointerSlot,
     class::PyClassImpl,
     function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
-    types::{GetDescriptor, Unconstructible},
+    types::{GetDescriptor, Representable},
 };
 
 #[pyclass(module = false, name = "getset_descriptor")]
@@ -19,8 +19,8 @@ pub struct PyGetSet {
     // doc: Option<String>,
 }
 
-impl std::fmt::Debug for PyGetSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyGetSet {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "PyGetSet {{ name: {}, getter: {}, setter: {} }}",
@@ -96,7 +96,7 @@ impl PyGetSet {
     }
 }
 
-#[pyclass(with(GetDescriptor, Unconstructible))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(GetDescriptor, Representable))]
 impl PyGetSet {
     // Descriptor methods
 
@@ -152,7 +152,23 @@ impl PyGetSet {
         Ok(unsafe { zelf.class.borrow_static() }.to_owned().into())
     }
 }
-impl Unconstructible for PyGetSet {}
+
+impl Representable for PyGetSet {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let class = unsafe { zelf.class.borrow_static() };
+        // Special case for object type
+        if core::ptr::eq(class, vm.ctx.types.object_type) {
+            Ok(format!("<attribute '{}'>", zelf.name))
+        } else {
+            Ok(format!(
+                "<attribute '{}' of '{}' objects>",
+                zelf.name,
+                class.name()
+            ))
+        }
+    }
+}
 
 pub(crate) fn init(context: &Context) {
     PyGetSet::extend_class(context, context.types.getset_type);

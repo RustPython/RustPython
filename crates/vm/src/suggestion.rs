@@ -2,19 +2,19 @@
 //! This is used during tracebacks.
 
 use crate::{
-    AsObject, Py, PyObjectRef, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, VirtualMachine,
     builtins::{PyStr, PyStrRef},
-    exceptions::types::PyBaseExceptionRef,
+    exceptions::types::PyBaseException,
     sliceable::SliceableSequenceOp,
 };
+use core::iter::ExactSizeIterator;
 use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
-use std::iter::ExactSizeIterator;
 
 const MAX_CANDIDATE_ITEMS: usize = 750;
 
 pub fn calculate_suggestions<'a>(
     dir_iter: impl ExactSizeIterator<Item = &'a PyObjectRef>,
-    name: &PyObjectRef,
+    name: &PyObject,
 ) -> Option<PyStrRef> {
     if dir_iter.len() >= MAX_CANDIDATE_ITEMS {
         return None;
@@ -47,7 +47,7 @@ pub fn calculate_suggestions<'a>(
     suggestion.map(|r| r.to_owned())
 }
 
-pub fn offer_suggestions(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Option<PyStrRef> {
+pub fn offer_suggestions(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Option<PyStrRef> {
     if exc.class().is(vm.ctx.exceptions.attribute_error) {
         let name = exc.as_object().get_attr("name", vm).unwrap();
         let obj = exc.as_object().get_attr("obj", vm).unwrap();

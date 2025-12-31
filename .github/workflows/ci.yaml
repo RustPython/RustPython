@@ -18,17 +18,18 @@ concurrency:
 env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls
   CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite
+  # Crates excluded from workspace builds:
+  # - rustpython_wasm: requires wasm target
+  # - rustpython-compiler-source: deprecated
+  # - rustpython-venvlauncher: Windows-only
+  WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
   # test_glob: many failing tests
-  # test_io: many failing tests
-  # test_os: many failing tests
-  # test_pathlib: support.rmtree() failing
+  # test_pathlib: panic by surrogate chars
   # test_posixpath: OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
   # test_venv: couple of failing tests
   WINDOWS_SKIPS: >-
     test_glob
-    test_io
-    test_os
     test_rlcompleter
     test_pathlib
     test_posixpath
@@ -114,41 +115,55 @@ jobs:
       RUST_BACKTRACE: full
     name: Run rust tests
     runs-on:  ${{ matrix.os }}
-    timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 35 }}
+    timeout-minutes: 45
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Set up the Windows environment
-        shell: bash
-        run: |
-          git config --system core.longpaths true
-          cargo install --target-dir=target -v cargo-vcpkg
-          cargo vcpkg -v build
-        if: runner.os == 'Windows'
+      # Only for OpenSSL builds
+      # - name: Set up the Windows environment
+      #   shell: bash
+      #   run: |
+      #     git config --system core.longpaths true
+      #     cargo install --target-dir=target -v cargo-vcpkg
+      #     cargo vcpkg -v build
+      #   if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
 
       - name: run clippy
-        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets --exclude rustpython_wasm --exclude rustpython-compiler-source -- -Dwarnings
+        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --verbose --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os != 'macOS'
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --exclude rustpython-compiler-source --verbose --features threading  ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --exclude rustpython-jit --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
 
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
+
+      - name: Test openssl build
+        run:
+          cargo build --no-default-features --features ssl-openssl
+        if: runner.os == 'Linux'
+
+      # - name: Install tk-dev for tkinter build
+      #   run: sudo apt-get update && sudo apt-get install -y tk-dev
+      #   if: runner.os == 'Linux'
+
+      # - name: Test tkinter build
+      #   run: cargo build --features tkinter
+      #   if: runner.os == 'Linux'
 
       - name: Test example projects
         run:
@@ -156,13 +171,13 @@ jobs:
           cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
         if: runner.os == 'Linux'
 
-      - name: prepare AppleSilicon build
+      - name: prepare Intel MacOS build
         uses: dtolnay/rust-toolchain@stable
         with:
-          target: aarch64-apple-darwin
+          target: x86_64-apple-darwin
         if: runner.os == 'macOS'
-      - name: Check compilation for Apple Silicon
-        run: cargo check --target aarch64-apple-darwin
+      - name: Check compilation for Intel MacOS
+        run: cargo check --target x86_64-apple-darwin
         if: runner.os == 'macOS'
       - name: prepare iOS build
         uses: dtolnay/rust-toolchain@stable
@@ -179,7 +194,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-gnu
@@ -240,25 +255,25 @@ jobs:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
     runs-on:  ${{ matrix.os }}
-    timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 35 }}
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Set up the Windows environment
-        shell: bash
-        run: |
-          git config --system core.longpaths true
-          cargo install cargo-vcpkg
-          cargo vcpkg build
-        if: runner.os == 'Windows'
+      # Only for OpenSSL builds
+      # - name: Set up the Windows environment
+      #   shell: bash
+      #   run: |
+      #     git config --system core.longpaths true
+      #     cargo install cargo-vcpkg
+      #     cargo vcpkg build
+      #   if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
@@ -268,34 +283,42 @@ jobs:
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }},jit
         if: runner.os != 'macOS'
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
         working-directory: ./extra_tests
+
       - if: runner.os == 'Linux'
         name: run cpython platform-independent tests
         run:
           target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        timeout-minutes: 35
+
       - if: runner.os == 'Linux'
         name: run cpython platform-dependent tests (Linux)
         run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        timeout-minutes: 35
+
       - if: runner.os == 'macOS'
         name: run cpython platform-dependent tests (MacOS)
         run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        timeout-minutes: 35
+
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
           target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
+        timeout-minutes: 45
+
       - if: runner.os != 'Windows'
         name: check that --install-pip succeeds
         run: |
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
           target/release/rustpython -m pip install six
-      - if: runner.os != 'Windows'
-        name: Check that ensurepip succeeds.
+      - name: Check that ensurepip succeeds.
         run: |
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
@@ -311,25 +334,29 @@ jobs:
     name: Check Rust code with clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
             components: clippy
       - name: run clippy on wasm
         run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: install ruff
-        run: python -m pip install ruff==0.11.8
+
       - name: Ensure docs generate no warnings
         run: cargo doc
-      - name: run ruff check
-        run: ruff check --diff
-      - name: run ruff format
-        run: ruff format --check
+
+      - name: Install ruff
+        uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
+        with:
+          version: "0.14.9"
+          args: "--version"
+
+      - run: ruff check --diff
+
+      - run: ruff format --check
+
       - name: install prettier
         run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
+
       - name: check wasm code with prettier
         # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
         run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
@@ -350,7 +377,7 @@ jobs:
     env:
       NIGHTLY_CHANNEL: nightly
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -372,7 +399,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -383,7 +410,7 @@ jobs:
           wget https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz
           mkdir geckodriver
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install -r requirements.txt
@@ -435,7 +462,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasip1

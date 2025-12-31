@@ -22,11 +22,14 @@ mod cert;
 // OpenSSL compatibility layer (abstracts rustls operations)
 mod compat;
 
+// SSL exception types (shared with openssl backend)
+mod error;
+
 pub(crate) use _ssl::make_module;
 
 #[allow(non_snake_case)]
 #[allow(non_upper_case_globals)]
-#[pymodule]
+#[pymodule(with(error::ssl_error))]
 mod _ssl {
     use crate::{
         common::{
@@ -37,22 +40,24 @@ mod _ssl {
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyTypeRef},
+            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef},
             convert::IntoPyException,
-            function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, PyComparisonValue},
+            function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, PyComparisonValue},
             stdlib::warnings,
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
         },
     };
-    use std::{
-        collections::HashMap,
-        io::Write,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-        time::{Duration, SystemTime},
+
+    // Import error types used in this module (others are exposed via pymodule(with(...)))
+    use super::error::{
+        PySSLEOFError, PySSLError, create_ssl_want_read_error, create_ssl_want_write_error,
     };
+    use alloc::sync::Arc;
+    use core::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
+    use std::{collections::HashMap, time::SystemTime};
 
     // Rustls imports
     use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
@@ -200,28 +205,6 @@ mod _ssl {
     #[pyattr]
     const OP_ALL: i32 = 0x00000BFB; // Combined "safe" options (reduced for i32, excluding OP_LEGACY_SERVER_CONNECT for OpenSSL 3.0.0+ compatibility)
 
-    // Error types
-    #[pyattr]
-    const SSL_ERROR_NONE: i32 = 0;
-    #[pyattr]
-    const SSL_ERROR_SSL: i32 = 1;
-    #[pyattr]
-    const SSL_ERROR_WANT_READ: i32 = 2;
-    #[pyattr]
-    const SSL_ERROR_WANT_WRITE: i32 = 3;
-    #[pyattr]
-    const SSL_ERROR_WANT_X509_LOOKUP: i32 = 4;
-    #[pyattr]
-    const SSL_ERROR_SYSCALL: i32 = 5;
-    #[pyattr]
-    const SSL_ERROR_ZERO_RETURN: i32 = 6;
-    #[pyattr]
-    const SSL_ERROR_WANT_CONNECT: i32 = 7;
-    #[pyattr]
-    const SSL_ERROR_EOF: i32 = 8;
-    #[pyattr]
-    const SSL_ERROR_INVALID_ERROR_CODE: i32 = 10;
-
     // Alert types (matching _TLSAlertType enum)
     #[pyattr]
     const ALERT_DESCRIPTION_CLOSE_NOTIFY: i32 = 0;
@@ -341,125 +324,6 @@ mod _ssl {
     #[pyattr]
     const ENCODING_PEM_AUX: i32 = 0x101; // PEM + 0x100
 
-    // Exception types
-    use rustpython_vm::builtins::PyOSError;
-
-    #[pyattr]
-    #[pyexception(name = "SSLError", base = PyOSError)]
-    #[derive(Debug)]
-    pub struct PySSLError {}
-
-    #[pyexception]
-    impl PySSLError {
-        // Returns strerror attribute if available, otherwise str(args)
-        #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            // Try to get strerror attribute first (OSError compatibility)
-            if let Ok(strerror) = exc.as_object().get_attr("strerror", vm)
-                && !vm.is_none(&strerror)
-            {
-                return strerror.str(vm);
-            }
-
-            // Otherwise return str(args)
-            let args = exc.args();
-            if args.len() == 1 {
-                args.as_slice()[0].str(vm)
-            } else {
-                args.as_object().str(vm)
-            }
-        }
-    }
-
-    #[pyattr]
-    #[pyexception(name = "SSLZeroReturnError", base = PySSLError)]
-    #[derive(Debug)]
-    pub struct PySSLZeroReturnError {}
-
-    #[pyexception]
-    impl PySSLZeroReturnError {}
-
-    #[pyattr]
-    #[pyexception(name = "SSLWantReadError", base = PySSLError)]
-    #[derive(Debug)]
-    pub struct PySSLWantReadError {}
-
-    #[pyexception]
-    impl PySSLWantReadError {}
-
-    #[pyattr]
-    #[pyexception(name = "SSLWantWriteError", base = PySSLError)]
-    #[derive(Debug)]
-    pub struct PySSLWantWriteError {}
-
-    #[pyexception]
-    impl PySSLWantWriteError {}
-
-    #[pyattr]
-    #[pyexception(name = "SSLSyscallError", base = PySSLError)]
-    #[derive(Debug)]
-    pub struct PySSLSyscallError {}
-
-    #[pyexception]
-    impl PySSLSyscallError {}
-
-    #[pyattr]
-    #[pyexception(name = "SSLEOFError", base = PySSLError)]
-    #[derive(Debug)]
-    pub struct PySSLEOFError {}
-
-    #[pyexception]
-    impl PySSLEOFError {}
-
-    #[pyattr]
-    #[pyexception(name = "SSLCertVerificationError", base = PySSLError)]
-    #[derive(Debug)]
-    pub struct PySSLCertVerificationError {}
-
-    #[pyexception]
-    impl PySSLCertVerificationError {}
-
-    // Helper functions to create SSL exceptions with proper errno attribute
-    pub(super) fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        // args = (errno, message)
-        vm.new_exception(
-            PySSLWantReadError::class(&vm.ctx).to_owned(),
-            vec![
-                vm.ctx.new_int(SSL_ERROR_WANT_READ).into(),
-                vm.ctx
-                    .new_str("The operation did not complete (read)")
-                    .into(),
-            ],
-        )
-    }
-
-    pub(super) fn create_ssl_want_write_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        // args = (errno, message)
-        vm.new_exception(
-            PySSLWantWriteError::class(&vm.ctx).to_owned(),
-            vec![
-                vm.ctx.new_int(SSL_ERROR_WANT_WRITE).into(),
-                vm.ctx
-                    .new_str("The operation did not complete (write)")
-                    .into(),
-            ],
-        )
-    }
-
-    pub(crate) fn create_ssl_eof_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception_msg(
-            PySSLEOFError::class(&vm.ctx).to_owned(),
-            "EOF occurred in violation of protocol".to_owned(),
-        )
-    }
-
-    pub(crate) fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception_msg(
-            PySSLZeroReturnError::class(&vm.ctx).to_owned(),
-            "TLS/SSL connection has been closed (EOF)".to_owned(),
-        )
-    }
-
     /// Validate server hostname for TLS SNI
     ///
     /// Checks that the hostname:
@@ -479,9 +343,8 @@ mod _ssl {
             return Err(vm.new_value_error("server_hostname cannot start with a dot"));
         }
 
-        if hostname.parse::<std::net::IpAddr>().is_ok() {
-            return Err(vm.new_value_error("server_hostname cannot be an IP address"));
-        }
+        // IP addresses are allowed as server_hostname
+        // SNI will not be sent for IP addresses
 
         if hostname.contains('\0') {
             return Err(vm.new_type_error("embedded null character"));
@@ -976,6 +839,12 @@ mod _ssl {
         password: OptionalArg<PyObjectRef>,
     }
 
+    #[derive(FromArgs)]
+    struct GetCertArgs {
+        #[pyarg(any, optional)]
+        binary_form: OptionalArg<bool>,
+    }
+
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PySSLContext {
         // Helper method to convert DER certificate bytes to Python dict
@@ -1252,35 +1121,50 @@ mod _ssl {
                             let msg = io_err.to_string();
                             if msg.contains("Failed to decrypt") || msg.contains("wrong password") {
                                 // Wrong password error
-                                vm.new_exception_msg(PySSLError::class(&vm.ctx).to_owned(), msg)
+                                vm.new_os_subtype_error(
+                                    PySSLError::class(&vm.ctx).to_owned(),
+                                    None,
+                                    msg,
+                                )
+                                .upcast()
                             } else {
                                 // [SSL] PEM lib
                                 super::compat::SslError::create_ssl_error_with_reason(
-                                    vm, "SSL", "", "PEM lib",
+                                    vm,
+                                    Some("SSL"),
+                                    "",
+                                    "PEM lib",
                                 )
                             }
                         }
                         // PEM parsing errors - [SSL] PEM lib
                         _ => super::compat::SslError::create_ssl_error_with_reason(
-                            vm, "SSL", "", "PEM lib",
+                            vm,
+                            Some("SSL"),
+                            "",
+                            "PEM lib",
                         ),
                     }
                 } else {
                     // Unknown error type - [SSL] PEM lib
-                    super::compat::SslError::create_ssl_error_with_reason(vm, "SSL", "", "PEM lib")
+                    super::compat::SslError::create_ssl_error_with_reason(
+                        vm,
+                        Some("SSL"),
+                        "",
+                        "PEM lib",
+                    )
                 }
             })?;
 
             // Validate certificate and key match
             cert::validate_cert_key_match(&certs, &key).map_err(|e| {
-                vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    if e.contains("key values mismatch") {
-                        "[SSL: KEY_VALUES_MISMATCH] key values mismatch".to_owned()
-                    } else {
-                        e
-                    },
-                )
+                let msg = if e.contains("key values mismatch") {
+                    "[SSL: KEY_VALUES_MISMATCH] key values mismatch".to_owned()
+                } else {
+                    e
+                };
+                vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), Some(0), msg)
+                    .upcast()
             })?;
 
             // Auto-build certificate chain: if only leaf cert is in file, try to add CA certs
@@ -1302,18 +1186,23 @@ mod _ssl {
             // Additional validation: Create CertifiedKey to ensure rustls accepts it
             let signing_key =
                 rustls::crypto::aws_lc_rs::sign::any_supported_type(&key).map_err(|_| {
-                    vm.new_exception_msg(
+                    vm.new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
-                        "[SSL: KEY_VALUES_MISMATCH] key values mismatch".to_owned(),
+                        None,
+                        "[SSL: KEY_VALUES_MISMATCH] key values mismatch",
                     )
+                    .upcast()
                 })?;
 
             let certified_key = CertifiedKey::new(full_chain.clone(), signing_key);
             if certified_key.keys_match().is_err() {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "[SSL: KEY_VALUES_MISMATCH] key values mismatch".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "[SSL: KEY_VALUES_MISMATCH] key values mismatch",
+                    )
+                    .upcast());
             }
 
             // Add cert/key pair to collection (OpenSSL allows multiple cert/key pairs)
@@ -1348,47 +1237,69 @@ mod _ssl {
                 );
             }
 
-            // Get mutable references to store and ca_certs_der
+            // Parse arguments BEFORE acquiring locks to reduce lock scope
+            let cafile_path = if let OptionalArg::Present(Some(ref cafile_obj)) = args.cafile {
+                Some(Self::parse_path_arg(cafile_obj, vm)?)
+            } else {
+                None
+            };
+
+            let capath_dir = if let OptionalArg::Present(Some(ref capath_obj)) = args.capath {
+                Some(Self::parse_path_arg(capath_obj, vm)?)
+            } else {
+                None
+            };
+
+            let cadata_parsed = if let OptionalArg::Present(ref cadata_obj) = args.cadata
+                && !vm.is_none(cadata_obj)
+            {
+                let is_string = PyStrRef::try_from_object(vm, cadata_obj.clone()).is_ok();
+                let data_vec = self.parse_cadata_arg(cadata_obj, vm)?;
+                Some((data_vec, is_string))
+            } else {
+                None
+            };
+
+            // Check for CRL before acquiring main locks
+            let (crl_opt, cafile_is_crl) = if let Some(ref path) = cafile_path {
+                let crl = self.load_crl_from_file(path, vm)?;
+                let is_crl = crl.is_some();
+                (crl, is_crl)
+            } else {
+                (None, false)
+            };
+
+            // If it's a CRL, just add it (separate lock, no conflict with root_store)
+            if let Some(crl) = crl_opt {
+                self.crls.write().push(crl);
+            }
+
+            // Now acquire write locks for certificate loading
             let mut root_store = self.root_certs.write();
             let mut ca_certs_der = self.ca_certs_der.write();
 
-            // Load from file
-            if let OptionalArg::Present(Some(ref cafile_obj)) = args.cafile {
-                let path = Self::parse_path_arg(cafile_obj, vm)?;
-
-                // Try to load as CRL first
-                if let Some(crl) = self.load_crl_from_file(&path, vm)? {
-                    self.crls.write().push(crl);
-                } else {
-                    // Not a CRL, load as certificate
-                    let stats = self.load_certs_from_file_helper(
-                        &mut root_store,
-                        &mut ca_certs_der,
-                        &path,
-                        vm,
-                    )?;
-                    self.update_cert_stats(stats);
-                }
+            // Load from file (if not CRL)
+            if let Some(ref path) = cafile_path
+                && !cafile_is_crl
+            {
+                // Not a CRL, load as certificate
+                let stats =
+                    self.load_certs_from_file_helper(&mut root_store, &mut ca_certs_der, path, vm)?;
+                self.update_cert_stats(stats);
             }
 
             // Load from directory (don't add to ca_certs_der)
-            if let OptionalArg::Present(Some(ref capath_obj)) = args.capath {
-                let dir_path = Self::parse_path_arg(capath_obj, vm)?;
-                let stats = self.load_certs_from_dir_helper(&mut root_store, &dir_path, vm)?;
+            if let Some(ref dir_path) = capath_dir {
+                let stats = self.load_certs_from_dir_helper(&mut root_store, dir_path, vm)?;
                 self.update_cert_stats(stats);
             }
 
             // Load from bytes or str
-            if let OptionalArg::Present(cadata_obj) = args.cadata
-                && !vm.is_none(&cadata_obj)
-            {
-                // Check if input is string or bytes
-                let is_string = PyStrRef::try_from_object(vm, cadata_obj.clone()).is_ok();
-                let data_vec = self.parse_cadata_arg(&cadata_obj, vm)?;
+            if let Some((ref data_vec, is_string)) = cadata_parsed {
                 let stats = self.load_certs_from_bytes_helper(
                     &mut root_store,
                     &mut ca_certs_der,
-                    &data_vec,
+                    data_vec,
                     is_string, // PEM only for strings
                     vm,
                 )?;
@@ -1400,7 +1311,7 @@ mod _ssl {
 
         /// Helper: Get path from Python's os.environ
         fn get_env_path(
-            environ: &PyObjectRef,
+            environ: &PyObject,
             var_name: &str,
             vm: &VirtualMachine,
         ) -> PyResult<String> {
@@ -1452,35 +1363,72 @@ mod _ssl {
         /// This uses platform-specific methods:
         /// - Linux: openssl-probe to find certificate files
         /// - macOS: Keychain API
-        /// - Windows: System certificate store
+        /// - Windows: System certificate store (ROOT + CA stores)
         fn load_system_certificates(
             &self,
             store: &mut rustls::RootCertStore,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let result = rustls_native_certs::load_native_certs();
+            #[cfg(windows)]
+            {
+                // Windows: Use schannel to load from both ROOT and CA stores
+                use schannel::cert_store::CertStore;
 
-            // Load successfully found certificates
-            for cert in result.certs {
-                let is_ca = cert::is_ca_certificate(cert.as_ref());
-                if store.add(cert).is_ok() {
-                    *self.x509_cert_count.write() += 1;
-                    if is_ca {
-                        *self.ca_cert_count.write() += 1;
+                let store_names = ["ROOT", "CA"];
+                let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
+
+                for store_name in store_names {
+                    for open_fn in &open_fns {
+                        if let Ok(cert_store) = open_fn(store_name) {
+                            for cert_ctx in cert_store.certs() {
+                                let der_bytes = cert_ctx.to_der();
+                                let cert =
+                                    rustls::pki_types::CertificateDer::from(der_bytes.to_vec());
+                                let is_ca = cert::is_ca_certificate(cert.as_ref());
+                                if store.add(cert).is_ok() {
+                                    *self.x509_cert_count.write() += 1;
+                                    if is_ca {
+                                        *self.ca_cert_count.write() += 1;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+
+                if *self.x509_cert_count.read() == 0 {
+                    return Err(vm.new_os_error("Failed to load certificates from Windows store"));
+                }
+
+                Ok(())
             }
 
-            // If there were errors but some certs loaded, just continue
-            // If NO certs loaded and there were errors, report the first error
-            if *self.x509_cert_count.read() == 0 && !result.errors.is_empty() {
-                return Err(vm.new_os_error(format!(
-                    "Failed to load native certificates: {}",
-                    result.errors[0]
-                )));
-            }
+            #[cfg(not(windows))]
+            {
+                let result = rustls_native_certs::load_native_certs();
 
-            Ok(())
+                // Load successfully found certificates
+                for cert in result.certs {
+                    let is_ca = cert::is_ca_certificate(cert.as_ref());
+                    if store.add(cert).is_ok() {
+                        *self.x509_cert_count.write() += 1;
+                        if is_ca {
+                            *self.ca_cert_count.write() += 1;
+                        }
+                    }
+                }
+
+                // If there were errors but some certs loaded, just continue
+                // If NO certs loaded and there were errors, report the first error
+                if *self.x509_cert_count.read() == 0 && !result.errors.is_empty() {
+                    return Err(vm.new_os_error(format!(
+                        "Failed to load native certificates: {}",
+                        result.errors[0]
+                    )));
+                }
+
+                Ok(())
+            }
         }
 
         #[pymethod]
@@ -1491,17 +1439,28 @@ mod _ssl {
         ) -> PyResult<()> {
             let mut store = self.root_certs.write();
 
-            // Create loader (without ca_certs_der - default certs don't go to get_ca_certs())
-            let mut lazy_ca_certs = Vec::new();
-            let mut loader = cert::CertLoader::new(&mut store, &mut lazy_ca_certs);
-
-            // Try Python os.environ first (allows runtime env changes)
-            // This checks SSL_CERT_FILE and SSL_CERT_DIR from Python's os.environ
-            let loaded = self.try_load_from_python_environ(&mut loader, vm)?;
-
-            // Fallback to system certificates if environment variables didn't provide any
-            if !loaded {
+            #[cfg(windows)]
+            {
+                // Windows: Load system certificates first, then additionally load from env
+                // see: test_load_default_certs_env_windows
                 let _ = self.load_system_certificates(&mut store, vm);
+
+                let mut lazy_ca_certs = Vec::new();
+                let mut loader = cert::CertLoader::new(&mut store, &mut lazy_ca_certs);
+                let _ = self.try_load_from_python_environ(&mut loader, vm)?;
+            }
+
+            #[cfg(not(windows))]
+            {
+                // Non-Windows: Try env vars first; only fallback to system certs if not set
+                // see: test_load_default_certs_env
+                let mut lazy_ca_certs = Vec::new();
+                let mut loader = cert::CertLoader::new(&mut store, &mut lazy_ca_certs);
+                let loaded = self.try_load_from_python_environ(&mut loader, vm)?;
+
+                if !loaded {
+                    let _ = self.load_system_certificates(&mut store, vm);
+                }
             }
 
             // If no certificates were loaded from system, fallback to webpki-roots (Mozilla CA bundle)
@@ -1545,8 +1504,10 @@ mod _ssl {
             let cipher_str = ciphers.as_str();
 
             // Parse cipher string and store selected ciphers
-            let selected_ciphers = parse_cipher_string(cipher_str)
-                .map_err(|e| vm.new_exception_msg(PySSLError::class(&vm.ctx).to_owned(), e))?;
+            let selected_ciphers = parse_cipher_string(cipher_str).map_err(|e| {
+                vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), None, e)
+                    .upcast()
+            })?;
 
             // Store in context
             *self.selected_ciphers.write() = Some(selected_ciphers);
@@ -1731,12 +1692,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ca_certs(
-            &self,
-            binary_form: OptionalArg<bool>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyListRef> {
-            let binary_form = binary_form.unwrap_or(false);
+        fn get_ca_certs(&self, args: GetCertArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            let binary_form = args.binary_form.unwrap_or(false);
             let ca_certs_der = self.ca_certs_der.read();
 
             let mut certs = Vec::new();
@@ -1794,16 +1751,17 @@ mod _ssl {
 
             // Check if file exists
             if !std::path::Path::new(&path_str).exists() {
-                // Create FileNotFoundError with errno=ENOENT (2) using args
-                let exc = vm.new_exception(
+                // Create FileNotFoundError with errno=ENOENT (2)
+                let exc = vm.new_os_subtype_error(
                     vm.ctx.exceptions.file_not_found_error.to_owned(),
-                    vec![
-                        vm.ctx.new_int(2).into(), // errno = ENOENT (2)
-                        vm.ctx.new_str("No such file or directory").into(),
-                        vm.ctx.new_str(path_str.clone()).into(), // filename
-                    ],
+                    Some(2), // errno = ENOENT (2)
+                    "No such file or directory",
                 );
-                return Err(exc);
+                // Set filename attribute
+                let _ = exc
+                    .as_object()
+                    .set_attr("filename", vm.ctx.new_str(path_str.clone()), vm);
+                return Err(exc.upcast());
             }
 
             // Validate that the file contains DH parameters
@@ -1818,7 +1776,7 @@ mod _ssl {
                 // [PEM: NO_START_LINE] no start line
                 return Err(super::compat::SslError::create_ssl_error_with_reason(
                     vm,
-                    "PEM",
+                    Some("PEM"),
                     "NO_START_LINE",
                     "[PEM: NO_START_LINE] no start line",
                 ));
@@ -1892,10 +1850,8 @@ mod _ssl {
                         return Err(vm.new_value_error("server_hostname cannot start with a dot"));
                     }
 
-                    // Check if it's a bare IP address (not allowed for SNI)
-                    if hostname.parse::<std::net::IpAddr>().is_ok() {
-                        return Err(vm.new_value_error("server_hostname cannot be an IP address"));
-                    }
+                    // IP addresses are allowed
+                    // SNI will not be sent for IP addresses
 
                     // Check for NULL bytes
                     if hostname.contains('\0') {
@@ -1909,16 +1865,22 @@ mod _ssl {
 
             // Validate socket type and context protocol
             if args.server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context",
+                    )
+                    .upcast());
             }
             if !args.server_side && zelf.protocol == PROTOCOL_TLS_SERVER {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "Cannot create a client socket with a PROTOCOL_TLS_SERVER context".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "Cannot create a client socket with a PROTOCOL_TLS_SERVER context",
+                    )
+                    .upcast());
             }
 
             // Create _SSLSocket instance
@@ -1973,16 +1935,22 @@ mod _ssl {
 
             // Validate socket type and context protocol
             if server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context",
+                    )
+                    .upcast());
             }
             if !server_side && zelf.protocol == PROTOCOL_TLS_SERVER {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "Cannot create a client socket with a PROTOCOL_TLS_SERVER context".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "Cannot create a client socket with a PROTOCOL_TLS_SERVER context",
+                    )
+                    .upcast());
             }
 
             // Create _SSLSocket instance with BIO mode
@@ -2017,10 +1985,10 @@ mod _ssl {
         // Helper functions (private):
 
         /// Parse path argument (str or bytes) to string
-        fn parse_path_arg(arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            if let Ok(s) = PyStrRef::try_from_object(vm, arg.clone()) {
+        fn parse_path_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
+            if let Ok(s) = PyStrRef::try_from_object(vm, arg.to_owned()) {
                 Ok(s.as_str().to_owned())
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.clone()) {
+            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.to_owned()) {
                 String::from_utf8(b.borrow_buf().to_vec())
                     .map_err(|_| vm.new_value_error("path contains invalid UTF-8".to_owned()))
             } else {
@@ -2081,7 +2049,10 @@ mod _ssl {
                     }
                     // PEM parsing errors
                     _ => super::compat::SslError::create_ssl_error_with_reason(
-                        vm, "X509", "", "PEM lib",
+                        vm,
+                        Some("X509"),
+                        "",
+                        "PEM lib",
                     ),
                 }
             })
@@ -2127,20 +2098,26 @@ mod _ssl {
                     // Preserve specific error messages from cert.rs
                     let err_msg = e.to_string();
                     if err_msg.contains("no start line") {
-                        // no start line: cadata does not contain a certificate
-                        vm.new_exception_msg(
+                        vm.new_os_subtype_error(
                             PySSLError::class(&vm.ctx).to_owned(),
-                            "no start line: cadata does not contain a certificate".to_string(),
+                            None,
+                            "no start line: cadata does not contain a certificate",
                         )
+                        .upcast()
                     } else if err_msg.contains("not enough data") {
-                        // not enough data: cadata does not contain a certificate
-                        vm.new_exception_msg(
+                        vm.new_os_subtype_error(
                             PySSLError::class(&vm.ctx).to_owned(),
-                            "not enough data: cadata does not contain a certificate".to_string(),
+                            None,
+                            "not enough data: cadata does not contain a certificate",
                         )
+                        .upcast()
                     } else {
-                        // Generic PEM error
-                        vm.new_exception_msg(PySSLError::class(&vm.ctx).to_owned(), err_msg)
+                        vm.new_os_subtype_error(
+                            PySSLError::class(&vm.ctx).to_owned(),
+                            None,
+                            err_msg,
+                        )
+                        .upcast()
                     }
                 })
         }
@@ -2186,10 +2163,10 @@ mod _ssl {
         }
 
         /// Helper: Parse cadata argument (str or bytes)
-        fn parse_cadata_arg(&self, arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            if let Ok(s) = PyStrRef::try_from_object(vm, arg.clone()) {
+        fn parse_cadata_arg(&self, arg: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            if let Ok(s) = PyStrRef::try_from_object(vm, arg.to_owned()) {
                 Ok(s.as_str().as_bytes().to_vec())
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.clone()) {
+            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.to_owned()) {
                 Ok(b.borrow_buf().to_vec())
             } else {
                 Err(vm.new_type_error("cadata should be a str or bytes".to_owned()))
@@ -2206,7 +2183,11 @@ mod _ssl {
     impl Constructor for PySSLContext {
         type Args = (i32,);
 
-        fn py_new(cls: PyTypeRef, (protocol,): Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(
+            _cls: &Py<PyType>,
+            (protocol,): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             // Validate protocol
             match protocol {
                 PROTOCOL_TLS | PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER | PROTOCOL_TLSv1_2
@@ -2271,7 +2252,7 @@ mod _ssl {
                 session_cache: shared_session_cache.clone(),
             });
 
-            PySSLContext {
+            Ok(PySSLContext {
                 protocol,
                 check_hostname: PyRwLock::new(protocol == PROTOCOL_TLS_CLIENT),
                 verify_mode: PyRwLock::new(default_verify_mode),
@@ -2306,9 +2287,7 @@ mod _ssl {
                 accept_count: AtomicUsize::new(0),
                 session_hits: AtomicUsize::new(0),
                 selected_ciphers: PyRwLock::new(None),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -2487,48 +2466,51 @@ mod _ssl {
         /// This simulates lazy loading behavior: capath certificates
         /// are only added to get_ca_certs() after they're actually used in a handshake.
         fn track_used_ca_from_capath(&self) -> Result<(), String> {
-            let context = self.context.read();
-            let capath_certs = context.capath_certs_der.read();
+            // Extract capath_certs, releasing context lock quickly
+            let capath_certs = {
+                let context = self.context.read();
+                let certs = context.capath_certs_der.read();
+                if certs.is_empty() {
+                    return Ok(());
+                }
+                certs.clone()
+            };
 
-            // No capath certs to track
-            if capath_certs.is_empty() {
-                return Ok(());
-            }
-
-            // Get peer certificate chain
-            let conn_guard = self.connection.lock();
-            let conn = conn_guard.as_ref().ok_or("No connection")?;
-
-            let peer_certs = conn.peer_certificates().ok_or("No peer certificates")?;
-
-            if peer_certs.is_empty() {
-                return Ok(());
-            }
+            // Extract peer certificates, releasing connection lock quickly
+            let top_cert_der = {
+                let conn_guard = self.connection.lock();
+                let conn = conn_guard.as_ref().ok_or("No connection")?;
+                let peer_certs = conn.peer_certificates().ok_or("No peer certificates")?;
+                if peer_certs.is_empty() {
+                    return Ok(());
+                }
+                peer_certs
+                    .iter()
+                    .map(|c| c.as_ref().to_vec())
+                    .next_back()
+                    .expect("is_empty checked above")
+            };
 
             // Get the top certificate in the chain (closest to root)
             // Note: Server usually doesn't send the root CA, so we check the last cert's issuer
-            let top_cert_der = peer_certs.last().unwrap();
-            let (_, top_cert) = x509_parser::parse_x509_certificate(top_cert_der)
+            let (_, top_cert) = x509_parser::parse_x509_certificate(&top_cert_der)
                 .map_err(|e| format!("Failed to parse top cert: {e}"))?;
 
             let top_issuer = top_cert.issuer();
 
-            // Find matching CA in capath certs
-            for ca_der in capath_certs.iter() {
-                let (_, ca) = x509_parser::parse_x509_certificate(ca_der)
-                    .map_err(|e| format!("Failed to parse CA: {e}"))?;
+            // Find matching CA in capath certs (skip unparseable certificates)
+            let matching_ca = capath_certs.iter().find_map(|ca_der| {
+                let (_, ca) = x509_parser::parse_x509_certificate(ca_der).ok()?;
+                // Check if this CA is self-signed (root CA) and matches the issuer
+                (ca.subject() == ca.issuer() && ca.subject() == top_issuer).then(|| ca_der.clone())
+            });
 
-                // Check if this CA is self-signed and matches the issuer
-                if ca.subject() == ca.issuer() // Self-signed (root CA)
-                   && ca.subject() == top_issuer
-                // Matches top cert's issuer
-                {
-                    // Check if not already in ca_certs_der
-                    let mut ca_certs_der = context.ca_certs_der.write();
-                    if !ca_certs_der.iter().any(|c| c == ca_der) {
-                        ca_certs_der.push(ca_der.clone());
-                    }
-                    break;
+            // Update ca_certs_der if we found a match
+            if let Some(ca_der) = matching_ca {
+                let context = self.context.read();
+                let mut ca_certs_der = context.ca_certs_der.write();
+                if !ca_certs_der.iter().any(|c| c == &ca_der) {
+                    ca_certs_der.push(ca_der);
                 }
             }
 
@@ -2538,24 +2520,26 @@ mod _ssl {
         fn complete_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
             *self.handshake_done.lock() = true;
 
-            // Check if session was resumed before creating session object
-            let conn_guard = self.connection.lock();
-            if let Some(ref conn) = *conn_guard {
-                let was_resumed = conn.is_session_resumed();
-                *self.session_was_reused.lock() = was_resumed;
+            // Check if session was resumed - get value and release lock immediately
+            let was_resumed = self
+                .connection
+                .lock()
+                .as_ref()
+                .map(|conn| conn.is_session_resumed())
+                .unwrap_or(false);
 
-                // Update context session statistics if server-side
-                if self.server_side {
-                    let context = self.context.read();
-                    // Increment accept count for every successful server handshake
-                    context.accept_count.fetch_add(1, Ordering::SeqCst);
-                    // Increment hits count if session was resumed
-                    if was_resumed {
-                        context.session_hits.fetch_add(1, Ordering::SeqCst);
-                    }
+            *self.session_was_reused.lock() = was_resumed;
+
+            // Update context session statistics if server-side
+            if self.server_side {
+                let context = self.context.read();
+                // Increment accept count for every successful server handshake
+                context.accept_count.fetch_add(1, Ordering::SeqCst);
+                // Increment hits count if session was resumed
+                if was_resumed {
+                    context.session_hits.fetch_add(1, Ordering::SeqCst);
                 }
             }
-            drop(conn_guard);
 
             // Track CA certificate used during handshake (client-side only)
             // This simulates lazy loading behavior for capath certificates
@@ -2613,6 +2597,7 @@ mod _ssl {
 
         /// Check if SNI callback is configured
         pub(crate) fn has_sni_callback(&self) -> bool {
+            // Nested read locks are safe
             self.context.read().sni_callback.read().is_some()
         }
 
@@ -2623,10 +2608,9 @@ mod _ssl {
 
         /// Get the extracted SNI name from resolver
         pub(crate) fn get_extracted_sni_name(&self) -> Option<String> {
-            self.sni_state
-                .read()
-                .as_ref()
-                .and_then(|arc| arc.lock().1.clone())
+            // Clone the Arc option to avoid nested lock (sni_state.read -> arc.lock)
+            let sni_state_opt = self.sni_state.read().clone();
+            sni_state_opt.as_ref().and_then(|arc| arc.lock().1.clone())
         }
 
         /// Invoke the Python SNI callback
@@ -2685,10 +2669,13 @@ mod _ssl {
                     // - Re-acquire connection lock after callback
                     // - Call: connection.send_fatal_alert(AlertDescription::InternalError)
                     // - Then close connection
-                    let exc = vm.new_exception_msg(
-                        PySSLError::class(&vm.ctx).to_owned(),
-                        "SNI callback returned invalid type".to_owned(),
-                    );
+                    let exc: PyBaseExceptionRef = vm
+                        .new_os_subtype_error(
+                            PySSLError::class(&vm.ctx).to_owned(),
+                            None,
+                            "SNI callback returned invalid type",
+                        )
+                        .upcast();
                     let _ = exc.as_object().set_attr(
                         "reason",
                         vm.ctx.new_str("TLSV1_ALERT_INTERNAL_ERROR"),
@@ -3135,7 +3122,7 @@ mod _ssl {
                         // When server_hostname=None, use an IP address to suppress SNI
                         // no hostname = no SNI extension
                         ServerName::IpAddress(
-                            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
+                            core::net::IpAddr::V4(core::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
                         )
                     };
 
@@ -3149,62 +3136,46 @@ mod _ssl {
             }
 
             // Perform the actual handshake by exchanging data with the socket/BIO
-            match conn_guard.as_mut() {
-                Some(TlsConnection::Client(_conn)) => {
-                    // CLIENT is simple - no SNI callback handling needed
-                    ssl_do_handshake(conn_guard.as_mut().unwrap(), self, vm)
-                        .map_err(|e| e.into_py_err(vm))?;
 
-                    drop(conn_guard);
-                    self.complete_handshake(vm)?;
-                    Ok(())
-                }
-                Some(TlsConnection::Server(_conn)) => {
-                    // Use OpenSSL-compatible handshake for server
-                    // Handle SNI callback restart
-                    match ssl_do_handshake(conn_guard.as_mut().unwrap(), self, vm) {
-                        Ok(()) => {
-                            // Handshake completed successfully
-                            drop(conn_guard);
-                            self.complete_handshake(vm)?;
-                            Ok(())
-                        }
-                        Err(SslError::SniCallbackRestart) => {
-                            // SNI detected - need to call callback and recreate connection
+            let conn = conn_guard.as_mut().expect("unreachable");
+            let is_client = matches!(conn, TlsConnection::Client(_));
+            let handshake_result = ssl_do_handshake(conn, self, vm);
+            drop(conn_guard);
 
-                            // CRITICAL: Drop connection lock BEFORE calling Python callback to avoid deadlock
-                            //
-                            // Deadlock scenario if we keep the lock:
-                            // 1. This thread holds self.connection.lock()
-                            // 2. Python callback invokes other SSL methods (e.g., getpeercert(), cipher())
-                            // 3. Those methods try to acquire self.connection.lock() again
-                            // 4. PyMutex (parking_lot::Mutex) is not reentrant -> DEADLOCK
-                            //
-                            // Trade-off: By dropping the lock, we lose the ability to send TLS alerts
-                            // because Rustls doesn't provide a send_fatal_alert() API. See detailed
-                            // explanation in invoke_sni_callback() where we set _reason attribute.
-                            drop(conn_guard);
+            if is_client {
+                // CLIENT is simple - no SNI callback handling needed
+                handshake_result.map_err(|e| e.into_py_err(vm))?;
+                self.complete_handshake(vm)?;
+                Ok(())
+            } else {
+                // Use OpenSSL-compatible handshake for server
+                // Handle SNI callback restart
+                match handshake_result {
+                    Ok(()) => {
+                        // Handshake completed successfully
+                        self.complete_handshake(vm)?;
+                        Ok(())
+                    }
+                    Err(SslError::SniCallbackRestart) => {
+                        // SNI detected - need to call callback and recreate connection
 
-                            // Get the SNI name that was extracted (may be None if client didn't send SNI)
-                            let sni_name = self.get_extracted_sni_name();
+                        // Get the SNI name that was extracted (may be None if client didn't send SNI)
+                        let sni_name = self.get_extracted_sni_name();
 
-                            // Now safe to call Python callback (no locks held)
-                            self.invoke_sni_callback(sni_name.as_deref(), vm)?;
+                        // Now safe to call Python callback (no locks held)
+                        self.invoke_sni_callback(sni_name.as_deref(), vm)?;
 
-                            // Clear connection to trigger recreation
-                            *self.connection.lock() = None;
+                        // Clear connection to trigger recreation
+                        *self.connection.lock() = None;
 
-                            // Recursively call do_handshake to recreate with new context
-                            self.do_handshake(vm)
-                        }
-                        Err(e) => {
-                            // Other errors - convert to Python exception
-                            drop(conn_guard);
-                            Err(e.into_py_err(vm))
-                        }
+                        // Recursively call do_handshake to recreate with new context
+                        self.do_handshake(vm)
+                    }
+                    Err(e) => {
+                        // Other errors - convert to Python exception
+                        Err(e.into_py_err(vm))
                     }
                 }
-                None => unreachable!(),
             }
         }
 
@@ -3214,7 +3185,7 @@ mod _ssl {
             len: OptionalArg<isize>,
             buffer: OptionalArg<ArgMemoryBuffer>,
             vm: &VirtualMachine,
-        ) -> PyResult<PyObjectRef> {
+        ) -> PyResult {
             // Convert len to usize, defaulting to 1024 if not provided
             // -1 means read all available data (treat as large buffer size)
             let len_val = len.unwrap_or(PEM_BUFSIZE as isize);
@@ -3257,14 +3228,14 @@ mod _ssl {
             // After unwrap()/shutdown(), read operations should fail with SSLError
             let shutdown_state = *self.shutdown_state.lock();
             if shutdown_state != ShutdownState::NotStarted {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "cannot read after shutdown".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "cannot read after shutdown",
+                    )
+                    .upcast());
             }
-
-            // Check for deferred certificate verification errors (TLS 1.3)
-            self.check_deferred_cert_error(vm)?;
 
             // Helper function to handle return value based on buffer presence
             let return_data = |data: Vec<u8>,
@@ -3290,26 +3261,33 @@ mod _ssl {
                 }
             };
 
-            let mut conn_guard = self.connection.lock();
-            let conn = conn_guard
-                .as_mut()
-                .ok_or_else(|| vm.new_value_error("Connection not established"))?;
-
             // Use compat layer for unified read logic with proper EOF handling
             // This matches CPython's SSL_read_ex() approach
             let mut buf = vec![0u8; len];
-
-            match crate::ssl::compat::ssl_read(conn, &mut buf, self, vm) {
+            let read_result = {
+                let mut conn_guard = self.connection.lock();
+                let conn = conn_guard
+                    .as_mut()
+                    .ok_or_else(|| vm.new_value_error("Connection not established"))?;
+                crate::ssl::compat::ssl_read(conn, &mut buf, self, vm)
+            };
+            match read_result {
                 Ok(n) => {
+                    // Check for deferred certificate verification errors (TLS 1.3)
+                    // Must be checked AFTER ssl_read, as the error is set during I/O
+                    self.check_deferred_cert_error(vm)?;
                     buf.truncate(n);
                     return_data(buf, &buffer, vm)
                 }
                 Err(crate::ssl::compat::SslError::Eof) => {
                     // EOF occurred in violation of protocol (unexpected closure)
-                    Err(vm.new_exception_msg(
-                        PySSLEOFError::class(&vm.ctx).to_owned(),
-                        "EOF occurred in violation of protocol".to_owned(),
-                    ))
+                    Err(vm
+                        .new_os_subtype_error(
+                            PySSLEOFError::class(&vm.ctx).to_owned(),
+                            None,
+                            "EOF occurred in violation of protocol",
+                        )
+                        .upcast())
                 }
                 Err(crate::ssl::compat::SslError::ZeroReturn) => {
                     // Clean closure with close_notify - return empty data
@@ -3317,13 +3295,15 @@ mod _ssl {
                 }
                 Err(crate::ssl::compat::SslError::WantRead) => {
                     // Non-blocking mode: would block
-                    Err(create_ssl_want_read_error(vm))
+                    Err(create_ssl_want_read_error(vm).upcast())
                 }
                 Err(crate::ssl::compat::SslError::WantWrite) => {
                     // Non-blocking mode: would block on write
-                    Err(create_ssl_want_write_error(vm))
+                    Err(create_ssl_want_write_error(vm).upcast())
                 }
-                Err(crate::ssl::compat::SslError::Timeout(msg)) => Err(timeout_error_msg(vm, msg)),
+                Err(crate::ssl::compat::SslError::Timeout(msg)) => {
+                    Err(timeout_error_msg(vm, msg).upcast())
+                }
                 Err(crate::ssl::compat::SslError::Py(e)) => {
                     // Python exception - pass through
                     Err(e)
@@ -3379,63 +3359,84 @@ mod _ssl {
             // After unwrap()/shutdown(), write operations should fail with SSLError
             let shutdown_state = *self.shutdown_state.lock();
             if shutdown_state != ShutdownState::NotStarted {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "cannot write after shutdown".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "cannot write after shutdown",
+                    )
+                    .upcast());
             }
 
-            // Check for deferred certificate verification errors (TLS 1.3)
-            self.check_deferred_cert_error(vm)?;
+            {
+                let mut conn_guard = self.connection.lock();
+                let conn = conn_guard
+                    .as_mut()
+                    .ok_or_else(|| vm.new_value_error("Connection not established"))?;
 
-            let mut conn_guard = self.connection.lock();
-            let conn = conn_guard
-                .as_mut()
-                .ok_or_else(|| vm.new_value_error("Connection not established"))?;
-
-            // Unified write logic - no need to match on Client/Server anymore
-            let mut writer = conn.writer();
-            writer
-                .write_all(data_bytes.as_ref())
-                .map_err(|e| vm.new_os_error(format!("Write failed: {e}")))?;
-
-            // Flush to get TLS-encrypted data (writer automatically flushed on drop)
-            // Send encrypted data to socket
-            if conn.wants_write() {
                 let is_bio = self.is_bio_mode();
+                let data: &[u8] = data_bytes.as_ref();
 
-                if is_bio {
-                    // BIO mode: Write ALL pending TLS data to outgoing BIO
-                    // This prevents hangs where Python's ssl_io_loop waits for data
-                    self.write_pending_tls(conn, vm)?;
-                } else {
-                    // Socket mode: Try once and may return SSLWantWriteError
-                    let mut buf = Vec::new();
-                    conn.write_tls(&mut buf)
-                        .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
+                // Write data in chunks to avoid filling the internal TLS buffer
+                // rustls has a limited internal buffer, so we need to flush periodically
+                const CHUNK_SIZE: usize = 16384; // 16KB chunks (typical TLS record size)
+                let mut written = 0;
 
-                    if !buf.is_empty() {
-                        // Wait for socket to be ready for writing
-                        let timed_out = self.sock_wait_for_io_impl(SelectKind::Write, vm)?;
-                        if timed_out {
-                            return Err(vm.new_os_error("Write operation timed out"));
-                        }
+                while written < data.len() {
+                    let chunk_end = core::cmp::min(written + CHUNK_SIZE, data.len());
+                    let chunk = &data[written..chunk_end];
 
-                        // Send encrypted data to socket
-                        // Convert BlockingIOError to SSLWantWriteError
-                        match self.sock_send(buf, vm) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                if is_blocking_io_error(&e, vm) {
-                                    // Non-blocking socket would block - return SSLWantWriteError
-                                    return Err(create_ssl_want_write_error(vm));
+                    // Write chunk to TLS layer
+                    {
+                        let mut writer = conn.writer();
+                        use std::io::Write;
+                        writer
+                            .write_all(chunk)
+                            .map_err(|e| vm.new_os_error(format!("Write failed: {e}")))?;
+                    }
+
+                    written = chunk_end;
+
+                    // Flush TLS data to socket after each chunk
+                    if conn.wants_write() {
+                        if is_bio {
+                            self.write_pending_tls(conn, vm)?;
+                        } else {
+                            // Socket mode: flush all pending TLS data
+                            while conn.wants_write() {
+                                let mut buf = Vec::new();
+                                conn.write_tls(&mut buf).map_err(|e| {
+                                    vm.new_os_error(format!("TLS write failed: {e}"))
+                                })?;
+
+                                if !buf.is_empty() {
+                                    let timed_out =
+                                        self.sock_wait_for_io_impl(SelectKind::Write, vm)?;
+                                    if timed_out {
+                                        return Err(vm.new_os_error("Write operation timed out"));
+                                    }
+
+                                    match self.sock_send(buf, vm) {
+                                        Ok(_) => {}
+                                        Err(e) => {
+                                            if is_blocking_io_error(&e, vm) {
+                                                return Err(
+                                                    create_ssl_want_write_error(vm).upcast()
+                                                );
+                                            }
+                                            return Err(e);
+                                        }
+                                    }
                                 }
-                                return Err(e);
                             }
                         }
                     }
                 }
             }
+
+            // Check for deferred certificate verification errors (TLS 1.3)
+            // Must be checked AFTER write completes, as the error may be set during I/O
+            self.check_deferred_cert_error(vm)?;
 
             Ok(data_len)
         }
@@ -3443,37 +3444,34 @@ mod _ssl {
         #[pymethod]
         fn getpeercert(
             &self,
-            binary_form: OptionalArg<bool>,
+            args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = binary_form.unwrap_or(false);
+            let binary = args.binary_form.unwrap_or(false);
 
             // Check if handshake is complete
             if !*self.handshake_done.lock() {
                 return Err(vm.new_value_error("handshake not done yet"));
             }
 
-            // Get peer certificates from TLS connection
-            let conn_guard = self.connection.lock();
-            let conn = conn_guard
-                .as_ref()
-                .ok_or_else(|| vm.new_value_error("No TLS connection established"))?;
+            // Extract DER bytes from connection, releasing lock quickly
+            let der_bytes = {
+                let conn_guard = self.connection.lock();
+                let conn = conn_guard
+                    .as_ref()
+                    .ok_or_else(|| vm.new_value_error("No TLS connection established"))?;
 
-            let certs = conn.peer_certificates();
-
-            // Return None if no peer certificate
-            let Some(certs) = certs else {
-                return Ok(None);
+                let Some(peer_certificates) = conn.peer_certificates() else {
+                    return Ok(None);
+                };
+                let cert = peer_certificates
+                    .first()
+                    .ok_or_else(|| vm.new_value_error("No peer certificate available"))?;
+                cert.as_ref().to_vec()
             };
-
-            // Get first certificate (peer's certificate)
-            let cert_der = certs
-                .first()
-                .ok_or_else(|| vm.new_value_error("No peer certificate available"))?;
 
             if binary {
                 // Return DER-encoded certificate as bytes
-                let der_bytes = cert_der.as_ref().to_vec();
                 return Ok(Some(vm.ctx.new_bytes(der_bytes).into()));
             }
 
@@ -3485,9 +3483,8 @@ mod _ssl {
                 return Ok(Some(vm.ctx.new_dict().into()));
             }
 
-            // Parse DER certificate and convert to dict
-            let der_bytes = cert_der.as_ref();
-            let (_, cert) = x509_parser::parse_x509_certificate(der_bytes)
+            // Parse DER certificate and convert to dict (outside lock)
+            let (_, cert) = x509_parser::parse_x509_certificate(&der_bytes)
                 .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {e}")))?;
 
             cert::cert_to_dict(vm, &cert).map(Some)
@@ -3495,12 +3492,13 @@ mod _ssl {
 
         #[pymethod]
         fn cipher(&self) -> Option<(String, String, i32)> {
-            let conn_guard = self.connection.lock();
-            let conn = conn_guard.as_ref()?;
+            // Extract cipher suite, releasing lock quickly
+            let suite = {
+                let conn_guard = self.connection.lock();
+                conn_guard.as_ref()?.negotiated_cipher_suite()?
+            };
 
-            let suite = conn.negotiated_cipher_suite()?;
-
-            // Extract cipher information using unified helper
+            // Extract cipher information outside the lock
             let cipher_info = extract_cipher_info(&suite);
 
             // Note: returns a 3-tuple (name, protocol_version, bits)
@@ -3514,11 +3512,13 @@ mod _ssl {
 
         #[pymethod]
         fn version(&self) -> Option<String> {
-            let conn_guard = self.connection.lock();
-            let conn = conn_guard.as_ref()?;
+            // Extract cipher suite, releasing lock quickly
+            let suite = {
+                let conn_guard = self.connection.lock();
+                conn_guard.as_ref()?.negotiated_cipher_suite()?
+            };
 
-            let suite = conn.negotiated_cipher_suite()?;
-
+            // Convert to string outside the lock
             let version_str = match suite.version().version {
                 rustls::ProtocolVersion::TLSv1_2 => "TLSv1.2",
                 rustls::ProtocolVersion::TLSv1_3 => "TLSv1.3",
@@ -3813,7 +3813,7 @@ mod _ssl {
                 // Still waiting for peer's close-notify
                 // Raise SSLWantReadError to signal app needs to transfer data
                 // This is correct for non-blocking sockets and BIO mode
-                return Err(create_ssl_want_read_error(vm));
+                return Err(create_ssl_want_read_error(vm).upcast());
             }
             // Both close-notify exchanged, shutdown complete
             *self.shutdown_state.lock() = ShutdownState::Completed;
@@ -3977,15 +3977,17 @@ mod _ssl {
             // The rustls TLS library does not support requesting client certificates
             // after the initial handshake is completed.
             // Raise SSLError instead of NotImplementedError for compatibility
-            Err(vm.new_exception_msg(
-                PySSLError::class(&vm.ctx).to_owned(),
-                "Post-handshake authentication is not supported by the rustls backend. \
+            Err(vm
+                .new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    "Post-handshake authentication is not supported by the rustls backend. \
                  The rustls TLS library does not provide an API to request client certificates \
                  after the initial handshake. Consider requesting the client certificate \
                  during the initial handshake by setting the appropriate verify_mode before \
-                 calling do_handshake()."
-                    .to_owned(),
-            ))
+                 calling do_handshake().",
+                )
+                .upcast())
         }
 
         #[pymethod]
@@ -4020,10 +4022,14 @@ mod _ssl {
     impl Constructor for PySSLSocket {
         type Args = ();
 
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(
                 "Cannot directly instantiate SSLSocket, use SSLContext.wrap_socket()",
             ))
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unimplemented!("use slot_new")
         }
     }
 
@@ -4117,13 +4123,11 @@ mod _ssl {
     impl Constructor for PyMemoryBIO {
         type Args = ();
 
-        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let obj = PyMemoryBIO {
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(PyMemoryBIO {
                 buffer: PyMutex::new(Vec::new()),
                 eof: PyRwLock::new(false),
-            }
-            .into_ref_with_type(vm, cls)?;
-            Ok(obj.into())
+            })
         }
     }
 
@@ -4170,8 +4174,8 @@ mod _ssl {
         #[pygetset]
         fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
             // Return session ID (hash of session data for uniqueness)
+            use core::hash::{Hash, Hasher};
             use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
 
             let mut hasher = DefaultHasher::new();
             self.session_data.hash(&mut hasher);
@@ -4284,7 +4288,14 @@ mod _ssl {
             (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs"))
         };
 
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(windows)]
+        let (default_cafile, default_capath) = {
+            // Windows uses certificate store, not file paths
+            // Return empty strings to avoid None being passed to os.path.isfile()
+            (Some(""), Some(""))
+        };
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
         let (default_cafile, default_capath): (Option<&str>, Option<&str>) = (None, None);
 
         let tuple = vm.ctx.new_tuple(vec![
@@ -4397,6 +4408,111 @@ mod _ssl {
         }
     }
 
+    // Windows-specific certificate store enumeration functions
+    #[cfg(windows)]
+    #[pyfunction]
+    fn enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        use schannel::{RawPointer, cert_context::ValidUses, cert_store::CertStore};
+        use windows_sys::Win32::Security::Cryptography;
+
+        // Try both Current User and Local Machine stores
+        let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
+        let stores = open_fns
+            .iter()
+            .filter_map(|open| open(store_name.as_str()).ok())
+            .collect::<Vec<_>>();
+
+        // If no stores could be opened, raise OSError
+        if stores.is_empty() {
+            return Err(vm.new_os_error(format!(
+                "failed to open certificate store {:?}",
+                store_name.as_str()
+            )));
+        }
+
+        let certs = stores.iter().flat_map(|s| s.certs()).map(|c| {
+            let cert = vm.ctx.new_bytes(c.to_der().to_owned());
+            let enc_type = unsafe {
+                let ptr = c.as_ptr() as *const Cryptography::CERT_CONTEXT;
+                (*ptr).dwCertEncodingType
+            };
+            let enc_type = match enc_type {
+                Cryptography::X509_ASN_ENCODING => vm.new_pyobj("x509_asn"),
+                Cryptography::PKCS_7_ASN_ENCODING => vm.new_pyobj("pkcs_7_asn"),
+                other => vm.new_pyobj(other),
+            };
+            let usage: PyObjectRef = match c.valid_uses() {
+                Ok(ValidUses::All) => vm.ctx.new_bool(true).into(),
+                Ok(ValidUses::Oids(oids)) => {
+                    match crate::builtins::PyFrozenSet::from_iter(
+                        vm,
+                        oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()),
+                    ) {
+                        Ok(set) => set.into_ref(&vm.ctx).into(),
+                        Err(_) => vm.ctx.new_bool(true).into(),
+                    }
+                }
+                Err(_) => vm.ctx.new_bool(true).into(),
+            };
+            Ok(vm.new_tuple((cert, enc_type, usage)).into())
+        });
+        certs.collect::<PyResult<Vec<_>>>()
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn enum_crls(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        use windows_sys::Win32::Security::Cryptography::{
+            CRL_CONTEXT, CertCloseStore, CertEnumCRLsInStore, CertOpenSystemStoreW,
+            X509_ASN_ENCODING,
+        };
+
+        let store_name_wide: Vec<u16> = store_name
+            .as_str()
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+
+        // Open system store
+        let store = unsafe { CertOpenSystemStoreW(0, store_name_wide.as_ptr()) };
+
+        if store.is_null() {
+            return Err(vm.new_os_error(format!(
+                "failed to open certificate store {:?}",
+                store_name.as_str()
+            )));
+        }
+
+        let mut result = Vec::new();
+
+        let mut crl_context: *const CRL_CONTEXT = core::ptr::null();
+        loop {
+            crl_context = unsafe { CertEnumCRLsInStore(store, crl_context) };
+            if crl_context.is_null() {
+                break;
+            }
+
+            let crl = unsafe { &*crl_context };
+            let crl_bytes =
+                unsafe { std::slice::from_raw_parts(crl.pbCrlEncoded, crl.cbCrlEncoded as usize) };
+
+            let enc_type = if crl.dwCertEncodingType == X509_ASN_ENCODING {
+                vm.new_pyobj("x509_asn")
+            } else {
+                vm.new_pyobj(crl.dwCertEncodingType)
+            };
+
+            result.push(
+                vm.new_tuple((vm.ctx.new_bytes(crl_bytes.to_vec()), enc_type))
+                    .into(),
+            );
+        }
+
+        unsafe { CertCloseStore(store, 0) };
+
+        Ok(result)
+    }
+
     // Certificate type for SSL module (pure Rust implementation)
     #[pyattr]
     #[pyclass(module = "_ssl", name = "Certificate")]
@@ -4469,8 +4585,8 @@ mod _ssl {
     // Implement Hashable trait for PySSLCertificate
     impl Hashable for PySSLCertificate {
         fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
+            use core::hash::{Hash, Hasher};
             use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
 
             let mut hasher = DefaultHasher::new();
             zelf.der_bytes.hash(&mut hasher);

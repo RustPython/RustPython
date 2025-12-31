@@ -1,8 +1,9 @@
 """Test that indexing ops don't hang when an object with a mutating
 __index__ is used."""
 
-from testutils import assert_raises
 from array import array
+
+from testutils import assert_raises
 
 
 class BadIndex:

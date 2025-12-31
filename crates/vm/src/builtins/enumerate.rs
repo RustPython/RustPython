@@ -41,17 +41,15 @@ impl Constructor for PyEnumerate {
     type Args = EnumerateArgs;
 
     fn py_new(
-        cls: PyTypeRef,
+        _cls: &Py<PyType>,
         Self::Args { iterable, start }: Self::Args,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+        _vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         let counter = start.map_or_else(BigInt::zero, |start| start.as_bigint().clone());
-        Self {
+        Ok(Self {
             counter: PyRwLock::new(counter),
             iterable,
-        }
-        .into_ref_with_type(vm, cls)
-        .map(Into::into)
+        })
     }
 }
 

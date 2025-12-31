@@ -1,7 +1,9 @@
 //! A module implementing an io type backed by the C runtime's file descriptors, i.e. what's
 //! returned from libc::open, even on windows.
 
-use std::{cmp, ffi, fmt, io};
+use alloc::fmt;
+use core::cmp;
+use std::{ffi, io};
 
 #[cfg(not(windows))]
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
@@ -35,7 +37,8 @@ pub type Raw = i32;
 #[inline]
 fn cvt<I: num_traits::PrimInt>(ret: I) -> io::Result<I> {
     if ret < I::zero() {
-        Err(crate::os::last_os_error())
+        // CRT functions set errno, not GetLastError(), so use errno_io_error
+        Err(crate::os::errno_io_error())
     } else {
         Ok(ret)
     }
@@ -333,7 +336,21 @@ pub fn close(fd: Owned) -> io::Result<()> {
 }
 
 pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
-    cvt(unsafe { suppress_iph!(c::ftruncate(fd.as_raw(), len)) })?;
+    let ret = unsafe { suppress_iph!(c::ftruncate(fd.as_raw(), len)) };
+    // On Windows, _chsize_s returns 0 on success, or a positive error code (errno value) on failure.
+    // On other platforms, ftruncate returns 0 on success, or -1 on failure with errno set.
+    #[cfg(windows)]
+    {
+        if ret != 0 {
+            // _chsize_s returns errno directly, convert to Windows error code
+            let winerror = crate::os::errno_to_winerror(ret);
+            return Err(io::Error::from_raw_os_error(winerror));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        cvt(ret)?;
+    }
     Ok(())
 }
 
@@ -345,7 +362,8 @@ pub fn as_handle(fd: Borrowed<'_>) -> io::Result<BorrowedHandle<'_>> {
     }
     let handle = unsafe { suppress_iph!(_get_osfhandle(fd)) };
     if handle as HANDLE == INVALID_HANDLE_VALUE {
-        Err(crate::os::last_os_error())
+        // _get_osfhandle is a CRT function that sets errno, not GetLastError()
+        Err(crate::os::errno_io_error())
     } else {
         Ok(unsafe { BorrowedHandle::borrow_raw(handle as _) })
     }

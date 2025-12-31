@@ -12,17 +12,16 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,
-        PyComparisonValue,
+        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use alloc::fmt;
+use core::ops::{Neg, Not};
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-use std::fmt;
-use std::ops::{Neg, Not};
 
 #[pyclass(module = false, name = "int")]
 #[derive(Debug)]
@@ -130,7 +129,7 @@ fn inner_mod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 fn inner_floordiv(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
-        Err(vm.new_zero_division_error("integer division by zero"))
+        Err(vm.new_zero_division_error("integer division or modulo by zero"))
     } else {
         Ok(vm.ctx.new_int(int1.div_floor(int2)).into())
     }
@@ -205,13 +204,23 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 }
 
 impl Constructor for PyInt {
-    type Args = IntOptions;
+    type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if cls.is(vm.ctx.types.bool_type) {
             return Err(vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()"));
         }
 
+        // Optimization: return exact int as-is (only for exact int type, not subclasses)
+        if cls.is(vm.ctx.types.int_type)
+            && args.args.len() == 1
+            && args.kwargs.is_empty()
+            && args.args[0].class().is(vm.ctx.types.int_type)
+        {
+            return Ok(args.args[0].clone());
+        }
+
+        let options: IntOptions = args.bind(vm)?;
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = base
@@ -222,17 +231,6 @@ impl Constructor for PyInt {
                     .ok_or_else(|| vm.new_value_error("int() base must be >= 2 and <= 36, or 0"))?;
                 try_int_radix(&val, base, vm)
             } else {
-                let val = if cls.is(vm.ctx.types.int_type) {
-                    match val.downcast_exact::<Self>(vm) {
-                        Ok(i) => {
-                            return Ok(i.into_pyref().into());
-                        }
-                        Err(val) => val,
-                    }
-                } else {
-                    val
-                };
-
                 val.try_int(vm).map(|x| x.as_bigint().clone())
             }
         } else if let OptionalArg::Present(_) = options.base {
@@ -241,7 +239,11 @@ impl Constructor for PyInt {
             Ok(Zero::zero())
         }?;
 
-        Self::with_value(cls, value, vm).to_pyresult(vm)
+        Self::with_value(cls, value, vm).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unimplemented!("use slot_new")
     }
 }
 
@@ -253,7 +255,7 @@ impl PyInt {
         if cls.is(vm.ctx.types.int_type) {
             Ok(vm.ctx.new_int(value))
         } else if cls.is(vm.ctx.types.bool_type) {
-            Ok(vm.ctx.new_bool(!value.into().eq(&BigInt::zero())))
+            Ok(vm.ctx.new_bool(!value.into().eq(&BigInt::zero())).upcast())
         } else {
             Self::from(value).into_ref_with_type(vm, cls)
         }
@@ -287,7 +289,7 @@ impl PyInt {
         I::try_from(self.as_bigint()).map_err(|_| {
             vm.new_overflow_error(format!(
                 "Python int too large to convert to Rust {}",
-                std::any::type_name::<I>()
+                core::any::type_name::<I>()
             ))
         })
     }
@@ -317,87 +319,20 @@ impl PyInt {
 }
 
 #[pyclass(
+    itemsize = 4,
     flags(BASETYPE, _MATCH_SELF),
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyInt {
-    #[pymethod(name = "__radd__")]
-    #[pymethod]
-    fn __add__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a + b)
-    }
-
-    #[pymethod]
-    fn __sub__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a - b)
-    }
-
-    #[pymethod]
-    fn __rsub__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| b - a)
-    }
-
-    #[pymethod(name = "__rmul__")]
-    #[pymethod]
-    fn __mul__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a * b)
-    }
-
-    #[pymethod]
-    fn __truediv__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_truediv(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rtruediv__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_truediv(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    fn __floordiv__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_floordiv(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rfloordiv__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_floordiv(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    fn __lshift__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_lshift(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rlshift__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_lshift(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rshift__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_rshift(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rrshift__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_rshift(b, a, vm), vm)
-    }
-
-    #[pymethod(name = "__rxor__")]
-    #[pymethod]
-    pub fn __xor__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+    pub(crate) fn __xor__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a ^ b)
     }
 
-    #[pymethod(name = "__ror__")]
-    #[pymethod]
-    pub fn __or__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+    pub(crate) fn __or__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a | b)
     }
 
-    #[pymethod(name = "__rand__")]
-    #[pymethod]
-    pub fn __and__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+    pub(crate) fn __and__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a & b)
     }
 
@@ -444,54 +379,6 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __pow__(
-        &self,
-        other: PyObjectRef,
-        r#mod: OptionalOption<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        match r#mod.flatten() {
-            Some(modulus) => self.modpow(other, modulus, vm),
-            None => self.general_op(other, |a, b| inner_pow(a, b, vm), vm),
-        }
-    }
-
-    #[pymethod]
-    fn __rpow__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_pow(b, a, vm), vm)
-    }
-
-    #[pymethod(name = "__mod__")]
-    fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_mod(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rmod__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_mod(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    fn __divmod__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_divmod(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rdivmod__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_divmod(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    fn __neg__(&self) -> BigInt {
-        -(&self.value)
-    }
-
-    #[pymethod]
-    fn __abs__(&self) -> BigInt {
-        self.value.abs()
-    }
-
-    #[pymethod]
     fn __round__(
         zelf: PyRef<Self>,
         ndigits: OptionalArg<PyIntRef>,
@@ -534,16 +421,6 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __pos__(&self) -> BigInt {
-        self.value.clone()
-    }
-
-    #[pymethod]
-    fn __float__(&self, vm: &VirtualMachine) -> PyResult<f64> {
-        try_to_float(&self.value, vm)
-    }
-
-    #[pymethod]
     fn __trunc__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
         zelf.__int__(vm)
     }
@@ -559,16 +436,6 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __index__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
-        zelf.__int__(vm)
-    }
-
-    #[pymethod]
-    fn __invert__(&self) -> BigInt {
-        !(&self.value)
-    }
-
-    #[pymethod]
     fn __format__(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_int(&self.value))
@@ -576,13 +443,8 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __bool__(&self) -> bool {
-        !self.value.is_zero()
-    }
-
-    #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
+        core::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
     #[pymethod]
@@ -702,8 +564,7 @@ impl PyInt {
 
 #[pyclass]
 impl PyRef<PyInt> {
-    #[pymethod]
-    fn __int__(self, vm: &VirtualMachine) -> PyRefExact<PyInt> {
+    pub(crate) fn __int__(self, vm: &VirtualMachine) -> PyRefExact<PyInt> {
         self.into_exact_or(&vm.ctx, |zelf| unsafe {
             // TODO: this is actually safe. we need better interface
             PyRefExact::new_unchecked(vm.ctx.new_bigint(&zelf.value))

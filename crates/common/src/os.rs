@@ -1,7 +1,26 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-use std::{io, str::Utf8Error};
+use core::str::Utf8Error;
+use std::{io, process::ExitCode};
+
+/// Convert exit code to std::process::ExitCode
+///
+/// On Windows, this supports the full u32 range including STATUS_CONTROL_C_EXIT (0xC000013A).
+/// On other platforms, only the lower 8 bits are used.
+pub fn exit_code(code: u32) -> ExitCode {
+    #[cfg(windows)]
+    {
+        // For large exit codes like STATUS_CONTROL_C_EXIT (0xC000013A),
+        // we need to call std::process::exit() directly since ExitCode::from(u8)
+        // would truncate the value, and ExitCode::from_raw() is still unstable.
+        // FIXME: side effect in exit_code is not ideal.
+        if code > u8::MAX as u32 {
+            std::process::exit(code as i32)
+        }
+    }
+    ExitCode::from(code as u8)
+}
 
 pub trait ErrorExt {
     fn posix_errno(&self) -> i32;
@@ -19,46 +38,47 @@ impl ErrorExt for io::Error {
     }
 }
 
+/// Get the last error from C runtime library functions (like _dup, _dup2, _fstat, etc.)
+/// CRT functions set errno, not GetLastError(), so we need to read errno directly.
 #[cfg(windows)]
-pub fn last_os_error() -> io::Error {
-    let err = io::Error::last_os_error();
-    // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
-    if err.raw_os_error() == Some(0) {
-        unsafe extern "C" {
-            fn _get_errno(pValue: *mut i32) -> i32;
-        }
-        let mut errno = 0;
-        unsafe { suppress_iph!(_get_errno(&mut errno)) };
-        let errno = errno_to_winerror(errno);
-        io::Error::from_raw_os_error(errno)
-    } else {
-        err
-    }
+pub fn errno_io_error() -> io::Error {
+    let errno: i32 = get_errno();
+    let winerror = errno_to_winerror(errno);
+    io::Error::from_raw_os_error(winerror)
 }
 
 #[cfg(not(windows))]
-pub fn last_os_error() -> io::Error {
-    io::Error::last_os_error()
+pub fn errno_io_error() -> io::Error {
+    std::io::Error::last_os_error()
 }
 
 #[cfg(windows)]
-pub fn last_posix_errno() -> i32 {
-    let err = io::Error::last_os_error();
-    if err.raw_os_error() == Some(0) {
-        unsafe extern "C" {
-            fn _get_errno(pValue: *mut i32) -> i32;
-        }
-        let mut errno = 0;
-        unsafe { suppress_iph!(_get_errno(&mut errno)) };
-        errno
-    } else {
-        err.posix_errno()
+pub fn get_errno() -> i32 {
+    unsafe extern "C" {
+        fn _get_errno(pValue: *mut i32) -> i32;
     }
+    let mut errno = 0;
+    unsafe { suppress_iph!(_get_errno(&mut errno)) };
+    errno
 }
 
 #[cfg(not(windows))]
-pub fn last_posix_errno() -> i32 {
-    last_os_error().posix_errno()
+pub fn get_errno() -> i32 {
+    std::io::Error::last_os_error().posix_errno()
+}
+
+/// Set errno to the specified value.
+#[cfg(windows)]
+pub fn set_errno(value: i32) {
+    unsafe extern "C" {
+        fn _set_errno(value: i32) -> i32;
+    }
+    unsafe { suppress_iph!(_set_errno(value)) };
+}
+
+#[cfg(unix)]
+pub fn set_errno(value: i32) {
+    nix::errno::Errno::from_raw(value).set();
 }
 
 #[cfg(unix)]
@@ -69,7 +89,7 @@ pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
 
 #[cfg(not(unix))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
-    Ok(std::str::from_utf8(b)?.as_ref())
+    Ok(core::str::from_utf8(b)?.as_ref())
 }
 
 #[cfg(unix)]

@@ -75,8 +75,6 @@ class StructSeqTest(unittest.TestCase):
         self.assertTrue(t1 >= t2)
         self.assertTrue(not (t1 != t2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fields(self):
         t = time.gmtime()
         self.assertEqual(len(t), t.n_sequence_fields)
@@ -129,8 +127,6 @@ class StructSeqTest(unittest.TestCase):
                          'tm_sec', 'tm_wday', 'tm_yday', 'tm_isdst')
         self.assertEqual(time.struct_time.__match_args__, expected_args)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_match_args_with_unnamed_fields(self):
         expected_args = ('st_mode', 'st_ino', 'st_dev', 'st_nlink', 'st_uid',
                          'st_gid', 'st_size')

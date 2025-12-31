@@ -24,6 +24,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate log;
 // extern crate env_logger;
+extern crate alloc;
 
 #[macro_use]
 extern crate rustpython_derive;
@@ -55,10 +56,12 @@ mod dict_inner;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
 
+mod exception_group;
 pub mod exceptions;
 pub mod format;
 pub mod frame;
 pub mod function;
+pub mod getpath;
 pub mod import;
 mod intern;
 pub mod iter;

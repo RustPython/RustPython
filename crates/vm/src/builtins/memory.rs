@@ -23,14 +23,14 @@ use crate::{
     sliceable::SequenceIndexOp,
     types::{
         AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter, Unconstructible,
+        PyComparisonOp, Representable, SelfIter,
     },
 };
+use core::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use rustpython_common::lock::PyMutex;
 use std::sync::LazyLock;
-use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
@@ -61,9 +61,8 @@ pub struct PyMemoryView {
 impl Constructor for PyMemoryView {
     type Args = PyMemoryViewNewArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let zelf = Self::from_object(&args.object, vm)?;
-        zelf.into_ref_with_type(vm, cls).map(Into::into)
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        Self::from_object(&args.object, vm)
     }
 }
 
@@ -694,12 +693,13 @@ impl PyMemoryView {
     #[pymethod]
     fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
-        Ok(if self.desc.ndim() == 0 {
-            1
+        if self.desc.ndim() == 0 {
+            // 0-dimensional memoryview has no length
+            Err(vm.new_type_error("0-dim memory has no length".to_owned()))
         } else {
             // shape for dim[0]
-            self.desc.dim_desc[0].0
-        })
+            Ok(self.desc.dim_desc[0].0)
+        }
     }
 
     #[pymethod]
@@ -1132,7 +1132,7 @@ impl PyPayload for PyMemoryViewIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyMemoryViewIterator {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
@@ -1141,7 +1141,6 @@ impl PyMemoryViewIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
-impl Unconstructible for PyMemoryViewIterator {}
 
 impl SelfIter for PyMemoryViewIterator {}
 impl IterNext for PyMemoryViewIterator {

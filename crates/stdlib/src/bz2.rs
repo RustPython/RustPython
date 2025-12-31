@@ -8,16 +8,17 @@ mod _bz2 {
         DecompressArgs, DecompressError, DecompressState, DecompressStatus, Decompressor,
     };
     use crate::vm::{
-        VirtualMachine,
-        builtins::{PyBytesRef, PyTypeRef},
+        Py, VirtualMachine,
+        builtins::{PyBytesRef, PyType},
         common::lock::PyMutex,
         function::{ArgBytesLike, OptionalArg},
-        object::{PyPayload, PyResult},
+        object::PyResult,
         types::Constructor,
     };
+    use alloc::fmt;
     use bzip2::{Decompress, Status, write::BzEncoder};
     use rustpython_vm::convert::ToPyException;
-    use std::{fmt, io::Write};
+    use std::io::Write;
 
     const BUFSIZ: usize = 8192;
 
@@ -61,12 +62,10 @@ mod _bz2 {
     impl Constructor for BZ2Decompressor {
         type Args = ();
 
-        fn py_new(cls: PyTypeRef, _: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self {
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
                 state: PyMutex::new(DecompressState::new(Decompress::new(false), vm)),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -132,8 +131,11 @@ mod _bz2 {
     impl Constructor for BZ2Compressor {
         type Args = (OptionalArg<i32>,);
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let (compresslevel,) = args;
+        fn py_new(
+            _cls: &Py<PyType>,
+            (compresslevel,): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             // TODO: seriously?
             // compresslevel.unwrap_or(bzip2::Compression::best().level().try_into().unwrap());
             let compresslevel = compresslevel.unwrap_or(9);
@@ -144,14 +146,12 @@ mod _bz2 {
                 }
             };
 
-            Self {
+            Ok(Self {
                 state: PyMutex::new(CompressorState {
                     flushed: false,
                     encoder: Some(BzEncoder::new(Vec::new(), level)),
                 }),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 

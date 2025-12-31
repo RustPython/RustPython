@@ -1,11 +1,16 @@
 // spell-checker:ignore typevarobject funcobj
-use crate::{PyPayload, PyRef, VirtualMachine, class::PyClassImpl, stdlib::PyModule};
+use crate::{Context, PyPayload, PyRef, VirtualMachine, class::PyClassImpl, stdlib::PyModule};
 
 pub use crate::stdlib::typevar::{
     Generic, ParamSpec, ParamSpecArgs, ParamSpecKwargs, TypeVar, TypeVarTuple,
     set_typeparam_default,
 };
 pub use decl::*;
+
+/// Initialize typing types (call extend_class)
+pub fn init(ctx: &Context) {
+    NoDefault::extend_class(ctx, ctx.types.typing_no_default_type);
+}
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = decl::make_module(vm);
@@ -31,9 +36,11 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub(crate) mod decl {
     use crate::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTupleRef, PyTypeRef, pystr::AsPyStr},
+        builtins::{PyStrRef, PyTupleRef, PyType, PyTypeRef, pystr::AsPyStr, type_},
+        convert::ToPyResult,
         function::{FuncArgs, IntoFuncArgs},
-        types::{Constructor, Representable},
+        protocol::PyNumberMethods,
+        types::{AsNumber, Constructor, Representable},
     };
 
     pub(crate) fn _call_typing_func_object<'a>(
@@ -74,15 +81,15 @@ pub(crate) mod decl {
     }
 
     impl Constructor for NoDefault {
-        type Args = FuncArgs;
+        type Args = ();
 
-        fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            if !args.args.is_empty() || !args.kwargs.is_empty() {
-                return Err(vm.new_type_error("NoDefaultType takes no arguments"));
-            }
-
-            // Return singleton instance from context
+        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let _: () = args.bind(vm)?;
             Ok(vm.ctx.typing_no_default.clone().into())
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unreachable!("NoDefault is a singleton, use slot_new")
         }
     }
 
@@ -104,7 +111,7 @@ pub(crate) mod decl {
         // compute_value: PyObjectRef,
         // module: PyObjectRef,
     }
-    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Representable, AsNumber), flags(BASETYPE))]
     impl TypeAliasType {
         pub const fn new(name: PyStrRef, type_params: PyTupleRef, value: PyObjectRef) -> Self {
             Self {
@@ -133,7 +140,7 @@ pub(crate) mod decl {
     impl Constructor for TypeAliasType {
         type Args = FuncArgs;
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             // TypeAliasType(name, value, *, type_params=None)
             if args.args.len() < 2 {
                 return Err(vm.new_type_error(format!(
@@ -168,14 +175,23 @@ pub(crate) mod decl {
                 vm.ctx.empty_tuple.clone()
             };
 
-            let ta = Self::new(name, type_params, value);
-            ta.into_ref_with_type(vm, cls).map(Into::into)
+            Ok(Self::new(name, type_params, value))
         }
     }
 
     impl Representable for TypeAliasType {
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             Ok(zelf.name.as_str().to_owned())
+        }
+    }
+
+    impl AsNumber for TypeAliasType {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                or: Some(|a, b, vm| type_::or_(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
         }
     }
 

@@ -16,18 +16,30 @@ cfg_if::cfg_if! {
     }
 }
 
-pub trait PyPayload:
-    std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + Sized + 'static
-{
+#[cold]
+pub(crate) fn cold_downcast_type_error(
+    vm: &VirtualMachine,
+    class: &Py<PyType>,
+    obj: &PyObject,
+) -> PyBaseExceptionRef {
+    vm.new_downcast_type_error(class, obj)
+}
+
+pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     #[inline]
-    fn payload_type_id() -> std::any::TypeId {
-        std::any::TypeId::of::<Self>()
+    fn payload_type_id() -> core::any::TypeId {
+        core::any::TypeId::of::<Self>()
     }
 
     /// # Safety: this function should only be called if `payload_type_id` matches the type of `obj`.
     #[inline]
     fn downcastable_from(obj: &PyObject) -> bool {
-        obj.typeid() == Self::payload_type_id()
+        obj.typeid() == Self::payload_type_id() && Self::validate_downcastable_from(obj)
+    }
+
+    #[inline]
+    fn validate_downcastable_from(_obj: &PyObject) -> bool {
+        true
     }
 
     fn try_downcast_from(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -35,28 +47,25 @@ pub trait PyPayload:
             return Ok(());
         }
 
-        #[cold]
-        fn raise_downcast_type_error(
-            vm: &VirtualMachine,
-            class: &Py<PyType>,
-            obj: &PyObject,
-        ) -> PyBaseExceptionRef {
-            vm.new_downcast_type_error(class, obj)
-        }
-
         let class = Self::class(&vm.ctx);
-        Err(raise_downcast_type_error(vm, class, obj))
+        Err(cold_downcast_type_error(vm, class, obj))
     }
 
     fn class(ctx: &Context) -> &'static Py<PyType>;
 
     #[inline]
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef
+    where
+        Self: core::fmt::Debug,
+    {
         self.into_ref(&vm.ctx).into()
     }
 
     #[inline]
-    fn _into_ref(self, cls: PyTypeRef, ctx: &Context) -> PyRef<Self> {
+    fn _into_ref(self, cls: PyTypeRef, ctx: &Context) -> PyRef<Self>
+    where
+        Self: core::fmt::Debug,
+    {
         let dict = if cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             Some(ctx.new_dict())
         } else {
@@ -66,7 +75,10 @@ pub trait PyPayload:
     }
 
     #[inline]
-    fn into_exact_ref(self, ctx: &Context) -> PyRefExact<Self> {
+    fn into_exact_ref(self, ctx: &Context) -> PyRefExact<Self>
+    where
+        Self: core::fmt::Debug,
+    {
         unsafe {
             // Self::into_ref() always returns exact typed PyRef
             PyRefExact::new_unchecked(self.into_ref(ctx))
@@ -74,22 +86,44 @@ pub trait PyPayload:
     }
 
     #[inline]
-    fn into_ref(self, ctx: &Context) -> PyRef<Self> {
+    fn into_ref(self, ctx: &Context) -> PyRef<Self>
+    where
+        Self: core::fmt::Debug,
+    {
         let cls = Self::class(ctx);
         self._into_ref(cls.to_owned(), ctx)
     }
 
     #[inline]
-    fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
+    fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>>
+    where
+        Self: core::fmt::Debug,
+    {
         let exact_class = Self::class(&vm.ctx);
         if cls.fast_issubclass(exact_class) {
+            if exact_class.slots.basicsize != cls.slots.basicsize {
+                #[cold]
+                #[inline(never)]
+                fn _into_ref_size_error(
+                    vm: &VirtualMachine,
+                    cls: &Py<PyType>,
+                    exact_class: &Py<PyType>,
+                ) -> PyBaseExceptionRef {
+                    vm.new_type_error(format!(
+                        "cannot create '{}' instance: size differs from base type '{}'",
+                        cls.name(),
+                        exact_class.name()
+                    ))
+                }
+                return Err(_into_ref_size_error(vm, &cls, exact_class));
+            }
             Ok(self._into_ref(cls, &vm.ctx))
         } else {
             #[cold]
             #[inline(never)]
             fn _into_ref_with_type_error(
                 vm: &VirtualMachine,
-                cls: &PyTypeRef,
+                cls: &Py<PyType>,
                 exact_class: &Py<PyType>,
             ) -> PyBaseExceptionRef {
                 vm.new_type_error(format!(
@@ -104,11 +138,11 @@ pub trait PyPayload:
 }
 
 pub trait PyObjectPayload:
-    PyPayload + std::any::Any + std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
+    PyPayload + core::any::Any + core::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
 {
 }
 
-impl<T: PyPayload + 'static> PyObjectPayload for T {}
+impl<T: PyPayload + core::fmt::Debug + 'static> PyObjectPayload for T {}
 
 pub trait SlotOffset {
     fn offset() -> usize;

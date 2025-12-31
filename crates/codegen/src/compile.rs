@@ -16,6 +16,7 @@ use crate::{
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
+use alloc::borrow::Cow;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex;
@@ -24,23 +25,25 @@ use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
     ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
     ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
-    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedElement,
-    InterpolatedStringElement, InterpolatedStringElements, Keyword, MatchCase, ModExpression,
-    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchClass,
-    PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton,
-    PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
-    TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
+    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
+    Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
+    PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
+    Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+    TypeParams, UnaryOp, WithItem,
+    visitor::{Visitor, walk_expr},
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
-        self, Arg as OpArgMarker, BinaryOperator, CodeObject, ComparisonOperator, ConstantData,
-        Instruction, OpArg, OpArgType, UnpackExArgs,
+        self, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
+        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, Invert, OpArg, OpArgType,
+        UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use std::{borrow::Cow, collections::HashSet};
+use std::collections::HashSet;
 
 const MAXBLOCKS: usize = 20;
 
@@ -112,16 +115,27 @@ enum DoneWithFuture {
     Yes,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CompileOpts {
     /// How optimized the bytecode output should be; any optimize > 0 does
     /// not emit assert statements
     pub optimize: u8,
+    /// Include column info in bytecode (-X no_debug_ranges disables)
+    pub debug_ranges: bool,
+}
+
+impl Default for CompileOpts {
+    fn default() -> Self {
+        Self {
+            optimize: 0,
+            debug_ranges: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 struct CompileContext {
-    loop_data: Option<(ir::BlockIdx, ir::BlockIdx)>,
+    loop_data: Option<(BlockIdx, BlockIdx)>,
     in_class: bool,
     func: FunctionContext,
 }
@@ -291,7 +305,7 @@ fn compiler_unwrap_option<T>(zelf: &Compiler, o: Option<T>) -> T {
     o.unwrap()
 }
 
-// fn compiler_result_unwrap<T, E: std::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
+// fn compiler_result_unwrap<T, E: core::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
 //     if result.is_err() {
 //         eprintln!("=== CODEGEN PANIC INFO ===");
 //         eprintln!("This IS an internal error, an result was unwrapped during codegen");
@@ -355,7 +369,7 @@ impl Compiler {
             source_path: source_file.name().to_owned(),
             private: None,
             blocks: vec![ir::Block::default()],
-            current_block: ir::BlockIdx(0),
+            current_block: BlockIdx::new(0),
             metadata: ir::CodeUnitMetadata {
                 name: code_name.clone(),
                 qualname: Some(code_name),
@@ -401,7 +415,7 @@ impl Compiler {
 
     /// Compile a slice expression
     // = compiler_slice
-    fn compile_slice(&mut self, s: &ExprSlice) -> CompileResult<u32> {
+    fn compile_slice(&mut self, s: &ExprSlice) -> CompileResult<BuildSliceArgCount> {
         // Compile lower
         if let Some(lower) = &s.lower {
             self.compile_expression(lower)?;
@@ -416,13 +430,14 @@ impl Compiler {
             self.emit_load_const(ConstantData::None);
         }
 
-        // Compile step if present
-        if let Some(step) = &s.step {
-            self.compile_expression(step)?;
-            Ok(3) // Three values on stack
-        } else {
-            Ok(2) // Two values on stack
-        }
+        Ok(match &s.step {
+            Some(step) => {
+                // Compile step if present
+                self.compile_expression(step)?;
+                BuildSliceArgCount::Three
+            }
+            None => BuildSliceArgCount::Two,
+        })
     }
 
     /// Compile a subscript expression
@@ -449,19 +464,19 @@ impl Compiler {
 
         // Handle two-element slice (for Load/Store, not Del)
         if Self::is_two_element_slice(slice) && !matches!(ctx, ExprContext::Del) {
-            let n = match slice {
+            let argc = match slice {
                 Expr::Slice(s) => self.compile_slice(s)?,
                 _ => unreachable!("is_two_element_slice should only return true for Expr::Slice"),
             };
             match ctx {
                 ExprContext::Load => {
                     // CPython uses BINARY_SLICE
-                    emit!(self, Instruction::BuildSlice { step: n == 3 });
+                    emit!(self, Instruction::BuildSlice { argc });
                     emit!(self, Instruction::Subscript);
                 }
                 ExprContext::Store => {
                     // CPython uses STORE_SLICE
-                    emit!(self, Instruction::BuildSlice { step: n == 3 });
+                    emit!(self, Instruction::BuildSlice { argc });
                     emit!(self, Instruction::StoreSubscript);
                 }
                 _ => unreachable!(),
@@ -555,11 +570,9 @@ impl Compiler {
 
     /// Get the SymbolTable for the current scope.
     fn current_symbol_table(&self) -> &SymbolTable {
-        if self.symbol_table_stack.is_empty() {
-            panic!("symbol_table_stack is empty! This is a compiler bug.");
-        }
-        let index = self.symbol_table_stack.len() - 1;
-        &self.symbol_table_stack[index]
+        self.symbol_table_stack
+            .last()
+            .expect("symbol_table_stack is empty! This is a compiler bug.")
     }
 
     /// Get the index of a free variable.
@@ -624,9 +637,8 @@ impl Compiler {
         let table = current_table.sub_tables.remove(0);
 
         // Push the next table onto the stack
-        let last_idx = self.symbol_table_stack.len();
         self.symbol_table_stack.push(table);
-        &self.symbol_table_stack[last_idx]
+        self.current_symbol_table()
     }
 
     /// Pop the current symbol table off the stack
@@ -655,12 +667,13 @@ impl Compiler {
         let source_path = self.source_file.name().to_owned();
 
         // Lookup symbol table entry using key (_PySymtable_Lookup)
-        let ste = if key < self.symbol_table_stack.len() {
-            &self.symbol_table_stack[key]
-        } else {
-            return Err(self.error(CodegenErrorType::SyntaxError(
-                "unknown symbol table entry".to_owned(),
-            )));
+        let ste = match self.symbol_table_stack.get(key) {
+            Some(v) => v,
+            None => {
+                return Err(self.error(CodegenErrorType::SyntaxError(
+                    "unknown symbol table entry".to_owned(),
+                )));
+            }
         };
 
         // Use varnames from symbol table (already collected in definition order)
@@ -745,7 +758,7 @@ impl Compiler {
             source_path: source_path.clone(),
             private,
             blocks: vec![ir::Block::default()],
-            current_block: BlockIdx(0),
+            current_block: BlockIdx::new(0),
             metadata: ir::CodeUnitMetadata {
                 name: name.to_owned(),
                 qualname: None, // Will be set below
@@ -857,7 +870,7 @@ impl Compiler {
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
         // No parent scope stack to maintain
-        unwrap_internal(self, stack_top.finalize_code(self.opts.optimize))
+        unwrap_internal(self, stack_top.finalize_code(&self.opts))
     }
 
     /// Push a new fblock
@@ -1055,7 +1068,14 @@ impl Compiler {
             for statement in body {
                 if let Stmt::Expr(StmtExpr { value, .. }) = &statement {
                     self.compile_expression(value)?;
-                    emit!(self, Instruction::PrintExpr);
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::Print
+                        }
+                    );
+
+                    emit!(self, Instruction::PopTop);
                 } else {
                     self.compile_statement(statement)?;
                 }
@@ -1063,8 +1083,15 @@ impl Compiler {
 
             if let Stmt::Expr(StmtExpr { value, .. }) = &last {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::Duplicate);
-                emit!(self, Instruction::PrintExpr);
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(
+                    self,
+                    Instruction::CallIntrinsic1 {
+                        func: bytecode::IntrinsicFunction1::Print
+                    }
+                );
+
+                emit!(self, Instruction::PopTop);
             } else {
                 self.compile_statement(last)?;
                 self.emit_load_const(ConstantData::None);
@@ -1089,12 +1116,12 @@ impl Compiler {
         if let Some(last_statement) = body.last() {
             match last_statement {
                 Stmt::Expr(_) => {
-                    self.current_block().instructions.pop(); // pop Instruction::Pop
+                    self.current_block().instructions.pop(); // pop Instruction::PopTop
                 }
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                     let pop_instructions = self.current_block().instructions.pop();
                     let store_inst = compiler_unwrap_option(self, pop_instructions); // pop Instruction::Store
-                    emit!(self, Instruction::Duplicate);
+                    emit!(self, Instruction::CopyItem { index: 1_u32 });
                     self.current_block().instructions.push(store_inst);
                 }
                 _ => self.emit_load_const(ConstantData::None),
@@ -1183,12 +1210,10 @@ impl Compiler {
 
             // If not found and we're in TypeParams scope, try parent scope
             let symbol = if symbol.is_none() && is_typeparams {
-                if self.symbol_table_stack.len() > 1 {
-                    let parent_idx = self.symbol_table_stack.len() - 2;
-                    self.symbol_table_stack[parent_idx].lookup(name.as_ref())
-                } else {
-                    None
-                }
+                self.symbol_table_stack
+                    .get(self.symbol_table_stack.len() - 2) // Try to get parent index
+                    .expect("Symbol has no parent! This is a compiler bug.")
+                    .lookup(name.as_ref())
             } else {
                 symbol
             };
@@ -1350,8 +1375,6 @@ impl Compiler {
                         .collect()
                 };
 
-                let module_idx = module.as_ref().map(|s| self.name(s.as_str()));
-
                 // from .... import (*fromlist)
                 self.emit_load_const(ConstantData::Integer {
                     value: (*level).into(),
@@ -1359,11 +1382,10 @@ impl Compiler {
                 self.emit_load_const(ConstantData::Tuple {
                     elements: from_list,
                 });
-                if let Some(idx) = module_idx {
-                    emit!(self, Instruction::ImportName { idx });
-                } else {
-                    emit!(self, Instruction::ImportNameless);
-                }
+
+                let module_name = module.as_ref().map_or("", |s| s.as_str());
+                let module_idx = self.name(module_name);
+                emit!(self, Instruction::ImportName { idx: module_idx });
 
                 if import_star {
                     // from .... import *
@@ -1391,14 +1413,14 @@ impl Compiler {
                     }
 
                     // Pop module from stack:
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 }
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 self.compile_expression(value)?;
 
                 // Pop result of stack, since we not use it:
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
             Stmt::Global(_) | Stmt::Nonlocal(_) => {
                 // Handled during symbol table construction.
@@ -1475,7 +1497,9 @@ impl Compiler {
                 ..
             }) => self.compile_for(target, iter, body, orelse, *is_async)?,
             Stmt::Match(StmtMatch { subject, cases, .. }) => self.compile_match(subject, cases)?,
-            Stmt::Raise(StmtRaise { exc, cause, .. }) => {
+            Stmt::Raise(StmtRaise {
+                exc, cause, range, ..
+            }) => {
                 let kind = match exc {
                     Some(value) => {
                         self.compile_expression(value)?;
@@ -1489,6 +1513,7 @@ impl Compiler {
                     }
                     None => bytecode::RaiseKind::Reraise,
                 };
+                self.set_source_range(*range);
                 emit!(self, Instruction::Raise { kind });
             }
             Stmt::Try(StmtTry {
@@ -1500,7 +1525,7 @@ impl Compiler {
                 ..
             }) => {
                 if *is_star {
-                    self.compile_try_star_statement(body, handlers, orelse, finalbody)?
+                    self.compile_try_star_except(body, handlers, orelse, finalbody)?
                 } else {
                     self.compile_try_statement(body, handlers, orelse, finalbody)?
                 }
@@ -1570,13 +1595,18 @@ impl Compiler {
             }
             Stmt::Break(_) => {
                 // Find the innermost loop in fblock stack
+                // Error if we encounter ExceptionGroupHandler before finding a loop
                 let found_loop = {
                     let code = self.current_code_info();
-                    let mut result = None;
+                    let mut result = Ok(None);
                     for i in (0..code.fblock.len()).rev() {
                         match code.fblock[i].fb_type {
                             FBlockType::WhileLoop | FBlockType::ForLoop => {
-                                result = Some(code.fblock[i].fb_exit);
+                                result = Ok(Some(code.fblock[i].fb_exit));
+                                break;
+                            }
+                            FBlockType::ExceptionGroupHandler => {
+                                result = Err(());
                                 break;
                             }
                             _ => continue,
@@ -1586,25 +1616,36 @@ impl Compiler {
                 };
 
                 match found_loop {
-                    Some(exit_block) => {
+                    Ok(Some(exit_block)) => {
                         emit!(self, Instruction::Break { target: exit_block });
                     }
-                    None => {
+                    Ok(None) => {
                         return Err(
                             self.error_ranged(CodegenErrorType::InvalidBreak, statement.range())
                         );
+                    }
+                    Err(()) => {
+                        return Err(self.error_ranged(
+                            CodegenErrorType::BreakContinueReturnInExceptStar,
+                            statement.range(),
+                        ));
                     }
                 }
             }
             Stmt::Continue(_) => {
                 // Find the innermost loop in fblock stack
+                // Error if we encounter ExceptionGroupHandler before finding a loop
                 let found_loop = {
                     let code = self.current_code_info();
-                    let mut result = None;
+                    let mut result = Ok(None);
                     for i in (0..code.fblock.len()).rev() {
                         match code.fblock[i].fb_type {
                             FBlockType::WhileLoop | FBlockType::ForLoop => {
-                                result = Some(code.fblock[i].fb_block);
+                                result = Ok(Some(code.fblock[i].fb_block));
+                                break;
+                            }
+                            FBlockType::ExceptionGroupHandler => {
+                                result = Err(());
                                 break;
                             }
                             _ => continue,
@@ -1614,13 +1655,19 @@ impl Compiler {
                 };
 
                 match found_loop {
-                    Some(loop_block) => {
+                    Ok(Some(loop_block)) => {
                         emit!(self, Instruction::Continue { target: loop_block });
                     }
-                    None => {
+                    Ok(None) => {
                         return Err(
                             self.error_ranged(CodegenErrorType::InvalidContinue, statement.range())
                         );
+                    }
+                    Err(()) => {
+                        return Err(self.error_ranged(
+                            CodegenErrorType::BreakContinueReturnInExceptStar,
+                            statement.range(),
+                        ));
                     }
                 }
             }
@@ -1629,6 +1676,18 @@ impl Compiler {
                     return Err(
                         self.error_ranged(CodegenErrorType::InvalidReturn, statement.range())
                     );
+                }
+                // Check if we're inside an except* block in the current function
+                {
+                    let code = self.current_code_info();
+                    for block in code.fblock.iter().rev() {
+                        if matches!(block.fb_type, FBlockType::ExceptionGroupHandler) {
+                            return Err(self.error_ranged(
+                                CodegenErrorType::BreakContinueReturnInExceptStar,
+                                statement.range(),
+                            ));
+                        }
+                    }
                 }
                 match value {
                     Some(v) => {
@@ -1656,7 +1715,7 @@ impl Compiler {
 
                 for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
-                        emit!(self, Instruction::Duplicate);
+                        emit!(self, Instruction::CopyItem { index: 1_u32 });
                     }
                     self.compile_store(target)?;
                 }
@@ -1787,7 +1846,7 @@ impl Compiler {
             name.to_owned(),
         );
 
-        let args_iter = std::iter::empty()
+        let args_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .map(|arg| &arg.parameter)
@@ -1917,7 +1976,7 @@ impl Compiler {
                         );
                     }
 
-                    emit!(self, Instruction::Duplicate);
+                    emit!(self, Instruction::CopyItem { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
@@ -1943,7 +2002,7 @@ impl Compiler {
                         );
                     }
 
-                    emit!(self, Instruction::Duplicate);
+                    emit!(self, Instruction::CopyItem { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
@@ -1970,7 +2029,7 @@ impl Compiler {
                         );
                     }
 
-                    emit!(self, Instruction::Duplicate);
+                    emit!(self, Instruction::CopyItem { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
             };
@@ -2030,36 +2089,23 @@ impl Compiler {
             // check if this handler can handle the exception:
             if let Some(exc_type) = type_ {
                 // Duplicate exception for test:
-                emit!(self, Instruction::Duplicate);
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
-                emit!(
-                    self,
-                    Instruction::TestOperation {
-                        op: bytecode::TestOperator::ExceptionMatch,
-                    }
-                );
-
-                // We cannot handle this exception type:
-                emit!(
-                    self,
-                    Instruction::PopJumpIfFalse {
-                        target: next_handler,
-                    }
-                );
+                emit!(self, Instruction::JumpIfNotExcMatch(next_handler));
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
                     self.store_name(alias.as_str())?
                 } else {
                     // Drop exception from top of stack:
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 }
             } else {
                 // Catch all!
                 // Drop exception from top of stack:
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
 
             // Handler code:
@@ -2122,14 +2168,276 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_try_star_statement(
+    fn compile_try_star_except(
         &mut self,
-        _body: &[Stmt],
-        _handlers: &[ExceptHandler],
-        _orelse: &[Stmt],
-        _finalbody: &[Stmt],
+        body: &[Stmt],
+        handlers: &[ExceptHandler],
+        orelse: &[Stmt],
+        finalbody: &[Stmt],
     ) -> CompileResult<()> {
-        Err(self.error(CodegenErrorType::NotImplementedYet))
+        // Simplified except* implementation using PrepReraiseStar intrinsic
+        // Stack layout during handler processing: [orig, list, rest]
+        let handler_block = self.new_block();
+        let finally_block = self.new_block();
+        let else_block = self.new_block();
+        let end_block = self.new_block();
+        let reraise_star_block = self.new_block();
+        let reraise_block = self.new_block();
+
+        if !finalbody.is_empty() {
+            emit!(
+                self,
+                Instruction::SetupFinally {
+                    handler: finally_block,
+                }
+            );
+        }
+
+        emit!(
+            self,
+            Instruction::SetupExcept {
+                handler: handler_block,
+            }
+        );
+        self.compile_statements(body)?;
+        emit!(self, Instruction::PopBlock);
+        emit!(self, Instruction::Jump { target: else_block });
+
+        // Exception handler entry
+        self.switch_to_block(handler_block);
+        // Stack: [exc]
+
+        // Create list for tracking exception results and copy orig
+        emit!(self, Instruction::BuildList { size: 0 });
+        // Stack: [exc, []]
+        // CopyItem is 1-indexed: CopyItem(1)=TOS, CopyItem(2)=second from top
+        // With stack [exc, []], CopyItem(2) copies exc
+        emit!(self, Instruction::CopyItem { index: 2 });
+        // Stack: [exc, [], exc_copy]
+
+        // Now stack is: [orig, list, rest]
+
+        let n = handlers.len();
+        for (i, handler) in handlers.iter().enumerate() {
+            let ExceptHandler::ExceptHandler(ExceptHandlerExceptHandler {
+                type_, name, body, ..
+            }) = handler;
+
+            let no_match_block = self.new_block();
+            let next_block = self.new_block();
+
+            // Compile exception type
+            if let Some(exc_type) = type_ {
+                // Check for unparenthesized tuple
+                if let Expr::Tuple(ExprTuple { elts, range, .. }) = exc_type.as_ref()
+                    && let Some(first) = elts.first()
+                    && range.start().to_u32() == first.range().start().to_u32()
+                {
+                    return Err(self.error(CodegenErrorType::SyntaxError(
+                        "multiple exception types must be parenthesized".to_owned(),
+                    )));
+                }
+                self.compile_expression(exc_type)?;
+            } else {
+                return Err(self.error(CodegenErrorType::SyntaxError(
+                    "except* must specify an exception type".to_owned(),
+                )));
+            }
+            // Stack: [orig, list, rest, type]
+
+            emit!(self, Instruction::CheckEgMatch);
+            // Stack: [orig, list, new_rest, match]
+
+            // Check if match is not None (use identity check, not truthiness)
+            // CopyItem is 1-indexed: CopyItem(1) = TOS, CopyItem(2) = second from top
+            emit!(self, Instruction::CopyItem { index: 1 });
+            self.emit_load_const(ConstantData::None);
+            emit!(self, Instruction::IsOp(bytecode::Invert::No)); // is None?
+            emit!(
+                self,
+                Instruction::PopJumpIfTrue {
+                    target: no_match_block
+                }
+            );
+
+            // Handler matched
+            // Stack: [orig, list, new_rest, match]
+            let handler_except_block = self.new_block();
+            let handler_done_block = self.new_block();
+
+            // Set matched exception as current exception for bare 'raise'
+            emit!(self, Instruction::SetExcInfo);
+
+            // Store match to name if provided
+            if let Some(alias) = name {
+                // CopyItem(1) copies TOS (match)
+                emit!(self, Instruction::CopyItem { index: 1 });
+                self.store_name(alias.as_str())?;
+            }
+            // Stack: [orig, list, new_rest, match]
+
+            // Setup exception handler to catch 'raise' in handler body
+            emit!(
+                self,
+                Instruction::SetupExcept {
+                    handler: handler_except_block,
+                }
+            );
+
+            // Push fblock to disallow break/continue/return in except* handler
+            self.push_fblock(
+                FBlockType::ExceptionGroupHandler,
+                handler_done_block,
+                end_block,
+            )?;
+
+            // Execute handler body
+            self.compile_statements(body)?;
+
+            // Handler body completed normally (didn't raise)
+            self.pop_fblock(FBlockType::ExceptionGroupHandler);
+            emit!(self, Instruction::PopBlock);
+
+            // Cleanup name binding
+            if let Some(alias) = name {
+                self.emit_load_const(ConstantData::None);
+                self.store_name(alias.as_str())?;
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
+            // Stack: [orig, list, new_rest, match]
+            // Pop match (handler consumed it)
+            emit!(self, Instruction::PopTop);
+            // Stack: [orig, list, new_rest]
+
+            // Append None to list (exception was consumed, not reraised)
+            self.emit_load_const(ConstantData::None);
+            // Stack: [orig, list, new_rest, None]
+            emit!(self, Instruction::ListAppend { i: 1 });
+            // Stack: [orig, list, new_rest]
+
+            emit!(
+                self,
+                Instruction::Jump {
+                    target: handler_done_block
+                }
+            );
+
+            // Handler raised an exception (bare 'raise' or other)
+            self.switch_to_block(handler_except_block);
+            // Stack: [orig, list, new_rest, match, raised_exc]
+
+            // Cleanup name binding
+            if let Some(alias) = name {
+                self.emit_load_const(ConstantData::None);
+                self.store_name(alias.as_str())?;
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
+            // Append raised_exc to list (the actual exception that was raised)
+            // Stack: [orig, list, new_rest, match, raised_exc]
+            // ListAppend(2): pop raised_exc, then append to list at stack[4-2-1]=stack[1]
+            emit!(self, Instruction::ListAppend { i: 2 });
+            // Stack: [orig, list, new_rest, match]
+
+            // Pop match (no longer needed)
+            emit!(self, Instruction::PopTop);
+            // Stack: [orig, list, new_rest]
+
+            self.switch_to_block(handler_done_block);
+            // Stack: [orig, list, new_rest]
+
+            emit!(self, Instruction::Jump { target: next_block });
+
+            // No match - pop match (None), keep rest unchanged
+            self.switch_to_block(no_match_block);
+            emit!(self, Instruction::PopTop); // pop match (None)
+            // Stack: [orig, list, new_rest]
+
+            self.switch_to_block(next_block);
+            // Stack: [orig, list, rest] (rest may have been updated)
+
+            // After last handler, append remaining rest to list
+            if i == n - 1 {
+                // Stack: [orig, list, rest]
+                // ListAppend(i) pops TOS, then accesses stack[len - i - 1]
+                // After pop, stack is [orig, list], len=2
+                // We want list at index 1, so 2 - i - 1 = 1, i = 0
+                emit!(self, Instruction::ListAppend { i: 0 });
+                // Stack: [orig, list]
+                emit!(
+                    self,
+                    Instruction::Jump {
+                        target: reraise_star_block
+                    }
+                );
+            }
+        }
+
+        // Reraise star block
+        self.switch_to_block(reraise_star_block);
+        // Stack: [orig, list]
+        emit!(
+            self,
+            Instruction::CallIntrinsic2 {
+                func: bytecode::IntrinsicFunction2::PrepReraiseStar
+            }
+        );
+        // Stack: [result] (exception to reraise or None)
+
+        // Check if result is not None (use identity check, not truthiness)
+        emit!(self, Instruction::CopyItem { index: 1 });
+        self.emit_load_const(ConstantData::None);
+        emit!(self, Instruction::IsOp(bytecode::Invert::Yes)); // is not None?
+        emit!(
+            self,
+            Instruction::PopJumpIfTrue {
+                target: reraise_block
+            }
+        );
+
+        // Nothing to reraise
+        emit!(self, Instruction::PopTop);
+        emit!(self, Instruction::PopException);
+
+        if !finalbody.is_empty() {
+            emit!(self, Instruction::PopBlock);
+            emit!(self, Instruction::EnterFinally);
+        }
+
+        emit!(self, Instruction::Jump { target: end_block });
+
+        // Reraise the result
+        self.switch_to_block(reraise_block);
+        // Don't call PopException before Raise - it truncates the stack and removes the result.
+        // When Raise is executed, the exception propagates through unwind_blocks which
+        // will properly handle the ExceptHandler block.
+        emit!(
+            self,
+            Instruction::Raise {
+                kind: bytecode::RaiseKind::Raise
+            }
+        );
+
+        // try-else path
+        self.switch_to_block(else_block);
+        self.compile_statements(orelse)?;
+
+        if !finalbody.is_empty() {
+            emit!(self, Instruction::PopBlock);
+            emit!(self, Instruction::EnterFinally);
+        }
+
+        emit!(self, Instruction::Jump { target: end_block });
+
+        self.switch_to_block(end_block);
+        if !finalbody.is_empty() {
+            self.switch_to_block(finally_block);
+            self.compile_statements(finalbody)?;
+            emit!(self, Instruction::EndFinally);
+        }
+
+        Ok(())
     }
 
     fn is_forbidden_arg_name(name: &str) -> bool {
@@ -2145,7 +2453,7 @@ impl Compiler {
         let mut funcflags = bytecode::MakeFunctionFlags::empty();
 
         // Handle positional defaults
-        let defaults: Vec<_> = std::iter::empty()
+        let defaults: Vec<_> = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .filter_map(|x| x.default.as_deref())
@@ -2251,11 +2559,11 @@ impl Compiler {
 
         // Handle docstring if present
         if let Some(doc) = doc_str {
-            emit!(self, Instruction::Duplicate);
+            emit!(self, Instruction::CopyItem { index: 1_u32 });
             self.emit_load_const(ConstantData::Str {
                 value: doc.to_string().into(),
             });
-            emit!(self, Instruction::Rotate2);
+            emit!(self, Instruction::Swap { index: 2 });
             let doc_attr = self.name("__doc__");
             emit!(self, Instruction::StoreAttr { idx: doc_attr });
         }
@@ -2273,7 +2581,7 @@ impl Compiler {
         let mut num_annotations = 0;
 
         // Handle parameter annotations
-        let parameters_iter = std::iter::empty()
+        let parameters_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .chain(&parameters.kwonlyargs)
@@ -2683,10 +2991,12 @@ impl Compiler {
         let qualname_name = self.name("__qualname__");
         emit!(self, Instruction::StoreLocal(qualname_name));
 
-        // Store __doc__
-        self.load_docstring(doc_str);
-        let doc = self.name("__doc__");
-        emit!(self, Instruction::StoreLocal(doc));
+        // Store __doc__ only if there's an explicit docstring
+        if let Some(doc) = doc_str {
+            self.emit_load_const(ConstantData::Str { value: doc.into() });
+            let doc_name = self.name("__doc__");
+            emit!(self, Instruction::StoreLocal(doc_name));
+        }
 
         // Store __firstlineno__ (new in Python 3.12+)
         self.emit_load_const(ConstantData::Integer {
@@ -2726,7 +3036,7 @@ impl Compiler {
 
         if let Some(classcell_idx) = classcell_idx {
             emit!(self, Instruction::LoadClosure(classcell_idx.to_u32()));
-            emit!(self, Instruction::Duplicate);
+            emit!(self, Instruction::CopyItem { index: 1_u32 });
             let classcell = self.name("__classcell__");
             emit!(self, Instruction::StoreLocal(classcell));
         } else {
@@ -2880,17 +3190,6 @@ impl Compiler {
         self.store_name(name)
     }
 
-    fn load_docstring(&mut self, doc_str: Option<String>) {
-        // TODO: __doc__ must be default None and no bytecode unless it is Some
-        // Duplicate top of stack (the function or class object)
-
-        // Doc string value:
-        self.emit_load_const(match doc_str {
-            Some(doc) => ConstantData::Str { value: doc.into() },
-            None => ConstantData::None, // set docstring None if not declared
-        });
-    }
-
     fn compile_while(&mut self, test: &Expr, body: &[Stmt], orelse: &[Stmt]) -> CompileResult<()> {
         let while_block = self.new_block();
         let else_block = self.new_block();
@@ -2962,7 +3261,7 @@ impl Compiler {
                     self.compile_store(var)?;
                 }
                 None => {
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 }
             }
             final_block
@@ -3155,7 +3454,7 @@ impl Compiler {
         for &label in pc.fail_pop.iter().skip(1).rev() {
             self.switch_to_block(label);
             // Emit the POP instruction.
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         }
         // Finally, use the first label.
         self.switch_to_block(pc.fail_pop[0]);
@@ -3199,7 +3498,7 @@ impl Compiler {
         match n {
             // If no name is provided, simply pop the top of the stack.
             None => {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
                 Ok(())
             }
             Some(name) => {
@@ -3313,7 +3612,7 @@ impl Compiler {
                 // Subtract to compute the correct index.
                 emit!(
                     self,
-                    Instruction::BinaryOperation {
+                    Instruction::BinaryOp {
                         op: BinaryOperator::Subtract
                     }
                 );
@@ -3325,7 +3624,7 @@ impl Compiler {
         }
         // Pop the subject off the stack.
         pc.on_top -= 1;
-        emit!(self, Instruction::Pop);
+        emit!(self, Instruction::PopTop);
         Ok(())
     }
 
@@ -3477,12 +3776,7 @@ impl Compiler {
         // 4. Load None.
         self.emit_load_const(ConstantData::None);
         // 5. Compare with IS_OP 1.
-        emit!(
-            self,
-            Instruction::TestOperation {
-                op: bytecode::TestOperator::IsNot
-            }
-        );
+        emit!(self, Instruction::IsOp(Invert::Yes));
 
         // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
@@ -3514,7 +3808,7 @@ impl Compiler {
             pc.on_top -= 1;
 
             if is_true_wildcard {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
                 continue; // Don't compile wildcard patterns
             }
 
@@ -3565,7 +3859,7 @@ impl Compiler {
         if size == 0 && star_target.is_none() {
             // If the pattern is just "{}", we're done! Pop the subject
             pc.on_top -= 1;
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
             return Ok(());
         }
 
@@ -3648,12 +3942,8 @@ impl Compiler {
 
         // Check if copy is None (consumes the copy like POP_JUMP_IF_NONE)
         self.emit_load_const(ConstantData::None);
-        emit!(
-            self,
-            Instruction::TestOperation {
-                op: bytecode::TestOperator::IsNot
-            }
-        );
+        emit!(self, Instruction::IsOp(Invert::Yes));
+
         // Stack: [subject, keys_tuple, values_tuple, bool]
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         // Stack: [subject, keys_tuple, values_tuple]
@@ -3724,8 +4014,8 @@ impl Compiler {
             // Non-rest pattern: just clean up the stack
 
             // Pop them as we're not using them
-            emit!(self, Instruction::Pop); // Pop keys_tuple
-            emit!(self, Instruction::Pop); // Pop subject
+            emit!(self, Instruction::PopTop); // Pop keys_tuple
+            emit!(self, Instruction::PopTop); // Pop subject
         }
 
         Ok(())
@@ -3813,7 +4103,7 @@ impl Compiler {
         // In Rust, old_pc is a local clone, so we need not worry about that.
 
         // No alternative matched: pop the subject and fail.
-        emit!(self, Instruction::Pop);
+        emit!(self, Instruction::PopTop);
         self.jump_to_fail_pop(pc, JumpOp::Jump)?;
 
         // Use the label "end".
@@ -3835,7 +4125,7 @@ impl Compiler {
 
         // Old context and control will be dropped automatically.
         // Finally, pop the copy of the subject.
-        emit!(self, Instruction::Pop);
+        emit!(self, Instruction::PopTop);
         Ok(())
     }
 
@@ -3909,7 +4199,7 @@ impl Compiler {
         pc.on_top -= 1;
         if only_wildcard {
             // Patterns like: [] / [_] / [_, _] / [*_] / [_, *_] / [_, _, *_] / etc.
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         } else if star_wildcard {
             self.pattern_helper_sequence_subscr(patterns, star.unwrap(), pc)?;
         } else {
@@ -3948,12 +4238,7 @@ impl Compiler {
             Singleton::True => ConstantData::Boolean { value: true },
         });
         // Compare using the "Is" operator.
-        emit!(
-            self,
-            Instruction::TestOperation {
-                op: bytecode::TestOperator::Is
-            }
-        );
+        emit!(self, Instruction::IsOp(Invert::No));
         // Jump to the failure label if the comparison is false.
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         Ok(())
@@ -4038,7 +4323,7 @@ impl Compiler {
             }
 
             if i != case_count - 1 {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
 
             self.compile_statements(&m.body)?;
@@ -4049,14 +4334,16 @@ impl Compiler {
         if has_default {
             let m = &cases[num_cases - 1];
             if num_cases == 1 {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             } else {
                 emit!(self, Instruction::Nop);
             }
             if let Some(ref guard) = m.guard {
                 // Compile guard and jump to end if false
                 self.compile_expression(guard)?;
-                emit!(self, Instruction::JumpIfFalseOrPop { target: end });
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::PopJumpIfFalse { target: end });
+                emit!(self, Instruction::PopTop);
             }
             self.compile_statements(&m.body)?;
         }
@@ -4070,93 +4357,97 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_chained_comparison(
+    /// [CPython `compiler_addcompare`](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Python/compile.c#L2880-L2924)
+    fn compile_addcompare(&mut self, op: &CmpOp) {
+        use bytecode::ComparisonOperator::*;
+        match op {
+            CmpOp::Eq => emit!(self, Instruction::CompareOperation { op: Equal }),
+            CmpOp::NotEq => emit!(self, Instruction::CompareOperation { op: NotEqual }),
+            CmpOp::Lt => emit!(self, Instruction::CompareOperation { op: Less }),
+            CmpOp::LtE => emit!(self, Instruction::CompareOperation { op: LessOrEqual }),
+            CmpOp::Gt => emit!(self, Instruction::CompareOperation { op: Greater }),
+            CmpOp::GtE => {
+                emit!(self, Instruction::CompareOperation { op: GreaterOrEqual })
+            }
+            CmpOp::In => emit!(self, Instruction::ContainsOp(Invert::No)),
+            CmpOp::NotIn => emit!(self, Instruction::ContainsOp(Invert::Yes)),
+            CmpOp::Is => emit!(self, Instruction::IsOp(Invert::No)),
+            CmpOp::IsNot => emit!(self, Instruction::IsOp(Invert::Yes)),
+        }
+    }
+
+    /// Compile a chained comparison.
+    ///
+    /// ```py
+    /// a == b == c == d
+    /// ```
+    ///
+    /// Will compile into (pseudo code):
+    ///
+    /// ```py
+    /// result = a == b
+    /// if result:
+    ///   result = b == c
+    ///   if result:
+    ///     result = c == d
+    /// ```
+    ///
+    /// # See Also
+    /// - [CPython `compiler_compare`](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Python/compile.c#L4678-L4717)
+    fn compile_compare(
         &mut self,
         left: &Expr,
         ops: &[CmpOp],
-        exprs: &[Expr],
+        comparators: &[Expr],
     ) -> CompileResult<()> {
-        assert!(!ops.is_empty());
-        assert_eq!(exprs.len(), ops.len());
         let (last_op, mid_ops) = ops.split_last().unwrap();
-        let (last_val, mid_exprs) = exprs.split_last().unwrap();
-
-        use bytecode::ComparisonOperator::*;
-        use bytecode::TestOperator::*;
-        let compile_cmpop = |c: &mut Self, op: &CmpOp| match op {
-            CmpOp::Eq => emit!(c, Instruction::CompareOperation { op: Equal }),
-            CmpOp::NotEq => emit!(c, Instruction::CompareOperation { op: NotEqual }),
-            CmpOp::Lt => emit!(c, Instruction::CompareOperation { op: Less }),
-            CmpOp::LtE => emit!(c, Instruction::CompareOperation { op: LessOrEqual }),
-            CmpOp::Gt => emit!(c, Instruction::CompareOperation { op: Greater }),
-            CmpOp::GtE => {
-                emit!(c, Instruction::CompareOperation { op: GreaterOrEqual })
-            }
-            CmpOp::In => emit!(c, Instruction::TestOperation { op: In }),
-            CmpOp::NotIn => emit!(c, Instruction::TestOperation { op: NotIn }),
-            CmpOp::Is => emit!(c, Instruction::TestOperation { op: Is }),
-            CmpOp::IsNot => emit!(c, Instruction::TestOperation { op: IsNot }),
-        };
-
-        // a == b == c == d
-        // compile into (pseudo code):
-        // result = a == b
-        // if result:
-        //   result = b == c
-        //   if result:
-        //     result = c == d
+        let (last_comparator, mid_comparators) = comparators.split_last().unwrap();
 
         // initialize lhs outside of loop
         self.compile_expression(left)?;
 
-        let end_blocks = if mid_exprs.is_empty() {
-            None
-        } else {
-            let break_block = self.new_block();
-            let after_block = self.new_block();
-            Some((break_block, after_block))
-        };
+        if mid_comparators.is_empty() {
+            self.compile_expression(last_comparator)?;
+            self.compile_addcompare(last_op);
+
+            return Ok(());
+        }
+
+        let cleanup = self.new_block();
 
         // for all comparisons except the last (as the last one doesn't need a conditional jump)
-        for (op, val) in mid_ops.iter().zip(mid_exprs) {
-            self.compile_expression(val)?;
-            // store rhs for the next comparison in chain
-            emit!(self, Instruction::Duplicate);
-            emit!(self, Instruction::Rotate3);
+        for (op, comparator) in mid_ops.iter().zip(mid_comparators) {
+            self.compile_expression(comparator)?;
 
-            compile_cmpop(self, op);
+            // store rhs for the next comparison in chain
+            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, Instruction::CopyItem { index: 2 });
+
+            self.compile_addcompare(op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
-            if let Some((break_block, _)) = end_blocks {
-                emit!(
-                    self,
-                    Instruction::JumpIfFalseOrPop {
-                        target: break_block,
-                    }
-                );
-            }
+            /*
+            emit!(self, Instruction::CopyItem { index: 1 });
+            // emit!(self, Instruction::ToBool); // TODO: Uncomment this
+            emit!(self, Instruction::PopJumpIfFalse { target: cleanup });
+            emit!(self, Instruction::PopTop);
+            */
+
+            emit!(self, Instruction::JumpIfFalseOrPop { target: cleanup });
         }
 
-        // handle the last comparison
-        self.compile_expression(last_val)?;
-        compile_cmpop(self, last_op);
+        self.compile_expression(last_comparator)?;
+        self.compile_addcompare(last_op);
 
-        if let Some((break_block, after_block)) = end_blocks {
-            emit!(
-                self,
-                Instruction::Jump {
-                    target: after_block,
-                }
-            );
+        let end = self.new_block();
+        emit!(self, Instruction::Jump { target: end });
 
-            // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
-            self.switch_to_block(break_block);
-            emit!(self, Instruction::Rotate2);
-            emit!(self, Instruction::Pop);
+        // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
+        self.switch_to_block(cleanup);
+        emit!(self, Instruction::Swap { index: 2 });
+        emit!(self, Instruction::PopTop);
 
-            self.switch_to_block(after_block);
-        }
-
+        self.switch_to_block(end);
         Ok(())
     }
 
@@ -4219,7 +4510,7 @@ impl Compiler {
             emit!(self, Instruction::StoreSubscript);
         } else {
             // Drop annotation if not assigned to simple identifier.
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         }
 
         Ok(())
@@ -4322,7 +4613,8 @@ impl Compiler {
                 // But we can't use compile_subscript directly because we need DUP_TOP2
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
-                emit!(self, Instruction::Duplicate2);
+                emit!(self, Instruction::CopyItem { index: 2_u32 });
+                emit!(self, Instruction::CopyItem { index: 2_u32 });
                 emit!(self, Instruction::Subscript);
                 AugAssignKind::Subscript
             }
@@ -4330,7 +4622,7 @@ impl Compiler {
                 let attr = attr.as_str();
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
-                emit!(self, Instruction::Duplicate);
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
                 let idx = self.name(attr);
                 emit!(self, Instruction::LoadAttr { idx });
                 AugAssignKind::Attr { idx }
@@ -4350,12 +4642,13 @@ impl Compiler {
             }
             AugAssignKind::Subscript => {
                 // stack: CONTAINER SLICE RESULT
-                emit!(self, Instruction::Rotate3);
+                emit!(self, Instruction::Swap { index: 3 });
+                emit!(self, Instruction::Swap { index: 2 });
                 emit!(self, Instruction::StoreSubscript);
             }
             AugAssignKind::Attr { idx } => {
                 // stack: CONTAINER RESULT
-                emit!(self, Instruction::Rotate2);
+                emit!(self, Instruction::Swap { index: 2 });
                 emit!(self, Instruction::StoreAttr { idx });
             }
         }
@@ -4364,26 +4657,24 @@ impl Compiler {
     }
 
     fn compile_op(&mut self, op: &Operator, inplace: bool) {
-        let op = match op {
-            Operator::Add => bytecode::BinaryOperator::Add,
-            Operator::Sub => bytecode::BinaryOperator::Subtract,
-            Operator::Mult => bytecode::BinaryOperator::Multiply,
-            Operator::MatMult => bytecode::BinaryOperator::MatrixMultiply,
-            Operator::Div => bytecode::BinaryOperator::Divide,
-            Operator::FloorDiv => bytecode::BinaryOperator::FloorDivide,
-            Operator::Mod => bytecode::BinaryOperator::Modulo,
-            Operator::Pow => bytecode::BinaryOperator::Power,
-            Operator::LShift => bytecode::BinaryOperator::Lshift,
-            Operator::RShift => bytecode::BinaryOperator::Rshift,
-            Operator::BitOr => bytecode::BinaryOperator::Or,
-            Operator::BitXor => bytecode::BinaryOperator::Xor,
-            Operator::BitAnd => bytecode::BinaryOperator::And,
+        let bin_op = match op {
+            Operator::Add => BinaryOperator::Add,
+            Operator::Sub => BinaryOperator::Subtract,
+            Operator::Mult => BinaryOperator::Multiply,
+            Operator::MatMult => BinaryOperator::MatrixMultiply,
+            Operator::Div => BinaryOperator::TrueDivide,
+            Operator::FloorDiv => BinaryOperator::FloorDivide,
+            Operator::Mod => BinaryOperator::Remainder,
+            Operator::Pow => BinaryOperator::Power,
+            Operator::LShift => BinaryOperator::Lshift,
+            Operator::RShift => BinaryOperator::Rshift,
+            Operator::BitOr => BinaryOperator::Or,
+            Operator::BitXor => BinaryOperator::Xor,
+            Operator::BitAnd => BinaryOperator::And,
         };
-        if inplace {
-            emit!(self, Instruction::BinaryOperationInplace { op })
-        } else {
-            emit!(self, Instruction::BinaryOperation { op })
-        }
+
+        let op = if inplace { bin_op.as_inplace() } else { bin_op };
+        emit!(self, Instruction::BinaryOp { op })
     }
 
     /// Implement boolean short circuit evaluation logic.
@@ -4398,7 +4689,7 @@ impl Compiler {
         &mut self,
         expression: &Expr,
         condition: bool,
-        target_block: ir::BlockIdx,
+        target_block: BlockIdx,
     ) -> CompileResult<()> {
         // Compile expression for test, and jump to label if false
         match &expression {
@@ -4484,14 +4775,16 @@ impl Compiler {
         let after_block = self.new_block();
 
         let (last_value, values) = values.split_last().unwrap();
+
         for value in values {
             self.compile_expression(value)?;
 
+            emit!(self, Instruction::CopyItem { index: 1_u32 });
             match op {
                 BoolOp::And => {
                     emit!(
                         self,
-                        Instruction::JumpIfFalseOrPop {
+                        Instruction::PopJumpIfFalse {
                             target: after_block,
                         }
                     );
@@ -4499,12 +4792,14 @@ impl Compiler {
                 BoolOp::Or => {
                     emit!(
                         self,
-                        Instruction::JumpIfTrueOrPop {
+                        Instruction::PopJumpIfTrue {
                             target: after_block,
                         }
                     );
                 }
             }
+
+            emit!(self, Instruction::PopTop);
         }
 
         // If all values did not qualify, take the value of the last value:
@@ -4581,7 +4876,7 @@ impl Compiler {
                 comparators,
                 ..
             }) => {
-                self.compile_chained_comparison(left, ops, comparators)?;
+                self.compile_compare(left, ops, comparators)?;
             }
             // Expr::Constant(ExprConstant { value, .. }) => {
             //     self.emit_load_const(compile_constant(value));
@@ -4613,8 +4908,11 @@ impl Compiler {
                 if let Some(step) = step {
                     self.compile_expression(step)?;
                 }
-                let step = step.is_some();
-                emit!(self, Instruction::BuildSlice { step });
+                let argc = match step {
+                    Some(_) => BuildSliceArgCount::Three,
+                    None => BuildSliceArgCount::Two,
+                };
+                emit!(self, Instruction::BuildSlice { argc });
             }
             Expr::Yield(ExprYield { value, .. }) => {
                 if !self.ctx.in_func() {
@@ -4682,7 +4980,7 @@ impl Compiler {
                 let name = "<lambda>".to_owned();
 
                 // Prepare defaults before entering function
-                let defaults: Vec<_> = std::iter::empty()
+                let defaults: Vec<_> = core::iter::empty()
                     .chain(&params.posonlyargs)
                     .chain(&params.args)
                     .filter_map(|x| x.default.as_deref())
@@ -4847,7 +5145,7 @@ impl Compiler {
                                 arg: bytecode::ResumeType::AfterYield as u32
                             }
                         );
-                        emit!(compiler, Instruction::Pop);
+                        emit!(compiler, Instruction::PopTop);
 
                         Ok(())
                     },
@@ -4896,7 +5194,7 @@ impl Compiler {
                 range: _,
             }) => {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::Duplicate);
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
                 self.compile_store(target)?;
             }
             Expr::FString(fstring) => {
@@ -5212,7 +5510,7 @@ impl Compiler {
         let return_none = init_collection.is_none();
         // Create empty object of proper type:
         if let Some(init_collection) = init_collection {
-            self._emit(init_collection, OpArg(0), ir::BlockIdx::NULL)
+            self._emit(init_collection, OpArg(0), BlockIdx::NULL)
         }
 
         let mut loop_labels = vec![];
@@ -5353,24 +5651,22 @@ impl Compiler {
     }
 
     // Low level helper functions:
-    fn _emit(&mut self, instr: Instruction, arg: OpArg, target: ir::BlockIdx) {
+    fn _emit(&mut self, instr: Instruction, arg: OpArg, target: BlockIdx) {
         let range = self.current_source_range;
-        let location = self
-            .source_file
-            .to_source_code()
-            .source_location(range.start(), PositionEncoding::Utf8);
-        // TODO: insert source filename
+        let source = self.source_file.to_source_code();
+        let location = source.source_location(range.start(), PositionEncoding::Utf8);
+        let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,
             arg,
             target,
             location,
-            // range,
+            end_location,
         });
     }
 
     fn emit_no_arg(&mut self, ins: Instruction) {
-        self._emit(ins, OpArg::null(), ir::BlockIdx::NULL)
+        self._emit(ins, OpArg::null(), BlockIdx::NULL)
     }
 
     fn emit_arg<A: OpArgType, T: EmitArg<A>>(
@@ -5418,25 +5714,25 @@ impl Compiler {
         &mut info.blocks[info.current_block]
     }
 
-    fn new_block(&mut self) -> ir::BlockIdx {
+    fn new_block(&mut self) -> BlockIdx {
         let code = self.current_code_info();
-        let idx = ir::BlockIdx(code.blocks.len().to_u32());
+        let idx = BlockIdx::new(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
         idx
     }
 
-    fn switch_to_block(&mut self, block: ir::BlockIdx) {
+    fn switch_to_block(&mut self, block: BlockIdx) {
         let code = self.current_code_info();
         let prev = code.current_block;
         assert_ne!(prev, block, "recursive switching {prev:?} -> {block:?}");
         assert_eq!(
             code.blocks[block].next,
-            ir::BlockIdx::NULL,
+            BlockIdx::NULL,
             "switching {prev:?} -> {block:?} to completed block"
         );
-        let prev_block = &mut code.blocks[prev.0 as usize];
+        let prev_block = &mut code.blocks[prev.idx()];
         assert_eq!(
-            prev_block.next.0,
+            u32::from(prev_block.next),
             u32::MAX,
             "switching {prev:?} -> {block:?} from block that's already got a next"
         );
@@ -5460,134 +5756,35 @@ impl Compiler {
 
     /// Whether the expression contains an await expression and
     /// thus requires the function to be async.
-    /// Async with and async for are statements, so I won't check for them here
+    ///
+    /// Both:
+    /// ```py
+    /// async with: ...
+    /// async for: ...
+    /// ```
+    /// are statements, so we won't check for them here
     fn contains_await(expression: &Expr) -> bool {
-        use ruff_python_ast::*;
-
-        match &expression {
-            Expr::Call(ExprCall {
-                func, arguments, ..
-            }) => {
-                Self::contains_await(func)
-                    || arguments.args.iter().any(Self::contains_await)
-                    || arguments
-                        .keywords
-                        .iter()
-                        .any(|kw| Self::contains_await(&kw.value))
-            }
-            Expr::BoolOp(ExprBoolOp { values, .. }) => values.iter().any(Self::contains_await),
-            Expr::BinOp(ExprBinOp { left, right, .. }) => {
-                Self::contains_await(left) || Self::contains_await(right)
-            }
-            Expr::Subscript(ExprSubscript { value, slice, .. }) => {
-                Self::contains_await(value) || Self::contains_await(slice)
-            }
-            Expr::UnaryOp(ExprUnaryOp { operand, .. }) => Self::contains_await(operand),
-            Expr::Attribute(ExprAttribute { value, .. }) => Self::contains_await(value),
-            Expr::Compare(ExprCompare {
-                left, comparators, ..
-            }) => Self::contains_await(left) || comparators.iter().any(Self::contains_await),
-            Expr::List(ExprList { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Tuple(ExprTuple { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Set(ExprSet { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Dict(ExprDict { items, .. }) => items
-                .iter()
-                .flat_map(|item| &item.key)
-                .any(Self::contains_await),
-            Expr::Slice(ExprSlice {
-                lower, upper, step, ..
-            }) => {
-                lower.as_deref().is_some_and(Self::contains_await)
-                    || upper.as_deref().is_some_and(Self::contains_await)
-                    || step.as_deref().is_some_and(Self::contains_await)
-            }
-            Expr::Yield(ExprYield { value, .. }) => {
-                value.as_deref().is_some_and(Self::contains_await)
-            }
-            Expr::Await(ExprAwait { .. }) => true,
-            Expr::YieldFrom(ExprYieldFrom { value, .. }) => Self::contains_await(value),
-            Expr::Name(ExprName { .. }) => false,
-            Expr::Lambda(ExprLambda { body, .. }) => Self::contains_await(body),
-            Expr::ListComp(ExprListComp {
-                elt, generators, ..
-            }) => {
-                Self::contains_await(elt)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::SetComp(ExprSetComp {
-                elt, generators, ..
-            }) => {
-                Self::contains_await(elt)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::DictComp(ExprDictComp {
-                key,
-                value,
-                generators,
-                ..
-            }) => {
-                Self::contains_await(key)
-                    || Self::contains_await(value)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::Generator(ExprGenerator {
-                elt, generators, ..
-            }) => {
-                Self::contains_await(elt)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::Starred(expr) => Self::contains_await(&expr.value),
-            Expr::If(ExprIf {
-                test, body, orelse, ..
-            }) => {
-                Self::contains_await(test)
-                    || Self::contains_await(body)
-                    || Self::contains_await(orelse)
-            }
-
-            Expr::Named(ExprNamed {
-                target,
-                value,
-                node_index: _,
-                range: _,
-            }) => Self::contains_await(target) || Self::contains_await(value),
-            Expr::FString(fstring) => {
-                Self::interpolated_string_contains_await(fstring.value.elements())
-            }
-            Expr::TString(tstring) => {
-                Self::interpolated_string_contains_await(tstring.value.elements())
-            }
-            Expr::StringLiteral(_)
-            | Expr::BytesLiteral(_)
-            | Expr::NumberLiteral(_)
-            | Expr::BooleanLiteral(_)
-            | Expr::NoneLiteral(_)
-            | Expr::EllipsisLiteral(_)
-            | Expr::IpyEscapeCommand(_) => false,
-        }
-    }
-
-    fn interpolated_string_contains_await<'a>(
-        mut elements: impl Iterator<Item = &'a InterpolatedStringElement>,
-    ) -> bool {
-        fn interpolated_element_contains_await<F: Copy + Fn(&Expr) -> bool>(
-            expr_element: &InterpolatedElement,
-            contains_await: F,
-        ) -> bool {
-            contains_await(&expr_element.expression)
-                || expr_element
-                    .format_spec
-                    .iter()
-                    .flat_map(|spec| spec.elements.interpolations())
-                    .any(|element| interpolated_element_contains_await(element, contains_await))
+        #[derive(Default)]
+        struct AwaitVisitor {
+            found: bool,
         }
 
-        elements.any(|element| match element {
-            InterpolatedStringElement::Interpolation(expr_element) => {
-                interpolated_element_contains_await(expr_element, Self::contains_await)
+        impl Visitor<'_> for AwaitVisitor {
+            fn visit_expr(&mut self, expr: &Expr) {
+                if self.found {
+                    return;
+                }
+
+                match expr {
+                    Expr::Await(_) => self.found = true,
+                    _ => walk_expr(self, expr),
+                }
             }
-            InterpolatedStringElement::Literal(_) => false,
-        })
+        }
+
+        let mut visitor = AwaitVisitor::default();
+        visitor.visit_expr(expression);
+        visitor.found
     }
 
     fn compile_expr_fstring(&mut self, fstring: &ExprFString) -> CompileResult<()> {
@@ -5660,7 +5857,12 @@ impl Compiler {
                     }
                 }
                 InterpolatedStringElement::Interpolation(fstring_expr) => {
-                    let mut conversion = fstring_expr.conversion;
+                    let mut conversion = match fstring_expr.conversion {
+                        ConversionFlag::None => ConvertValueOparg::None,
+                        ConversionFlag::Str => ConvertValueOparg::Str,
+                        ConversionFlag::Repr => ConvertValueOparg::Repr,
+                        ConversionFlag::Ascii => ConvertValueOparg::Ascii,
+                    };
 
                     if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
                         let range = fstring_expr.expression.range();
@@ -5669,35 +5871,39 @@ impl Compiler {
 
                         self.emit_load_const(ConstantData::Str { value: text.into() });
                         element_count += 1;
-                    }
 
-                    match &fstring_expr.format_spec {
-                        None => {
-                            self.emit_load_const(ConstantData::Str {
-                                value: Wtf8Buf::new(),
-                            });
-                            // Match CPython behavior: If debug text is present, apply repr conversion.
-                            // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
-                            if conversion == ConversionFlag::None
-                                && fstring_expr.debug_text.is_some()
-                            {
-                                conversion = ConversionFlag::Repr;
-                            }
-                        }
-                        Some(format_spec) => {
-                            self.compile_fstring_elements(flags, &format_spec.elements)?;
+                        // Match CPython behavior: If debug text is present, apply repr conversion.
+                        // if no `format_spec` specified.
+                        // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
+                        if matches!(
+                            (conversion, &fstring_expr.format_spec),
+                            (ConvertValueOparg::None, None)
+                        ) {
+                            conversion = ConvertValueOparg::Repr;
                         }
                     }
 
                     self.compile_expression(&fstring_expr.expression)?;
 
-                    let conversion = match conversion {
-                        ConversionFlag::None => bytecode::ConversionFlag::None,
-                        ConversionFlag::Str => bytecode::ConversionFlag::Str,
-                        ConversionFlag::Ascii => bytecode::ConversionFlag::Ascii,
-                        ConversionFlag::Repr => bytecode::ConversionFlag::Repr,
-                    };
-                    emit!(self, Instruction::FormatValue { conversion });
+                    match conversion {
+                        ConvertValueOparg::None => {}
+                        ConvertValueOparg::Str
+                        | ConvertValueOparg::Repr
+                        | ConvertValueOparg::Ascii => {
+                            emit!(self, Instruction::ConvertValue { oparg: conversion })
+                        }
+                    }
+
+                    match &fstring_expr.format_spec {
+                        Some(format_spec) => {
+                            self.compile_fstring_elements(flags, &format_spec.elements)?;
+
+                            emit!(self, Instruction::FormatWithSpec);
+                        }
+                        None => {
+                            emit!(self, Instruction::FormatSimple);
+                        }
+                    }
                 }
             }
         }
@@ -5724,22 +5930,19 @@ trait EmitArg<Arg: OpArgType> {
     fn emit(
         self,
         f: impl FnOnce(OpArgMarker<Arg>) -> Instruction,
-    ) -> (Instruction, OpArg, ir::BlockIdx);
+    ) -> (Instruction, OpArg, BlockIdx);
 }
 impl<T: OpArgType> EmitArg<T> for T {
-    fn emit(
-        self,
-        f: impl FnOnce(OpArgMarker<T>) -> Instruction,
-    ) -> (Instruction, OpArg, ir::BlockIdx) {
+    fn emit(self, f: impl FnOnce(OpArgMarker<T>) -> Instruction) -> (Instruction, OpArg, BlockIdx) {
         let (marker, arg) = OpArgMarker::new(self);
-        (f(marker), arg, ir::BlockIdx::NULL)
+        (f(marker), arg, BlockIdx::NULL)
     }
 }
-impl EmitArg<bytecode::Label> for ir::BlockIdx {
+impl EmitArg<bytecode::Label> for BlockIdx {
     fn emit(
         self,
         f: impl FnOnce(OpArgMarker<bytecode::Label>) -> Instruction,
-    ) -> (Instruction, OpArg, ir::BlockIdx) {
+    ) -> (Instruction, OpArg, BlockIdx) {
         (f(OpArgMarker::marker()), OpArg::null(), self)
     }
 }

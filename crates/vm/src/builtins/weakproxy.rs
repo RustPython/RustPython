@@ -38,10 +38,10 @@ impl Constructor for PyWeakProxy {
     type Args = WeakProxyNewArgs;
 
     fn py_new(
-        cls: PyTypeRef,
+        _cls: &Py<PyType>,
         Self::Args { referent, callback }: Self::Args,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<Self> {
         // using an internal subclass as the class prevents us from getting the generic weakref,
         // which would mess up the weakref count
         let weak_cls = WEAK_SUBCLASS.get_or_init(|| {
@@ -53,11 +53,9 @@ impl Constructor for PyWeakProxy {
             )
         });
         // TODO: PyWeakProxy should use the same payload as PyWeak
-        Self {
+        Ok(Self {
             weak: referent.downgrade_with_typ(callback.into_option(), weak_cls.clone(), vm)?,
-        }
-        .into_ref_with_type(vm, cls)
-        .map(Into::into)
+        })
     }
 }
 
@@ -81,8 +79,8 @@ impl PyWeakProxy {
     }
 
     #[pymethod]
-    fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        self.try_upgrade(vm)?.str(vm)
+    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        zelf.try_upgrade(vm)?.str(vm)
     }
 
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -106,7 +104,9 @@ impl PyWeakProxy {
     }
     #[pymethod]
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.try_upgrade(vm)?.to_sequence().contains(&needle, vm)
+        self.try_upgrade(vm)?
+            .sequence_unchecked()
+            .contains(&needle, vm)
     }
 
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {

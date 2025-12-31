@@ -237,6 +237,17 @@ mod stat {
         FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
     };
 
+    // Windows reparse point tags
+    #[cfg(windows)]
+    #[pyattr]
+    pub const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
+    #[cfg(windows)]
+    #[pyattr]
+    pub const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA0000003;
+    #[cfg(windows)]
+    #[pyattr]
+    pub const IO_REPARSE_TAG_APPEXECLINK: u32 = 0x8000001B;
+
     // Unix file flags (if on Unix)
 
     #[pyattr]

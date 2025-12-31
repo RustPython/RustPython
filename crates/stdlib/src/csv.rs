@@ -4,19 +4,21 @@ pub(crate) use _csv::make_module;
 mod _csv {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeError, PyTypeRef},
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
         protocol::{PyIter, PyIterReturn},
         raise_if_stop,
         types::{Constructor, IterNext, Iterable, SelfIter},
     };
+    use alloc::fmt;
     use csv_core::Terminator;
     use itertools::{self, Itertools};
     use parking_lot::Mutex;
     use rustpython_vm::match_class;
+    use std::collections::HashMap;
     use std::sync::LazyLock;
-    use std::{collections::HashMap, fmt};
 
     #[pyattr]
     const QUOTE_MINIMAL: i32 = QuoteStyle::Minimal as i32;
@@ -68,10 +70,8 @@ mod _csv {
     impl Constructor for PyDialect {
         type Args = PyObjectRef;
 
-        fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::try_from_object(vm, ctx)?
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+        fn py_new(_cls: &Py<PyType>, ctx: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Self::try_from_object(vm, ctx)
         }
     }
     #[pyclass(with(Constructor))]
@@ -132,11 +132,11 @@ mod _csv {
     ///
     /// * If the 'delimiter' attribute is not a single-character string, a type error is returned.
     /// * If the 'obj' is not of string type and does not have a 'delimiter' attribute, a type error is returned.
-    fn parse_delimiter_from_obj(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<u8> {
+    fn parse_delimiter_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<u8> {
         if let Ok(attr) = obj.get_attr("delimiter", vm) {
             parse_delimiter_from_obj(vm, &attr)
         } else {
-            match_class!(match obj.clone() {
+            match_class!(match obj.to_owned() {
                 s @ PyStr => {
                     Ok(s.as_str().bytes().exactly_one().map_err(|_| {
                         let msg = r#""delimiter" must be a 1-character string"#;
@@ -150,7 +150,7 @@ mod _csv {
             })
         }
     }
-    fn parse_quotechar_from_obj(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<u8>> {
+    fn parse_quotechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
         match_class!(match obj.get_attr("quotechar", vm)? {
             s @ PyStr => {
                 Ok(Some(s.as_str().bytes().exactly_one().map_err(|_| {
@@ -171,7 +171,7 @@ mod _csv {
             }
         })
     }
-    fn parse_escapechar_from_obj(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<u8>> {
+    fn parse_escapechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
         match_class!(match obj.get_attr("escapechar", vm)? {
             s @ PyStr => {
                 Ok(Some(s.as_str().bytes().exactly_one().map_err(|_| {
@@ -193,10 +193,7 @@ mod _csv {
             }
         })
     }
-    fn prase_lineterminator_from_obj(
-        vm: &VirtualMachine,
-        obj: &PyObjectRef,
-    ) -> PyResult<Terminator> {
+    fn prase_lineterminator_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Terminator> {
         match_class!(match obj.get_attr("lineterminator", vm)? {
             s @ PyStr => {
                 Ok(if s.as_bytes().eq(b"\r\n") {
@@ -219,7 +216,7 @@ mod _csv {
             }
         })
     }
-    fn prase_quoting_from_obj(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<QuoteStyle> {
+    fn prase_quoting_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<QuoteStyle> {
         match_class!(match obj.get_attr("quoting", vm)? {
             i @ PyInt => {
                 Ok(i.try_to_primitive::<isize>(vm)?.try_into().map_err(|_| {
@@ -444,8 +441,8 @@ mod _csv {
         }
     }
     impl TryFrom<isize> for QuoteStyle {
-        type Error = PyTypeError;
-        fn try_from(num: isize) -> Result<Self, PyTypeError> {
+        type Error = ();
+        fn try_from(num: isize) -> Result<Self, Self::Error> {
             match num {
                 0 => Ok(Self::Minimal),
                 1 => Ok(Self::All),
@@ -453,7 +450,7 @@ mod _csv {
                 3 => Ok(Self::None),
                 4 => Ok(Self::Strings),
                 5 => Ok(Self::Notnull),
-                _ => Err(PyTypeError {}),
+                _ => Err(()),
             }
         }
     }
@@ -910,7 +907,7 @@ mod _csv {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable))]
+    #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
     impl Reader {
         #[pygetset]
         fn line_num(&self) -> u64 {
@@ -1010,7 +1007,7 @@ mod _csv {
                         return Err(new_csv_error(vm, "filed too long to read".to_string()));
                     }
                     prev_end = end;
-                    let s = std::str::from_utf8(&buffer[range.clone()])
+                    let s = core::str::from_utf8(&buffer[range.clone()])
                         // not sure if this is possible - the input was all strings
                         .map_err(|_e| vm.new_unicode_decode_error("csv not utf8"))?;
                     // Rustpython TODO!
@@ -1061,7 +1058,7 @@ mod _csv {
         }
     }
 
-    #[pyclass]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl Writer {
         #[pygetset(name = "dialect")]
         const fn get_dialect(&self, _vm: &VirtualMachine) -> PyDialect {
@@ -1120,7 +1117,7 @@ mod _csv {
             loop {
                 handle_res!(writer.terminator(&mut buffer[buffer_offset..]));
             }
-            let s = std::str::from_utf8(&buffer[..buffer_offset])
+            let s = core::str::from_utf8(&buffer[..buffer_offset])
                 .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
 
             self.write.call((s,), vm)

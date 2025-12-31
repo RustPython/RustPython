@@ -38,7 +38,7 @@ impl VirtualMachine {
         }
 
         // TODO: check if this is proper place
-        if !self.state.settings.safe_path {
+        if !self.state.config.settings.safe_path {
             let dir = std::path::Path::new(path)
                 .parent()
                 .unwrap()
@@ -75,13 +75,20 @@ impl VirtualMachine {
         // Consider to use enum to distinguish `path`
         // https://github.com/RustPython/RustPython/pull/6276#discussion_r2529849479
 
-        // TODO: check .pyc here
-        let pyc = false;
+        let pyc = maybe_pyc_file(path);
         if pyc {
-            todo!("running pyc is not implemented yet");
+            // pyc file execution
+            set_main_loader(&module_dict, path, "SourcelessFileLoader", self)?;
+            let loader = module_dict.get_item("__loader__", self)?;
+            let get_code = loader.get_attr("get_code", self)?;
+            let code_obj = get_code.call((identifier!(self, __main__).to_owned(),), self)?;
+            let code = code_obj
+                .downcast::<PyCode>()
+                .map_err(|_| self.new_runtime_error("Bad code object in .pyc file".to_owned()))?;
+            self.run_code_obj(code, scope)?;
         } else {
             if path != "<stdin>" {
-                // TODO: set_main_loader(dict, filename, "SourceFileLoader");
+                set_main_loader(&module_dict, path, "SourceFileLoader", self)?;
             }
             // TODO: replace to something equivalent to py_run_file
             match std::fs::read_to_string(path) {
@@ -123,6 +130,57 @@ impl VirtualMachine {
         // trace!("Code object: {:?}", code_obj.borrow());
         self.run_code_obj(code_obj, scope)
     }
+}
+
+fn set_main_loader(
+    module_dict: &PyDictRef,
+    filename: &str,
+    loader_name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    vm.import("importlib.machinery", 0)?;
+    let sys_modules = vm.sys_module.get_attr(identifier!(vm, modules), vm)?;
+    let machinery = sys_modules.get_item("importlib.machinery", vm)?;
+    let loader_name = vm.ctx.new_str(loader_name);
+    let loader_class = machinery.get_attr(&loader_name, vm)?;
+    let loader = loader_class.call((identifier!(vm, __main__).to_owned(), filename), vm)?;
+    module_dict.set_item("__loader__", loader, vm)?;
+    Ok(())
+}
+
+/// Check whether a file is maybe a pyc file.
+///
+/// Detection is performed by:
+/// 1. Checking if the filename ends with ".pyc"
+/// 2. If not, reading the first 2 bytes and comparing with the magic number
+fn maybe_pyc_file(path: &str) -> bool {
+    // 1. Check if filename ends with ".pyc"
+    if path.ends_with(".pyc") {
+        return true;
+    }
+    maybe_pyc_file_with_magic(path, &crate::version::PYC_MAGIC_NUMBER_BYTES).unwrap_or(false)
+}
+
+fn maybe_pyc_file_with_magic(path: &str, magic_number: &[u8]) -> std::io::Result<bool> {
+    // part of maybe_pyc_file
+    // For non-.pyc extension, check magic number
+    let path_obj = std::path::Path::new(path);
+    if !path_obj.is_file() {
+        return Ok(false);
+    }
+
+    let mut file = std::fs::File::open(path)?;
+    let mut buf = [0u8; 2];
+
+    use std::io::Read;
+    if file.read(&mut buf)? != 2 || magic_number.len() < 2 {
+        return Ok(false);
+    }
+
+    // Read only two bytes of the magic. If the file was opened in
+    // text mode, the bytes 3 and 4 of the magic (\r\n) might not
+    // be read as they are on disk.
+    Ok(buf == magic_number[..2])
 }
 
 fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {

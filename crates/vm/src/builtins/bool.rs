@@ -1,18 +1,16 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::common::format::FormatSpec;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::OptionalArg,
-    identifier,
+    function::{FuncArgs, OptionalArg},
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
 };
+use core::fmt::{Debug, Formatter};
 use malachite_bigint::Sign;
 use num_traits::Zero;
-use std::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -22,10 +20,15 @@ impl ToPyObject for bool {
 
 impl<'a> TryFromBorrowedObject<'a> for bool {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-        if obj.fast_isinstance(vm.ctx.types.int_type) {
-            Ok(get_value(obj))
-        } else {
-            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name())))
+        // Python takes integers as a legit bool value
+        match obj.downcast_ref::<PyInt>() {
+            Some(int_obj) => {
+                let int_val = int_obj.as_bigint();
+                Ok(!int_val.is_zero())
+            }
+            None => {
+                Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name())))
+            }
         }
     }
 }
@@ -39,64 +42,65 @@ impl PyObjectRef {
         if self.is(&vm.ctx.false_value) {
             return Ok(false);
         }
-        let rs_bool = match vm.get_method(self.clone(), identifier!(vm, __bool__)) {
-            Some(method_or_err) => {
-                // If descriptor returns Error, propagate it further
-                let method = method_or_err?;
-                let bool_obj = method.call((), vm)?;
-                if !bool_obj.fast_isinstance(vm.ctx.types.bool_type) {
-                    return Err(vm.new_type_error(format!(
-                        "__bool__ should return bool, returned type {}",
-                        bool_obj.class().name()
-                    )));
-                }
-
-                get_value(&bool_obj)
-            }
-            None => match vm.get_method(self, identifier!(vm, __len__)) {
+        let rs_bool = if let Some(nb_bool) = self.class().slots.as_number.boolean.load() {
+            nb_bool(self.as_object().number(), vm)?
+        } else {
+            // TODO: Fully implement AsNumber and remove this block
+            match vm.get_method(self.clone(), identifier!(vm, __bool__)) {
                 Some(method_or_err) => {
+                    // If descriptor returns Error, propagate it further
                     let method = method_or_err?;
                     let bool_obj = method.call((), vm)?;
-                    let int_obj = bool_obj.downcast_ref::<PyInt>().ok_or_else(|| {
-                        vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
+                    if !bool_obj.fast_isinstance(vm.ctx.types.bool_type) {
+                        return Err(vm.new_type_error(format!(
+                            "__bool__ should return bool, returned type {}",
                             bool_obj.class().name()
-                        ))
-                    })?;
-
-                    let len_val = int_obj.as_bigint();
-                    if len_val.sign() == Sign::Minus {
-                        return Err(vm.new_value_error("__len__() should return >= 0"));
+                        )));
                     }
-                    !len_val.is_zero()
+
+                    get_value(&bool_obj)
                 }
-                None => true,
-            },
+                None => match vm.get_method(self, identifier!(vm, __len__)) {
+                    Some(method_or_err) => {
+                        let method = method_or_err?;
+                        let bool_obj = method.call((), vm)?;
+                        let int_obj = bool_obj.downcast_ref::<PyInt>().ok_or_else(|| {
+                            vm.new_type_error(format!(
+                                "'{}' object cannot be interpreted as an integer",
+                                bool_obj.class().name()
+                            ))
+                        })?;
+
+                        let len_val = int_obj.as_bigint();
+                        if len_val.sign() == Sign::Minus {
+                            return Err(vm.new_value_error("__len__() should return >= 0"));
+                        }
+                        !len_val.is_zero()
+                    }
+                    None => true,
+                },
+            }
         };
         Ok(rs_bool)
     }
 }
 
-#[pyclass(name = "bool", module = false, base = PyInt)]
-pub struct PyBool;
-
-impl PyPayload for PyBool {
-    #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bool_type
-    }
-}
+#[pyclass(name = "bool", module = false, base = PyInt, ctx = "bool_type")]
+#[repr(transparent)]
+pub struct PyBool(pub PyInt);
 
 impl Debug for PyBool {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        let value = !self.0.as_bigint().is_zero();
+        write!(f, "PyBool({})", value)
     }
 }
 
 impl Constructor for PyBool {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn py_new(zelf: PyTypeRef, x: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(zelf: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let x: Self::Args = args.bind(vm)?;
         if !zelf.fast_isinstance(vm.ctx.types.type_type) {
             let actual_class = zelf.class();
             let actual_type = &actual_class.name();
@@ -106,6 +110,10 @@ impl Constructor for PyBool {
         }
         let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;
         Ok(vm.ctx.new_bool(val).into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unimplemented!("use slot_new")
     }
 }
 
@@ -118,10 +126,10 @@ impl PyBool {
             .and_then(|format_spec| format_spec.format_bool(new_bool))
             .map_err(|err| err.into_pyexception(vm))
     }
+}
 
-    #[pymethod(name = "__ror__")]
-    #[pymethod]
-    fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+impl PyBool {
+    pub(crate) fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -135,9 +143,7 @@ impl PyBool {
         }
     }
 
-    #[pymethod(name = "__rand__")]
-    #[pymethod]
-    fn __and__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __and__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -151,9 +157,7 @@ impl PyBool {
         }
     }
 
-    #[pymethod(name = "__rxor__")]
-    #[pymethod]
-    fn __xor__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __xor__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -212,5 +216,9 @@ pub(crate) fn init(context: &Context) {
 
 // Retrieve inner int value:
 pub(crate) fn get_value(obj: &PyObject) -> bool {
-    !obj.downcast_ref::<PyInt>().unwrap().as_bigint().is_zero()
+    !obj.downcast_ref::<PyBool>()
+        .unwrap()
+        .0
+        .as_bigint()
+        .is_zero()
 }

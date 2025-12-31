@@ -10,8 +10,8 @@ mod zlib {
         Decompressor, USE_AFTER_FINISH_ERR, flush_sync,
     };
     use crate::vm::{
-        PyObject, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytesRef, PyIntRef, PyTypeRef},
+        Py, PyObject, PyPayload, PyResult, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyBytesRef, PyIntRef, PyType, PyTypeRef},
         common::lock::PyMutex,
         convert::{ToPyException, TryFromBorrowedObject},
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
@@ -39,7 +39,7 @@ mod zlib {
     #[pyattr(name = "ZLIB_RUNTIME_VERSION")]
     #[pyattr]
     const ZLIB_VERSION: &str = unsafe {
-        match std::ffi::CStr::from_ptr(libz_sys::zlibVersion()).to_str() {
+        match core::ffi::CStr::from_ptr(libz_sys::zlibVersion()).to_str() {
             Ok(s) => s,
             Err(_) => unreachable!(),
         }
@@ -225,7 +225,7 @@ mod zlib {
         inner: PyMutex<PyDecompressInner>,
     }
 
-    #[pyclass]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyDecompress {
         #[pygetset]
         fn eof(&self) -> bool {
@@ -322,7 +322,7 @@ mod zlib {
             };
 
             let inner = &mut *self.inner.lock();
-            let data = std::mem::replace(&mut inner.unconsumed_tail, vm.ctx.empty_bytes.clone());
+            let data = core::mem::replace(&mut inner.unconsumed_tail, vm.ctx.empty_bytes.clone());
 
             let (ret, _) = Self::decompress_inner(inner, &data, length, None, true, vm)?;
 
@@ -383,7 +383,7 @@ mod zlib {
         inner: PyMutex<CompressState<CompressInner>>,
     }
 
-    #[pyclass]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyCompress {
         #[pymethod]
         fn compress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -570,7 +570,7 @@ mod zlib {
     impl Constructor for ZlibDecompressor {
         type Args = DecompressobjArgs;
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let mut decompress = InitOptions::new(args.wbits.value, vm)?.decompress();
             let zdict = args.zdict.into_option();
             if let Some(dict) = &zdict
@@ -580,11 +580,9 @@ mod zlib {
                     .map_err(|_| new_zlib_error("failed to set dictionary", vm))?;
             }
             let inner = DecompressState::new(DecompressWithDict { decompress, zdict }, vm);
-            Self {
+            Ok(Self {
                 inner: PyMutex::new(inner),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 

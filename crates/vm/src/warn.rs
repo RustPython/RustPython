@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{
         PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
     },
@@ -38,7 +38,7 @@ impl WarningsState {
     }
 }
 
-fn check_matched(obj: &PyObjectRef, arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+fn check_matched(obj: &PyObject, arg: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     if obj.class().is(vm.ctx.types.none_type) {
         return Ok(true);
     }
@@ -60,15 +60,22 @@ fn get_warnings_attr(
         && !vm
             .state
             .finalizing
-            .load(std::sync::atomic::Ordering::SeqCst)
+            .load(core::sync::atomic::Ordering::SeqCst)
     {
         match vm.import("warnings", 0) {
             Ok(module) => module,
             Err(_) => return Ok(None),
         }
     } else {
-        // TODO: finalizing support
-        return Ok(None);
+        // Check sys.modules for already-imported warnings module
+        // This is what CPython does with PyImport_GetModule
+        match vm.sys_module.get_attr(identifier!(vm, modules), vm) {
+            Ok(modules) => match modules.get_item(vm.ctx.intern_str("warnings"), vm) {
+                Ok(module) => module,
+                Err(_) => return Ok(None),
+            },
+            Err(_) => return Ok(None),
+        }
     };
     Ok(Some(module.get_attr(attr_name, vm)?))
 }
@@ -320,9 +327,13 @@ fn call_show_warning(
         return Err(vm.new_type_error("unable to get warnings.WarningMessage"));
     };
 
+    // Create a Warning instance by calling category(message)
+    // This is what warnings module does
+    let warning_instance = category.as_object().call((message,), vm)?;
+
     let msg = warnmsg_cls.call(
         vec![
-            message.into(),
+            warning_instance,
             category.into(),
             filename.into(),
             vm.new_pyobj(lineno),

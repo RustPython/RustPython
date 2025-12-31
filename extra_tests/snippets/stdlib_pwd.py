@@ -4,8 +4,9 @@ import sys
 if sys.platform.startswith("win"):
     exit(0)
 
-from testutils import assert_raises
 import pwd
+
+from testutils import assert_raises
 
 with assert_raises(KeyError):
     fake_name = "fake_user"

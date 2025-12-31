@@ -7,11 +7,11 @@ pub mod _hashlib {
     use crate::common::lock::PyRwLock;
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBytes, PyStrRef, PyTypeRef},
+        builtins::{PyBytes, PyStrRef, PyTypeRef, PyValueError},
+        class::StaticType,
         convert::ToPyObject,
         function::{ArgBytesLike, ArgStrOrBytesLike, FuncArgs, OptionalArg},
-        protocol::PyBuffer,
-        types::Representable,
+        types::{Constructor, Initializer, Representable},
     };
     use blake2::{Blake2b512, Blake2s256};
     use digest::{DynDigest, core_api::BlockSizeUser};
@@ -21,6 +21,12 @@ pub mod _hashlib {
     use sha1::Sha1;
     use sha2::{Sha224, Sha256, Sha384, Sha512};
     use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512, Shake128, Shake256};
+
+    #[pyattr]
+    #[pyexception(name = "UnsupportedDigestmodError", base = PyValueError, impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct UnsupportedDigestmodError(PyValueError);
 
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
@@ -91,8 +97,8 @@ pub mod _hashlib {
         pub ctx: PyRwLock<HashWrapper>,
     }
 
-    impl std::fmt::Debug for PyHasher {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for PyHasher {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "HASH {}", self.name)
         }
     }
@@ -164,8 +170,8 @@ pub mod _hashlib {
         ctx: PyRwLock<HashXofWrapper>,
     }
 
-    impl std::fmt::Debug for PyHasherXof {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for PyHasherXof {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "HASHXOF {}", self.name)
         }
     }
@@ -338,16 +344,21 @@ pub mod _hashlib {
     #[allow(unused)]
     pub struct NewHMACHashArgs {
         #[pyarg(positional)]
-        name: PyBuffer,
+        key: ArgBytesLike,
         #[pyarg(any, optional)]
-        data: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, default = true)]
-        digestmod: bool, // TODO: RUSTPYTHON support functions & name functions
+        msg: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional)]
+        digestmod: OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
-    fn hmac_new(_args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        Err(vm.new_type_error("cannot create 'hmac' instances")) // TODO: RUSTPYTHON support hmac
+    fn hmac_new(args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        // Raise UnsupportedDigestmodError so Python's hmac.py falls back to pure-Python implementation
+        let _ = args;
+        Err(vm.new_exception_msg(
+            UnsupportedDigestmodError::static_type().to_owned(),
+            "unsupported hash type".to_owned(),
+        ))
     }
 
     pub trait ThreadSafeDynDigest: DynClone + DynDigest + Sync + Send {}

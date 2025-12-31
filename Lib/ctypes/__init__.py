@@ -1,6 +1,8 @@
 """create and manipulate C data types in Python"""
 
-import os as _os, sys as _sys
+import os as _os
+import sys as _sys
+import sysconfig as _sysconfig
 import types as _types
 
 __version__ = "1.1.0"
@@ -35,9 +37,6 @@ from _ctypes import FUNCFLAG_CDECL as _FUNCFLAG_CDECL, \
      FUNCFLAG_PYTHONAPI as _FUNCFLAG_PYTHONAPI, \
      FUNCFLAG_USE_ERRNO as _FUNCFLAG_USE_ERRNO, \
      FUNCFLAG_USE_LASTERROR as _FUNCFLAG_USE_LASTERROR
-
-# TODO: RUSTPYTHON remove this
-from _ctypes import _non_existing_function
 
 # WINOLEAPI -> HRESULT
 # WINOLEAPI_(type)
@@ -110,7 +109,7 @@ def CFUNCTYPE(restype, *argtypes, **kw):
     return CFunctionType
 
 if _os.name == "nt":
-    from _ctypes import LoadLibrary as _dlopen
+    from _ctypes import LoadLibrary as _LoadLibrary
     from _ctypes import FUNCFLAG_STDCALL as _FUNCFLAG_STDCALL
 
     _win_functype_cache = {}
@@ -305,8 +304,9 @@ def create_unicode_buffer(init, size=None):
     raise TypeError(init)
 
 
-# XXX Deprecated
 def SetPointerType(pointer, cls):
+    import warnings
+    warnings._deprecated("ctypes.SetPointerType", remove=(3, 15))
     if _pointer_type_cache.get(cls, None) is not None:
         raise RuntimeError("This type already exists in the cache")
     if id(pointer) not in _pointer_type_cache:
@@ -315,7 +315,6 @@ def SetPointerType(pointer, cls):
     _pointer_type_cache[cls] = pointer
     del _pointer_type_cache[id(pointer)]
 
-# XXX Deprecated
 def ARRAY(typ, len):
     return typ * len
 
@@ -347,39 +346,59 @@ class CDLL(object):
                  use_errno=False,
                  use_last_error=False,
                  winmode=None):
-        self._name = name
-        flags = self._func_flags_
-        if use_errno:
-            flags |= _FUNCFLAG_USE_ERRNO
-        if use_last_error:
-            flags |= _FUNCFLAG_USE_LASTERROR
-        if _sys.platform.startswith("aix"):
-            """When the name contains ".a(" and ends with ")",
-               e.g., "libFOO.a(libFOO.so)" - this is taken to be an
-               archive(member) syntax for dlopen(), and the mode is adjusted.
-               Otherwise, name is presented to dlopen() as a file argument.
-            """
-            if name and name.endswith(")") and ".a(" in name:
-                mode |= ( _os.RTLD_MEMBER | _os.RTLD_NOW )
-        if _os.name == "nt":
-            if winmode is not None:
-                mode = winmode
-            else:
-                import nt
-                mode = nt._LOAD_LIBRARY_SEARCH_DEFAULT_DIRS
-                if '/' in name or '\\' in name:
-                    self._name = nt._getfullpathname(self._name)
-                    mode |= nt._LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
-
         class _FuncPtr(_CFuncPtr):
-            _flags_ = flags
+            _flags_ = self._func_flags_
             _restype_ = self._func_restype_
-        self._FuncPtr = _FuncPtr
+            if use_errno:
+                _flags_ |= _FUNCFLAG_USE_ERRNO
+            if use_last_error:
+                _flags_ |= _FUNCFLAG_USE_LASTERROR
 
-        if handle is None:
-            self._handle = _dlopen(self._name, mode)
-        else:
-            self._handle = handle
+        self._FuncPtr = _FuncPtr
+        if name:
+            name = _os.fspath(name)
+
+        self._handle = self._load_library(name, mode, handle, winmode)
+
+    if _os.name == "nt":
+        def _load_library(self, name, mode, handle, winmode):
+            if winmode is None:
+                import nt as _nt
+                winmode = _nt._LOAD_LIBRARY_SEARCH_DEFAULT_DIRS
+                # WINAPI LoadLibrary searches for a DLL if the given name
+                # is not fully qualified with an explicit drive. For POSIX
+                # compatibility, and because the DLL search path no longer
+                # contains the working directory, begin by fully resolving
+                # any name that contains a path separator.
+                if name is not None and ('/' in name or '\\' in name):
+                    name = _nt._getfullpathname(name)
+                    winmode |= _nt._LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
+            self._name = name
+            if handle is not None:
+                return handle
+            return _LoadLibrary(self._name, winmode)
+
+    else:
+        def _load_library(self, name, mode, handle, winmode):
+            # If the filename that has been provided is an iOS/tvOS/watchOS
+            # .fwork file, dereference the location to the true origin of the
+            # binary.
+            if name and name.endswith(".fwork"):
+                with open(name) as f:
+                    name = _os.path.join(
+                        _os.path.dirname(_sys.executable),
+                        f.read().strip()
+                    )
+            if _sys.platform.startswith("aix"):
+                """When the name contains ".a(" and ends with ")",
+                   e.g., "libFOO.a(libFOO.so)" - this is taken to be an
+                   archive(member) syntax for dlopen(), and the mode is adjusted.
+                   Otherwise, name is presented to dlopen() as a file argument.
+                """
+                if name and name.endswith(")") and ".a(" in name:
+                    mode |= _os.RTLD_MEMBER | _os.RTLD_NOW
+            self._name = name
+            return _dlopen(name, mode)
 
     def __repr__(self):
         return "<%s '%s', handle %x at %#x>" % \
@@ -467,8 +486,9 @@ pydll = LibraryLoader(PyDLL)
 
 if _os.name == "nt":
     pythonapi = PyDLL("python dll", None, _sys.dllhandle)
-elif _sys.platform == "cygwin":
-    pythonapi = PyDLL("libpython%d.%d.dll" % _sys.version_info[:2])
+elif _sys.platform in ["android", "cygwin"]:
+    # These are Unix-like platforms which use a dynamically-linked libpython.
+    pythonapi = PyDLL(_sysconfig.get_config_var("LDLIBRARY"))
 else:
     pythonapi = PyDLL(None)
 
@@ -498,15 +518,14 @@ elif sizeof(c_ulonglong) == sizeof(c_void_p):
     c_ssize_t = c_longlong
 
 # functions
+
 from _ctypes import _memmove_addr, _memset_addr, _string_at_addr, _cast_addr
 
 ## void *memmove(void *, const void *, size_t);
-# XXX: RUSTPYTHON
-# memmove = CFUNCTYPE(c_void_p, c_void_p, c_void_p, c_size_t)(_memmove_addr)
+memmove = CFUNCTYPE(c_void_p, c_void_p, c_void_p, c_size_t)(_memmove_addr)
 
 ## void *memset(void *, int, size_t)
-# XXX: RUSTPYTHON
-# memset = CFUNCTYPE(c_void_p, c_void_p, c_int, c_size_t)(_memset_addr)
+memset = CFUNCTYPE(c_void_p, c_void_p, c_int, c_size_t)(_memset_addr)
 
 def PYFUNCTYPE(restype, *argtypes):
     class CFunctionType(_CFuncPtr):
@@ -515,17 +534,15 @@ def PYFUNCTYPE(restype, *argtypes):
         _flags_ = _FUNCFLAG_CDECL | _FUNCFLAG_PYTHONAPI
     return CFunctionType
 
-# XXX: RUSTPYTHON
-# _cast = PYFUNCTYPE(py_object, c_void_p, py_object, py_object)(_cast_addr)
+_cast = PYFUNCTYPE(py_object, c_void_p, py_object, py_object)(_cast_addr)
 def cast(obj, typ):
     return _cast(obj, obj, typ)
 
-# XXX: RUSTPYTHON
-# _string_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_string_at_addr)
+_string_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_string_at_addr)
 def string_at(ptr, size=-1):
-    """string_at(addr[, size]) -> string
+    """string_at(ptr[, size]) -> string
 
-    Return the string at addr."""
+    Return the byte string at void *ptr."""
     return _string_at(ptr, size)
 
 try:
@@ -533,12 +550,11 @@ try:
 except ImportError:
     pass
 else:
-    # XXX: RUSTPYTHON
-    # _wstring_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_wstring_at_addr)
+    _wstring_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_wstring_at_addr)
     def wstring_at(ptr, size=-1):
-        """wstring_at(addr[, size]) -> string
+        """wstring_at(ptr[, size]) -> string
 
-        Return the string at addr."""
+        Return the wide-character string at void *ptr."""
         return _wstring_at(ptr, size)
 
 

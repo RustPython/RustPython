@@ -4,10 +4,12 @@ use crate::common::{
     hash::{self, PyHash},
 };
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::OptionalArg,
-    types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+    function::{FuncArgs, OptionalArg},
+    types::{
+        Callable, Comparable, Constructor, Hashable, Initializer, PyComparisonOp, Representable,
+    },
 };
 
 pub use crate::object::PyWeak;
@@ -38,18 +40,35 @@ impl Callable for PyWeak {
 impl Constructor for PyWeak {
     type Args = WeakNewArgs;
 
-    fn py_new(
-        cls: PyTypeRef,
-        Self::Args { referent, callback }: Self::Args,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let Self::Args { referent, callback } = args.bind(vm)?;
         let weak = referent.downgrade_with_typ(callback.into_option(), cls, vm)?;
         Ok(weak.into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unimplemented!("use slot_new")
+    }
+}
+
+impl Initializer for PyWeak {
+    type Args = WeakNewArgs;
+
+    // weakref_tp_init: accepts args but does nothing (all init done in slot_new)
+    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        Ok(())
     }
 }
 
 #[pyclass(
-    with(Callable, Hashable, Comparable, Constructor, Representable),
+    with(
+        Callable,
+        Hashable,
+        Comparable,
+        Constructor,
+        Initializer,
+        Representable
+    ),
     flags(BASETYPE)
 )]
 impl PyWeak {

@@ -12,23 +12,24 @@ use crate::{
     common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
     convert::ToPyResult,
     dict_inner::{self, DictSize},
-    function::{ArgIterable, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
+    function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::AsNumber,
     types::{
         AsSequence, Comparable, Constructor, DefaultConstructor, Hashable, Initializer, IterNext,
-        Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
+        Iterable, PyComparisonOp, Representable, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
 };
+use alloc::fmt;
+use core::ops::Deref;
 use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
     hash,
 };
 use std::sync::LazyLock;
-use std::{fmt, ops::Deref};
 
 pub type SetContentType = dict_inner::Dict<()>;
 
@@ -50,7 +51,7 @@ impl PySet {
 
     fn fold_op(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -68,7 +69,7 @@ impl PySet {
         Ok(Self {
             inner: self
                 .inner
-                .fold_op(std::iter::once(other.into_iterable(vm)?), op, vm)?,
+                .fold_op(core::iter::once(other.into_iterable(vm)?), op, vm)?,
         })
     }
 }
@@ -111,7 +112,7 @@ impl PyFrozenSet {
 
     fn fold_op(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -130,7 +131,7 @@ impl PyFrozenSet {
         Ok(Self {
             inner: self
                 .inner
-                .fold_op(std::iter::once(other.into_iterable(vm)?), op, vm)?,
+                .fold_op(core::iter::once(other.into_iterable(vm)?), op, vm)?,
             ..Default::default()
         })
     }
@@ -191,7 +192,7 @@ impl PySetInner {
 
     fn fold_op<O>(
         &self,
-        others: impl std::iter::Iterator<Item = O>,
+        others: impl core::iter::Iterator<Item = O>,
         op: fn(&Self, O, &VirtualMachine) -> PyResult<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -352,7 +353,7 @@ impl PySetInner {
 
     fn update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -395,7 +396,7 @@ impl PySetInner {
 
     fn intersection_update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let temp_inner = self.fold_op(others, Self::intersection, vm)?;
@@ -408,7 +409,7 @@ impl PySetInner {
 
     fn difference_update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -422,7 +423,7 @@ impl PySetInner {
 
     fn symmetric_difference_update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -539,7 +540,7 @@ impl PySet {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + self.inner.sizeof()
+        core::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
     #[pymethod]
@@ -731,7 +732,7 @@ impl PySet {
     #[pymethod]
     fn __iand__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner
-            .intersection_update(std::iter::once(set.into_iterable(vm)?), vm)?;
+            .intersection_update(core::iter::once(set.into_iterable(vm)?), vm)?;
         Ok(zelf)
     }
 
@@ -918,30 +919,43 @@ impl Representable for PySet {
 }
 
 impl Constructor for PyFrozenSet {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = Vec<PyObjectRef>;
 
-    fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let elements = if let OptionalArg::Present(iterable) = iterable {
-            let iterable = if cls.is(vm.ctx.types.frozenset_type) {
-                match iterable.downcast_exact::<Self>(vm) {
-                    Ok(fs) => return Ok(fs.into_pyref().into()),
-                    Err(iterable) => iterable,
-                }
-            } else {
-                iterable
-            };
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+
+        // Optimizations for exact frozenset type
+        if cls.is(vm.ctx.types.frozenset_type) {
+            // Return exact frozenset as-is
+            if let OptionalArg::Present(ref input) = iterable
+                && let Ok(fs) = input.clone().downcast_exact::<PyFrozenSet>(vm)
+            {
+                return Ok(fs.into_pyref().into());
+            }
+
+            // Return empty frozenset singleton
+            if iterable.is_missing() {
+                return Ok(vm.ctx.empty_frozenset.clone().into());
+            }
+        }
+
+        let elements: Vec<PyObjectRef> = if let OptionalArg::Present(iterable) = iterable {
             iterable.try_to_value(vm)?
         } else {
             vec![]
         };
 
-        // Return empty fs if iterable passed is empty and only for exact fs types.
+        // Return empty frozenset singleton for exact frozenset types (when iterable was empty)
         if elements.is_empty() && cls.is(vm.ctx.types.frozenset_type) {
-            Ok(vm.ctx.empty_frozenset.clone().into())
-        } else {
-            Self::from_iter(vm, elements)
-                .and_then(|o| o.into_ref_with_type(vm, cls).map(Into::into))
+            return Ok(vm.ctx.empty_frozenset.clone().into());
         }
+
+        let payload = Self::py_new(&cls, elements, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, elements: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        Self::from_iter(vm, elements)
     }
 }
 
@@ -965,7 +979,7 @@ impl PyFrozenSet {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + self.inner.sizeof()
+        core::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
     #[pymethod]
@@ -1245,8 +1259,8 @@ impl AnySet {
     fn into_iterable_iter(
         self,
         vm: &VirtualMachine,
-    ) -> PyResult<impl std::iter::Iterator<Item = ArgIterable>> {
-        Ok(std::iter::once(self.into_iterable(vm)?))
+    ) -> PyResult<impl core::iter::Iterator<Item = ArgIterable>> {
+        Ok(core::iter::once(self.into_iterable(vm)?))
     }
 
     fn as_inner(&self) -> &PySetInner {
@@ -1291,7 +1305,7 @@ impl PyPayload for PySetIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PySetIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -1317,7 +1331,6 @@ impl PySetIterator {
         ))
     }
 }
-impl Unconstructible for PySetIterator {}
 
 impl SelfIter for PySetIterator {}
 impl IterNext for PySetIterator {

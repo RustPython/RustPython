@@ -1,6 +1,5 @@
 import string
 
-
 assert string.ascii_letters == "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 assert string.ascii_lowercase == "abcdefghijklmnopqrstuvwxyz"
 assert string.ascii_uppercase == "ABCDEFGHIJKLMNOPQRSTUVWXYZ"

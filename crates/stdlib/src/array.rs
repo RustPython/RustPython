@@ -45,7 +45,8 @@ mod array {
             atomic_func,
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
-                PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+                PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType,
+                PyTypeRef,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -67,11 +68,12 @@ mod array {
             },
         },
     };
+    use alloc::fmt;
+    use core::cmp::Ordering;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
     use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
-    use std::{cmp::Ordering, fmt, os::raw};
-
+    use std::os::raw;
     macro_rules! def_array_enum {
         ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {
             #[derive(Debug, Clone)]
@@ -103,14 +105,14 @@ mod array {
 
                 const fn itemsize_of_typecode(c: char) -> Option<usize> {
                     match c {
-                        $($c => Some(std::mem::size_of::<$t>()),)*
+                        $($c => Some(core::mem::size_of::<$t>()),)*
                         _ => None,
                     }
                 }
 
                 const fn itemsize(&self) -> usize {
                     match self {
-                        $(ArrayContentType::$n(_) => std::mem::size_of::<$t>(),)*
+                        $(ArrayContentType::$n(_) => core::mem::size_of::<$t>(),)*
                     }
                 }
 
@@ -200,10 +202,10 @@ mod array {
                             if v.is_empty() {
                                 // safe because every configuration of bytes for the types we
                                 // support are valid
-                                let b = std::mem::ManuallyDrop::new(b);
+                                let b = core::mem::ManuallyDrop::new(b);
                                 let ptr = b.as_ptr() as *mut $t;
-                                let len = b.len() / std::mem::size_of::<$t>();
-                                let capacity = b.capacity() / std::mem::size_of::<$t>();
+                                let len = b.len() / core::mem::size_of::<$t>();
+                                let capacity = b.capacity() / core::mem::size_of::<$t>();
                                 *v = unsafe { Vec::from_raw_parts(ptr, len, capacity) };
                             } else {
                                 self.frombytes(&b);
@@ -219,8 +221,8 @@ mod array {
                             // support are valid
                             if b.len() > 0 {
                                 let ptr = b.as_ptr() as *const $t;
-                                let ptr_len = b.len() / std::mem::size_of::<$t>();
-                                let slice = unsafe { std::slice::from_raw_parts(ptr, ptr_len) };
+                                let ptr_len = b.len() / core::mem::size_of::<$t>();
+                                let slice = unsafe { core::slice::from_raw_parts(ptr, ptr_len) };
                                 v.extend_from_slice(slice);
                             }
                         })*
@@ -248,8 +250,8 @@ mod array {
                         $(ArrayContentType::$n(v) => {
                             // safe because we're just reading memory as bytes
                             let ptr = v.as_ptr() as *const u8;
-                            let ptr_len = v.len() * std::mem::size_of::<$t>();
-                            unsafe { std::slice::from_raw_parts(ptr, ptr_len) }
+                            let ptr_len = v.len() * core::mem::size_of::<$t>();
+                            unsafe { core::slice::from_raw_parts(ptr, ptr_len) }
                         })*
                     }
                 }
@@ -259,8 +261,8 @@ mod array {
                         $(ArrayContentType::$n(v) => {
                             // safe because we're just reading memory as bytes
                             let ptr = v.as_ptr() as *mut u8;
-                            let ptr_len = v.len() * std::mem::size_of::<$t>();
-                            unsafe { std::slice::from_raw_parts_mut(ptr, ptr_len) }
+                            let ptr_len = v.len() * core::mem::size_of::<$t>();
+                            unsafe { core::slice::from_raw_parts_mut(ptr, ptr_len) }
                         })*
                     }
                 }
@@ -651,10 +653,10 @@ mod array {
         type Args = (ArrayNewArgs, KwArgs);
 
         fn py_new(
-            cls: PyTypeRef,
+            cls: &Py<PyType>,
             (ArrayNewArgs { spec, init }, kwargs): Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Self> {
             let spec = spec.as_str().chars().exactly_one().map_err(|_| {
                 vm.new_type_error("array() argument 1 must be a unicode character, not str")
             })?;
@@ -701,8 +703,7 @@ mod array {
                 }
             }
 
-            let zelf = Self::from(array).into_ref_with_type(vm, cls)?;
-            Ok(zelf.into())
+            Ok(Self::from(array))
         }
     }
 
@@ -785,18 +786,18 @@ mod array {
             if item_size == 2 {
                 // safe because every configuration of bytes for the types we support are valid
                 let utf16 = unsafe {
-                    std::slice::from_raw_parts(
+                    core::slice::from_raw_parts(
                         bytes.as_ptr() as *const u16,
-                        bytes.len() / std::mem::size_of::<u16>(),
+                        bytes.len() / core::mem::size_of::<u16>(),
                     )
                 };
                 Ok(Wtf8Buf::from_wide(utf16))
             } else {
                 // safe because every configuration of bytes for the types we support are valid
                 let chars = unsafe {
-                    std::slice::from_raw_parts(
+                    core::slice::from_raw_parts(
                         bytes.as_ptr() as *const u32,
-                        bytes.len() / std::mem::size_of::<u32>(),
+                        bytes.len() / core::mem::size_of::<u32>(),
                     )
                 };
                 chars
@@ -938,8 +939,10 @@ mod array {
             /* XXX Make the block size settable */
             const BLOCKSIZE: usize = 64 * 1024;
 
-            let bytes = self.read();
-            let bytes = bytes.get_bytes();
+            let bytes = {
+                let bytes = self.read();
+                bytes.get_bytes().to_vec()
+            };
 
             for b in bytes.chunks(BLOCKSIZE) {
                 let b = PyBytes::from(b.to_vec()).into_ref(&vm.ctx);
@@ -1399,7 +1402,7 @@ mod array {
         internal: PyMutex<PositionIterInternal<PyArrayRef>>,
     }
 
-    #[pyclass(with(IterNext, Iterable), flags(HAS_DICT))]
+    #[pyclass(with(IterNext, Iterable), flags(HAS_DICT, DISALLOW_INSTANTIATION))]
     impl PyArrayIter {
         #[pymethod]
         fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -1514,7 +1517,7 @@ mod array {
 
     impl MachineFormatCode {
         fn from_typecode(code: char) -> Option<Self> {
-            use std::mem::size_of;
+            use core::mem::size_of;
             let signed = code.is_ascii_uppercase();
             let big_endian = cfg!(target_endian = "big");
             let int_size = match code {
@@ -1588,7 +1591,7 @@ mod array {
 
     macro_rules! chunk_to_obj {
         ($BYTE:ident, $TY:ty, $BIG_ENDIAN:ident) => {{
-            let b = <[u8; ::std::mem::size_of::<$TY>()]>::try_from($BYTE).unwrap();
+            let b = <[u8; ::core::mem::size_of::<$TY>()]>::try_from($BYTE).unwrap();
             if $BIG_ENDIAN {
                 <$TY>::from_be_bytes(b)
             } else {
@@ -1599,7 +1602,7 @@ mod array {
             chunk_to_obj!($BYTE, $TY, $BIG_ENDIAN).to_pyobject($VM)
         };
         ($VM:ident, $BYTE:ident, $SIGNED_TY:ty, $UNSIGNED_TY:ty, $SIGNED:ident, $BIG_ENDIAN:ident) => {{
-            let b = <[u8; ::std::mem::size_of::<$SIGNED_TY>()]>::try_from($BYTE).unwrap();
+            let b = <[u8; ::core::mem::size_of::<$SIGNED_TY>()]>::try_from($BYTE).unwrap();
             match ($SIGNED, $BIG_ENDIAN) {
                 (false, false) => <$UNSIGNED_TY>::from_le_bytes(b).to_pyobject($VM),
                 (false, true) => <$UNSIGNED_TY>::from_be_bytes(b).to_pyobject($VM),

@@ -4,7 +4,8 @@ use crate::vm::{
     PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
     builtins::PyModule,
 };
-use std::{io, mem};
+use core::mem;
+use std::io;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(windows)]
@@ -158,7 +159,7 @@ impl FdSet {
     pub fn new() -> Self {
         // it's just ints, and all the code that's actually
         // interacting with it is in C, so it's safe to zero
-        let mut fdset = std::mem::MaybeUninit::zeroed();
+        let mut fdset = core::mem::MaybeUninit::zeroed();
         unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
         Self(fdset)
     }
@@ -191,7 +192,7 @@ pub fn select(
 ) -> io::Result<i32> {
     let timeout = match timeout {
         Some(tv) => tv as *mut timeval,
-        None => std::ptr::null_mut(),
+        None => core::ptr::null_mut(),
     };
     let ret = unsafe {
         platform::select(
@@ -336,12 +337,10 @@ mod decl {
             function::OptionalArg,
             stdlib::io::Fildes,
         };
+        use core::{convert::TryFrom, time::Duration};
         use libc::pollfd;
         use num_traits::{Signed, ToPrimitive};
-        use std::{
-            convert::TryFrom,
-            time::{Duration, Instant},
-        };
+        use std::time::Instant;
 
         #[derive(Default)]
         pub(super) struct TimeoutArg<const MILLIS: bool>(pub Option<Duration>);
@@ -546,16 +545,16 @@ mod decl {
     pub(super) mod epoll {
         use super::*;
         use crate::vm::{
-            PyPayload,
-            builtins::PyTypeRef,
+            Py, PyPayload,
+            builtins::PyType,
             common::lock::{PyRwLock, PyRwLockReadGuard},
             convert::{IntoPyException, ToPyObject},
             function::OptionalArg,
             stdlib::io::Fildes,
             types::Constructor,
         };
+        use core::ops::Deref;
         use rustix::event::epoll::{self, EventData, EventFlags};
-        use std::ops::Deref;
         use std::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
         use std::time::Instant;
 
@@ -575,17 +574,15 @@ mod decl {
 
         impl Constructor for PyEpoll {
             type Args = EpollNewArgs;
-            fn py_new(cls: PyTypeRef, args: EpollNewArgs, vm: &VirtualMachine) -> PyResult {
+
+            fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
                 if let ..=-2 | 0 = args.sizehint {
                     return Err(vm.new_value_error("negative sizehint"));
                 }
                 if !matches!(args.flags, 0 | libc::EPOLL_CLOEXEC) {
                     return Err(vm.new_os_error("invalid flags".to_owned()));
                 }
-                Self::new()
-                    .map_err(|e| e.into_pyexception(vm))?
-                    .into_ref_with_type(vm, cls)
-                    .map(Into::into)
+                Self::new().map_err(|e| e.into_pyexception(vm))
             }
         }
 

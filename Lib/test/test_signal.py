@@ -24,8 +24,6 @@ except ImportError:
 
 class GenericTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_enums(self):
         for name in dir(signal):
             sig = getattr(signal, name)
@@ -82,8 +80,6 @@ class PosixTests(unittest.TestCase):
     def create_handler_with_partial(self, argument):
         return functools.partial(self.trivial_signal_handler, argument)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_out_of_range_signal_number_raises_error(self):
         self.assertRaises(ValueError, signal.getsignal, 4242)
 
@@ -126,23 +122,17 @@ class PosixTests(unittest.TestCase):
         self.assertEqual(signal.getsignal(signal.SIGHUP), hup)
         self.assertEqual(0, argument.repr_count)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_strsignal(self):
         self.assertIn("Interrupt", signal.strsignal(signal.SIGINT))
         self.assertIn("Terminated", signal.strsignal(signal.SIGTERM))
         self.assertIn("Hangup", signal.strsignal(signal.SIGHUP))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
     def test_interprocess_signal(self):
         dirname = os.path.dirname(__file__)
         script = os.path.join(dirname, 'signalinterproctester.py')
         assert_python_ok(script)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(
         hasattr(signal, "valid_signals"),
         "requires signal.valid_signals"
@@ -190,8 +180,6 @@ class PosixTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform == "win32", "Windows specific")
 class WindowsSignalTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_signals(self):
         s = signal.valid_signals()
         self.assertIsInstance(s, set)
@@ -224,8 +212,6 @@ class WindowsSignalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             signal.signal(7, handler)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(sys.executable, "sys.executable required.")
     @support.requires_subprocess()
     def test_keyboard_interrupt_exit_code(self):
@@ -253,13 +239,11 @@ class WakeupFDTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             signal.set_wakeup_fd(signal.SIGINT, False)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_invalid_fd(self):
         fd = os_helper.make_bad_fd()
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(support.has_socket_support, "needs working sockets.")
     def test_invalid_socket(self):
         sock = socket.socket()
@@ -268,7 +252,6 @@ class WakeupFDTests(unittest.TestCase):
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     # Emscripten does not support fstat on pipes yet.
     # https://github.com/emscripten-core/emscripten/issues/16414
     @unittest.skipIf(support.is_emscripten, "Emscripten cannot fstat pipes.")
@@ -290,7 +273,6 @@ class WakeupFDTests(unittest.TestCase):
         self.assertEqual(signal.set_wakeup_fd(-1), w2)
         self.assertEqual(signal.set_wakeup_fd(-1), -1)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipIf(support.is_emscripten, "Emscripten cannot fstat pipes.")
     @unittest.skipUnless(support.has_socket_support, "needs working sockets.")
     def test_set_wakeup_fd_socket_result(self):
@@ -777,8 +759,6 @@ class SiginterruptTest(unittest.TestCase):
                                     % (exitcode, stdout))
                 return (exitcode == 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_without_siginterrupt(self):
         # If a signal handler is installed and siginterrupt is not called
         # at all, when that signal arrives, it interrupts a syscall that's in
@@ -786,8 +766,6 @@ class SiginterruptTest(unittest.TestCase):
         interrupted = self.readpipe_interrupted(None)
         self.assertTrue(interrupted)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_siginterrupt_on(self):
         # If a signal handler is installed and siginterrupt is called with
         # a true value for the second argument, when that signal arrives, it
@@ -840,8 +818,6 @@ class ItimerTest(unittest.TestCase):
         self.hndl_called = True
         signal.setitimer(signal.ITIMER_PROF, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_exc(self):
         # XXX I'm assuming -1 is an invalid itimer, but maybe some platform
         # defines it ?
@@ -851,16 +827,12 @@ class ItimerTest(unittest.TestCase):
             self.assertRaises(signal.ItimerError,
                               signal.setitimer, signal.ITIMER_REAL, -1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_real(self):
         self.itimer = signal.ITIMER_REAL
         signal.setitimer(self.itimer, 1.0)
         signal.pause()
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
     @unittest.skipIf(sys.platform in ('netbsd5',),
         'itimer not reliable (does not mix well with threading) on some BSDs.')
@@ -881,8 +853,6 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_prof(self):
         self.itimer = signal.ITIMER_PROF
         signal.signal(signal.SIGPROF, self.sig_prof)
@@ -900,8 +870,6 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setitimer_tiny(self):
         # bpo-30807: C setitimer() takes a microsecond-resolution interval.
         # Check that float -> timeval conversion doesn't round
@@ -1442,8 +1410,6 @@ class StressTest(unittest.TestCase):
 
 class RaiseSignalTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sigint(self):
         with self.assertRaises(KeyboardInterrupt):
             signal.raise_signal(signal.SIGINT)
@@ -1462,8 +1428,6 @@ class RaiseSignalTest(unittest.TestCase):
             else:
                 raise
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_handler(self):
         is_ok = False
         def handler(a, b):

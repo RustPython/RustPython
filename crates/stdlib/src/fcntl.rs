@@ -8,7 +8,7 @@ mod fcntl {
         PyResult, VirtualMachine,
         builtins::PyIntRef,
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
-        stdlib::{io, os},
+        stdlib::io,
     };
 
     // TODO: supply these from <asm-generic/fnctl.h> (please file an issue/PR upstream):
@@ -75,7 +75,7 @@ mod fcntl {
                 }
                 let ret = unsafe { libc::fcntl(fd, cmd, buf.as_mut_ptr()) };
                 if ret < 0 {
-                    return Err(os::errno_err(vm));
+                    return Err(vm.new_last_errno_error());
                 }
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
             }
@@ -84,7 +84,7 @@ mod fcntl {
         };
         let ret = unsafe { libc::fcntl(fd, cmd, int as i32) };
         if ret < 0 {
-            return Err(os::errno_err(vm));
+            return Err(vm.new_last_errno_error());
         }
         Ok(vm.new_pyobj(ret))
     }
@@ -117,7 +117,7 @@ mod fcntl {
                             let ret =
                                 unsafe { libc::ioctl(fd, request as _, arg_buf.as_mut_ptr()) };
                             if ret < 0 {
-                                return Err(os::errno_err(vm));
+                                return Err(vm.new_last_errno_error());
                             }
                             return Ok(vm.ctx.new_int(ret).into());
                         }
@@ -128,14 +128,14 @@ mod fcntl {
                 };
                 let ret = unsafe { libc::ioctl(fd, request as _, buf.as_mut_ptr()) };
                 if ret < 0 {
-                    return Err(os::errno_err(vm));
+                    return Err(vm.new_last_errno_error());
                 }
                 Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
             }
             Either::B(i) => {
                 let ret = unsafe { libc::ioctl(fd, request as _, i) };
                 if ret < 0 {
-                    return Err(os::errno_err(vm));
+                    return Err(vm.new_last_errno_error());
                 }
                 Ok(vm.ctx.new_int(ret).into())
             }
@@ -149,7 +149,7 @@ mod fcntl {
         let ret = unsafe { libc::flock(fd, operation) };
         // TODO: add support for platforms that don't have a builtin `flock` syscall
         if ret < 0 {
-            return Err(os::errno_err(vm));
+            return Err(vm.new_last_errno_error());
         }
         Ok(vm.ctx.new_int(ret).into())
     }
@@ -173,7 +173,7 @@ mod fcntl {
             };
         }
 
-        let mut l: libc::flock = unsafe { std::mem::zeroed() };
+        let mut l: libc::flock = unsafe { core::mem::zeroed() };
         l.l_type = if cmd == libc::LOCK_UN {
             try_into_l_type!(libc::F_UNLCK)
         } else if (cmd & libc::LOCK_SH) != 0 {
@@ -209,7 +209,7 @@ mod fcntl {
             )
         };
         if ret < 0 {
-            return Err(os::errno_err(vm));
+            return Err(vm.new_last_errno_error());
         }
         Ok(vm.ctx.new_int(ret).into())
     }

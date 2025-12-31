@@ -23,6 +23,7 @@ use crate::{
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::ToPyObject,
+    exceptions::types::PyBaseException,
     frame::{ExecutionResult, Frame, FrameRef},
     frozen::FrozenModule,
     function::{ArgMapping, FuncArgs, PySetterValue},
@@ -32,6 +33,11 @@ use crate::{
     signal, stdlib,
     warn::WarningsState,
 };
+use alloc::borrow::Cow;
+use core::{
+    cell::{Cell, Ref, RefCell},
+    sync::atomic::AtomicBool,
+};
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
 use nix::{
@@ -39,17 +45,14 @@ use nix::{
     unistd::getpid,
 };
 use std::{
-    borrow::Cow,
-    cell::{Cell, Ref, RefCell},
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
-    sync::atomic::AtomicBool,
 };
 
 pub use context::Context;
 pub use interpreter::Interpreter;
 pub(crate) use method::PyMethod;
-pub use setting::{CheckHashPycsMode, Settings};
+pub use setting::{CheckHashPycsMode, Paths, PyConfig, Settings};
 
 pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 
@@ -86,7 +89,7 @@ struct ExceptionStack {
 }
 
 pub struct PyGlobalState {
-    pub settings: Settings,
+    pub config: PyConfig,
     pub module_inits: stdlib::StdlibMap,
     pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
@@ -113,7 +116,7 @@ pub fn process_hash_secret_seed() -> u32 {
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    fn new(settings: Settings, ctx: PyRc<Context>) -> Self {
+    fn new(config: PyConfig, ctx: PyRc<Context>) -> Self {
         flame_guard!("new VirtualMachine");
 
         // make a new module without access to the vm; doesn't
@@ -140,7 +143,7 @@ impl VirtualMachine {
 
         let module_inits = stdlib::get_module_inits();
 
-        let seed = match settings.hash_seed {
+        let seed = match config.settings.hash_seed {
             Some(seed) => seed,
             None => process_hash_secret_seed(),
         };
@@ -150,7 +153,7 @@ impl VirtualMachine {
 
         let warnings = WarningsState::init_state(&ctx);
 
-        let int_max_str_digits = AtomicCell::new(match settings.int_max_str_digits {
+        let int_max_str_digits = AtomicCell::new(match config.settings.int_max_str_digits {
             -1 => 4300,
             other => other,
         } as usize);
@@ -170,7 +173,7 @@ impl VirtualMachine {
             signal_rx: None,
             repr_guards: RefCell::default(),
             state: PyRc::new(PyGlobalState {
-                settings,
+                config,
                 module_inits,
                 frozen: HashMap::default(),
                 stacksize: AtomicCell::new(0),
@@ -226,7 +229,7 @@ impl VirtualMachine {
             let rustpythonpath_env = std::env::var("RUSTPYTHONPATH").ok();
             let pythonpath_env = std::env::var("PYTHONPATH").ok();
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
-            let path_contains_env = self.state.settings.path_list.iter().any(|s| {
+            let path_contains_env = self.state.config.paths.module_search_paths.iter().any(|s| {
                 Some(s.as_str()) == rustpythonpath_env.as_deref() || Some(s.as_str()) == pythonpath_env.as_deref()
             });
 
@@ -237,7 +240,7 @@ impl VirtualMachine {
             } else if path_contains_env {
                 "RUSTPYTHONPATH or PYTHONPATH is set, but it doesn't contain the encodings library. If you are customizing the RustPython vm/interpreter, try adding the stdlib directory to the path. If you are developing the RustPython interpreter, it might be a bug during development."
             } else {
-                "RUSTPYTHONPATH or PYTHONPATH is set, but it wasn't loaded to `Settings::path_list`. If you are going to customize the RustPython vm/interpreter, those environment variables are not loaded in the Settings struct by default. Please try creating a customized instance of the Settings struct. If you are developing the RustPython interpreter, it might be a bug during development."
+                "RUSTPYTHONPATH or PYTHONPATH is set, but it wasn't loaded to `PyConfig::paths::module_search_paths`. If you are going to customize the RustPython vm/interpreter, those environment variables are not loaded in the Settings struct by default. Please try creating a customized instance of the Settings struct. If you are developing the RustPython interpreter, it might be a bug during development."
             };
 
             let mut msg = format!(
@@ -302,7 +305,7 @@ impl VirtualMachine {
                 let io = import::import_builtin(self, "_io")?;
                 #[cfg(feature = "stdio")]
                 let make_stdio = |name, fd, write| {
-                    let buffered_stdio = self.state.settings.buffered_stdio;
+                    let buffered_stdio = self.state.config.settings.buffered_stdio;
                     let unbuffered = write && !buffered_stdio;
                     let buf = crate::stdlib::io::open(
                         self.ctx.new_int(fd).into(),
@@ -324,11 +327,17 @@ impl VirtualMachine {
                     let line_buffering = buffered_stdio && (isatty || fd == 2);
 
                     let newline = if cfg!(windows) { None } else { Some("\n") };
+                    // stderr uses backslashreplace error handler
+                    let errors: Option<&str> = if fd == 2 {
+                        Some("backslashreplace")
+                    } else {
+                        None
+                    };
 
                     let stdio = self.call_method(
                         &io,
                         "TextIOWrapper",
-                        (buf, (), (), newline, line_buffering, write_through),
+                        (buf, (), errors, newline, line_buffering, write_through),
                     )?;
                     let mode = if write { "w" } else { "r" };
                     stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
@@ -363,7 +372,7 @@ impl VirtualMachine {
         let res = essential_init();
         let importlib = self.expect_pyresult(res, "essential initialization failed");
 
-        if self.state.settings.allow_external_library
+        if self.state.config.settings.allow_external_library
             && cfg!(feature = "rustpython-compiler")
             && let Err(e) = import::init_importlib_package(self, importlib)
         {
@@ -373,11 +382,11 @@ impl VirtualMachine {
             self.print_exception(e);
         }
 
-        let expect_stdlib =
-            cfg!(feature = "freeze-stdlib") || !self.state.settings.path_list.is_empty();
+        let _expect_stdlib = cfg!(feature = "freeze-stdlib")
+            || !self.state.config.paths.module_search_paths.is_empty();
 
         #[cfg(feature = "encodings")]
-        if expect_stdlib {
+        if _expect_stdlib {
             if let Err(e) = self.import_encodings() {
                 eprintln!(
                     "encodings initialization failed. Only utf-8 encoding will be supported."
@@ -388,25 +397,10 @@ impl VirtualMachine {
             // Here may not be the best place to give general `path_list` advice,
             // but bare rustpython_vm::VirtualMachine users skipped proper settings must hit here while properly setup vm never enters here.
             eprintln!(
-                "feature `encodings` is enabled but `settings.path_list` is empty. \
+                "feature `encodings` is enabled but `paths.module_search_paths` is empty. \
                 Please add the library path to `settings.path_list`. If you intended to disable the entire standard library (including the `encodings` feature), please also make sure to disable the `encodings` feature.\n\
                 Tip: You may also want to add `\"\"` to `settings.path_list` in order to enable importing from the current working directory."
             );
-        }
-
-        if expect_stdlib {
-            // enable python-implemented ExceptionGroup when stdlib exists
-            let py_core_init = || -> PyResult<()> {
-                let exception_group = import::import_frozen(self, "_py_exceptiongroup")?;
-                let base_exception_group = exception_group.get_attr("BaseExceptionGroup", self)?;
-                self.builtins
-                    .set_attr("BaseExceptionGroup", base_exception_group, self)?;
-                let exception_group = exception_group.get_attr("ExceptionGroup", self)?;
-                self.builtins
-                    .set_attr("ExceptionGroup", exception_group, self)?;
-                Ok(())
-            };
-            self.expect_pyresult(py_core_init(), "exceptiongroup initialization failed");
         }
 
         self.initialized = true;
@@ -465,7 +459,7 @@ impl VirtualMachine {
         let exc_type = e.class().to_owned();
         let exc_traceback = e.__traceback__().to_pyobject(self); // TODO: actual traceback
         let exc_value = e.into();
-        let args = stdlib::sys::UnraisableHookArgs {
+        let args = stdlib::sys::UnraisableHookArgsData {
             exc_type,
             exc_value,
             exc_traceback,
@@ -519,7 +513,8 @@ impl VirtualMachine {
     #[cfg(feature = "rustpython-codegen")]
     pub fn compile_opts(&self) -> crate::compiler::CompileOpts {
         crate::compiler::CompileOpts {
-            optimize: self.state.settings.optimize,
+            optimize: self.state.config.settings.optimize,
+            debug_ranges: self.state.config.settings.code_debug_ranges,
         }
     }
 
@@ -743,7 +738,7 @@ impl VirtualMachine {
 
     pub fn set_attribute_error_context(
         &self,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
         obj: PyObjectRef,
         name: PyStrRef,
     ) {
@@ -803,14 +798,14 @@ impl VirtualMachine {
 
     pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
         let mut excs = self.exceptions.borrow_mut();
-        let prev = std::mem::take(&mut *excs);
+        let prev = core::mem::take(&mut *excs);
         excs.prev = Some(Box::new(prev));
         excs.exc = exc
     }
 
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         let mut excs = self.exceptions.borrow_mut();
-        let cur = std::mem::take(&mut *excs);
+        let cur = core::mem::take(&mut *excs);
         *excs = *cur.prev.expect("pop_exception() without nested exc stack");
         cur.exc
     }
@@ -825,11 +820,11 @@ impl VirtualMachine {
 
     pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
         // don't be holding the RefCell guard while __del__ is called
-        let prev = std::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
+        let prev = core::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
         drop(prev);
     }
 
-    pub(crate) fn contextualize_exception(&self, exception: &PyBaseExceptionRef) {
+    pub(crate) fn contextualize_exception(&self, exception: &Py<PyBaseException>) {
         if let Some(context_exc) = self.topmost_exception()
             && !context_exc.is(exception)
         {
@@ -856,7 +851,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u8 {
+    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u32 {
         if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
             let args = exc.args();
             let msg = match args.as_slice() {
@@ -864,7 +859,13 @@ impl VirtualMachine {
                 [arg] => match_class!(match arg {
                     ref i @ PyInt => {
                         use num_traits::cast::ToPrimitive;
-                        return i.as_bigint().to_u8().unwrap_or(0);
+                        // Try u32 first, then i32 (for negative values), else -1 for overflow
+                        let code = i
+                            .as_bigint()
+                            .to_u32()
+                            .or_else(|| i.as_bigint().to_i32().map(|v| v as u32))
+                            .unwrap_or(-1i32 as u32);
+                        return code;
                     }
                     arg => {
                         if self.is_none(arg) {
@@ -877,8 +878,11 @@ impl VirtualMachine {
                 _ => args.as_object().repr(self).ok(),
             };
             if let Some(msg) = msg {
-                let stderr = stdlib::sys::PyStderr(self);
-                writeln!(stderr, "{msg}");
+                // Write using Python's write() to use stderr's error handler (backslashreplace)
+                if let Ok(stderr) = stdlib::sys::get_stderr(self) {
+                    let _ = self.call_method(&stderr, "write", (msg,));
+                    let _ = self.call_method(&stderr, "write", ("\n",));
+                }
             }
             1
         } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
@@ -898,9 +902,14 @@ impl VirtualMachine {
                         kill(getpid(), SIGINT).expect("Expect to be killed.");
                     }
 
-                    (libc::SIGINT as u8) + 128u8
+                    (libc::SIGINT as u32) + 128
                 }
-                #[cfg(not(unix))]
+                #[cfg(windows)]
+                {
+                    // STATUS_CONTROL_C_EXIT - same as CPython
+                    0xC000013A
+                }
+                #[cfg(not(any(unix, windows)))]
                 {
                     1
                 }
@@ -993,7 +1002,7 @@ impl AsRef<Context> for VirtualMachine {
 }
 
 fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
-    let iter = std::iter::empty();
+    let iter = core::iter::empty();
     macro_rules! ext_modules {
         ($iter:ident, $($t:tt)*) => {
             let $iter = $iter.chain(py_freeze!($($t)*));

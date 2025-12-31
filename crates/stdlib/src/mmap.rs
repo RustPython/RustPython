@@ -11,7 +11,7 @@ mod mmap {
     use crate::vm::{
         AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine, atomic_func,
-        builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
+        builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
@@ -21,47 +21,64 @@ mod mmap {
         sliceable::{SaturatedSlice, SequenceIndex, SequenceIndexOp},
         types::{AsBuffer, AsMapping, AsSequence, Constructor, Representable},
     };
+    use core::ops::{Deref, DerefMut};
     use crossbeam_utils::atomic::AtomicCell;
-    use memmap2::{Advice, Mmap, MmapMut, MmapOptions};
-    #[cfg(unix)]
-    use nix::sys::stat::fstat;
-    use nix::unistd;
+    use memmap2::{Mmap, MmapMut, MmapOptions};
     use num_traits::Signed;
-    use rustpython_common::crt_fd;
     use std::io::{self, Write};
-    use std::ops::{Deref, DerefMut};
 
-    fn advice_try_from_i32(vm: &VirtualMachine, i: i32) -> PyResult<Advice> {
-        Ok(match i {
-            libc::MADV_NORMAL => Advice::Normal,
-            libc::MADV_RANDOM => Advice::Random,
-            libc::MADV_SEQUENTIAL => Advice::Sequential,
-            libc::MADV_WILLNEED => Advice::WillNeed,
-            libc::MADV_DONTNEED => Advice::DontNeed,
-            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios"))]
-            libc::MADV_FREE => Advice::Free,
+    #[cfg(unix)]
+    use nix::{sys::stat::fstat, unistd};
+    #[cfg(unix)]
+    use rustpython_common::crt_fd;
+
+    #[cfg(windows)]
+    use rustpython_common::suppress_iph;
+    #[cfg(windows)]
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
+    #[cfg(windows)]
+    use windows_sys::Win32::{
+        Foundation::{
+            CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, INVALID_HANDLE_VALUE,
+        },
+        Storage::FileSystem::{FILE_BEGIN, GetFileSize, SetEndOfFile, SetFilePointerEx},
+        System::Threading::GetCurrentProcess,
+    };
+
+    #[cfg(unix)]
+    fn validate_advice(vm: &VirtualMachine, advice: i32) -> PyResult<i32> {
+        match advice {
+            libc::MADV_NORMAL
+            | libc::MADV_RANDOM
+            | libc::MADV_SEQUENTIAL
+            | libc::MADV_WILLNEED
+            | libc::MADV_DONTNEED => Ok(advice),
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "freebsd"
+            ))]
+            libc::MADV_FREE => Ok(advice),
             #[cfg(target_os = "linux")]
-            libc::MADV_DONTFORK => Advice::DontFork,
-            #[cfg(target_os = "linux")]
-            libc::MADV_DOFORK => Advice::DoFork,
-            #[cfg(target_os = "linux")]
-            libc::MADV_MERGEABLE => Advice::Mergeable,
-            #[cfg(target_os = "linux")]
-            libc::MADV_UNMERGEABLE => Advice::Unmergeable,
-            #[cfg(target_os = "linux")]
-            libc::MADV_HUGEPAGE => Advice::HugePage,
-            #[cfg(target_os = "linux")]
-            libc::MADV_NOHUGEPAGE => Advice::NoHugePage,
-            #[cfg(target_os = "linux")]
-            libc::MADV_REMOVE => Advice::Remove,
-            #[cfg(target_os = "linux")]
-            libc::MADV_DONTDUMP => Advice::DontDump,
-            #[cfg(target_os = "linux")]
-            libc::MADV_DODUMP => Advice::DoDump,
-            #[cfg(target_os = "linux")]
-            libc::MADV_HWPOISON => Advice::HwPoison,
-            _ => return Err(vm.new_value_error("Not a valid Advice value")),
-        })
+            libc::MADV_DONTFORK
+            | libc::MADV_DOFORK
+            | libc::MADV_MERGEABLE
+            | libc::MADV_UNMERGEABLE
+            | libc::MADV_HUGEPAGE
+            | libc::MADV_NOHUGEPAGE
+            | libc::MADV_REMOVE
+            | libc::MADV_DONTDUMP
+            | libc::MADV_DODUMP
+            | libc::MADV_HWPOISON => Ok(advice),
+            #[cfg(target_os = "freebsd")]
+            libc::MADV_NOSYNC
+            | libc::MADV_AUTOSYNC
+            | libc::MADV_NOCORE
+            | libc::MADV_CORE
+            | libc::MADV_PROTECT => Ok(advice),
+            _ => Err(vm.new_value_error("Not a valid Advice value")),
+        }
     }
 
     #[repr(C)]
@@ -86,10 +103,11 @@ mod mmap {
         }
     }
 
+    #[cfg(unix)]
     #[pyattr]
     use libc::{
         MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MAP_ANON,
-        MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE,
+        MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, PROT_EXEC, PROT_READ, PROT_WRITE,
     };
 
     #[cfg(target_os = "macos")]
@@ -139,6 +157,16 @@ mod mmap {
     #[pyattr]
     use libc::{MAP_DENYWRITE, MAP_EXECUTABLE, MAP_POPULATE};
 
+    // MAP_STACK is available on Linux, OpenBSD, and NetBSD
+    #[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
+    #[pyattr]
+    use libc::MAP_STACK;
+
+    // FreeBSD-specific MADV constants
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
+
     #[pyattr]
     const ACCESS_DEFAULT: u32 = AccessMode::Default as u32;
     #[pyattr]
@@ -148,13 +176,13 @@ mod mmap {
     #[pyattr]
     const ACCESS_COPY: u32 = AccessMode::Copy as u32;
 
-    #[cfg(all(unix, not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     #[pyattr(name = "PAGESIZE", once)]
     fn page_size(_vm: &VirtualMachine) -> usize {
         page_size::get()
     }
 
-    #[cfg(all(unix, not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     #[pyattr(name = "ALLOCATIONGRANULARITY", once)]
     fn granularity(_vm: &VirtualMachine) -> usize {
         page_size::get_granularity()
@@ -171,34 +199,102 @@ mod mmap {
         Read(Mmap),
     }
 
+    impl MmapObj {
+        fn as_slice(&self) -> &[u8] {
+            match self {
+                MmapObj::Read(mmap) => &mmap[..],
+                MmapObj::Write(mmap) => &mmap[..],
+            }
+        }
+    }
+
     #[pyattr]
     #[pyclass(name = "mmap")]
     #[derive(Debug, PyPayload)]
     struct PyMmap {
         closed: AtomicCell<bool>,
         mmap: PyMutex<Option<MmapObj>>,
+        #[cfg(unix)]
         fd: AtomicCell<i32>,
-        offset: libc::off_t,
+        #[cfg(windows)]
+        handle: AtomicCell<isize>, // HANDLE is isize on Windows
+        offset: i64,
         size: AtomicCell<usize>,
         pos: AtomicCell<usize>, // relative to offset
         exports: AtomicCell<usize>,
         access: AccessMode,
     }
 
+    impl PyMmap {
+        /// Close the underlying file handle/descriptor if open
+        fn close_handle(&self) {
+            #[cfg(unix)]
+            {
+                let fd = self.fd.swap(-1);
+                if fd >= 0 {
+                    unsafe { libc::close(fd) };
+                }
+            }
+            #[cfg(windows)]
+            {
+                let handle = self.handle.swap(INVALID_HANDLE_VALUE as isize);
+                if handle != INVALID_HANDLE_VALUE as isize {
+                    unsafe { CloseHandle(handle as HANDLE) };
+                }
+            }
+        }
+    }
+
+    impl Drop for PyMmap {
+        fn drop(&mut self) {
+            self.close_handle();
+        }
+    }
+
+    #[cfg(unix)]
     #[derive(FromArgs)]
     struct MmapNewArgs {
         #[pyarg(any)]
         fileno: i32,
         #[pyarg(any)]
         length: isize,
-        #[pyarg(any, default = MAP_SHARED)]
+        #[pyarg(any, default = libc::MAP_SHARED)]
         flags: libc::c_int,
-        #[pyarg(any, default = PROT_WRITE|PROT_READ)]
+        #[pyarg(any, default = libc::PROT_WRITE | libc::PROT_READ)]
         prot: libc::c_int,
         #[pyarg(any, default = AccessMode::Default)]
         access: AccessMode,
         #[pyarg(any, default = 0)]
-        offset: libc::off_t,
+        offset: i64,
+    }
+
+    #[cfg(windows)]
+    #[derive(FromArgs)]
+    struct MmapNewArgs {
+        #[pyarg(any)]
+        fileno: i32,
+        #[pyarg(any)]
+        length: isize,
+        #[pyarg(any, default)]
+        #[allow(dead_code)]
+        tagname: Option<PyObjectRef>,
+        #[pyarg(any, default = AccessMode::Default)]
+        access: AccessMode,
+        #[pyarg(any, default = 0)]
+        offset: i64,
+    }
+
+    impl MmapNewArgs {
+        /// Validate mmap constructor arguments
+        fn validate_new_args(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            if self.length < 0 {
+                return Err(vm.new_overflow_error("memory mapped length must be positive"));
+            }
+            if self.offset < 0 {
+                return Err(vm.new_overflow_error("memory mapped offset must be positive"));
+            }
+            Ok(self.length as usize)
+        }
     }
 
     #[derive(FromArgs)]
@@ -241,7 +337,7 @@ mod mmap {
         end: Option<isize>,
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(all(unix, not(target_os = "redox")))]
     #[derive(FromArgs)]
     pub struct AdviseOptions {
         #[pyarg(positional)]
@@ -252,7 +348,7 @@ mod mmap {
         length: Option<PyIntRef>,
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(all(unix, not(target_os = "redox")))]
     impl AdviseOptions {
         fn values(self, len: usize, vm: &VirtualMachine) -> PyResult<(libc::c_int, usize, usize)> {
             let start = self
@@ -291,29 +387,19 @@ mod mmap {
     impl Constructor for PyMmap {
         type Args = MmapNewArgs;
 
-        // TODO: Windows is not supported right now.
         #[cfg(unix)]
-        fn py_new(
-            cls: PyTypeRef,
-            MmapNewArgs {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            use libc::{MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE};
+
+            let mut map_size = args.validate_new_args(vm)?;
+            let MmapNewArgs {
                 fileno: fd,
-                length,
                 flags,
                 prot,
                 access,
                 offset,
-            }: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            let map_size = length;
-            if map_size < 0 {
-                return Err(vm.new_overflow_error("memory mapped length must be positive"));
-            }
-            let mut map_size = map_size as usize;
-
-            if offset < 0 {
-                return Err(vm.new_overflow_error("memory mapped offset must be positive"));
-            }
+                ..
+            } = args;
 
             if (access != AccessMode::Default)
                 && ((flags != MAP_SHARED) || (prot != (PROT_WRITE | PROT_READ)))
@@ -321,7 +407,7 @@ mod mmap {
                 return Err(vm.new_value_error("mmap can't specify both access and flags, prot."));
             }
 
-            // TODO: memmap2 doesn't support mapping with pro and flags right now
+            // TODO: memmap2 doesn't support mapping with prot and flags right now
             let (_flags, _prot, access) = match access {
                 AccessMode::Read => (MAP_SHARED, PROT_READ, access),
                 AccessMode::Write => (MAP_SHARED, PROT_READ | PROT_WRITE, access),
@@ -339,10 +425,19 @@ mod mmap {
             };
 
             let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) };
+
+            // macOS: Issue #11277: fsync(2) is not enough on OS X - a special, OS X specific
+            // fcntl(2) is necessary to force DISKSYNC and get around mmap(2) bug
+            #[cfg(target_os = "macos")]
+            if let Ok(fd) = fd {
+                use std::os::fd::AsRawFd;
+                unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_FULLFSYNC) };
+            }
+
             if let Ok(fd) = fd {
                 let metadata = fstat(fd)
                     .map_err(|err| io::Error::from_raw_os_error(err as i32).to_pyexception(vm))?;
-                let file_len = metadata.st_size;
+                let file_len = metadata.st_size as i64;
 
                 if map_size == 0 {
                     if file_len == 0 {
@@ -356,13 +451,13 @@ mod mmap {
                     map_size = (file_len - offset)
                         .try_into()
                         .map_err(|_| vm.new_value_error("mmap length is too large"))?;
-                } else if offset > file_len || file_len - offset < map_size as libc::off_t {
+                } else if offset > file_len || file_len - offset < map_size as i64 {
                     return Err(vm.new_value_error("mmap length is greater than file size"));
                 }
             }
 
             let mut mmap_opt = MmapOptions::new();
-            let mmap_opt = mmap_opt.offset(offset.try_into().unwrap()).len(map_size);
+            let mmap_opt = mmap_opt.offset(offset as u64).len(map_size);
 
             let (fd, mmap) = || -> std::io::Result<_> {
                 if let Ok(fd) = fd {
@@ -382,7 +477,7 @@ mod mmap {
             }()
             .map_err(|e| e.to_pyexception(vm))?;
 
-            let m_obj = Self {
+            Ok(Self {
                 closed: AtomicCell::new(false),
                 mmap: PyMutex::new(Some(mmap)),
                 fd: AtomicCell::new(fd.map_or(-1, |fd| fd.into_raw())),
@@ -391,9 +486,155 @@ mod mmap {
                 pos: AtomicCell::new(0),
                 exports: AtomicCell::new(0),
                 access,
+            })
+        }
+
+        #[cfg(windows)]
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let mut map_size = args.validate_new_args(vm)?;
+            let MmapNewArgs {
+                fileno,
+                access,
+                offset,
+                ..
+            } = args;
+
+            // Get file handle from fileno
+            // fileno -1 or 0 means anonymous mapping
+            let fh: Option<HANDLE> = if fileno != -1 && fileno != 0 {
+                // Convert CRT file descriptor to Windows HANDLE
+                // Use suppress_iph! to avoid crashes when the fd is invalid.
+                // This is critical because socket fds wrapped via _open_osfhandle
+                // may cause crashes in _get_osfhandle on Windows.
+                // See Python bug https://bugs.python.org/issue30114
+                let handle = unsafe { suppress_iph!(libc::get_osfhandle(fileno)) };
+                // Check for invalid handle value (-1 on Windows)
+                if handle == -1 || handle == INVALID_HANDLE_VALUE as isize {
+                    return Err(vm.new_os_error(format!("Invalid file descriptor: {}", fileno)));
+                }
+                Some(handle as HANDLE)
+            } else {
+                None
             };
 
-            m_obj.into_ref_with_type(vm, cls).map(Into::into)
+            // Get file size if we have a file handle and map_size is 0
+            let mut duplicated_handle: HANDLE = INVALID_HANDLE_VALUE;
+            if let Some(fh) = fh {
+                // Duplicate handle so Python code can close the original
+                let mut new_handle: HANDLE = INVALID_HANDLE_VALUE;
+                let result = unsafe {
+                    DuplicateHandle(
+                        GetCurrentProcess(),
+                        fh,
+                        GetCurrentProcess(),
+                        &mut new_handle,
+                        0,
+                        0, // not inheritable
+                        DUPLICATE_SAME_ACCESS,
+                    )
+                };
+                if result == 0 {
+                    return Err(io::Error::last_os_error().to_pyexception(vm));
+                }
+                duplicated_handle = new_handle;
+
+                // Get file size
+                let mut high: u32 = 0;
+                let low = unsafe { GetFileSize(fh, &mut high) };
+                if low == u32::MAX {
+                    let err = io::Error::last_os_error();
+                    if err.raw_os_error() != Some(0) {
+                        unsafe { CloseHandle(duplicated_handle) };
+                        return Err(err.to_pyexception(vm));
+                    }
+                }
+                let file_len = ((high as i64) << 32) | (low as i64);
+
+                if map_size == 0 {
+                    if file_len == 0 {
+                        unsafe { CloseHandle(duplicated_handle) };
+                        return Err(vm.new_value_error("cannot mmap an empty file"));
+                    }
+                    if offset >= file_len {
+                        unsafe { CloseHandle(duplicated_handle) };
+                        return Err(vm.new_value_error("mmap offset is greater than file size"));
+                    }
+                    if file_len - offset > isize::MAX as i64 {
+                        unsafe { CloseHandle(duplicated_handle) };
+                        return Err(vm.new_value_error("mmap length is too large"));
+                    }
+                    map_size = (file_len - offset) as usize;
+                } else {
+                    // If map_size > file_len, extend the file (Windows behavior)
+                    let required_size = offset.checked_add(map_size as i64).ok_or_else(|| {
+                        unsafe { CloseHandle(duplicated_handle) };
+                        vm.new_overflow_error("mmap size would cause file size overflow")
+                    })?;
+                    if required_size > file_len {
+                        // Extend file using SetFilePointerEx + SetEndOfFile
+                        let result = unsafe {
+                            SetFilePointerEx(
+                                duplicated_handle,
+                                required_size,
+                                std::ptr::null_mut(),
+                                FILE_BEGIN,
+                            )
+                        };
+                        if result == 0 {
+                            let err = io::Error::last_os_error();
+                            unsafe { CloseHandle(duplicated_handle) };
+                            return Err(err.to_pyexception(vm));
+                        }
+                        let result = unsafe { SetEndOfFile(duplicated_handle) };
+                        if result == 0 {
+                            let err = io::Error::last_os_error();
+                            unsafe { CloseHandle(duplicated_handle) };
+                            return Err(err.to_pyexception(vm));
+                        }
+                    }
+                }
+            }
+
+            let mut mmap_opt = MmapOptions::new();
+            let mmap_opt = mmap_opt.offset(offset as u64).len(map_size);
+
+            let (handle, mmap) = if duplicated_handle != INVALID_HANDLE_VALUE {
+                // Safety: We just duplicated this handle and it's valid
+                let owned_handle =
+                    unsafe { OwnedHandle::from_raw_handle(duplicated_handle as RawHandle) };
+
+                let mmap_result = match access {
+                    AccessMode::Default | AccessMode::Write => {
+                        unsafe { mmap_opt.map_mut(&owned_handle) }.map(MmapObj::Write)
+                    }
+                    AccessMode::Read => unsafe { mmap_opt.map(&owned_handle) }.map(MmapObj::Read),
+                    AccessMode::Copy => {
+                        unsafe { mmap_opt.map_copy(&owned_handle) }.map(MmapObj::Write)
+                    }
+                };
+
+                let mmap = mmap_result.map_err(|e| e.to_pyexception(vm))?;
+
+                // Keep the handle alive
+                let raw = owned_handle.as_raw_handle() as isize;
+                std::mem::forget(owned_handle);
+                (raw, mmap)
+            } else {
+                // Anonymous mapping
+                let mmap = mmap_opt.map_anon().map_err(|e| e.to_pyexception(vm))?;
+                (INVALID_HANDLE_VALUE as isize, MmapObj::Write(mmap))
+            };
+
+            Ok(Self {
+                closed: AtomicCell::new(false),
+                mmap: PyMutex::new(Some(mmap)),
+                handle: AtomicCell::new(handle),
+                offset,
+                size: AtomicCell::new(map_size),
+                pos: AtomicCell::new(0),
+                exports: AtomicCell::new(0),
+                access,
+            })
         }
     }
 
@@ -410,9 +651,10 @@ mod mmap {
 
     impl AsBuffer for PyMmap {
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+            let readonly = matches!(zelf.access, AccessMode::Read);
             let buf = PyBuffer::new(
                 zelf.to_owned().into(),
-                BufferDescriptor::simple(zelf.__len__(), true),
+                BufferDescriptor::simple(zelf.__len__(), readonly),
                 &BUFFER_METHODS,
             );
 
@@ -484,10 +726,7 @@ mod mmap {
 
         fn as_bytes(&self) -> BorrowedValue<'_, [u8]> {
             PyMutexGuard::map_immutable(self.mmap.lock(), |m| {
-                match m.as_ref().expect("mmap closed or invalid") {
-                    MmapObj::Read(mmap) => &mmap[..],
-                    MmapObj::Write(mmap) => &mmap[..],
-                }
+                m.as_ref().expect("mmap closed or invalid").as_slice()
             })
             .into()
         }
@@ -566,6 +805,8 @@ mod mmap {
             self.closed.store(true);
             *mmap = None;
 
+            self.close_handle();
+
             Ok(())
         }
 
@@ -588,15 +829,13 @@ mod mmap {
 
             let sub = &options.sub;
 
+            // returns start position for empty string
             if sub.is_empty() {
-                return Ok(PyInt::from(0isize));
+                return Ok(PyInt::from(start as isize));
             }
 
             let mmap = self.check_valid(vm)?;
-            let buf = match mmap.as_ref().unwrap() {
-                MmapObj::Read(mmap) => &mmap[start..end],
-                MmapObj::Write(mmap) => &mmap[start..end],
-            };
+            let buf = &mmap.as_ref().unwrap().as_slice()[start..end];
             let pos = buf.windows(sub.len()).position(|window| window == sub);
 
             Ok(pos.map_or(PyInt::from(-1isize), |i| PyInt::from(start + i)))
@@ -607,15 +846,13 @@ mod mmap {
             let (start, end) = self.get_find_range(options.clone());
 
             let sub = &options.sub;
+            // returns start position for empty string
             if sub.is_empty() {
-                return Ok(PyInt::from(0isize));
+                return Ok(PyInt::from(start as isize));
             }
 
             let mmap = self.check_valid(vm)?;
-            let buf = match mmap.as_ref().unwrap() {
-                MmapObj::Read(mmap) => &mmap[start..end],
-                MmapObj::Write(mmap) => &mmap[start..end],
-            };
+            let buf = &mmap.as_ref().unwrap().as_slice()[start..end];
             let pos = buf.windows(sub.len()).rposition(|window| window == sub);
 
             Ok(pos.map_or(PyInt::from(-1isize), |i| PyInt::from(start + i)))
@@ -642,19 +879,26 @@ mod mmap {
             Ok(())
         }
 
-        #[cfg(not(target_os = "redox"))]
-        #[allow(unused_assignments)]
+        #[cfg(all(unix, not(target_os = "redox")))]
         #[pymethod]
         fn madvise(&self, options: AdviseOptions, vm: &VirtualMachine) -> PyResult<()> {
-            let (option, _start, _length) = options.values(self.__len__(), vm)?;
-            let advice = advice_try_from_i32(vm, option)?;
+            let (option, start, length) = options.values(self.__len__(), vm)?;
+            let advice = validate_advice(vm, option)?;
 
-            //TODO: memmap2 doesn't support madvise range right now.
-            match self.check_valid(vm)?.deref().as_ref().unwrap() {
-                MmapObj::Read(mmap) => mmap.advise(advice),
-                MmapObj::Write(mmap) => mmap.advise(advice),
+            let guard = self.check_valid(vm)?;
+            let mmap = guard.deref().as_ref().unwrap();
+            let ptr = match mmap {
+                MmapObj::Read(m) => m.as_ptr(),
+                MmapObj::Write(m) => m.as_ptr(),
+            };
+
+            // Apply madvise to the specified range (start, length)
+            let ptr_with_offset = unsafe { ptr.add(start) };
+            let result =
+                unsafe { libc::madvise(ptr_with_offset as *mut libc::c_void, length, advice) };
+            if result != 0 {
+                return Err(io::Error::last_os_error().to_pyexception(vm));
             }
-            .map_err(|e| e.to_pyexception(vm))?;
 
             Ok(())
         }
@@ -728,10 +972,7 @@ mod mmap {
                 .unwrap_or(remaining);
 
             let end_pos = pos + num_bytes;
-            let bytes = match mmap.deref().as_ref().unwrap() {
-                MmapObj::Read(mmap) => mmap[pos..end_pos].to_vec(),
-                MmapObj::Write(mmap) => mmap[pos..end_pos].to_vec(),
-            };
+            let bytes = mmap.deref().as_ref().unwrap().as_slice()[pos..end_pos].to_vec();
 
             let result = PyBytes::from(bytes).into_ref(&vm.ctx);
 
@@ -747,10 +988,7 @@ mod mmap {
                 return Err(vm.new_value_error("read byte out of range"));
             }
 
-            let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
-                MmapObj::Read(mmap) => mmap[pos],
-                MmapObj::Write(mmap) => mmap[pos],
-            };
+            let b = self.check_valid(vm)?.deref().as_ref().unwrap().as_slice()[pos];
 
             self.advance_pos(1);
 
@@ -767,12 +1005,8 @@ mod mmap {
                 return Ok(PyBytes::from(vec![]).into_ref(&vm.ctx));
             }
 
-            let eof = match mmap.as_ref().unwrap() {
-                MmapObj::Read(mmap) => &mmap[pos..],
-                MmapObj::Write(mmap) => &mmap[pos..],
-            }
-            .iter()
-            .position(|&x| x == b'\n');
+            let slice = mmap.as_ref().unwrap().as_slice();
+            let eof = slice[pos..].iter().position(|&x| x == b'\n');
 
             let end_pos = if let Some(i) = eof {
                 pos + i + 1
@@ -780,10 +1014,7 @@ mod mmap {
                 self.__len__()
             };
 
-            let bytes = match mmap.deref().as_ref().unwrap() {
-                MmapObj::Read(mmap) => mmap[pos..end_pos].to_vec(),
-                MmapObj::Write(mmap) => mmap[pos..end_pos].to_vec(),
-            };
+            let bytes = slice[pos..end_pos].to_vec();
 
             let result = PyBytes::from(bytes).into_ref(&vm.ctx);
 
@@ -792,11 +1023,106 @@ mod mmap {
             Ok(result)
         }
 
-        // TODO: supports resize
+        #[cfg(unix)]
         #[pymethod]
         fn resize(&self, _newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
             self.check_resizeable(vm)?;
+            // TODO: implement using mremap on Linux
             Err(vm.new_system_error("mmap: resizing not available--no mremap()"))
+        }
+
+        #[cfg(windows)]
+        #[pymethod]
+        fn resize(&self, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+            self.check_resizeable(vm)?;
+
+            let newsize: usize = newsize
+                .try_to_primitive(vm)
+                .map_err(|_| vm.new_value_error("new size out of range"))?;
+
+            if newsize == 0 {
+                return Err(vm.new_value_error("new size must be positive"));
+            }
+
+            let handle = self.handle.load();
+            let is_anonymous = handle == INVALID_HANDLE_VALUE as isize;
+
+            // Get the lock on mmap
+            let mut mmap_guard = self.mmap.lock();
+
+            if is_anonymous {
+                // For anonymous mmap, we need to:
+                // 1. Create a new anonymous mmap with the new size
+                // 2. Copy data from old mmap to new mmap
+                // 3. Replace the old mmap
+
+                let old_size = self.size.load();
+                let copy_size = core::cmp::min(old_size, newsize);
+
+                // Create new anonymous mmap
+                let mut new_mmap_opts = MmapOptions::new();
+                let mut new_mmap = new_mmap_opts
+                    .len(newsize)
+                    .map_anon()
+                    .map_err(|e| e.to_pyexception(vm))?;
+
+                // Copy data from old mmap to new mmap
+                if let Some(old_mmap) = mmap_guard.as_ref() {
+                    let src = match old_mmap {
+                        MmapObj::Write(m) => &m[..copy_size],
+                        MmapObj::Read(m) => &m[..copy_size],
+                    };
+                    new_mmap[..copy_size].copy_from_slice(src);
+                }
+
+                *mmap_guard = Some(MmapObj::Write(new_mmap));
+                self.size.store(newsize);
+            } else {
+                // File-backed mmap resize
+
+                // Drop the current mmap to release the file mapping
+                *mmap_guard = None;
+
+                // Resize the file
+                let required_size = self.offset + newsize as i64;
+                let result = unsafe {
+                    SetFilePointerEx(
+                        handle as HANDLE,
+                        required_size,
+                        std::ptr::null_mut(),
+                        FILE_BEGIN,
+                    )
+                };
+                if result == 0 {
+                    // Restore original mmap on error
+                    let err = io::Error::last_os_error();
+                    self.try_restore_mmap(&mut mmap_guard, handle as HANDLE, self.size.load());
+                    return Err(err.to_pyexception(vm));
+                }
+
+                let result = unsafe { SetEndOfFile(handle as HANDLE) };
+                if result == 0 {
+                    let err = io::Error::last_os_error();
+                    self.try_restore_mmap(&mut mmap_guard, handle as HANDLE, self.size.load());
+                    return Err(err.to_pyexception(vm));
+                }
+
+                // Create new mmap with the new size
+                let new_mmap =
+                    Self::create_mmap_windows(handle as HANDLE, self.offset, newsize, &self.access)
+                        .map_err(|e| e.to_pyexception(vm))?;
+
+                *mmap_guard = Some(new_mmap);
+                self.size.store(newsize);
+            }
+
+            // Adjust position if it's beyond the new size
+            let pos = self.pos.load();
+            if pos > newsize {
+                self.pos.store(newsize);
+            }
+
+            Ok(())
         }
 
         #[pymethod]
@@ -838,10 +1164,32 @@ mod mmap {
             Ok(())
         }
 
+        #[cfg(unix)]
         #[pymethod]
         fn size(&self, vm: &VirtualMachine) -> std::io::Result<PyIntRef> {
             let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(self.fd.load())? };
             let file_len = fstat(fd)?.st_size;
+            Ok(PyInt::from(file_len).into_ref(&vm.ctx))
+        }
+
+        #[cfg(windows)]
+        #[pymethod]
+        fn size(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+            let handle = self.handle.load();
+            if handle == INVALID_HANDLE_VALUE as isize {
+                // Anonymous mapping, return the mmap size
+                return Ok(PyInt::from(self.__len__()).into_ref(&vm.ctx));
+            }
+
+            let mut high: u32 = 0;
+            let low = unsafe { GetFileSize(handle as HANDLE, &mut high) };
+            if low == u32::MAX {
+                let err = io::Error::last_os_error();
+                if err.raw_os_error() != Some(0) {
+                    return Err(err.to_pyexception(vm));
+                }
+            }
+            let file_len = ((high as i64) << 32) | (low as i64);
             Ok(PyInt::from(file_len).into_ref(&vm.ctx))
         }
 
@@ -918,18 +1266,62 @@ mod mmap {
         fn __exit__(zelf: &Py<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.close(vm)
         }
+
+        #[cfg(windows)]
+        #[pymethod]
+        fn __sizeof__(&self) -> usize {
+            std::mem::size_of::<Self>()
+        }
     }
 
     impl PyMmap {
+        #[cfg(windows)]
+        fn create_mmap_windows(
+            handle: HANDLE,
+            offset: i64,
+            size: usize,
+            access: &AccessMode,
+        ) -> io::Result<MmapObj> {
+            use std::fs::File;
+
+            // Create an owned handle wrapper for memmap2
+            // We need to create a File from the handle
+            let file = unsafe { File::from_raw_handle(handle as RawHandle) };
+
+            let mut mmap_opt = MmapOptions::new();
+            let mmap_opt = mmap_opt.offset(offset as u64).len(size);
+
+            let result = match access {
+                AccessMode::Default | AccessMode::Write => {
+                    unsafe { mmap_opt.map_mut(&file) }.map(MmapObj::Write)
+                }
+                AccessMode::Read => unsafe { mmap_opt.map(&file) }.map(MmapObj::Read),
+                AccessMode::Copy => unsafe { mmap_opt.map_copy(&file) }.map(MmapObj::Write),
+            };
+
+            // Don't close the file handle - we're borrowing it
+            std::mem::forget(file);
+
+            result
+        }
+
+        /// Try to restore mmap after a failed resize operation.
+        /// Returns true if restoration succeeded, false otherwise.
+        /// If restoration fails, marks the mmap as closed.
+        #[cfg(windows)]
+        fn try_restore_mmap(&self, mmap_guard: &mut Option<MmapObj>, handle: HANDLE, size: usize) {
+            match Self::create_mmap_windows(handle, self.offset, size, &self.access) {
+                Ok(mmap) => *mmap_guard = Some(mmap),
+                Err(_) => self.closed.store(true),
+            }
+        }
+
         fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let i = i
                 .wrapped_at(self.__len__())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
 
-            let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
-                MmapObj::Read(mmap) => mmap[i],
-                MmapObj::Write(mmap) => mmap[i],
-            };
+            let b = self.check_valid(vm)?.deref().as_ref().unwrap().as_slice()[i];
 
             Ok(PyInt::from(b).into_ref(&vm.ctx).into())
         }
@@ -942,33 +1334,24 @@ mod mmap {
             let (range, step, slice_len) = slice.adjust_indices(self.__len__());
 
             let mmap = self.check_valid(vm)?;
+            let slice_data = mmap.deref().as_ref().unwrap().as_slice();
 
             if slice_len == 0 {
                 return Ok(PyBytes::from(vec![]).into_ref(&vm.ctx).into());
             } else if step == 1 {
-                let bytes = match mmap.deref().as_ref().unwrap() {
-                    MmapObj::Read(mmap) => &mmap[range],
-                    MmapObj::Write(mmap) => &mmap[range],
-                };
-                return Ok(PyBytes::from(bytes.to_vec()).into_ref(&vm.ctx).into());
+                return Ok(PyBytes::from(slice_data[range].to_vec())
+                    .into_ref(&vm.ctx)
+                    .into());
             }
 
             let mut result_buf = Vec::with_capacity(slice_len);
             if step.is_negative() {
                 for i in range.rev().step_by(step.unsigned_abs()) {
-                    let b = match mmap.deref().as_ref().unwrap() {
-                        MmapObj::Read(mmap) => mmap[i],
-                        MmapObj::Write(mmap) => mmap[i],
-                    };
-                    result_buf.push(b);
+                    result_buf.push(slice_data[i]);
                 }
             } else {
                 for i in range.step_by(step.unsigned_abs()) {
-                    let b = match mmap.deref().as_ref().unwrap() {
-                        MmapObj::Read(mmap) => mmap[i],
-                        MmapObj::Write(mmap) => mmap[i],
-                    };
-                    result_buf.push(b);
+                    result_buf.push(slice_data[i]);
                 }
             }
             Ok(PyBytes::from(result_buf).into_ref(&vm.ctx).into())

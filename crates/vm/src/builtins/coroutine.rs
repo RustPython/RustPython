@@ -2,12 +2,13 @@ use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    coroutine::Coro,
+    coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
+    types::{IterNext, Iterable, Representable, SelfIter},
 };
+use crossbeam_utils::atomic::AtomicCell;
 
 #[pyclass(module = false, name = "coroutine")]
 #[derive(Debug)]
@@ -23,15 +24,15 @@ impl PyPayload for PyCoroutine {
     }
 }
 
-#[pyclass(with(Py, Unconstructible, IterNext, Representable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, IterNext, Representable))]
 impl PyCoroutine {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
     }
 
-    pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
+    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
-            inner: Coro::new(frame, name),
+            inner: Coro::new(frame, name, qualname),
         }
     }
 
@@ -45,9 +46,22 @@ impl PyCoroutine {
         self.inner.set_name(name)
     }
 
+    #[pygetset]
+    fn __qualname__(&self) -> PyStrRef {
+        self.inner.qualname()
+    }
+
+    #[pygetset(setter)]
+    fn set___qualname__(&self, qualname: PyStrRef) {
+        self.inner.set_qualname(qualname)
+    }
+
     #[pymethod(name = "__await__")]
-    const fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
-        PyCoroutineWrapper { coro: zelf }
+    fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
+        PyCoroutineWrapper {
+            coro: zelf,
+            closed: AtomicCell::new(false),
+        }
     }
 
     #[pygetset]
@@ -94,6 +108,7 @@ impl Py<PyCoroutine> {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         self.inner.throw(
             self.as_object(),
             exc_type,
@@ -108,8 +123,6 @@ impl Py<PyCoroutine> {
         self.inner.close(self.as_object(), vm)
     }
 }
-
-impl Unconstructible for PyCoroutine {}
 
 impl Representable for PyCoroutine {
     #[inline]
@@ -130,6 +143,7 @@ impl IterNext for PyCoroutine {
 // PyCoroWrapper_Type in CPython
 pub struct PyCoroutineWrapper {
     coro: PyRef<PyCoroutine>,
+    closed: AtomicCell<bool>,
 }
 
 impl PyPayload for PyCoroutineWrapper {
@@ -141,9 +155,22 @@ impl PyPayload for PyCoroutineWrapper {
 
 #[pyclass(with(IterNext, Iterable))]
 impl PyCoroutineWrapper {
+    fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if self.closed.load() {
+            return Err(vm.new_runtime_error("cannot reuse already awaited coroutine"));
+        }
+        Ok(())
+    }
+
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        self.coro.send(val, vm)
+        self.check_closed(vm)?;
+        let result = self.coro.send(val, vm);
+        // Mark as closed if exhausted
+        if let Ok(PyIterReturn::StopIteration(_)) = &result {
+            self.closed.store(true);
+        }
+        result
     }
 
     #[pymethod]
@@ -154,7 +181,20 @@ impl PyCoroutineWrapper {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
-        self.coro.throw(exc_type, exc_val, exc_tb, vm)
+        self.check_closed(vm)?;
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
+        let result = self.coro.throw(exc_type, exc_val, exc_tb, vm);
+        // Mark as closed if exhausted
+        if let Ok(PyIterReturn::StopIteration(_)) = &result {
+            self.closed.store(true);
+        }
+        result
+    }
+
+    #[pymethod]
+    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.closed.store(true);
+        self.coro.close(vm)
     }
 }
 

@@ -111,13 +111,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let builder = &mut self.builder;
         let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
         let local = self.variables[idx as usize].get_or_insert_with(|| {
-            let var = Variable::new(idx as usize);
-            let local = Local {
+            let var = builder.declare_var(ty.to_cranelift());
+            Local {
                 var,
                 ty: ty.clone(),
-            };
-            builder.declare_var(var, ty.to_cranelift());
-            local
+            }
         });
         if ty != local.ty {
             Err(JitCompileError::NotSupported)
@@ -275,57 +273,165 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         arg: OpArg,
     ) -> Result<(), JitCompileError> {
         match instruction {
-            Instruction::ExtendedArg => Ok(()),
-            Instruction::PopJumpIfFalse { target } => {
-                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(target.get(arg));
-                let else_block = self.builder.create_block();
+            Instruction::BinaryOp { op } => {
+                let op = op.get(arg);
+                // the rhs is popped off first
+                let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
-                self.builder
-                    .ins()
-                    .brif(val, else_block, &[], then_block, &[]);
-                self.builder.switch_to_block(else_block);
+                let a_type = a.to_jit_type();
+                let b_type = b.to_jit_type();
 
-                Ok(())
-            }
-            Instruction::PopJumpIfTrue { target } => {
-                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(target.get(arg));
-                let else_block = self.builder.create_block();
+                let val = match (op, a, b) {
+                    (
+                        BinaryOperator::Add | BinaryOperator::InplaceAdd,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => {
+                        let (out, carry) = self.builder.ins().sadd_overflow(a, b);
+                        self.builder.ins().trapnz(carry, TrapCode::INTEGER_OVERFLOW);
+                        JitValue::Int(out)
+                    }
+                    (
+                        BinaryOperator::Subtract | BinaryOperator::InplaceSubtract,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => JitValue::Int(self.compile_sub(a, b)),
+                    (
+                        BinaryOperator::FloorDivide | BinaryOperator::InplaceFloorDivide,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => JitValue::Int(self.builder.ins().sdiv(a, b)),
+                    (
+                        BinaryOperator::TrueDivide | BinaryOperator::InplaceTrueDivide,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => {
+                        // Check if b == 0, If so trap with a division by zero error
+                        self.builder
+                            .ins()
+                            .trapz(b, TrapCode::INTEGER_DIVISION_BY_ZERO);
+                        // Else convert to float and divide
+                        let a_float = self.builder.ins().fcvt_from_sint(types::F64, a);
+                        let b_float = self.builder.ins().fcvt_from_sint(types::F64, b);
+                        JitValue::Float(self.builder.ins().fdiv(a_float, b_float))
+                    }
+                    (
+                        BinaryOperator::Multiply | BinaryOperator::InplaceMultiply,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => JitValue::Int(self.builder.ins().imul(a, b)),
+                    (
+                        BinaryOperator::Remainder | BinaryOperator::InplaceRemainder,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => JitValue::Int(self.builder.ins().srem(a, b)),
+                    (
+                        BinaryOperator::Power | BinaryOperator::InplacePower,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => JitValue::Int(self.compile_ipow(a, b)),
+                    (
+                        BinaryOperator::Lshift | BinaryOperator::Rshift,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => {
+                        // Shifts throw an exception if we have a negative shift count
+                        // Remove all bits except the sign bit, and trap if its 1 (i.e. negative).
+                        let sign = self.builder.ins().ushr_imm(b, 63);
+                        self.builder.ins().trapnz(
+                            sign,
+                            TrapCode::user(CustomTrapCode::NegativeShiftCount as u8).unwrap(),
+                        );
 
-                self.builder
-                    .ins()
-                    .brif(val, then_block, &[], else_block, &[]);
-                self.builder.switch_to_block(else_block);
+                        let out =
+                            if matches!(op, BinaryOperator::Lshift | BinaryOperator::InplaceLshift)
+                            {
+                                self.builder.ins().ishl(a, b)
+                            } else {
+                                self.builder.ins().sshr(a, b)
+                            };
+                        JitValue::Int(out)
+                    }
+                    (
+                        BinaryOperator::And | BinaryOperator::InplaceAnd,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => JitValue::Int(self.builder.ins().band(a, b)),
+                    (
+                        BinaryOperator::Or | BinaryOperator::InplaceOr,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => JitValue::Int(self.builder.ins().bor(a, b)),
+                    (
+                        BinaryOperator::Xor | BinaryOperator::InplaceXor,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
+                    ) => JitValue::Int(self.builder.ins().bxor(a, b)),
 
-                Ok(())
-            }
+                    // Floats
+                    (
+                        BinaryOperator::Add | BinaryOperator::InplaceAdd,
+                        JitValue::Float(a),
+                        JitValue::Float(b),
+                    ) => JitValue::Float(self.builder.ins().fadd(a, b)),
+                    (
+                        BinaryOperator::Subtract | BinaryOperator::InplaceSubtract,
+                        JitValue::Float(a),
+                        JitValue::Float(b),
+                    ) => JitValue::Float(self.builder.ins().fsub(a, b)),
+                    (
+                        BinaryOperator::Multiply | BinaryOperator::InplaceMultiply,
+                        JitValue::Float(a),
+                        JitValue::Float(b),
+                    ) => JitValue::Float(self.builder.ins().fmul(a, b)),
+                    (
+                        BinaryOperator::TrueDivide | BinaryOperator::InplaceTrueDivide,
+                        JitValue::Float(a),
+                        JitValue::Float(b),
+                    ) => JitValue::Float(self.builder.ins().fdiv(a, b)),
+                    (
+                        BinaryOperator::Power | BinaryOperator::InplacePower,
+                        JitValue::Float(a),
+                        JitValue::Float(b),
+                    ) => JitValue::Float(self.compile_fpow(a, b)),
 
-            Instruction::Jump { target } => {
-                let target_block = self.get_or_create_block(target.get(arg));
-                self.builder.ins().jump(target_block, &[]);
-                Ok(())
-            }
-            Instruction::LoadFast(idx) => {
-                let local = self.variables[idx.get(arg) as usize]
-                    .as_ref()
-                    .ok_or(JitCompileError::BadBytecode)?;
-                self.stack.push(JitValue::from_type_and_value(
-                    local.ty.clone(),
-                    self.builder.use_var(local.var),
-                ));
-                Ok(())
-            }
-            Instruction::StoreFast(idx) => {
-                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                self.store_variable(idx.get(arg), val)
-            }
-            Instruction::LoadConst { idx } => {
-                let val = self
-                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
+                    // Floats and Integers
+                    (_, JitValue::Int(a), JitValue::Float(b))
+                    | (_, JitValue::Float(a), JitValue::Int(b)) => {
+                        let operand_one = match a_type.unwrap() {
+                            JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, a),
+                            _ => a,
+                        };
+
+                        let operand_two = match b_type.unwrap() {
+                            JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, b),
+                            _ => b,
+                        };
+
+                        match op {
+                            BinaryOperator::Add | BinaryOperator::InplaceAdd => {
+                                JitValue::Float(self.builder.ins().fadd(operand_one, operand_two))
+                            }
+                            BinaryOperator::Subtract | BinaryOperator::InplaceSubtract => {
+                                JitValue::Float(self.builder.ins().fsub(operand_one, operand_two))
+                            }
+                            BinaryOperator::Multiply | BinaryOperator::InplaceMultiply => {
+                                JitValue::Float(self.builder.ins().fmul(operand_one, operand_two))
+                            }
+                            BinaryOperator::TrueDivide | BinaryOperator::InplaceTrueDivide => {
+                                JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two))
+                            }
+                            BinaryOperator::Power | BinaryOperator::InplacePower => {
+                                JitValue::Float(self.compile_fpow(operand_one, operand_two))
+                            }
+                            _ => return Err(JitCompileError::NotSupported),
+                        }
+                    }
+                    _ => return Err(JitCompileError::NotSupported),
+                };
                 self.stack.push(val);
+
                 Ok(())
             }
             Instruction::BuildTuple { size } => {
@@ -333,29 +439,25 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(JitValue::Tuple(elements));
                 Ok(())
             }
-            Instruction::UnpackSequence { size } => {
-                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+            Instruction::CallFunctionPositional { nargs } => {
+                let nargs = nargs.get(arg);
 
-                let elements = match val {
-                    JitValue::Tuple(elements) => elements,
-                    _ => return Err(JitCompileError::NotSupported),
-                };
-
-                if elements.len() != size.get(arg) as usize {
-                    return Err(JitCompileError::NotSupported);
+                let mut args = Vec::new();
+                for _ in 0..nargs {
+                    let arg = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                    args.push(arg.into_value().unwrap());
                 }
 
-                self.stack.extend(elements.into_iter().rev());
-                Ok(())
-            }
-            Instruction::ReturnValue => {
-                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                self.return_value(val)
-            }
-            Instruction::ReturnConst { idx } => {
-                let val = self
-                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
-                self.return_value(val)
+                match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
+                    JitValue::FuncRef(reference) => {
+                        let call = self.builder.ins().call(reference, &args);
+                        let returns = self.builder.inst_results(call);
+                        self.stack.push(JitValue::Int(returns[0]));
+
+                        Ok(())
+                    }
+                    _ => Err(JitCompileError::BadBytecode),
+                }
             }
             Instruction::CompareOperation { op, .. } => {
                 let op = op.get(arg);
@@ -411,6 +513,104 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
+            Instruction::ExtendedArg => Ok(()),
+
+            Instruction::Jump { target } => {
+                let target_block = self.get_or_create_block(target.get(arg));
+                self.builder.ins().jump(target_block, &[]);
+                Ok(())
+            }
+            Instruction::LoadConst { idx } => {
+                let val = self
+                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
+                self.stack.push(val);
+                Ok(())
+            }
+            Instruction::LoadFast(idx) => {
+                let local = self.variables[idx.get(arg) as usize]
+                    .as_ref()
+                    .ok_or(JitCompileError::BadBytecode)?;
+                self.stack.push(JitValue::from_type_and_value(
+                    local.ty.clone(),
+                    self.builder.use_var(local.var),
+                ));
+                Ok(())
+            }
+            Instruction::LoadGlobal(idx) => {
+                let name = &bytecode.names[idx.get(arg) as usize];
+
+                if name.as_ref() != bytecode.obj_name.as_ref() {
+                    Err(JitCompileError::NotSupported)
+                } else {
+                    self.stack.push(JitValue::FuncRef(func_ref));
+                    Ok(())
+                }
+            }
+            Instruction::Nop => Ok(()),
+            Instruction::PopBlock => {
+                // TODO: block support
+                Ok(())
+            }
+            Instruction::PopJumpIfFalse { target } => {
+                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let val = self.boolean_val(cond)?;
+                let then_block = self.get_or_create_block(target.get(arg));
+                let else_block = self.builder.create_block();
+
+                self.builder
+                    .ins()
+                    .brif(val, else_block, &[], then_block, &[]);
+                self.builder.switch_to_block(else_block);
+
+                Ok(())
+            }
+            Instruction::PopJumpIfTrue { target } => {
+                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let val = self.boolean_val(cond)?;
+                let then_block = self.get_or_create_block(target.get(arg));
+                let else_block = self.builder.create_block();
+
+                self.builder
+                    .ins()
+                    .brif(val, then_block, &[], else_block, &[]);
+                self.builder.switch_to_block(else_block);
+
+                Ok(())
+            }
+            Instruction::PopTop => {
+                self.stack.pop();
+                Ok(())
+            }
+            Instruction::Resume { arg: _resume_arg } => {
+                // TODO: Implement the resume instruction
+                Ok(())
+            }
+            Instruction::ReturnConst { idx } => {
+                let val = self
+                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
+                self.return_value(val)
+            }
+            Instruction::ReturnValue => {
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                self.return_value(val)
+            }
+            Instruction::SetupLoop => {
+                let loop_head = self.builder.create_block();
+                self.builder.ins().jump(loop_head, &[]);
+                self.builder.switch_to_block(loop_head);
+                Ok(())
+            }
+            Instruction::StoreFast(idx) => {
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                self.store_variable(idx.get(arg), val)
+            }
+            Instruction::Swap { index } => {
+                let len = self.stack.len();
+                let i = len - 1;
+                let j = len - 1 - index.get(arg) as usize;
+                self.stack.swap(i, j);
+                Ok(())
+            }
             Instruction::UnaryOperation { op, .. } => {
                 let op = op.get(arg);
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -436,185 +636,19 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::BinaryOperation { op } | Instruction::BinaryOperationInplace { op } => {
-                let op = op.get(arg);
-                // the rhs is popped off first
-                let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+            Instruction::UnpackSequence { size } => {
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
-                let a_type = a.to_jit_type();
-                let b_type = b.to_jit_type();
-
-                let val = match (op, a, b) {
-                    (BinaryOperator::Add, JitValue::Int(a), JitValue::Int(b)) => {
-                        let (out, carry) = self.builder.ins().sadd_overflow(a, b);
-                        self.builder.ins().trapnz(carry, TrapCode::INTEGER_OVERFLOW);
-                        JitValue::Int(out)
-                    }
-                    (BinaryOperator::Subtract, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Int(self.compile_sub(a, b))
-                    }
-                    (BinaryOperator::FloorDivide, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Int(self.builder.ins().sdiv(a, b))
-                    }
-                    (BinaryOperator::Divide, JitValue::Int(a), JitValue::Int(b)) => {
-                        // Check if b == 0, If so trap with a division by zero error
-                        self.builder
-                            .ins()
-                            .trapz(b, TrapCode::INTEGER_DIVISION_BY_ZERO);
-                        // Else convert to float and divide
-                        let a_float = self.builder.ins().fcvt_from_sint(types::F64, a);
-                        let b_float = self.builder.ins().fcvt_from_sint(types::F64, b);
-                        JitValue::Float(self.builder.ins().fdiv(a_float, b_float))
-                    }
-                    (BinaryOperator::Multiply, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Int(self.builder.ins().imul(a, b))
-                    }
-                    (BinaryOperator::Modulo, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Int(self.builder.ins().srem(a, b))
-                    }
-                    (BinaryOperator::Power, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Int(self.compile_ipow(a, b))
-                    }
-                    (
-                        BinaryOperator::Lshift | BinaryOperator::Rshift,
-                        JitValue::Int(a),
-                        JitValue::Int(b),
-                    ) => {
-                        // Shifts throw an exception if we have a negative shift count
-                        // Remove all bits except the sign bit, and trap if its 1 (i.e. negative).
-                        let sign = self.builder.ins().ushr_imm(b, 63);
-                        self.builder.ins().trapnz(
-                            sign,
-                            TrapCode::user(CustomTrapCode::NegativeShiftCount as u8).unwrap(),
-                        );
-
-                        let out = if op == BinaryOperator::Lshift {
-                            self.builder.ins().ishl(a, b)
-                        } else {
-                            self.builder.ins().sshr(a, b)
-                        };
-                        JitValue::Int(out)
-                    }
-                    (BinaryOperator::And, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Int(self.builder.ins().band(a, b))
-                    }
-                    (BinaryOperator::Or, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Int(self.builder.ins().bor(a, b))
-                    }
-                    (BinaryOperator::Xor, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Int(self.builder.ins().bxor(a, b))
-                    }
-
-                    // Floats
-                    (BinaryOperator::Add, JitValue::Float(a), JitValue::Float(b)) => {
-                        JitValue::Float(self.builder.ins().fadd(a, b))
-                    }
-                    (BinaryOperator::Subtract, JitValue::Float(a), JitValue::Float(b)) => {
-                        JitValue::Float(self.builder.ins().fsub(a, b))
-                    }
-                    (BinaryOperator::Multiply, JitValue::Float(a), JitValue::Float(b)) => {
-                        JitValue::Float(self.builder.ins().fmul(a, b))
-                    }
-                    (BinaryOperator::Divide, JitValue::Float(a), JitValue::Float(b)) => {
-                        JitValue::Float(self.builder.ins().fdiv(a, b))
-                    }
-                    (BinaryOperator::Power, JitValue::Float(a), JitValue::Float(b)) => {
-                        JitValue::Float(self.compile_fpow(a, b))
-                    }
-
-                    // Floats and Integers
-                    (_, JitValue::Int(a), JitValue::Float(b))
-                    | (_, JitValue::Float(a), JitValue::Int(b)) => {
-                        let operand_one = match a_type.unwrap() {
-                            JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, a),
-                            _ => a,
-                        };
-
-                        let operand_two = match b_type.unwrap() {
-                            JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, b),
-                            _ => b,
-                        };
-
-                        match op {
-                            BinaryOperator::Add => {
-                                JitValue::Float(self.builder.ins().fadd(operand_one, operand_two))
-                            }
-                            BinaryOperator::Subtract => {
-                                JitValue::Float(self.builder.ins().fsub(operand_one, operand_two))
-                            }
-                            BinaryOperator::Multiply => {
-                                JitValue::Float(self.builder.ins().fmul(operand_one, operand_two))
-                            }
-                            BinaryOperator::Divide => {
-                                JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two))
-                            }
-                            BinaryOperator::Power => {
-                                JitValue::Float(self.compile_fpow(operand_one, operand_two))
-                            }
-                            _ => return Err(JitCompileError::NotSupported),
-                        }
-                    }
+                let elements = match val {
+                    JitValue::Tuple(elements) => elements,
                     _ => return Err(JitCompileError::NotSupported),
                 };
-                self.stack.push(val);
 
-                Ok(())
-            }
-            Instruction::SetupLoop => {
-                let loop_head = self.builder.create_block();
-                self.builder.ins().jump(loop_head, &[]);
-                self.builder.switch_to_block(loop_head);
-                Ok(())
-            }
-            Instruction::PopBlock => {
-                // TODO: block support
-                Ok(())
-            }
-            Instruction::LoadGlobal(idx) => {
-                let name = &bytecode.names[idx.get(arg) as usize];
-
-                if name.as_ref() != bytecode.obj_name.as_ref() {
-                    Err(JitCompileError::NotSupported)
-                } else {
-                    self.stack.push(JitValue::FuncRef(func_ref));
-                    Ok(())
-                }
-            }
-            Instruction::CallFunctionPositional { nargs } => {
-                let nargs = nargs.get(arg);
-
-                let mut args = Vec::new();
-                for _ in 0..nargs {
-                    let arg = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                    args.push(arg.into_value().unwrap());
+                if elements.len() != size.get(arg) as usize {
+                    return Err(JitCompileError::NotSupported);
                 }
 
-                match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
-                    JitValue::FuncRef(reference) => {
-                        let call = self.builder.ins().call(reference, &args);
-                        let returns = self.builder.inst_results(call);
-                        self.stack.push(JitValue::Int(returns[0]));
-
-                        Ok(())
-                    }
-                    _ => Err(JitCompileError::BadBytecode),
-                }
-            }
-            Instruction::Nop => Ok(()),
-            Instruction::Swap { index } => {
-                let len = self.stack.len();
-                let i = len - 1;
-                let j = len - 1 - index.get(arg) as usize;
-                self.stack.swap(i, j);
-                Ok(())
-            }
-            Instruction::Pop => {
-                self.stack.pop();
-                Ok(())
-            }
-            Instruction::Resume { arg: _resume_arg } => {
-                // TODO: Implement the resume instruction
+                self.stack.extend(elements.into_iter().rev());
                 Ok(())
             }
             _ => Err(JitCompileError::NotSupported),
@@ -985,7 +1019,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_b_zero, b_zero_block, &[], continue_block, &[]);
         self.builder.switch_to_block(b_zero_block);
-        self.builder.ins().jump(merge_block, &[one_f]);
+        self.builder.ins().jump(merge_block, &[one_f.into()]);
         self.builder.switch_to_block(continue_block);
 
         // --- Edge Case 2: b is NaN → return NaN
@@ -996,7 +1030,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_b_nan, b_nan_block, &[], continue_block2, &[]);
         self.builder.switch_to_block(b_nan_block);
-        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.ins().jump(merge_block, &[nan_f.into()]);
         self.builder.switch_to_block(continue_block2);
 
         // --- Edge Case 3: a == 0.0 → return 0.0
@@ -1007,7 +1041,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_a_zero, a_zero_block, &[], continue_block3, &[]);
         self.builder.switch_to_block(a_zero_block);
-        self.builder.ins().jump(merge_block, &[zero_f]);
+        self.builder.ins().jump(merge_block, &[zero_f.into()]);
         self.builder.switch_to_block(continue_block3);
 
         // --- Edge Case 4: a is NaN → return NaN
@@ -1018,7 +1052,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_a_nan, a_nan_block, &[], continue_block4, &[]);
         self.builder.switch_to_block(a_nan_block);
-        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.ins().jump(merge_block, &[nan_f.into()]);
         self.builder.switch_to_block(continue_block4);
 
         // --- Edge Case 5: b == +infinity → return +infinity
@@ -1029,7 +1063,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_b_inf, b_inf_block, &[], continue_block5, &[]);
         self.builder.switch_to_block(b_inf_block);
-        self.builder.ins().jump(merge_block, &[inf_f]);
+        self.builder.ins().jump(merge_block, &[inf_f.into()]);
         self.builder.switch_to_block(continue_block5);
 
         // --- Edge Case 6: b == -infinity → return 0.0
@@ -1040,7 +1074,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_b_neg_inf, b_neg_inf_block, &[], continue_block6, &[]);
         self.builder.switch_to_block(b_neg_inf_block);
-        self.builder.ins().jump(merge_block, &[zero_f]);
+        self.builder.ins().jump(merge_block, &[zero_f.into()]);
         self.builder.switch_to_block(continue_block6);
 
         // --- Edge Case 7: a == +infinity → return +infinity
@@ -1051,7 +1085,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_a_inf, a_inf_block, &[], continue_block7, &[]);
         self.builder.switch_to_block(a_inf_block);
-        self.builder.ins().jump(merge_block, &[inf_f]);
+        self.builder.ins().jump(merge_block, &[inf_f.into()]);
         self.builder.switch_to_block(continue_block7);
 
         // --- Edge Case 8: a == -infinity → check exponent parity
@@ -1073,7 +1107,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .brif(cmp_int, continue_neg_inf, &[], domain_error_blk, &[]);
 
         self.builder.switch_to_block(domain_error_blk);
-        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.ins().jump(merge_block, &[nan_f.into()]);
 
         self.builder.switch_to_block(continue_neg_inf);
         // b is an integer here; convert b_floor to an i64.
@@ -1088,17 +1122,21 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let even_block = self.builder.create_block();
         self.builder.append_block_param(odd_block, f64_ty);
         self.builder.append_block_param(even_block, f64_ty);
-        self.builder
-            .ins()
-            .brif(is_odd, odd_block, &[neg_inf_f], even_block, &[inf_f]);
+        self.builder.ins().brif(
+            is_odd,
+            odd_block,
+            &[neg_inf_f.into()],
+            even_block,
+            &[inf_f.into()],
+        );
 
         self.builder.switch_to_block(odd_block);
         let phi_neg_inf = self.builder.block_params(odd_block)[0];
-        self.builder.ins().jump(merge_block, &[phi_neg_inf]);
+        self.builder.ins().jump(merge_block, &[phi_neg_inf.into()]);
 
         self.builder.switch_to_block(even_block);
         let phi_inf = self.builder.block_params(even_block)[0];
-        self.builder.ins().jump(merge_block, &[phi_inf]);
+        self.builder.ins().jump(merge_block, &[phi_inf.into()]);
 
         self.builder.switch_to_block(continue_block8);
 
@@ -1118,7 +1156,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let product_dd = self.dd_mul(ln_a_dd, b_dd);
         let exp_dd = self.dd_exp(product_dd);
         let pos_res = self.dd_to_f64(exp_dd);
-        self.builder.ins().jump(merge_block, &[pos_res]);
+        self.builder.ins().jump(merge_block, &[pos_res.into()]);
 
         // ----- Case: a < 0: Only allow an integral exponent.
         self.builder.switch_to_block(a_neg_block);
@@ -1132,7 +1170,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
         // Domain error: non-integer exponent for negative base
         self.builder.switch_to_block(domain_error_blk);
-        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.ins().jump(merge_block, &[nan_f.into()]);
 
         // For negative base with an integer exponent:
         self.builder.switch_to_block(neg_int_block);
@@ -1155,18 +1193,24 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.append_block_param(odd_block, f64_ty);
         self.builder.append_block_param(even_block, f64_ty);
         // Pass mag_val to both branches:
-        self.builder
-            .ins()
-            .brif(is_odd, odd_block, &[mag_val], even_block, &[mag_val]);
+        self.builder.ins().brif(
+            is_odd,
+            odd_block,
+            &[mag_val.into()],
+            even_block,
+            &[mag_val.into()],
+        );
 
         self.builder.switch_to_block(odd_block);
         let phi_mag_val = self.builder.block_params(odd_block)[0];
         let neg_val = self.builder.ins().fneg(phi_mag_val);
-        self.builder.ins().jump(merge_block, &[neg_val]);
+        self.builder.ins().jump(merge_block, &[neg_val.into()]);
 
         self.builder.switch_to_block(even_block);
         let phi_mag_val_even = self.builder.block_params(even_block)[0];
-        self.builder.ins().jump(merge_block, &[phi_mag_val_even]);
+        self.builder
+            .ins()
+            .jump(merge_block, &[phi_mag_val_even.into()]);
 
         // ----- Merge: Return the final result.
         self.builder.switch_to_block(merge_block);
@@ -1203,7 +1247,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.append_block_param(continue_block, types::I64); // base
 
         // Initial jump to check if exponent is negative
-        self.builder.ins().jump(check_negative, &[b, a]);
+        self.builder
+            .ins()
+            .jump(check_negative, &[b.into(), a.into()]);
 
         // Check if exponent is negative
         self.builder.switch_to_block(check_negative);
@@ -1218,14 +1264,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.ins().brif(
             is_negative,
             handle_negative,
-            &[exp_check, base_check],
+            &[exp_check.into(), base_check.into()],
             loop_block,
-            &[exp_check, one_i64, base_check],
+            &[exp_check.into(), one_i64.into(), base_check.into()],
         );
 
         // Handle negative exponent (return 0 for integer exponentiation)
         self.builder.switch_to_block(handle_negative);
-        self.builder.ins().jump(exit_block, &[zero]); // Return 0 for negative exponents
+        self.builder.ins().jump(exit_block, &[zero.into()]); // Return 0 for negative exponents
 
         // Loop block logic (square-and-multiply algorithm)
         self.builder.switch_to_block(loop_block);
@@ -1239,9 +1285,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.ins().brif(
             is_zero,
             exit_block,
-            &[result_phi],
+            &[result_phi.into()],
             continue_block,
-            &[exp_phi, result_phi, base_phi],
+            &[exp_phi.into(), result_phi.into(), base_phi.into()],
         );
 
         // Continue block for non-zero case
@@ -1260,9 +1306,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         // Square the base and divide exponent by 2
         let squared_base = self.builder.ins().imul(base_phi, base_phi);
         let new_exp = self.builder.ins().sshr_imm(exp_phi, 1);
-        self.builder
-            .ins()
-            .jump(loop_block, &[new_exp, new_result, squared_base]);
+        self.builder.ins().jump(
+            loop_block,
+            &[new_exp.into(), new_result.into(), squared_base.into()],
+        );
 
         // Exit block
         self.builder.switch_to_block(exit_block);

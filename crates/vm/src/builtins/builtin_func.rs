@@ -5,9 +5,9 @@ use crate::{
     common::wtf8::Wtf8,
     convert::TryFromObject,
     function::{FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
-    types::{Callable, Comparable, PyComparisonOp, Representable, Unconstructible},
+    types::{Callable, Comparable, PyComparisonOp, Representable},
 };
-use std::fmt;
+use alloc::fmt;
 
 // PyCFunctionObject in CPython
 #[pyclass(name = "builtin_function_or_method", module = false)]
@@ -51,11 +51,11 @@ impl PyNativeFunction {
     }
 
     // PyCFunction_GET_SELF
-    pub const fn get_self(&self) -> Option<&PyObjectRef> {
+    pub fn get_self(&self) -> Option<&PyObject> {
         if self.value.flags.contains(PyMethodFlags::STATIC) {
             return None;
         }
-        self.zelf.as_ref()
+        self.zelf.as_deref()
     }
 
     pub const fn as_func(&self) -> &'static dyn PyNativeFn {
@@ -74,7 +74,7 @@ impl Callable for PyNativeFunction {
     }
 }
 
-#[pyclass(with(Callable, Unconstructible), flags(HAS_DICT))]
+#[pyclass(with(Callable), flags(HAS_DICT, DISALLOW_INSTANTIATION))]
 impl PyNativeFunction {
     #[pygetset]
     fn __module__(zelf: NativeFunctionOrMethod) -> Option<&'static PyStrInterned> {
@@ -114,7 +114,7 @@ impl PyNativeFunction {
         zelf.0.value.doc
     }
 
-    #[pygetset(name = "__self__")]
+    #[pygetset]
     fn __self__(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
     }
@@ -145,18 +145,16 @@ impl Representable for PyNativeFunction {
     }
 }
 
-impl Unconstructible for PyNativeFunction {}
-
 // `PyCMethodObject` in CPython
-#[pyclass(name = "builtin_method", module = false, base = PyNativeFunction)]
+#[pyclass(name = "builtin_method", module = false, base = PyNativeFunction, ctx = "builtin_method_type")]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
     pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self
 }
 
 #[pyclass(
-    with(Unconstructible, Callable, Comparable, Representable),
-    flags(HAS_DICT)
+    with(Callable, Comparable, Representable),
+    flags(HAS_DICT, DISALLOW_INSTANTIATION)
 )]
 impl PyNativeMethod {
     #[pygetset]
@@ -183,15 +181,9 @@ impl PyNativeMethod {
         Ok((getattr, (target, name)))
     }
 
-    #[pygetset(name = "__self__")]
+    #[pygetset]
     fn __self__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         zelf.func.zelf.clone()
-    }
-}
-
-impl PyPayload for PyNativeMethod {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.builtin_method_type
     }
 }
 
@@ -220,7 +212,7 @@ impl Comparable for PyNativeMethod {
                     (None, None) => true,
                     _ => false,
                 };
-                let eq = eq && std::ptr::eq(zelf.func.value, other.func.value);
+                let eq = eq && core::ptr::eq(zelf.func.value, other.func.value);
                 Ok(eq.into())
             } else {
                 Ok(PyComparisonValue::NotImplemented)
@@ -251,8 +243,6 @@ impl Representable for PyNativeMethod {
         ))
     }
 }
-
-impl Unconstructible for PyNativeMethod {}
 
 pub fn init(context: &Context) {
     PyNativeFunction::extend_class(context, context.types.builtin_function_or_method_type);

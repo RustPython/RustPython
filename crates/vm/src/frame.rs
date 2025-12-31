@@ -1,8 +1,8 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
+        PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
+        PyList, PySet, PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
@@ -18,13 +18,14 @@ use crate::{
     types::PyTypeFlags,
     vm::{Context, PyMethod},
 };
+use alloc::fmt;
+use core::iter::zip;
+#[cfg(feature = "threading")]
+use core::sync::atomic;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use rustpython_common::{boxvec::BoxVec, lock::PyMutex, wtf8::Wtf8Buf};
 use rustpython_compiler_core::SourceLocation;
-#[cfg(feature = "threading")]
-use std::sync::atomic;
-use std::{fmt, iter::zip};
 
 #[derive(Clone, Debug)]
 struct Block {
@@ -91,7 +92,7 @@ struct FrameState {
 #[cfg(feature = "threading")]
 type Lasti = atomic::AtomicU32;
 #[cfg(not(feature = "threading"))]
-type Lasti = std::cell::Cell<u32>;
+type Lasti = core::cell::Cell<u32>;
 
 #[pyclass(module = false, name = "frame")]
 pub struct Frame {
@@ -142,7 +143,7 @@ impl Frame {
         func_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> Self {
-        let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
+        let cells_frees = core::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
             .take(code.cellvars.len())
             .chain(closure.iter().cloned())
             .collect();
@@ -171,7 +172,7 @@ impl Frame {
     }
 
     pub fn current_location(&self) -> SourceLocation {
-        self.code.locations[self.lasti() as usize - 1]
+        self.code.locations[self.lasti() as usize - 1].0
     }
 
     pub fn lasti(&self) -> u32 {
@@ -189,7 +190,7 @@ impl Frame {
         let locals = &self.locals;
         let code = &**self.code;
         let map = &code.varnames;
-        let j = std::cmp::min(map.len(), code.varnames.len());
+        let j = core::cmp::min(map.len(), code.varnames.len());
         if !code.varnames.is_empty() {
             let fastlocals = self.fastlocals.lock();
             for (&k, v) in zip(&map[..j], &**fastlocals) {
@@ -361,10 +362,6 @@ impl ExecutingFrame<'_> {
         let mut arg_state = bytecode::OpArgState::default();
         loop {
             let idx = self.lasti() as usize;
-            // eprintln!(
-            //     "location: {:?} {}",
-            //     self.code.locations[idx], self.code.source_path
-            // );
             self.update_lasti(|i| *i += 1);
             let bytecode::CodeUnit { op, arg } = instructions[idx];
             let arg = arg_state.extend(arg);
@@ -388,12 +385,12 @@ impl ExecutingFrame<'_> {
                         // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
                         // 3. Unwind block stack till appropriate handler is found.
 
-                        let loc = frame.code.locations[idx];
+                        let (loc, _end_loc) = frame.code.locations[idx];
                         let next = exception.__traceback__();
                         let new_traceback = PyTraceback::new(
                             next,
                             frame.object.to_owned(),
-                            frame.lasti(),
+                            frame.lasti() * 2,
                             loc.line,
                         );
                         vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
@@ -531,104 +528,215 @@ impl ExecutingFrame<'_> {
         }
 
         match instruction {
-            bytecode::Instruction::Nop => Ok(None),
-            bytecode::Instruction::LoadConst { idx } => {
-                self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
-                Ok(None)
-            }
-            bytecode::Instruction::ImportName { idx } => {
-                self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
-                Ok(None)
-            }
-            bytecode::Instruction::ImportNameless => {
-                self.import(vm, None)?;
-                Ok(None)
-            }
-            bytecode::Instruction::ImportFrom { idx } => {
-                let obj = self.import_from(vm, idx.get(arg))?;
-                self.push_value(obj);
-                Ok(None)
-            }
-            bytecode::Instruction::LoadFast(idx) => {
-                #[cold]
-                fn reference_error(
-                    varname: &'static PyStrInterned,
-                    vm: &VirtualMachine,
-                ) -> PyBaseExceptionRef {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!("local variable '{varname}' referenced before assignment",),
+            bytecode::Instruction::BeforeAsyncWith => {
+                let mgr = self.pop_value();
+                let error_string = || -> String {
+                    format!(
+                        "'{:.200}' object does not support the asynchronous context manager protocol",
+                        mgr.class().name(),
                     )
-                }
-                let idx = idx.get(arg) as usize;
-                let x = self.fastlocals.lock()[idx]
-                    .clone()
-                    .ok_or_else(|| reference_error(self.code.varnames[idx], vm))?;
-                self.push_value(x);
-                Ok(None)
-            }
-            bytecode::Instruction::LoadNameAny(idx) => {
-                let name = self.code.names[idx.get(arg) as usize];
-                let result = self.locals.mapping().subscript(name, vm);
-                match result {
-                    Ok(x) => self.push_value(x),
-                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        self.push_value(self.load_global_or_builtin(name, vm)?);
-                    }
-                    Err(e) => return Err(e),
-                }
-                Ok(None)
-            }
-            bytecode::Instruction::LoadGlobal(idx) => {
-                let name = &self.code.names[idx.get(arg) as usize];
-                let x = self.load_global_or_builtin(name, vm)?;
-                self.push_value(x);
-                Ok(None)
-            }
-            bytecode::Instruction::LoadDeref(i) => {
-                let i = i.get(arg) as usize;
-                let x = self.cells_frees[i]
-                    .get()
-                    .ok_or_else(|| self.unbound_cell_exception(i, vm))?;
-                self.push_value(x);
-                Ok(None)
-            }
-            bytecode::Instruction::LoadClassDeref(i) => {
-                let i = i.get(arg) as usize;
-                let name = if i < self.code.cellvars.len() {
-                    self.code.cellvars[i]
-                } else {
-                    self.code.freevars[i - self.code.cellvars.len()]
                 };
-                let value = self.locals.mapping().subscript(name, vm).ok();
-                self.push_value(match value {
-                    Some(v) => v,
-                    None => self.cells_frees[i]
-                        .get()
-                        .ok_or_else(|| self.unbound_cell_exception(i, vm))?,
-                });
+
+                let aenter_res = vm
+                    .get_special_method(&mgr, identifier!(vm, __aenter__))?
+                    .ok_or_else(|| vm.new_type_error(error_string()))?
+                    .invoke((), vm)?;
+                let aexit = mgr
+                    .get_attr(identifier!(vm, __aexit__), vm)
+                    .map_err(|_exc| {
+                        vm.new_type_error({
+                            format!("{} (missed __aexit__ method)", error_string())
+                        })
+                    })?;
+                self.push_value(aexit);
+                self.push_value(aenter_res);
+
                 Ok(None)
             }
-            bytecode::Instruction::StoreFast(idx) => {
-                let value = self.pop_value();
-                self.fastlocals.lock()[idx.get(arg) as usize] = Some(value);
+            bytecode::Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
+            bytecode::Instruction::BinarySubscript => {
+                let key = self.pop_value();
+                let container = self.pop_value();
+                self.state
+                    .stack
+                    .push(container.get_item(key.as_object(), vm)?);
                 Ok(None)
             }
-            bytecode::Instruction::StoreLocal(idx) => {
-                let name = self.code.names[idx.get(arg) as usize];
-                let value = self.pop_value();
-                self.locals.mapping().ass_subscript(name, Some(value), vm)?;
+
+            bytecode::Instruction::Break { target } => self.unwind_blocks(
+                vm,
+                UnwindReason::Break {
+                    target: target.get(arg),
+                },
+            ),
+            bytecode::Instruction::BuildListFromTuples { size } => {
+                // SAFETY: compiler guarantees `size` tuples are on the stack
+                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
+                let list_obj = vm.ctx.new_list(elements);
+                self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::StoreGlobal(idx) => {
-                let value = self.pop_value();
-                self.globals
-                    .set_item(self.code.names[idx.get(arg) as usize], value, vm)?;
+            bytecode::Instruction::BuildList { size } => {
+                let elements = self.pop_multiple(size.get(arg) as usize).collect();
+                let list_obj = vm.ctx.new_list(elements);
+                self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::StoreDeref(i) => {
+            bytecode::Instruction::BuildMapForCall { size } => {
+                self.execute_build_map_for_call(vm, size.get(arg))
+            }
+            bytecode::Instruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
+            bytecode::Instruction::BuildSetFromTuples { size } => {
+                let set = PySet::default().into_ref(&vm.ctx);
+                for element in self.pop_multiple(size.get(arg) as usize) {
+                    // SAFETY: trust compiler
+                    let tup = unsafe { element.downcast_unchecked::<PyTuple>() };
+                    for item in tup.iter() {
+                        set.add(item.clone(), vm)?;
+                    }
+                }
+                self.push_value(set.into());
+                Ok(None)
+            }
+            bytecode::Instruction::BuildSet { size } => {
+                let set = PySet::default().into_ref(&vm.ctx);
+                for element in self.pop_multiple(size.get(arg) as usize) {
+                    set.add(element, vm)?;
+                }
+                self.push_value(set.into());
+                Ok(None)
+            }
+            bytecode::Instruction::BuildSlice { argc } => {
+                self.execute_build_slice(vm, argc.get(arg))
+            }
+            /*
+             bytecode::Instruction::ToBool => {
+                 dbg!("Shouldn't be called outside of match statements for now")
+                 let value = self.pop_value();
+                 // call __bool__
+                 let result = value.try_to_bool(vm)?;
+                 self.push_value(vm.ctx.new_bool(result).into());
+                 Ok(None)
+            }
+            */
+            bytecode::Instruction::BuildString { size } => {
+                let s = self
+                    .pop_multiple(size.get(arg) as usize)
+                    .as_slice()
+                    .iter()
+                    .map(|pyobj| pyobj.downcast_ref::<PyStr>().unwrap())
+                    .collect::<Wtf8Buf>();
+                let str_obj = vm.ctx.new_str(s);
+                self.push_value(str_obj.into());
+                Ok(None)
+            }
+            bytecode::Instruction::BuildTupleFromIter => {
+                if !self.top_value().class().is(vm.ctx.types.tuple_type) {
+                    let elements: Vec<_> = self.pop_value().try_to_value(vm)?;
+                    let list_obj = vm.ctx.new_tuple(elements);
+                    self.push_value(list_obj.into());
+                }
+                Ok(None)
+            }
+            bytecode::Instruction::BuildTupleFromTuples { size } => {
+                // SAFETY: compiler guarantees `size` tuples are on the stack
+                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
+                let list_obj = vm.ctx.new_tuple(elements);
+                self.push_value(list_obj.into());
+                Ok(None)
+            }
+            bytecode::Instruction::BuildTuple { size } => {
+                let elements = self.pop_multiple(size.get(arg) as usize).collect();
+                let list_obj = vm.ctx.new_tuple(elements);
+                self.push_value(list_obj.into());
+                Ok(None)
+            }
+            bytecode::Instruction::CallFunctionEx { has_kwargs } => {
+                let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
+                self.execute_call(args, vm)
+            }
+            bytecode::Instruction::CallFunctionKeyword { nargs } => {
+                let args = self.collect_keyword_args(nargs.get(arg));
+                self.execute_call(args, vm)
+            }
+            bytecode::Instruction::CallFunctionPositional { nargs } => {
+                let args = self.collect_positional_args(nargs.get(arg));
+                self.execute_call(args, vm)
+            }
+            bytecode::Instruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
-                self.cells_frees[i.get(arg) as usize].set(Some(value));
+                let result = self.call_intrinsic_1(func.get(arg), value, vm)?;
+                self.push_value(result);
+                Ok(None)
+            }
+            bytecode::Instruction::CallIntrinsic2 { func } => {
+                let value2 = self.pop_value();
+                let value1 = self.pop_value();
+                let result = self.call_intrinsic_2(func.get(arg), value1, value2, vm)?;
+                self.push_value(result);
+                Ok(None)
+            }
+            bytecode::Instruction::CallMethodEx { has_kwargs } => {
+                let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
+                self.execute_method_call(args, vm)
+            }
+            bytecode::Instruction::CallMethodKeyword { nargs } => {
+                let args = self.collect_keyword_args(nargs.get(arg));
+                self.execute_method_call(args, vm)
+            }
+            bytecode::Instruction::CallMethodPositional { nargs } => {
+                let args = self.collect_positional_args(nargs.get(arg));
+                self.execute_method_call(args, vm)
+            }
+            bytecode::Instruction::CheckEgMatch => {
+                let match_type = self.pop_value();
+                let exc_value = self.pop_value();
+                let (rest, matched) =
+                    crate::exceptions::exception_group_match(&exc_value, &match_type, vm)?;
+                self.push_value(rest);
+                self.push_value(matched);
+                Ok(None)
+            }
+            bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
+            bytecode::Instruction::ContainsOp(invert) => {
+                let b = self.pop_value();
+                let a = self.pop_value();
+
+                let value = match invert.get(arg) {
+                    bytecode::Invert::No => self._in(vm, &a, &b)?,
+                    bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
+                };
+                self.push_value(vm.ctx.new_bool(value).into());
+                Ok(None)
+            }
+            bytecode::Instruction::Continue { target } => self.unwind_blocks(
+                vm,
+                UnwindReason::Continue {
+                    target: target.get(arg),
+                },
+            ),
+
+            bytecode::Instruction::ConvertValue { oparg: conversion } => {
+                self.convert_value(conversion.get(arg), vm)
+            }
+            bytecode::Instruction::CopyItem { index } => {
+                // CopyItem { index: 1 } copies TOS
+                // CopyItem { index: 2 } copies second from top
+                // This is 1-indexed to match CPython
+                let idx = index.get(arg) as usize;
+                let value = self
+                    .state
+                    .stack
+                    .len()
+                    .checked_sub(idx)
+                    .map(|i| &self.state.stack[i])
+                    .unwrap();
+                self.push_value(value.clone());
+                Ok(None)
+            }
+            bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
+            bytecode::Instruction::DeleteDeref(i) => {
+                self.cells_frees[i.get(arg) as usize].set(None);
                 Ok(None)
             }
             bytecode::Instruction::DeleteFast(idx) => {
@@ -646,6 +754,17 @@ impl ExecutingFrame<'_> {
                 fastlocals[idx] = None;
                 Ok(None)
             }
+            bytecode::Instruction::DeleteGlobal(idx) => {
+                let name = self.code.names[idx.get(arg) as usize];
+                match self.globals.del_item(name, vm) {
+                    Ok(()) => {}
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
+                        return Err(name_error(name, vm));
+                    }
+                    Err(e) => return Err(e),
+                }
+                Ok(None)
+            }
             bytecode::Instruction::DeleteLocal(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let res = self.locals.mapping().ass_subscript(name, None, vm);
@@ -659,161 +778,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::DeleteGlobal(idx) => {
-                let name = self.code.names[idx.get(arg) as usize];
-                match self.globals.del_item(name, vm) {
-                    Ok(()) => {}
-                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        return Err(name_error(name, vm));
-                    }
-                    Err(e) => return Err(e),
-                }
-                Ok(None)
-            }
-            bytecode::Instruction::DeleteDeref(i) => {
-                self.cells_frees[i.get(arg) as usize].set(None);
-                Ok(None)
-            }
-            bytecode::Instruction::LoadClosure(i) => {
-                let value = self.cells_frees[i.get(arg) as usize].clone();
-                self.push_value(value.into());
-                Ok(None)
-            }
-            bytecode::Instruction::Subscript => self.execute_subscript(vm),
-            bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
-            bytecode::Instruction::CopyItem { index } => {
-                // CopyItem { index: 1 } copies TOS
-                // CopyItem { index: 2 } copies second from top
-                // This is 1-indexed to match CPython
-                let idx = index.get(arg) as usize;
-                let value = self
-                    .state
-                    .stack
-                    .len()
-                    .checked_sub(idx)
-                    .map(|i| &self.state.stack[i])
-                    .unwrap();
-                self.push_value(value.clone());
-                Ok(None)
-            }
-            bytecode::Instruction::Pop => {
-                // Pop value from stack and ignore.
-                self.pop_value();
-                Ok(None)
-            }
-            bytecode::Instruction::Swap { index } => {
-                let len = self.state.stack.len();
-                debug_assert!(len > 0, "stack underflow in SWAP");
-                let i = len - 1; // TOS index
-                let index_val = index.get(arg) as usize;
-                // CPython: SWAP(n) swaps TOS with PEEK(n) where PEEK(n) = stack_pointer[-n]
-                // This means swap TOS with the element at index (len - n)
-                debug_assert!(
-                    index_val <= len,
-                    "SWAP index {} exceeds stack size {}",
-                    index_val,
-                    len
-                );
-                let j = len - index_val;
-                self.state.stack.swap(i, j);
-                Ok(None)
-            }
-            // bytecode::Instruction::ToBool => {
-            //     dbg!("Shouldn't be called outside of match statements for now")
-            //     let value = self.pop_value();
-            //     // call __bool__
-            //     let result = value.try_to_bool(vm)?;
-            //     self.push_value(vm.ctx.new_bool(result).into());
-            //     Ok(None)
-            // }
-            bytecode::Instruction::Duplicate => {
-                // Duplicate top of stack
-                let value = self.top_value();
-                self.push_value(value.to_owned());
-                Ok(None)
-            }
-            bytecode::Instruction::Duplicate2 => {
-                // Duplicate top 2 of stack
-                let len = self.state.stack.len();
-                self.push_value(self.state.stack[len - 2].clone());
-                self.push_value(self.state.stack[len - 1].clone());
-                Ok(None)
-            }
-            // splitting the instructions like this offloads the cost of "dynamic" dispatch (on the
-            // amount to rotate) to the opcode dispatcher, and generates optimized code for the
-            // concrete cases we actually have
-            bytecode::Instruction::Rotate2 => self.execute_rotate(2),
-            bytecode::Instruction::Rotate3 => self.execute_rotate(3),
-            bytecode::Instruction::BuildString { size } => {
-                let s = self
-                    .pop_multiple(size.get(arg) as usize)
-                    .as_slice()
-                    .iter()
-                    .map(|pyobj| pyobj.downcast_ref::<PyStr>().unwrap())
-                    .collect::<Wtf8Buf>();
-                let str_obj = vm.ctx.new_str(s);
-                self.push_value(str_obj.into());
-                Ok(None)
-            }
-            bytecode::Instruction::BuildList { size } => {
-                let elements = self.pop_multiple(size.get(arg) as usize).collect();
-                let list_obj = vm.ctx.new_list(elements);
-                self.push_value(list_obj.into());
-                Ok(None)
-            }
-            bytecode::Instruction::BuildListFromTuples { size } => {
-                // SAFETY: compiler guarantees `size` tuples are on the stack
-                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
-                let list_obj = vm.ctx.new_list(elements);
-                self.push_value(list_obj.into());
-                Ok(None)
-            }
-            bytecode::Instruction::BuildSet { size } => {
-                let set = PySet::default().into_ref(&vm.ctx);
-                for element in self.pop_multiple(size.get(arg) as usize) {
-                    set.add(element, vm)?;
-                }
-                self.push_value(set.into());
-                Ok(None)
-            }
-            bytecode::Instruction::BuildSetFromTuples { size } => {
-                let set = PySet::default().into_ref(&vm.ctx);
-                for element in self.pop_multiple(size.get(arg) as usize) {
-                    // SAFETY: trust compiler
-                    let tup = unsafe { element.downcast_unchecked::<PyTuple>() };
-                    for item in tup.iter() {
-                        set.add(item.clone(), vm)?;
-                    }
-                }
-                self.push_value(set.into());
-                Ok(None)
-            }
-            bytecode::Instruction::BuildTuple { size } => {
-                let elements = self.pop_multiple(size.get(arg) as usize).collect();
-                let list_obj = vm.ctx.new_tuple(elements);
-                self.push_value(list_obj.into());
-                Ok(None)
-            }
-            bytecode::Instruction::BuildTupleFromTuples { size } => {
-                // SAFETY: compiler guarantees `size` tuples are on the stack
-                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
-                let list_obj = vm.ctx.new_tuple(elements);
-                self.push_value(list_obj.into());
-                Ok(None)
-            }
-            bytecode::Instruction::BuildTupleFromIter => {
-                if !self.top_value().class().is(vm.ctx.types.tuple_type) {
-                    let elements: Vec<_> = self.pop_value().try_to_value(vm)?;
-                    let list_obj = vm.ctx.new_tuple(elements);
-                    self.push_value(list_obj.into());
-                }
-                Ok(None)
-            }
-            bytecode::Instruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
-            bytecode::Instruction::BuildMapForCall { size } => {
-                self.execute_build_map_for_call(vm, size.get(arg))
-            }
             bytecode::Instruction::DictUpdate { index } => {
                 // Stack before: [..., dict, ..., source]  (source at TOS)
                 // Stack after:  [..., dict, ...]  (source consumed)
@@ -850,111 +815,17 @@ impl ExecutingFrame<'_> {
                 dict.merge_object(source, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::BuildSlice { step } => {
-                self.execute_build_slice(vm, step.get(arg))
-            }
-            bytecode::Instruction::ListAppend { i } => {
-                let item = self.pop_value();
-                let obj = self.nth_value(i.get(arg));
-                let list: &Py<PyList> = unsafe {
-                    // SAFETY: trust compiler
-                    obj.downcast_unchecked_ref()
-                };
-                list.append(item);
-                Ok(None)
-            }
-            bytecode::Instruction::SetAdd { i } => {
-                let item = self.pop_value();
-                let obj = self.nth_value(i.get(arg));
-                let set: &Py<PySet> = unsafe {
-                    // SAFETY: trust compiler
-                    obj.downcast_unchecked_ref()
-                };
-                set.add(item, vm)?;
-                Ok(None)
-            }
-            bytecode::Instruction::MapAdd { i } => {
-                let value = self.pop_value();
-                let key = self.pop_value();
-                let obj = self.nth_value(i.get(arg));
-                let dict: &Py<PyDict> = unsafe {
-                    // SAFETY: trust compiler
-                    obj.downcast_unchecked_ref()
-                };
-                dict.set_item(&*key, value, vm)?;
-                Ok(None)
-            }
-            bytecode::Instruction::BinaryOperation { op } => self.execute_bin_op(vm, op.get(arg)),
-            bytecode::Instruction::BinaryOperationInplace { op } => {
-                self.execute_bin_op_inplace(vm, op.get(arg))
-            }
-            bytecode::Instruction::BinarySubscript => {
-                let key = self.pop_value();
-                let container = self.pop_value();
-                self.state
-                    .stack
-                    .push(container.get_item(key.as_object(), vm)?);
-                Ok(None)
-            }
-            bytecode::Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
-            bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
-            bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
-            bytecode::Instruction::UnaryOperation { op } => self.execute_unary_op(vm, op.get(arg)),
-            bytecode::Instruction::TestOperation { op } => self.execute_test(vm, op.get(arg)),
-            bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
-            bytecode::Instruction::ReturnValue => {
-                let value = self.pop_value();
-                self.unwind_blocks(vm, UnwindReason::Returning { value })
-            }
-            bytecode::Instruction::ReturnConst { idx } => {
-                let value = self.code.constants[idx.get(arg) as usize].clone().into();
-                self.unwind_blocks(vm, UnwindReason::Returning { value })
-            }
-            bytecode::Instruction::YieldValue => {
-                let value = self.pop_value();
-                let value = if self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
-                    PyAsyncGenWrappedValue(value).into_pyobject(vm)
+            bytecode::Instruction::EndAsyncFor => {
+                let exc = self.pop_value();
+                let except_block = self.pop_block(); // pushed by TryExcept unwind
+                debug_assert_eq!(except_block.level, self.state.stack.len());
+                let _async_iterator = self.pop_value(); // __anext__ provider in the loop
+                if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
+                    vm.take_exception().expect("Should have exception in stack");
+                    Ok(None)
                 } else {
-                    value
-                };
-                Ok(Some(ExecutionResult::Yield(value)))
-            }
-            bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
-            bytecode::Instruction::Resume { arg: resume_arg } => {
-                // Resume execution after yield, await, or at function start
-                // In CPython, this checks instrumentation and eval breaker
-                // For now, we just check for signals/interrupts
-                let _resume_type = resume_arg.get(arg);
-
-                // Check for interrupts if not resuming from yield_from
-                // if resume_type < bytecode::ResumeType::AfterYieldFrom as u32 {
-                //     vm.check_signals()?;
-                // }
-                Ok(None)
-            }
-            bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
-            bytecode::Instruction::SetupLoop => {
-                self.push_block(BlockType::Loop);
-                Ok(None)
-            }
-            bytecode::Instruction::SetupExcept { handler } => {
-                self.push_block(BlockType::TryExcept {
-                    handler: handler.get(arg),
-                });
-                Ok(None)
-            }
-            bytecode::Instruction::SetupFinally { handler } => {
-                self.push_block(BlockType::Finally {
-                    handler: handler.get(arg),
-                });
-                Ok(None)
-            }
-            bytecode::Instruction::EnterFinally => {
-                self.push_block(BlockType::FinallyHandler {
-                    reason: None,
-                    prev_exc: vm.current_exception(),
-                });
-                Ok(None)
+                    Err(exc.downcast().unwrap())
+                }
             }
             bytecode::Instruction::EndFinally => {
                 // Pop the finally handler from the stack, and recall
@@ -974,162 +845,31 @@ impl ExecutingFrame<'_> {
                     );
                 }
             }
-            bytecode::Instruction::SetupWith { end } => {
-                let context_manager = self.pop_value();
-                let error_string = || -> String {
-                    format!(
-                        "'{:.200}' object does not support the context manager protocol",
-                        context_manager.class().name(),
-                    )
-                };
-                let enter_res = vm
-                    .get_special_method(&context_manager, identifier!(vm, __enter__))?
-                    .ok_or_else(|| vm.new_type_error(error_string()))?
-                    .invoke((), vm)?;
-
-                let exit = context_manager
-                    .get_attr(identifier!(vm, __exit__), vm)
-                    .map_err(|_exc| {
-                        vm.new_type_error({
-                            format!("{} (missed __exit__ method)", error_string())
-                        })
-                    })?;
-                self.push_value(exit);
-                self.push_block(BlockType::Finally {
-                    handler: end.get(arg),
+            bytecode::Instruction::EnterFinally => {
+                self.push_block(BlockType::FinallyHandler {
+                    reason: None,
+                    prev_exc: vm.current_exception(),
                 });
-                self.push_value(enter_res);
                 Ok(None)
             }
-            bytecode::Instruction::BeforeAsyncWith => {
-                let mgr = self.pop_value();
-                let error_string = || -> String {
-                    format!(
-                        "'{:.200}' object does not support the asynchronous context manager protocol",
-                        mgr.class().name(),
-                    )
-                };
-
-                let aenter_res = vm
-                    .get_special_method(&mgr, identifier!(vm, __aenter__))?
-                    .ok_or_else(|| vm.new_type_error(error_string()))?
-                    .invoke((), vm)?;
-                let aexit = mgr
-                    .get_attr(identifier!(vm, __aexit__), vm)
-                    .map_err(|_exc| {
-                        vm.new_type_error({
-                            format!("{} (missed __aexit__ method)", error_string())
-                        })
-                    })?;
-                self.push_value(aexit);
-                self.push_value(aenter_res);
-
+            bytecode::Instruction::ExtendedArg => {
+                *extend_arg = true;
                 Ok(None)
             }
-            bytecode::Instruction::SetupAsyncWith { end } => {
-                let enter_res = self.pop_value();
-                self.push_block(BlockType::Finally {
-                    handler: end.get(arg),
-                });
-                self.push_value(enter_res);
-                Ok(None)
-            }
-            bytecode::Instruction::WithCleanupStart => {
-                let block = self.current_block().unwrap();
-                let reason = match block.typ {
-                    BlockType::FinallyHandler { reason, .. } => reason,
-                    _ => self.fatal("WithCleanupStart expects a FinallyHandler block on stack"),
-                };
-                let exc = match reason {
-                    Some(UnwindReason::Raising { exception }) => Some(exception),
-                    _ => None,
-                };
-
-                let exit = self.top_value();
-
-                let args = if let Some(exc) = exc {
-                    vm.split_exception(exc)
-                } else {
-                    (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
-                };
-                let exit_res = exit.call(args, vm)?;
-                self.replace_top(exit_res);
-
-                Ok(None)
-            }
-            bytecode::Instruction::WithCleanupFinish => {
-                let block = self.pop_block();
-                let (reason, prev_exc) = match block.typ {
-                    BlockType::FinallyHandler { reason, prev_exc } => (reason, prev_exc),
-                    _ => self.fatal("WithCleanupFinish expects a FinallyHandler block on stack"),
-                };
-
-                vm.set_exception(prev_exc);
-
-                let suppress_exception = self.pop_value().try_to_bool(vm)?;
-
-                if suppress_exception {
-                    Ok(None)
-                } else if let Some(reason) = reason {
-                    self.unwind_blocks(vm, reason)
-                } else {
-                    Ok(None)
-                }
-            }
-            bytecode::Instruction::PopBlock => {
-                self.pop_block();
-                Ok(None)
-            }
-            bytecode::Instruction::GetIter => {
-                let iterated_obj = self.pop_value();
-                let iter_obj = iterated_obj.get_iter(vm)?;
-                self.push_value(iter_obj.into());
-                Ok(None)
-            }
-            bytecode::Instruction::GetLen => {
-                // STACK.append(len(STACK[-1]))
-                let obj = self.top_value();
-                let len = obj.length(vm)?;
-                self.push_value(vm.ctx.new_int(len).into());
-                Ok(None)
-            }
-            bytecode::Instruction::ToBool => {
-                let obj = self.pop_value();
-                let bool_val = obj.try_to_bool(vm)?;
-                self.push_value(vm.ctx.new_bool(bool_val).into());
-                Ok(None)
-            }
-            bytecode::Instruction::CallIntrinsic1 { func } => {
+            bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
+            bytecode::Instruction::FormatSimple => {
                 let value = self.pop_value();
-                let result = self.call_intrinsic_1(func.get(arg), value, vm)?;
-                self.push_value(result);
+                let formatted = vm.format(&value, vm.ctx.new_str(""))?;
+                self.push_value(formatted.into());
+
                 Ok(None)
             }
-            bytecode::Instruction::CallIntrinsic2 { func } => {
-                let value2 = self.pop_value();
-                let value1 = self.pop_value();
-                let result = self.call_intrinsic_2(func.get(arg), value1, value2, vm)?;
-                self.push_value(result);
-                Ok(None)
-            }
-            bytecode::Instruction::GetAwaitable => {
-                let awaited_obj = self.pop_value();
-                let awaitable = if awaited_obj.downcastable::<PyCoroutine>() {
-                    awaited_obj
-                } else {
-                    let await_method = vm.get_method_or_type_error(
-                        awaited_obj.clone(),
-                        identifier!(vm, __await__),
-                        || {
-                            format!(
-                                "object {} can't be used in 'await' expression",
-                                awaited_obj.class().name(),
-                            )
-                        },
-                    )?;
-                    await_method.call((), vm)?
-                };
-                self.push_value(awaitable);
+            bytecode::Instruction::FormatWithSpec => {
+                let spec = self.pop_value();
+                let value = self.pop_value();
+                let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
+                self.push_value(formatted.into());
+
                 Ok(None)
             }
             bytecode::Instruction::GetAIter => {
@@ -1183,34 +923,174 @@ impl ExecutingFrame<'_> {
                 debug_assert_eq!(orig_stack_len + 1, self.state.stack.len());
                 Ok(None)
             }
-            bytecode::Instruction::EndAsyncFor => {
-                let exc = self.pop_value();
-                let except_block = self.pop_block(); // pushed by TryExcept unwind
-                debug_assert_eq!(except_block.level, self.state.stack.len());
-                let _async_iterator = self.pop_value(); // __anext__ provider in the loop
-                if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
-                    vm.take_exception().expect("Should have exception in stack");
-                    Ok(None)
+            bytecode::Instruction::GetAwaitable => {
+                use crate::protocol::PyIter;
+
+                let awaited_obj = self.pop_value();
+                let awaitable = if awaited_obj.downcastable::<PyCoroutine>() {
+                    awaited_obj
                 } else {
-                    Err(exc.downcast().unwrap())
+                    let await_method = vm.get_method_or_type_error(
+                        awaited_obj.clone(),
+                        identifier!(vm, __await__),
+                        || {
+                            format!(
+                                "object {} can't be used in 'await' expression",
+                                awaited_obj.class().name(),
+                            )
+                        },
+                    )?;
+                    let result = await_method.call((), vm)?;
+                    // Check that __await__ returned an iterator
+                    if !PyIter::check(&result) {
+                        return Err(vm.new_type_error(format!(
+                            "__await__() returned non-iterator of type '{}'",
+                            result.class().name()
+                        )));
+                    }
+                    result
+                };
+                self.push_value(awaitable);
+                Ok(None)
+            }
+            bytecode::Instruction::GetIter => {
+                let iterated_obj = self.pop_value();
+                let iter_obj = iterated_obj.get_iter(vm)?;
+                self.push_value(iter_obj.into());
+                Ok(None)
+            }
+            bytecode::Instruction::GetLen => {
+                // STACK.append(len(STACK[-1]))
+                let obj = self.top_value();
+                let len = obj.length(vm)?;
+                self.push_value(vm.ctx.new_int(len).into());
+                Ok(None)
+            }
+            bytecode::Instruction::ImportFrom { idx } => {
+                let obj = self.import_from(vm, idx.get(arg))?;
+                self.push_value(obj);
+                Ok(None)
+            }
+            bytecode::Instruction::ImportName { idx } => {
+                self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
+                Ok(None)
+            }
+            bytecode::Instruction::IsOp(invert) => {
+                let b = self.pop_value();
+                let a = self.pop_value();
+                let res = a.is(&b);
+
+                let value = match invert.get(arg) {
+                    bytecode::Invert::No => res,
+                    bytecode::Invert::Yes => !res,
+                };
+                self.push_value(vm.ctx.new_bool(value).into());
+                Ok(None)
+            }
+            bytecode::Instruction::JumpIfFalseOrPop { target } => {
+                self.jump_if_or_pop(vm, target.get(arg), false)
+            }
+            bytecode::Instruction::JumpIfNotExcMatch(target) => {
+                let b = self.pop_value();
+                let a = self.pop_value();
+                if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
+                    for exception in tuple_of_exceptions {
+                        if !exception
+                            .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
+                        {
+                            return Err(vm.new_type_error(
+                                "catching classes that do not inherit from BaseException is not allowed",
+                            ));
+                        }
+                    }
+                } else if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
+                    return Err(vm.new_type_error(
+                        "catching classes that do not inherit from BaseException is not allowed",
+                    ));
                 }
+
+                let value = a.is_instance(&b, vm)?;
+                self.push_value(vm.ctx.new_bool(value).into());
+                self.pop_jump_if(vm, target.get(arg), false)
             }
-            bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
-            bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
-            bytecode::Instruction::SetFunctionAttribute { attr } => {
-                self.execute_set_function_attribute(vm, attr.get(arg))
+            bytecode::Instruction::JumpIfTrueOrPop { target } => {
+                self.jump_if_or_pop(vm, target.get(arg), true)
             }
-            bytecode::Instruction::CallFunctionPositional { nargs } => {
-                let args = self.collect_positional_args(nargs.get(arg));
-                self.execute_call(args, vm)
+            bytecode::Instruction::Jump { target } => {
+                self.jump(target.get(arg));
+                Ok(None)
             }
-            bytecode::Instruction::CallFunctionKeyword { nargs } => {
-                let args = self.collect_keyword_args(nargs.get(arg));
-                self.execute_call(args, vm)
+            bytecode::Instruction::ListAppend { i } => {
+                let item = self.pop_value();
+                let obj = self.nth_value(i.get(arg));
+                let list: &Py<PyList> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked_ref()
+                };
+                list.append(item);
+                Ok(None)
             }
-            bytecode::Instruction::CallFunctionEx { has_kwargs } => {
-                let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
-                self.execute_call(args, vm)
+            bytecode::Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
+            bytecode::Instruction::LoadBuildClass => {
+                self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
+                Ok(None)
+            }
+            bytecode::Instruction::LoadClassDeref(i) => {
+                let i = i.get(arg) as usize;
+                let name = if i < self.code.cellvars.len() {
+                    self.code.cellvars[i]
+                } else {
+                    self.code.freevars[i - self.code.cellvars.len()]
+                };
+                let value = self.locals.mapping().subscript(name, vm).ok();
+                self.push_value(match value {
+                    Some(v) => v,
+                    None => self.cells_frees[i]
+                        .get()
+                        .ok_or_else(|| self.unbound_cell_exception(i, vm))?,
+                });
+                Ok(None)
+            }
+            bytecode::Instruction::LoadClosure(i) => {
+                let value = self.cells_frees[i.get(arg) as usize].clone();
+                self.push_value(value.into());
+                Ok(None)
+            }
+            bytecode::Instruction::LoadConst { idx } => {
+                self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
+                Ok(None)
+            }
+            bytecode::Instruction::LoadDeref(i) => {
+                let i = i.get(arg) as usize;
+                let x = self.cells_frees[i]
+                    .get()
+                    .ok_or_else(|| self.unbound_cell_exception(i, vm))?;
+                self.push_value(x);
+                Ok(None)
+            }
+            bytecode::Instruction::LoadFast(idx) => {
+                #[cold]
+                fn reference_error(
+                    varname: &'static PyStrInterned,
+                    vm: &VirtualMachine,
+                ) -> PyBaseExceptionRef {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!("local variable '{varname}' referenced before assignment",),
+                    )
+                }
+                let idx = idx.get(arg) as usize;
+                let x = self.fastlocals.lock()[idx]
+                    .clone()
+                    .ok_or_else(|| reference_error(self.code.varnames[idx], vm))?;
+                self.push_value(x);
+                Ok(None)
+            }
+            bytecode::Instruction::LoadGlobal(idx) => {
+                let name = &self.code.names[idx.get(arg) as usize];
+                let x = self.load_global_or_builtin(name, vm)?;
+                self.push_value(x);
+                Ok(None)
             }
             bytecode::Instruction::LoadMethod { idx } => {
                 let obj = self.pop_value();
@@ -1227,170 +1107,28 @@ impl ExecutingFrame<'_> {
                 self.push_value(func);
                 Ok(None)
             }
-            bytecode::Instruction::CallMethodPositional { nargs } => {
-                let args = self.collect_positional_args(nargs.get(arg));
-                self.execute_method_call(args, vm)
-            }
-            bytecode::Instruction::CallMethodKeyword { nargs } => {
-                let args = self.collect_keyword_args(nargs.get(arg));
-                self.execute_method_call(args, vm)
-            }
-            bytecode::Instruction::CallMethodEx { has_kwargs } => {
-                let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
-                self.execute_method_call(args, vm)
-            }
-            bytecode::Instruction::Jump { target } => {
-                self.jump(target.get(arg));
-                Ok(None)
-            }
-            bytecode::Instruction::PopJumpIfTrue { target } => {
-                self.pop_jump_if(vm, target.get(arg), true)
-            }
-            bytecode::Instruction::PopJumpIfFalse { target } => {
-                self.pop_jump_if(vm, target.get(arg), false)
-            }
-            bytecode::Instruction::JumpIfTrueOrPop { target } => {
-                self.jump_if_or_pop(vm, target.get(arg), true)
-            }
-            bytecode::Instruction::JumpIfFalseOrPop { target } => {
-                self.jump_if_or_pop(vm, target.get(arg), false)
-            }
-
-            bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
-
-            bytecode::Instruction::Break { target } => self.unwind_blocks(
-                vm,
-                UnwindReason::Break {
-                    target: target.get(arg),
-                },
-            ),
-            bytecode::Instruction::Continue { target } => self.unwind_blocks(
-                vm,
-                UnwindReason::Continue {
-                    target: target.get(arg),
-                },
-            ),
-            bytecode::Instruction::PrintExpr => self.print_expr(vm),
-            bytecode::Instruction::LoadBuildClass => {
-                self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
-                Ok(None)
-            }
-            bytecode::Instruction::UnpackSequence { size } => {
-                self.unpack_sequence(size.get(arg), vm)
-            }
-            bytecode::Instruction::UnpackEx { args } => {
-                let args = args.get(arg);
-                self.execute_unpack_ex(vm, args.before, args.after)
-            }
-            bytecode::Instruction::FormatValue { conversion } => {
-                self.format_value(conversion.get(arg), vm)
-            }
-            bytecode::Instruction::PopException => {
-                let block = self.pop_block();
-                if let BlockType::ExceptHandler { prev_exc } = block.typ {
-                    vm.set_exception(prev_exc);
-                    Ok(None)
-                } else {
-                    self.fatal("block type must be ExceptHandler here.")
-                }
-            }
-            bytecode::Instruction::Reverse { amount } => {
-                let stack_len = self.state.stack.len();
-                self.state.stack[stack_len - amount.get(arg) as usize..stack_len].reverse();
-                Ok(None)
-            }
-            bytecode::Instruction::ExtendedArg => {
-                *extend_arg = true;
-                Ok(None)
-            }
-            bytecode::Instruction::MatchMapping => {
-                // Pop and push back the subject to keep it on stack
-                let subject = self.pop_value();
-
-                // Check if the type has the MAPPING flag
-                let is_mapping = subject.class().slots.flags.contains(PyTypeFlags::MAPPING);
-
-                self.push_value(subject);
-                self.push_value(vm.ctx.new_bool(is_mapping).into());
-                Ok(None)
-            }
-            bytecode::Instruction::MatchSequence => {
-                // Pop and push back the subject to keep it on stack
-                let subject = self.pop_value();
-
-                // Check if the type has the SEQUENCE flag
-                let is_sequence = subject.class().slots.flags.contains(PyTypeFlags::SEQUENCE);
-
-                self.push_value(subject);
-                self.push_value(vm.ctx.new_bool(is_sequence).into());
-                Ok(None)
-            }
-            bytecode::Instruction::MatchKeys => {
-                // MATCH_KEYS doesn't pop subject and keys, only reads them
-                let keys_tuple = self.top_value(); // stack[-1]
-                let subject = self.nth_value(1); // stack[-2]
-
-                // Check if subject is a mapping and extract values for keys
-                if subject.class().slots.flags.contains(PyTypeFlags::MAPPING) {
-                    let keys = keys_tuple.downcast_ref::<PyTuple>().unwrap();
-                    let mut values = Vec::new();
-                    let mut all_match = true;
-
-                    // We use the two argument form of map.get(key, default) for two reasons:
-                    // - Atomically check for a key and get its value without error handling.
-                    // - Don't cause key creation or resizing in dict subclasses like
-                    //   collections.defaultdict that define __missing__ (or similar).
-                    // See CPython's _PyEval_MatchKeys
-
-                    if let Some(get_method) = vm
-                        .get_method(subject.to_owned(), vm.ctx.intern_str("get"))
-                        .transpose()?
-                    {
-                        // dummy = object()
-                        // CPython: dummy = _PyObject_CallNoArgs((PyObject *)&PyBaseObject_Type);
-                        let dummy = vm
-                            .ctx
-                            .new_base_object(vm.ctx.types.object_type.to_owned(), None);
-
-                        for key in keys {
-                            // value = map.get(key, dummy)
-                            match get_method.call((key.as_object(), dummy.clone()), vm) {
-                                Ok(value) => {
-                                    // if value == dummy: key not in map!
-                                    if value.is(&dummy) {
-                                        all_match = false;
-                                        break;
-                                    }
-                                    values.push(value);
-                                }
-                                Err(e) => return Err(e),
-                            }
-                        }
-                    } else {
-                        // Fallback if .get() method is not available (shouldn't happen for mappings)
-                        for key in keys {
-                            match subject.get_item(key.as_object(), vm) {
-                                Ok(value) => values.push(value),
-                                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                                    all_match = false;
-                                    break;
-                                }
-                                Err(e) => return Err(e),
-                            }
-                        }
+            bytecode::Instruction::LoadNameAny(idx) => {
+                let name = self.code.names[idx.get(arg) as usize];
+                let result = self.locals.mapping().subscript(name, vm);
+                match result {
+                    Ok(x) => self.push_value(x),
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
+                        self.push_value(self.load_global_or_builtin(name, vm)?);
                     }
-
-                    if all_match {
-                        // Push values tuple on successful match
-                        self.push_value(vm.ctx.new_tuple(values).into());
-                    } else {
-                        // No match - push None
-                        self.push_value(vm.ctx.none());
-                    }
-                } else {
-                    // Not a mapping - push None
-                    self.push_value(vm.ctx.none());
+                    Err(e) => return Err(e),
                 }
+                Ok(None)
+            }
+            bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
+            bytecode::Instruction::MapAdd { i } => {
+                let value = self.pop_value();
+                let key = self.pop_value();
+                let obj = self.nth_value(i.get(arg));
+                let dict: &Py<PyDict> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked_ref()
+                };
+                dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MatchClass(nargs) => {
@@ -1513,6 +1251,329 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.none());
                 }
                 Ok(None)
+            }
+            bytecode::Instruction::MatchKeys => {
+                // MATCH_KEYS doesn't pop subject and keys, only reads them
+                let keys_tuple = self.top_value(); // stack[-1]
+                let subject = self.nth_value(1); // stack[-2]
+
+                // Check if subject is a mapping and extract values for keys
+                if subject.class().slots.flags.contains(PyTypeFlags::MAPPING) {
+                    let keys = keys_tuple.downcast_ref::<PyTuple>().unwrap();
+                    let mut values = Vec::new();
+                    let mut all_match = true;
+
+                    // We use the two argument form of map.get(key, default) for two reasons:
+                    // - Atomically check for a key and get its value without error handling.
+                    // - Don't cause key creation or resizing in dict subclasses like
+                    //   collections.defaultdict that define __missing__ (or similar).
+                    // See CPython's _PyEval_MatchKeys
+
+                    if let Some(get_method) = vm
+                        .get_method(subject.to_owned(), vm.ctx.intern_str("get"))
+                        .transpose()?
+                    {
+                        // dummy = object()
+                        // CPython: dummy = _PyObject_CallNoArgs((PyObject *)&PyBaseObject_Type);
+                        let dummy = vm
+                            .ctx
+                            .new_base_object(vm.ctx.types.object_type.to_owned(), None);
+
+                        for key in keys {
+                            // value = map.get(key, dummy)
+                            match get_method.call((key.as_object(), dummy.clone()), vm) {
+                                Ok(value) => {
+                                    // if value == dummy: key not in map!
+                                    if value.is(&dummy) {
+                                        all_match = false;
+                                        break;
+                                    }
+                                    values.push(value);
+                                }
+                                Err(e) => return Err(e),
+                            }
+                        }
+                    } else {
+                        // Fallback if .get() method is not available (shouldn't happen for mappings)
+                        for key in keys {
+                            match subject.get_item(key.as_object(), vm) {
+                                Ok(value) => values.push(value),
+                                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
+                                    all_match = false;
+                                    break;
+                                }
+                                Err(e) => return Err(e),
+                            }
+                        }
+                    }
+
+                    if all_match {
+                        // Push values tuple on successful match
+                        self.push_value(vm.ctx.new_tuple(values).into());
+                    } else {
+                        // No match - push None
+                        self.push_value(vm.ctx.none());
+                    }
+                } else {
+                    // Not a mapping - push None
+                    self.push_value(vm.ctx.none());
+                }
+                Ok(None)
+            }
+            bytecode::Instruction::MatchMapping => {
+                // Pop and push back the subject to keep it on stack
+                let subject = self.pop_value();
+
+                // Check if the type has the MAPPING flag
+                let is_mapping = subject.class().slots.flags.contains(PyTypeFlags::MAPPING);
+
+                self.push_value(subject);
+                self.push_value(vm.ctx.new_bool(is_mapping).into());
+                Ok(None)
+            }
+            bytecode::Instruction::MatchSequence => {
+                // Pop and push back the subject to keep it on stack
+                let subject = self.pop_value();
+
+                // Check if the type has the SEQUENCE flag
+                let is_sequence = subject.class().slots.flags.contains(PyTypeFlags::SEQUENCE);
+
+                self.push_value(subject);
+                self.push_value(vm.ctx.new_bool(is_sequence).into());
+                Ok(None)
+            }
+            bytecode::Instruction::Nop => Ok(None),
+            bytecode::Instruction::PopBlock => {
+                self.pop_block();
+                Ok(None)
+            }
+            bytecode::Instruction::PopException => {
+                let block = self.pop_block();
+                if let BlockType::ExceptHandler { prev_exc } = block.typ {
+                    vm.set_exception(prev_exc);
+                    Ok(None)
+                } else {
+                    self.fatal("block type must be ExceptHandler here.")
+                }
+            }
+            bytecode::Instruction::PopJumpIfFalse { target } => {
+                self.pop_jump_if(vm, target.get(arg), false)
+            }
+            bytecode::Instruction::PopJumpIfTrue { target } => {
+                self.pop_jump_if(vm, target.get(arg), true)
+            }
+            bytecode::Instruction::PopTop => {
+                // Pop value from stack and ignore.
+                self.pop_value();
+                Ok(None)
+            }
+            bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
+            bytecode::Instruction::Resume { arg: resume_arg } => {
+                // Resume execution after yield, await, or at function start
+                // In CPython, this checks instrumentation and eval breaker
+                // For now, we just check for signals/interrupts
+                let _resume_type = resume_arg.get(arg);
+
+                // Check for interrupts if not resuming from yield_from
+                // if resume_type < bytecode::ResumeType::AfterYieldFrom as u32 {
+                //     vm.check_signals()?;
+                // }
+                Ok(None)
+            }
+            bytecode::Instruction::ReturnConst { idx } => {
+                let value = self.code.constants[idx.get(arg) as usize].clone().into();
+                self.unwind_blocks(vm, UnwindReason::Returning { value })
+            }
+            bytecode::Instruction::ReturnValue => {
+                let value = self.pop_value();
+                self.unwind_blocks(vm, UnwindReason::Returning { value })
+            }
+            bytecode::Instruction::Reverse { amount } => {
+                let stack_len = self.state.stack.len();
+                self.state.stack[stack_len - amount.get(arg) as usize..stack_len].reverse();
+                Ok(None)
+            }
+            bytecode::Instruction::SetAdd { i } => {
+                let item = self.pop_value();
+                let obj = self.nth_value(i.get(arg));
+                let set: &Py<PySet> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked_ref()
+                };
+                set.add(item, vm)?;
+                Ok(None)
+            }
+            bytecode::Instruction::SetExcInfo => {
+                // Set the current exception to TOS (for except* handlers)
+                // This updates sys.exc_info() so bare 'raise' will reraise the matched exception
+                let exc = self.top_value();
+                if let Some(exc) = exc.downcast_ref::<PyBaseException>() {
+                    vm.set_exception(Some(exc.to_owned()));
+                }
+                Ok(None)
+            }
+            bytecode::Instruction::SetFunctionAttribute { attr } => {
+                self.execute_set_function_attribute(vm, attr.get(arg))
+            }
+            bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
+            bytecode::Instruction::SetupAsyncWith { end } => {
+                let enter_res = self.pop_value();
+                self.push_block(BlockType::Finally {
+                    handler: end.get(arg),
+                });
+                self.push_value(enter_res);
+                Ok(None)
+            }
+            bytecode::Instruction::SetupExcept { handler } => {
+                self.push_block(BlockType::TryExcept {
+                    handler: handler.get(arg),
+                });
+                Ok(None)
+            }
+            bytecode::Instruction::SetupFinally { handler } => {
+                self.push_block(BlockType::Finally {
+                    handler: handler.get(arg),
+                });
+                Ok(None)
+            }
+            bytecode::Instruction::SetupLoop => {
+                self.push_block(BlockType::Loop);
+                Ok(None)
+            }
+            bytecode::Instruction::SetupWith { end } => {
+                let context_manager = self.pop_value();
+                let error_string = || -> String {
+                    format!(
+                        "'{:.200}' object does not support the context manager protocol",
+                        context_manager.class().name(),
+                    )
+                };
+                let enter_res = vm
+                    .get_special_method(&context_manager, identifier!(vm, __enter__))?
+                    .ok_or_else(|| vm.new_type_error(error_string()))?
+                    .invoke((), vm)?;
+
+                let exit = context_manager
+                    .get_attr(identifier!(vm, __exit__), vm)
+                    .map_err(|_exc| {
+                        vm.new_type_error({
+                            format!("{} (missed __exit__ method)", error_string())
+                        })
+                    })?;
+                self.push_value(exit);
+                self.push_block(BlockType::Finally {
+                    handler: end.get(arg),
+                });
+                self.push_value(enter_res);
+                Ok(None)
+            }
+            bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
+            bytecode::Instruction::StoreDeref(i) => {
+                let value = self.pop_value();
+                self.cells_frees[i.get(arg) as usize].set(Some(value));
+                Ok(None)
+            }
+            bytecode::Instruction::StoreFast(idx) => {
+                let value = self.pop_value();
+                self.fastlocals.lock()[idx.get(arg) as usize] = Some(value);
+                Ok(None)
+            }
+            bytecode::Instruction::StoreGlobal(idx) => {
+                let value = self.pop_value();
+                self.globals
+                    .set_item(self.code.names[idx.get(arg) as usize], value, vm)?;
+                Ok(None)
+            }
+            bytecode::Instruction::StoreLocal(idx) => {
+                let name = self.code.names[idx.get(arg) as usize];
+                let value = self.pop_value();
+                self.locals.mapping().ass_subscript(name, Some(value), vm)?;
+                Ok(None)
+            }
+            bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
+            bytecode::Instruction::Subscript => self.execute_subscript(vm),
+            bytecode::Instruction::Swap { index } => {
+                let len = self.state.stack.len();
+                debug_assert!(len > 0, "stack underflow in SWAP");
+                let i = len - 1; // TOS index
+                let index_val = index.get(arg) as usize;
+                // CPython: SWAP(n) swaps TOS with PEEK(n) where PEEK(n) = stack_pointer[-n]
+                // This means swap TOS with the element at index (len - n)
+                debug_assert!(
+                    index_val <= len,
+                    "SWAP index {} exceeds stack size {}",
+                    index_val,
+                    len
+                );
+                let j = len - index_val;
+                self.state.stack.swap(i, j);
+                Ok(None)
+            }
+            bytecode::Instruction::ToBool => {
+                let obj = self.pop_value();
+                let bool_val = obj.try_to_bool(vm)?;
+                self.push_value(vm.ctx.new_bool(bool_val).into());
+                Ok(None)
+            }
+            bytecode::Instruction::UnaryOperation { op } => self.execute_unary_op(vm, op.get(arg)),
+            bytecode::Instruction::UnpackEx { args } => {
+                let args = args.get(arg);
+                self.execute_unpack_ex(vm, args.before, args.after)
+            }
+            bytecode::Instruction::UnpackSequence { size } => {
+                self.unpack_sequence(size.get(arg), vm)
+            }
+            bytecode::Instruction::WithCleanupFinish => {
+                let block = self.pop_block();
+                let (reason, prev_exc) = match block.typ {
+                    BlockType::FinallyHandler { reason, prev_exc } => (reason, prev_exc),
+                    _ => self.fatal("WithCleanupFinish expects a FinallyHandler block on stack"),
+                };
+
+                vm.set_exception(prev_exc);
+
+                let suppress_exception = self.pop_value().try_to_bool(vm)?;
+
+                if suppress_exception {
+                    Ok(None)
+                } else if let Some(reason) = reason {
+                    self.unwind_blocks(vm, reason)
+                } else {
+                    Ok(None)
+                }
+            }
+            bytecode::Instruction::WithCleanupStart => {
+                let block = self.current_block().unwrap();
+                let reason = match block.typ {
+                    BlockType::FinallyHandler { reason, .. } => reason,
+                    _ => self.fatal("WithCleanupStart expects a FinallyHandler block on stack"),
+                };
+                let exc = match reason {
+                    Some(UnwindReason::Raising { exception }) => Some(exception),
+                    _ => None,
+                };
+
+                let exit = self.top_value();
+
+                let args = if let Some(exc) = exc {
+                    vm.split_exception(exc)
+                } else {
+                    (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
+                };
+                let exit_res = exit.call(args, vm)?;
+                self.replace_top(exit_res);
+
+                Ok(None)
+            }
+            bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
+            bytecode::Instruction::YieldValue => {
+                let value = self.pop_value();
+                let value = if self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
+                    PyAsyncGenWrappedValue(value).into_pyobject(vm)
+                } else {
+                    value
+                };
+                Ok(Some(ExecutionResult::Yield(value)))
             }
         }
     }
@@ -1685,13 +1746,6 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    #[inline(always)]
-    fn execute_rotate(&mut self, amount: usize) -> FrameResult {
-        let i = self.state.stack.len() - amount;
-        self.state.stack[i..].rotate_right(1);
-        Ok(None)
-    }
-
     fn execute_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
@@ -1755,8 +1809,15 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn execute_build_slice(&mut self, vm: &VirtualMachine, step: bool) -> FrameResult {
-        let step = if step { Some(self.pop_value()) } else { None };
+    fn execute_build_slice(
+        &mut self,
+        vm: &VirtualMachine,
+        argc: bytecode::BuildSliceArgCount,
+    ) -> FrameResult {
+        let step = match argc {
+            bytecode::BuildSliceArgCount::Two => None,
+            bytecode::BuildSliceArgCount::Three => Some(self.pop_value()),
+        };
         let stop = self.pop_value();
         let start = self.pop_value();
 
@@ -1820,14 +1881,14 @@ impl ExecutingFrame<'_> {
     /// This ensures proper order preservation for OrderedDict and other custom mappings.
     fn iterate_mapping_keys<F>(
         vm: &VirtualMachine,
-        mapping: &PyObjectRef,
+        mapping: &PyObject,
         error_prefix: &str,
         mut key_handler: F,
     ) -> PyResult<()>
     where
         F: FnMut(PyObjectRef) -> PyResult<()>,
     {
-        let Some(keys_method) = vm.get_method(mapping.clone(), vm.ctx.intern_str("keys")) else {
+        let Some(keys_method) = vm.get_method(mapping.to_owned(), vm.ctx.intern_str("keys")) else {
             return Err(vm.new_type_error(format!("{error_prefix} must be a mapping")));
         };
 
@@ -1854,7 +1915,7 @@ impl ExecutingFrame<'_> {
 
         // TODO: It was PyMethod before #4873. Check if it's correct.
         let func = if is_method {
-            if let Some(descr_get) = func.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
+            if let Some(descr_get) = func.class().slots.descr_get.load() {
                 let cls = target.class().to_owned().into();
                 descr_get(func, Some(target), Some(cls), vm)?
             } else {
@@ -2097,40 +2158,29 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
             bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, vm.ctx.none.as_object()),
-            bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
+            bytecode::BinaryOperator::TrueDivide => vm._truediv(a_ref, b_ref),
             bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
+            bytecode::BinaryOperator::Remainder => vm._mod(a_ref, b_ref),
             bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
             bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
             bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
             bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-        }?;
-
-        self.push_value(value);
-        Ok(None)
-    }
-    fn execute_bin_op_inplace(
-        &mut self,
-        vm: &VirtualMachine,
-        op: bytecode::BinaryOperator,
-    ) -> FrameResult {
-        let b_ref = &self.pop_value();
-        let a_ref = &self.pop_value();
-        let value = match op {
-            bytecode::BinaryOperator::Subtract => vm._isub(a_ref, b_ref),
-            bytecode::BinaryOperator::Add => vm._iadd(a_ref, b_ref),
-            bytecode::BinaryOperator::Multiply => vm._imul(a_ref, b_ref),
-            bytecode::BinaryOperator::MatrixMultiply => vm._imatmul(a_ref, b_ref),
-            bytecode::BinaryOperator::Power => vm._ipow(a_ref, b_ref, vm.ctx.none.as_object()),
-            bytecode::BinaryOperator::Divide => vm._itruediv(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide => vm._ifloordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::Modulo => vm._imod(a_ref, b_ref),
-            bytecode::BinaryOperator::Lshift => vm._ilshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Rshift => vm._irshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Xor => vm._ixor(a_ref, b_ref),
-            bytecode::BinaryOperator::Or => vm._ior(a_ref, b_ref),
-            bytecode::BinaryOperator::And => vm._iand(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceSubtract => vm._isub(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceAdd => vm._iadd(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceMultiply => vm._imul(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(a_ref, b_ref),
+            bytecode::BinaryOperator::InplacePower => {
+                vm._ipow(a_ref, b_ref, vm.ctx.none.as_object())
+            }
+            bytecode::BinaryOperator::InplaceTrueDivide => vm._itruediv(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceFloorDivide => vm._ifloordiv(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceRemainder => vm._imod(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceLshift => vm._ilshift(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceRshift => vm._irshift(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceXor => vm._ixor(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceOr => vm._ior(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceAnd => vm._iand(a_ref, b_ref),
         }?;
 
         self.push_value(value);
@@ -2181,18 +2231,6 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn print_expr(&mut self, vm: &VirtualMachine) -> FrameResult {
-        let expr = self.pop_value();
-
-        let displayhook = vm
-            .sys_module
-            .get_attr("displayhook", vm)
-            .map_err(|_| vm.new_runtime_error("lost sys.displayhook"))?;
-        displayhook.call((expr,), vm)?;
-
-        Ok(None)
-    }
-
     fn unpack_sequence(&mut self, size: u32, vm: &VirtualMachine) -> FrameResult {
         let value = self.pop_value();
         let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
@@ -2206,14 +2244,14 @@ impl ExecutingFrame<'_> {
             }
         })?;
         let msg = match elements.len().cmp(&(size as usize)) {
-            std::cmp::Ordering::Equal => {
+            core::cmp::Ordering::Equal => {
                 self.state.stack.extend(elements.into_iter().rev());
                 return Ok(None);
             }
-            std::cmp::Ordering::Greater => {
+            core::cmp::Ordering::Greater => {
                 format!("too many values to unpack (expected {size})")
             }
-            std::cmp::Ordering::Less => format!(
+            core::cmp::Ordering::Less => format!(
                 "not enough values to unpack (expected {}, got {})",
                 size,
                 elements.len()
@@ -2222,23 +2260,21 @@ impl ExecutingFrame<'_> {
         Err(vm.new_value_error(msg))
     }
 
-    fn format_value(
+    fn convert_value(
         &mut self,
-        conversion: bytecode::ConversionFlag,
+        conversion: bytecode::ConvertValueOparg,
         vm: &VirtualMachine,
     ) -> FrameResult {
-        use bytecode::ConversionFlag;
+        use bytecode::ConvertValueOparg;
         let value = self.pop_value();
         let value = match conversion {
-            ConversionFlag::Str => value.str(vm)?.into(),
-            ConversionFlag::Repr => value.repr(vm)?.into(),
-            ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
-            ConversionFlag::None => value,
+            ConvertValueOparg::Str => value.str(vm)?.into(),
+            ConvertValueOparg::Repr => value.repr(vm)?.into(),
+            ConvertValueOparg::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
+            ConvertValueOparg::None => value,
         };
 
-        let spec = self.pop_value();
-        let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
-        self.push_value(formatted.into());
+        self.push_value(value);
         Ok(None)
     }
 
@@ -2255,40 +2291,6 @@ impl ExecutingFrame<'_> {
         haystack: &PyObject,
     ) -> PyResult<bool> {
         Ok(!self._in(vm, needle, haystack)?)
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_test(&mut self, vm: &VirtualMachine, op: bytecode::TestOperator) -> FrameResult {
-        let b = self.pop_value();
-        let a = self.pop_value();
-        let value = match op {
-            bytecode::TestOperator::Is => a.is(&b),
-            bytecode::TestOperator::IsNot => !a.is(&b),
-            bytecode::TestOperator::In => self._in(vm, &a, &b)?,
-            bytecode::TestOperator::NotIn => self._not_in(vm, &a, &b)?,
-            bytecode::TestOperator::ExceptionMatch => {
-                if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
-                    for exception in tuple_of_exceptions {
-                        if !exception
-                            .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
-                        {
-                            return Err(vm.new_type_error(
-                                "catching classes that do not inherit from BaseException is not allowed",
-                            ));
-                        }
-                    }
-                } else if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
-                    return Err(vm.new_type_error(
-                        "catching classes that do not inherit from BaseException is not allowed",
-                    ));
-                }
-
-                a.is_instance(&b, vm)?
-            }
-        };
-
-        self.push_value(vm.ctx.new_bool(value).into());
-        Ok(None)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -2399,6 +2401,13 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         match func {
+            bytecode::IntrinsicFunction1::Print => {
+                let displayhook = vm
+                    .sys_module
+                    .get_attr("displayhook", vm)
+                    .map_err(|_| vm.new_runtime_error("lost sys.displayhook"))?;
+                displayhook.call((arg,), vm)
+            }
             bytecode::IntrinsicFunction1::ImportStar => {
                 // arg is the module object
                 self.push_value(arg); // Push module back on stack for import_star
@@ -2500,6 +2509,12 @@ impl ExecutingFrame<'_> {
                         .into();
                 Ok(type_var)
             }
+            bytecode::IntrinsicFunction2::PrepReraiseStar => {
+                // arg1 = orig (original exception)
+                // arg2 = excs (list of exceptions raised/reraised in except* blocks)
+                // Returns: exception to reraise, or None if nothing to reraise
+                crate::exceptions::prep_reraise_star(arg1, arg2, vm)
+            }
         }
     }
 
@@ -2511,7 +2526,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn replace_top(&mut self, mut top: PyObjectRef) -> PyObjectRef {
         let last = self.state.stack.last_mut().unwrap();
-        std::mem::swap(&mut top, last);
+        core::mem::swap(&mut top, last);
         top
     }
 
@@ -2547,12 +2562,12 @@ impl fmt::Debug for Frame {
             if elem.downcastable::<Self>() {
                 s.push_str("\n  > {frame}");
             } else {
-                std::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
+                core::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
             }
             s
         });
         let block_str = state.blocks.iter().fold(String::new(), |mut s, elem| {
-            std::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
+            core::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
             s
         });
         // TODO: fix this up

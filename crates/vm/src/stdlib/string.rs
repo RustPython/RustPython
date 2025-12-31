@@ -16,7 +16,7 @@ mod _string {
         convert::ToPyException,
         convert::ToPyObject,
     };
-    use std::mem;
+    use core::mem;
 
     fn create_format_part(
         literal: Wtf8Buf,

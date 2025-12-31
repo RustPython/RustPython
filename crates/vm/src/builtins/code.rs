@@ -1,6 +1,6 @@
 //! Infamous code object. The python class `code`
 
-use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::PyStrInterned,
@@ -11,10 +11,11 @@ use crate::{
     function::OptionalArg,
     types::{Constructor, Representable},
 };
+use alloc::fmt;
+use core::{borrow::Borrow, ops::Deref};
 use malachite_bigint::BigInt;
 use num_traits::Zero;
 use rustpython_compiler_core::{OneIndexed, bytecode::CodeUnits, bytecode::PyCodeLocationInfoKind};
-use std::{borrow::Borrow, fmt, ops::Deref};
 
 /// State for iterating through code address ranges
 struct PyCodeAddressRange<'a> {
@@ -390,7 +391,7 @@ pub struct PyCodeNewArgs {
 impl Constructor for PyCode {
     type Args = PyCodeNewArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         // Convert names tuple to vector of interned strings
         let names: Box<[&'static PyStrInterned]> = args
             .names
@@ -466,20 +467,22 @@ impl Constructor for PyCode {
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        // Create locations
+        // Create locations (start and end pairs)
         let row = if args.firstlineno > 0 {
             OneIndexed::new(args.firstlineno as usize).unwrap_or(OneIndexed::MIN)
         } else {
             OneIndexed::MIN
         };
-        let locations: Box<[rustpython_compiler_core::SourceLocation]> = vec![
-                rustpython_compiler_core::SourceLocation {
-                    line: row,
-                    character_offset: OneIndexed::from_zero_indexed(0),
-                };
-                instructions.len()
-            ]
-        .into_boxed_slice();
+        let loc = rustpython_compiler_core::SourceLocation {
+            line: row,
+            character_offset: OneIndexed::from_zero_indexed(0),
+        };
+        let locations: Box<
+            [(
+                rustpython_compiler_core::SourceLocation,
+                rustpython_compiler_core::SourceLocation,
+            )],
+        > = vec![(loc, loc); instructions.len()].into_boxed_slice();
 
         // Build the CodeObject
         let code = CodeObject {
@@ -508,9 +511,7 @@ impl Constructor for PyCode {
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
 
-        Ok(PyCode::new(code)
-            .into_ref_with_type(vm, cls)?
-            .to_pyobject(vm))
+        Ok(PyCode::new(code))
     }
 }
 
@@ -603,7 +604,7 @@ impl PyCode {
     pub fn co_code(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
         // SAFETY: CodeUnit is #[repr(C)] with size 2, so we can safely transmute to bytes
         let bytes = unsafe {
-            std::slice::from_raw_parts(
+            core::slice::from_raw_parts(
                 self.code.instructions.as_ptr() as *const u8,
                 self.code.instructions.len() * 2,
             )
@@ -810,7 +811,6 @@ impl PyCode {
                         Some(line + end_line_delta)
                     };
 
-                    // Convert Option to PyObject (None or int)
                     let line_obj = final_line.to_pyobject(vm);
                     let end_line_obj = final_endline.to_pyobject(vm);
                     let column_obj = column.to_pyobject(vm);

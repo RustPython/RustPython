@@ -16,12 +16,10 @@ use crate::{
     convert::ToPyObject,
     function::{ArgBytesLike, PyMethodDef},
 };
+use alloc::borrow::Cow;
+use core::ops::{self, Range};
 use once_cell::unsync::OnceCell;
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    ops::{self, Range},
-};
+use std::collections::HashMap;
 
 pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,
@@ -52,7 +50,7 @@ impl PyCodec {
         self.0
     }
     #[inline]
-    pub const fn as_tuple(&self) -> &PyTupleRef {
+    pub fn as_tuple(&self) -> &Py<PyTuple> {
         &self.0
     }
 

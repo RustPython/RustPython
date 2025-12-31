@@ -1799,7 +1799,6 @@ print(f'''{{
             self.assertIn(rb'\1', stdout)
             self.assertEqual(len(stderr.strip().splitlines()), 2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'dis' has no attribute 'get_instructions'
     def test_fstring_without_formatting_bytecode(self):
         # f-string without any formatting should emit the same bytecode
         # as a normal string. See gh-99606.

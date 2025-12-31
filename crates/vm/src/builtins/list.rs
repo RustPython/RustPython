@@ -15,12 +15,13 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter, Unconstructible,
+        PyComparisonOp, Representable, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use std::{fmt, ops::DerefMut};
+use alloc::fmt;
+use core::ops::DerefMut;
 
 #[pyclass(module = false, name = "list", unhashable = true, traverse)]
 #[derive(Default)]
@@ -172,7 +173,7 @@ impl PyList {
 
     #[pymethod]
     fn clear(&self) {
-        let _removed = std::mem::take(self.borrow_vec_mut().deref_mut());
+        let _removed = core::mem::take(self.borrow_vec_mut().deref_mut());
     }
 
     #[pymethod]
@@ -188,8 +189,8 @@ impl PyList {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.elements.read().capacity() * std::mem::size_of::<PyObjectRef>()
+        core::mem::size_of::<Self>()
+            + self.elements.read().capacity() * core::mem::size_of::<PyObjectRef>()
     }
 
     #[pymethod]
@@ -324,9 +325,9 @@ impl PyList {
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
-        let mut elements = std::mem::take(self.borrow_vec_mut().deref_mut());
+        let mut elements = core::mem::take(self.borrow_vec_mut().deref_mut());
         let res = do_sort(vm, &mut elements, options.key, options.reverse);
-        std::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
+        core::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
         res?;
 
         if !elements.is_empty() {
@@ -354,7 +355,11 @@ where
     } else {
         let iter = obj.to_owned().get_iter(vm)?;
         let iter = iter.iter::<PyObjectRef>(vm)?;
-        let len = obj.to_sequence().length_opt(vm).transpose()?.unwrap_or(0);
+        let len = obj
+            .sequence_unchecked()
+            .length_opt(vm)
+            .transpose()?
+            .unwrap_or(0);
         let mut v = Vec::with_capacity(len);
         for x in iter {
             v.push(f(x?)?);
@@ -367,11 +372,11 @@ where
 impl MutObjectSequenceOp for PyList {
     type Inner = [PyObjectRef];
 
-    fn do_get(index: usize, inner: &[PyObjectRef]) -> Option<&PyObjectRef> {
-        inner.get(index)
+    fn do_get(index: usize, inner: &[PyObjectRef]) -> Option<&PyObject> {
+        inner.get(index).map(|r| r.as_ref())
     }
 
-    fn do_lock(&self) -> impl std::ops::Deref<Target = [PyObjectRef]> {
+    fn do_lock(&self) -> impl core::ops::Deref<Target = [PyObjectRef]> {
         self.borrow_vec()
     }
 }
@@ -379,8 +384,8 @@ impl MutObjectSequenceOp for PyList {
 impl Constructor for PyList {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::default().into_ref_with_type(vm, cls).map(Into::into)
+    fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self::default())
     }
 }
 
@@ -393,7 +398,7 @@ impl Initializer for PyList {
         } else {
             vec![]
         };
-        std::mem::swap(zelf.borrow_vec_mut().deref_mut(), &mut elements);
+        core::mem::swap(zelf.borrow_vec_mut().deref_mut(), &mut elements);
         Ok(())
     }
 }
@@ -544,7 +549,7 @@ impl PyPayload for PyListIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyListIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -565,7 +570,6 @@ impl PyListIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
-impl Unconstructible for PyListIterator {}
 
 impl SelfIter for PyListIterator {}
 impl IterNext for PyListIterator {
@@ -590,7 +594,7 @@ impl PyPayload for PyListReverseIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyListReverseIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -611,7 +615,6 @@ impl PyListReverseIterator {
             .builtins_reversed_reduce(|x| x.clone().into(), vm)
     }
 }
-impl Unconstructible for PyListReverseIterator {}
 
 impl SelfIter for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {

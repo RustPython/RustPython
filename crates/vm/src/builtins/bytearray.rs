@@ -33,11 +33,11 @@ use crate::{
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
         DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
-        SelfIter, Unconstructible,
+        SelfIter,
     },
 };
 use bstr::ByteSlice;
-use std::mem::size_of;
+use core::mem::size_of;
 
 #[pyclass(module = false, name = "bytearray", unhashable = true)]
 #[derive(Debug, Default)]
@@ -687,7 +687,7 @@ impl Initializer for PyByteArray {
     fn init(zelf: PyRef<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // First unpack bytearray and *then* get a lock to set it.
         let mut inner = options.get_bytearray_inner(vm)?;
-        std::mem::swap(&mut *zelf.inner_mut(), &mut inner);
+        core::mem::swap(&mut *zelf.inner_mut(), &mut inner);
         Ok(())
     }
 }
@@ -865,7 +865,7 @@ impl PyPayload for PyByteArrayIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyByteArrayIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -885,8 +885,6 @@ impl PyByteArrayIterator {
             .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
     }
 }
-
-impl Unconstructible for PyByteArrayIterator {}
 
 impl SelfIter for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {

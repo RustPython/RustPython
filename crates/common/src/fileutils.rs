@@ -9,11 +9,11 @@ pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
 pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
-    let mut stat = std::mem::MaybeUninit::uninit();
+    let mut stat = core::mem::MaybeUninit::uninit();
     unsafe {
         let ret = libc::fstat(fd.as_raw(), stat.as_mut_ptr());
         if ret == -1 {
-            Err(crate::os::last_os_error())
+            Err(crate::os::errno_io_error())
         } else {
             Ok(stat.assume_init())
         }
@@ -26,11 +26,10 @@ pub mod windows {
     use crate::windows::ToWideString;
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
     use std::ffi::{CString, OsStr, OsString};
-    use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::AsRawHandle;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
-        BOOL, ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, SetLastError,
+        ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, SetLastError,
     };
     use windows_sys::Win32::Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY,
@@ -75,8 +74,7 @@ pub mod windows {
         pub fn update_st_mode_from_path(&mut self, path: &OsStr, attr: u32) {
             if attr & FILE_ATTRIBUTE_DIRECTORY == 0 {
                 let file_extension = path
-                    .encode_wide()
-                    .collect::<Vec<u16>>()
+                    .to_wide()
                     .split(|&c| c == '.' as u16)
                     .next_back()
                     .and_then(|s| String::from_utf16(s).ok());
@@ -167,7 +165,7 @@ pub mod windows {
     }
 
     fn file_time_to_time_t_nsec(in_ptr: &FILETIME) -> (libc::time_t, libc::c_int) {
-        let in_val: i64 = unsafe { std::mem::transmute_copy(in_ptr) };
+        let in_val: i64 = unsafe { core::mem::transmute_copy(in_ptr) };
         let nsec_out = (in_val % 10_000_000) * 100; // FILETIME is in units of 100 nsec.
         let time_out = (in_val / 10_000_000) - SECS_BETWEEN_EPOCHS;
         (time_out, nsec_out as _)
@@ -206,7 +204,7 @@ pub mod windows {
         let st_nlink = info.nNumberOfLinks as i32;
 
         let st_ino = if let Some(id_info) = id_info {
-            let file_id: [u64; 2] = unsafe { std::mem::transmute_copy(&id_info.FileId) };
+            let file_id: [u64; 2] = unsafe { core::mem::transmute_copy(&id_info.FileId) };
             file_id
         } else {
             let ino = ((info.nFileIndexHigh as u64) << 32) + info.nFileIndexLow as u64;
@@ -299,7 +297,7 @@ pub mod windows {
                     FILE_INFO_BY_NAME_CLASS,
                     *mut libc::c_void,
                     u32,
-                ) -> BOOL,
+                ) -> i32,
             >,
         > = OnceLock::new();
 
@@ -315,7 +313,7 @@ pub mod windows {
                     unsafe { GetProcAddress(module, name.as_bytes_with_nul().as_ptr()) }
                 {
                     Some(unsafe {
-                        std::mem::transmute::<
+                        core::mem::transmute::<
                             unsafe extern "system" fn() -> isize,
                             unsafe extern "system" fn(
                                 *const u16,
@@ -443,7 +441,7 @@ pub mod windows {
 // Open a file using std::fs::File and convert to FILE*
 // Automatically handles path encoding and EINTR retries
 pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::FILE> {
-    use std::ffi::CString;
+    use alloc::ffi::CString;
     use std::fs::File;
 
     // Currently only supports read mode
@@ -462,22 +460,16 @@ pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::F
     {
         use std::os::windows::io::IntoRawHandle;
 
-        // Declare Windows CRT functions
-        unsafe extern "C" {
-            fn _open_osfhandle(handle: isize, flags: libc::c_int) -> libc::c_int;
-            fn _fdopen(fd: libc::c_int, mode: *const libc::c_char) -> *mut libc::FILE;
-        }
-
         // Convert File handle to CRT file descriptor
         let handle = file.into_raw_handle();
-        let fd = unsafe { _open_osfhandle(handle as isize, libc::O_RDONLY) };
+        let fd = unsafe { libc::open_osfhandle(handle as isize, libc::O_RDONLY) };
         if fd == -1 {
             return Err(std::io::Error::last_os_error());
         }
 
         // Convert fd to FILE*
         let mode_cstr = CString::new(mode).unwrap();
-        let fp = unsafe { _fdopen(fd, mode_cstr.as_ptr()) };
+        let fp = unsafe { libc::fdopen(fd, mode_cstr.as_ptr()) };
         if fp.is_null() {
             unsafe { libc::close(fd) };
             return Err(std::io::Error::last_os_error());

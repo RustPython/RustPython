@@ -4,8 +4,8 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     object::{Traverse, TraverseFn},
 };
-use std::borrow::Borrow;
-use std::ops::Deref;
+use core::borrow::Borrow;
+use core::ops::Deref;
 
 /// Iterator Protocol
 // https://docs.python.org/3/c-api/iter.html
@@ -23,9 +23,7 @@ unsafe impl<O: Borrow<PyObject>> Traverse for PyIter<O> {
 
 impl PyIter<PyObjectRef> {
     pub fn check(obj: &PyObject) -> bool {
-        obj.class()
-            .mro_find_map(|x| x.slots.iternext.load())
-            .is_some()
+        obj.class().slots.iternext.load().is_some()
     }
 }
 
@@ -37,18 +35,19 @@ where
         Self(obj)
     }
     pub fn next(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let iternext = {
-            self.0
-                .borrow()
-                .class()
-                .mro_find_map(|x| x.slots.iternext.load())
-                .ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "'{}' object is not an iterator",
-                        self.0.borrow().class().name()
-                    ))
-                })?
-        };
+        let iternext = self
+            .0
+            .borrow()
+            .class()
+            .slots
+            .iternext
+            .load()
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "'{}' object is not an iterator",
+                    self.0.borrow().class().name()
+                ))
+            })?;
         iternext(self.0.borrow(), vm)
     }
 
@@ -126,10 +125,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
     // in the vm when a for loop is entered. Next, it is used when the builtin
     // function 'iter' is called.
     fn try_from_object(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult<Self> {
-        let get_iter = {
-            let cls = iter_target.class();
-            cls.mro_find_map(|x| x.slots.iter.load())
-        };
+        let get_iter = iter_target.class().slots.iter.load();
         if let Some(get_iter) = get_iter {
             let iter = get_iter(iter_target, vm)?;
             if Self::check(&iter) {
@@ -227,7 +223,7 @@ where
     vm: &'a VirtualMachine,
     obj: O, // creating PyIter<O> is zero-cost
     length_hint: Option<usize>,
-    _phantom: std::marker::PhantomData<T>,
+    _phantom: core::marker::PhantomData<T>,
 }
 
 unsafe impl<T, O> Traverse for PyIterIter<'_, T, O>
@@ -248,7 +244,7 @@ where
             vm,
             obj,
             length_hint,
-            _phantom: std::marker::PhantomData,
+            _phantom: core::marker::PhantomData,
         }
     }
 }

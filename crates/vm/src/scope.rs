@@ -1,5 +1,5 @@
 use crate::{VirtualMachine, builtins::PyDictRef, function::ArgMapping};
-use std::fmt;
+use alloc::fmt;
 
 #[derive(Clone)]
 pub struct Scope {
@@ -34,7 +34,7 @@ impl Scope {
         Self::new(locals, globals)
     }
 
-    // pub fn get_locals(&self) -> &PyDictRef {
+    // pub fn get_locals(&self) -> &Py<PyDict> {
     //     match self.locals.first() {
     //         Some(dict) => dict,
     //         None => &self.globals,

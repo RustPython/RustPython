@@ -8,8 +8,7 @@ use crate::{
     common::{float_ops, format::FormatSpec, hash},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, OptionalArg, OptionalOption,
-        PyArithmeticValue::{self, *},
+        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue::*,
         PyComparisonValue,
     },
     protocol::PyNumberMethods,
@@ -131,14 +130,25 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
 impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Optimization: return exact float as-is
+        if cls.is(vm.ctx.types.float_type)
+            && args.kwargs.is_empty()
+            && let Some(first) = args.args.first()
+            && first.class().is(vm.ctx.types.float_type)
+        {
+            return Ok(first.clone());
+        }
+
+        let arg: Self::Args = args.bind(vm)?;
+        let payload = Self::py_new(&cls, arg, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                if cls.is(vm.ctx.types.float_type) && val.class().is(vm.ctx.types.float_type) {
-                    return Ok(val);
-                }
-
                 if let Some(f) = val.try_float_opt(vm) {
                     f?.value
                 } else {
@@ -146,9 +156,7 @@ impl Constructor for PyFloat {
                 }
             }
         };
-        Self::from(float_val)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        Ok(Self::from(float_val))
     }
 }
 
@@ -231,182 +239,6 @@ impl PyFloat {
     }
 
     #[pymethod]
-    const fn __abs__(&self) -> f64 {
-        self.value.abs()
-    }
-
-    #[inline]
-    fn simple_op<F>(
-        &self,
-        other: PyObjectRef,
-        op: F,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<f64>>
-    where
-        F: Fn(f64, f64) -> PyResult<f64>,
-    {
-        to_op_float(&other, vm)?.map_or_else(
-            || Ok(NotImplemented),
-            |other| Ok(Implemented(op(self.value, other)?)),
-        )
-    }
-
-    #[inline]
-    fn complex_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
-    where
-        F: Fn(f64, f64) -> PyResult,
-    {
-        to_op_float(&other, vm)?.map_or_else(
-            || Ok(vm.ctx.not_implemented()),
-            |other| op(self.value, other),
-        )
-    }
-
-    #[inline]
-    fn tuple_op<F>(
-        &self,
-        other: PyObjectRef,
-        op: F,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<(f64, f64)>>
-    where
-        F: Fn(f64, f64) -> PyResult<(f64, f64)>,
-    {
-        to_op_float(&other, vm)?.map_or_else(
-            || Ok(NotImplemented),
-            |other| Ok(Implemented(op(self.value, other)?)),
-        )
-    }
-
-    #[pymethod(name = "__radd__")]
-    #[pymethod]
-    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| Ok(a + b), vm)
-    }
-
-    #[pymethod]
-    const fn __bool__(&self) -> bool {
-        self.value != 0.0
-    }
-
-    #[pymethod]
-    fn __divmod__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<(f64, f64)>> {
-        self.tuple_op(other, |a, b| inner_divmod(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rdivmod__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<(f64, f64)>> {
-        self.tuple_op(other, |a, b| inner_divmod(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    fn __floordiv__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| inner_floordiv(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rfloordiv__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| inner_floordiv(b, a, vm), vm)
-    }
-
-    #[pymethod(name = "__mod__")]
-    fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| inner_mod(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rmod__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| inner_mod(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    const fn __pos__(&self) -> f64 {
-        self.value
-    }
-
-    #[pymethod]
-    const fn __neg__(&self) -> f64 {
-        -self.value
-    }
-
-    #[pymethod]
-    fn __pow__(
-        &self,
-        other: PyObjectRef,
-        mod_val: OptionalOption<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        if mod_val.flatten().is_some() {
-            Err(vm.new_type_error("floating point pow() does not accept a 3rd argument"))
-        } else {
-            self.complex_op(other, |a, b| float_pow(a, b, vm), vm)
-        }
-    }
-
-    #[pymethod]
-    fn __rpow__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.complex_op(other, |a, b| float_pow(b, a, vm), vm)
-    }
-
-    #[pymethod]
-    fn __sub__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| Ok(a - b), vm)
-    }
-
-    #[pymethod]
-    fn __rsub__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| Ok(b - a), vm)
-    }
-
-    #[pymethod]
-    fn __truediv__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| inner_div(a, b, vm), vm)
-    }
-
-    #[pymethod]
-    fn __rtruediv__(
-        &self,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| inner_div(b, a, vm), vm)
-    }
-
-    #[pymethod(name = "__rmul__")]
-    #[pymethod]
-    fn __mul__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
-        self.simple_op(other, |a, b| Ok(a * b), vm)
-    }
-
-    #[pymethod]
     fn __trunc__(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         try_to_bigint(self.value, vm)
     }
@@ -449,16 +281,6 @@ impl PyFloat {
             vm.ctx.new_int(int).into()
         };
         Ok(value)
-    }
-
-    #[pymethod]
-    fn __int__(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        self.__trunc__(vm)
-    }
-
-    #[pymethod]
-    const fn __float__(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 
     #[pygetset]

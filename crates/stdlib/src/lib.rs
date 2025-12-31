@@ -6,6 +6,7 @@
 
 #[macro_use]
 extern crate rustpython_derive;
+extern crate alloc;
 
 pub mod array;
 mod binascii;
@@ -36,7 +37,7 @@ mod json;
 mod locale;
 
 mod math;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod mmap;
 mod opcode;
 mod pyexpat;
@@ -57,6 +58,8 @@ mod faulthandler;
 mod fcntl;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
+#[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
+mod posixshmem;
 #[cfg(unix)]
 mod posixsubprocess;
 // libc is missing constants on redox
@@ -101,7 +104,7 @@ use rustpython_common as common;
 use rustpython_vm as vm;
 
 use crate::vm::{builtins, stdlib::StdlibInitFunc};
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 
 pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInitFunc)> {
     macro_rules! modules {
@@ -189,6 +192,13 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
+        }
+        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
+        {
+            "_posixshmem" => posixshmem::make_module,
+        }
+        #[cfg(any(unix, windows))]
+        {
             "mmap" => mmap::make_module,
         }
         #[cfg(all(unix, not(target_os = "redox")))]

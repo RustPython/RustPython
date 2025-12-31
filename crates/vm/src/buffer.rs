@@ -5,11 +5,13 @@ use crate::{
     convert::ToPyObject,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
 };
+use alloc::fmt;
+use core::{iter::Peekable, mem};
 use half::f16;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_traits::{PrimInt, ToPrimitive};
-use std::{fmt, iter::Peekable, mem, os::raw};
+use std::os::raw;
 
 type PackFunc = fn(&VirtualMachine, PyObjectRef, &mut [u8]) -> PyResult<()>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
@@ -88,7 +90,9 @@ pub(crate) enum FormatType {
     Half = b'e',
     Float = b'f',
     Double = b'd',
+    LongDouble = b'g',
     VoidP = b'P',
+    PyObject = b'O',
 }
 
 impl fmt::Debug for FormatType {
@@ -148,7 +152,9 @@ impl FormatType {
                     Half => nonnative_info!(f16, $end),
                     Float => nonnative_info!(f32, $end),
                     Double => nonnative_info!(f64, $end),
-                    _ => unreachable!(), // size_t or void*
+                    LongDouble => nonnative_info!(f64, $end), // long double same as double
+                    PyObject => nonnative_info!(usize, $end), // pointer size
+                    _ => unreachable!(),                      // size_t or void*
                 }
             }};
         }
@@ -183,7 +189,9 @@ impl FormatType {
                 Half => native_info!(f16),
                 Float => native_info!(raw::c_float),
                 Double => native_info!(raw::c_double),
+                LongDouble => native_info!(raw::c_double), // long double same as double for now
                 VoidP => native_info!(*mut raw::c_void),
+                PyObject => native_info!(*mut raw::c_void), // pointer to PyObject
             },
             Endianness::Big => match_nonnative!(self, BigEndian),
             Endianness::Little => match_nonnative!(self, LittleEndian),
@@ -238,14 +246,85 @@ impl FormatCode {
                 _ => 1,
             };
 
+            // Skip whitespace (Python ignores whitespace in format strings)
+            while let Some(b' ' | b'\t' | b'\n' | b'\r') = chars.peek() {
+                chars.next();
+            }
+
             // determine format char:
-            let c = chars
-                .next()
-                .ok_or_else(|| "repeat count given without format specifier".to_owned())?;
+            let c = match chars.next() {
+                Some(c) => c,
+                None => {
+                    // If we have a repeat count but only whitespace follows, error
+                    if repeat != 1 {
+                        return Err("repeat count given without format specifier".to_owned());
+                    }
+                    // Otherwise, we're done parsing
+                    break;
+                }
+            };
 
             // Check for embedded null character
             if c == 0 {
                 return Err("embedded null character".to_owned());
+            }
+
+            // PEP3118: Handle extended format specifiers
+            // T{...} - struct, X{} - function pointer, (...) - array shape, :name: - field name
+            if c == b'T' || c == b'X' {
+                // Skip struct/function pointer: consume until matching '}'
+                if chars.peek() == Some(&b'{') {
+                    chars.next(); // consume '{'
+                    let mut depth = 1;
+                    while depth > 0 {
+                        match chars.next() {
+                            Some(b'{') => depth += 1,
+                            Some(b'}') => depth -= 1,
+                            None => return Err("unmatched '{' in format".to_owned()),
+                            _ => {}
+                        }
+                    }
+                    continue;
+                }
+            }
+
+            if c == b'(' {
+                // Skip array shape: consume until matching ')'
+                let mut depth = 1;
+                while depth > 0 {
+                    match chars.next() {
+                        Some(b'(') => depth += 1,
+                        Some(b')') => depth -= 1,
+                        None => return Err("unmatched '(' in format".to_owned()),
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            if c == b':' {
+                // Skip field name: consume until next ':'
+                loop {
+                    match chars.next() {
+                        Some(b':') => break,
+                        None => return Err("unmatched ':' in format".to_owned()),
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            if c == b'{'
+                || c == b'}'
+                || c == b'&'
+                || c == b'<'
+                || c == b'>'
+                || c == b'@'
+                || c == b'='
+                || c == b'!'
+            {
+                // Skip standalone braces (pointer targets, etc.), pointer prefix, and nested endianness markers
+                continue;
             }
 
             let code = FormatType::try_from(c)
@@ -468,7 +547,7 @@ macro_rules! make_pack_prim_int {
             }
             #[inline]
             fn unpack_int<E: ByteOrder>(data: &[u8]) -> Self {
-                let mut x = [0; std::mem::size_of::<$T>()];
+                let mut x = [0; core::mem::size_of::<$T>()];
                 x.copy_from_slice(data);
                 E::convert(<$T>::from_ne_bytes(x))
             }
@@ -604,7 +683,7 @@ fn pack_pascal(vm: &VirtualMachine, arg: PyObjectRef, buf: &mut [u8]) -> PyResul
     }
     let b = ArgBytesLike::try_from_object(vm, arg)?;
     b.with_ref(|data| {
-        let string_length = std::cmp::min(std::cmp::min(data.len(), 255), buf.len() - 1);
+        let string_length = core::cmp::min(core::cmp::min(data.len(), 255), buf.len() - 1);
         buf[0] = string_length as u8;
         write_string(&mut buf[1..], data);
     });
@@ -612,7 +691,7 @@ fn pack_pascal(vm: &VirtualMachine, arg: PyObjectRef, buf: &mut [u8]) -> PyResul
 }
 
 fn write_string(buf: &mut [u8], data: &[u8]) {
-    let len_from_data = std::cmp::min(data.len(), buf.len());
+    let len_from_data = core::cmp::min(data.len(), buf.len());
     buf[..len_from_data].copy_from_slice(&data[..len_from_data]);
     for byte in &mut buf[len_from_data..] {
         *byte = 0
@@ -631,7 +710,7 @@ fn unpack_pascal(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
             return vm.ctx.new_bytes(vec![]).into();
         }
     };
-    let len = std::cmp::min(len as usize, data.len());
+    let len = core::cmp::min(len as usize, data.len());
     vm.ctx.new_bytes(data[..len].to_vec()).into()
 }
 

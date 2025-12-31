@@ -1,8 +1,8 @@
 use crate::{OneIndexed, SourceLocation, bytecode::*};
+use core::convert::Infallible;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use rustpython_wtf8::Wtf8;
-use std::convert::Infallible;
 
 pub const FORMAT_VERSION: u32 = 4;
 
@@ -20,8 +20,8 @@ pub enum MarshalError {
     BadType,
 }
 
-impl std::fmt::Display for MarshalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for MarshalError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Eof => f.write_str("unexpected end of data"),
             Self::InvalidBytecode => f.write_str("invalid bytecode"),
@@ -32,15 +32,15 @@ impl std::fmt::Display for MarshalError {
     }
 }
 
-impl From<std::str::Utf8Error> for MarshalError {
-    fn from(_: std::str::Utf8Error) -> Self {
+impl From<core::str::Utf8Error> for MarshalError {
+    fn from(_: core::str::Utf8Error) -> Self {
         Self::InvalidUtf8
     }
 }
 
-impl std::error::Error for MarshalError {}
+impl core::error::Error for MarshalError {}
 
-type Result<T, E = MarshalError> = std::result::Result<T, E>;
+type Result<T, E = MarshalError> = core::result::Result<T, E>;
 
 #[repr(u8)]
 enum Type {
@@ -119,7 +119,7 @@ pub trait Read {
     }
 
     fn read_str(&mut self, len: u32) -> Result<&str> {
-        Ok(std::str::from_utf8(self.read_slice(len)?)?)
+        Ok(core::str::from_utf8(self.read_slice(len)?)?)
     }
 
     fn read_wtf8(&mut self, len: u32) -> Result<&Wtf8> {
@@ -147,7 +147,7 @@ pub(crate) trait ReadBorrowed<'a>: Read {
     fn read_slice_borrow(&mut self, n: u32) -> Result<&'a [u8]>;
 
     fn read_str_borrow(&mut self, len: u32) -> Result<&'a str> {
-        Ok(std::str::from_utf8(self.read_slice_borrow(len)?)?)
+        Ok(core::str::from_utf8(self.read_slice_borrow(len)?)?)
     }
 }
 
@@ -190,12 +190,17 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let len = rdr.read_u32()?;
     let locations = (0..len)
         .map(|_| {
-            Ok(SourceLocation {
+            let start = SourceLocation {
                 line: OneIndexed::new(rdr.read_u32()? as _).ok_or(MarshalError::InvalidLocation)?,
                 character_offset: OneIndexed::from_zero_indexed(rdr.read_u32()? as _),
-            })
+            };
+            let end = SourceLocation {
+                line: OneIndexed::new(rdr.read_u32()? as _).ok_or(MarshalError::InvalidLocation)?,
+                character_offset: OneIndexed::from_zero_indexed(rdr.read_u32()? as _),
+            };
+            Ok((start, end))
         })
-        .collect::<Result<Box<[SourceLocation]>>>()?;
+        .collect::<Result<Box<[(SourceLocation, SourceLocation)]>>>()?;
 
     let flags = CodeFlags::from_bits_truncate(rdr.read_u16()?);
 
@@ -648,9 +653,11 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     buf.write_slice(instructions_bytes);
 
     write_len(buf, code.locations.len());
-    for loc in &*code.locations {
-        buf.write_u32(loc.line.get() as _);
-        buf.write_u32(loc.character_offset.to_zero_indexed() as _);
+    for (start, end) in &*code.locations {
+        buf.write_u32(start.line.get() as _);
+        buf.write_u32(start.character_offset.to_zero_indexed() as _);
+        buf.write_u32(end.line.get() as _);
+        buf.write_u32(end.character_offset.to_zero_indexed() as _);
     }
 
     buf.write_u16(code.flags.bits());

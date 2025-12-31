@@ -1,6 +1,6 @@
 use crate::vm::{PyRef, VirtualMachine, builtins::PyModule, class::StaticType};
 use _contextvars::PyContext;
-use std::cell::RefCell;
+use core::cell::RefCell;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _contextvars::make_module(vm);
@@ -24,20 +24,20 @@ thread_local! {
 mod _contextvars {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-        builtins::{PyGenericAlias, PyStrRef, PyTypeRef},
+        builtins::{PyGenericAlias, PyStrRef, PyType, PyTypeRef},
         class::StaticType,
         common::hash::PyHash,
         function::{ArgCallable, FuncArgs, OptionalArg},
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{AsMapping, AsSequence, Constructor, Hashable, Representable},
     };
-    use crossbeam_utils::atomic::AtomicCell;
-    use indexmap::IndexMap;
-    use std::sync::LazyLock;
-    use std::{
+    use core::{
         cell::{Cell, RefCell, UnsafeCell},
         sync::atomic::Ordering,
     };
+    use crossbeam_utils::atomic::AtomicCell;
+    use indexmap::IndexMap;
+    use std::sync::LazyLock;
 
     // TODO: Real hamt implementation
     type Hamt = IndexMap<PyRef<ContextVar>, PyObjectRef, ahash::RandomState>;
@@ -90,11 +90,11 @@ mod _contextvars {
             }
         }
 
-        fn borrow_vars(&self) -> impl std::ops::Deref<Target = Hamt> + '_ {
+        fn borrow_vars(&self) -> impl core::ops::Deref<Target = Hamt> + '_ {
             self.inner.vars.hamt.borrow()
         }
 
-        fn borrow_vars_mut(&self) -> impl std::ops::DerefMut<Target = Hamt> + '_ {
+        fn borrow_vars_mut(&self) -> impl core::ops::DerefMut<Target = Hamt> + '_ {
             self.inner.vars.hamt.borrow_mut()
         }
 
@@ -244,8 +244,8 @@ mod _contextvars {
 
     impl Constructor for PyContext {
         type Args = ();
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Ok(Self::empty(vm).into_pyobject(vm))
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self::empty(vm))
         }
     }
 
@@ -264,7 +264,7 @@ mod _contextvars {
                         Err(vm.new_key_error(needle.to_owned().into()))
                     }
                 }),
-                ass_subscript: AtomicCell::new(None),
+                ass_subscript: None,
             };
             &AS_MAPPING
         }
@@ -293,13 +293,13 @@ mod _contextvars {
         #[pytraverse(skip)]
         cached: AtomicCell<Option<ContextVarCache>>,
         #[pytraverse(skip)]
-        cached_id: std::sync::atomic::AtomicUsize, // cached_tsid in CPython
+        cached_id: core::sync::atomic::AtomicUsize, // cached_tsid in CPython
         #[pytraverse(skip)]
         hash: UnsafeCell<PyHash>,
     }
 
-    impl std::fmt::Debug for ContextVar {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for ContextVar {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("ContextVar").finish()
         }
     }
@@ -308,7 +308,7 @@ mod _contextvars {
 
     impl PartialEq for ContextVar {
         fn eq(&self, other: &Self) -> bool {
-            std::ptr::eq(self, other)
+            core::ptr::eq(self, other)
         }
     }
     impl Eq for ContextVar {}
@@ -488,7 +488,9 @@ mod _contextvars {
 
     impl Constructor for ContextVar {
         type Args = ContextVarOptions;
-        fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args: Self::Args = args.bind(vm)?;
             let var = Self {
                 name: args.name.to_string(),
                 default: args.default.into_option(),
@@ -496,7 +498,7 @@ mod _contextvars {
                 cached: AtomicCell::new(None),
                 hash: UnsafeCell::new(0),
             };
-            let py_var = var.into_ref(&vm.ctx);
+            let py_var = var.into_ref_with_type(vm, cls)?;
 
             unsafe {
                 // SAFETY: py_var is not exposed to python memory model yet
@@ -504,11 +506,15 @@ mod _contextvars {
             };
             Ok(py_var.into())
         }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unimplemented!("use slot_new")
+        }
     }
 
-    impl std::hash::Hash for ContextVar {
+    impl core::hash::Hash for ContextVar {
         #[inline]
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
             unsafe { *self.hash.get() }.hash(state)
         }
     }
@@ -578,8 +584,8 @@ mod _contextvars {
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_runtime_error("Tokens can only be created by ContextVars"))
         }
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, _vm: &VirtualMachine) -> PyResult {
-            unreachable!()
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unimplemented!("use slot_new")
         }
     }
 

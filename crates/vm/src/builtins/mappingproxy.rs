@@ -6,7 +6,7 @@ use crate::{
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
     object::{Traverse, TraverseFn},
-    protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
         Representable,
@@ -61,18 +61,14 @@ impl From<PyDictRef> for PyMappingProxy {
 impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
-    fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        if let Some(methods) = PyMapping::find_methods(&mapping)
+    fn py_new(_cls: &Py<PyType>, mapping: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        if mapping.mapping_unchecked().check()
             && !mapping.downcastable::<PyList>()
             && !mapping.downcastable::<PyTuple>()
         {
-            return Self {
-                mapping: MappingProxyInner::Mapping(ArgMapping::with_methods(mapping, unsafe {
-                    methods.borrow_static()
-                })),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into);
+            return Ok(Self {
+                mapping: MappingProxyInner::Mapping(ArgMapping::new(mapping)),
+            });
         }
         Err(vm.new_type_error(format!(
             "mappingproxy() argument must be a mapping, not {}",
@@ -126,7 +122,7 @@ impl PyMappingProxy {
             MappingProxyInner::Class(class) => Ok(key
                 .as_interned_str(vm)
                 .is_some_and(|key| class.attributes.read().contains_key(key))),
-            MappingProxyInner::Mapping(mapping) => mapping.to_sequence().contains(key, vm),
+            MappingProxyInner::Mapping(mapping) => mapping.sequence_unchecked().contains(key, vm),
         }
     }
 

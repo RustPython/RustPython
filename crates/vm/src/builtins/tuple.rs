@@ -8,7 +8,7 @@ use crate::{
     atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject},
-    function::{ArgSize, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -16,12 +16,13 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter, Unconstructible,
+        PyComparisonOp, Representable, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use std::{fmt, sync::LazyLock};
+use alloc::fmt;
+use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "tuple", traverse)]
 pub struct PyTuple<R = PyObjectRef> {
@@ -110,32 +111,45 @@ impl_from_into_pytuple!(A, B, C, D, E, F, G);
 pub type PyTupleRef = PyRef<PyTuple>;
 
 impl Constructor for PyTuple {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = Vec<PyObjectRef>;
 
-    fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+
+        // Optimizations for exact tuple type
+        if cls.is(vm.ctx.types.tuple_type) {
+            // Return exact tuple as-is
+            if let OptionalArg::Present(ref input) = iterable
+                && let Ok(tuple) = input.clone().downcast_exact::<PyTuple>(vm)
+            {
+                return Ok(tuple.into_pyref().into());
+            }
+
+            // Return empty tuple singleton
+            if iterable.is_missing() {
+                return Ok(vm.ctx.empty_tuple.clone().into());
+            }
+        }
+
         let elements = if let OptionalArg::Present(iterable) = iterable {
-            let iterable = if cls.is(vm.ctx.types.tuple_type) {
-                match iterable.downcast_exact::<Self>(vm) {
-                    Ok(tuple) => return Ok(tuple.into_pyref().into()),
-                    Err(iterable) => iterable,
-                }
-            } else {
-                iterable
-            };
             iterable.try_to_value(vm)?
         } else {
             vec![]
         };
-        // Return empty tuple only for exact tuple types if the iterable is empty.
+
+        // Return empty tuple singleton for exact tuple types (when iterable was empty)
         if elements.is_empty() && cls.is(vm.ctx.types.tuple_type) {
-            Ok(vm.ctx.empty_tuple.clone().into())
-        } else {
-            Self {
-                elements: elements.into_boxed_slice(),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            return Ok(vm.ctx.empty_tuple.clone().into());
         }
+
+        let payload = Self::py_new(&cls, elements, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, elements: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            elements: elements.into_boxed_slice(),
+        })
     }
 }
 
@@ -145,7 +159,7 @@ impl<R> AsRef<[R]> for PyTuple<R> {
     }
 }
 
-impl<R> std::ops::Deref for PyTuple<R> {
+impl<R> core::ops::Deref for PyTuple<R> {
     type Target = [R];
 
     fn deref(&self) -> &[R] {
@@ -153,18 +167,18 @@ impl<R> std::ops::Deref for PyTuple<R> {
     }
 }
 
-impl<'a, R> std::iter::IntoIterator for &'a PyTuple<R> {
+impl<'a, R> core::iter::IntoIterator for &'a PyTuple<R> {
     type Item = &'a R;
-    type IntoIter = std::slice::Iter<'a, R>;
+    type IntoIter = core::slice::Iter<'a, R>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a, R> std::iter::IntoIterator for &'a Py<PyTuple<R>> {
+impl<'a, R> core::iter::IntoIterator for &'a Py<PyTuple<R>> {
     type Item = &'a R;
-    type IntoIter = std::slice::Iter<'a, R>;
+    type IntoIter = core::slice::Iter<'a, R>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -187,7 +201,7 @@ impl<R> PyTuple<R> {
     }
 
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, R> {
+    pub fn iter(&self) -> core::slice::Iter<'_, R> {
         self.elements.iter()
     }
 }
@@ -236,24 +250,17 @@ impl<T> PyTuple<PyRef<T>> {
         // SAFETY: PyRef<T> has the same layout as PyObjectRef
         unsafe {
             let elements: Vec<PyObjectRef> =
-                std::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
+                core::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
             let tuple = PyTuple::<PyObjectRef>::new_ref(elements, ctx);
-            std::mem::transmute::<PyRef<PyTuple>, PyRef<Self>>(tuple)
+            core::mem::transmute::<PyRef<PyTuple>, PyRef<Self>>(tuple)
         }
     }
 }
 
 #[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF),
-    with(
-        AsMapping,
-        AsSequence,
-        Hashable,
-        Comparable,
-        Iterable,
-        Constructor,
-        Representable
-    )
+    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
 impl PyTuple {
     #[pymethod]
@@ -483,21 +490,21 @@ impl PyRef<PyTuple<PyObjectRef>> {
             <PyRef<T> as TransmuteFromObject>::check(vm, elem)?;
         }
         // SAFETY: We just verified all elements are of type T
-        Ok(unsafe { std::mem::transmute::<Self, PyRef<PyTuple<PyRef<T>>>>(self) })
+        Ok(unsafe { core::mem::transmute::<Self, PyRef<PyTuple<PyRef<T>>>>(self) })
     }
 }
 
 impl<T: PyPayload> PyRef<PyTuple<PyRef<T>>> {
     pub fn into_untyped(self) -> PyRef<PyTuple> {
         // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
-        unsafe { std::mem::transmute::<Self, PyRef<PyTuple>>(self) }
+        unsafe { core::mem::transmute::<Self, PyRef<PyTuple>>(self) }
     }
 }
 
 impl<T: PyPayload> Py<PyTuple<PyRef<T>>> {
     pub fn as_untyped(&self) -> &Py<PyTuple> {
         // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
-        unsafe { std::mem::transmute::<&Self, &Py<PyTuple>>(self) }
+        unsafe { core::mem::transmute::<&Self, &Py<PyTuple>>(self) }
     }
 }
 
@@ -520,7 +527,7 @@ impl PyPayload for PyTupleIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyTupleIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -541,7 +548,6 @@ impl PyTupleIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
-impl Unconstructible for PyTupleIterator {}
 
 impl SelfIter for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
