@@ -585,7 +585,11 @@ impl SymbolTableAnalyzer {
                 self.analyze_symbol_comprehension(symbol, parent_offset + 1)?;
             }
             CompilerScope::TypeParams => {
-                todo!("analyze symbol comprehension for type params");
+                // Named expression in comprehension cannot be used in type params
+                return Err(SymbolTableError {
+                    error: "assignment expression within a comprehension cannot be used within the definition of a generic".to_string(),
+                    location: None,
+                });
             }
         }
         Ok(())
@@ -617,6 +621,10 @@ struct SymbolTableBuilder {
     current_varnames: Vec<String>,
     // Track if we're inside an iterable definition expression (for nested comprehensions)
     in_iter_def_exp: bool,
+    // Track if we're inside an annotation (yield/await/named expr not allowed)
+    in_annotation: bool,
+    // Track if we're inside a type alias (yield/await/named expr not allowed)
+    in_type_alias: bool,
 }
 
 /// Enum to indicate in what mode an expression
@@ -641,6 +649,8 @@ impl SymbolTableBuilder {
             source_file,
             current_varnames: Vec::new(),
             in_iter_def_exp: false,
+            in_annotation: false,
+            in_type_alias: false,
         };
         this.enter_scope("top", CompilerScope::Module, 0);
         this
@@ -751,7 +761,11 @@ impl SymbolTableBuilder {
         if self.future_annotations {
             Ok(())
         } else {
-            self.scan_expression(annotation, ExpressionContext::Load)
+            let was_in_annotation = self.in_annotation;
+            self.in_annotation = true;
+            let result = self.scan_expression(annotation, ExpressionContext::Load);
+            self.in_annotation = was_in_annotation;
+            result
         }
     }
 
@@ -1020,6 +1034,8 @@ impl SymbolTableBuilder {
                 type_params,
                 ..
             }) => {
+                let was_in_type_alias = self.in_type_alias;
+                self.in_type_alias = true;
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
                         "TypeAlias",
@@ -1031,6 +1047,7 @@ impl SymbolTableBuilder {
                 } else {
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }
+                self.in_type_alias = was_in_type_alias;
                 self.scan_expression(name, ExpressionContext::Store)?;
             }
             Stmt::IpyEscapeCommand(_) => todo!(),
@@ -1079,6 +1096,44 @@ impl SymbolTableBuilder {
         {
             return Err(SymbolTableError {
                 error: format!("{keyword} expression cannot be used within a type parameter"),
+                location: Some(
+                    self.source_file
+                        .to_source_code()
+                        .source_location(expression.range().start(), PositionEncoding::Utf8),
+                ),
+            });
+        }
+
+        // Check for expressions not allowed in annotations
+        if self.in_annotation
+            && let Some(keyword) = match expression {
+                Expr::Yield(_) | Expr::YieldFrom(_) => Some("'yield'"),
+                Expr::Await(_) => Some("'await'"),
+                Expr::Named(_) => Some("named expression"),
+                _ => None,
+            }
+        {
+            return Err(SymbolTableError {
+                error: format!("{keyword} cannot be used within an annotation"),
+                location: Some(
+                    self.source_file
+                        .to_source_code()
+                        .source_location(expression.range().start(), PositionEncoding::Utf8),
+                ),
+            });
+        }
+
+        // Check for expressions not allowed in type alias
+        if self.in_type_alias
+            && let Some(keyword) = match expression {
+                Expr::Yield(_) | Expr::YieldFrom(_) => Some("'yield'"),
+                Expr::Await(_) => Some("'await'"),
+                Expr::Named(_) => Some("named expression"),
+                _ => None,
+            }
+        {
+            return Err(SymbolTableError {
+                error: format!("{keyword} cannot be used within a type alias"),
                 location: Some(
                     self.source_file
                         .to_source_code()
