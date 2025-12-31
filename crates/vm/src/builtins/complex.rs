@@ -10,10 +10,10 @@ use crate::{
     stdlib::warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use core::num::Wrapping;
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::hash;
-use std::num::Wrapping;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///

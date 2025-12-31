@@ -21,12 +21,12 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 unsafe extern "C" {
     #[cfg(not(target_os = "freebsd"))]
     #[link_name = "daylight"]
-    static c_daylight: std::ffi::c_int;
+    static c_daylight: core::ffi::c_int;
     // pub static dstbias: std::ffi::c_int;
     #[link_name = "timezone"]
-    static c_timezone: std::ffi::c_long;
+    static c_timezone: core::ffi::c_long;
     #[link_name = "tzname"]
-    static c_tzname: [*const std::ffi::c_char; 2];
+    static c_tzname: [*const core::ffi::c_char; 2];
     #[link_name = "tzset"]
     fn c_tzset();
 }
@@ -43,7 +43,7 @@ mod decl {
         DateTime, Datelike, TimeZone, Timelike,
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
     };
-    use std::time::Duration;
+    use core::time::Duration;
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
     use windows_sys::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
@@ -104,7 +104,7 @@ mod decl {
         {
             // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
             let ts = nix::sys::time::TimeSpec::from(dur);
-            let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
+            let res = unsafe { libc::nanosleep(ts.as_ref(), core::ptr::null_mut()) };
             let interrupted = res == -1 && nix::Error::last_raw() == libc::EINTR;
 
             if interrupted {
@@ -200,7 +200,7 @@ mod decl {
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
-    fn timezone(_vm: &VirtualMachine) -> std::ffi::c_long {
+    fn timezone(_vm: &VirtualMachine) -> core::ffi::c_long {
         unsafe { super::c_timezone }
     }
 
@@ -217,7 +217,7 @@ mod decl {
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
-    fn daylight(_vm: &VirtualMachine) -> std::ffi::c_int {
+    fn daylight(_vm: &VirtualMachine) -> core::ffi::c_int {
         unsafe { super::c_daylight }
     }
 
@@ -236,8 +236,8 @@ mod decl {
     fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
         use crate::builtins::tuple::IntoPyTuple;
 
-        unsafe fn to_str(s: *const std::ffi::c_char) -> String {
-            unsafe { std::ffi::CStr::from_ptr(s) }
+        unsafe fn to_str(s: *const core::ffi::c_char) -> String {
+            unsafe { core::ffi::CStr::from_ptr(s) }
                 .to_string_lossy()
                 .into_owned()
         }
@@ -357,7 +357,7 @@ mod decl {
         t: OptionalArg<StructTimeData>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use std::fmt::Write;
+        use core::fmt::Write;
 
         let instant = t.naive_or_local(vm)?;
 
@@ -500,8 +500,8 @@ mod decl {
         pub tm_zone: PyObjectRef,
     }
 
-    impl std::fmt::Debug for StructTimeData {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for StructTimeData {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "struct_time()")
         }
     }
@@ -590,8 +590,8 @@ mod platform {
         builtins::{PyNamespace, PyStrRef},
         convert::IntoPyException,
     };
+    use core::time::Duration;
     use nix::{sys::time::TimeSpec, time::ClockId};
-    use std::time::Duration;
 
     #[cfg(target_os = "solaris")]
     #[pyattr]
@@ -818,7 +818,7 @@ mod platform {
 
     fn u64_from_filetime(time: FILETIME) -> u64 {
         let large: [u32; 2] = [time.dwLowDateTime, time.dwHighDateTime];
-        unsafe { std::mem::transmute(large) }
+        unsafe { core::mem::transmute(large) }
     }
 
     fn win_perf_counter_frequency(vm: &VirtualMachine) -> PyResult<i64> {

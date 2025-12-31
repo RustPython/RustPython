@@ -4,8 +4,8 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     object::{Traverse, TraverseFn},
 };
-use std::borrow::Borrow;
-use std::ops::Deref;
+use core::borrow::Borrow;
+use core::ops::Deref;
 
 /// Iterator Protocol
 // https://docs.python.org/3/c-api/iter.html
@@ -223,7 +223,7 @@ where
     vm: &'a VirtualMachine,
     obj: O, // creating PyIter<O> is zero-cost
     length_hint: Option<usize>,
-    _phantom: std::marker::PhantomData<T>,
+    _phantom: core::marker::PhantomData<T>,
 }
 
 unsafe impl<T, O> Traverse for PyIterIter<'_, T, O>
@@ -244,7 +244,7 @@ where
             vm,
             obj,
             length_hint,
-            _phantom: std::marker::PhantomData,
+            _phantom: core::marker::PhantomData,
         }
     }
 }

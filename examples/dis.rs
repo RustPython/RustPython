@@ -9,9 +9,9 @@
 #[macro_use]
 extern crate log;
 
+use core::error::Error;
 use lexopt::ValueExt;
 use rustpython_compiler as compiler;
-use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 

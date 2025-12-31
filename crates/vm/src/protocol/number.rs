@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use core::ops::Deref;
 
 use crossbeam_utils::atomic::AtomicCell;
 

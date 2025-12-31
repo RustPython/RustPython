@@ -173,7 +173,7 @@ mod fcntl {
             };
         }
 
-        let mut l: libc::flock = unsafe { std::mem::zeroed() };
+        let mut l: libc::flock = unsafe { core::mem::zeroed() };
         l.l_type = if cmd == libc::LOCK_UN {
             try_into_l_type!(libc::F_UNLCK)
         } else if (cmd & libc::LOCK_SH) != 0 {

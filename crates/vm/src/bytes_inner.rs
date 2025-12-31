@@ -151,7 +151,7 @@ impl ByteInnerFindOptions {
         self,
         len: usize,
         vm: &VirtualMachine,
-    ) -> PyResult<(Vec<u8>, std::ops::Range<usize>)> {
+    ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
         let sub = match self.sub {
             Either::A(v) => v.elements.to_vec(),
             Either::B(int) => vec![int.as_bigint().byte_or(vm)?],
@@ -719,7 +719,7 @@ impl PyBytesInner {
     // len(self)>=1, from="", len(to)>=1, max_count>=1
     fn replace_interleave(&self, to: Self, max_count: Option<usize>) -> Vec<u8> {
         let place_count = self.elements.len() + 1;
-        let count = max_count.map_or(place_count, |v| std::cmp::min(v, place_count)) - 1;
+        let count = max_count.map_or(place_count, |v| core::cmp::min(v, place_count)) - 1;
         let capacity = self.elements.len() + count * to.len();
         let mut result = Vec::with_capacity(capacity);
         let to_slice = to.elements.as_slice();
@@ -952,7 +952,7 @@ where
 fn count_substring(haystack: &[u8], needle: &[u8], max_count: Option<usize>) -> usize {
     let substrings = haystack.find_iter(needle);
     if let Some(max_count) = max_count {
-        std::cmp::min(substrings.take(max_count).count(), max_count)
+        core::cmp::min(substrings.take(max_count).count(), max_count)
     } else {
         substrings.count()
     }
@@ -1025,11 +1025,11 @@ impl AnyStr for [u8] {
         self.iter().copied()
     }
 
-    fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self {
+    fn get_bytes(&self, range: core::ops::Range<usize>) -> &Self {
         &self[range]
     }
 
-    fn get_chars(&self, range: std::ops::Range<usize>) -> &Self {
+    fn get_chars(&self, range: core::ops::Range<usize>) -> &Self {
         &self[range]
     }
 
@@ -1120,7 +1120,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     let len = bytes.len();
 
     let buf = if bytes_per_sep < 0 {
-        let bytes_per_sep = std::cmp::min(len, (-bytes_per_sep) as usize);
+        let bytes_per_sep = core::cmp::min(len, (-bytes_per_sep) as usize);
         let chunks = (len - 1) / bytes_per_sep;
         let chunked = chunks * bytes_per_sep;
         let unchunked = len - chunked;
@@ -1139,7 +1139,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
         hex::encode_to_slice(&bytes[chunked..], &mut buf[j..j + unchunked * 2]).unwrap();
         buf
     } else {
-        let bytes_per_sep = std::cmp::min(len, bytes_per_sep as usize);
+        let bytes_per_sep = core::cmp::min(len, bytes_per_sep as usize);
         let chunks = (len - 1) / bytes_per_sep;
         let chunked = chunks * bytes_per_sep;
         let unchunked = len - chunked;

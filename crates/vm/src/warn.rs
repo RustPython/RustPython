@@ -60,7 +60,7 @@ fn get_warnings_attr(
         && !vm
             .state
             .finalizing
-            .load(std::sync::atomic::Ordering::SeqCst)
+            .load(core::sync::atomic::Ordering::SeqCst)
     {
         match vm.import("warnings", 0) {
             Ok(module) => module,

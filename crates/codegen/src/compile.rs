@@ -16,6 +16,7 @@ use crate::{
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
+use alloc::borrow::Cow;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex;
@@ -42,7 +43,7 @@ use rustpython_compiler_core::{
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use std::{borrow::Cow, collections::HashSet};
+use std::collections::HashSet;
 
 const MAXBLOCKS: usize = 20;
 
@@ -293,7 +294,7 @@ fn compiler_unwrap_option<T>(zelf: &Compiler, o: Option<T>) -> T {
     o.unwrap()
 }
 
-// fn compiler_result_unwrap<T, E: std::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
+// fn compiler_result_unwrap<T, E: core::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
 //     if result.is_err() {
 //         eprintln!("=== CODEGEN PANIC INFO ===");
 //         eprintln!("This IS an internal error, an result was unwrapped during codegen");
@@ -1831,7 +1832,7 @@ impl Compiler {
             name.to_owned(),
         );
 
-        let args_iter = std::iter::empty()
+        let args_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .map(|arg| &arg.parameter)
@@ -2438,7 +2439,7 @@ impl Compiler {
         let mut funcflags = bytecode::MakeFunctionFlags::empty();
 
         // Handle positional defaults
-        let defaults: Vec<_> = std::iter::empty()
+        let defaults: Vec<_> = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .filter_map(|x| x.default.as_deref())
@@ -2566,7 +2567,7 @@ impl Compiler {
         let mut num_annotations = 0;
 
         // Handle parameter annotations
-        let parameters_iter = std::iter::empty()
+        let parameters_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .chain(&parameters.kwonlyargs)
@@ -4965,7 +4966,7 @@ impl Compiler {
                 let name = "<lambda>".to_owned();
 
                 // Prepare defaults before entering function
-                let defaults: Vec<_> = std::iter::empty()
+                let defaults: Vec<_> = core::iter::empty()
                     .chain(&params.posonlyargs)
                     .chain(&params.args)
                     .filter_map(|x| x.default.as_deref())

@@ -7,15 +7,15 @@ use crate::types::{GetDescriptor, Representable};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
+use alloc::borrow::Cow;
+use core::ffi::{
+    c_double, c_float, c_int, c_long, c_longlong, c_short, c_uint, c_ulong, c_ulonglong, c_ushort,
+};
+use core::fmt::Debug;
+use core::mem;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
-use std::borrow::Cow;
-use std::ffi::{
-    c_double, c_float, c_int, c_long, c_longlong, c_short, c_uint, c_ulong, c_ulonglong, c_ushort,
-};
-use std::fmt::Debug;
-use std::mem;
 use widestring::WideChar;
 
 // StgInfo - Storage information for ctypes types
@@ -105,8 +105,8 @@ pub struct StgInfo {
 unsafe impl Send for StgInfo {}
 unsafe impl Sync for StgInfo {}
 
-impl std::fmt::Debug for StgInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for StgInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("StgInfo")
             .field("initialized", &self.initialized)
             .field("size", &self.size)
@@ -227,7 +227,7 @@ impl StgInfo {
                     libffi::middle::Type::structure(self.ffi_field_types.iter().cloned())
                 } else if self.size <= MAX_FFI_STRUCT_SIZE {
                     // Small struct without field types: use bytes array
-                    libffi::middle::Type::structure(std::iter::repeat_n(
+                    libffi::middle::Type::structure(core::iter::repeat_n(
                         libffi::middle::Type::u8(),
                         self.size,
                     ))
@@ -242,9 +242,9 @@ impl StgInfo {
                     libffi::middle::Type::pointer()
                 } else if let Some(ref fmt) = self.format {
                     let elem_type = Self::format_to_ffi_type(fmt);
-                    libffi::middle::Type::structure(std::iter::repeat_n(elem_type, self.length))
+                    libffi::middle::Type::structure(core::iter::repeat_n(elem_type, self.length))
                 } else {
-                    libffi::middle::Type::structure(std::iter::repeat_n(
+                    libffi::middle::Type::structure(core::iter::repeat_n(
                         libffi::middle::Type::u8(),
                         self.size,
                     ))
@@ -373,10 +373,10 @@ pub(super) static CDATA_BUFFER_METHODS: BufferMethods = BufferMethods {
 
 /// Convert Vec<T> to Vec<u8> by reinterpreting the memory (same allocation).
 fn vec_to_bytes<T>(vec: Vec<T>) -> Vec<u8> {
-    let len = vec.len() * std::mem::size_of::<T>();
-    let cap = vec.capacity() * std::mem::size_of::<T>();
+    let len = vec.len() * core::mem::size_of::<T>();
+    let cap = vec.capacity() * core::mem::size_of::<T>();
     let ptr = vec.as_ptr() as *mut u8;
-    std::mem::forget(vec);
+    core::mem::forget(vec);
     unsafe { Vec::from_raw_parts(ptr, len, cap) }
 }
 
@@ -406,7 +406,7 @@ pub(super) fn str_to_wchar_bytes(s: &str, vm: &VirtualMachine) -> (PyObjectRef, 
     let wchars: Vec<libc::wchar_t> = s
         .chars()
         .map(|c| c as libc::wchar_t)
-        .chain(std::iter::once(0))
+        .chain(core::iter::once(0))
         .collect();
     let ptr = wchars.as_ptr() as usize;
     let bytes = vec_to_bytes(wchars);
@@ -486,7 +486,7 @@ impl PyCData {
     pub unsafe fn at_address(ptr: *const u8, size: usize) -> Self {
         // = PyCData_AtAddress
         // SAFETY: Caller must ensure ptr is valid for the lifetime of returned PyCData
-        let slice: &'static [u8] = unsafe { std::slice::from_raw_parts(ptr, size) };
+        let slice: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, size) };
         PyCData {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(None),
@@ -534,7 +534,7 @@ impl PyCData {
     ) -> Self {
         // = PyCData_FromBaseObj
         // SAFETY: ptr points into base_obj's buffer, kept alive via base reference
-        let slice: &'static [u8] = unsafe { std::slice::from_raw_parts(ptr, size) };
+        let slice: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, size) };
         PyCData {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(Some(base_obj)),
@@ -561,7 +561,7 @@ impl PyCData {
         vm: &VirtualMachine,
     ) -> Self {
         // SAFETY: Caller must ensure ptr is valid for the lifetime of source
-        let slice: &'static [u8] = unsafe { std::slice::from_raw_parts(ptr, size) };
+        let slice: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, size) };
 
         // Python stores the reference in a dict with key "-1" (unique_key pattern)
         let objects_dict = vm.ctx.new_dict();
@@ -707,7 +707,7 @@ impl PyCData {
                 // (e.g., from from_address pointing to a ctypes buffer)
                 unsafe {
                     let ptr = slice.as_ptr() as *mut u8;
-                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.add(offset), bytes.len());
+                    core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.add(offset), bytes.len());
                 }
             }
             Cow::Owned(_) => {
@@ -893,7 +893,7 @@ impl PyCData {
             if let Some(bytes_val) = value.downcast_ref::<PyBytes>() {
                 let src = bytes_val.as_bytes();
                 let to_copy = PyCField::bytes_for_char_array(src);
-                let copy_len = std::cmp::min(to_copy.len(), size);
+                let copy_len = core::cmp::min(to_copy.len(), size);
                 self.write_bytes_at_offset(offset, &to_copy[..copy_len]);
                 self.keep_ref(index, value, vm)?;
                 return Ok(());
@@ -936,7 +936,7 @@ impl PyCData {
                 array_buffer.as_ptr() as usize
             };
             let addr_bytes = buffer_addr.to_ne_bytes();
-            let len = std::cmp::min(addr_bytes.len(), size);
+            let len = core::cmp::min(addr_bytes.len(), size);
             self.write_bytes_at_offset(offset, &addr_bytes[..len]);
             self.keep_ref(index, value, vm)?;
             return Ok(());
@@ -1364,7 +1364,7 @@ impl PyCField {
         if let Some(bytes) = value.downcast_ref::<PyBytes>() {
             let src = bytes.as_bytes();
             let mut result = vec![0u8; size];
-            let len = std::cmp::min(src.len(), size);
+            let len = core::cmp::min(src.len(), size);
             result[..len].copy_from_slice(&src[..len]);
             Ok(result)
         }
@@ -1372,7 +1372,7 @@ impl PyCField {
         else if let Some(cdata) = value.downcast_ref::<super::PyCData>() {
             let buffer = cdata.buffer.read();
             let mut result = vec![0u8; size];
-            let len = std::cmp::min(buffer.len(), size);
+            let len = core::cmp::min(buffer.len(), size);
             result[..len].copy_from_slice(&buffer[..len]);
             Ok(result)
         }
@@ -1473,7 +1473,7 @@ impl PyCField {
                     let (converted, ptr) = ensure_z_null_terminated(bytes, vm);
                     let mut result = vec![0u8; size];
                     let addr_bytes = ptr.to_ne_bytes();
-                    let len = std::cmp::min(addr_bytes.len(), size);
+                    let len = core::cmp::min(addr_bytes.len(), size);
                     result[..len].copy_from_slice(&addr_bytes[..len]);
                     return Ok((result, Some(converted)));
                 }
@@ -1482,7 +1482,7 @@ impl PyCField {
                     let v = int_val.as_bigint().to_usize().unwrap_or(0);
                     let mut result = vec![0u8; size];
                     let bytes = v.to_ne_bytes();
-                    let len = std::cmp::min(bytes.len(), size);
+                    let len = core::cmp::min(bytes.len(), size);
                     result[..len].copy_from_slice(&bytes[..len]);
                     return Ok((result, None));
                 }
@@ -1498,7 +1498,7 @@ impl PyCField {
                     let (holder, ptr) = str_to_wchar_bytes(s.as_str(), vm);
                     let mut result = vec![0u8; size];
                     let addr_bytes = ptr.to_ne_bytes();
-                    let len = std::cmp::min(addr_bytes.len(), size);
+                    let len = core::cmp::min(addr_bytes.len(), size);
                     result[..len].copy_from_slice(&addr_bytes[..len]);
                     return Ok((result, Some(holder)));
                 }
@@ -1507,7 +1507,7 @@ impl PyCField {
                     let v = int_val.as_bigint().to_usize().unwrap_or(0);
                     let mut result = vec![0u8; size];
                     let bytes = v.to_ne_bytes();
-                    let len = std::cmp::min(bytes.len(), size);
+                    let len = core::cmp::min(bytes.len(), size);
                     result[..len].copy_from_slice(&bytes[..len]);
                     return Ok((result, None));
                 }
@@ -1523,7 +1523,7 @@ impl PyCField {
                     let v = int_val.as_bigint().to_usize().unwrap_or(0);
                     let mut result = vec![0u8; size];
                     let bytes = v.to_ne_bytes();
-                    let len = std::cmp::min(bytes.len(), size);
+                    let len = core::cmp::min(bytes.len(), size);
                     result[..len].copy_from_slice(&bytes[..len]);
                     return Ok((result, None));
                 }
@@ -2078,7 +2078,7 @@ pub(super) fn bytes_to_pyobject(
                 if ptr == 0 {
                     return Ok(vm.ctx.none());
                 }
-                let c_str = unsafe { std::ffi::CStr::from_ptr(ptr as _) };
+                let c_str = unsafe { core::ffi::CStr::from_ptr(ptr as _) };
                 Ok(vm.ctx.new_bytes(c_str.to_bytes().to_vec()).into())
             }
             "Z" => {
@@ -2089,7 +2089,7 @@ pub(super) fn bytes_to_pyobject(
                 }
                 let len = unsafe { libc::wcslen(ptr as *const libc::wchar_t) };
                 let wchars =
-                    unsafe { std::slice::from_raw_parts(ptr as *const libc::wchar_t, len) };
+                    unsafe { core::slice::from_raw_parts(ptr as *const libc::wchar_t, len) };
                 let s: String = wchars
                     .iter()
                     .filter_map(|&c| char::from_u32(c as u32))
@@ -2149,7 +2149,7 @@ pub(super) fn get_usize_attr(
 /// Read a pointer value from buffer
 #[inline]
 pub(super) fn read_ptr_from_buffer(buffer: &[u8]) -> usize {
-    const PTR_SIZE: usize = std::mem::size_of::<usize>();
+    const PTR_SIZE: usize = core::mem::size_of::<usize>();
     if buffer.len() >= PTR_SIZE {
         usize::from_ne_bytes(buffer[..PTR_SIZE].try_into().unwrap())
     } else {
@@ -2242,7 +2242,7 @@ pub(super) fn get_field_size(field_type: &PyObject, vm: &VirtualMachine) -> PyRe
         return Ok(s);
     }
 
-    Ok(std::mem::size_of::<usize>())
+    Ok(core::mem::size_of::<usize>())
 }
 
 /// Get the alignment of a ctypes field type

@@ -18,13 +18,14 @@ use crate::{
     types::PyTypeFlags,
     vm::{Context, PyMethod},
 };
+use alloc::fmt;
+use core::iter::zip;
+#[cfg(feature = "threading")]
+use core::sync::atomic;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use rustpython_common::{boxvec::BoxVec, lock::PyMutex, wtf8::Wtf8Buf};
 use rustpython_compiler_core::SourceLocation;
-#[cfg(feature = "threading")]
-use std::sync::atomic;
-use std::{fmt, iter::zip};
 
 #[derive(Clone, Debug)]
 struct Block {
@@ -91,7 +92,7 @@ struct FrameState {
 #[cfg(feature = "threading")]
 type Lasti = atomic::AtomicU32;
 #[cfg(not(feature = "threading"))]
-type Lasti = std::cell::Cell<u32>;
+type Lasti = core::cell::Cell<u32>;
 
 #[pyclass(module = false, name = "frame")]
 pub struct Frame {
@@ -142,7 +143,7 @@ impl Frame {
         func_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> Self {
-        let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
+        let cells_frees = core::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
             .take(code.cellvars.len())
             .chain(closure.iter().cloned())
             .collect();
@@ -189,7 +190,7 @@ impl Frame {
         let locals = &self.locals;
         let code = &**self.code;
         let map = &code.varnames;
-        let j = std::cmp::min(map.len(), code.varnames.len());
+        let j = core::cmp::min(map.len(), code.varnames.len());
         if !code.varnames.is_empty() {
             let fastlocals = self.fastlocals.lock();
             for (&k, v) in zip(&map[..j], &**fastlocals) {
@@ -2243,14 +2244,14 @@ impl ExecutingFrame<'_> {
             }
         })?;
         let msg = match elements.len().cmp(&(size as usize)) {
-            std::cmp::Ordering::Equal => {
+            core::cmp::Ordering::Equal => {
                 self.state.stack.extend(elements.into_iter().rev());
                 return Ok(None);
             }
-            std::cmp::Ordering::Greater => {
+            core::cmp::Ordering::Greater => {
                 format!("too many values to unpack (expected {size})")
             }
-            std::cmp::Ordering::Less => format!(
+            core::cmp::Ordering::Less => format!(
                 "not enough values to unpack (expected {}, got {})",
                 size,
                 elements.len()
@@ -2525,7 +2526,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn replace_top(&mut self, mut top: PyObjectRef) -> PyObjectRef {
         let last = self.state.stack.last_mut().unwrap();
-        std::mem::swap(&mut top, last);
+        core::mem::swap(&mut top, last);
         top
     }
 
@@ -2561,12 +2562,12 @@ impl fmt::Debug for Frame {
             if elem.downcastable::<Self>() {
                 s.push_str("\n  > {frame}");
             } else {
-                std::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
+                core::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
             }
             s
         });
         let block_str = state.blocks.iter().fold(String::new(), |mut s, elem| {
-            std::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
+            core::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
             s
         });
         // TODO: fix this up

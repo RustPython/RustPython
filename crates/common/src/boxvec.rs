@@ -2,13 +2,13 @@
 //! An unresizable vector backed by a `Box<[T]>`
 
 #![allow(clippy::needless_lifetimes)]
-
-use std::{
+use alloc::{fmt, slice};
+use core::{
     borrow::{Borrow, BorrowMut},
-    cmp, fmt,
+    cmp,
     mem::{self, MaybeUninit},
     ops::{Bound, Deref, DerefMut, RangeBounds},
-    ptr, slice,
+    ptr,
 };
 
 pub struct BoxVec<T> {
@@ -555,7 +555,7 @@ impl<T> Extend<T> for BoxVec<T> {
             };
             let mut iter = iter.into_iter();
             loop {
-                if std::ptr::eq(ptr, end_ptr) {
+                if core::ptr::eq(ptr, end_ptr) {
                     break;
                 }
                 if let Some(elt) = iter.next() {
@@ -693,7 +693,7 @@ impl<T> CapacityError<T> {
 
 const CAPERROR: &str = "insufficient capacity";
 
-impl<T> std::error::Error for CapacityError<T> {}
+impl<T> core::error::Error for CapacityError<T> {}
 
 impl<T> fmt::Display for CapacityError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

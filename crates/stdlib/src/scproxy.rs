@@ -22,7 +22,7 @@ mod _scproxy {
 
     fn proxy_dict() -> Option<CFDictionary<CFString, CFType>> {
         // Py_BEGIN_ALLOW_THREADS
-        let proxy_dict = unsafe { SCDynamicStoreCopyProxies(std::ptr::null()) };
+        let proxy_dict = unsafe { SCDynamicStoreCopyProxies(core::ptr::null()) };
         // Py_END_ALLOW_THREADS
         if proxy_dict.is_null() {
             None

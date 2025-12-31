@@ -35,7 +35,7 @@ mod _overlapped {
 
     #[pyattr]
     const INVALID_HANDLE_VALUE: isize =
-        unsafe { std::mem::transmute(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE) };
+        unsafe { core::mem::transmute(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE) };
 
     #[pyattr]
     const NULL: isize = 0;
@@ -57,8 +57,8 @@ mod _overlapped {
     unsafe impl Sync for OverlappedInner {}
     unsafe impl Send for OverlappedInner {}
 
-    impl std::fmt::Debug for Overlapped {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for Overlapped {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             let zelf = self.inner.lock();
             f.debug_struct("Overlapped")
                 // .field("overlapped", &(self.overlapped as *const _ as usize))
@@ -98,8 +98,8 @@ mod _overlapped {
         address_length: libc::c_int,
     }
 
-    impl std::fmt::Debug for OverlappedReadFrom {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for OverlappedReadFrom {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("OverlappedReadFrom")
                 .field("result", &self.result)
                 .field("allocated_buffer", &self.allocated_buffer)
@@ -119,8 +119,8 @@ mod _overlapped {
         address_length: libc::c_int,
     }
 
-    impl std::fmt::Debug for OverlappedReadFromInto {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for OverlappedReadFromInto {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("OverlappedReadFromInto")
                 .field("result", &self.result)
                 .field("user_buffer", &self.user_buffer)
@@ -226,7 +226,7 @@ mod _overlapped {
             }
 
             #[cfg(target_pointer_width = "32")]
-            let size = std::cmp::min(size, std::isize::MAX as _);
+            let size = core::cmp::min(size, std::isize::MAX as _);
 
             let buf = vec![0u8; std::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
@@ -272,10 +272,10 @@ mod _overlapped {
             if event == INVALID_HANDLE_VALUE {
                 event = unsafe {
                     windows_sys::Win32::System::Threading::CreateEventA(
-                        std::ptr::null(),
+                        core::ptr::null(),
                         Foundation::TRUE,
                         Foundation::FALSE,
-                        std::ptr::null(),
+                        core::ptr::null(),
                     ) as isize
                 };
                 if event == NULL {
@@ -378,11 +378,11 @@ mod _overlapped {
                 let name = widestring::WideCString::from_str(&name).unwrap();
                 name.as_ptr()
             }
-            None => std::ptr::null(),
+            None => core::ptr::null(),
         };
         let event = unsafe {
             windows_sys::Win32::System::Threading::CreateEventW(
-                std::ptr::null(),
+                core::ptr::null(),
                 manual_reset as _,
                 initial_state as _,
                 name,

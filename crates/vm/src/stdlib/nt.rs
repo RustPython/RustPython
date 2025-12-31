@@ -497,7 +497,7 @@ pub(crate) mod module {
                 wide_path.as_ptr(),
                 FILE_READ_ATTRIBUTES,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                std::ptr::null(),
+                core::ptr::null(),
                 OPEN_EXISTING,
                 flags,
                 std::ptr::null_mut(),
@@ -517,7 +517,7 @@ pub(crate) mod module {
                     wide_path.as_ptr(),
                     FILE_READ_ATTRIBUTES,
                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                    std::ptr::null(),
+                    core::ptr::null(),
                     OPEN_EXISTING,
                     FILE_FLAG_OPEN_REPARSE_POINT,
                     std::ptr::null_mut(),
@@ -568,7 +568,7 @@ pub(crate) mod module {
                 wide_path.as_ptr(),
                 FILE_READ_ATTRIBUTES,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                std::ptr::null(),
+                core::ptr::null(),
                 OPEN_EXISTING,
                 flags,
                 std::ptr::null_mut(),
@@ -586,7 +586,7 @@ pub(crate) mod module {
                 wide_path.as_ptr(),
                 GENERIC_READ,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
-                std::ptr::null(),
+                core::ptr::null(),
                 OPEN_EXISTING,
                 0,
                 std::ptr::null_mut(),
@@ -733,7 +733,7 @@ pub(crate) mod module {
                 volume.as_ptr(),
                 FILE_READ_ATTRIBUTES,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
-                std::ptr::null(),
+                core::ptr::null(),
                 OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS,
                 std::ptr::null_mut(),
@@ -862,7 +862,7 @@ pub(crate) mod module {
                     conout.as_ptr(),
                     Foundation::GENERIC_READ | Foundation::GENERIC_WRITE,
                     FileSystem::FILE_SHARE_READ | FileSystem::FILE_SHARE_WRITE,
-                    std::ptr::null(),
+                    core::ptr::null(),
                     FileSystem::OPEN_EXISTING,
                     0,
                     std::ptr::null_mut(),
@@ -933,7 +933,7 @@ pub(crate) mod module {
         let argv_spawn: Vec<*const u16> = argv
             .iter()
             .map(|v| v.as_ptr())
-            .chain(once(std::ptr::null()))
+            .chain(once(core::ptr::null()))
             .collect();
 
         let result = unsafe { suppress_iph!(_wspawnv(mode, path.as_ptr(), argv_spawn.as_ptr())) };
@@ -976,7 +976,7 @@ pub(crate) mod module {
         let argv_spawn: Vec<*const u16> = argv
             .iter()
             .map(|v| v.as_ptr())
-            .chain(once(std::ptr::null()))
+            .chain(once(core::ptr::null()))
             .collect();
 
         // Build environment strings as "KEY=VALUE\0" wide strings
@@ -1004,7 +1004,7 @@ pub(crate) mod module {
         let envp: Vec<*const u16> = env_strings
             .iter()
             .map(|s| s.as_ptr())
-            .chain(once(std::ptr::null()))
+            .chain(once(core::ptr::null()))
             .collect();
 
         let result = unsafe {
@@ -1052,7 +1052,7 @@ pub(crate) mod module {
         let argv_execv: Vec<*const u16> = argv
             .iter()
             .map(|v| v.as_ptr())
-            .chain(once(std::ptr::null()))
+            .chain(once(core::ptr::null()))
             .collect();
 
         if (unsafe { suppress_iph!(_wexecv(path.as_ptr(), argv_execv.as_ptr())) } == -1) {
@@ -1093,7 +1093,7 @@ pub(crate) mod module {
         let argv_execve: Vec<*const u16> = argv
             .iter()
             .map(|v| v.as_ptr())
-            .chain(once(std::ptr::null()))
+            .chain(once(core::ptr::null()))
             .collect();
 
         // Build environment strings as "KEY=VALUE\0" wide strings
@@ -1121,7 +1121,7 @@ pub(crate) mod module {
         let envp: Vec<*const u16> = env_strings
             .iter()
             .map(|s| s.as_ptr())
-            .chain(once(std::ptr::null()))
+            .chain(once(core::ptr::null()))
             .collect();
 
         if (unsafe { suppress_iph!(_wexecve(path.as_ptr(), argv_execve.as_ptr(), envp.as_ptr())) }
@@ -1356,7 +1356,7 @@ pub(crate) mod module {
             .chain(std::iter::once(0)) // null-terminated
             .collect();
 
-        let mut end: *const u16 = std::ptr::null();
+        let mut end: *const u16 = core::ptr::null();
         let hr = unsafe {
             windows_sys::Win32::UI::Shell::PathCchSkipRoot(backslashed.as_ptr(), &mut end)
         };
@@ -1667,7 +1667,7 @@ pub(crate) mod module {
             let res = CreatePipe(
                 read.as_mut_ptr() as *mut _,
                 write.as_mut_ptr() as *mut _,
-                std::ptr::null(),
+                core::ptr::null(),
                 0,
             );
             if res == 0 {
@@ -1723,7 +1723,7 @@ pub(crate) mod module {
         let Some(func) = func else {
             return 0;
         };
-        let nt_query: NtQueryInformationProcessFn = unsafe { std::mem::transmute(func) };
+        let nt_query: NtQueryInformationProcessFn = unsafe { core::mem::transmute(func) };
 
         let mut info: PROCESS_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
 
@@ -1808,7 +1808,7 @@ pub(crate) mod module {
                 wide_path.as_ptr(),
                 0, // No access needed, just reading reparse data
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                std::ptr::null(),
+                core::ptr::null(),
                 OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
                 std::ptr::null_mut(),
@@ -1832,7 +1832,7 @@ pub(crate) mod module {
             DeviceIoControl(
                 handle,
                 FSCTL_GET_REPARSE_POINT,
-                std::ptr::null(),
+                core::ptr::null(),
                 0,
                 buffer.as_mut_ptr() as *mut _,
                 BUFFER_SIZE as u32,

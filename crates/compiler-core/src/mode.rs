@@ -7,7 +7,7 @@ pub enum Mode {
     BlockExpr,
 }
 
-impl std::str::FromStr for Mode {
+impl core::str::FromStr for Mode {
     type Err = ModeParseError;
 
     // To support `builtins.compile()` `mode` argument
@@ -25,8 +25,8 @@ impl std::str::FromStr for Mode {
 #[derive(Debug)]
 pub struct ModeParseError;
 
-impl std::fmt::Display for ModeParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ModeParseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, r#"mode must be "exec", "eval", or "single""#)
     }
 }

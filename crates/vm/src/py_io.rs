@@ -3,7 +3,9 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyStr},
     common::ascii,
 };
-use std::{fmt, io, ops};
+use alloc::fmt;
+use core::ops;
+use std::io;
 
 pub trait Write {
     type Error;

@@ -1,7 +1,8 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-use std::{io, process::ExitCode, str::Utf8Error};
+use core::str::Utf8Error;
+use std::{io, process::ExitCode};
 
 /// Convert exit code to std::process::ExitCode
 ///

@@ -20,7 +20,8 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use std::{fmt, ops::DerefMut};
+use alloc::fmt;
+use core::ops::DerefMut;
 
 #[pyclass(module = false, name = "list", unhashable = true, traverse)]
 #[derive(Default)]
@@ -172,7 +173,7 @@ impl PyList {
 
     #[pymethod]
     fn clear(&self) {
-        let _removed = std::mem::take(self.borrow_vec_mut().deref_mut());
+        let _removed = core::mem::take(self.borrow_vec_mut().deref_mut());
     }
 
     #[pymethod]
@@ -188,8 +189,8 @@ impl PyList {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.elements.read().capacity() * std::mem::size_of::<PyObjectRef>()
+        core::mem::size_of::<Self>()
+            + self.elements.read().capacity() * core::mem::size_of::<PyObjectRef>()
     }
 
     #[pymethod]
@@ -324,9 +325,9 @@ impl PyList {
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
-        let mut elements = std::mem::take(self.borrow_vec_mut().deref_mut());
+        let mut elements = core::mem::take(self.borrow_vec_mut().deref_mut());
         let res = do_sort(vm, &mut elements, options.key, options.reverse);
-        std::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
+        core::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
         res?;
 
         if !elements.is_empty() {
@@ -375,7 +376,7 @@ impl MutObjectSequenceOp for PyList {
         inner.get(index).map(|r| r.as_ref())
     }
 
-    fn do_lock(&self) -> impl std::ops::Deref<Target = [PyObjectRef]> {
+    fn do_lock(&self) -> impl core::ops::Deref<Target = [PyObjectRef]> {
         self.borrow_vec()
     }
 }
@@ -397,7 +398,7 @@ impl Initializer for PyList {
         } else {
             vec![]
         };
-        std::mem::swap(zelf.borrow_vec_mut().deref_mut(), &mut elements);
+        core::mem::swap(zelf.borrow_vec_mut().deref_mut(), &mut elements);
         Ok(())
     }
 }

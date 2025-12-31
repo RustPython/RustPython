@@ -19,8 +19,8 @@ pub struct PyGetSet {
     // doc: Option<String>,
 }
 
-impl std::fmt::Debug for PyGetSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyGetSet {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "PyGetSet {{ name: {}, getter: {}, setter: {} }}",
@@ -158,7 +158,7 @@ impl Representable for PyGetSet {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let class = unsafe { zelf.class.borrow_static() };
         // Special case for object type
-        if std::ptr::eq(class, vm.ctx.types.object_type) {
+        if core::ptr::eq(class, vm.ctx.types.object_type) {
             Ok(format!("<attribute '{}'>", zelf.name))
         } else {
             Ok(format!(

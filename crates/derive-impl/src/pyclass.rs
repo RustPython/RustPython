@@ -4,11 +4,11 @@ use crate::util::{
     ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, pyclass_ident_and_attrs,
     pyexception_ident_and_attrs, text_signature,
 };
+use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
 use rustpython_doc::DB;
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::*;
@@ -25,8 +25,8 @@ enum AttrName {
     Member,
 }
 
-impl std::fmt::Display for AttrName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for AttrName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let s = match self {
             Self::Method => "pymethod",
             Self::ClassMethod => "pyclassmethod",
@@ -44,7 +44,7 @@ impl std::fmt::Display for AttrName {
 impl FromStr for AttrName {
     type Err = String;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         Ok(match s {
             "pymethod" => Self::Method,
             "pyclassmethod" => Self::ClassMethod,
@@ -1488,7 +1488,7 @@ impl ItemMeta for SlotItemMeta {
 
     fn from_nested<I>(item_ident: Ident, meta_ident: Ident, mut nested: I) -> Result<Self>
     where
-        I: std::iter::Iterator<Item = NestedMeta>,
+        I: core::iter::Iterator<Item = NestedMeta>,
     {
         let meta_map = if let Some(nested_meta) = nested.next() {
             match nested_meta {

@@ -10,8 +10,9 @@ use crate::{
     object::PyObjectPayload,
     sliceable::SequenceIndexOp,
 };
+use alloc::borrow::Cow;
+use core::{fmt::Debug, ops::Range};
 use itertools::Itertools;
-use std::{borrow::Cow, fmt::Debug, ops::Range};
 
 pub struct BufferMethods {
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<'_, [u8]>,
@@ -21,7 +22,7 @@ pub struct BufferMethods {
 }
 
 impl Debug for BufferMethods {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BufferMethods")
             .field("obj_bytes", &(self.obj_bytes as usize))
             .field("obj_bytes_mut", &(self.obj_bytes_mut as usize))
@@ -134,8 +135,8 @@ impl PyBuffer {
     pub(crate) unsafe fn drop_without_release(&mut self) {
         // SAFETY: requirements forwarded from caller
         unsafe {
-            std::ptr::drop_in_place(&mut self.obj);
-            std::ptr::drop_in_place(&mut self.desc);
+            core::ptr::drop_in_place(&mut self.obj);
+            core::ptr::drop_in_place(&mut self.desc);
         }
     }
 }
@@ -414,7 +415,7 @@ pub struct VecBuffer {
 #[pyclass(flags(BASETYPE, DISALLOW_INSTANTIATION))]
 impl VecBuffer {
     pub fn take(&self) -> Vec<u8> {
-        std::mem::take(&mut self.data.lock())
+        core::mem::take(&mut self.data.lock())
     }
 }
 

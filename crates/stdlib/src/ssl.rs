@@ -52,14 +52,12 @@ mod _ssl {
     use super::error::{
         PySSLEOFError, PySSLError, create_ssl_want_read_error, create_ssl_want_write_error,
     };
-    use std::{
-        collections::HashMap,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-        time::{Duration, SystemTime},
+    use alloc::sync::Arc;
+    use core::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
     };
+    use std::{collections::HashMap, time::SystemTime};
 
     // Rustls imports
     use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
@@ -3124,7 +3122,7 @@ mod _ssl {
                         // When server_hostname=None, use an IP address to suppress SNI
                         // no hostname = no SNI extension
                         ServerName::IpAddress(
-                            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
+                            core::net::IpAddr::V4(core::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
                         )
                     };
 
@@ -3385,7 +3383,7 @@ mod _ssl {
                 let mut written = 0;
 
                 while written < data.len() {
-                    let chunk_end = std::cmp::min(written + CHUNK_SIZE, data.len());
+                    let chunk_end = core::cmp::min(written + CHUNK_SIZE, data.len());
                     let chunk = &data[written..chunk_end];
 
                     // Write chunk to TLS layer
@@ -4176,8 +4174,8 @@ mod _ssl {
         #[pygetset]
         fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
             // Return session ID (hash of session data for uniqueness)
+            use core::hash::{Hash, Hasher};
             use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
 
             let mut hasher = DefaultHasher::new();
             self.session_data.hash(&mut hasher);
@@ -4487,7 +4485,7 @@ mod _ssl {
 
         let mut result = Vec::new();
 
-        let mut crl_context: *const CRL_CONTEXT = std::ptr::null();
+        let mut crl_context: *const CRL_CONTEXT = core::ptr::null();
         loop {
             crl_context = unsafe { CertEnumCRLsInStore(store, crl_context) };
             if crl_context.is_null() {
@@ -4587,8 +4585,8 @@ mod _ssl {
     // Implement Hashable trait for PySSLCertificate
     impl Hashable for PySSLCertificate {
         fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
+            use core::hash::{Hash, Hasher};
             use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
 
             let mut hasher = DefaultHasher::new();
             zelf.der_bytes.hash(&mut hasher);

@@ -9,7 +9,7 @@ pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
 pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
-    let mut stat = std::mem::MaybeUninit::uninit();
+    let mut stat = core::mem::MaybeUninit::uninit();
     unsafe {
         let ret = libc::fstat(fd.as_raw(), stat.as_mut_ptr());
         if ret == -1 {
@@ -165,7 +165,7 @@ pub mod windows {
     }
 
     fn file_time_to_time_t_nsec(in_ptr: &FILETIME) -> (libc::time_t, libc::c_int) {
-        let in_val: i64 = unsafe { std::mem::transmute_copy(in_ptr) };
+        let in_val: i64 = unsafe { core::mem::transmute_copy(in_ptr) };
         let nsec_out = (in_val % 10_000_000) * 100; // FILETIME is in units of 100 nsec.
         let time_out = (in_val / 10_000_000) - SECS_BETWEEN_EPOCHS;
         (time_out, nsec_out as _)
@@ -204,7 +204,7 @@ pub mod windows {
         let st_nlink = info.nNumberOfLinks as i32;
 
         let st_ino = if let Some(id_info) = id_info {
-            let file_id: [u64; 2] = unsafe { std::mem::transmute_copy(&id_info.FileId) };
+            let file_id: [u64; 2] = unsafe { core::mem::transmute_copy(&id_info.FileId) };
             file_id
         } else {
             let ino = ((info.nFileIndexHigh as u64) << 32) + info.nFileIndexLow as u64;
@@ -313,7 +313,7 @@ pub mod windows {
                     unsafe { GetProcAddress(module, name.as_bytes_with_nul().as_ptr()) }
                 {
                     Some(unsafe {
-                        std::mem::transmute::<
+                        core::mem::transmute::<
                             unsafe extern "system" fn() -> isize,
                             unsafe extern "system" fn(
                                 *const u16,
@@ -441,7 +441,7 @@ pub mod windows {
 // Open a file using std::fs::File and convert to FILE*
 // Automatically handles path encoding and EINTR retries
 pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::FILE> {
-    use std::ffi::CString;
+    use alloc::ffi::CString;
     use std::fs::File;
 
     // Currently only supports read mode

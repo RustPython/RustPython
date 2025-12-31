@@ -16,7 +16,7 @@ use crate::{
         PyComparisonOp, Representable,
     },
 };
-use std::fmt;
+use alloc::fmt;
 
 // attr_exceptions
 static ATTR_EXCEPTIONS: [&str; 12] = [

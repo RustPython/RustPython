@@ -59,8 +59,8 @@ mod _tkinter {
         value: *mut tk_sys::Tcl_Obj,
     }
 
-    impl std::fmt::Debug for TclObject {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for TclObject {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "TclObject")
         }
     }
@@ -107,8 +107,8 @@ mod _tkinter {
     unsafe impl Send for TkApp {}
     unsafe impl Sync for TkApp {}
 
-    impl std::fmt::Debug for TkApp {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for TkApp {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "TkApp")
         }
     }
