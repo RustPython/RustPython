@@ -1001,6 +1001,16 @@ impl AsRef<Context> for VirtualMachine {
     }
 }
 
+/// Resolve frozen module alias to its original name.
+/// Returns the original module name if an alias exists, otherwise returns the input name.
+pub fn resolve_frozen_alias(name: &str) -> &str {
+    match name {
+        "_frozen_importlib" => "importlib._bootstrap",
+        "_frozen_importlib_external" => "importlib._bootstrap_external",
+        _ => name,
+    }
+}
+
 fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     let iter = core::iter::empty();
     macro_rules! ext_modules {
@@ -1063,4 +1073,27 @@ fn test_nested_frozen() {
             panic!();
         }
     })
+}
+
+#[test]
+fn frozen_origname_matches() {
+    use rustpython_vm as vm;
+
+    vm::Interpreter::with_init(Default::default(), |_vm| {}).enter(|vm| {
+        let check = |name, expected| {
+            let module = import::import_frozen(vm, name).unwrap();
+            let origname: PyStrRef = module
+                .get_attr("__origname__", vm)
+                .unwrap()
+                .try_into_value(vm)
+                .unwrap();
+            assert_eq!(origname.as_str(), expected);
+        };
+
+        check("_frozen_importlib", "importlib._bootstrap");
+        check(
+            "_frozen_importlib_external",
+            "importlib._bootstrap_external",
+        );
+    });
 }
