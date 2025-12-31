@@ -1472,6 +1472,26 @@ impl SymbolTableBuilder {
     }
 
     fn scan_type_params(&mut self, type_params: &TypeParams) -> SymbolTableResult {
+        // Check for duplicate type parameter names
+        let mut seen_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for type_param in &type_params.type_params {
+            let (name, range) = match type_param {
+                TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range),
+                TypeParam::ParamSpec(ps) => (ps.name.as_str(), ps.range),
+                TypeParam::TypeVarTuple(tvt) => (tvt.name.as_str(), tvt.range),
+            };
+            if !seen_names.insert(name) {
+                return Err(SymbolTableError {
+                    error: format!("duplicate type parameter '{}'", name),
+                    location: Some(
+                        self.source_file
+                            .to_source_code()
+                            .source_location(range.start(), PositionEncoding::Utf8),
+                    ),
+                });
+            }
+        }
+
         // Register .type_params as a type parameter (automatically becomes cell variable)
         self.register_name(".type_params", SymbolUsage::TypeParam, type_params.range)?;
 
