@@ -1001,9 +1001,15 @@ impl AsRef<Context> for VirtualMachine {
     }
 }
 
-use std::sync::OnceLock;
-
-static FROZEN_ORIGNAME_ALIASES: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+/// Resolve frozen module alias to its original name.
+/// Returns the original module name if an alias exists, otherwise returns the input name.
+pub fn resolve_frozen_alias(name: &str) -> &str {
+    match name {
+        "_frozen_importlib" => "importlib._bootstrap",
+        "_frozen_importlib_external" => "importlib._bootstrap_external",
+        _ => name,
+    }
+}
 
 fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     let iter = core::iter::empty();
@@ -1040,22 +1046,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
         crate_name = "rustpython_compiler_core"
     );
 
-    let aliases = FROZEN_ORIGNAME_ALIASES.get_or_init(|| {
-        HashMap::from([
-            ("_frozen_importlib", "importlib._bootstrap"),
-            (
-                "_frozen_importlib_external",
-                "importlib._bootstrap_external",
-            ),
-        ])
-    });
-
-    iter.map(|(name, mut module)| {
-        if let Some(origname) = aliases.get(name) {
-            module.origname = *origname;
-        }
-        (name, module)
-    })
+    iter
 }
 
 #[test]

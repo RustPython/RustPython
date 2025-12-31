@@ -45,7 +45,6 @@ enum CompilationSourceKind {
 struct CompiledModule {
     code: CodeObject,
     package: bool,
-    origname: String,
 }
 
 struct CompilationSource {
@@ -92,17 +91,12 @@ impl CompilationSource {
                 mode,
                 compiler,
             ),
-            _ => {
-                let origname = module_name.clone();
-                let code = self.compile_single(mode, module_name, compiler)?;
-                Ok(hashmap! {
-                    origname.clone() => CompiledModule {
-                        code,
-                        package: false,
-                        origname,
-                    },
-                })
-            }
+            _ => Ok(hashmap! {
+                module_name.clone() => CompiledModule {
+                    code: self.compile_single(mode, module_name, compiler)?,
+                    package: false,
+                },
+            }),
         }
     }
 
@@ -226,13 +220,11 @@ impl CompilationSource {
                     Err(e) => return Err(e),
                 };
 
-                let origname = module_name.clone();
                 code_map.insert(
                     module_name,
                     CompiledModule {
                         code,
                         package: is_init,
-                        origname,
                     },
                 );
             }
@@ -376,7 +368,6 @@ pub fn impl_py_freeze(
         let v = frozen::FrozenModule {
             code: frozen::FrozenCodeObject::encode(&v.code),
             package: v.package,
-            origname: &*v.origname,
         };
         (&**k, v)
     }));

@@ -5,7 +5,7 @@ use crate::{
     builtins::{PyCode, list, traceback::PyTraceback},
     exceptions::types::PyBaseException,
     scope::Scope,
-    vm::{VirtualMachine, thread},
+    vm::{VirtualMachine, resolve_frozen_alias, thread},
 };
 
 pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
@@ -77,7 +77,8 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     })?;
     let module = import_code_obj(vm, module_name, vm.ctx.new_code(frozen.code), false)?;
     debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
-    module.set_attr("__origname__", vm.ctx.new_str(frozen.origname), vm)?;
+    let origname = resolve_frozen_alias(module_name);
+    module.set_attr("__origname__", vm.ctx.new_str(origname), vm)?;
     Ok(module)
 }
 
