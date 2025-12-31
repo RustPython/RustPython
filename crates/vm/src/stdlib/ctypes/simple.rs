@@ -1133,14 +1133,6 @@ impl PyCSimple {
         self.0.base.read().clone()
     }
 
-    /// return True if any byte in buffer is non-zero
-    #[pymethod]
-    fn __bool__(&self) -> bool {
-        let buffer = self.0.buffer.read();
-        // Simple_bool: memcmp(self->b_ptr, zeros, self->b_size)
-        buffer.iter().any(|&b| b != 0)
-    }
-
     #[pygetset]
     pub fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let zelf: &Py<Self> = instance

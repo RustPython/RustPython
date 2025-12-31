@@ -261,7 +261,7 @@ impl Initializer for PyCPointer {
 
 #[pyclass(
     flags(BASETYPE, IMMUTABLETYPE),
-    with(Constructor, Initializer, AsBuffer)
+    with(Constructor, Initializer, AsNumber, AsBuffer)
 )]
 impl PyCPointer {
     /// Get the pointer value stored in buffer as usize
@@ -277,12 +277,6 @@ impl PyCPointer {
         if buffer.len() >= bytes.len() {
             buffer.to_mut()[..bytes.len()].copy_from_slice(&bytes);
         }
-    }
-
-    /// Pointer_bool: returns True if pointer is not NULL
-    #[pymethod]
-    fn __bool__(&self) -> bool {
-        self.get_ptr_value() != 0
     }
 
     /// contents getter - reads address from b_ptr and creates an instance of the pointed-to type
@@ -776,6 +770,19 @@ impl PyCPointer {
                 value.class().name()
             )))
         }
+    }
+}
+
+impl AsNumber for PyCPointer {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            boolean: Some(|number, _vm| {
+                let zelf = number.obj.downcast_ref::<PyCPointer>().unwrap();
+                Ok(zelf.get_ptr_value() != 0)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
     }
 }
 

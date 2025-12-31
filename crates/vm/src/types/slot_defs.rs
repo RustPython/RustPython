@@ -987,6 +987,12 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         doc: "Return getattr(self, name).",
     },
     SlotDef {
+        name: "__getattr__",
+        accessor: SlotAccessor::TpGetattro,
+        op: None,
+        doc: "Implement getattr(self, name).",
+    },
+    SlotDef {
         name: "__setattr__",
         accessor: SlotAccessor::TpSetattro,
         op: None,
@@ -1418,6 +1424,12 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         accessor: SlotAccessor::SqRepeat,
         op: None,
         doc: "Return self*value.",
+    },
+    SlotDef {
+        name: "__rmul__",
+        accessor: SlotAccessor::SqRepeat,
+        op: None,
+        doc: "Return value*self.",
     },
     SlotDef {
         name: "__iadd__",

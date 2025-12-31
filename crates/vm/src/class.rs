@@ -34,6 +34,13 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
             continue;
         }
 
+        // __getattr__ should only have a wrapper if the type explicitly defines it.
+        // Unlike __getattribute__, __getattr__ is not present on object by default.
+        // Both map to TpGetattro, but only __getattribute__ gets a wrapper from the slot.
+        if def.name == "__getattr__" {
+            continue;
+        }
+
         // Get the slot function wrapped in SlotFunc
         let Some(slot_func) = def.accessor.get_slot_func_with_op(&class.slots, def.op) else {
             continue;

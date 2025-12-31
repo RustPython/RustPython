@@ -601,6 +601,7 @@ impl PyType {
     /// Update slots based on dunder method changes
     ///
     /// Iterates SLOT_DEFS to find all slots matching the given name and updates them.
+    /// Also recursively updates subclasses that don't have their own definition.
     pub(crate) fn update_slot<const ADD: bool>(&self, name: &'static PyStrInterned, ctx: &Context) {
         debug_assert!(name.as_str().starts_with("__"));
         debug_assert!(name.as_str().ends_with("__"));
@@ -608,6 +609,36 @@ impl PyType {
         // Find all slot_defs matching this name and update each
         for def in find_slot_defs_by_name(name.as_str()) {
             self.update_one_slot::<ADD>(&def.accessor, name, ctx);
+        }
+
+        // Recursively update subclasses that don't have their own definition
+        self.update_subclasses::<ADD>(name, ctx);
+    }
+
+    /// Recursively update subclasses' slots
+    /// recurse_down_subclasses
+    fn update_subclasses<const ADD: bool>(&self, name: &'static PyStrInterned, ctx: &Context) {
+        let subclasses = self.subclasses.read();
+        for weak_ref in subclasses.iter() {
+            let Some(subclass) = weak_ref.upgrade() else {
+                continue;
+            };
+            let Some(subclass) = subclass.downcast_ref::<PyType>() else {
+                continue;
+            };
+
+            // Skip if subclass has its own definition for this attribute
+            if subclass.attributes.read().contains_key(name) {
+                continue;
+            }
+
+            // Update subclass's slots
+            for def in find_slot_defs_by_name(name.as_str()) {
+                subclass.update_one_slot::<ADD>(&def.accessor, name, ctx);
+            }
+
+            // Recurse into subclass's subclasses
+            subclass.update_subclasses::<ADD>(name, ctx);
         }
     }
 
@@ -706,7 +737,44 @@ impl PyType {
                 }
             }
             SlotAccessor::TpDel => update_main_slot!(del, del_wrapper, Del),
-            SlotAccessor::TpGetattro => update_main_slot!(getattro, getattro_wrapper, GetAttro),
+            SlotAccessor::TpGetattro => {
+                // __getattribute__ and __getattr__ both map to TpGetattro.
+                // If __getattr__ is defined anywhere in MRO, we must use the wrapper
+                // because the native slot won't call __getattr__.
+                let __getattr__ = identifier!(ctx, __getattr__);
+                let has_getattr = {
+                    let attrs = self.attributes.read();
+                    let in_self = attrs.contains_key(__getattr__);
+                    drop(attrs);
+                    // mro[0] is self, so skip it
+                    in_self
+                        || self
+                            .mro
+                            .read()
+                            .iter()
+                            .skip(1)
+                            .any(|cls| cls.attributes.read().contains_key(__getattr__))
+                };
+
+                if has_getattr {
+                    // Must use wrapper to handle __getattr__
+                    self.slots.getattro.store(Some(getattro_wrapper));
+                } else if ADD {
+                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
+                        if let SlotFunc::GetAttro(f) = sf {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    }) {
+                        self.slots.getattro.store(Some(func));
+                    } else {
+                        self.slots.getattro.store(Some(getattro_wrapper));
+                    }
+                } else {
+                    accessor.inherit_from_mro(self);
+                }
+            }
             SlotAccessor::TpSetattro => {
                 // __setattr__ and __delattr__ share the same slot
                 if ADD {

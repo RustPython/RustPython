@@ -213,11 +213,6 @@ mod winreg {
         }
 
         #[pymethod]
-        fn __bool__(&self) -> bool {
-            !self.hkey.load().is_null()
-        }
-
-        #[pymethod]
         fn __enter__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             Ok(zelf)
         }
@@ -268,13 +263,9 @@ mod winreg {
                 negative: Some(|_a, vm| PyHkey::unary_fail(vm)),
                 positive: Some(|_a, vm| PyHkey::unary_fail(vm)),
                 absolute: Some(|_a, vm| PyHkey::unary_fail(vm)),
-                boolean: Some(|a, vm| {
-                    if let Some(a) = a.downcast_ref::<PyHkey>() {
-                        Ok(a.__bool__())
-                    } else {
-                        PyHkey::unary_fail(vm)?;
-                        unreachable!()
-                    }
+                boolean: Some(|a, _vm| {
+                    let zelf = a.obj.downcast_ref::<PyHkey>().unwrap();
+                    Ok(!zelf.hkey.load().is_null())
                 }),
                 invert: Some(|_a, vm| PyHkey::unary_fail(vm)),
                 lshift: Some(|_a, _b, vm| PyHkey::binary_fail(vm)),
