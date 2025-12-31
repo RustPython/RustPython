@@ -306,17 +306,12 @@ mod _sqlite {
     /// - Legacy (default): use isolation_level to control transactions
     /// - Enabled: autocommit mode (no automatic transactions)
     /// - Disabled: manual commit mode
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     enum AutocommitMode {
+        #[default]
         Legacy,
         Enabled,
         Disabled,
-    }
-
-    impl Default for AutocommitMode {
-        fn default() -> Self {
-            Self::Legacy
-        }
     }
 
     impl TryFromBorrowedObject<'_> for AutocommitMode {
