@@ -957,8 +957,6 @@ class TestGetsourceStdlib(unittest.TestCase):
 
 class TestGetsourceInteractive(unittest.TestCase):
     @support.force_not_colorized
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getclasses_interactive(self):
         # bpo-44648: simulate a REPL session;
         # there is no `__file__` in the __main__ module
