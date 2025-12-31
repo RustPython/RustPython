@@ -678,9 +678,27 @@ impl PyType {
         macro_rules! update_sub_slot {
             ($group:ident, $slot:ident, $wrapper:expr, $variant:ident) => {{
                 if ADD {
-                    // If this type defines the method itself (not inherited), use wrapper
-                    // to ensure the Python method is called
-                    if self.attributes.read().contains_key(name) {
+                    // Check if this type defines any method that maps to this slot.
+                    // Some slots like SqAssItem/MpAssSubscript are shared by multiple
+                    // methods (__setitem__ and __delitem__). If any of those methods
+                    // is defined, we must use the wrapper to ensure Python method calls.
+                    let has_own = {
+                        let guard = self.attributes.read();
+                        // Check the current method name
+                        let mut result = guard.contains_key(name);
+                        // For ass_item/ass_subscript slots, also check the paired method
+                        // (__setitem__ and __delitem__ share the same slot)
+                        if !result
+                            && (stringify!($slot) == "ass_item"
+                                || stringify!($slot) == "ass_subscript")
+                        {
+                            let setitem = ctx.intern_str("__setitem__");
+                            let delitem = ctx.intern_str("__delitem__");
+                            result = guard.contains_key(setitem) || guard.contains_key(delitem);
+                        }
+                        result
+                    };
+                    if has_own {
                         self.slots.$group.$slot.store(Some($wrapper));
                     } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
                         if let SlotFunc::$variant(f) = sf {
