@@ -43,7 +43,7 @@ mod _functools {
     }
 
     #[pyattr]
-    #[pyclass(name = "partial", module = "_functools")]
+    #[pyclass(name = "partial", module = "functools")]
     #[derive(Debug, PyPayload)]
     pub struct PyPartial {
         inner: PyRwLock<PyPartialInner>,
@@ -319,28 +319,22 @@ mod _functools {
                     ));
                 }
 
-                let class_name = zelf.class().name();
+                let qualname = zelf.class().__qualname__(vm);
+                let qualname_str = qualname
+                    .downcast::<crate::builtins::PyStr>()
+                    .map(|s| s.as_str().to_owned())
+                    .unwrap_or_else(|_| zelf.class().name().to_owned());
                 let module = zelf.class().__module__(vm);
 
-                let qualified_name = if zelf.class().is(Self::class(&vm.ctx)) {
-                    // For the base partial class, always use functools.partial
-                    "functools.partial".to_owned()
-                } else {
-                    // For subclasses, check if they're defined in __main__ or test modules
-                    match module.downcast::<crate::builtins::PyStr>() {
-                        Ok(module_str) => {
-                            let module_name = module_str.as_str();
-                            match module_name {
-                                "builtins" | "" | "__main__" => class_name.to_owned(),
-                                name if name.starts_with("test.") || name == "test" => {
-                                    // For test modules, just use the class name without module prefix
-                                    class_name.to_owned()
-                                }
-                                _ => format!("{module_name}.{class_name}"),
-                            }
+                let qualified_name = match module.downcast::<crate::builtins::PyStr>() {
+                    Ok(module_str) => {
+                        let module_name = module_str.as_str();
+                        match module_name {
+                            "builtins" | "" => qualname_str,
+                            _ => format!("{module_name}.{qualname_str}"),
                         }
-                        Err(_) => class_name.to_owned(),
                     }
+                    Err(_) => qualname_str,
                 };
 
                 Ok(format!(

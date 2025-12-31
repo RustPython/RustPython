@@ -479,7 +479,6 @@ class ExceptionTest(unittest.TestCase):
         with self.assertRaises(StopIteration):
             gen.throw(E)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: DeprecationWarning not triggered
     def test_gen_3_arg_deprecation_warning(self):
         def g():
             yield 42
