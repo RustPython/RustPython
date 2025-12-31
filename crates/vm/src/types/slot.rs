@@ -607,7 +607,9 @@ impl PyType {
         debug_assert!(name.as_str().ends_with("__"));
 
         // Find all slot_defs matching this name and update each
-        for def in find_slot_defs_by_name(name.as_str()) {
+        // NOTE: Collect into Vec first to avoid issues during iteration
+        let defs: Vec<_> = find_slot_defs_by_name(name.as_str()).collect();
+        for def in defs {
             self.update_one_slot::<ADD>(&def.accessor, name, ctx);
         }
 
@@ -676,7 +678,11 @@ impl PyType {
         macro_rules! update_sub_slot {
             ($group:ident, $slot:ident, $wrapper:expr, $variant:ident) => {{
                 if ADD {
-                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
+                    // If this type defines the method itself (not inherited), use wrapper
+                    // to ensure the Python method is called
+                    if self.attributes.read().contains_key(name) {
+                        self.slots.$group.$slot.store(Some($wrapper));
+                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
                         if let SlotFunc::$variant(f) = sf {
                             Some(*f)
                         } else {
