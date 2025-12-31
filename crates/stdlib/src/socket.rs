@@ -2107,9 +2107,9 @@ mod _socket {
 
         #[pymethod]
         fn close(&self) -> io::Result<()> {
-            let sock = self.detach();
-            if sock != INVALID_SOCKET as i64 {
-                close_inner(sock as RawSocket)?;
+            let sock = self.sock.write().take();
+            if let Some(sock) = sock {
+                close_inner(into_sock_fileno(sock))?;
             }
             Ok(())
         }
