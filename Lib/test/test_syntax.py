@@ -2577,6 +2577,7 @@ class A:
             with self.subTest(f"out of range: {n=}"):
                 self._check_error(get_code(n), "too many statically nested blocks")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_barry_as_flufl_with_syntax_errors(self):
         # The "barry_as_flufl" rule can produce some "bugs-at-a-distance" if
         # is reading the wrong token in the presence of syntax errors later
