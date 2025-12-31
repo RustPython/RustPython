@@ -533,9 +533,12 @@ fn reduce_set(
     flags(BASETYPE, _MATCH_SELF)
 )]
 impl PySet {
-    #[pymethod]
     fn __len__(&self) -> usize {
         self.inner.len()
+    }
+
+    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.contains(needle, vm)
     }
 
     #[pymethod]
@@ -548,11 +551,6 @@ impl PySet {
         Self {
             inner: self.inner.copy(),
         }
-    }
-
-    #[pymethod]
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.contains(&needle, vm)
     }
 
     #[pymethod]
@@ -799,9 +797,9 @@ impl AsSequence for PySet {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PySet::sequence_downcast(seq).__len__())),
-            contains: atomic_func!(|seq, needle, vm| PySet::sequence_downcast(seq)
-                .inner
-                .contains(needle, vm)),
+            contains: atomic_func!(
+                |seq, needle, vm| PySet::sequence_downcast(seq).__contains__(needle, vm)
+            ),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
@@ -972,9 +970,12 @@ impl Constructor for PyFrozenSet {
     )
 )]
 impl PyFrozenSet {
-    #[pymethod]
     fn __len__(&self) -> usize {
         self.inner.len()
+    }
+
+    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.contains(needle, vm)
     }
 
     #[pymethod]
@@ -993,11 +994,6 @@ impl PyFrozenSet {
             }
             .into_ref(&vm.ctx)
         }
-    }
-
-    #[pymethod]
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.contains(&needle, vm)
     }
 
     #[pymethod]
@@ -1142,9 +1138,9 @@ impl AsSequence for PyFrozenSet {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).__len__())),
-            contains: atomic_func!(|seq, needle, vm| PyFrozenSet::sequence_downcast(seq)
-                .inner
-                .contains(needle, vm)),
+            contains: atomic_func!(
+                |seq, needle, vm| PyFrozenSet::sequence_downcast(seq).__contains__(needle, vm)
+            ),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE

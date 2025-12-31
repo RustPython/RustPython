@@ -355,11 +355,6 @@ mod _collections {
             self.borrow_deque().len()
         }
 
-        #[pymethod]
-        fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-            self.concat(&other, vm)
-        }
-
         fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
             if let Some(o) = other.downcast_ref::<Self>() {
                 let mut deque = self.borrow_deque().clone();

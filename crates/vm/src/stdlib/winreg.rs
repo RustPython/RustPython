@@ -222,7 +222,6 @@ mod winreg {
             zelf.Close(vm)
         }
 
-        #[pymethod]
         fn __int__(&self) -> usize {
             self.hkey.load() as usize
         }
