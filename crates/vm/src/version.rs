@@ -32,7 +32,7 @@ pub fn get_version() -> String {
     let msc_info = String::new();
 
     format!(
-        "{:.80} ({:.80}) \n[RustPython {} with {:.80}{}]", // \n is PyPy convention
+        "{:.80} ({:.80}) \nPVM 0.0.2 based on RustPython {} with {:.80}{}", // \n is PyPy convention
         get_version_number(),
         get_build_info(),
         env!("CARGO_PKG_VERSION"),
