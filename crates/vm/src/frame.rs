@@ -457,9 +457,30 @@ impl ExecutingFrame<'_> {
                 arg_state.reset()
             }
             if let Some(path) = maybe_checkpoint_request(vm, op, idx as u32) {
-                let source_path = self.code.source_path.as_str();
-                let lasti = self.lasti();
-                checkpoint::save_checkpoint_from_exec(vm, source_path, lasti, &self.code, self.globals, &path)?;
+                // Save checkpoint using the new multi-frame API
+                eprintln!("DEBUG: Checkpoint requested, calling save_checkpoint");
+                // Pass the current instruction index (which has already been validated as PopTop)
+                // The resume point is the next instruction after PopTop
+                let resume_lasti = (idx as u32).checked_add(1).ok_or_else(|| {
+                    vm.new_runtime_error("checkpoint lasti overflow".to_owned())
+                })?;
+                match checkpoint::save_checkpoint_with_lasti(&vm, &path, resume_lasti) {
+                    Ok(_) => {
+                        eprintln!("DEBUG: Checkpoint saved successfully");
+                    }
+                    Err(exc) => {
+                        eprintln!("ERROR: Checkpoint failed");
+                        eprintln!("  Exception class: {}", exc.class().name());
+                        // Return the error instead of swallowing it to see traceback
+                        return Err(exc);
+                    }
+                }
+                
+                // Flush output before exiting
+                use std::io::Write;
+                let _ = std::io::stdout().flush();
+                let _ = std::io::stderr().flush();
+                eprintln!("DEBUG: About to exit");
                 std::process::exit(0);
             }
         }
