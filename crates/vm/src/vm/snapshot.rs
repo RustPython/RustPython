@@ -33,6 +33,7 @@ pub(crate) struct FrameState {
     pub code: Vec<u8>,      // Marshaled code object
     pub lasti: u32,         // Instruction pointer
     pub locals: ObjId,      // Local variables dict
+    pub stack: Vec<ObjId>,  // Value stack (for loop iterators, etc.)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,64 +152,87 @@ pub(crate) fn dump_checkpoint_frames(
     source_path: &str,
     frames: &[(&crate::frame::FrameRef, u32)],  // (frame, resume_lasti)
 ) -> PyResult<Vec<u8>> {
+    dump_checkpoint_frames_with_stack(vm, source_path, frames, Vec::new())
+}
+
+pub(crate) fn dump_checkpoint_frames_with_stack(
+    vm: &VirtualMachine,
+    source_path: &str,
+    frames: &[(&crate::frame::FrameRef, u32)],  // (frame, resume_lasti)
+    innermost_stack: Vec<crate::PyObjectRef>,  // Stack of the innermost frame
+) -> PyResult<Vec<u8>> {
     use crate::builtins::PyDictRef;
     
     // STEP 1: Prepare all locals dicts BEFORE creating SnapshotWriter
-    eprintln!("DEBUG: Preparing locals dicts for all frames...");
     let mut locals_dicts = Vec::new();
-    for (_idx, (frame, _resume_lasti)) in frames.iter().enumerate() {
-        eprintln!("DEBUG: Creating independent locals dict for frame {}", _idx);
-        let locals_dict = vm.ctx.new_dict();
-        
-        // Copy fastlocals into the new dict
-        let varnames = &frame.code.code.varnames;
-        let fastlocals = frame.fastlocals.lock();
-        eprintln!("DEBUG: Frame {}: Copying {} fastlocals to dict", _idx, varnames.len());
-        for (idx, varname) in varnames.iter().enumerate() {
-            if let Some(value) = &fastlocals[idx] {
-                locals_dict.set_item(*varname, value.clone(), vm)?;
-                eprintln!("DEBUG: Frame {}: Set locals[{varname}] = {}", _idx, value.class().name());
+    for (idx, (frame, _resume_lasti)) in frames.iter().enumerate() {
+        let locals_dict = if idx == 0 {
+            // For module-level frame (first frame), use globals as locals
+            // This ensures that module-level variables defined during execution are captured
+            frame.globals.clone()
+        } else {
+            // For function frames, create a new dict and copy fastlocals
+            let locals_dict = vm.ctx.new_dict();
+            
+            // Copy fastlocals into the new dict
+            let varnames = &frame.code.code.varnames;
+            let fastlocals = frame.fastlocals.lock();
+            for (idx, varname) in varnames.iter().enumerate() {
+                if let Some(value) = &fastlocals[idx] {
+                    locals_dict.set_item(*varname, value.clone(), vm)?;
+                }
             }
-        }
-        drop(fastlocals);
-        
-        // Also copy cell/free vars if any
-        if !frame.code.code.cellvars.is_empty() || !frame.code.code.freevars.is_empty() {
-            eprintln!("DEBUG: Frame {}: Copying cells/freevars", _idx);
-            let all_vars = frame.code.code.cellvars.iter().chain(frame.code.code.freevars.iter());
-            for (idx, varname) in all_vars.enumerate() {
-                if let Some(cell) = frame.cells_frees.get(idx) {
-                    if let Some(value) = cell.get() {
-                        let class_name = value.class().name().to_owned();
-                        locals_dict.set_item(*varname, value, vm)?;
-                        eprintln!("DEBUG: Frame {}: Set locals[{varname}] from cell = {}", _idx, class_name);
+            drop(fastlocals);
+            
+            // Also copy cell/free vars if any
+            if !frame.code.code.cellvars.is_empty() || !frame.code.code.freevars.is_empty() {
+                let all_vars = frame.code.code.cellvars.iter().chain(frame.code.code.freevars.iter());
+                for (idx, varname) in all_vars.enumerate() {
+                    if let Some(cell) = frame.cells_frees.get(idx) {
+                        if let Some(value) = cell.get() {
+                            locals_dict.set_item(*varname, value, vm)?;
+                        }
                     }
                 }
             }
-        }
+            
+            locals_dict
+        };
         
         locals_dicts.push(locals_dict);
     }
-    eprintln!("DEBUG: All locals dicts prepared");
     
-    // STEP 2: Create writer and do a SINGLE serialization pass
-    // Create a container object that holds globals and all locals dicts
-    eprintln!("DEBUG: Creating container for all objects to serialize");
-    let container = vm.ctx.new_list(vec![]);
-    
-    // Add globals as first element
-    let globals = &frames[0].0.globals;
-    container.append(globals.clone().into(), vm).map_err(|e| {
-        SnapshotError::msg(format!("failed to add globals: {e}"))
-    })?;
-    
-    // Add all locals dicts
-    for (_idx, locals_dict) in locals_dicts.iter().enumerate() {
-        container.append(locals_dict.clone().into(), vm).map_err(|e| {
-            SnapshotError::msg(format!("failed to add locals {}: {e}", _idx))
-        })?;
+    // STEP 2: Collect value stacks from all frames
+    let mut stack_items = Vec::new();
+    for (idx, (_frame, _resume_lasti)) in frames.iter().enumerate() {
+        let is_innermost = idx == frames.len() - 1;
+        let stack_result = if is_innermost {
+            // Use the provided stack for the innermost frame
+            innermost_stack.clone()
+        } else {
+            // For outer frames, use empty stack
+            // They are waiting for inner frames to return, and their stack state
+            // will be reconstructed during resume (return value will be pushed)
+            Vec::new()
+        };
+        stack_items.push(stack_result);
     }
-    eprintln!("DEBUG: Container created with {} items", container.len());
+    
+    // STEP 3: Create writer and do a SINGLE serialization pass
+    // Get globals (from the first frame)
+    let globals = &frames[0].0.globals;
+    
+    // STEP 3: Create writer and do a SINGLE serialization pass
+    // Create a container tuple that holds: globals, all locals dicts, and all stack lists
+    let mut container_items = vec![globals.clone().into()];
+    for locals_dict in locals_dicts.iter() {
+        container_items.push(locals_dict.clone().into());
+    }
+    for stack in stack_items.iter() {
+        let stack_list = vm.ctx.new_list(stack.clone());
+        container_items.push(stack_list.into());
+    }
+    let container = vm.ctx.new_tuple(container_items);
     
     // Now serialize the container (this will serialize everything in one pass)
     let mut writer = SnapshotWriter::new(vm);
@@ -216,33 +240,40 @@ pub(crate) fn dump_checkpoint_frames(
     let _container_id = writer.serialize_obj(&container_obj).map_err(|err| {
         vm.new_value_error(format!("checkpoint snapshot failed: {err:?}"))
     })?;
-    eprintln!("DEBUG: Container serialized");
     
     // Now get the IDs for globals and each locals dict
     let globals_obj = globals.as_object().to_owned();
-    let root = writer.get_id(&globals_obj).ok_or_else(|| {
-        vm.new_value_error("globals not found in serialized objects".to_owned())
+    let root = writer.get_id(&globals_obj).map_err(|err| {
+        vm.new_value_error(format!("globals not found: {err:?}"))
     })?;
     
-    // Build frame states with correct locals IDs
+    // Build frame states with correct locals IDs and stack IDs
     let mut frame_states = Vec::new();
-    for (_idx, ((frame, resume_lasti), locals_dict)) in frames.iter().zip(locals_dicts.iter()).enumerate() {
-        eprintln!("DEBUG: Building frame state for frame {}", _idx);
+    for (_idx, (((frame, resume_lasti), locals_dict), stack)) in 
+        frames.iter().zip(locals_dicts.iter()).zip(stack_items.iter()).enumerate() {
         let code_bytes = serialize_code_object(&frame.code.code);
         
         let locals_obj = locals_dict.clone().into();
-        let locals_id = writer.get_id(&locals_obj).ok_or_else(|| {
-            vm.new_value_error(format!("frame {} locals not found in serialized objects", _idx))
+        let locals_id = writer.get_id(&locals_obj).map_err(|err| {
+            vm.new_value_error(format!("frame {} locals not found: {err:?}", _idx))
         })?;
-        eprintln!("DEBUG: Frame {}: locals ID = {}", _idx, locals_id);
+        
+        // Get IDs for all stack items
+        let mut stack_ids = Vec::new();
+        for stack_item in stack.iter() {
+            let item_id = writer.get_id(stack_item).map_err(|err| {
+                vm.new_value_error(format!("frame {} stack item not found: {err:?}", _idx))
+            })?;
+            stack_ids.push(item_id);
+        }
         
         frame_states.push(FrameState {
             code: code_bytes,
             lasti: *resume_lasti,
             locals: locals_id,
+            stack: stack_ids,
         });
     }
-    eprintln!("DEBUG: All frame states built");
     
     let state = CheckpointState {
         version: SNAPSHOT_VERSION,
@@ -273,6 +304,7 @@ pub(crate) fn dump_checkpoint_state(
         code: code_bytes,
         lasti,
         locals: root,  // For module-level, locals == globals
+        stack: Vec::new(),  // Legacy path, assume empty stack
     };
     
     let state = CheckpointState {
@@ -358,12 +390,6 @@ impl<'a> SnapshotWriter<'a> {
         // Return the root object's ID
         let ptr = obj.as_object().as_raw() as usize;
         Ok(*self.ids.get(&ptr).unwrap())
-    }
-    
-    /// Get the ID of an already-serialized object
-    fn get_id(&self, obj: &PyObjectRef) -> Option<ObjId> {
-        let ptr = obj.as_object().as_raw() as usize;
-        self.ids.get(&ptr).copied()
     }
     
     /// Phase 1: Recursively assign IDs to all objects in the graph
@@ -2169,10 +2195,14 @@ fn encode_checkpoint_state(state: &CheckpointState) -> Vec<u8> {
     
     // Encode frames array
     let frames_array = state.frames.iter().map(|frame_state| {
+        let stack_array = frame_state.stack.iter()
+            .map(|obj_id| CborValue::Uint(*obj_id as u64))
+            .collect::<Vec<_>>();
         CborValue::Map(vec![
             (CborValue::Text("code".to_owned()), CborValue::Bytes(frame_state.code.clone())),
             (CborValue::Text("lasti".to_owned()), CborValue::Uint(frame_state.lasti as u64)),
             (CborValue::Text("locals".to_owned()), CborValue::Uint(frame_state.locals as u64)),
+            (CborValue::Text("stack".to_owned()), CborValue::Array(stack_array)),
         ])
     }).collect::<Vec<_>>();
     fields.push(("frames", CborValue::Array(frames_array)));
@@ -2219,12 +2249,21 @@ fn decode_checkpoint_state(data: &[u8]) -> Result<CheckpointState, SnapshotError
                     let mut f_code = None;
                     let mut f_lasti = None;
                     let mut f_locals = None;
+                    let mut f_stack = None;
                     for (k, v) in frame_map {
                         let k = expect_text(k)?;
                         match k.as_str() {
                             "code" => f_code = Some(expect_bytes(v)?),
                             "lasti" => f_lasti = Some(expect_uint(v)? as u32),
                             "locals" => f_locals = Some(expect_uint(v)? as ObjId),
+                            "stack" => {
+                                let arr = expect_array(v)?;
+                                let mut stack_ids = Vec::new();
+                                for item in arr {
+                                    stack_ids.push(expect_uint(item)? as ObjId);
+                                }
+                                f_stack = Some(stack_ids);
+                            }
                             _ => {}
                         }
                     }
@@ -2232,6 +2271,7 @@ fn decode_checkpoint_state(data: &[u8]) -> Result<CheckpointState, SnapshotError
                         code: f_code.ok_or_else(|| SnapshotError::msg("missing frame code"))?,
                         lasti: f_lasti.ok_or_else(|| SnapshotError::msg("missing frame lasti"))?,
                         locals: f_locals.ok_or_else(|| SnapshotError::msg("missing frame locals"))?,
+                        stack: f_stack.unwrap_or_else(Vec::new),  // For backward compatibility
                     });
                 }
                 frames_data = Some(frame_states);
@@ -2265,6 +2305,7 @@ fn decode_checkpoint_state(data: &[u8]) -> Result<CheckpointState, SnapshotError
             code,
             lasti,
             locals: root,  // Old format: locals == globals for module-level
+            stack: Vec::new(),  // Old format: assume empty stack
         }]
     };
     

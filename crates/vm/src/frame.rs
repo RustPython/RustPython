@@ -235,6 +235,12 @@ impl Frame {
         Ok(state.stack.iter().cloned().collect())
     }
 
+    /// Get the value stack without checking blocks (for multi-frame checkpoint support)
+    pub(crate) fn get_stack(&self, _vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let state = self.state.lock();
+        Ok(state.stack.iter().cloned().collect())
+    }
+
     #[allow(dead_code)]
     pub(crate) fn restore_stack(
         &self,
@@ -252,6 +258,13 @@ impl Frame {
             state.stack.push(value);
         }
         Ok(())
+    }
+
+    /// Push a value onto the frame's value stack
+    /// This is used when resuming from a checkpoint and an inner frame returns
+    pub(crate) fn push_stack_value(&self, value: PyObjectRef) {
+        let mut state = self.state.lock();
+        state.stack.push(value);
     }
 
     pub(crate) fn set_lasti(&self, value: u32) {
@@ -458,29 +471,41 @@ impl ExecutingFrame<'_> {
             }
             if let Some(path) = maybe_checkpoint_request(vm, op, idx as u32) {
                 // Save checkpoint using the new multi-frame API
-                eprintln!("DEBUG: Checkpoint requested, calling save_checkpoint");
                 // Pass the current instruction index (which has already been validated as PopTop)
                 // The resume point is the next instruction after PopTop
                 let resume_lasti = (idx as u32).checked_add(1).ok_or_else(|| {
                     vm.new_runtime_error("checkpoint lasti overflow".to_owned())
                 })?;
-                match checkpoint::save_checkpoint_with_lasti(&vm, &path, resume_lasti) {
+                
+                // Collect current frame's stack (must do this while we still hold the lock)
+                let current_stack: Vec<PyObjectRef> = self.state.stack.iter().cloned().collect();
+                
+                match checkpoint::save_checkpoint_with_lasti_and_stack(&vm, &path, resume_lasti, current_stack) {
                     Ok(_) => {
-                        eprintln!("DEBUG: Checkpoint saved successfully");
                     }
                     Err(exc) => {
-                        eprintln!("ERROR: Checkpoint failed");
                         eprintln!("  Exception class: {}", exc.class().name());
                         // Return the error instead of swallowing it to see traceback
                         return Err(exc);
                     }
                 }
                 
-                // Flush output before exiting
+                // Flush output buffers before exiting
+                // Try to flush Python's stdout/stderr by accessing the sys module
+                if let Ok(sys_module) = vm.import("sys", 0) {
+                    if let Ok(stdout) = sys_module.get_attr("stdout", vm) {
+                        let _ = vm.call_method(&stdout, "flush", ());
+                    }
+                    if let Ok(stderr) = sys_module.get_attr("stderr", vm) {
+                        let _ = vm.call_method(&stderr, "flush", ());
+                    }
+                }
+                
+                // Also flush Rust-level output
                 use std::io::Write;
                 let _ = std::io::stdout().flush();
                 let _ = std::io::stderr().flush();
-                eprintln!("DEBUG: About to exit");
+                
                 std::process::exit(0);
             }
         }
