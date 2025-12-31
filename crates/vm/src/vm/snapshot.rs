@@ -60,6 +60,10 @@ enum ObjTag {
     BuiltinModule = 18,
     BuiltinDict = 19,
     BuiltinFunction = 20,
+    Enumerate = 21,
+    Zip = 22,
+    Map = 23,
+    Filter = 24,
 }
 
 #[derive(Debug)]
@@ -85,6 +89,10 @@ enum ObjectPayload {
     BuiltinModule { name: String },
     BuiltinDict { name: String },
     Function(FunctionPayload),
+    Enumerate { iterator: ObjId, count: i64 },
+    Zip { iterators: Vec<ObjId> },
+    Map { function: ObjId, iterator: ObjId },
+    Filter { function: ObjId, iterator: ObjId },
     BuiltinFunction(BuiltinFunctionPayload),
     Code(Vec<u8>),
     Type(TypePayload),
@@ -562,6 +570,56 @@ impl<'a> SnapshotWriter<'a> {
                 }
                 Ok(())
             }
+            ObjTag::Enumerate => {
+                // Visit the iterator via __reduce__
+                // enumerate.__reduce__() returns (type, (iterator, count))
+                if let Some(reduce_fn) = get_attr_opt(self.vm, obj, "__reduce__")? {
+                    if let Ok(result) = self.vm.invoke(&reduce_fn, ()) {
+                        if let Some(tuple) = result.downcast_ref::<PyTuple>() {
+                            if tuple.len() >= 2 {
+                                // Get the args tuple: (iterator, count)
+                                if let Some(args) = tuple.get(1).and_then(|o| o.downcast_ref::<PyTuple>()) {
+                                    if let Some(iterator) = args.get(0) {
+                                        self.assign_ids_phase(iterator)?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+            ObjTag::Zip => {
+                // Visit all iterators in the zip
+                if let Some(iterators) = get_attr_opt(self.vm, obj, "__iterators__")? {
+                    if let Some(tuple) = iterators.downcast_ref::<PyTuple>() {
+                        for iter in tuple.iter() {
+                            self.assign_ids_phase(iter)?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            ObjTag::Map => {
+                // Visit the function and iterator
+                if let Some(func) = get_attr_opt(self.vm, obj, "__func__")? {
+                    self.assign_ids_phase(&func)?;
+                }
+                if let Some(iterator) = get_attr_opt(self.vm, obj, "__iterator__")? {
+                    self.assign_ids_phase(&iterator)?;
+                }
+                Ok(())
+            }
+            ObjTag::Filter => {
+                // Visit the predicate and iterator
+                if let Some(func) = get_attr_opt(self.vm, obj, "__predicate__")? {
+                    self.assign_ids_phase(&func)?;
+                }
+                if let Some(iterator) = get_attr_opt(self.vm, obj, "__iterator__")? {
+                    self.assign_ids_phase(&iterator)?;
+                }
+                Ok(())
+            }
         }
     }
     
@@ -896,6 +954,76 @@ impl<'a> SnapshotWriter<'a> {
                     self_obj,
                 }))
             }
+            ObjTag::Enumerate => {
+                // Use __reduce__ to get iterator and count
+                let reduce_fn = get_attr(self.vm, obj, "__reduce__")?;
+                let result = self.vm.invoke(&reduce_fn, ())
+                    .map_err(|_| SnapshotError::msg("enumerate __reduce__ failed"))?;
+                
+                let tuple = result.downcast_ref::<PyTuple>()
+                    .ok_or_else(|| SnapshotError::msg("enumerate __reduce__ didn't return tuple"))?;
+                
+                if tuple.len() < 2 {
+                    return Err(SnapshotError::msg("enumerate __reduce__ tuple too short"));
+                }
+                
+                // Get args tuple: (iterator, count)
+                let args = tuple.get(1)
+                    .and_then(|o| o.downcast_ref::<PyTuple>())
+                    .ok_or_else(|| SnapshotError::msg("enumerate __reduce__ args invalid"))?;
+                
+                let iterator = args.get(0)
+                    .ok_or_else(|| SnapshotError::msg("enumerate missing iterator in __reduce__"))?
+                    .clone();
+                let iterator_id = self.get_id(&iterator)?;
+                
+                let count_bigint = args.get(1)
+                    .and_then(|o| o.downcast_ref::<crate::builtins::int::PyInt>())
+                    .ok_or_else(|| SnapshotError::msg("enumerate missing count in __reduce__"))?;
+                
+                let count = count_bigint.try_to_primitive::<i64>(self.vm).unwrap_or(0);
+                
+                Ok(ObjectPayload::Enumerate { iterator: iterator_id, count })
+            }
+            ObjTag::Zip => {
+                // Extract iterators from zip object
+                let iterators_obj = get_attr_opt(self.vm, obj, "__iterators__")?
+                    .ok_or_else(|| SnapshotError::msg("zip missing __iterators__"))?;
+                
+                let iterators = if let Some(tuple) = iterators_obj.downcast_ref::<PyTuple>() {
+                    tuple.iter()
+                        .map(|iter| self.get_id(iter))
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    Vec::new()
+                };
+                
+                Ok(ObjectPayload::Zip { iterators })
+            }
+            ObjTag::Map => {
+                // Extract function and iterator from map object
+                let function = get_attr_opt(self.vm, obj, "__func__")?
+                    .ok_or_else(|| SnapshotError::msg("map missing __func__"))?;
+                let function_id = self.get_id(&function)?;
+                
+                let iterator = get_attr_opt(self.vm, obj, "__iterator__")?
+                    .ok_or_else(|| SnapshotError::msg("map missing __iterator__"))?;
+                let iterator_id = self.get_id(&iterator)?;
+                
+                Ok(ObjectPayload::Map { function: function_id, iterator: iterator_id })
+            }
+            ObjTag::Filter => {
+                // Extract predicate and iterator from filter object
+                let function = get_attr_opt(self.vm, obj, "__predicate__")?
+                    .ok_or_else(|| SnapshotError::msg("filter missing __predicate__"))?;
+                let function_id = self.get_id(&function)?;
+                
+                let iterator = get_attr_opt(self.vm, obj, "__iterator__")?
+                    .ok_or_else(|| SnapshotError::msg("filter missing __iterator__"))?;
+                let iterator_id = self.get_id(&iterator)?;
+                
+                Ok(ObjectPayload::Filter { function: function_id, iterator: iterator_id })
+            }
         }
     }
 }
@@ -948,6 +1076,17 @@ fn classify_obj(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<ObjTag, Snapsh
     }
     if obj.fast_isinstance(vm.ctx.types.builtin_function_or_method_type) {
         return Ok(ObjTag::BuiltinFunction);
+    }
+    
+    // Check for iterator types by class name
+    let class_name_obj = obj.class().name();
+    let class_name = class_name_obj.as_ref();
+    match class_name {
+        "enumerate" => return Ok(ObjTag::Enumerate),
+        "zip" => return Ok(ObjTag::Zip),
+        "map" => return Ok(ObjTag::Map),
+        "filter" => return Ok(ObjTag::Filter),
+        _ => {}
     }
     if obj.downcast_ref::<PyCode>().is_some() {
         return Ok(ObjTag::Code);
@@ -1658,6 +1797,55 @@ impl<'a> SnapshotReader<'a> {
                 let cell = PyCell::new(value);
                 let cell_ref: crate::PyRef<PyCell> = self.vm.ctx.new_pyref(cell);
                 cell_ref.into()
+            }
+            ObjectPayload::Enumerate { iterator, count } => {
+                // Restore enumerate object
+                let iter_obj = self.get_obj(*iterator)?;
+                
+                // Call enumerate(iter, start=count) to recreate
+                let enumerate_fn = self.vm.builtins.get_attr("enumerate", self.vm)
+                    .map_err(|_| SnapshotError::msg("enumerate not found"))?;
+                let count_obj = self.vm.ctx.new_int(*count);
+                
+                // Create kwargs with "start" parameter
+                use crate::function::{FuncArgs, KwArgs};
+                use indexmap::IndexMap;
+                let mut kwargs_map = IndexMap::new();
+                kwargs_map.insert("start".to_string(), count_obj.into());
+                let kwargs = KwArgs::new(kwargs_map);
+                let args = FuncArgs::new(vec![iter_obj.clone()], kwargs);
+                
+                self.vm.invoke(&enumerate_fn, args)
+                    .map_err(|_| SnapshotError::msg("enumerate restore failed"))?
+            }
+            ObjectPayload::Zip { iterators } => {
+                // Restore zip object
+                let iter_objs: Result<Vec<_>, _> = iterators.iter()
+                    .map(|id| self.get_obj(*id))
+                    .collect();
+                let iter_objs = iter_objs?;
+                let zip_fn = self.vm.builtins.get_attr("zip", self.vm)
+                    .map_err(|_| SnapshotError::msg("zip not found"))?;
+                self.vm.invoke(&zip_fn, iter_objs)
+                    .map_err(|_| SnapshotError::msg("zip restore failed"))?
+            }
+            ObjectPayload::Map { function, iterator } => {
+                // Restore map object
+                let func_obj = self.get_obj(*function)?;
+                let iter_obj = self.get_obj(*iterator)?;
+                let map_fn = self.vm.builtins.get_attr("map", self.vm)
+                    .map_err(|_| SnapshotError::msg("map not found"))?;
+                self.vm.invoke(&map_fn, (func_obj, iter_obj))
+                    .map_err(|_| SnapshotError::msg("map restore failed"))?
+            }
+            ObjectPayload::Filter { function, iterator } => {
+                // Restore filter object
+                let func_obj = self.get_obj(*function)?;
+                let iter_obj = self.get_obj(*iterator)?;
+                let filter_fn = self.vm.builtins.get_attr("filter", self.vm)
+                    .map_err(|_| SnapshotError::msg("filter not found"))?;
+                self.vm.invoke(&filter_fn, (func_obj, iter_obj))
+                    .map_err(|_| SnapshotError::msg("filter restore failed"))?
             }
         };
         self.objects[idx] = Some(obj);
@@ -2389,6 +2577,25 @@ fn encode_object_entry(entry: &ObjectEntry) -> CborValue {
             (CborValue::Text("new_kwargs".to_owned()), opt_id(inst.new_kwargs)),
         ]),
         ObjectPayload::Cell(value) => opt_id(*value),
+        ObjectPayload::Enumerate { iterator, count } => CborValue::Map(vec![
+            (CborValue::Text("iterator".to_owned()), CborValue::Uint(*iterator as u64)),
+            (CborValue::Text("count".to_owned()), if *count >= 0 {
+                CborValue::Uint(*count as u64)
+            } else {
+                CborValue::Nint((-*count - 1) as u64)
+            }),
+        ]),
+        ObjectPayload::Zip { iterators } => CborValue::Array(
+            iterators.iter().map(|id| CborValue::Uint(*id as u64)).collect()
+        ),
+        ObjectPayload::Map { function, iterator } => CborValue::Map(vec![
+            (CborValue::Text("function".to_owned()), CborValue::Uint(*function as u64)),
+            (CborValue::Text("iterator".to_owned()), CborValue::Uint(*iterator as u64)),
+        ]),
+        ObjectPayload::Filter { function, iterator } => CborValue::Map(vec![
+            (CborValue::Text("function".to_owned()), CborValue::Uint(*function as u64)),
+            (CborValue::Text("iterator".to_owned()), CborValue::Uint(*iterator as u64)),
+        ]),
     };
     CborValue::Array(vec![CborValue::Uint(entry.tag as u64), payload])
 }
@@ -2421,6 +2628,10 @@ fn decode_object_entry(value: CborValue) -> Result<ObjectEntry, SnapshotError> {
         18 => ObjTag::BuiltinModule,
         19 => ObjTag::BuiltinDict,
         20 => ObjTag::BuiltinFunction,
+        21 => ObjTag::Enumerate,
+        22 => ObjTag::Zip,
+        23 => ObjTag::Map,
+        24 => ObjTag::Filter,
         _ => return Err(SnapshotError::msg("unknown tag")),
     };
     let payload = decode_payload(tag, arr[1].clone())?;
@@ -2529,6 +2740,34 @@ fn decode_payload(tag: ObjTag, value: CborValue) -> Result<ObjectPayload, Snapsh
             }))
         }
         ObjTag::Cell => Ok(ObjectPayload::Cell(opt_id_decode(&value))),
+        ObjTag::Enumerate => {
+            let map = expect_map(value)?;
+            Ok(ObjectPayload::Enumerate {
+                iterator: expect_uint(map_get(&map, "iterator")?)? as ObjId,
+                count: expect_int(map_get(&map, "count")?)?,
+            })
+        }
+        ObjTag::Zip => {
+            let arr = expect_array(value)?;
+            let iterators = arr.iter()
+                .map(|v| expect_uint(v.clone()).map(|id| id as ObjId))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(ObjectPayload::Zip { iterators })
+        }
+        ObjTag::Map => {
+            let map = expect_map(value)?;
+            Ok(ObjectPayload::Map {
+                function: expect_uint(map_get(&map, "function")?)? as ObjId,
+                iterator: expect_uint(map_get(&map, "iterator")?)? as ObjId,
+            })
+        }
+        ObjTag::Filter => {
+            let map = expect_map(value)?;
+            Ok(ObjectPayload::Filter {
+                function: expect_uint(map_get(&map, "function")?)? as ObjId,
+                iterator: expect_uint(map_get(&map, "iterator")?)? as ObjId,
+            })
+        }
     }
 }
 
@@ -2608,6 +2847,14 @@ fn expect_uint(value: CborValue) -> Result<u64, SnapshotError> {
     match value {
         CborValue::Uint(v) => Ok(v),
         _ => Err(SnapshotError::msg("expected uint")),
+    }
+}
+
+fn expect_int(value: CborValue) -> Result<i64, SnapshotError> {
+    match value {
+        CborValue::Uint(v) => Ok(v as i64),
+        CborValue::Nint(v) => Ok(-(v as i64) - 1),
+        _ => Err(SnapshotError::msg("expected int")),
     }
 }
 
