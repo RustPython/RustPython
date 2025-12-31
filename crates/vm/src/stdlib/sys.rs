@@ -600,20 +600,11 @@ mod sys {
     }
 
     #[pyfunction]
-<<<<<<< HEAD
     const fn _is_gil_enabled() -> bool {
         false // RustPython has no GIL (like free-threaded Python)
     }
 
     #[pyfunction]
-||||||| parent of 39b62a349 (Update `test_sys.py` from 3.13.11)
-=======
-    const fn _is_gil_enabled() -> bool {
-        false // We don't implement GIL
-    }
-
-    #[pyfunction]
->>>>>>> 39b62a349 (Update `test_sys.py` from 3.13.11)
     fn exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = code.unwrap_or_none(vm);
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))

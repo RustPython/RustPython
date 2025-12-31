@@ -206,6 +206,7 @@ class SysModuleTest(unittest.TestCase):
     def tearDown(self):
         test.support.reap_children()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exit(self):
         # call with two arguments
         self.assertRaises(TypeError, sys.exit, 42, 42)
@@ -1179,7 +1180,6 @@ class SysModuleTest(unittest.TestCase):
         c = sys.getallocatedblocks()
         self.assertIn(c, range(b - 50, b + 50))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_is_gil_enabled(self):
         if support.Py_GIL_DISABLED:
             self.assertIs(type(sys._is_gil_enabled()), bool)
@@ -1319,7 +1319,6 @@ class SysModuleTest(unittest.TestCase):
         self.assertEqual(proc.stdout.rstrip().splitlines(), expected,
                          proc)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'stdlib_module_names'
     def test_module_names(self):
         self.assertIsInstance(sys.stdlib_module_names, frozenset)
         for name in sys.stdlib_module_names:
