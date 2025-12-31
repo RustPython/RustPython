@@ -31,10 +31,13 @@ pub fn get_version() -> String {
     #[cfg(not(windows))]
     let msc_info = String::new();
 
+    let pvm_version = env!("PVM_VERSION");
+
     format!(
-        "{:.80} ({:.80}) \nPVM 0.0.2 based on RustPython {} with {:.80}{}", // \n is PyPy convention
+        "{:.80} ({:.80}) \nPVM VERSION {} , based on RustPython {} with {:.80}{}", // \n is PyPy convention
         get_version_number(),
         get_build_info(),
+        pvm_version,
         env!("CARGO_PKG_VERSION"),
         COMPILER,
         msc_info,

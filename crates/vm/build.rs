@@ -12,6 +12,8 @@ fn main() {
         println!("cargo:rerun-if-changed={display}");
     }
     println!("cargo:rerun-if-changed=../../Lib/importlib/_bootstrap.py");
+    println!("cargo:rerun-if-changed=../../Cargo.toml");
+    println!("cargo:rerun-if-env-changed=PVM_VERSION");
 
     println!("cargo:rustc-env=RUSTPYTHON_GIT_HASH={}", git_hash());
     println!(
@@ -21,6 +23,7 @@ fn main() {
     println!("cargo:rustc-env=RUSTPYTHON_GIT_TAG={}", git_tag());
     println!("cargo:rustc-env=RUSTPYTHON_GIT_BRANCH={}", git_branch());
     println!("cargo:rustc-env=RUSTC_VERSION={}", rustc_version());
+    println!("cargo:rustc-env=PVM_VERSION={}", pvm_version());
 
     println!(
         "cargo:rustc-env=RUSTPYTHON_TARGET_TRIPLE={}",
@@ -61,6 +64,45 @@ fn git(args: &[&str]) -> String {
 fn rustc_version() -> String {
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     command(rustc, &["-V"])
+}
+
+fn pvm_version() -> String {
+    if let Ok(version) = env::var("PVM_VERSION") {
+        if !version.trim().is_empty() {
+            return version;
+        }
+    }
+
+    let manifest_dir = match env::var("CARGO_MANIFEST_DIR") {
+        Ok(dir) => PathBuf::from(dir),
+        Err(_) => return "0.0.0".to_owned(),
+    };
+    let root_manifest = manifest_dir.join("../../Cargo.toml");
+    let manifest = match std::fs::read_to_string(root_manifest) {
+        Ok(contents) => contents,
+        Err(_) => return "0.0.0".to_owned(),
+    };
+
+    let mut in_pvm_section = false;
+    for line in manifest.lines() {
+        let line = line.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            in_pvm_section = line == "[package.metadata.pvm]";
+            continue;
+        }
+        if !in_pvm_section || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (key, value) = match line.split_once('=') {
+            Some(pair) => pair,
+            None => continue,
+        };
+        if key.trim() == "version" {
+            return value.trim().trim_matches('"').to_owned();
+        }
+    }
+
+    "0.0.0".to_owned()
 }
 
 fn command(cmd: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> String {

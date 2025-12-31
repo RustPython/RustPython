@@ -119,6 +119,10 @@ template = "installer-config/installer.nsi"
 [package.metadata.packager.wix]
 template = "installer-config/installer.wxs"
 
+# PVM Current Version 
+[package.metadata.pvm]
+version = "0.0.2"
+
 
 [workspace]
 resolver = "2"
