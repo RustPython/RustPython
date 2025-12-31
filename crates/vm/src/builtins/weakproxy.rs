@@ -4,11 +4,11 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
-    protocol::{PyIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
+    protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, GetAttr, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SetAttr,
+        AsMapping, AsNumber, AsSequence, Comparable, Constructor, GetAttr, Hashable, IterNext,
+        Iterable, PyComparisonOp, Representable, SetAttr,
     },
 };
 use std::sync::LazyLock;
@@ -68,6 +68,7 @@ crate::common::static_cell! {
     SetAttr,
     Constructor,
     Comparable,
+    AsNumber,
     AsSequence,
     AsMapping,
     Representable,
@@ -85,11 +86,6 @@ impl PyWeakProxy {
 
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_upgrade(vm)?.length(vm)
-    }
-
-    #[pymethod]
-    fn __bool__(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        self.try_upgrade(vm)?.is_true(vm)
     }
 
     #[pymethod]
@@ -168,6 +164,19 @@ impl SetAttr for PyWeakProxy {
     ) -> PyResult<()> {
         let obj = zelf.try_upgrade(vm)?;
         obj.call_set_attr(vm, attr_name, value)
+    }
+}
+
+impl AsNumber for PyWeakProxy {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: LazyLock<PyNumberMethods> = LazyLock::new(|| PyNumberMethods {
+            boolean: Some(|number, vm| {
+                let zelf = number.obj.downcast_ref::<PyWeakProxy>().unwrap();
+                zelf.try_upgrade(vm)?.is_true(vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        });
+        &AS_NUMBER
     }
 }
 

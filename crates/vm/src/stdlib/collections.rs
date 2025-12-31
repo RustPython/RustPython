@@ -12,13 +12,13 @@ mod _collections {
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{KwArgs, OptionalArg, PyComparisonValue},
         iter::PyExactSizeIterator,
-        protocol::{PyIterReturn, PySequenceMethods},
+        protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
         types::{
-            AsSequence, Comparable, Constructor, DefaultConstructor, Initializer, IterNext,
-            Iterable, PyComparisonOp, Representable, SelfIter,
+            AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor, Initializer,
+            IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
         },
         utils::collection_repr,
     };
@@ -60,6 +60,7 @@ mod _collections {
         with(
             Constructor,
             Initializer,
+            AsNumber,
             AsSequence,
             Comparable,
             Iterable,
@@ -355,11 +356,6 @@ mod _collections {
         }
 
         #[pymethod]
-        fn __bool__(&self) -> bool {
-            !self.borrow_deque().is_empty()
-        }
-
-        #[pymethod]
         fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
             self.concat(&other, vm)
         }
@@ -493,6 +489,19 @@ mod _collections {
             }
 
             Ok(())
+        }
+    }
+
+    impl AsNumber for PyDeque {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                boolean: Some(|number, _vm| {
+                    let zelf = number.obj.downcast_ref::<PyDeque>().unwrap();
+                    Ok(!zelf.borrow_deque().is_empty())
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
         }
     }
 
