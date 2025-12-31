@@ -1204,7 +1204,12 @@ def _sys_version(sys_version=None):
                 repr(sys_version))
         version, buildno, builddate, buildtime, compiler = \
               match.groups()
-        name = 'CPython'
+
+        # XXX: RUSTPYTHON support
+        if "RustPython" in sys_version:
+            name = "RustPython"
+        else:
+            name = 'CPython'
         if builddate is None:
             builddate = ''
         elif buildtime:
