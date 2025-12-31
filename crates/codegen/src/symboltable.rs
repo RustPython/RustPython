@@ -137,12 +137,12 @@ pub enum SymbolScope {
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct SymbolFlags: u16 {
-        const REFERENCED = 0x001;
-        const ASSIGNED = 0x002;
-        const PARAMETER = 0x004;
-        const ANNOTATED = 0x008;
-        const IMPORTED = 0x010;
-        const NONLOCAL = 0x020;
+        const REFERENCED = 0x001;  // USE
+        const ASSIGNED = 0x002;    // DEF_LOCAL
+        const PARAMETER = 0x004;   // DEF_PARAM
+        const ANNOTATED = 0x008;   // DEF_ANNOT
+        const IMPORTED = 0x010;    // DEF_IMPORT
+        const NONLOCAL = 0x020;    // DEF_NONLOCAL
         // indicates if the symbol gets a value assigned by a named expression in a comprehension
         // this is required to correct the scope in the analysis.
         const ASSIGNED_IN_COMPREHENSION = 0x040;
@@ -157,8 +157,12 @@ bitflags! {
         ///         def method(self):
         ///             return x // is_free_class
         /// ```
-        const FREE_CLASS = 0x100;
-        const BOUND = Self::ASSIGNED.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits();
+        const FREE_CLASS = 0x100;  // DEF_FREE_CLASS
+        const GLOBAL = 0x200;      // DEF_GLOBAL
+        const COMP_ITER = 0x400;   // DEF_COMP_ITER
+        const COMP_CELL = 0x800;   // DEF_COMP_CELL
+        const TYPE_PARAM = 0x1000; // DEF_TYPE_PARAM
+        const BOUND = Self::ASSIGNED.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
     }
 }
 
@@ -720,6 +724,23 @@ impl SymbolTableBuilder {
         } else {
             SymbolUsage::Parameter
         };
+
+        // Check for duplicate parameter names
+        let table = self.tables.last().unwrap();
+        if table.symbols.contains_key(parameter.name.as_str()) {
+            return Err(SymbolTableError {
+                error: format!(
+                    "duplicate parameter '{}' in function definition",
+                    parameter.name
+                ),
+                location: Some(
+                    self.source_file
+                        .to_source_code()
+                        .source_location(parameter.name.range.start(), PositionEncoding::Utf8),
+                ),
+            });
+        }
+
         self.register_ident(&parameter.name, usage)
     }
 
@@ -871,6 +892,18 @@ impl SymbolTableBuilder {
                     if let Some(alias) = &name.asname {
                         // `import my_module as my_alias`
                         self.register_ident(alias, SymbolUsage::Imported)?;
+                    } else if name.name.as_str() == "*" {
+                        // Star imports are only allowed at module level
+                        if self.tables.last().unwrap().typ != CompilerScope::Module {
+                            return Err(SymbolTableError {
+                                error: "'import *' only allowed at module level".to_string(),
+                                location: Some(self.source_file.to_source_code().source_location(
+                                    name.name.range.start(),
+                                    PositionEncoding::Utf8,
+                                )),
+                            });
+                        }
+                        // Don't register star imports as symbols
                     } else {
                         // `import module`
                         self.register_name(
@@ -1745,6 +1778,7 @@ impl SymbolTableBuilder {
             }
             SymbolUsage::Global => {
                 symbol.scope = SymbolScope::GlobalExplicit;
+                flags.insert(SymbolFlags::GLOBAL);
             }
             SymbolUsage::Used => {
                 flags.insert(SymbolFlags::REFERENCED);
@@ -1753,21 +1787,20 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::ITER);
             }
             SymbolUsage::TypeParam => {
-                // Type parameters are always cell variables in their scope
-                symbol.scope = SymbolScope::Cell;
-                flags.insert(SymbolFlags::ASSIGNED);
+                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::TYPE_PARAM);
             }
         }
 
         // and even more checking
         // it is not allowed to assign to iterator variables (by named expressions)
-        if flags.contains(SymbolFlags::ITER | SymbolFlags::ASSIGNED)
-        /*&& symbol.is_assign_named_expr_in_comprehension*/
+        if flags.contains(SymbolFlags::ITER)
+            && flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
         {
             return Err(SymbolTableError {
-                error:
-                    "assignment expression cannot be used in a comprehension iterable expression"
-                        .to_string(),
+                error: format!(
+                    "assignment expression cannot rebind comprehension iteration variable '{}'",
+                    symbol.name
+                ),
                 location,
             });
         }
