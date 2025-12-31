@@ -112,9 +112,11 @@ pub struct Settings {
     /// -u, PYTHONUNBUFFERED=x
     pub buffered_stdio: bool,
 
-    // wchar_t *stdio_encoding;
+    /// PYTHONIOENCODING - stdio encoding
+    pub stdio_encoding: Option<String>,
+    /// PYTHONIOENCODING - stdio error handler
+    pub stdio_errors: Option<String>,
     pub utf8_mode: u8,
-    // wchar_t *stdio_errors;
     /// --check-hash-based-pycs
     pub check_hash_pycs_mode: CheckHashPycsMode,
 
@@ -197,6 +199,8 @@ impl Default for Settings {
             buffered_stdio: true,
             check_hash_pycs_mode: CheckHashPycsMode::Default,
             allow_external_library: cfg!(feature = "importlib"),
+            stdio_encoding: None,
+            stdio_errors: None,
             utf8_mode: 1,
             int_max_str_digits: 4300,
             #[cfg(feature = "flame-it")]

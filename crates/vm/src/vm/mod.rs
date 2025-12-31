@@ -327,17 +327,25 @@ impl VirtualMachine {
                     let line_buffering = buffered_stdio && (isatty || fd == 2);
 
                     let newline = if cfg!(windows) { None } else { Some("\n") };
-                    // stderr uses backslashreplace error handler
-                    let errors: Option<&str> = if fd == 2 {
+                    let encoding = self.state.config.settings.stdio_encoding.as_deref();
+                    // stderr always uses backslashreplace (ignores stdio_errors)
+                    let errors = if fd == 2 {
                         Some("backslashreplace")
                     } else {
-                        None
+                        self.state.config.settings.stdio_errors.as_deref()
                     };
 
                     let stdio = self.call_method(
                         &io,
                         "TextIOWrapper",
-                        (buf, (), errors, newline, line_buffering, write_through),
+                        (
+                            buf,
+                            encoding,
+                            errors,
+                            newline,
+                            line_buffering,
+                            write_through,
+                        ),
                     )?;
                     let mode = if write { "w" } else { "r" };
                     stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
