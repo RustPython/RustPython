@@ -298,6 +298,23 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         settings.code_debug_ranges = false;
     }
 
+    // Parse PYTHONIOENCODING=encoding[:errors]
+    if let Some(val) = get_env("PYTHONIOENCODING")
+        && let Some(val_str) = val.to_str()
+        && !val_str.is_empty()
+    {
+        if let Some((enc, err)) = val_str.split_once(':') {
+            if !enc.is_empty() {
+                settings.stdio_encoding = Some(enc.to_owned());
+            }
+            if !err.is_empty() {
+                settings.stdio_errors = Some(err.to_owned());
+            }
+        } else {
+            settings.stdio_encoding = Some(val_str.to_owned());
+        }
+    }
+
     if settings.dev_mode {
         settings.warnoptions.push("default".to_owned());
         settings.faulthandler = true;

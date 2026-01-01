@@ -261,17 +261,28 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn import_utf8_encodings(&mut self) -> PyResult<()> {
+    fn import_ascii_utf8_encodings(&mut self) -> PyResult<()> {
         import::import_frozen(self, "codecs")?;
-        // FIXME: See corresponding part of `core_frozen_inits`
-        // let encoding_module_name = if cfg!(feature = "freeze-stdlib") {
-        //     "encodings.utf_8"
-        // } else {
-        //     "encodings_utf_8"
-        // };
-        let encoding_module_name = "encodings_utf_8";
-        let encoding_module = import::import_frozen(self, encoding_module_name)?;
-        let getregentry = encoding_module.get_attr("getregentry", self)?;
+
+        // Use dotted names when freeze-stdlib is enabled (modules come from Lib/encodings/),
+        // otherwise use underscored names (modules come from core_modules/).
+        let (ascii_module_name, utf8_module_name) = if cfg!(feature = "freeze-stdlib") {
+            ("encodings.ascii", "encodings.utf_8")
+        } else {
+            ("encodings_ascii", "encodings_utf_8")
+        };
+
+        // Register ascii encoding
+        let ascii_module = import::import_frozen(self, ascii_module_name)?;
+        let getregentry = ascii_module.get_attr("getregentry", self)?;
+        let codec_info = getregentry.call((), self)?;
+        self.state
+            .codec_registry
+            .register_manual("ascii", codec_info.try_into_value(self)?)?;
+
+        // Register utf-8 encoding
+        let utf8_module = import::import_frozen(self, utf8_module_name)?;
+        let getregentry = utf8_module.get_attr("getregentry", self)?;
         let codec_info = getregentry.call((), self)?;
         self.state
             .codec_registry
@@ -298,7 +309,7 @@ impl VirtualMachine {
             #[cfg(not(feature = "threading"))]
             import::import_frozen(self, "_thread")?;
             let importlib = import::init_importlib_base(self)?;
-            self.import_utf8_encodings()?;
+            self.import_ascii_utf8_encodings()?;
 
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
@@ -327,17 +338,25 @@ impl VirtualMachine {
                     let line_buffering = buffered_stdio && (isatty || fd == 2);
 
                     let newline = if cfg!(windows) { None } else { Some("\n") };
-                    // stderr uses backslashreplace error handler
-                    let errors: Option<&str> = if fd == 2 {
+                    let encoding = self.state.config.settings.stdio_encoding.as_deref();
+                    // stderr always uses backslashreplace (ignores stdio_errors)
+                    let errors = if fd == 2 {
                         Some("backslashreplace")
                     } else {
-                        None
+                        self.state.config.settings.stdio_errors.as_deref()
                     };
 
                     let stdio = self.call_method(
                         &io,
                         "TextIOWrapper",
-                        (buf, (), errors, newline, line_buffering, write_through),
+                        (
+                            buf,
+                            encoding,
+                            errors,
+                            newline,
+                            line_buffering,
+                            write_through,
+                        ),
                     )?;
                     let mode = if write { "w" } else { "r" };
                     stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
@@ -1007,6 +1026,8 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
     match name {
         "_frozen_importlib" => "importlib._bootstrap",
         "_frozen_importlib_external" => "importlib._bootstrap_external",
+        "encodings_ascii" => "encodings.ascii",
+        "encodings_utf_8" => "encodings.utf_8",
         _ => name,
     }
 }
