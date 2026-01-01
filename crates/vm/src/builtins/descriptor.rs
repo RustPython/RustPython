@@ -774,6 +774,15 @@ impl Callable for PyMethodWrapper {
     type Args = FuncArgs;
 
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // bpo-37619: Check type compatibility before calling wrapped slot
+        if !zelf.obj.fast_isinstance(zelf.wrapper.typ) {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' requires a '{}' object but received a '{}'",
+                zelf.wrapper.name.as_str(),
+                zelf.wrapper.typ.name(),
+                zelf.obj.class().name()
+            )));
+        }
         zelf.wrapper.wrapped.call(zelf.obj.clone(), args, vm)
     }
 }
