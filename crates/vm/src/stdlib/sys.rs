@@ -53,7 +53,7 @@ mod sys {
     const RUSTPYTHON_DEBUGBUILD: bool = cfg!(debug_assertions);
 
     #[pyattr(name = "abiflags")]
-    pub(crate) const ABIFLAGS: &str = "";
+    pub(crate) const ABIFLAGS: &str = "t"; // 't' for free-threaded (no GIL)
     #[pyattr(name = "api_version")]
     const API_VERSION: u32 = 0x0; // what C api?
     #[pyattr(name = "copyright")]
@@ -597,6 +597,11 @@ mod sys {
     #[pyfunction]
     fn audit(_args: FuncArgs) {
         // TODO: sys.audit implementation
+    }
+
+    #[pyfunction]
+    const fn _is_gil_enabled() -> bool {
+        false // RustPython has no GIL (like free-threaded Python)
     }
 
     #[pyfunction]
