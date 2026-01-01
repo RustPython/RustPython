@@ -42,46 +42,41 @@ impl PyObjectRef {
         if self.is(&vm.ctx.false_value) {
             return Ok(false);
         }
-        let rs_bool = if let Some(nb_bool) = self.class().slots.as_number.boolean.load() {
-            nb_bool(self.as_object().number(), vm)?
-        } else {
-            // TODO: Fully implement AsNumber and remove this block
-            match vm.get_method(self.clone(), identifier!(vm, __bool__)) {
-                Some(method_or_err) => {
-                    // If descriptor returns Error, propagate it further
-                    let method = method_or_err?;
-                    let bool_obj = method.call((), vm)?;
-                    if !bool_obj.fast_isinstance(vm.ctx.types.bool_type) {
-                        return Err(vm.new_type_error(format!(
-                            "__bool__ should return bool, returned type {}",
-                            bool_obj.class().name()
-                        )));
-                    }
 
-                    get_value(&bool_obj)
-                }
-                None => match vm.get_method(self, identifier!(vm, __len__)) {
-                    Some(method_or_err) => {
-                        let method = method_or_err?;
-                        let bool_obj = method.call((), vm)?;
-                        let int_obj = bool_obj.downcast_ref::<PyInt>().ok_or_else(|| {
-                            vm.new_type_error(format!(
-                                "'{}' object cannot be interpreted as an integer",
-                                bool_obj.class().name()
-                            ))
-                        })?;
+        let slots = &self.class().slots;
 
-                        let len_val = int_obj.as_bigint();
-                        if len_val.sign() == Sign::Minus {
-                            return Err(vm.new_value_error("__len__() should return >= 0"));
-                        }
-                        !len_val.is_zero()
-                    }
-                    None => true,
-                },
+        // 1. Try nb_bool slot first
+        if let Some(nb_bool) = slots.as_number.boolean.load() {
+            return nb_bool(self.as_object().number(), vm);
+        }
+
+        // 2. Try sq_length slot
+        if let Some(sq_length) = slots.as_sequence.length.load() {
+            let len = sq_length(self.as_object().sequence_unchecked(), vm)?;
+            return Ok(len != 0);
+        }
+
+        // 3. Fallback for types not yet using slots
+        // TODO: Remove this block when all types implement AsSequence
+        if let Some(method_or_err) = vm.get_method(self, identifier!(vm, __len__)) {
+            let method = method_or_err?;
+            let len_obj = method.call((), vm)?;
+            let int_obj = len_obj.downcast_ref::<PyInt>().ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    len_obj.class().name()
+                ))
+            })?;
+
+            let len_val = int_obj.as_bigint();
+            if len_val.sign() == Sign::Minus {
+                return Err(vm.new_value_error("__len__() should return >= 0"));
             }
-        };
-        Ok(rs_bool)
+            return Ok(!len_val.is_zero());
+        }
+
+        // 4. Default: objects without __bool__ or __len__ are truthy
+        Ok(true)
     }
 }
 
