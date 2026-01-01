@@ -29,21 +29,21 @@ mod _sqlite {
         sqlite3_bind_null, sqlite3_bind_parameter_count, sqlite3_bind_parameter_name,
         sqlite3_bind_text, sqlite3_blob, sqlite3_blob_bytes, sqlite3_blob_close, sqlite3_blob_open,
         sqlite3_blob_read, sqlite3_blob_write, sqlite3_busy_timeout, sqlite3_changes,
-        sqlite3_close, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
-        sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
-        sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
-        sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
-        sqlite3_create_window_function, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
-        sqlite3_errmsg, sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode,
-        sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid,
-        sqlite3_libversion, sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2,
-        sqlite3_progress_handler, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
-        sqlite3_result_error, sqlite3_result_error_nomem, sqlite3_result_error_toobig,
-        sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer,
-        sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly,
-        sqlite3_threadsafe, sqlite3_total_changes, sqlite3_trace_v2, sqlite3_user_data,
-        sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double,
-        sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type,
+        sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype,
+        sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
+        sqlite3_column_type, sqlite3_complete, sqlite3_context, sqlite3_context_db_handle,
+        sqlite3_create_collation_v2, sqlite3_create_function_v2, sqlite3_create_window_function,
+        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec,
+        sqlite3_expanded_sql, sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
+        sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
+        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_progress_handler, sqlite3_reset,
+        sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
+        sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
+        sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep,
+        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
+        sqlite3_total_changes, sqlite3_trace_v2, sqlite3_user_data, sqlite3_value,
+        sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64,
+        sqlite3_value_text, sqlite3_value_type,
     };
     use malachite_bigint::Sign;
     use rustpython_common::{
@@ -160,6 +160,8 @@ mod _sqlite {
     const PARSE_DECLTYPES: c_int = 1;
     #[pyattr]
     const PARSE_COLNAMES: c_int = 2;
+    #[pyattr]
+    const LEGACY_TRANSACTION_CONTROL: c_int = -1;
 
     #[pyattr]
     use libsqlite3_sys::{
@@ -300,6 +302,41 @@ mod _sqlite {
         SQLITE_IOERR_CORRUPTFS
     );
 
+    /// Autocommit mode setting for sqlite3 connections.
+    /// - Legacy (default): use isolation_level to control transactions
+    /// - Enabled: autocommit mode (no automatic transactions)
+    /// - Disabled: manual commit mode
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    enum AutocommitMode {
+        #[default]
+        Legacy,
+        Enabled,
+        Disabled,
+    }
+
+    impl TryFromBorrowedObject<'_> for AutocommitMode {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+            if obj.is(&vm.ctx.true_value) {
+                Ok(Self::Enabled)
+            } else if obj.is(&vm.ctx.false_value) {
+                Ok(Self::Disabled)
+            } else if let Ok(val) = obj.try_to_value::<c_int>(vm) {
+                if val == LEGACY_TRANSACTION_CONTROL {
+                    Ok(Self::Legacy)
+                } else {
+                    Err(vm.new_value_error(format!(
+                        "autocommit must be True, False, or sqlite3.LEGACY_TRANSACTION_CONTROL, not {val}"
+                    )))
+                }
+            } else {
+                Err(vm.new_type_error(format!(
+                    "autocommit must be True, False, or sqlite3.LEGACY_TRANSACTION_CONTROL, not {}",
+                    obj.class().name()
+                )))
+            }
+        }
+    }
+
     #[derive(FromArgs)]
     struct ConnectArgs {
         #[pyarg(any)]
@@ -320,6 +357,8 @@ mod _sqlite {
         cached_statements: c_int,
         #[pyarg(any, default = false)]
         uri: bool,
+        #[pyarg(any, default)]
+        autocommit: AutocommitMode,
     }
 
     unsafe impl Traverse for ConnectArgs {
@@ -841,6 +880,7 @@ mod _sqlite {
         thread_ident: PyMutex<ThreadId>, // TODO: Use atomic
         row_factory: PyAtomicRef<Option<PyObject>>,
         text_factory: PyAtomicRef<PyObject>,
+        autocommit: PyMutex<AutocommitMode>,
     }
 
     impl Debug for Connection {
@@ -878,6 +918,7 @@ mod _sqlite {
                 thread_ident: PyMutex::new(std::thread::current().id()),
                 row_factory: PyAtomicRef::from(None),
                 text_factory: PyAtomicRef::from(text_factory),
+                autocommit: PyMutex::new(args.autocommit),
             })
         }
     }
@@ -919,12 +960,14 @@ mod _sqlite {
                 detect_types,
                 isolation_level,
                 check_same_thread,
+                autocommit,
                 ..
             } = args;
 
             zelf.detect_types.store(detect_types, Ordering::Relaxed);
             zelf.check_same_thread
                 .store(check_same_thread, Ordering::Relaxed);
+            *zelf.autocommit.lock() = autocommit;
             *zelf.thread_ident.lock() = std::thread::current().id();
             let _ = unsafe { zelf.isolation_level.swap(isolation_level) };
 
@@ -1466,6 +1509,43 @@ mod _sqlite {
         }
 
         #[pygetset]
+        fn autocommit(&self, vm: &VirtualMachine) -> PyObjectRef {
+            match *self.autocommit.lock() {
+                AutocommitMode::Enabled => vm.ctx.true_value.clone().into(),
+                AutocommitMode::Disabled => vm.ctx.false_value.clone().into(),
+                AutocommitMode::Legacy => vm.ctx.new_int(LEGACY_TRANSACTION_CONTROL).into(),
+            }
+        }
+        #[pygetset(setter)]
+        fn set_autocommit(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let mode = AutocommitMode::try_from_borrowed_object(vm, &val)?;
+            let db = self.db_lock(vm)?;
+
+            // Handle transaction state based on mode change
+            match mode {
+                AutocommitMode::Enabled => {
+                    // If there's a pending transaction, commit it
+                    if !db.is_autocommit() {
+                        db._exec(b"COMMIT ", vm)?;
+                    }
+                }
+                AutocommitMode::Disabled => {
+                    // If not in a transaction, begin one
+                    if db.is_autocommit() {
+                        db._exec(b"BEGIN ", vm)?;
+                    }
+                }
+                AutocommitMode::Legacy => {
+                    // Legacy mode doesn't change transaction state
+                }
+            }
+
+            drop(db);
+            *self.autocommit.lock() = mode;
+            Ok(())
+        }
+
+        #[pygetset]
         fn text_factory(&self) -> PyObjectRef {
             self.text_factory.to_owned()
         }
@@ -1622,9 +1702,11 @@ mod _sqlite {
 
             let db = zelf.connection.db_lock(vm)?;
 
+            // Start implicit transaction for DML statements unless in autocommit mode
             if stmt.is_dml
                 && db.is_autocommit()
                 && zelf.connection.isolation_level.deref().is_some()
+                && *zelf.connection.autocommit.lock() != AutocommitMode::Enabled
             {
                 db.begin_transaction(
                     zelf.connection
@@ -1715,9 +1797,11 @@ mod _sqlite {
 
             let db = zelf.connection.db_lock(vm)?;
 
+            // Start implicit transaction for DML statements unless in autocommit mode
             if stmt.is_dml
                 && db.is_autocommit()
                 && zelf.connection.isolation_level.deref().is_some()
+                && *zelf.connection.autocommit.lock() != AutocommitMode::Enabled
             {
                 db.begin_transaction(
                     zelf.connection
@@ -1954,6 +2038,18 @@ mod _sqlite {
     impl SelfIter for Cursor {}
     impl IterNext for Cursor {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            // Check if connection is closed first, and if so, clear statement to release file lock
+            if zelf.connection.is_closed() {
+                let mut guard = zelf.inner.lock();
+                if let Some(stmt) = guard.as_mut().and_then(|inner| inner.statement.take()) {
+                    stmt.lock().reset();
+                }
+                return Err(new_programming_error(
+                    vm,
+                    "Cannot operate on a closed database.".to_owned(),
+                ));
+            }
+
             let mut inner = zelf.inner(vm)?;
             let Some(stmt) = &inner.statement else {
                 return Ok(PyIterReturn::StopIteration(None));
@@ -2658,9 +2754,17 @@ mod _sqlite {
         }
     }
 
+    // sqlite3_close_v2 is not exported by libsqlite3-sys, so we declare it manually.
+    // It handles "zombie close" - if there are still unfinalized statements,
+    // the database will be closed when the last statement is finalized.
+    unsafe extern "C" {
+        fn sqlite3_close_v2(db: *mut sqlite3) -> c_int;
+    }
+
     impl Drop for Sqlite {
         fn drop(&mut self) {
-            unsafe { sqlite3_close(self.raw.db) };
+            // Use sqlite3_close_v2 for safe closing even with active statements
+            unsafe { sqlite3_close_v2(self.raw.db) };
         }
     }
 
