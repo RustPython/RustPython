@@ -4156,9 +4156,6 @@ class OldTestIntFlag(unittest.TestCase):
                 '%(m)s.OFF_C' % {'m': SHORT_MODULE},
                 )
 
-    # TODO: RUSTPYTHON
-    # AssertionError: '__main__.ONE' != 'test_enum.ONE'
-    @unittest.expectedFailure
     @reraise_if_not_enum(NoName)
     def test_global_enum_str(self):
         self.assertEqual(repr(NoName.ONE), 'test_enum.ONE')
