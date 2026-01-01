@@ -487,7 +487,13 @@ impl core::fmt::Debug for SlotFunc {
 
 impl SlotFunc {
     /// Call the wrapped slot function with proper type handling
-    pub fn call(&self, obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub fn call(
+        &self,
+        obj: PyObjectRef,
+        args: FuncArgs,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         match self {
             SlotFunc::Init(func) => {
                 func(obj, args, vm)?;
@@ -601,9 +607,13 @@ impl SlotFunc {
                 func(obj.sequence_unchecked(), index, vm)
             }
             SlotFunc::SeqAssItem(func) => {
-                let (index, value): (isize, crate::function::OptionalArg<PyObjectRef>) =
-                    args.bind(vm)?;
-                func(obj.sequence_unchecked(), index, value.into_option(), vm)?;
+                if name == "__delitem__" {
+                    let (index,): (isize,) = args.bind(vm)?;
+                    func(obj.sequence_unchecked(), index, None, vm)?;
+                } else {
+                    let (index, value): (isize, PyObjectRef) = args.bind(vm)?;
+                    func(obj.sequence_unchecked(), index, Some(value), vm)?;
+                }
                 Ok(vm.ctx.none())
             }
             SlotFunc::SeqContains(func) => {
@@ -622,9 +632,13 @@ impl SlotFunc {
                 func(obj.mapping_unchecked(), &key, vm)
             }
             SlotFunc::MapAssSubscript(func) => {
-                let (key, value): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
-                    args.bind(vm)?;
-                func(obj.mapping_unchecked(), &key, value.into_option(), vm)?;
+                if name == "__delitem__" {
+                    let (key,): (PyObjectRef,) = args.bind(vm)?;
+                    func(obj.mapping_unchecked(), &key, None, vm)?;
+                } else {
+                    let (key, value): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
+                    func(obj.mapping_unchecked(), &key, Some(value), vm)?;
+                }
                 Ok(vm.ctx.none())
             }
             // Number sub-slots
@@ -711,7 +725,7 @@ impl Callable for PyWrapper {
             )));
         }
 
-        zelf.wrapped.call(obj, rest, vm)
+        zelf.wrapped.call(obj, rest, zelf.name.as_str(), vm)
     }
 }
 
@@ -783,7 +797,9 @@ impl Callable for PyMethodWrapper {
                 zelf.obj.class().name()
             )));
         }
-        zelf.wrapper.wrapped.call(zelf.obj.clone(), args, vm)
+        zelf.wrapper
+            .wrapped
+            .call(zelf.obj.clone(), args, zelf.wrapper.name.as_str(), vm)
     }
 }
 
