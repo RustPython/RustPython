@@ -298,7 +298,6 @@ impl PyTuple {
     }
 
     #[inline]
-    #[pymethod]
     pub const fn __len__(&self) -> usize {
         self.elements.len()
     }

@@ -690,7 +690,6 @@ impl PyMemoryView {
         Err(vm.new_type_error("cannot delete memory"))
     }
 
-    #[pymethod]
     fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
         if self.desc.ndim() == 0 {

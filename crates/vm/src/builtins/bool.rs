@@ -9,7 +9,6 @@ use crate::{
     types::{AsNumber, Constructor, Representable},
 };
 use core::fmt::{Debug, Formatter};
-use malachite_bigint::Sign;
 use num_traits::Zero;
 
 impl ToPyObject for bool {
@@ -50,29 +49,16 @@ impl PyObjectRef {
             return nb_bool(self.as_object().number(), vm);
         }
 
-        // 2. Try sq_length slot
-        if let Some(sq_length) = slots.as_sequence.length.load() {
-            let len = sq_length(self.as_object().sequence_unchecked(), vm)?;
+        // 2. Try mp_length slot (mapping protocol)
+        if let Some(mp_length) = slots.as_mapping.length.load() {
+            let len = mp_length(self.as_object().mapping_unchecked(), vm)?;
             return Ok(len != 0);
         }
 
-        // 3. Fallback for types not yet using slots
-        // TODO: Remove this block when all types implement AsSequence
-        if let Some(method_or_err) = vm.get_method(self, identifier!(vm, __len__)) {
-            let method = method_or_err?;
-            let len_obj = method.call((), vm)?;
-            let int_obj = len_obj.downcast_ref::<PyInt>().ok_or_else(|| {
-                vm.new_type_error(format!(
-                    "'{}' object cannot be interpreted as an integer",
-                    len_obj.class().name()
-                ))
-            })?;
-
-            let len_val = int_obj.as_bigint();
-            if len_val.sign() == Sign::Minus {
-                return Err(vm.new_value_error("__len__() should return >= 0"));
-            }
-            return Ok(!len_val.is_zero());
+        // 3. Try sq_length slot (sequence protocol)
+        if let Some(sq_length) = slots.as_sequence.length.load() {
+            let len = sq_length(self.as_object().sequence_unchecked(), vm)?;
+            return Ok(len != 0);
         }
 
         // 4. Default: objects without __bool__ or __len__ are truthy

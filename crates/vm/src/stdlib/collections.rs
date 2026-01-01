@@ -350,7 +350,6 @@ mod _collections {
             Ok(zelf)
         }
 
-        #[pymethod]
         fn __len__(&self) -> usize {
             self.borrow_deque().len()
         }

@@ -212,7 +212,6 @@ impl PyDict {
         }
     }
 
-    #[pymethod]
     pub fn __len__(&self) -> usize {
         self.entries.len()
     }
@@ -764,7 +763,6 @@ trait DictView: PyPayload + PyClassDef + Iterable + Representable {
     fn dict(&self) -> &Py<PyDict>;
     fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
 
-    #[pymethod]
     fn __len__(&self) -> usize {
         self.dict().__len__()
     }
