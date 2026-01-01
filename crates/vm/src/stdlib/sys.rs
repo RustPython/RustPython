@@ -600,6 +600,11 @@ mod sys {
     }
 
     #[pyfunction]
+    const fn _is_gil_enabled() -> bool {
+        false // RustPython has no GIL (like free-threaded Python)
+    }
+
+    #[pyfunction]
     fn exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = code.unwrap_or_none(vm);
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
