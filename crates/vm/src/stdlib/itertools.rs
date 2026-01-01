@@ -561,7 +561,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
-                zelf.stop_flag.store(*obj);
+                zelf.stop_flag.store(obj.into_bool());
             }
             Ok(())
         }
@@ -648,7 +648,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
-                zelf.start_flag.store(*obj);
+                zelf.start_flag.store(obj.into_bool());
             }
             Ok(())
         }

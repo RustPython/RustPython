@@ -515,7 +515,7 @@ impl PyBytes {
     #[pymethod(name = "__rmul__")]
     #[pymethod]
     fn __mul__(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.repeat(value.try_to_primitive(vm)?, vm)
+        zelf.repeat(value.into_int_ref().try_to_primitive(vm)?, vm)
     }
 
     #[pymethod(name = "__mod__")]
