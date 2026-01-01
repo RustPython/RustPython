@@ -5085,14 +5085,12 @@ class SignalsTest(unittest.TestCase):
             os.close(w)
             os.close(r)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_read_retry_buffered(self):
         self.check_interrupted_read_retry(lambda x: x.decode('latin1'),
                                           mode="rb")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_read_retry_text(self):
