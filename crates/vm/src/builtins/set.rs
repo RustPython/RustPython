@@ -592,8 +592,6 @@ impl PySet {
         self.inner.isdisjoint(other, vm)
     }
 
-    #[pymethod(name = "__ror__")]
-    #[pymethod]
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
@@ -606,8 +604,6 @@ impl PySet {
         }
     }
 
-    #[pymethod(name = "__rand__")]
-    #[pymethod]
     fn __and__(
         &self,
         other: PyObjectRef,
@@ -624,7 +620,6 @@ impl PySet {
         }
     }
 
-    #[pymethod]
     fn __sub__(
         &self,
         other: PyObjectRef,
@@ -641,7 +636,6 @@ impl PySet {
         }
     }
 
-    #[pymethod]
     fn __rsub__(
         zelf: PyRef<Self>,
         other: PyObjectRef,
@@ -658,8 +652,6 @@ impl PySet {
         }
     }
 
-    #[pymethod(name = "__rxor__")]
-    #[pymethod]
     fn __xor__(
         &self,
         other: PyObjectRef,
@@ -703,7 +695,6 @@ impl PySet {
         self.inner.pop(vm)
     }
 
-    #[pymethod]
     fn __ior__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner.update(set.into_iterable_iter(vm)?, vm)?;
         Ok(zelf)
@@ -727,7 +718,6 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod]
     fn __iand__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner
             .intersection_update(core::iter::once(set.into_iterable(vm)?), vm)?;
@@ -740,7 +730,6 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod]
     fn __isub__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner
             .difference_update(set.into_iterable_iter(vm)?, vm)?;
@@ -758,7 +747,6 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod]
     fn __ixor__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner
             .symmetric_difference_update(set.into_iterable_iter(vm)?, vm)?;
@@ -828,30 +816,77 @@ impl Iterable for PySet {
 impl AsNumber for PySet {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            // Binary ops check both operands are sets (like CPython's set_sub, etc.)
+            // This is needed because __rsub__ swaps operands: a.__rsub__(b) calls subtract(b, a)
             subtract: Some(|a, b, vm| {
+                if !AnySet::check(a, vm) || !AnySet::check(b, vm) {
+                    return Ok(vm.ctx.not_implemented());
+                }
                 if let Some(a) = a.downcast_ref::<PySet>() {
                     a.__sub__(b.to_owned(), vm).to_pyresult(vm)
+                } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    // When called via __rsub__, a might be PyFrozenSet
+                    a.__sub__(b.to_owned(), vm)
+                        .map(|r| {
+                            r.map(|s| PySet {
+                                inner: s.inner.clone(),
+                            })
+                        })
+                        .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             and: Some(|a, b, vm| {
+                if !AnySet::check(a, vm) || !AnySet::check(b, vm) {
+                    return Ok(vm.ctx.not_implemented());
+                }
                 if let Some(a) = a.downcast_ref::<PySet>() {
                     a.__and__(b.to_owned(), vm).to_pyresult(vm)
+                } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.__and__(b.to_owned(), vm)
+                        .map(|r| {
+                            r.map(|s| PySet {
+                                inner: s.inner.clone(),
+                            })
+                        })
+                        .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             xor: Some(|a, b, vm| {
+                if !AnySet::check(a, vm) || !AnySet::check(b, vm) {
+                    return Ok(vm.ctx.not_implemented());
+                }
                 if let Some(a) = a.downcast_ref::<PySet>() {
                     a.__xor__(b.to_owned(), vm).to_pyresult(vm)
+                } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.__xor__(b.to_owned(), vm)
+                        .map(|r| {
+                            r.map(|s| PySet {
+                                inner: s.inner.clone(),
+                            })
+                        })
+                        .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             or: Some(|a, b, vm| {
+                if !AnySet::check(a, vm) || !AnySet::check(b, vm) {
+                    return Ok(vm.ctx.not_implemented());
+                }
                 if let Some(a) = a.downcast_ref::<PySet>() {
                     a.__or__(b.to_owned(), vm).to_pyresult(vm)
+                } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.__or__(b.to_owned(), vm)
+                        .map(|r| {
+                            r.map(|s| PySet {
+                                inner: s.inner.clone(),
+                            })
+                        })
+                        .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
@@ -1035,8 +1070,6 @@ impl PyFrozenSet {
         self.inner.isdisjoint(other, vm)
     }
 
-    #[pymethod(name = "__ror__")]
-    #[pymethod]
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(set) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
@@ -1049,8 +1082,6 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod(name = "__rand__")]
-    #[pymethod]
     fn __and__(
         &self,
         other: PyObjectRef,
@@ -1067,7 +1098,6 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod]
     fn __sub__(
         &self,
         other: PyObjectRef,
@@ -1084,7 +1114,6 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod]
     fn __rsub__(
         zelf: PyRef<Self>,
         other: PyObjectRef,
@@ -1102,8 +1131,6 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod(name = "__rxor__")]
-    #[pymethod]
     fn __xor__(
         &self,
         other: PyObjectRef,
@@ -1192,29 +1219,52 @@ impl Iterable for PyFrozenSet {
 impl AsNumber for PyFrozenSet {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            // Binary ops check both operands are sets (like CPython's set_sub, etc.)
+            // __rsub__ swaps operands. Result type follows first operand's type.
             subtract: Some(|a, b, vm| {
+                if !AnySet::check(a, vm) || !AnySet::check(b, vm) {
+                    return Ok(vm.ctx.not_implemented());
+                }
                 if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.__sub__(b.to_owned(), vm).to_pyresult(vm)
+                } else if let Some(a) = a.downcast_ref::<PySet>() {
+                    // When called via __rsub__, a might be PySet - return set (not frozenset)
                     a.__sub__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             and: Some(|a, b, vm| {
+                if !AnySet::check(a, vm) || !AnySet::check(b, vm) {
+                    return Ok(vm.ctx.not_implemented());
+                }
                 if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.__and__(b.to_owned(), vm).to_pyresult(vm)
+                } else if let Some(a) = a.downcast_ref::<PySet>() {
                     a.__and__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             xor: Some(|a, b, vm| {
+                if !AnySet::check(a, vm) || !AnySet::check(b, vm) {
+                    return Ok(vm.ctx.not_implemented());
+                }
                 if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.__xor__(b.to_owned(), vm).to_pyresult(vm)
+                } else if let Some(a) = a.downcast_ref::<PySet>() {
                     a.__xor__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             or: Some(|a, b, vm| {
+                if !AnySet::check(a, vm) || !AnySet::check(b, vm) {
+                    return Ok(vm.ctx.not_implemented());
+                }
                 if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.__or__(b.to_owned(), vm).to_pyresult(vm)
+                } else if let Some(a) = a.downcast_ref::<PySet>() {
                     a.__or__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -1248,6 +1298,13 @@ struct AnySet {
 }
 
 impl AnySet {
+    /// Check if object is a set or frozenset (including subclasses)
+    /// Equivalent to CPython's PyAnySet_Check
+    fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
+        let ctx = &vm.ctx;
+        obj.fast_isinstance(ctx.types.set_type) || obj.fast_isinstance(ctx.types.frozenset_type)
+    }
+
     fn into_iterable(self, vm: &VirtualMachine) -> PyResult<ArgIterable> {
         self.object.try_into_value(vm)
     }
