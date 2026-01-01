@@ -439,7 +439,10 @@ impl PyType {
                 slot_name_set.insert(name);
             }
         }
-        for attr_name in slot_name_set {
+        // Sort for deterministic iteration order (important for slot processing)
+        let mut slot_names: Vec<_> = slot_name_set.into_iter().collect();
+        slot_names.sort_by_key(|name| name.as_str());
+        for attr_name in slot_names {
             self.update_slot::<true>(attr_name, ctx);
         }
 
