@@ -659,7 +659,6 @@ impl PyMemoryView {
         self.release();
     }
 
-    #[pymethod]
     fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         zelf.try_not_released(vm)?;
         if zelf.desc.ndim() == 0 {

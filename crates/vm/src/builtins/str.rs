@@ -584,7 +584,6 @@ impl PyStr {
         Ok(item)
     }
 
-    #[pymethod]
     fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }

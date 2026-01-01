@@ -996,7 +996,6 @@ mod array {
             }
         }
 
-        #[pymethod]
         fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             self.getitem_inner(&needle, vm)
         }

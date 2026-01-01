@@ -278,7 +278,6 @@ mod _collections {
             self.maxlen
         }
 
-        #[pymethod]
         fn __getitem__(&self, idx: isize, vm: &VirtualMachine) -> PyResult {
             let deque = self.borrow_deque();
             idx.wrapped_at(deque.len())

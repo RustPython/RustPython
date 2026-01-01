@@ -189,7 +189,6 @@ mod _contextvars {
             }
         }
 
-        #[pymethod]
         fn __getitem__(
             &self,
             var: PyRef<ContextVar>,

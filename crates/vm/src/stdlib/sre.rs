@@ -737,7 +737,6 @@ mod _sre {
             })
         }
 
-        #[pymethod]
         fn __getitem__(
             &self,
             group: PyObjectRef,

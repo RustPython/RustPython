@@ -940,7 +940,6 @@ impl PyCArray {
     }
 
     // Array_subscript
-    #[pymethod]
     fn __getitem__(zelf: &Py<Self>, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // PyIndex_Check
         if let Some(i) = item.downcast_ref::<PyInt>() {

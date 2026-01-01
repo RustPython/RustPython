@@ -241,7 +241,6 @@ impl PyBytes {
         PyBytesInner::maketrans(from, to, vm)
     }
 
-    #[pymethod]
     fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }

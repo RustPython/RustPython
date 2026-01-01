@@ -189,7 +189,6 @@ impl PyGenericAlias {
         }
     }
 
-    #[pymethod]
     fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let new_args = subs_parameters(
             zelf.to_owned().into(),
