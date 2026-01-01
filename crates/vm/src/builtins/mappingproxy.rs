@@ -122,7 +122,9 @@ impl PyMappingProxy {
             MappingProxyInner::Class(class) => Ok(key
                 .as_interned_str(vm)
                 .is_some_and(|key| class.attributes.read().contains_key(key))),
-            MappingProxyInner::Mapping(mapping) => mapping.sequence_unchecked().contains(key, vm),
+            MappingProxyInner::Mapping(mapping) => {
+                mapping.obj().sequence_unchecked().contains(key, vm)
+            }
         }
     }
 
@@ -161,7 +163,9 @@ impl PyMappingProxy {
     #[pymethod]
     pub fn copy(&self, vm: &VirtualMachine) -> PyResult {
         match &self.mapping {
-            MappingProxyInner::Mapping(d) => vm.call_method(d, identifier!(vm, copy).as_str(), ()),
+            MappingProxyInner::Mapping(d) => {
+                vm.call_method(d.obj(), identifier!(vm, copy).as_str(), ())
+            }
             MappingProxyInner::Class(c) => {
                 Ok(PyDict::from_attributes(c.attributes.read().clone(), vm)?.to_pyobject(vm))
             }
