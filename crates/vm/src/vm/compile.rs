@@ -115,11 +115,14 @@ impl VirtualMachine {
             .compile(source, compiler::Mode::Exec, source_path.clone())
             .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
         // trace!("Code object: {:?}", code_obj.borrow());
-        scope.globals.set_item(
-            identifier!(self, __file__),
-            self.new_pyobj(source_path),
-            self,
-        )?;
+        // Only set __file__ for real file paths, not pseudo-paths like <string>
+        if !(source_path.starts_with('<') && source_path.ends_with('>')) {
+            scope.globals.set_item(
+                identifier!(self, __file__),
+                self.new_pyobj(source_path),
+                self,
+            )?;
+        }
         self.run_code_obj(code_obj, scope)
     }
 

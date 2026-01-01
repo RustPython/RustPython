@@ -1970,8 +1970,6 @@ test case
             del case
             self.assertFalse(wr())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_exception_leak(self):
         # Issue #19880: TestCase.run() should not keep a reference
         # to the exception
