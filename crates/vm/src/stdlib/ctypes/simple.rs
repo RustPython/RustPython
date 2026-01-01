@@ -488,7 +488,6 @@ impl PyCSimpleType {
         }
     }
 
-    #[pymethod]
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
         PyCSimple::repeat(cls, n, vm)
     }

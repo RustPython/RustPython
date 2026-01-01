@@ -332,8 +332,6 @@ mod _collections {
             Ok(deque)
         }
 
-        #[pymethod]
-        #[pymethod(name = "__rmul__")]
         fn __mul__(&self, n: isize, vm: &VirtualMachine) -> PyResult<Self> {
             let deque = self._mul(n, vm)?;
             Ok(Self {
@@ -343,7 +341,6 @@ mod _collections {
             })
         }
 
-        #[pymethod]
         fn __imul__(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             let mul_deque = zelf._mul(n, vm)?;
             *zelf.borrow_deque_mut() = mul_deque;
@@ -379,7 +376,6 @@ mod _collections {
             }
         }
 
-        #[pymethod]
         fn __iadd__(
             zelf: PyRef<Self>,
             other: PyObjectRef,

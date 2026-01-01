@@ -137,7 +137,6 @@ impl PyCPointerType {
         )))
     }
 
-    #[pymethod]
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
         use super::array::array_type_from_ctype;
 

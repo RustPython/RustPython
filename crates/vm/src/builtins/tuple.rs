@@ -263,7 +263,6 @@ impl<T> PyTuple<PyRef<T>> {
     with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
 impl PyTuple {
-    #[pymethod]
     fn __add__(
         zelf: PyRef<Self>,
         other: PyObjectRef,
@@ -302,8 +301,6 @@ impl PyTuple {
         self.elements.len()
     }
 
-    #[pymethod(name = "__rmul__")]
-    #[pymethod]
     fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::repeat(zelf, value.into(), vm)
     }

@@ -187,7 +187,6 @@ impl PyMappingProxy {
         )
     }
 
-    #[pymethod]
     fn __ior__(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error(format!(
             r#""'|=' is not supported by {}; use '|' instead""#,
@@ -195,8 +194,6 @@ impl PyMappingProxy {
         )))
     }
 
-    #[pymethod(name = "__ror__")]
-    #[pymethod]
     fn __or__(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._or(self.copy(vm)?.as_ref(), args.as_ref())
     }

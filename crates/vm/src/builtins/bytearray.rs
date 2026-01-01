@@ -215,7 +215,6 @@ impl PyByteArray {
         size_of::<Self>() + self.borrow_buf().len() * size_of::<u8>()
     }
 
-    #[pymethod]
     fn __add__(&self, other: ArgBytesLike) -> Self {
         self.inner().add(&other.borrow_buf()).into()
     }
@@ -229,7 +228,6 @@ impl PyByteArray {
         self.inner().contains(needle, vm)
     }
 
-    #[pymethod]
     fn __iadd__(
         zelf: PyRef<Self>,
         other: ArgBytesLike,
@@ -524,27 +522,18 @@ impl PyByteArray {
         self.inner().title().into()
     }
 
-    #[pymethod(name = "__rmul__")]
-    #[pymethod]
     fn __mul__(&self, value: ArgSize, vm: &VirtualMachine) -> PyResult<Self> {
         self.repeat(value.into(), vm)
     }
 
-    #[pymethod]
     fn __imul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::irepeat(&zelf, value.into(), vm)?;
         Ok(zelf)
     }
 
-    #[pymethod(name = "__mod__")]
-    fn mod_(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let formatted = self.inner().cformat(values, vm)?;
         Ok(formatted.into())
-    }
-
-    #[pymethod]
-    fn __rmod__(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
     }
 
     #[pymethod]
@@ -822,7 +811,7 @@ impl AsNumber for PyByteArray {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             remainder: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyByteArray>() {
-                    a.mod_(b.to_owned(), vm).to_pyresult(vm)
+                    a.__mod__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
