@@ -996,7 +996,6 @@ mod array {
             }
         }
 
-        #[pymethod]
         fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             self.getitem_inner(&needle, vm)
         }
@@ -1038,7 +1037,6 @@ mod array {
             }
         }
 
-        #[pymethod]
         fn __setitem__(
             zelf: &Py<Self>,
             needle: PyObjectRef,
@@ -1055,7 +1053,6 @@ mod array {
             }
         }
 
-        #[pymethod]
         fn __delitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             self.delitem_inner(&needle, vm)
         }

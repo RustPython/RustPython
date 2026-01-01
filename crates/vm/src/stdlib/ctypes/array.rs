@@ -940,7 +940,6 @@ impl PyCArray {
     }
 
     // Array_subscript
-    #[pymethod]
     fn __getitem__(zelf: &Py<Self>, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // PyIndex_Check
         if let Some(i) = item.downcast_ref::<PyInt>() {
@@ -1047,7 +1046,6 @@ impl PyCArray {
     }
 
     // Array_ass_subscript
-    #[pymethod]
     fn __setitem__(
         zelf: &Py<Self>,
         item: PyObjectRef,
@@ -1074,7 +1072,6 @@ impl PyCArray {
     }
 
     // Array does not support item deletion
-    #[pymethod]
     fn __delitem__(&self, _item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("Array does not support item deletion"))
     }

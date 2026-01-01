@@ -278,7 +278,6 @@ mod _collections {
             self.maxlen
         }
 
-        #[pymethod]
         fn __getitem__(&self, idx: isize, vm: &VirtualMachine) -> PyResult {
             let deque = self.borrow_deque();
             idx.wrapped_at(deque.len())
@@ -286,7 +285,6 @@ mod _collections {
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        #[pymethod]
         fn __setitem__(&self, idx: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
             idx.wrapped_at(deque.len())
@@ -295,7 +293,6 @@ mod _collections {
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        #[pymethod]
         fn __delitem__(&self, idx: isize, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
             idx.wrapped_at(deque.len())

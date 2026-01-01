@@ -279,7 +279,6 @@ impl PyRange {
         (vm.ctx.types.range_type.to_owned(), range_parameters_tuple)
     }
 
-    #[pymethod]
     fn __getitem__(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match RangeIndex::try_from_object(vm, subscript)? {
             RangeIndex::Slice(slice) => {

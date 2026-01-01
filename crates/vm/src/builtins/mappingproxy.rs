@@ -111,7 +111,6 @@ impl PyMappingProxy {
         )?))
     }
 
-    #[pymethod]
     pub fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.get_inner(key.clone(), vm)?
             .ok_or_else(|| vm.new_key_error(key))

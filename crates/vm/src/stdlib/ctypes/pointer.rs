@@ -346,7 +346,6 @@ impl PyCPointer {
     }
 
     // Pointer_subscript
-    #[pymethod]
     fn __getitem__(zelf: &Py<Self>, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // PyIndex_Check
         if let Some(i) = item.downcast_ref::<PyInt>() {
@@ -529,7 +528,6 @@ impl PyCPointer {
     }
 
     // Pointer_ass_item
-    #[pymethod]
     fn __setitem__(
         zelf: &Py<Self>,
         item: PyObjectRef,

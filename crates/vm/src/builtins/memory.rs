@@ -659,7 +659,6 @@ impl PyMemoryView {
         self.release();
     }
 
-    #[pymethod]
     fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         zelf.try_not_released(vm)?;
         if zelf.desc.ndim() == 0 {
@@ -682,7 +681,6 @@ impl PyMemoryView {
         }
     }
 
-    #[pymethod]
     fn __delitem__(&self, _needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if self.desc.readonly {
             return Err(vm.new_type_error("cannot modify read-only memory"));
@@ -847,7 +845,6 @@ impl PyMemoryView {
 
 #[pyclass]
 impl Py<PyMemoryView> {
-    #[pymethod]
     fn __setitem__(
         &self,
         needle: PyObjectRef,
