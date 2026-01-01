@@ -251,7 +251,6 @@ impl PyList {
         self.mut_count(vm, &needle)
     }
 
-    #[pymethod]
     pub(crate) fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.mut_contains(vm, &needle)
     }

@@ -219,7 +219,6 @@ impl PyByteArray {
         self.inner().add(&other.borrow_buf()).into()
     }
 
-    #[pymethod]
     fn __contains__(
         &self,
         needle: Either<PyBytesInner, PyIntRef>,

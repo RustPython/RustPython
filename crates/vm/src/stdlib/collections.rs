@@ -303,7 +303,6 @@ mod _collections {
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        #[pymethod]
         fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
             self._contains(&needle, vm)
         }

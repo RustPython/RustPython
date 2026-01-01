@@ -1177,7 +1177,6 @@ mod array {
             ))
         }
 
-        #[pymethod]
         fn __contains__(&self, value: PyObjectRef, vm: &VirtualMachine) -> bool {
             let array = self.array.read();
             for element in array
