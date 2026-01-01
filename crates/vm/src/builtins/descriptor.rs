@@ -428,13 +428,15 @@ pub enum SlotFunc {
     SeqConcat(SeqConcatFunc),
     SeqRepeat(SeqRepeatFunc),
     SeqItem(SeqItemFunc),
-    SeqAssItem(SeqAssItemFunc),
+    SeqSetItem(SeqAssItemFunc), // __setitem__ (same func type, value = Some)
+    SeqDelItem(SeqAssItemFunc), // __delitem__ (same func type, value = None)
     SeqContains(SeqContainsFunc),
 
     // Mapping sub-slots (mp_*)
     MapLength(MapLenFunc),
     MapSubscript(MapSubscriptFunc),
-    MapAssSubscript(MapAssSubscriptFunc),
+    MapSetSubscript(MapAssSubscriptFunc), // __setitem__ (same func type, value = Some)
+    MapDelSubscript(MapAssSubscriptFunc), // __delitem__ (same func type, value = None)
 
     // Number sub-slots (nb_*) - grouped by signature
     NumBoolean(PyNumberUnaryFunc<bool>),  // __bool__
@@ -468,12 +470,14 @@ impl core::fmt::Debug for SlotFunc {
             SlotFunc::SeqConcat(_) => write!(f, "SlotFunc::SeqConcat(...)"),
             SlotFunc::SeqRepeat(_) => write!(f, "SlotFunc::SeqRepeat(...)"),
             SlotFunc::SeqItem(_) => write!(f, "SlotFunc::SeqItem(...)"),
-            SlotFunc::SeqAssItem(_) => write!(f, "SlotFunc::SeqAssItem(...)"),
+            SlotFunc::SeqSetItem(_) => write!(f, "SlotFunc::SeqSetItem(...)"),
+            SlotFunc::SeqDelItem(_) => write!(f, "SlotFunc::SeqDelItem(...)"),
             SlotFunc::SeqContains(_) => write!(f, "SlotFunc::SeqContains(...)"),
             // Mapping sub-slots
             SlotFunc::MapLength(_) => write!(f, "SlotFunc::MapLength(...)"),
             SlotFunc::MapSubscript(_) => write!(f, "SlotFunc::MapSubscript(...)"),
-            SlotFunc::MapAssSubscript(_) => write!(f, "SlotFunc::MapAssSubscript(...)"),
+            SlotFunc::MapSetSubscript(_) => write!(f, "SlotFunc::MapSetSubscript(...)"),
+            SlotFunc::MapDelSubscript(_) => write!(f, "SlotFunc::MapDelSubscript(...)"),
             // Number sub-slots
             SlotFunc::NumBoolean(_) => write!(f, "SlotFunc::NumBoolean(...)"),
             SlotFunc::NumUnary(_) => write!(f, "SlotFunc::NumUnary(...)"),
@@ -487,13 +491,7 @@ impl core::fmt::Debug for SlotFunc {
 
 impl SlotFunc {
     /// Call the wrapped slot function with proper type handling
-    pub fn call(
-        &self,
-        obj: PyObjectRef,
-        args: FuncArgs,
-        name: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    pub fn call(&self, obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         match self {
             SlotFunc::Init(func) => {
                 func(obj, args, vm)?;
@@ -606,14 +604,14 @@ impl SlotFunc {
                 let (index,): (isize,) = args.bind(vm)?;
                 func(obj.sequence_unchecked(), index, vm)
             }
-            SlotFunc::SeqAssItem(func) => {
-                if name == "__delitem__" {
-                    let (index,): (isize,) = args.bind(vm)?;
-                    func(obj.sequence_unchecked(), index, None, vm)?;
-                } else {
-                    let (index, value): (isize, PyObjectRef) = args.bind(vm)?;
-                    func(obj.sequence_unchecked(), index, Some(value), vm)?;
-                }
+            SlotFunc::SeqSetItem(func) => {
+                let (index, value): (isize, PyObjectRef) = args.bind(vm)?;
+                func(obj.sequence_unchecked(), index, Some(value), vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::SeqDelItem(func) => {
+                let (index,): (isize,) = args.bind(vm)?;
+                func(obj.sequence_unchecked(), index, None, vm)?;
                 Ok(vm.ctx.none())
             }
             SlotFunc::SeqContains(func) => {
@@ -631,14 +629,14 @@ impl SlotFunc {
                 let (key,): (PyObjectRef,) = args.bind(vm)?;
                 func(obj.mapping_unchecked(), &key, vm)
             }
-            SlotFunc::MapAssSubscript(func) => {
-                if name == "__delitem__" {
-                    let (key,): (PyObjectRef,) = args.bind(vm)?;
-                    func(obj.mapping_unchecked(), &key, None, vm)?;
-                } else {
-                    let (key, value): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
-                    func(obj.mapping_unchecked(), &key, Some(value), vm)?;
-                }
+            SlotFunc::MapSetSubscript(func) => {
+                let (key, value): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
+                func(obj.mapping_unchecked(), &key, Some(value), vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::MapDelSubscript(func) => {
+                let (key,): (PyObjectRef,) = args.bind(vm)?;
+                func(obj.mapping_unchecked(), &key, None, vm)?;
                 Ok(vm.ctx.none())
             }
             // Number sub-slots
@@ -725,7 +723,7 @@ impl Callable for PyWrapper {
             )));
         }
 
-        zelf.wrapped.call(obj, rest, zelf.name.as_str(), vm)
+        zelf.wrapped.call(obj, rest, vm)
     }
 }
 
@@ -797,9 +795,7 @@ impl Callable for PyMethodWrapper {
                 zelf.obj.class().name()
             )));
         }
-        zelf.wrapper
-            .wrapped
-            .call(zelf.obj.clone(), args, zelf.wrapper.name.as_str(), vm)
+        zelf.wrapper.wrapped.call(zelf.obj.clone(), args, vm)
     }
 }
 
