@@ -206,7 +206,6 @@ impl PyByteArray {
         self.inner().capacity()
     }
 
-    #[pymethod]
     fn __len__(&self) -> usize {
         self.borrow_buf().len()
     }

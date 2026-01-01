@@ -356,21 +356,27 @@ impl PyNumberSlots {
     pub fn copy_from(&self, methods: &PyNumberMethods) {
         if let Some(f) = methods.add {
             self.add.store(Some(f));
+            self.right_add.store(Some(f));
         }
         if let Some(f) = methods.subtract {
             self.subtract.store(Some(f));
+            self.right_subtract.store(Some(f));
         }
         if let Some(f) = methods.multiply {
             self.multiply.store(Some(f));
+            self.right_multiply.store(Some(f));
         }
         if let Some(f) = methods.remainder {
             self.remainder.store(Some(f));
+            self.right_remainder.store(Some(f));
         }
         if let Some(f) = methods.divmod {
             self.divmod.store(Some(f));
+            self.right_divmod.store(Some(f));
         }
         if let Some(f) = methods.power {
             self.power.store(Some(f));
+            self.right_power.store(Some(f));
         }
         if let Some(f) = methods.negative {
             self.negative.store(Some(f));
@@ -389,18 +395,23 @@ impl PyNumberSlots {
         }
         if let Some(f) = methods.lshift {
             self.lshift.store(Some(f));
+            self.right_lshift.store(Some(f));
         }
         if let Some(f) = methods.rshift {
             self.rshift.store(Some(f));
+            self.right_rshift.store(Some(f));
         }
         if let Some(f) = methods.and {
             self.and.store(Some(f));
+            self.right_and.store(Some(f));
         }
         if let Some(f) = methods.xor {
             self.xor.store(Some(f));
+            self.right_xor.store(Some(f));
         }
         if let Some(f) = methods.or {
             self.or.store(Some(f));
+            self.right_or.store(Some(f));
         }
         if let Some(f) = methods.int {
             self.int.store(Some(f));
@@ -440,9 +451,11 @@ impl PyNumberSlots {
         }
         if let Some(f) = methods.floor_divide {
             self.floor_divide.store(Some(f));
+            self.right_floor_divide.store(Some(f));
         }
         if let Some(f) = methods.true_divide {
             self.true_divide.store(Some(f));
+            self.right_true_divide.store(Some(f));
         }
         if let Some(f) = methods.inplace_floor_divide {
             self.inplace_floor_divide.store(Some(f));
@@ -455,6 +468,7 @@ impl PyNumberSlots {
         }
         if let Some(f) = methods.matrix_multiply {
             self.matrix_multiply.store(Some(f));
+            self.right_matrix_multiply.store(Some(f));
         }
         if let Some(f) = methods.inplace_matrix_multiply {
             self.inplace_matrix_multiply.store(Some(f));

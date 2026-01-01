@@ -182,7 +182,6 @@ impl PyList {
     }
 
     #[allow(clippy::len_without_is_empty)]
-    #[pymethod]
     pub fn __len__(&self) -> usize {
         self.borrow_vec().len()
     }

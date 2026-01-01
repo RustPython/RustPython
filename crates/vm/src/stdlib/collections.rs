@@ -350,14 +350,8 @@ mod _collections {
             Ok(zelf)
         }
 
-        #[pymethod]
         fn __len__(&self) -> usize {
             self.borrow_deque().len()
-        }
-
-        #[pymethod]
-        fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-            self.concat(&other, vm)
         }
 
         fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {

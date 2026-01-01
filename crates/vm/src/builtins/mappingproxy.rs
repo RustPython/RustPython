@@ -173,7 +173,6 @@ impl PyMappingProxy {
         PyGenericAlias::from_args(cls, args, vm)
     }
 
-    #[pymethod]
     fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let obj = self.to_object(vm)?;
         obj.length(vm)
@@ -235,6 +234,7 @@ impl AsMapping for PyMappingProxy {
 impl AsSequence for PyMappingProxy {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
+            length: atomic_func!(|seq, vm| PyMappingProxy::sequence_downcast(seq).__len__(vm)),
             contains: atomic_func!(
                 |seq, target, vm| PyMappingProxy::sequence_downcast(seq)._contains(target, vm)
             ),

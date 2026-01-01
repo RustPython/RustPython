@@ -1087,7 +1087,6 @@ impl PyCArray {
         Ok(())
     }
 
-    #[pymethod]
     fn __len__(zelf: &Py<Self>, _vm: &VirtualMachine) -> usize {
         zelf.class().stg_info_opt().map_or(0, |i| i.length)
     }

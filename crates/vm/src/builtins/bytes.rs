@@ -205,7 +205,6 @@ impl PyRef<PyBytes> {
 )]
 impl PyBytes {
     #[inline]
-    #[pymethod]
     pub const fn __len__(&self) -> usize {
         self.inner.len()
     }
