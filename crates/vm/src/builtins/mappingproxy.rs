@@ -128,7 +128,6 @@ impl PyMappingProxy {
         }
     }
 
-    #[pymethod]
     pub fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self._contains(&key, vm)
     }

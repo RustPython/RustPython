@@ -265,7 +265,6 @@ impl PyRange {
         )
     }
 
-    #[pymethod]
     fn __len__(&self) -> BigInt {
         self.compute_length()
     }
@@ -342,7 +341,6 @@ impl Py<PyRange> {
         }
     }
 
-    #[pymethod]
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> bool {
         self.contains_inner(&needle, vm)
     }

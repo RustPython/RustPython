@@ -221,7 +221,6 @@ impl PyDict {
         core::mem::size_of::<Self>() + self.entries.sizeof()
     }
 
-    #[pymethod]
     fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.entries.contains(vm, &*key)
     }
@@ -1130,7 +1129,6 @@ impl ViewSetOps for PyDictKeys {}
     )
 )]
 impl PyDictKeys {
-    #[pymethod]
     fn __contains__(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         zelf.sequence_unchecked().contains(&key, vm)
     }
@@ -1195,7 +1193,6 @@ impl ViewSetOps for PyDictItems {}
     )
 )]
 impl PyDictItems {
-    #[pymethod]
     fn __contains__(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         zelf.sequence_unchecked().contains(&needle, vm)
     }

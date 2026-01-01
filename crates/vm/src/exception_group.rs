@@ -202,11 +202,6 @@ pub(super) mod types {
             )))
         }
 
-        #[pymethod]
-        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            Self::slot_repr(&zelf, vm)
-        }
-
         #[pyslot]
         fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let zelf = zelf

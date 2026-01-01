@@ -389,13 +389,20 @@ impl SlotAccessor {
             Self::SqConcat | Self::SqInplaceConcat => matches!(slot_func, SlotFunc::SeqConcat(_)),
             Self::SqRepeat | Self::SqInplaceRepeat => matches!(slot_func, SlotFunc::SeqRepeat(_)),
             Self::SqItem => matches!(slot_func, SlotFunc::SeqItem(_)),
-            Self::SqAssItem => matches!(slot_func, SlotFunc::SeqAssItem(_)),
+            Self::SqAssItem => {
+                matches!(slot_func, SlotFunc::SeqSetItem(_) | SlotFunc::SeqDelItem(_))
+            }
             Self::SqContains => matches!(slot_func, SlotFunc::SeqContains(_)),
 
             // Mapping
             Self::MpLength => matches!(slot_func, SlotFunc::MapLength(_)),
             Self::MpSubscript => matches!(slot_func, SlotFunc::MapSubscript(_)),
-            Self::MpAssSubscript => matches!(slot_func, SlotFunc::MapAssSubscript(_)),
+            Self::MpAssSubscript => {
+                matches!(
+                    slot_func,
+                    SlotFunc::MapSetSubscript(_) | SlotFunc::MapDelSubscript(_)
+                )
+            }
 
             // New and reserved slots
             Self::TpNew => false,
@@ -751,7 +758,7 @@ impl SlotAccessor {
             Self::SqConcat => slots.as_sequence.concat.load().map(SlotFunc::SeqConcat),
             Self::SqRepeat => slots.as_sequence.repeat.load().map(SlotFunc::SeqRepeat),
             Self::SqItem => slots.as_sequence.item.load().map(SlotFunc::SeqItem),
-            Self::SqAssItem => slots.as_sequence.ass_item.load().map(SlotFunc::SeqAssItem),
+            Self::SqAssItem => slots.as_sequence.ass_item.load().map(SlotFunc::SeqSetItem),
             Self::SqContains => slots.as_sequence.contains.load().map(SlotFunc::SeqContains),
             Self::SqInplaceConcat => slots
                 .as_sequence
@@ -775,7 +782,7 @@ impl SlotAccessor {
                 .as_mapping
                 .ass_subscript
                 .load()
-                .map(SlotFunc::MapAssSubscript),
+                .map(SlotFunc::MapSetSubscript),
 
             // Reserved slots
             _ => None,
@@ -793,6 +800,16 @@ impl SlotAccessor {
             match self {
                 Self::TpSetattro => return slots.setattro.load().map(SlotFunc::DelAttro),
                 Self::TpDescrSet => return slots.descr_set.load().map(SlotFunc::DescrDel),
+                Self::SqAssItem => {
+                    return slots.as_sequence.ass_item.load().map(SlotFunc::SeqDelItem);
+                }
+                Self::MpAssSubscript => {
+                    return slots
+                        .as_mapping
+                        .ass_subscript
+                        .load()
+                        .map(SlotFunc::MapDelSubscript);
+                }
                 _ => {}
             }
         }
@@ -1060,6 +1077,33 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         op: Some(SlotOp::Delete),
         doc: "Delete an attribute of instance.",
     },
+    // Mapping protocol (mp_*) - must come before Sequence protocol
+    // so that mp_subscript wins over sq_item for __getitem__
+    // (see CPython typeobject.c:10995-11006)
+    SlotDef {
+        name: "__len__",
+        accessor: SlotAccessor::MpLength,
+        op: None,
+        doc: "Return len(self).",
+    },
+    SlotDef {
+        name: "__getitem__",
+        accessor: SlotAccessor::MpSubscript,
+        op: None,
+        doc: "Return self[key].",
+    },
+    SlotDef {
+        name: "__setitem__",
+        accessor: SlotAccessor::MpAssSubscript,
+        op: None,
+        doc: "Set self[key] to value.",
+    },
+    SlotDef {
+        name: "__delitem__",
+        accessor: SlotAccessor::MpAssSubscript,
+        op: Some(SlotOp::Delete),
+        doc: "Delete self[key].",
+    },
     // Sequence protocol (sq_*)
     SlotDef {
         name: "__len__",
@@ -1082,7 +1126,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
     SlotDef {
         name: "__delitem__",
         accessor: SlotAccessor::SqAssItem,
-        op: None,
+        op: Some(SlotOp::Delete),
         doc: "Delete self[key].",
     },
     SlotDef {
@@ -1090,31 +1134,6 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         accessor: SlotAccessor::SqContains,
         op: None,
         doc: "Return key in self.",
-    },
-    // Mapping protocol (mp_*)
-    SlotDef {
-        name: "__len__",
-        accessor: SlotAccessor::MpLength,
-        op: None,
-        doc: "Return len(self).",
-    },
-    SlotDef {
-        name: "__getitem__",
-        accessor: SlotAccessor::MpSubscript,
-        op: None,
-        doc: "Return self[key].",
-    },
-    SlotDef {
-        name: "__setitem__",
-        accessor: SlotAccessor::MpAssSubscript,
-        op: None,
-        doc: "Set self[key] to value.",
-    },
-    SlotDef {
-        name: "__delitem__",
-        accessor: SlotAccessor::MpAssSubscript,
-        op: None,
-        doc: "Delete self[key].",
     },
     // Number protocol - binary ops with left/right variants
     SlotDef {

@@ -1319,7 +1319,33 @@ impl PyType {
                 update_sub_slot!(as_sequence, item, sequence_getitem_wrapper, SeqItem)
             }
             SlotAccessor::SqAssItem => {
-                update_sub_slot!(as_sequence, ass_item, sequence_setitem_wrapper, SeqAssItem)
+                // SqAssItem is shared by __setitem__ (SeqSetItem) and __delitem__ (SeqDelItem)
+                if ADD {
+                    let has_own = {
+                        let guard = self.attributes.read();
+                        let setitem = ctx.intern_str("__setitem__");
+                        let delitem = ctx.intern_str("__delitem__");
+                        guard.contains_key(setitem) || guard.contains_key(delitem)
+                    };
+                    if has_own {
+                        self.slots
+                            .as_sequence
+                            .ass_item
+                            .store(Some(sequence_setitem_wrapper));
+                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                        SlotFunc::SeqSetItem(f) | SlotFunc::SeqDelItem(f) => Some(*f),
+                        _ => None,
+                    }) {
+                        self.slots.as_sequence.ass_item.store(Some(func));
+                    } else {
+                        self.slots
+                            .as_sequence
+                            .ass_item
+                            .store(Some(sequence_setitem_wrapper));
+                    }
+                } else {
+                    accessor.inherit_from_mro(self);
+                }
             }
             SlotAccessor::SqContains => {
                 update_sub_slot!(
@@ -1338,12 +1364,33 @@ impl PyType {
                 update_sub_slot!(as_mapping, subscript, mapping_getitem_wrapper, MapSubscript)
             }
             SlotAccessor::MpAssSubscript => {
-                update_sub_slot!(
-                    as_mapping,
-                    ass_subscript,
-                    mapping_setitem_wrapper,
-                    MapAssSubscript
-                )
+                // MpAssSubscript is shared by __setitem__ (MapSetSubscript) and __delitem__ (MapDelSubscript)
+                if ADD {
+                    let has_own = {
+                        let guard = self.attributes.read();
+                        let setitem = ctx.intern_str("__setitem__");
+                        let delitem = ctx.intern_str("__delitem__");
+                        guard.contains_key(setitem) || guard.contains_key(delitem)
+                    };
+                    if has_own {
+                        self.slots
+                            .as_mapping
+                            .ass_subscript
+                            .store(Some(mapping_setitem_wrapper));
+                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                        SlotFunc::MapSetSubscript(f) | SlotFunc::MapDelSubscript(f) => Some(*f),
+                        _ => None,
+                    }) {
+                        self.slots.as_mapping.ass_subscript.store(Some(func));
+                    } else {
+                        self.slots
+                            .as_mapping
+                            .ass_subscript
+                            .store(Some(mapping_setitem_wrapper));
+                    }
+                } else {
+                    accessor.inherit_from_mro(self);
+                }
             }
 
             // Reserved slots - no-op
