@@ -53,7 +53,7 @@ mod sys {
     const RUSTPYTHON_DEBUGBUILD: bool = cfg!(debug_assertions);
 
     #[pyattr(name = "abiflags")]
-    pub(crate) const ABIFLAGS: &str = "";
+    pub(crate) const ABIFLAGS: &str = "t"; // 't' for free-threaded (no GIL)
     #[pyattr(name = "api_version")]
     const API_VERSION: u32 = 0x0; // what C api?
     #[pyattr(name = "copyright")]
