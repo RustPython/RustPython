@@ -1102,7 +1102,6 @@ mod array {
             Ok(zelf)
         }
 
-        #[pymethod]
         pub(crate) fn __len__(&self) -> usize {
             self.read().len()
         }

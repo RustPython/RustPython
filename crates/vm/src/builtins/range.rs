@@ -265,7 +265,6 @@ impl PyRange {
         )
     }
 
-    #[pymethod]
     fn __len__(&self) -> BigInt {
         self.compute_length()
     }

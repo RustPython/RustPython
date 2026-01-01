@@ -731,7 +731,6 @@ mod mmap {
             .into()
         }
 
-        #[pymethod]
         fn __len__(&self) -> usize {
             self.size.load()
         }
