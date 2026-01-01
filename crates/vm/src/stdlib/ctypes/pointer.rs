@@ -528,7 +528,6 @@ impl PyCPointer {
     }
 
     // Pointer_ass_item
-    #[pymethod]
     fn __setitem__(
         zelf: &Py<Self>,
         item: PyObjectRef,

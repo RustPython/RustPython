@@ -225,7 +225,6 @@ impl PyDict {
         self.entries.contains(vm, &*key)
     }
 
-    #[pymethod]
     fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner_delitem(&*key, vm)
     }
@@ -235,7 +234,6 @@ impl PyDict {
         self.entries.clear()
     }
 
-    #[pymethod]
     fn __setitem__(
         &self,
         key: PyObjectRef,

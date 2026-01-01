@@ -242,7 +242,6 @@ impl PyByteArray {
         self._getitem(&needle, vm)
     }
 
-    #[pymethod]
     pub fn __delitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self._delitem(&needle, vm)
     }
@@ -548,7 +547,6 @@ impl PyByteArray {
 
 #[pyclass]
 impl Py<PyByteArray> {
-    #[pymethod]
     fn __setitem__(
         &self,
         needle: PyObjectRef,

@@ -1244,7 +1244,6 @@ mod mmap {
             self.getitem_inner(&needle, vm)
         }
 
-        #[pymethod]
         fn __setitem__(
             zelf: &Py<Self>,
             needle: PyObjectRef,
