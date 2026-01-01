@@ -438,6 +438,16 @@ fn sequence_contains_wrapper(
     contains_wrapper(seq.obj, needle, vm)
 }
 
+#[inline(never)]
+fn sequence_repeat_wrapper(seq: PySequence<'_>, n: isize, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(seq.obj, identifier!(vm, __mul__), (n,))
+}
+
+#[inline(never)]
+fn sequence_inplace_repeat_wrapper(seq: PySequence<'_>, n: isize, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(seq.obj, identifier!(vm, __imul__), (n,))
+}
+
 fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
     let ret = vm.call_special_method(zelf, identifier!(vm, __repr__), ())?;
     ret.downcast::<PyStr>().map_err(|obj| {
@@ -1294,12 +1304,16 @@ impl PyType {
                     accessor.inherit_from_mro(self);
                 }
             }
-            SlotAccessor::SqRepeat | SlotAccessor::SqInplaceRepeat => {
-                // Sequence repeat uses sq_repeat slot - no generic wrapper needed
-                // (handled by number protocol fallback)
-                if !ADD {
-                    accessor.inherit_from_mro(self);
-                }
+            SlotAccessor::SqRepeat => {
+                update_sub_slot!(as_sequence, repeat, sequence_repeat_wrapper, SeqRepeat)
+            }
+            SlotAccessor::SqInplaceRepeat => {
+                update_sub_slot!(
+                    as_sequence,
+                    inplace_repeat,
+                    sequence_inplace_repeat_wrapper,
+                    SeqRepeat
+                )
             }
             SlotAccessor::SqItem => {
                 update_sub_slot!(as_sequence, item, sequence_getitem_wrapper, SeqItem)
