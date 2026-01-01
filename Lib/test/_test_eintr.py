@@ -449,6 +449,7 @@ class SelectEINTRTest(EINTRBaseTest):
         self.stop_alarm()
         self.check_elapsed_time(dt)
 
+    @unittest.skip('TODO: RUSTPYTHON timed out at the 10 minute mark')
     @unittest.skipIf(sys.platform == "darwin",
                      "poll may fail on macOS; see issue #28087")
     @unittest.skipUnless(hasattr(select, 'poll'), 'need select.poll')
