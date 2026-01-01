@@ -160,6 +160,8 @@ mod _sqlite {
     const PARSE_DECLTYPES: c_int = 1;
     #[pyattr]
     const PARSE_COLNAMES: c_int = 2;
+    #[pyattr]
+    const LEGACY_TRANSACTION_CONTROL: c_int = 1;
 
     #[pyattr]
     use libsqlite3_sys::{
@@ -300,6 +302,46 @@ mod _sqlite {
         SQLITE_IOERR_CORRUPTFS
     );
 
+    /// Autocommit mode setting for sqlite3 connections.
+    /// - Legacy (default): use isolation_level to control transactions
+    /// - Enabled: autocommit mode (no automatic transactions)
+    /// - Disabled: manual commit mode
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum AutocommitMode {
+        Legacy,
+        Enabled,
+        Disabled,
+    }
+
+    impl Default for AutocommitMode {
+        fn default() -> Self {
+            Self::Legacy
+        }
+    }
+
+    impl TryFromBorrowedObject<'_> for AutocommitMode {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+            if obj.is(&vm.ctx.true_value) {
+                Ok(Self::Enabled)
+            } else if obj.is(&vm.ctx.false_value) {
+                Ok(Self::Disabled)
+            } else if let Ok(val) = obj.try_to_value::<c_int>(vm) {
+                if val == LEGACY_TRANSACTION_CONTROL {
+                    Ok(Self::Legacy)
+                } else {
+                    Err(vm.new_value_error(format!(
+                        "autocommit must be True, False, or sqlite3.LEGACY_TRANSACTION_CONTROL, not {val}"
+                    )))
+                }
+            } else {
+                Err(vm.new_type_error(format!(
+                    "autocommit must be True, False, or sqlite3.LEGACY_TRANSACTION_CONTROL, not {}",
+                    obj.class().name()
+                )))
+            }
+        }
+    }
+
     #[derive(FromArgs)]
     struct ConnectArgs {
         #[pyarg(any)]
@@ -320,6 +362,8 @@ mod _sqlite {
         cached_statements: c_int,
         #[pyarg(any, default = false)]
         uri: bool,
+        #[pyarg(any, default)]
+        autocommit: AutocommitMode,
     }
 
     unsafe impl Traverse for ConnectArgs {
@@ -841,6 +885,7 @@ mod _sqlite {
         thread_ident: PyMutex<ThreadId>, // TODO: Use atomic
         row_factory: PyAtomicRef<Option<PyObject>>,
         text_factory: PyAtomicRef<PyObject>,
+        autocommit: PyMutex<AutocommitMode>,
     }
 
     impl Debug for Connection {
@@ -878,6 +923,7 @@ mod _sqlite {
                 thread_ident: PyMutex::new(std::thread::current().id()),
                 row_factory: PyAtomicRef::from(None),
                 text_factory: PyAtomicRef::from(text_factory),
+                autocommit: PyMutex::new(args.autocommit),
             })
         }
     }
@@ -919,12 +965,14 @@ mod _sqlite {
                 detect_types,
                 isolation_level,
                 check_same_thread,
+                autocommit,
                 ..
             } = args;
 
             zelf.detect_types.store(detect_types, Ordering::Relaxed);
             zelf.check_same_thread
                 .store(check_same_thread, Ordering::Relaxed);
+            *zelf.autocommit.lock() = autocommit;
             *zelf.thread_ident.lock() = std::thread::current().id();
             let _ = unsafe { zelf.isolation_level.swap(isolation_level) };
 
@@ -1466,6 +1514,21 @@ mod _sqlite {
         }
 
         #[pygetset]
+        fn autocommit(&self, vm: &VirtualMachine) -> PyObjectRef {
+            match *self.autocommit.lock() {
+                AutocommitMode::Enabled => vm.ctx.true_value.clone().into(),
+                AutocommitMode::Disabled => vm.ctx.false_value.clone().into(),
+                AutocommitMode::Legacy => vm.ctx.new_int(LEGACY_TRANSACTION_CONTROL).into(),
+            }
+        }
+        #[pygetset(setter)]
+        fn set_autocommit(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let mode = AutocommitMode::try_from_borrowed_object(vm, &val)?;
+            *self.autocommit.lock() = mode;
+            Ok(())
+        }
+
+        #[pygetset]
         fn text_factory(&self) -> PyObjectRef {
             self.text_factory.to_owned()
         }
@@ -1622,9 +1685,11 @@ mod _sqlite {
 
             let db = zelf.connection.db_lock(vm)?;
 
+            // Start implicit transaction for DML statements unless in autocommit mode
             if stmt.is_dml
                 && db.is_autocommit()
                 && zelf.connection.isolation_level.deref().is_some()
+                && *zelf.connection.autocommit.lock() != AutocommitMode::Enabled
             {
                 db.begin_transaction(
                     zelf.connection
@@ -1715,9 +1780,11 @@ mod _sqlite {
 
             let db = zelf.connection.db_lock(vm)?;
 
+            // Start implicit transaction for DML statements unless in autocommit mode
             if stmt.is_dml
                 && db.is_autocommit()
                 && zelf.connection.isolation_level.deref().is_some()
+                && *zelf.connection.autocommit.lock() != AutocommitMode::Enabled
             {
                 db.begin_transaction(
                     zelf.connection
