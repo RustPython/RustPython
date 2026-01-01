@@ -550,6 +550,17 @@ impl VirtualMachine {
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
+        // Suppress unraisable exceptions during interpreter finalization.
+        // when daemon thread exceptions and
+        // __del__ errors are silently ignored during shutdown.
+        if self
+            .state
+            .finalizing
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return;
+        }
+
         let sys_module = self.import("sys", 0).unwrap();
         let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
 
