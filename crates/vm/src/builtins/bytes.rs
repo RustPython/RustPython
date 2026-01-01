@@ -224,7 +224,6 @@ impl PyBytes {
         size_of::<Self>() + self.len() * size_of::<u8>()
     }
 
-    #[pymethod]
     fn __add__(&self, other: ArgBytesLike) -> Vec<u8> {
         self.inner.add(&other.borrow_buf())
     }
@@ -512,21 +511,13 @@ impl PyBytes {
         self.inner.title().into()
     }
 
-    #[pymethod(name = "__rmul__")]
-    #[pymethod]
     fn __mul__(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.repeat(value.into_int_ref().try_to_primitive(vm)?, vm)
     }
 
-    #[pymethod(name = "__mod__")]
-    fn mod_(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let formatted = self.inner.cformat(values, vm)?;
         Ok(formatted.into())
-    }
-
-    #[pymethod]
-    fn __rmod__(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
     }
 
     #[pymethod]
@@ -677,7 +668,7 @@ impl AsNumber for PyBytes {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             remainder: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyBytes>() {
-                    a.mod_(b.to_owned(), vm).to_pyresult(vm)
+                    a.__mod__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }

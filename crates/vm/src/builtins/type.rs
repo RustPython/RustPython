@@ -951,12 +951,10 @@ impl PyType {
         )
     }
 
-    #[pymethod]
     pub fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         or_(other, zelf, vm)
     }
 
-    #[pymethod]
     pub fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         or_(zelf, other, vm)
     }

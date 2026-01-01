@@ -293,7 +293,6 @@ impl PyDict {
         Ok(())
     }
 
-    #[pymethod]
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let other_dict: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = other_dict {
@@ -403,13 +402,11 @@ impl PyRef<PyDict> {
         PyDictReverseKeyIterator::new(self)
     }
 
-    #[pymethod]
     fn __ior__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         self.merge_object(other, vm)?;
         Ok(self)
     }
 
-    #[pymethod]
     fn __ror__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let other_dict: Result<Self, _> = other.downcast();
         if let Ok(other) = other_dict {
@@ -1046,38 +1043,30 @@ trait ViewSetOps: DictView {
         PySetInner::from_iter(iter, vm)
     }
 
-    #[pymethod(name = "__rxor__")]
-    #[pymethod]
     fn __xor__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.symmetric_difference(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod(name = "__rand__")]
-    #[pymethod]
     fn __and__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.intersection(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod(name = "__ror__")]
-    #[pymethod]
     fn __or__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.union(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod]
     fn __sub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.difference(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod]
     fn __rsub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let left = PySetInner::from_iter(other.iter(vm)?, vm)?;
         let right = ArgIterable::try_from_object(vm, Self::iter(zelf, vm)?)?;

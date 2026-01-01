@@ -236,12 +236,10 @@ impl PyGenericAlias {
         Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
     }
 
-    #[pymethod]
     fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         type_::or_(other, zelf, vm)
     }
 
-    #[pymethod]
     fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         type_::or_(zelf, other, vm)
     }

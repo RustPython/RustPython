@@ -145,7 +145,6 @@ impl PyList {
         Ok(Self::from(elements).into_ref(&vm.ctx))
     }
 
-    #[pymethod]
     fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         self.concat(&other, vm)
     }
@@ -160,7 +159,6 @@ impl PyList {
         Ok(zelf.to_owned().into())
     }
 
-    #[pymethod]
     fn __iadd__(
         zelf: PyRef<Self>,
         other: PyObjectRef,
@@ -240,13 +238,10 @@ impl PyList {
         self._setitem(&needle, value, vm)
     }
 
-    #[pymethod]
-    #[pymethod(name = "__rmul__")]
     fn __mul__(&self, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         self.repeat(n.into(), vm)
     }
 
-    #[pymethod]
     fn __imul__(zelf: PyRef<Self>, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::irepeat(zelf, n.into(), vm)
     }
