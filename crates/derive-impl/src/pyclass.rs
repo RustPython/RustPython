@@ -909,18 +909,106 @@ where
 
         let py_name = item_meta.method_name()?;
 
-        // Disallow __new__ and __init__ as pymethod in impl blocks (not in traits)
+        // Disallow slot methods - they should be defined via trait implementations
+        // These are exposed as wrapper_descriptor via add_operators from SLOT_DEFS
         if !args.context.is_trait {
-            if py_name == "__new__" {
+            const FORBIDDEN_SLOT_METHODS: &[(&str, &str)] = &[
+                // Constructor/Initializer traits
+                ("__new__", "Constructor"),
+                ("__init__", "Initializer"),
+                // Representable trait
+                // ("__repr__", "Representable"),
+                // ("__str__", "???"), // allow __str__
+                // Hashable trait
+                ("__hash__", "Hashable"),
+                // Callable trait
+                ("__call__", "Callable"),
+                // GetAttr/SetAttr traits
+                // NOTE: __getattribute__, __setattr__, __delattr__ are intentionally NOT forbidden
+                // because they need pymethod for subclass override mechanism to work properly.
+                // GetDescriptor/SetDescriptor traits
+                // ("__get__", "GetDescriptor"),
+                // ("__set__", "SetDescriptor"),
+                // ("__delete__", "SetDescriptor"),
+                // AsNumber trait
+                ("__add__", "AsNumber"),
+                ("__radd__", "AsNumber"),
+                ("__iadd__", "AsNumber"),
+                ("__sub__", "AsNumber"),
+                ("__rsub__", "AsNumber"),
+                ("__isub__", "AsNumber"),
+                ("__mul__", "AsNumber"),
+                ("__rmul__", "AsNumber"),
+                ("__imul__", "AsNumber"),
+                ("__truediv__", "AsNumber"),
+                ("__rtruediv__", "AsNumber"),
+                ("__itruediv__", "AsNumber"),
+                ("__floordiv__", "AsNumber"),
+                ("__rfloordiv__", "AsNumber"),
+                ("__ifloordiv__", "AsNumber"),
+                ("__mod__", "AsNumber"),
+                ("__rmod__", "AsNumber"),
+                ("__imod__", "AsNumber"),
+                ("__pow__", "AsNumber"),
+                ("__rpow__", "AsNumber"),
+                ("__ipow__", "AsNumber"),
+                ("__divmod__", "AsNumber"),
+                ("__rdivmod__", "AsNumber"),
+                ("__matmul__", "AsNumber"),
+                ("__rmatmul__", "AsNumber"),
+                ("__imatmul__", "AsNumber"),
+                ("__lshift__", "AsNumber"),
+                ("__rlshift__", "AsNumber"),
+                ("__ilshift__", "AsNumber"),
+                ("__rshift__", "AsNumber"),
+                ("__rrshift__", "AsNumber"),
+                ("__irshift__", "AsNumber"),
+                ("__and__", "AsNumber"),
+                ("__rand__", "AsNumber"),
+                ("__iand__", "AsNumber"),
+                ("__or__", "AsNumber"),
+                ("__ror__", "AsNumber"),
+                ("__ior__", "AsNumber"),
+                ("__xor__", "AsNumber"),
+                ("__rxor__", "AsNumber"),
+                ("__ixor__", "AsNumber"),
+                ("__neg__", "AsNumber"),
+                ("__pos__", "AsNumber"),
+                ("__abs__", "AsNumber"),
+                ("__invert__", "AsNumber"),
+                ("__int__", "AsNumber"),
+                ("__float__", "AsNumber"),
+                ("__index__", "AsNumber"),
+                ("__bool__", "AsNumber"),
+                // AsSequence trait
+                // ("__len__", "AsSequence (or AsMapping)"),
+                // ("__contains__", "AsSequence"),
+                // AsMapping trait
+                // ("__getitem__", "AsMapping (or AsSequence)"),
+                // ("__setitem__", "AsMapping (or AsSequence)"),
+                // ("__delitem__", "AsMapping (or AsSequence)"),
+                // IterNext trait
+                // ("__iter__", "IterNext"),
+                // ("__next__", "IterNext"),
+                // Comparable trait
+                ("__eq__", "Comparable"),
+                ("__ne__", "Comparable"),
+                ("__lt__", "Comparable"),
+                ("__le__", "Comparable"),
+                ("__gt__", "Comparable"),
+                ("__ge__", "Comparable"),
+            ];
+
+            if let Some((_, trait_name)) = FORBIDDEN_SLOT_METHODS
+                .iter()
+                .find(|(method, _)| *method == py_name.as_str())
+            {
                 return Err(syn::Error::new(
                     ident.span(),
-                    "#[pymethod] cannot define '__new__'. Use #[pyclass(with(Constructor))] instead.",
-                ));
-            }
-            if py_name == "__init__" {
-                return Err(syn::Error::new(
-                    ident.span(),
-                    "#[pymethod] cannot define '__init__'. Use #[pyclass(with(Initializer))] instead.",
+                    format!(
+                        "#[pymethod] cannot define '{py_name}'. Use `impl {trait_name} for ...` instead. \
+                         Slot methods are exposed as wrapper_descriptor automatically.",
+                    ),
                 ));
             }
         }
