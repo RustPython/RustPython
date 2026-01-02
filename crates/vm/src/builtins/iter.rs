@@ -4,7 +4,11 @@
 
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
+<<<<<<< HEAD
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+=======
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+>>>>>>> 59536007d (fix: prevent iterator length_hint deadlock)
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
@@ -184,17 +188,31 @@ impl PySequenceIterator {
     }
 
     #[pymethod]
-    fn __length_hint__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let internal = self.internal.lock();
-        if let IterStatus::Active(obj) = &internal.status {
-            let seq = obj.sequence_unchecked();
-            seq.length(vm).map_or_else(
-                |_| vm.ctx.not_implemented(),
-                |x| PyInt::from(x).into_pyobject(vm),
-            )
-        } else {
-            PyInt::from(0).into_pyobject(vm)
-        }
+    fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        vm.with_recursion("in __length_hint__", || {
+            let obj = {
+                let internal = self.internal.lock();
+                match &internal.status {
+                    IterStatus::Active(obj) => Some(obj.clone()),
+                    IterStatus::Exhausted => None,
+                }
+            };
+            if let Some(obj) = obj {
+                let seq = obj.sequence_unchecked();
+                match seq.length(vm) {
+                    Ok(x) => Ok(PyInt::from(x).into_pyobject(vm)),
+                    Err(err) => {
+                        if err.fast_isinstance(vm.ctx.exceptions.recursion_error) {
+                            Err(err)
+                        } else {
+                            Ok(vm.ctx.not_implemented())
+                        }
+                    }
+                }
+            } else {
+                Ok(PyInt::from(0).into_pyobject(vm))
+            }
+        })
     }
 
     #[pymethod]
