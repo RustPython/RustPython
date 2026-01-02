@@ -7,7 +7,7 @@ use crate::{
     protocol::{PyIter, PyIterIter, PyMapping},
     types::GenericMethod,
 };
-use core::{borrow::Borrow, marker::PhantomData, ops::Deref};
+use core::{borrow::Borrow, marker::PhantomData};
 
 #[derive(Clone, Traverse)]
 pub struct ArgCallable {
@@ -134,6 +134,11 @@ impl ArgMapping {
     }
 
     #[inline(always)]
+    pub fn obj(&self) -> &PyObject {
+        &self.obj
+    }
+
+    #[inline(always)]
     pub fn mapping(&self) -> PyMapping<'_> {
         self.obj.mapping_unchecked()
     }
@@ -149,14 +154,6 @@ impl Borrow<PyObject> for ArgMapping {
 impl AsRef<PyObject> for ArgMapping {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
-        &self.obj
-    }
-}
-
-impl Deref for ArgMapping {
-    type Target = PyObject;
-    #[inline(always)]
-    fn deref(&self) -> &PyObject {
         &self.obj
     }
 }

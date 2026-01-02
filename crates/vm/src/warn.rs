@@ -404,8 +404,20 @@ fn setup_context(
 
     let (globals, filename, lineno) = if let Some(f) = f {
         (f.globals.clone(), f.code.source_path, f.f_lineno())
+    } else if let Some(frame) = vm.current_frame() {
+        // We have a frame but it wasn't found during stack walking
+        (frame.globals.clone(), vm.ctx.intern_str("<sys>"), 1)
     } else {
-        (vm.current_globals().clone(), vm.ctx.intern_str("sys"), 1)
+        // No frames on the stack - use sys.__dict__ (interp->sysdict)
+        let globals = vm
+            .sys_module
+            .as_object()
+            .get_attr(identifier!(vm, __dict__), vm)
+            .and_then(|d| {
+                d.downcast::<crate::builtins::PyDict>()
+                    .map_err(|_| vm.new_type_error("sys.__dict__ is not a dictionary"))
+            })?;
+        (globals, vm.ctx.intern_str("<sys>"), 0)
     };
 
     let registry = if let Ok(registry) = globals.get_item(__warningregistry__, vm) {

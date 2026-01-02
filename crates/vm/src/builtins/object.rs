@@ -326,66 +326,6 @@ impl PyBaseObject {
         Ok(res)
     }
 
-    /// Return self==value.
-    #[pymethod]
-    fn __eq__(
-        zelf: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &value, PyComparisonOp::Eq, vm)
-    }
-
-    /// Return self!=value.
-    #[pymethod]
-    fn __ne__(
-        zelf: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &value, PyComparisonOp::Ne, vm)
-    }
-
-    /// Return self<value.
-    #[pymethod]
-    fn __lt__(
-        zelf: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &value, PyComparisonOp::Lt, vm)
-    }
-
-    /// Return self<=value.
-    #[pymethod]
-    fn __le__(
-        zelf: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &value, PyComparisonOp::Le, vm)
-    }
-
-    /// Return self>=value.
-    #[pymethod]
-    fn __ge__(
-        zelf: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &value, PyComparisonOp::Ge, vm)
-    }
-
-    /// Return self>value.
-    #[pymethod]
-    fn __gt__(
-        zelf: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &value, PyComparisonOp::Gt, vm)
-    }
-
     /// Implement setattr(self, name, value).
     #[pymethod]
     fn __setattr__(
@@ -448,12 +388,6 @@ impl PyBaseObject {
             ))
             .into_ref(&vm.ctx)),
         }
-    }
-
-    /// Return repr(self).
-    #[pymethod]
-    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Self::slot_repr(&zelf, vm)
     }
 
     #[pyclassmethod]
@@ -588,12 +522,6 @@ impl PyBaseObject {
     #[pyslot]
     fn slot_hash(zelf: &PyObject, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)
-    }
-
-    /// Return hash(self).
-    #[pymethod]
-    fn __hash__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Self::slot_hash(&zelf, vm)
     }
 
     #[pymethod]

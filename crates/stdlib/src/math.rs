@@ -29,7 +29,7 @@ mod math {
     // Helper macro:
     macro_rules! call_math_func {
         ( $fun:ident, $name:ident, $vm:ident ) => {{
-            let value = *$name;
+            let value = $name.into_float();
             let result = value.$fun();
             result_or_overflow(value, result, $vm)
         }};
@@ -54,17 +54,17 @@ mod math {
 
     #[pyfunction]
     fn isfinite(x: ArgIntoFloat) -> bool {
-        x.is_finite()
+        x.into_float().is_finite()
     }
 
     #[pyfunction]
     fn isinf(x: ArgIntoFloat) -> bool {
-        x.is_infinite()
+        x.into_float().is_infinite()
     }
 
     #[pyfunction]
     fn isnan(x: ArgIntoFloat) -> bool {
-        x.is_nan()
+        x.into_float().is_nan()
     }
 
     #[derive(FromArgs)]
@@ -81,10 +81,10 @@ mod math {
 
     #[pyfunction]
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let a = *args.a;
-        let b = *args.b;
-        let rel_tol = args.rel_tol.map_or(1e-09, |value| value.into());
-        let abs_tol = args.abs_tol.map_or(0.0, |value| value.into());
+        let a = args.a.into_float();
+        let b = args.b.into_float();
+        let rel_tol = args.rel_tol.map_or(1e-09, |v| v.into_float());
+        let abs_tol = args.abs_tol.map_or(0.0, |v| v.into_float());
 
         if rel_tol < 0.0 || abs_tol < 0.0 {
             return Err(vm.new_value_error("tolerances must be non-negative"));
@@ -115,7 +115,7 @@ mod math {
 
     #[pyfunction]
     fn copysign(x: ArgIntoFloat, y: ArgIntoFloat) -> f64 {
-        x.copysign(*y)
+        x.into_float().copysign(y.into_float())
     }
 
     // Power and logarithmic functions:
@@ -136,7 +136,7 @@ mod math {
 
     #[pyfunction]
     fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let base = base.map(|b| *b).unwrap_or(core::f64::consts::E);
+        let base: f64 = base.map(Into::into).unwrap_or(core::f64::consts::E);
         if base.is_sign_negative() {
             return Err(vm.new_value_error("math domain error"));
         }
@@ -145,7 +145,7 @@ mod math {
 
     #[pyfunction]
     fn log1p(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
+        let x = x.into_float();
         if x.is_nan() || x > -1.0_f64 {
             Ok(x.ln_1p())
         } else {
@@ -197,8 +197,8 @@ mod math {
 
     #[pyfunction]
     fn pow(x: ArgIntoFloat, y: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
-        let y = *y;
+        let x = x.into_float();
+        let y = y.into_float();
 
         if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite()
             || x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY
@@ -217,7 +217,7 @@ mod math {
 
     #[pyfunction]
     fn sqrt(value: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let value = *value;
+        let value = value.into_float();
         if value.is_nan() {
             return Ok(value);
         }
@@ -232,6 +232,7 @@ mod math {
 
     #[pyfunction]
     fn isqrt(x: ArgIndex, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let x = x.into_int_ref();
         let value = x.as_bigint();
 
         if value.is_negative() {
@@ -243,7 +244,7 @@ mod math {
     // Trigonometric functions:
     #[pyfunction]
     fn acos(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
+        let x = x.into_float();
         if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
             Ok(x.acos())
         } else {
@@ -253,7 +254,7 @@ mod math {
 
     #[pyfunction]
     fn asin(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
+        let x = x.into_float();
         if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
             Ok(x.asin())
         } else {
@@ -268,15 +269,16 @@ mod math {
 
     #[pyfunction]
     fn atan2(y: ArgIntoFloat, x: ArgIntoFloat) -> f64 {
-        y.atan2(*x)
+        y.into_float().atan2(x.into())
     }
 
     #[pyfunction]
     fn cos(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        let x = x.into_float();
         if x.is_infinite() {
             return Err(vm.new_value_error("math domain error"));
         }
-        call_math_func!(cos, x, vm)
+        result_or_overflow(x, x.cos(), vm)
     }
 
     #[pyfunction]
@@ -408,35 +410,37 @@ mod math {
 
     #[pyfunction]
     fn sin(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        let x = x.into_float();
         if x.is_infinite() {
             return Err(vm.new_value_error("math domain error"));
         }
-        call_math_func!(sin, x, vm)
+        result_or_overflow(x, x.sin(), vm)
     }
 
     #[pyfunction]
     fn tan(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        let x = x.into_float();
         if x.is_infinite() {
             return Err(vm.new_value_error("math domain error"));
         }
-        call_math_func!(tan, x, vm)
+        result_or_overflow(x, x.tan(), vm)
     }
 
     #[pyfunction]
     fn degrees(x: ArgIntoFloat) -> f64 {
-        *x * (180.0 / core::f64::consts::PI)
+        x.into_float() * (180.0 / core::f64::consts::PI)
     }
 
     #[pyfunction]
     fn radians(x: ArgIntoFloat) -> f64 {
-        *x * (core::f64::consts::PI / 180.0)
+        x.into_float() * (core::f64::consts::PI / 180.0)
     }
 
     // Hyperbolic functions:
 
     #[pyfunction]
     fn acosh(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
+        let x = x.into_float();
         if x.is_sign_negative() || x.is_zero() {
             Err(vm.new_value_error("math domain error"))
         } else {
@@ -451,7 +455,7 @@ mod math {
 
     #[pyfunction]
     fn atanh(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
+        let x = x.into_float();
         if x >= 1.0_f64 || x <= -1.0_f64 {
             Err(vm.new_value_error("math domain error"))
         } else {
@@ -477,22 +481,22 @@ mod math {
     // Special functions:
     #[pyfunction]
     fn erf(x: ArgIntoFloat) -> f64 {
-        pymath::erf(*x)
+        pymath::erf(x.into())
     }
 
     #[pyfunction]
     fn erfc(x: ArgIntoFloat) -> f64 {
-        pymath::erfc(*x)
+        pymath::erfc(x.into())
     }
 
     #[pyfunction]
     fn gamma(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        pymath::gamma(*x).map_err(|err| pymath_error_to_exception(err, vm))
+        pymath::gamma(x.into()).map_err(|err| pymath_error_to_exception(err, vm))
     }
 
     #[pyfunction]
     fn lgamma(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        pymath::lgamma(*x).map_err(|err| pymath_error_to_exception(err, vm))
+        pymath::lgamma(x.into()).map_err(|err| pymath_error_to_exception(err, vm))
     }
 
     fn try_magic_method(
@@ -541,7 +545,7 @@ mod math {
 
     #[pyfunction]
     fn frexp(x: ArgIntoFloat) -> (f64, i32) {
-        let value = *x;
+        let value: f64 = x.into();
         if value.is_finite() {
             let (m, exp) = float_ops::decompose_float(value);
             (m * value.signum(), exp)
@@ -641,12 +645,12 @@ mod math {
         if arg_vec.is_empty() {
             return default;
         } else if arg_vec.len() == 1 {
-            return op(arg_vec[0].as_bigint(), &arg_vec[0]);
+            return op(arg_vec[0].as_ref().as_bigint(), arg_vec[0].as_ref());
         }
 
-        let mut res = arg_vec[0].as_bigint().clone();
+        let mut res = arg_vec[0].as_ref().as_bigint().clone();
         for num in &arg_vec[1..] {
-            res = op(&res, num)
+            res = op(&res, num.as_ref())
         }
         res
     }
@@ -665,7 +669,7 @@ mod math {
 
     #[pyfunction]
     fn cbrt(x: ArgIntoFloat) -> f64 {
-        x.cbrt()
+        x.into_float().cbrt()
     }
 
     #[pyfunction]
@@ -675,7 +679,7 @@ mod math {
         let mut inf_sum = 0.0;
 
         for obj in seq.iter(vm)? {
-            let mut x = *obj?;
+            let mut x = obj?.into_float();
 
             let xsave = x;
             let mut i = 0;
@@ -790,11 +794,12 @@ mod math {
         k: OptionalArg<Option<ArgIndex>>,
         vm: &VirtualMachine,
     ) -> PyResult<BigInt> {
+        let n = n.into_int_ref();
         let n = n.as_bigint();
         let k_ref;
         let v = match k.flatten() {
             Some(k) => {
-                k_ref = k;
+                k_ref = k.into_int_ref();
                 k_ref.as_bigint()
             }
             None => n,
@@ -818,7 +823,9 @@ mod math {
 
     #[pyfunction]
     fn comb(n: ArgIndex, k: ArgIndex, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let k = k.into_int_ref();
         let mut k = k.as_bigint();
+        let n = n.into_int_ref();
         let n = n.as_bigint();
         let one = BigInt::one();
         let zero = BigInt::zero();
@@ -856,7 +863,7 @@ mod math {
 
     #[pyfunction]
     fn modf(x: ArgIntoFloat) -> (f64, f64) {
-        let x = *x;
+        let x = x.into_float();
         if !x.is_finite() {
             if x.is_infinite() {
                 return (0.0_f64.copysign(x), x);
@@ -882,27 +889,25 @@ mod math {
     fn nextafter(arg: NextAfterArgs, vm: &VirtualMachine) -> PyResult<f64> {
         let steps: Option<i64> = arg
             .steps
-            .map(|v| v.try_to_primitive(vm))
+            .map(|v| v.into_int_ref().try_to_primitive(vm))
             .transpose()?
             .into_option();
+        let x: f64 = arg.x.into();
+        let y: f64 = arg.y.into();
         match steps {
             Some(steps) => {
                 if steps < 0 {
                     return Err(vm.new_value_error("steps must be a non-negative integer"));
                 }
-                Ok(float_ops::nextafter_with_steps(
-                    *arg.x,
-                    *arg.y,
-                    steps as u64,
-                ))
+                Ok(float_ops::nextafter_with_steps(x, y, steps as u64))
             }
-            None => Ok(float_ops::nextafter(*arg.x, *arg.y)),
+            None => Ok(float_ops::nextafter(x, y)),
         }
     }
 
     #[pyfunction]
     fn ulp(x: ArgIntoFloat) -> f64 {
-        float_ops::ulp(*x)
+        float_ops::ulp(x.into())
     }
 
     fn fmod(x: f64, y: f64) -> f64 {
@@ -915,8 +920,8 @@ mod math {
 
     #[pyfunction(name = "fmod")]
     fn py_fmod(x: ArgIntoFloat, y: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
-        let y = *y;
+        let x = x.into_float();
+        let y = y.into_float();
 
         let r = fmod(x, y);
 
@@ -929,8 +934,8 @@ mod math {
 
     #[pyfunction]
     fn remainder(x: ArgIntoFloat, y: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
-        let y = *y;
+        let x = x.into_float();
+        let y = y.into_float();
 
         if x.is_finite() && y.is_finite() {
             if y == 0.0 {
@@ -1025,7 +1030,10 @@ mod math {
         z: ArgIntoFloat,
         vm: &VirtualMachine,
     ) -> PyResult<f64> {
-        let result = (*x).mul_add(*y, *z);
+        let x = x.into_float();
+        let y = y.into_float();
+        let z = z.into_float();
+        let result = x.mul_add(y, z);
 
         if result.is_finite() {
             return Ok(result);

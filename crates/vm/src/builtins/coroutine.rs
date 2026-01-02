@@ -2,7 +2,7 @@ use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    coroutine::Coro,
+    coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
@@ -108,6 +108,7 @@ impl Py<PyCoroutine> {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         self.inner.throw(
             self.as_object(),
             exc_type,
@@ -181,6 +182,7 @@ impl PyCoroutineWrapper {
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
         self.check_closed(vm)?;
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         let result = self.coro.throw(exc_type, exc_val, exc_tb, vm);
         // Mark as closed if exhausted
         if let Ok(PyIterReturn::StopIteration(_)) = &result {

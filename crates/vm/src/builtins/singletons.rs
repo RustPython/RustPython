@@ -50,12 +50,7 @@ impl Constructor for PyNone {
 }
 
 #[pyclass(with(Constructor, AsNumber, Representable))]
-impl PyNone {
-    #[pymethod]
-    const fn __bool__(&self) -> bool {
-        false
-    }
-}
+impl PyNone {}
 
 impl Representable for PyNone {
     #[inline]
@@ -103,19 +98,24 @@ impl Constructor for PyNotImplemented {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, AsNumber, Representable))]
 impl PyNotImplemented {
-    // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
-    // in boolean contexts will need to raise a DeprecationWarning in 3.9
-    // and, eventually, a TypeError.
-    #[pymethod]
-    const fn __bool__(&self) -> bool {
-        true
-    }
-
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
         vm.ctx.names.NotImplemented.to_owned()
+    }
+}
+
+impl AsNumber for PyNotImplemented {
+    fn as_number() -> &'static PyNumberMethods {
+        // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
+        // in boolean contexts will need to raise a DeprecationWarning in 3.9
+        // and, eventually, a TypeError.
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            boolean: Some(|_number, _vm| Ok(true)),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
     }
 }
 

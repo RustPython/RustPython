@@ -9,8 +9,8 @@ use crate::{
     },
     class::StaticType,
     function::{ArgBytesLike, FuncArgs, PySetterValue},
-    protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods},
-    types::{AsBuffer, AsNumber, AsSequence, Constructor, Initializer},
+    protocol::{BufferDescriptor, PyBuffer, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    types::{AsBuffer, AsMapping, AsNumber, AsSequence, Constructor, Initializer},
 };
 use alloc::borrow::Cow;
 use num_traits::{Signed, ToPrimitive};
@@ -468,9 +468,33 @@ impl AsSequence for PyCArray {
     }
 }
 
+impl AsMapping for PyCArray {
+    fn as_mapping() -> &'static PyMappingMethods {
+        use std::sync::LazyLock;
+        static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
+            length: atomic_func!(|mapping, _vm| {
+                let zelf = PyCArray::mapping_downcast(mapping);
+                Ok(zelf.class().stg_info_opt().map_or(0, |i| i.length))
+            }),
+            subscript: atomic_func!(|mapping, needle, vm| {
+                let zelf = PyCArray::mapping_downcast(mapping);
+                PyCArray::__getitem__(zelf, needle.to_owned(), vm)
+            }),
+            ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                let zelf = PyCArray::mapping_downcast(mapping);
+                match value {
+                    Some(value) => PyCArray::__setitem__(zelf, needle.to_owned(), value, vm),
+                    None => PyCArray::__delitem__(zelf, needle.to_owned(), vm),
+                }
+            }),
+        });
+        &AS_MAPPING
+    }
+}
+
 #[pyclass(
     flags(BASETYPE, IMMUTABLETYPE),
-    with(Constructor, Initializer, AsSequence, AsBuffer)
+    with(Constructor, Initializer, AsSequence, AsMapping, AsBuffer)
 )]
 impl PyCArray {
     #[pyclassmethod]
@@ -916,7 +940,6 @@ impl PyCArray {
     }
 
     // Array_subscript
-    #[pymethod]
     fn __getitem__(zelf: &Py<Self>, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // PyIndex_Check
         if let Some(i) = item.downcast_ref::<PyInt>() {
@@ -1023,7 +1046,6 @@ impl PyCArray {
     }
 
     // Array_ass_subscript
-    #[pymethod]
     fn __setitem__(
         zelf: &Py<Self>,
         item: PyObjectRef,
@@ -1050,7 +1072,6 @@ impl PyCArray {
     }
 
     // Array does not support item deletion
-    #[pymethod]
     fn __delitem__(&self, _item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("Array does not support item deletion"))
     }
@@ -1087,7 +1108,6 @@ impl PyCArray {
         Ok(())
     }
 
-    #[pymethod]
     fn __len__(zelf: &Py<Self>, _vm: &VirtualMachine) -> usize {
         zelf.class().stg_info_opt().map_or(0, |i| i.length)
     }

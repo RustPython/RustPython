@@ -4,7 +4,7 @@ use crate::{
     builtins::PyBaseExceptionRef,
     class::PyClassImpl,
     common::lock::PyMutex,
-    coroutine::Coro,
+    coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
@@ -312,6 +312,7 @@ impl PyAsyncGenASend {
             return Err(vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()"));
         }
 
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         let res = self.ag.inner.throw(
             self.ag.as_object(),
             exc_type,
@@ -431,6 +432,7 @@ impl PyAsyncGenAThrow {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         let ret = self.ag.inner.throw(
             self.ag.as_object(),
             exc_type,
@@ -601,6 +603,7 @@ impl PyAnextAwaitable {
         vm: &VirtualMachine,
     ) -> PyResult {
         self.check_closed(vm)?;
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         self.state.store(AwaitableState::Iter);
         let awaitable = self.get_awaitable_iter(vm)?;
         let result = vm.call_method(

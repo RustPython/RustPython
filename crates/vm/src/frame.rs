@@ -1739,7 +1739,42 @@ impl ExecutingFrame<'_> {
         // We do not have any more blocks to unwind. Inspect the reason we are here:
         match reason {
             UnwindReason::Raising { exception } => Err(exception),
-            UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
+            UnwindReason::Returning { value } => {
+                // Clear tracebacks of exceptions in fastlocals to break reference cycles.
+                // This is needed because when returning from inside an except block,
+                // the exception cleanup code (e = None; del e) is skipped, leaving the
+                // exception with a traceback that references this frame, which references
+                // the exception in fastlocals, creating a cycle that can't be collected
+                // since RustPython doesn't have a tracing GC.
+                //
+                // We only clear tracebacks of exceptions that:
+                // 1. Are not the return value itself (will be needed by caller)
+                // 2. Are not the current active exception (still being handled)
+                // 3. Have a traceback whose top frame is THIS frame (we created it)
+                let current_exc = vm.current_exception();
+                let fastlocals = self.fastlocals.lock();
+                for obj in fastlocals.iter().flatten() {
+                    // Skip if this object is the return value
+                    if obj.is(&value) {
+                        continue;
+                    }
+                    if let Ok(exc) = obj.clone().downcast::<PyBaseException>() {
+                        // Skip if this is the current active exception
+                        if current_exc.as_ref().is_some_and(|cur| exc.is(cur)) {
+                            continue;
+                        }
+                        // Only clear if traceback's top frame is this frame
+                        if exc
+                            .__traceback__()
+                            .is_some_and(|tb| core::ptr::eq::<Py<Frame>>(&*tb.frame, self.object))
+                        {
+                            exc.set_traceback_typed(None);
+                        }
+                    }
+                }
+                drop(fastlocals);
+                Ok(Some(ExecutionResult::Return(value)))
+            }
             UnwindReason::Break { .. } | UnwindReason::Continue { .. } => {
                 self.fatal("break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),

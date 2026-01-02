@@ -8,9 +8,9 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
-    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
-        AsMapping, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
+        AsMapping, AsNumber, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
         Representable, SelfIter,
     },
 };
@@ -176,6 +176,7 @@ pub fn init(context: &Context) {
     with(
         Py,
         AsMapping,
+        AsNumber,
         AsSequence,
         Hashable,
         Comparable,
@@ -264,14 +265,8 @@ impl PyRange {
         )
     }
 
-    #[pymethod]
     fn __len__(&self) -> BigInt {
         self.compute_length()
-    }
-
-    #[pymethod]
-    fn __bool__(&self) -> bool {
-        !self.is_empty()
     }
 
     #[pymethod]
@@ -284,7 +279,6 @@ impl PyRange {
         (vm.ctx.types.range_type.to_owned(), range_parameters_tuple)
     }
 
-    #[pymethod]
     fn __getitem__(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match RangeIndex::try_from_object(vm, subscript)? {
             RangeIndex::Slice(slice) => {
@@ -346,7 +340,6 @@ impl Py<PyRange> {
         }
     }
 
-    #[pymethod]
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> bool {
         self.contains_inner(&needle, vm)
     }
@@ -423,6 +416,19 @@ impl AsSequence for PyRange {
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
+    }
+}
+
+impl AsNumber for PyRange {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            boolean: Some(|number, _vm| {
+                let zelf = number.obj.downcast_ref::<PyRange>().unwrap();
+                Ok(!zelf.is_empty())
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
     }
 }
 

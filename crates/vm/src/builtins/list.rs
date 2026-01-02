@@ -145,7 +145,6 @@ impl PyList {
         Ok(Self::from(elements).into_ref(&vm.ctx))
     }
 
-    #[pymethod]
     fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         self.concat(&other, vm)
     }
@@ -160,7 +159,6 @@ impl PyList {
         Ok(zelf.to_owned().into())
     }
 
-    #[pymethod]
     fn __iadd__(
         zelf: PyRef<Self>,
         other: PyObjectRef,
@@ -182,7 +180,6 @@ impl PyList {
     }
 
     #[allow(clippy::len_without_is_empty)]
-    #[pymethod]
     pub fn __len__(&self) -> usize {
         self.borrow_vec().len()
     }
@@ -216,7 +213,6 @@ impl PyList {
         }
     }
 
-    #[pymethod]
     fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }
@@ -231,7 +227,6 @@ impl PyList {
         }
     }
 
-    #[pymethod]
     fn __setitem__(
         &self,
         needle: PyObjectRef,
@@ -241,13 +236,10 @@ impl PyList {
         self._setitem(&needle, value, vm)
     }
 
-    #[pymethod]
-    #[pymethod(name = "__rmul__")]
     fn __mul__(&self, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         self.repeat(n.into(), vm)
     }
 
-    #[pymethod]
     fn __imul__(zelf: PyRef<Self>, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::irepeat(zelf, n.into(), vm)
     }
@@ -257,7 +249,6 @@ impl PyList {
         self.mut_count(vm, &needle)
     }
 
-    #[pymethod]
     pub(crate) fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.mut_contains(vm, &needle)
     }
@@ -315,7 +306,6 @@ impl PyList {
         }
     }
 
-    #[pymethod]
     fn __delitem__(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self._delitem(&subscript, vm)
     }

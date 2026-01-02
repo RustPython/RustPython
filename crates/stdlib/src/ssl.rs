@@ -2293,7 +2293,7 @@ mod _ssl {
 
     // SSLSocket - represents a TLS-wrapped socket
     #[pyattr]
-    #[pyclass(name = "_SSLSocket", module = "ssl")]
+    #[pyclass(name = "_SSLSocket", module = "ssl", traverse)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PySSLSocket {
         // Underlying socket
@@ -2301,14 +2301,19 @@ mod _ssl {
         // SSL context
         context: PyRwLock<PyRef<PySSLContext>>,
         // Server-side or client-side
+        #[pytraverse(skip)]
         server_side: bool,
         // Server hostname for SNI
+        #[pytraverse(skip)]
         server_hostname: PyRwLock<Option<String>>,
         // TLS connection state
+        #[pytraverse(skip)]
         connection: PyMutex<Option<TlsConnection>>,
         // Handshake completed flag
+        #[pytraverse(skip)]
         handshake_done: PyMutex<bool>,
         // Session was reused (for session resumption tracking)
+        #[pytraverse(skip)]
         session_was_reused: PyMutex<bool>,
         // Owner (SSLSocket instance that owns this _SSLSocket)
         owner: PyRwLock<Option<PyObjectRef>>,
@@ -2316,22 +2321,27 @@ mod _ssl {
         session: PyRwLock<Option<PyObjectRef>>,
         // Verified certificate chain (built during verification)
         #[allow(dead_code)]
+        #[pytraverse(skip)]
         verified_chain: PyRwLock<Option<Vec<CertificateDer<'static>>>>,
         // MemoryBIO mode (optional)
         incoming_bio: Option<PyRef<PyMemoryBIO>>,
         outgoing_bio: Option<PyRef<PyMemoryBIO>>,
         // SNI certificate resolver state (for server-side only)
+        #[pytraverse(skip)]
         sni_state: PyRwLock<Option<Arc<ParkingMutex<SniCertName>>>>,
         // Pending context change (for SNI callback deferred handling)
         pending_context: PyRwLock<Option<PyRef<PySSLContext>>>,
         // Buffer to store ClientHello for connection recreation
+        #[pytraverse(skip)]
         client_hello_buffer: PyMutex<Option<Vec<u8>>>,
         // Shutdown state for tracking close-notify exchange
+        #[pytraverse(skip)]
         shutdown_state: PyMutex<ShutdownState>,
         // Deferred client certificate verification error (for TLS 1.3)
         // Stores error message if client cert verification failed during handshake
         // Error is raised on first I/O operation after handshake
         // Using Arc to share with the certificate verifier
+        #[pytraverse(skip)]
         deferred_cert_error: Arc<ParkingRwLock<Option<String>>>,
     }
 

@@ -12,13 +12,13 @@ mod _collections {
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{KwArgs, OptionalArg, PyComparisonValue},
         iter::PyExactSizeIterator,
-        protocol::{PyIterReturn, PySequenceMethods},
+        protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
         types::{
-            AsSequence, Comparable, Constructor, DefaultConstructor, Initializer, IterNext,
-            Iterable, PyComparisonOp, Representable, SelfIter,
+            AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor, Initializer,
+            IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
         },
         utils::collection_repr,
     };
@@ -60,6 +60,7 @@ mod _collections {
         with(
             Constructor,
             Initializer,
+            AsNumber,
             AsSequence,
             Comparable,
             Iterable,
@@ -277,7 +278,6 @@ mod _collections {
             self.maxlen
         }
 
-        #[pymethod]
         fn __getitem__(&self, idx: isize, vm: &VirtualMachine) -> PyResult {
             let deque = self.borrow_deque();
             idx.wrapped_at(deque.len())
@@ -285,7 +285,6 @@ mod _collections {
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        #[pymethod]
         fn __setitem__(&self, idx: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
             idx.wrapped_at(deque.len())
@@ -294,7 +293,6 @@ mod _collections {
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        #[pymethod]
         fn __delitem__(&self, idx: isize, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
             idx.wrapped_at(deque.len())
@@ -302,7 +300,6 @@ mod _collections {
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        #[pymethod]
         fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
             self._contains(&needle, vm)
         }
@@ -331,8 +328,6 @@ mod _collections {
             Ok(deque)
         }
 
-        #[pymethod]
-        #[pymethod(name = "__rmul__")]
         fn __mul__(&self, n: isize, vm: &VirtualMachine) -> PyResult<Self> {
             let deque = self._mul(n, vm)?;
             Ok(Self {
@@ -342,26 +337,14 @@ mod _collections {
             })
         }
 
-        #[pymethod]
         fn __imul__(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             let mul_deque = zelf._mul(n, vm)?;
             *zelf.borrow_deque_mut() = mul_deque;
             Ok(zelf)
         }
 
-        #[pymethod]
         fn __len__(&self) -> usize {
             self.borrow_deque().len()
-        }
-
-        #[pymethod]
-        fn __bool__(&self) -> bool {
-            !self.borrow_deque().is_empty()
-        }
-
-        #[pymethod]
-        fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-            self.concat(&other, vm)
         }
 
         fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
@@ -389,7 +372,6 @@ mod _collections {
             }
         }
 
-        #[pymethod]
         fn __iadd__(
             zelf: PyRef<Self>,
             other: PyObjectRef,
@@ -493,6 +475,19 @@ mod _collections {
             }
 
             Ok(())
+        }
+    }
+
+    impl AsNumber for PyDeque {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                boolean: Some(|number, _vm| {
+                    let zelf = number.obj.downcast_ref::<PyDeque>().unwrap();
+                    Ok(!zelf.borrow_deque().is_empty())
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
         }
     }
 

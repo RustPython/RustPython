@@ -2,6 +2,8 @@ use crate::frozen::FrozenModule;
 use crate::{VirtualMachine, builtins::PyBaseExceptionRef};
 pub(crate) use _imp::make_module;
 
+pub use crate::vm::resolve_frozen_alias;
+
 #[cfg(feature = "threading")]
 #[pymodule(sub)]
 mod lock {
@@ -191,7 +193,7 @@ mod _imp {
             Err(e) => return Err(e.to_pyexception(name.as_str(), vm)),
         };
 
-        let origname = name; // FIXME: origname != name
+        let origname = vm.ctx.new_str(super::resolve_frozen_alias(name.as_str()));
         Ok(Some((None, info.package, origname)))
     }
 

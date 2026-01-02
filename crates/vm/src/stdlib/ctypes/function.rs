@@ -12,8 +12,8 @@ use crate::{
     builtins::{PyBytes, PyDict, PyNone, PyStr, PyTuple, PyType, PyTypeRef},
     class::StaticType,
     function::FuncArgs,
-    protocol::{BufferDescriptor, PyBuffer},
-    types::{AsBuffer, Callable, Constructor, Initializer, Representable},
+    protocol::{BufferDescriptor, PyBuffer, PyNumberMethods},
+    types::{AsBuffer, AsNumber, Callable, Constructor, Initializer, Representable},
     vm::thread::with_current_vm,
 };
 use alloc::borrow::Cow;
@@ -1772,7 +1772,10 @@ impl AsBuffer for PyCFuncPtr {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Callable, Constructor, Representable, AsBuffer))]
+#[pyclass(
+    flags(BASETYPE),
+    with(Callable, Constructor, AsNumber, Representable, AsBuffer)
+)]
 impl PyCFuncPtr {
     // restype getter/setter
     #[pygetset]
@@ -1848,11 +1851,18 @@ impl PyCFuncPtr {
             .map(|stg| stg.flags.bits())
             .unwrap_or(StgInfoFlags::empty().bits())
     }
+}
 
-    // bool conversion - check if function pointer is set
-    #[pymethod]
-    fn __bool__(&self) -> bool {
-        self.get_func_ptr() != 0
+impl AsNumber for PyCFuncPtr {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            boolean: Some(|number, _vm| {
+                let zelf = number.obj.downcast_ref::<PyCFuncPtr>().unwrap();
+                Ok(zelf.get_func_ptr() != 0)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
     }
 }
 

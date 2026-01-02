@@ -92,11 +92,15 @@ mod fcntl {
     #[pyfunction]
     fn ioctl(
         io::Fildes(fd): io::Fildes,
-        request: u32,
+        request: i64,
         arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
         mutate_flag: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        // Convert to unsigned - handles both positive u32 values and negative i32 values
+        // that represent the same bit pattern (e.g., TIOCSWINSZ on some platforms).
+        // First truncate to u32 (takes lower 32 bits), then zero-extend to c_ulong.
+        let request = (request as u32) as libc::c_ulong;
         let arg = arg.unwrap_or_else(|| Either::B(0));
         match arg {
             Either::A(buf_kind) => {

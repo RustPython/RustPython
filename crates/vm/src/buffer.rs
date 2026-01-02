@@ -603,7 +603,7 @@ macro_rules! make_pack_float {
                 arg: PyObjectRef,
                 data: &mut [u8],
             ) -> PyResult<()> {
-                let f = *ArgIntoFloat::try_from_object(vm, arg)? as $T;
+                let f = ArgIntoFloat::try_from_object(vm, arg)?.into_float() as $T;
                 f.to_bits().pack_int::<E>(data);
                 Ok(())
             }
@@ -621,7 +621,7 @@ make_pack_float!(f64);
 
 impl Packable for f16 {
     fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
-        let f_64 = *ArgIntoFloat::try_from_object(vm, arg)?;
+        let f_64 = ArgIntoFloat::try_from_object(vm, arg)?.into_float();
         // "from_f64 should be preferred in any non-`const` context" except it gives the wrong result :/
         let f_16 = Self::from_f64_const(f_64);
         if f_16.is_infinite() != f_64.is_infinite() {
@@ -649,7 +649,7 @@ impl Packable for *mut raw::c_void {
 
 impl Packable for bool {
     fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
-        let v = *ArgIntoBool::try_from_object(vm, arg)? as u8;
+        let v = ArgIntoBool::try_from_object(vm, arg)?.into_bool() as u8;
         v.pack_int::<E>(data);
         Ok(())
     }

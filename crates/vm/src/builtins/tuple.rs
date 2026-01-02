@@ -10,12 +10,12 @@ use crate::{
     convert::{ToPyObject, TransmuteFromObject},
     function::{ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
-    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{OptionalRangeArgs, SequenceExt},
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
+        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter,
     },
     utils::collection_repr,
@@ -260,10 +260,9 @@ impl<T> PyTuple<PyRef<T>> {
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF),
-    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
+    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
 impl PyTuple {
-    #[pymethod]
     fn __add__(
         zelf: PyRef<Self>,
         other: PyObjectRef,
@@ -287,11 +286,6 @@ impl PyTuple {
     }
 
     #[pymethod]
-    const fn __bool__(&self) -> bool {
-        !self.elements.is_empty()
-    }
-
-    #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self {
@@ -303,13 +297,10 @@ impl PyTuple {
     }
 
     #[inline]
-    #[pymethod]
     pub const fn __len__(&self) -> usize {
         self.elements.len()
     }
 
-    #[pymethod(name = "__rmul__")]
-    #[pymethod]
     fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::repeat(zelf, value.into(), vm)
     }
@@ -324,7 +315,6 @@ impl PyTuple {
         }
     }
 
-    #[pymethod]
     fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }
@@ -354,7 +344,6 @@ impl PyTuple {
         Ok(false)
     }
 
-    #[pymethod]
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self._contains(&needle, vm)
     }
@@ -420,6 +409,19 @@ impl AsSequence for PyTuple {
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
+    }
+}
+
+impl AsNumber for PyTuple {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            boolean: Some(|number, _vm| {
+                let zelf = number.obj.downcast_ref::<PyTuple>().unwrap();
+                Ok(!zelf.elements.is_empty())
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
     }
 }
 

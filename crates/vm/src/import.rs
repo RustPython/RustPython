@@ -5,7 +5,7 @@ use crate::{
     builtins::{PyCode, list, traceback::PyTraceback},
     exceptions::types::PyBaseException,
     scope::Scope,
-    vm::{VirtualMachine, thread},
+    vm::{VirtualMachine, resolve_frozen_alias, thread},
 };
 
 pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
@@ -69,11 +69,16 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    let frozen = make_frozen(vm, module_name)?;
-    let module = import_code_obj(vm, module_name, frozen, false)?;
+    let frozen = vm.state.frozen.get(module_name).ok_or_else(|| {
+        vm.new_import_error(
+            format!("No such frozen object named {module_name}"),
+            vm.ctx.new_str(module_name),
+        )
+    })?;
+    let module = import_code_obj(vm, module_name, vm.ctx.new_code(frozen.code), false)?;
     debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
-    // TODO: give a correct origname here
-    module.set_attr("__origname__", vm.ctx.new_str(module_name.to_owned()), vm)?;
+    let origname = resolve_frozen_alias(module_name);
+    module.set_attr("__origname__", vm.ctx.new_str(origname), vm)?;
     Ok(module)
 }
 
