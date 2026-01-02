@@ -230,6 +230,9 @@ mod _multiprocessing {
 
     impl Drop for SemHandle {
         fn drop(&mut self) {
+            // Guard against default/uninitialized state.
+            // Note: SEM_FAILED is (sem_t*)-1, not null, but valid handles are never null
+            // and SEM_FAILED is never stored (error is returned immediately on sem_open failure).
             if !self.raw.is_null() {
                 // SEM_CLOSE(sem) sem_close(sem)
                 unsafe {
@@ -282,7 +285,7 @@ mod _multiprocessing {
                 .cloned();
 
             if self.kind == RECURSIVE_MUTEX && ismine!(self) {
-                self.count.fetch_add(1, Ordering::Relaxed);
+                self.count.fetch_add(1, Ordering::Release);
                 return Ok(true);
             }
 
@@ -433,9 +436,8 @@ mod _multiprocessing {
                     ));
                 }
                 // if (self->count > 1) { --self->count; Py_RETURN_NONE; }
-                let current = self.count.load(Ordering::Acquire);
-                if current > 1 {
-                    self.count.store(current - 1, Ordering::Release);
+                if self.count.load(Ordering::Acquire) > 1 {
+                    self.count.fetch_sub(1, Ordering::Release);
                     return Ok(());
                 }
                 // assert(self->count == 1);
