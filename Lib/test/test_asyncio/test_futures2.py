@@ -69,7 +69,7 @@ class FutureTests:
         await asyncio.sleep(0)
         self.assertTrue(exc_handler_called)
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                        'requires the C _asyncio module')
 class CFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):

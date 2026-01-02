@@ -702,7 +702,7 @@ class BaseFutureTests:
         self.assertIsNotNone(exc)
         self.assertListEqual(gc.get_referrers(exc), [])
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
                      'requires the C _asyncio module')
 class CFutureTests(BaseFutureTests, test_utils.TestCase):
@@ -744,7 +744,7 @@ class CFutureTests(BaseFutureTests, test_utils.TestCase):
         fut.remove_done_callback(f2)
         self.assertIsNone(fut._callbacks)
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
                      'requires the C _asyncio module')
 class CSubFutureTests(BaseFutureTests, test_utils.TestCase):
@@ -1077,7 +1077,7 @@ class BaseFutureDoneCallbackTests():
             del fut_callback_0
             self.assertRaises(ReachableCode, fut.set_result, "boom")
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
                      'requires the C _asyncio module')
 class CFutureDoneCallbackTests(BaseFutureDoneCallbackTests,
@@ -1086,7 +1086,7 @@ class CFutureDoneCallbackTests(BaseFutureDoneCallbackTests,
     def _new_future(self):
         return futures._CFuture(loop=self.loop)
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
                      'requires the C _asyncio module')
 class CSubFutureDoneCallbackTests(BaseFutureDoneCallbackTests,
@@ -1137,7 +1137,7 @@ class PyFutureInheritanceTests(BaseFutureInheritanceTests,
     def _get_future_cls(self):
         return futures._PyFuture
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
                      'requires the C _asyncio module')
 class CFutureInheritanceTests(BaseFutureInheritanceTests,

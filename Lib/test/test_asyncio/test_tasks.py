@@ -2817,7 +2817,7 @@ class SetMethodsTest:
 
         coro.close()
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(futures, '_CFuture') and
                      hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
@@ -2848,7 +2848,7 @@ class CTask_CFuture_Tests(BaseTaskTests, SetMethodsTest,
         with self.assertRaises(AttributeError):
             del task._log_destroy_pending
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(futures, '_CFuture') and
                      hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
@@ -2858,7 +2858,7 @@ class CTask_CFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
     Task = getattr(tasks, '_CTask', None)
     Future = getattr(futures, '_CFuture', None)
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
 @add_subclass_tests
@@ -2867,7 +2867,7 @@ class CTaskSubclass_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
     Task = getattr(tasks, '_CTask', None)
     Future = futures._PyFuture
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
                      'requires the C _asyncio module')
 @add_subclass_tests
@@ -2876,7 +2876,7 @@ class PyTask_CFutureSubclass_Tests(BaseTaskTests, test_utils.TestCase):
     Future = getattr(futures, '_CFuture', None)
     Task = tasks._PyTask
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
 class CTask_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
@@ -2884,7 +2884,7 @@ class CTask_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
     Task = getattr(tasks, '_CTask', None)
     Future = futures._PyFuture
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
                      'requires the C _asyncio module')
 class PyTask_CFuture_Tests(BaseTaskTests, test_utils.TestCase):
@@ -2906,7 +2906,7 @@ class PyTask_PyFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
     Future = futures._PyFuture
 
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
 class CTask_Future_Tests(test_utils.TestCase):
@@ -3051,7 +3051,7 @@ class PyIntrospectionTests(test_utils.TestCase, BaseTaskIntrospectionTests):
     _enter_task = staticmethod(tasks._py_enter_task)
     _leave_task = staticmethod(tasks._py_leave_task)
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(tasks, '_c_register_task'),
                      'requires the C _asyncio module')
 class CIntrospectionTests(test_utils.TestCase, BaseTaskIntrospectionTests):
@@ -3100,7 +3100,7 @@ class PyCurrentLoopTests(BaseCurrentLoopTests, test_utils.TestCase):
     def new_task(self, coro):
         return tasks._PyTask(coro, loop=self.loop)
 
-# TODO: RUSTPYTHON CPython Specific test
+@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
 @unittest.skipUnless(hasattr(tasks, '_CTask') and
                      hasattr(tasks, '_c_current_task'),
                      'requires the C _asyncio module')
@@ -3120,7 +3120,7 @@ class GenericTaskTests(test_utils.TestCase):
         self.assertTrue(issubclass(asyncio.Task, asyncio.Future))
 
 
-    # TODO: RUSTPYTHON CPython Specific test
+    @unittest.skip('TODO: RUSTPYTHON: CPython specific test')
     @support.cpython_only
     def test_asyncio_module_compiled(self):
         # Because of circular imports it's easy to make _asyncio
