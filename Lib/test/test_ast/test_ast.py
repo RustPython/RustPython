@@ -995,7 +995,6 @@ class AST_Tests(unittest.TestCase):
                 f"identifier field can't represent '{constant[0]}' constant"):
                 ast.parse(constant[1], mode="eval")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_precedence_enum(self):
         class _Precedence(enum.IntEnum):
             """Precedence table that originated from python grammar."""

@@ -5375,7 +5375,6 @@ class TestPreHandshakeClose(unittest.TestCase):
 
 class TestEnumerations(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tlsversion(self):
         class CheckedTLSVersion(enum.IntEnum):
             MINIMUM_SUPPORTED = _ssl.PROTO_MINIMUM_SUPPORTED
@@ -5387,7 +5386,6 @@ class TestEnumerations(unittest.TestCase):
             MAXIMUM_SUPPORTED = _ssl.PROTO_MAXIMUM_SUPPORTED
         enum._test_simple_enum(CheckedTLSVersion, TLSVersion)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tlscontenttype(self):
         class Checked_TLSContentType(enum.IntEnum):
             """Content types (record layer)
@@ -5403,7 +5401,6 @@ class TestEnumerations(unittest.TestCase):
             INNER_CONTENT_TYPE = 0x101
         enum._test_simple_enum(Checked_TLSContentType, _TLSContentType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tlsalerttype(self):
         class Checked_TLSAlertType(enum.IntEnum):
             """Alert types for TLSContentType.ALERT messages
@@ -5446,7 +5443,6 @@ class TestEnumerations(unittest.TestCase):
             NO_APPLICATION_PROTOCOL = 120
         enum._test_simple_enum(Checked_TLSAlertType, _TLSAlertType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tlsmessagetype(self):
         class Checked_TLSMessageType(enum.IntEnum):
             """Message types (handshake protocol)
