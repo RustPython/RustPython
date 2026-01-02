@@ -69,12 +69,11 @@ class FutureTests:
         await asyncio.sleep(0)
         self.assertTrue(exc_handler_called)
 
-# TODO: RUSTPYTHON
-# ErrorMessage: AttributeError: module 'asyncio.tasks' has no attribute '_CTask'. Did you mean: 'Task'?
-# @unittest.skipUnless(hasattr(tasks, '_CTask'),
-#                        'requires the C _asyncio module')
-# class CFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
-#     cls = tasks._CTask
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(tasks, '_CTask'),
+                       'requires the C _asyncio module')
+class CFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
+    cls = tasks._CTask
 
 class PyFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
     cls = tasks._PyTask

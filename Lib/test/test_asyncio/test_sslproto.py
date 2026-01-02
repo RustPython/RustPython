@@ -669,9 +669,7 @@ class BaseStartTLS(func_tests.FunctionalTestCaseMixin):
 
         self.loop.run_until_complete(main())
 
-    # TODO: RUSTPYTHON
-    #  <SSLContext(protocol=16)> is not None
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON <SSLContext(protocol=16)> is not None
     def test_handshake_timeout(self):
         # bpo-29970: Check that a connection is aborted if handshake is not
         # completed in timeout period, instead of remaining open indefinitely

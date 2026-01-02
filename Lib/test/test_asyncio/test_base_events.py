@@ -1019,9 +1019,7 @@ class BaseEventLoopTests(test_utils.TestCase):
         asyncio.create_task(iter_one())
         return status
 
-    # TODO: RUSTPYTHON
-    # AssertionError: False is not true
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON AssertionError: False is not true
     def test_asyncgen_finalization_by_gc(self):
         # Async generators should be finalized when garbage collected.
         self.loop._process_events = mock.Mock()
@@ -1037,9 +1035,7 @@ class BaseEventLoopTests(test_utils.TestCase):
             test_utils.run_briefly(self.loop)
             self.assertTrue(status['finalized'])
 
-    # TODO: RUSTPYTHON
-    # AssertionError: False is not true
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON AssertionError: False is not true
     def test_asyncgen_finalization_by_gc_in_other_thread(self):
         # Python issue 34769: If garbage collector runs in another
         # thread, async generators will not finalize in debug
@@ -1505,8 +1501,7 @@ class BaseEventLoopWithSelectorTests(test_utils.TestCase):
         support.is_android and platform.android_ver().api_level < 23,
         "Issue gh-71123: this fails on Android before API level 23"
     )
-    @unittest.skip('TODO: RUSTPYTHON')
-    # TypeError: unexpected type bytes
+    @unittest.skip('TODO: RUSTPYTHON; TypeError: unexpected type bytes')
     def test_create_connection_service_name(self, m_socket):
         m_socket.getaddrinfo = socket.getaddrinfo
         sock = m_socket.socket.return_value
