@@ -400,6 +400,138 @@ pub(crate) mod _thread {
         vm.state.thread_count.load()
     }
 
+    /// ExceptHookArgs - simple class to hold exception hook arguments
+    /// This allows threading.py to import _excepthook and _ExceptHookArgs from _thread
+    #[pyattr]
+    #[pyclass(module = "_thread", name = "_ExceptHookArgs")]
+    #[derive(Debug, PyPayload)]
+    struct ExceptHookArgs {
+        exc_type: crate::PyObjectRef,
+        exc_value: crate::PyObjectRef,
+        exc_traceback: crate::PyObjectRef,
+        thread: crate::PyObjectRef,
+    }
+
+    #[pyclass(with(Constructor))]
+    impl ExceptHookArgs {
+        #[pygetset]
+        fn exc_type(&self) -> crate::PyObjectRef {
+            self.exc_type.clone()
+        }
+
+        #[pygetset]
+        fn exc_value(&self) -> crate::PyObjectRef {
+            self.exc_value.clone()
+        }
+
+        #[pygetset]
+        fn exc_traceback(&self) -> crate::PyObjectRef {
+            self.exc_traceback.clone()
+        }
+
+        #[pygetset]
+        fn thread(&self) -> crate::PyObjectRef {
+            self.thread.clone()
+        }
+    }
+
+    impl Constructor for ExceptHookArgs {
+        // Takes a single iterable argument like namedtuple
+        type Args = (crate::PyObjectRef,);
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            // Convert the argument to a list/tuple and extract elements
+            let seq: Vec<crate::PyObjectRef> = args.0.try_to_value(vm)?;
+            if seq.len() != 4 {
+                return Err(vm.new_type_error(format!(
+                    "_ExceptHookArgs expected 4 arguments, got {}",
+                    seq.len()
+                )));
+            }
+            Ok(Self {
+                exc_type: seq[0].clone(),
+                exc_value: seq[1].clone(),
+                exc_traceback: seq[2].clone(),
+                thread: seq[3].clone(),
+            })
+        }
+    }
+
+    /// Handle uncaught exception in Thread.run()
+    #[pyfunction]
+    fn _excepthook(args: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // Type check: args must be _ExceptHookArgs
+        let args = args.downcast::<ExceptHookArgs>().map_err(|_| {
+            vm.new_type_error(
+                "_thread._excepthook argument type must be _ExceptHookArgs".to_owned(),
+            )
+        })?;
+
+        let exc_type = args.exc_type.clone();
+        let exc_value = args.exc_value.clone();
+        let exc_traceback = args.exc_traceback.clone();
+        let thread = args.thread.clone();
+
+        // Silently ignore SystemExit (identity check)
+        if exc_type.is(vm.ctx.exceptions.system_exit.as_ref()) {
+            return Ok(());
+        }
+
+        // Get stderr - fall back to thread._stderr if sys.stderr is None
+        let file = match vm.sys_module.get_attr("stderr", vm) {
+            Ok(stderr) if !vm.is_none(&stderr) => stderr,
+            _ => {
+                if vm.is_none(&thread) {
+                    // do nothing if sys.stderr is None and thread is None
+                    return Ok(());
+                }
+                let thread_stderr = thread.get_attr("_stderr", vm)?;
+                if vm.is_none(&thread_stderr) {
+                    // do nothing if sys.stderr is None and sys.stderr was None
+                    // when the thread was created
+                    return Ok(());
+                }
+                thread_stderr
+            }
+        };
+
+        // Print "Exception in thread {thread.name}:"
+        let thread_name = if !vm.is_none(&thread) {
+            thread
+                .get_attr("name", vm)
+                .ok()
+                .and_then(|n| n.str(vm).ok())
+                .map(|s| s.as_str().to_owned())
+        } else {
+            None
+        };
+        let name = thread_name.unwrap_or_else(|| format!("{}", get_ident()));
+
+        let _ = vm.call_method(
+            &file,
+            "write",
+            (format!("Exception in thread {}:\n", name),),
+        );
+
+        // Display the traceback
+        if let Ok(traceback_mod) = vm.import("traceback", 0)
+            && let Ok(print_exc) = traceback_mod.get_attr("print_exception", vm)
+        {
+            use crate::function::KwArgs;
+            let kwargs: KwArgs = vec![("file".to_owned(), file.clone())]
+                .into_iter()
+                .collect();
+            let _ = print_exc.call_with_args(
+                crate::function::FuncArgs::new(vec![exc_type, exc_value, exc_traceback], kwargs),
+                vm,
+            );
+        }
+
+        // Flush file
+        let _ = vm.call_method(&file, "flush", ());
+        Ok(())
+    }
+
     #[pyattr]
     #[pyclass(module = "thread", name = "_local")]
     #[derive(Debug, PyPayload)]
