@@ -71,7 +71,7 @@ pub(crate) mod _struct {
             } else {
                 ("unpack_from", "unpacking")
             };
-            if offset >= buffer_len {
+            if offset + needed > buffer_len {
                 let msg = format!(
                     "{op} requires a buffer of at least {required} bytes for {op_action} {needed} \
                     bytes at offset {offset} (actual buffer size is {buffer_len})",
