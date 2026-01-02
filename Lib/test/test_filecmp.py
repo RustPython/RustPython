@@ -311,9 +311,6 @@ class DirCompareTestCase(unittest.TestCase):
         ]
         self._assert_report(d.report, expected_report)
 
-    # TODO: RUSTPYTHON
-    # AssertionError: "dircmp\.__init__\(\)\ takes\ from\ 3\ to\ 5\ positional\ arguments\ but\ 6\ were\ given" does not match "dircmp.__init__() takes 5 positional arguments but 6 were given
-    @unittest.expectedFailure
     def test_dircmp_shallow_is_keyword_only(self):
         with self.assertRaisesRegex(
             TypeError,
