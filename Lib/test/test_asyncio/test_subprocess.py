@@ -982,8 +982,8 @@ if sys.platform != 'win32':
                 return unix_events.FastChildWatcher()
 
     # TODO: RUSTPYTHON
-    # Weird: Does not skip on CPython
-    # 'operating system does not support pidfds'
+    # Does not skip on CPython
+    # Reason: 'operating system does not support pidfds'
     @unittest.skipUnless(
         unix_events.can_use_pidfd(),
         "operating system does not support pidfds",
@@ -1022,8 +1022,8 @@ if sys.platform != 'win32':
 
 
         # TODO: RUSTPYTHON
-        # Weird: This does not skip in CPython
-        # 'operating system does not support pidfds'
+        # This does not skip in CPython
+        # Reason: 'operating system does not support pidfds'
         @unittest.skipUnless(
             unix_events.can_use_pidfd(),
             "operating system does not support pidfds",

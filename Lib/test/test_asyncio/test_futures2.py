@@ -12,9 +12,7 @@ def tearDownModule():
 
 class FutureTests:
 
-    # TODO: RUSTPYTHON
-    # AssertionError: 0 != 1
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON AssertionError: 0 != 1
     async def test_future_traceback(self):
 
         async def raise_exc():

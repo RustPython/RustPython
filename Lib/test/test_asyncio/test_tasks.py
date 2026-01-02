@@ -2817,136 +2817,120 @@ class SetMethodsTest:
 
         coro.close()
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(futures, '_CFuture') and
-#                      hasattr(tasks, '_CTask'),
-#                      'requires the C _asyncio module')
-# class CTask_CFuture_Tests(BaseTaskTests, SetMethodsTest,
-#                           test_utils.TestCase):
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(futures, '_CFuture') and
+                     hasattr(tasks, '_CTask'),
+                     'requires the C _asyncio module')
+class CTask_CFuture_Tests(BaseTaskTests, SetMethodsTest,
+                          test_utils.TestCase):
 
-#     Task = getattr(tasks, '_CTask', None)
-#     Future = getattr(futures, '_CFuture', None)
+    Task = getattr(tasks, '_CTask', None)
+    Future = getattr(futures, '_CFuture', None)
 
-#     @support.refcount_test
-#     def test_refleaks_in_task___init__(self):
-#         gettotalrefcount = support.get_attribute(sys, 'gettotalrefcount')
-#         async def coro():
-#             pass
-#         task = self.new_task(self.loop, coro())
-#         self.loop.run_until_complete(task)
-#         refs_before = gettotalrefcount()
-#         for i in range(100):
-#             task.__init__(coro(), loop=self.loop)
-#             self.loop.run_until_complete(task)
-#         self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
+    @support.refcount_test
+    def test_refleaks_in_task___init__(self):
+        gettotalrefcount = support.get_attribute(sys, 'gettotalrefcount')
+        async def coro():
+            pass
+        task = self.new_task(self.loop, coro())
+        self.loop.run_until_complete(task)
+        refs_before = gettotalrefcount()
+        for i in range(100):
+            task.__init__(coro(), loop=self.loop)
+            self.loop.run_until_complete(task)
+        self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
 
-#     def test_del__log_destroy_pending_segfault(self):
-#         async def coro():
-#             pass
-#         task = self.new_task(self.loop, coro())
-#         self.loop.run_until_complete(task)
-#         with self.assertRaises(AttributeError):
-#             del task._log_destroy_pending
+    def test_del__log_destroy_pending_segfault(self):
+        async def coro():
+            pass
+        task = self.new_task(self.loop, coro())
+        self.loop.run_until_complete(task)
+        with self.assertRaises(AttributeError):
+            del task._log_destroy_pending
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(futures, '_CFuture') and
-#                      hasattr(tasks, '_CTask'),
-#                      'requires the C _asyncio module')
-# @add_subclass_tests
-# class CTask_CFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(futures, '_CFuture') and
+                     hasattr(tasks, '_CTask'),
+                     'requires the C _asyncio module')
+@add_subclass_tests
+class CTask_CFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
 
-#     Task = getattr(tasks, '_CTask', None)
-#     Future = getattr(futures, '_CFuture', None)
+    Task = getattr(tasks, '_CTask', None)
+    Future = getattr(futures, '_CFuture', None)
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(tasks, '_CTask'),
-#                      'requires the C _asyncio module')
-# @add_subclass_tests
-# class CTaskSubclass_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(tasks, '_CTask'),
+                     'requires the C _asyncio module')
+@add_subclass_tests
+class CTaskSubclass_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
 
-#     Task = getattr(tasks, '_CTask', None)
-#     Future = futures._PyFuture
+    Task = getattr(tasks, '_CTask', None)
+    Future = futures._PyFuture
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(futures, '_CFuture'),
-#                      'requires the C _asyncio module')
-# @add_subclass_tests
-# class PyTask_CFutureSubclass_Tests(BaseTaskTests, test_utils.TestCase):
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(futures, '_CFuture'),
+                     'requires the C _asyncio module')
+@add_subclass_tests
+class PyTask_CFutureSubclass_Tests(BaseTaskTests, test_utils.TestCase):
 
-#     Future = getattr(futures, '_CFuture', None)
-#     Task = tasks._PyTask
+    Future = getattr(futures, '_CFuture', None)
+    Task = tasks._PyTask
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(tasks, '_CTask'),
-#                      'requires the C _asyncio module')
-# class CTask_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(tasks, '_CTask'),
+                     'requires the C _asyncio module')
+class CTask_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
 
-#     Task = getattr(tasks, '_CTask', None)
-#     Future = futures._PyFuture
+    Task = getattr(tasks, '_CTask', None)
+    Future = futures._PyFuture
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(futures, '_CFuture'),
-#                      'requires the C _asyncio module')
-# class PyTask_CFuture_Tests(BaseTaskTests, test_utils.TestCase):
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(futures, '_CFuture'),
+                     'requires the C _asyncio module')
+class PyTask_CFuture_Tests(BaseTaskTests, test_utils.TestCase):
 
-#     Task = tasks._PyTask
-#     Future = getattr(futures, '_CFuture', None)
+    Task = tasks._PyTask
+    Future = getattr(futures, '_CFuture', None)
 
+@unittest.skip('TODO: RUSTPYTHON')
+class PyTask_PyFuture_Tests(BaseTaskTests, SetMethodsTest,
+                            test_utils.TestCase):
 
-# TODO: RUSTPYTHON
-# ErrorMessage: thread 'main' (411280) panicked at crates/vm/src/frame.rs:174:9:
-# index out of bounds: the len is 11 but the index is 18446744073709551615
-# note: run with `RUST_BACKTRACE=1` environment
+    Task = tasks._PyTask
+    Future = futures._PyFuture
 
-# class PyTask_PyFuture_Tests(BaseTaskTests, SetMethodsTest,
-#                             test_utils.TestCase):
-
-#     Task = tasks._PyTask
-#     Future = futures._PyFuture
-
-# TODO: RUSTPYTHON
-# ErrorMessage: thread 'main' (411280) panicked at crates/vm/src/frame.rs:174:9:
-# index out of bounds: the len is 11 but the index is 18446744073709551615
-# note: run with `RUST_BACKTRACE=1` environment
-
-# @add_subclass_tests
-# class PyTask_PyFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
-#     Task = tasks._PyTask
-#     Future = futures._PyFuture
+@add_subclass_tests
+@unittest.skip('TODO: RUSTPYTHON')
+class PyTask_PyFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
+    Task = tasks._PyTask
+    Future = futures._PyFuture
 
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(tasks, '_CTask'),
-#                      'requires the C _asyncio module')
-# class CTask_Future_Tests(test_utils.TestCase):
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(tasks, '_CTask'),
+                     'requires the C _asyncio module')
+class CTask_Future_Tests(test_utils.TestCase):
 
-#     def test_foobar(self):
-#         class Fut(asyncio.Future):
-#             @property
-#             def get_loop(self):
-#                 raise AttributeError
+    def test_foobar(self):
+        class Fut(asyncio.Future):
+            @property
+            def get_loop(self):
+                raise AttributeError
 
-#         async def coro():
-#             await fut
-#             return 'spam'
+        async def coro():
+            await fut
+            return 'spam'
 
-#         self.loop = asyncio.new_event_loop()
-#         try:
-#             fut = Fut(loop=self.loop)
-#             self.loop.call_later(0.1, fut.set_result, 1)
-#             task = self.loop.create_task(coro())
-#             res = self.loop.run_until_complete(task)
-#         finally:
-#             self.loop.close()
+        self.loop = asyncio.new_event_loop()
+        try:
+            fut = Fut(loop=self.loop)
+            self.loop.call_later(0.1, fut.set_result, 1)
+            task = self.loop.create_task(coro())
+            res = self.loop.run_until_complete(task)
+        finally:
+            self.loop.close()
 
-#         self.assertEqual(res, 'spam')
+        self.assertEqual(res, 'spam')
 
 
 class BaseTaskIntrospectionTests:
@@ -3067,18 +3051,17 @@ class PyIntrospectionTests(test_utils.TestCase, BaseTaskIntrospectionTests):
     _enter_task = staticmethod(tasks._py_enter_task)
     _leave_task = staticmethod(tasks._py_leave_task)
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(tasks, '_c_register_task'),
-#                      'requires the C _asyncio module')
-# class CIntrospectionTests(test_utils.TestCase, BaseTaskIntrospectionTests):
-#     if hasattr(tasks, '_c_register_task'):
-#         _register_task = staticmethod(tasks._c_register_task)
-#         _unregister_task = staticmethod(tasks._c_unregister_task)
-#         _enter_task = staticmethod(tasks._c_enter_task)
-#         _leave_task = staticmethod(tasks._c_leave_task)
-#     else:
-#         _register_task = _unregister_task = _enter_task = _leave_task = None
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(tasks, '_c_register_task'),
+                     'requires the C _asyncio module')
+class CIntrospectionTests(test_utils.TestCase, BaseTaskIntrospectionTests):
+    if hasattr(tasks, '_c_register_task'):
+        _register_task = staticmethod(tasks._c_register_task)
+        _unregister_task = staticmethod(tasks._c_unregister_task)
+        _enter_task = staticmethod(tasks._c_enter_task)
+        _leave_task = staticmethod(tasks._c_leave_task)
+    else:
+        _register_task = _unregister_task = _enter_task = _leave_task = None
 
 
 class BaseCurrentLoopTests:
@@ -3117,19 +3100,18 @@ class PyCurrentLoopTests(BaseCurrentLoopTests, test_utils.TestCase):
     def new_task(self, coro):
         return tasks._PyTask(coro, loop=self.loop)
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(tasks, '_CTask') and
-#                      hasattr(tasks, '_c_current_task'),
-#                      'requires the C _asyncio module')
-# class CCurrentLoopTests(BaseCurrentLoopTests, test_utils.TestCase):
-#     if hasattr(tasks, '_c_current_task'):
-#         current_task = staticmethod(tasks._c_current_task)
-#     else:
-#         current_task = None
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(tasks, '_CTask') and
+                     hasattr(tasks, '_c_current_task'),
+                     'requires the C _asyncio module')
+class CCurrentLoopTests(BaseCurrentLoopTests, test_utils.TestCase):
+    if hasattr(tasks, '_c_current_task'):
+        current_task = staticmethod(tasks._c_current_task)
+    else:
+        current_task = None
 
-#     def new_task(self, coro):
-#         return getattr(tasks, '_CTask')(coro, loop=self.loop)
+    def new_task(self, coro):
+        return getattr(tasks, '_CTask')(coro, loop=self.loop)
 
 
 class GenericTaskTests(test_utils.TestCase):
@@ -3138,25 +3120,24 @@ class GenericTaskTests(test_utils.TestCase):
         self.assertTrue(issubclass(asyncio.Task, asyncio.Future))
 
 
-    # TODO: RUSTPYTHON
-    # Skips all these tests
-    # @support.cpython_only
-    # def test_asyncio_module_compiled(self):
-    #     # Because of circular imports it's easy to make _asyncio
-    #     # module non-importable.  This is a simple test that will
-    #     # fail on systems where C modules were successfully compiled
-    #     # (hence the test for _functools etc), but _asyncio somehow didn't.
-    #     try:
-    #         import _functools
-    #         import _json
-    #         import _pickle
-    #     except ImportError:
-    #         self.skipTest('C modules are not available')
-    #     else:
-    #         try:
-    #             import _asyncio
-    #         except ImportError:
-    #             self.fail('_asyncio module is missing')
+    # TODO: RUSTPYTHON CPython Specific test
+    @support.cpython_only
+    def test_asyncio_module_compiled(self):
+        # Because of circular imports it's easy to make _asyncio
+        # module non-importable.  This is a simple test that will
+        # fail on systems where C modules were successfully compiled
+        # (hence the test for _functools etc), but _asyncio somehow didn't.
+        try:
+            import _functools
+            import _json
+            import _pickle
+        except ImportError:
+            self.skipTest('C modules are not available')
+        else:
+            try:
+                import _asyncio
+            except ImportError:
+                self.fail('_asyncio module is missing')
 
 
 class GatherTestsBase:
@@ -3526,8 +3507,7 @@ class RunCoroutineThreadsafeTests(test_utils.TestCase):
             self.loop.run_until_complete(future)
         self.assertIn("Fail!", exc_context.exception.args)
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # concurrent.futures._base.TimeoutError
+    @unittest.skip('TODO: RUSTPYTHON; concurrent.futures._base.TimeoutError')
     def test_run_coroutine_threadsafe_with_timeout(self):
         """Test coroutine submission from a thread to an event loop
         when a timeout is raised."""

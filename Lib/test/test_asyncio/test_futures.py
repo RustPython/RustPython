@@ -654,9 +654,6 @@ class BaseFutureTests:
             self.fail('StopIteration was expected')
         self.assertEqual(result, (1, 2))
 
-    # TODO: RUSTPYTHON
-    # AssertionError: DeprecationWarning not triggered
-    @unittest.expectedFailure
     def test_future_iter_throw(self):
         fut = self._new_future(loop=self.loop)
         fi = iter(fut)
@@ -681,8 +678,7 @@ class BaseFutureTests:
             fut = self._new_future(loop=self.loop)
             fut.set_result(Evil())
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # NotImplementedError
+    @unittest.skip('TODO: RUSTPYTHON; NotImplementedError')
     def test_future_cancelled_result_refcycles(self):
         f = self._new_future(loop=self.loop)
         f.cancel()
@@ -694,8 +690,7 @@ class BaseFutureTests:
         self.assertIsNotNone(exc)
         self.assertListEqual(gc.get_referrers(exc), [])
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # NotImplementedError
+    @unittest.skip('TODO: RUSTPYTHON; NotImplementedError')
     def test_future_cancelled_exception_refcycles(self):
         f = self._new_future(loop=self.loop)
         f.cancel()
@@ -707,61 +702,59 @@ class BaseFutureTests:
         self.assertIsNotNone(exc)
         self.assertListEqual(gc.get_referrers(exc), [])
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(futures, '_CFuture'),
-#                      'requires the C _asyncio module')
-# class CFutureTests(BaseFutureTests, test_utils.TestCase):
-#     try:
-#         cls = futures._CFuture
-#     except AttributeError:
-#         cls = None
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(futures, '_CFuture'),
+                     'requires the C _asyncio module')
+class CFutureTests(BaseFutureTests, test_utils.TestCase):
+    try:
+        cls = futures._CFuture
+    except AttributeError:
+        cls = None
 
-#     def test_future_del_segfault(self):
-#         fut = self._new_future(loop=self.loop)
-#         with self.assertRaises(AttributeError):
-#             del fut._asyncio_future_blocking
-#         with self.assertRaises(AttributeError):
-#             del fut._log_traceback
+    def test_future_del_segfault(self):
+        fut = self._new_future(loop=self.loop)
+        with self.assertRaises(AttributeError):
+            del fut._asyncio_future_blocking
+        with self.assertRaises(AttributeError):
+            del fut._log_traceback
 
-#     def test_future_iter_get_referents_segfault(self):
-#         # See https://github.com/python/cpython/issues/122695
-#         import _asyncio
-#         it = iter(self._new_future(loop=self.loop))
-#         del it
-#         evil = gc.get_referents(_asyncio)
-#         gc.collect()
+    def test_future_iter_get_referents_segfault(self):
+        # See https://github.com/python/cpython/issues/122695
+        import _asyncio
+        it = iter(self._new_future(loop=self.loop))
+        del it
+        evil = gc.get_referents(_asyncio)
+        gc.collect()
 
-#     def test_callbacks_copy(self):
-#         # See https://github.com/python/cpython/issues/125789
-#         # In C implementation, the `_callbacks` attribute
-#         # always returns a new list to avoid mutations of internal state
+    def test_callbacks_copy(self):
+        # See https://github.com/python/cpython/issues/125789
+        # In C implementation, the `_callbacks` attribute
+        # always returns a new list to avoid mutations of internal state
 
-#         fut = self._new_future(loop=self.loop)
-#         f1 = lambda _: 1
-#         f2 = lambda _: 2
-#         fut.add_done_callback(f1)
-#         fut.add_done_callback(f2)
-#         callbacks = fut._callbacks
-#         self.assertIsNot(callbacks, fut._callbacks)
-#         fut.remove_done_callback(f1)
-#         callbacks = fut._callbacks
-#         self.assertIsNot(callbacks, fut._callbacks)
-#         fut.remove_done_callback(f2)
-#         self.assertIsNone(fut._callbacks)
+        fut = self._new_future(loop=self.loop)
+        f1 = lambda _: 1
+        f2 = lambda _: 2
+        fut.add_done_callback(f1)
+        fut.add_done_callback(f2)
+        callbacks = fut._callbacks
+        self.assertIsNot(callbacks, fut._callbacks)
+        fut.remove_done_callback(f1)
+        callbacks = fut._callbacks
+        self.assertIsNot(callbacks, fut._callbacks)
+        fut.remove_done_callback(f2)
+        self.assertIsNone(fut._callbacks)
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(futures, '_CFuture'),
-#                      'requires the C _asyncio module')
-# class CSubFutureTests(BaseFutureTests, test_utils.TestCase):
-#     try:
-#         class CSubFuture(futures._CFuture):
-#             pass
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(futures, '_CFuture'),
+                     'requires the C _asyncio module')
+class CSubFutureTests(BaseFutureTests, test_utils.TestCase):
+    try:
+        class CSubFuture(futures._CFuture):
+            pass
 
-#         cls = CSubFuture
-#     except AttributeError:
-#         cls = None
+        cls = CSubFuture
+    except AttributeError:
+        cls = None
 
 
 class PyFutureTests(BaseFutureTests, test_utils.TestCase):
@@ -1084,27 +1077,25 @@ class BaseFutureDoneCallbackTests():
             del fut_callback_0
             self.assertRaises(ReachableCode, fut.set_result, "boom")
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(futures, '_CFuture'),
-#                      'requires the C _asyncio module')
-# class CFutureDoneCallbackTests(BaseFutureDoneCallbackTests,
-#                                test_utils.TestCase):
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(futures, '_CFuture'),
+                     'requires the C _asyncio module')
+class CFutureDoneCallbackTests(BaseFutureDoneCallbackTests,
+                               test_utils.TestCase):
 
-#     def _new_future(self):
-#         return futures._CFuture(loop=self.loop)
+    def _new_future(self):
+        return futures._CFuture(loop=self.loop)
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(futures, '_CFuture'),
-#                      'requires the C _asyncio module')
-# class CSubFutureDoneCallbackTests(BaseFutureDoneCallbackTests,
-#                                   test_utils.TestCase):
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(futures, '_CFuture'),
+                     'requires the C _asyncio module')
+class CSubFutureDoneCallbackTests(BaseFutureDoneCallbackTests,
+                                  test_utils.TestCase):
 
-#     def _new_future(self):
-#         class CSubFuture(futures._CFuture):
-#             pass
-#         return CSubFuture(loop=self.loop)
+    def _new_future(self):
+        class CSubFuture(futures._CFuture):
+            pass
+        return CSubFuture(loop=self.loop)
 
 
 class PyFutureDoneCallbackTests(BaseFutureDoneCallbackTests,
@@ -1146,14 +1137,13 @@ class PyFutureInheritanceTests(BaseFutureInheritanceTests,
     def _get_future_cls(self):
         return futures._PyFuture
 
-# TODO: RUSTPYTHON
-# Skips all these tests
-# @unittest.skipUnless(hasattr(futures, '_CFuture'),
-#                      'requires the C _asyncio module')
-# class CFutureInheritanceTests(BaseFutureInheritanceTests,
-#                               test_utils.TestCase):
-#     def _get_future_cls(self):
-#         return futures._CFuture
+# TODO: RUSTPYTHON CPython Specific test
+@unittest.skipUnless(hasattr(futures, '_CFuture'),
+                     'requires the C _asyncio module')
+class CFutureInheritanceTests(BaseFutureInheritanceTests,
+                              test_utils.TestCase):
+    def _get_future_cls(self):
+        return futures._CFuture
 
 
 if __name__ == '__main__':

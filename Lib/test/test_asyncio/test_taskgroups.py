@@ -918,8 +918,7 @@ class BaseTestTaskGroup:
 
         await outer()
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # NotImplementedError
+    @unittest.skip('TODO: RUSTPYTHON; NotImplementedError')
     async def test_exception_refcycles_direct(self):
         """Test that TaskGroup doesn't keep a reference to the raised ExceptionGroup"""
         tg = asyncio.TaskGroup()
@@ -937,8 +936,7 @@ class BaseTestTaskGroup:
         self.assertIsNotNone(exc)
         self.assertListEqual(gc.get_referrers(exc), [])
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # NotImplementedError
+    @unittest.skip('TODO: RUSTPYTHON; NotImplementedError')
     async def test_exception_refcycles_errors(self):
         """Test that TaskGroup deletes self._errors, and __aexit__ args"""
         tg = asyncio.TaskGroup()
@@ -956,8 +954,7 @@ class BaseTestTaskGroup:
         self.assertIsInstance(exc, _Done)
         self.assertListEqual(gc.get_referrers(exc), [])
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # NotImplementedError
+    @unittest.skip('TODO: RUSTPYTHON; NotImplementedError')
     async def test_exception_refcycles_parent_task(self):
         """Test that TaskGroup deletes self._parent_task"""
         tg = asyncio.TaskGroup()
@@ -979,8 +976,7 @@ class BaseTestTaskGroup:
         self.assertIsInstance(exc, _Done)
         self.assertListEqual(gc.get_referrers(exc), [])
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # NotImplementedError
+    @unittest.skip('TODO: RUSTPYTHON; NotImplementedError for gc.disable()')
     async def test_exception_refcycles_parent_task_wr(self):
         """Test that TaskGroup deletes self._parent_task and create_task() deletes task"""
         tg = asyncio.TaskGroup()
@@ -1004,8 +1000,7 @@ class BaseTestTaskGroup:
         self.assertIsInstance(exc, _Done)
         self.assertListEqual(gc.get_referrers(exc), [])
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # NotImplementedError
+    @unittest.skip('TODO: RUSTPYTHON; NotImplementedError for asyncio.CancelledError')
     async def test_exception_refcycles_propagate_cancellation_error(self):
         """Test that TaskGroup deletes propagate_cancellation_error"""
         tg = asyncio.TaskGroup()
@@ -1021,8 +1016,7 @@ class BaseTestTaskGroup:
         self.assertIsInstance(exc, asyncio.CancelledError)
         self.assertListEqual(gc.get_referrers(exc), [])
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # NotImplementedError
+    @unittest.skip('TODO: RUSTPYTHON; NotImplementedError for coro.send(None)')
     async def test_exception_refcycles_base_error(self):
         """Test that TaskGroup deletes self._base_error"""
         class MyKeyboardInterrupt(KeyboardInterrupt):
