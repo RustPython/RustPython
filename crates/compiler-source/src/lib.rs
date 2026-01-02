@@ -1,4 +1,4 @@
-pub use ruff_source_file::{LineIndex, OneIndexed as LineNumber, SourceLocation};
+pub use ruff_source_file::{LineIndex, OneIndexed as LineNumber, PositionEncoding, SourceLocation};
 use ruff_text_size::TextRange;
 pub use ruff_text_size::TextSize;
 
@@ -20,7 +20,8 @@ impl<'src> SourceCode<'src> {
     }
 
     pub fn source_location(&self, offset: TextSize) -> SourceLocation {
-        self.index.source_location(offset, self.text)
+        self.index
+            .source_location(offset, self.text, PositionEncoding::Utf8)
     }
 
     pub fn get_range(&'src self, range: TextRange) -> &'src str {

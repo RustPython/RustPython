@@ -189,7 +189,6 @@ mod _contextvars {
             }
         }
 
-        #[pymethod]
         fn __getitem__(
             &self,
             var: PyRef<ContextVar>,
@@ -202,7 +201,6 @@ mod _contextvars {
             Ok(item.to_owned())
         }
 
-        #[pymethod]
         fn __len__(&self) -> usize {
             self.borrow_vars().len()
         }

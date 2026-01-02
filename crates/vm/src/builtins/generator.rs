@@ -6,7 +6,7 @@ use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    coroutine::Coro,
+    coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
@@ -99,6 +99,7 @@ impl Py<PyGenerator> {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         self.inner.throw(
             self.as_object(),
             exc_type,

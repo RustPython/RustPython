@@ -541,7 +541,6 @@ impl Py<PyStr> {
     )
 )]
 impl PyStr {
-    #[pymethod]
     fn __add__(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.downcast_ref::<Self>() {
             let bytes = zelf.as_wtf8().py_add(other.as_wtf8());
@@ -573,7 +572,6 @@ impl PyStr {
         }
     }
 
-    #[pymethod]
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self._contains(&needle, vm)
     }
@@ -586,7 +584,6 @@ impl PyStr {
         Ok(item)
     }
 
-    #[pymethod]
     fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }
@@ -636,8 +633,6 @@ impl PyStr {
         core::mem::size_of::<Self>() + self.byte_len() * core::mem::size_of::<u8>()
     }
 
-    #[pymethod(name = "__rmul__")]
-    #[pymethod]
     fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::repeat(zelf, value.into(), vm)
     }
@@ -947,14 +942,8 @@ impl PyStr {
             && self.char_all(|c| GeneralCategory::of(c) == GeneralCategory::DecimalNumber)
     }
 
-    #[pymethod(name = "__mod__")]
-    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         cformat_string(vm, self.as_wtf8(), values)
-    }
-
-    #[pymethod]
-    fn __rmod__(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
     }
 
     #[pymethod]
@@ -1564,7 +1553,7 @@ impl AsNumber for PyStr {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             remainder: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyStr>() {
-                    a.modulo(b.to_owned(), vm).to_pyresult(vm)
+                    a.__mod__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }

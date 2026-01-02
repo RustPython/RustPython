@@ -30,6 +30,7 @@ fromlist
 heaptype
 HIGHRES
 IMMUTABLETYPE
+ismine
 Itertool
 keeped
 kwonlyarg
@@ -40,6 +41,7 @@ lsprof
 maxdepth
 mult
 multibytecodec
+newsemlockobject
 nkwargs
 noraise
 numer

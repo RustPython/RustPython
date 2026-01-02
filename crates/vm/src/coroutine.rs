@@ -4,6 +4,7 @@ use crate::{
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
     frame::{ExecutionResult, FrameRef},
+    function::OptionalArg,
     protocol::PyIterReturn,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -210,4 +211,25 @@ impl Coro {
 
 pub fn is_gen_exit(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
     exc.fast_isinstance(vm.ctx.exceptions.generator_exit)
+}
+
+/// Emit DeprecationWarning for the deprecated 3-argument throw() signature.
+pub fn warn_deprecated_throw_signature(
+    exc_val: &OptionalArg,
+    exc_tb: &OptionalArg,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if exc_val.is_present() || exc_tb.is_present() {
+        crate::warn::warn(
+            vm.ctx.new_str(
+                "the (type, val, tb) signature of throw() is deprecated, \
+                 use throw(val) instead",
+            ),
+            Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
+            1,
+            None,
+            vm,
+        )?;
+    }
+    Ok(())
 }

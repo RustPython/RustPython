@@ -131,11 +131,25 @@ impl PyFunction {
         } else {
             // Check the number of positional arguments
             if nargs > n_expected_args {
+                let n_defaults = self
+                    .defaults_and_kwdefaults
+                    .lock()
+                    .0
+                    .as_ref()
+                    .map_or(0, |d| d.len());
+                let n_required = n_expected_args - n_defaults;
+                let takes_msg = if n_defaults > 0 {
+                    format!("from {} to {}", n_required, n_expected_args)
+                } else {
+                    n_expected_args.to_string()
+                };
                 return Err(vm.new_type_error(format!(
-                    "{}() takes {} positional arguments but {} were given",
+                    "{}() takes {} positional argument{} but {} {} given",
                     self.__qualname__(),
-                    n_expected_args,
-                    nargs
+                    takes_msg,
+                    if n_expected_args == 1 { "" } else { "s" },
+                    nargs,
+                    if nargs == 1 { "was" } else { "were" }
                 )));
             }
         }

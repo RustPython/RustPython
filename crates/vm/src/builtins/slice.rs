@@ -174,6 +174,7 @@ impl PySlice {
 
     #[pymethod]
     fn indices(&self, length: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let length = length.into_int_ref();
         let length = length.as_bigint();
         if length.is_negative() {
             return Err(vm.new_value_error("length should not be negative."));

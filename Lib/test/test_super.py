@@ -344,7 +344,6 @@ class TestSuper(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "expected at most"):
             super(int, int, int)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: "argument 1 must be a type" does not match "Expected type 'type' but 'int' found."
     def test_super_argtype(self):
         with self.assertRaisesRegex(TypeError, "argument 1 must be a type"):
             super(1, int)
@@ -409,7 +408,6 @@ class TestSuper(unittest.TestCase):
         with self.assertRaisesRegex(AttributeError, "'super' object has no attribute 'msg'"):
             C().method()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: "argument 1 must be a type" does not match "Expected type 'type' but 'int' found."
     def test_bad_first_arg(self):
         class C:
             def method(self):

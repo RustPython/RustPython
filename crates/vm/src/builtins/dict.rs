@@ -212,7 +212,6 @@ impl PyDict {
         }
     }
 
-    #[pymethod]
     pub fn __len__(&self) -> usize {
         self.entries.len()
     }
@@ -222,12 +221,10 @@ impl PyDict {
         core::mem::size_of::<Self>() + self.entries.sizeof()
     }
 
-    #[pymethod]
     fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.entries.contains(vm, &*key)
     }
 
-    #[pymethod]
     fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner_delitem(&*key, vm)
     }
@@ -237,7 +234,6 @@ impl PyDict {
         self.entries.clear()
     }
 
-    #[pymethod]
     fn __setitem__(
         &self,
         key: PyObjectRef,
@@ -294,7 +290,6 @@ impl PyDict {
         Ok(())
     }
 
-    #[pymethod]
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let other_dict: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = other_dict {
@@ -375,7 +370,6 @@ impl Py<PyDict> {
         Ok(Implemented(true))
     }
 
-    #[pymethod]
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
     fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner_getitem(&*key, vm)
@@ -404,13 +398,11 @@ impl PyRef<PyDict> {
         PyDictReverseKeyIterator::new(self)
     }
 
-    #[pymethod]
     fn __ior__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         self.merge_object(other, vm)?;
         Ok(self)
     }
 
-    #[pymethod]
     fn __ror__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let other_dict: Result<Self, _> = other.downcast();
         if let Ok(other) = other_dict {
@@ -764,7 +756,6 @@ trait DictView: PyPayload + PyClassDef + Iterable + Representable {
     fn dict(&self) -> &Py<PyDict>;
     fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
 
-    #[pymethod]
     fn __len__(&self) -> usize {
         self.dict().__len__()
     }
@@ -1048,38 +1039,30 @@ trait ViewSetOps: DictView {
         PySetInner::from_iter(iter, vm)
     }
 
-    #[pymethod(name = "__rxor__")]
-    #[pymethod]
     fn __xor__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.symmetric_difference(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod(name = "__rand__")]
-    #[pymethod]
     fn __and__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.intersection(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod(name = "__ror__")]
-    #[pymethod]
     fn __or__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.union(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod]
     fn __sub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.difference(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod]
     fn __rsub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let left = PySetInner::from_iter(other.iter(vm)?, vm)?;
         let right = ArgIterable::try_from_object(vm, Self::iter(zelf, vm)?)?;
@@ -1143,7 +1126,6 @@ impl ViewSetOps for PyDictKeys {}
     )
 )]
 impl PyDictKeys {
-    #[pymethod]
     fn __contains__(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         zelf.sequence_unchecked().contains(&key, vm)
     }
@@ -1208,7 +1190,6 @@ impl ViewSetOps for PyDictItems {}
     )
 )]
 impl PyDictItems {
-    #[pymethod]
     fn __contains__(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         zelf.sequence_unchecked().contains(&needle, vm)
     }

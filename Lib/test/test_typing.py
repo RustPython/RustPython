@@ -8144,7 +8144,6 @@ class NamedTupleTests(BaseTestCase):
                 self.assertEqual(struct.__annotations__, {})
                 self.assertIsInstance(struct(), struct)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_namedtuple_errors(self):
         with self.assertRaises(TypeError):
             NamedTuple.__new__()

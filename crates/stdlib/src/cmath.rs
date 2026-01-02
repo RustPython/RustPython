@@ -23,64 +23,64 @@ mod cmath {
 
     #[pyfunction]
     fn phase(z: ArgIntoComplex) -> f64 {
-        z.arg()
+        z.into_complex().arg()
     }
 
     #[pyfunction]
     fn polar(x: ArgIntoComplex) -> (f64, f64) {
-        x.to_polar()
+        x.into_complex().to_polar()
     }
 
     #[pyfunction]
     fn rect(r: ArgIntoFloat, phi: ArgIntoFloat) -> Complex64 {
-        Complex64::from_polar(*r, *phi)
+        Complex64::from_polar(r.into_float(), phi.into_float())
     }
 
     #[pyfunction]
     fn isinf(z: ArgIntoComplex) -> bool {
-        let Complex64 { re, im } = *z;
+        let Complex64 { re, im } = z.into_complex();
         re.is_infinite() || im.is_infinite()
     }
 
     #[pyfunction]
     fn isfinite(z: ArgIntoComplex) -> bool {
-        z.is_finite()
+        z.into_complex().is_finite()
     }
 
     #[pyfunction]
     fn isnan(z: ArgIntoComplex) -> bool {
-        z.is_nan()
+        z.into_complex().is_nan()
     }
 
     #[pyfunction]
     fn exp(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
-        let z = *z;
+        let z = z.into_complex();
         result_or_overflow(z, z.exp(), vm)
     }
 
     #[pyfunction]
     fn sqrt(z: ArgIntoComplex) -> Complex64 {
-        z.sqrt()
+        z.into_complex().sqrt()
     }
 
     #[pyfunction]
     fn sin(z: ArgIntoComplex) -> Complex64 {
-        z.sin()
+        z.into_complex().sin()
     }
 
     #[pyfunction]
     fn asin(z: ArgIntoComplex) -> Complex64 {
-        z.asin()
+        z.into_complex().asin()
     }
 
     #[pyfunction]
     fn cos(z: ArgIntoComplex) -> Complex64 {
-        z.cos()
+        z.into_complex().cos()
     }
 
     #[pyfunction]
     fn acos(z: ArgIntoComplex) -> Complex64 {
-        z.acos()
+        z.into_complex().acos()
     }
 
     #[pyfunction]
@@ -90,56 +90,56 @@ mod cmath {
         //       which returns NaN when base is negative.
         //       log10(z) / log10(base) yields correct results but division
         //       doesn't handle pos/neg zero nicely. (i.e log(1, 0.5))
-        z.log(
+        z.into_complex().log(
             base.into_option()
-                .map(|base| base.re)
+                .map(|base| base.into_complex().re)
                 .unwrap_or(core::f64::consts::E),
         )
     }
 
     #[pyfunction]
     fn log10(z: ArgIntoComplex) -> Complex64 {
-        z.log(10.0)
+        z.into_complex().log(10.0)
     }
 
     #[pyfunction]
     fn acosh(z: ArgIntoComplex) -> Complex64 {
-        z.acosh()
+        z.into_complex().acosh()
     }
 
     #[pyfunction]
     fn atan(z: ArgIntoComplex) -> Complex64 {
-        z.atan()
+        z.into_complex().atan()
     }
 
     #[pyfunction]
     fn atanh(z: ArgIntoComplex) -> Complex64 {
-        z.atanh()
+        z.into_complex().atanh()
     }
 
     #[pyfunction]
     fn tan(z: ArgIntoComplex) -> Complex64 {
-        z.tan()
+        z.into_complex().tan()
     }
 
     #[pyfunction]
     fn tanh(z: ArgIntoComplex) -> Complex64 {
-        z.tanh()
+        z.into_complex().tanh()
     }
 
     #[pyfunction]
     fn sinh(z: ArgIntoComplex) -> Complex64 {
-        z.sinh()
+        z.into_complex().sinh()
     }
 
     #[pyfunction]
     fn cosh(z: ArgIntoComplex) -> Complex64 {
-        z.cosh()
+        z.into_complex().cosh()
     }
 
     #[pyfunction]
     fn asinh(z: ArgIntoComplex) -> Complex64 {
-        z.asinh()
+        z.into_complex().asinh()
     }
 
     #[derive(FromArgs)]
@@ -156,10 +156,10 @@ mod cmath {
 
     #[pyfunction]
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let a = *args.a;
-        let b = *args.b;
-        let rel_tol = args.rel_tol.map_or(1e-09, Into::into);
-        let abs_tol = args.abs_tol.map_or(0.0, Into::into);
+        let a = args.a.into_complex();
+        let b = args.b.into_complex();
+        let rel_tol = args.rel_tol.map_or(1e-09, |v| v.into_float());
+        let abs_tol = args.abs_tol.map_or(0.0, |v| v.into_float());
 
         if rel_tol < 0.0 || abs_tol < 0.0 {
             return Err(vm.new_value_error("tolerances must be non-negative"));

@@ -23,6 +23,8 @@ pub(crate) mod _sysconfigdata {
             "RUST_MULTIARCH" => RUST_MULTIARCH,
             // enough for tests to stop expecting urandom() to fail after restricting file resources
             "HAVE_GETRANDOM" => 1,
+            // RustPython has no GIL (like free-threaded Python)
+            "Py_GIL_DISABLED" => 1,
             // Compiler configuration for native extension builds
             "CC" => "cc",
             "CXX" => "c++",

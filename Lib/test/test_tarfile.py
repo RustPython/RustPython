@@ -2494,8 +2494,6 @@ class CommandLineTest(unittest.TestCase):
                 finally:
                     os_helper.unlink(tmpname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_command(self):
         for tar_name in testtarnames:
             with support.captured_stdout() as t:
@@ -2507,8 +2505,6 @@ class CommandLineTest(unittest.TestCase):
                                       PYTHONIOENCODING='ascii')
                 self.assertEqual(out, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_command_verbose(self):
         for tar_name in testtarnames:
             with support.captured_stdout() as t:

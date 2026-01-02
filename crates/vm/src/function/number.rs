@@ -20,17 +20,16 @@ pub struct ArgIntoComplex {
     value: Complex64,
 }
 
-impl From<ArgIntoComplex> for Complex64 {
-    fn from(arg: ArgIntoComplex) -> Self {
-        arg.value
+impl ArgIntoComplex {
+    #[inline]
+    pub fn into_complex(self) -> Complex64 {
+        self.value
     }
 }
 
-impl Deref for ArgIntoComplex {
-    type Target = Complex64;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
+impl From<ArgIntoComplex> for Complex64 {
+    fn from(arg: ArgIntoComplex) -> Self {
+        arg.value
     }
 }
 
@@ -60,6 +59,11 @@ pub struct ArgIntoFloat {
 }
 
 impl ArgIntoFloat {
+    #[inline]
+    pub fn into_float(self) -> f64 {
+        self.value
+    }
+
     pub fn vec_into_f64(v: Vec<Self>) -> Vec<f64> {
         // TODO: Vec::into_raw_parts once stabilized
         let mut v = core::mem::ManuallyDrop::new(v);
@@ -72,13 +76,6 @@ impl ArgIntoFloat {
 impl From<ArgIntoFloat> for f64 {
     fn from(arg: ArgIntoFloat) -> Self {
         arg.value
-    }
-}
-
-impl Deref for ArgIntoFloat {
-    type Target = f64;
-    fn deref(&self) -> &Self::Target {
-        &self.value
     }
 }
 
@@ -106,18 +103,16 @@ pub struct ArgIntoBool {
 impl ArgIntoBool {
     pub const TRUE: Self = Self { value: true };
     pub const FALSE: Self = Self { value: false };
+
+    #[inline]
+    pub fn into_bool(self) -> bool {
+        self.value
+    }
 }
 
 impl From<ArgIntoBool> for bool {
     fn from(arg: ArgIntoBool) -> Self {
         arg.value
-    }
-}
-
-impl Deref for ArgIntoBool {
-    type Target = bool;
-    fn deref(&self) -> &Self::Target {
-        &self.value
     }
 }
 
@@ -136,17 +131,22 @@ pub struct ArgIndex {
     value: PyIntRef,
 }
 
-impl From<ArgIndex> for PyIntRef {
-    fn from(arg: ArgIndex) -> Self {
-        arg.value
+impl ArgIndex {
+    #[inline]
+    pub fn into_int_ref(self) -> PyIntRef {
+        self.value
     }
 }
 
-impl Deref for ArgIndex {
-    type Target = PyIntRef;
-
-    fn deref(&self) -> &Self::Target {
+impl AsRef<PyIntRef> for ArgIndex {
+    fn as_ref(&self) -> &PyIntRef {
         &self.value
+    }
+}
+
+impl From<ArgIndex> for PyIntRef {
+    fn from(arg: ArgIndex) -> Self {
+        arg.value
     }
 }
 

@@ -24,7 +24,7 @@ mod _bisect {
     #[inline]
     fn handle_default(arg: OptionalArg<ArgIndex>, vm: &VirtualMachine) -> PyResult<Option<isize>> {
         arg.into_option()
-            .map(|v| v.try_to_primitive(vm))
+            .map(|v| v.into_int_ref().try_to_primitive(vm))
             .transpose()
     }
 

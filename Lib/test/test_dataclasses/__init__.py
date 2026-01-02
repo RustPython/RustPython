@@ -4728,8 +4728,6 @@ class TestKeywordArgs(unittest.TestCase):
             b: int = field(kw_only=True)
         self.assertEqual(C(42, b=10).__match_args__, ('a',))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_KW_ONLY(self):
         @dataclass
         class A:

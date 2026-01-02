@@ -731,7 +731,6 @@ mod mmap {
             .into()
         }
 
-        #[pymethod]
         fn __len__(&self) -> usize {
             self.size.load()
         }
@@ -1241,12 +1240,10 @@ mod mmap {
             Ok(())
         }
 
-        #[pymethod]
         fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             self.getitem_inner(&needle, vm)
         }
 
-        #[pymethod]
         fn __setitem__(
             zelf: &Py<Self>,
             needle: PyObjectRef,

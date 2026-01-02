@@ -45,7 +45,7 @@ mod builtins {
     #[pyfunction]
     fn all(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
-            if !*item? {
+            if !item?.into_bool() {
                 return Ok(false);
             }
         }
@@ -55,7 +55,7 @@ mod builtins {
     #[pyfunction]
     fn any(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
-            if *item? {
+            if item?.into_bool() {
                 return Ok(true);
             }
         }
@@ -451,6 +451,7 @@ mod builtins {
 
     #[pyfunction]
     fn hex(number: ArgIndex) -> String {
+        let number = number.into_int_ref();
         let n = number.as_bigint();
         format!("{n:#x}")
     }
@@ -687,6 +688,7 @@ mod builtins {
 
     #[pyfunction]
     fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyResult {
+        let number = number.into_int_ref();
         let n = number.as_bigint();
         let s = if n.is_negative() {
             format!("-0o{:o}", n.abs())
@@ -786,7 +788,7 @@ mod builtins {
             .unwrap_or_else(|| PyStr::from("\n").into_ref(&vm.ctx));
         write(end)?;
 
-        if *options.flush {
+        if options.flush.into() {
             vm.call_method(&file, "flush", ())?;
         }
 
