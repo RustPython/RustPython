@@ -8,25 +8,27 @@ mod _posixshmem {
 
     use crate::{
         common::os::errno_io_error,
-        vm::{
-            PyResult, VirtualMachine, builtins::PyStrRef, convert::IntoPyException,
-            function::OptionalArg,
-        },
+        vm::{FromArgs, PyResult, VirtualMachine, builtins::PyStrRef, convert::IntoPyException},
     };
 
-    #[pyfunction]
-    fn shm_open(
+    #[derive(FromArgs)]
+    struct ShmOpenArgs {
+        #[pyarg(any)]
         name: PyStrRef,
+        #[pyarg(any)]
         flags: libc::c_int,
-        mode: OptionalArg<libc::mode_t>,
-        vm: &VirtualMachine,
-    ) -> PyResult<libc::c_int> {
-        let name = CString::new(name.as_str()).map_err(|e| e.into_pyexception(vm))?;
-        let mode: libc::c_uint = mode.unwrap_or(0o600) as _;
+        #[pyarg(any, default = 0o600)]
+        mode: libc::mode_t,
+    }
+
+    #[pyfunction]
+    fn shm_open(args: ShmOpenArgs, vm: &VirtualMachine) -> PyResult<libc::c_int> {
+        let name = CString::new(args.name.as_str()).map_err(|e| e.into_pyexception(vm))?;
+        let mode: libc::c_uint = args.mode as _;
         #[cfg(target_os = "freebsd")]
         let mode = mode.try_into().unwrap();
         // SAFETY: `name` is a NUL-terminated string and `shm_open` does not write through it.
-        let fd = unsafe { libc::shm_open(name.as_ptr(), flags, mode) };
+        let fd = unsafe { libc::shm_open(name.as_ptr(), args.flags, mode) };
         if fd == -1 {
             Err(errno_io_error().into_pyexception(vm))
         } else {
