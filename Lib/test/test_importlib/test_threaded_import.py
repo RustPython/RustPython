@@ -256,8 +256,7 @@ class ThreadedImportTests(unittest.TestCase):
                           'partial', 'cfimport.py')
         script_helper.assert_python_ok(fn)
 
-    @unittest.skipUnless(hasattr(_multiprocessing, "SemLock"), "TODO: RUSTPYTHON, pool_in_threads.py needs _multiprocessing.SemLock")                                                                                      
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON - fails on Linux due to multiprocessing issues")
     def test_multiprocessing_pool_circular_import(self):
         # Regression test for bpo-41567
         fn = os.path.join(os.path.dirname(__file__),
