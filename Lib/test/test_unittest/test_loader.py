@@ -90,9 +90,8 @@ class Test_TestLoader(unittest.TestCase):
         self.assertIsInstance(suite, loader.suiteClass)
         self.assertEqual(list(suite), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # "Do not load any tests from `FunctionTestCase` class."
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_loadTestsFromTestCase__from_FunctionTestCase(self):
         loader = unittest.TestLoader()
 
@@ -121,9 +120,8 @@ class Test_TestLoader(unittest.TestCase):
         expected = [loader.suiteClass([MyTestCase('test')])]
         self.assertEqual(list(suite), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # "This test ensures that internal `TestCase` subclasses are not loaded"
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_loadTestsFromModule__TestCase_subclass_internals(self):
         # See https://github.com/python/cpython/issues/84867
         m = types.ModuleType('m')
@@ -187,10 +185,9 @@ class Test_TestLoader(unittest.TestCase):
         self.assertEqual(list(suite), reference)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Check that loadTestsFromModule honors a module
     # with a load_tests function.
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_loadTestsFromModule__load_tests(self):
         m = types.ModuleType('m')
         class MyTestCase(unittest.TestCase):
