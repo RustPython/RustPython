@@ -12,7 +12,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
               7 BUILD_TUPLE          (2)
               8 GET_ITER
         >>    9 FOR_ITER             (71)
-             10 STORE_LOCAL          (2, stop_exc)
+             10 STORE_NAME           (2, stop_exc)
 
   2          11 LOAD_NAME_ANY        (3, self)
              12 LOAD_METHOD          (4, subTest)
@@ -37,7 +37,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              29 POP_TOP
 
   5          30 LOAD_NAME_ANY        (2, stop_exc)
-             31 RAISE                (Raise)
+             31 RAISE_VARARGS        (Raise)
 
   4          32 POP_BLOCK
              33 ENTER_FINALLY
@@ -52,8 +52,8 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
         >>   42 COPY                 (1)
 
   6          43 LOAD_NAME_ANY        (7, Exception)
-             44 JUMP_IF_NOT_EXC_MATCH(57)
-             45 STORE_LOCAL          (8, ex)
+             44 CHECK_EXC_MATCH      (57)
+             45 STORE_NAME           (8, ex)
 
   7          46 LOAD_NAME_ANY        (3, self)
              47 LOAD_METHOD          (9, assertIs)
@@ -61,12 +61,12 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              49 LOAD_NAME_ANY        (2, stop_exc)
              50 CALL_METHOD_POSITIONAL(2)
              51 POP_TOP
-             52 POP_EXCEPTION
+             52 POP_EXCEPT
              53 LOAD_CONST           (None)
-             54 STORE_LOCAL          (8, ex)
-             55 DELETE_LOCAL         (8, ex)
+             54 STORE_NAME           (8, ex)
+             55 DELETE_NAME          (8, ex)
              56 JUMP                 (66)
-        >>   57 RAISE                (Reraise)
+        >>   57 RAISE_VARARGS        (Reraise)
 
   9     >>   58 LOAD_NAME_ANY        (3, self)
              59 LOAD_METHOD          (10, fail)

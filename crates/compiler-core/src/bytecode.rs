@@ -590,80 +590,84 @@ pub type NameIdx = u32;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Instruction {
-    BeforeAsyncWith,
+    BeforeAsyncWith = 1,
     BinaryOp {
         op: Arg<BinaryOperator>,
-    },
-    BinarySubscript,
+    } = 45,
+    BinarySubscr = 5,
     Break {
         target: Arg<Label>,
-    },
+    } = 223, // TODO: Remove this bytecode
     BuildListFromTuples {
         size: Arg<u32>,
-    },
+    } = 224, // TODO: Remove this bytecode
     BuildList {
         size: Arg<u32>,
-    },
+    } = 47,
     BuildMapForCall {
         size: Arg<u32>,
-    },
+    } = 225, // TODO: Remove this bytecode
     BuildMap {
         size: Arg<u32>,
-    },
+    } = 48,
     BuildSetFromTuples {
         size: Arg<u32>,
-    },
+    } = 226, // TODO: Remove this bytecode
     BuildSet {
         size: Arg<u32>,
-    },
+    } = 49,
     BuildSlice {
         argc: Arg<BuildSliceArgCount>,
-    },
+    } = 50,
     BuildString {
         size: Arg<u32>,
-    },
-    BuildTupleFromIter,
+    } = 51,
+    BuildTupleFromIter = 227, // TODO: Remove this bytecode
     BuildTupleFromTuples {
         size: Arg<u32>,
-    },
+    } = 228, // TODO: Remove this bytecode
     BuildTuple {
         size: Arg<u32>,
-    },
+    } = 52,
     CallFunctionEx {
         has_kwargs: Arg<bool>,
-    },
+    } = 54,
     CallFunctionKeyword {
         nargs: Arg<u32>,
-    },
+    } = 229, // TODO: Remove this bytecode
     CallFunctionPositional {
         nargs: Arg<u32>,
-    },
+    } = 222, // TODO: Remove this bytecode
     CallIntrinsic1 {
         func: Arg<IntrinsicFunction1>,
-    },
+    } = 55,
     CallIntrinsic2 {
         func: Arg<IntrinsicFunction2>,
-    },
+    } = 56,
     CallMethodEx {
         has_kwargs: Arg<bool>,
-    },
+    } = 230, // TODO: Remove this bytecode
     CallMethodKeyword {
         nargs: Arg<u32>,
-    },
+    } = 231, // TODO: Remove this bytecode
     CallMethodPositional {
         nargs: Arg<u32>,
-    },
+    } = 232, // TODO: Remove this bytecode
     /// Check if exception matches except* handler type.
     /// Pops exc_value and match_type, pushes (rest, match).
-    CheckEgMatch,
-    CompareOperation {
+    CheckEgMatch = 6,
+    /// Performs exception matching for except.
+    /// Tests whether the STACK[-2] is an exception matching STACK[-1].
+    /// Pops STACK[-1] and pushes the boolean result of the test.
+    CheckExcMatch(Arg<Label>) = 7,
+    CompareOp {
         op: Arg<ComparisonOperator>,
-    },
+    } = 58,
     /// Performs `in` comparison, or `not in` if `invert` is 1.
-    ContainsOp(Arg<Invert>),
+    ContainsOp(Arg<Invert>) = 59,
     Continue {
         target: Arg<Label>,
-    },
+    } = 233, // TODO: Remove this bytecode
     /// Convert value to a string, depending on `oparg`:
     ///
     /// ```python
@@ -675,35 +679,35 @@ pub enum Instruction {
     /// Used for implementing formatted string literals (f-strings).
     ConvertValue {
         oparg: Arg<ConvertValueOparg>,
-    },
+    } = 60,
     CopyItem {
         index: Arg<u32>,
-    },
+    } = 61,
     DeleteAttr {
         idx: Arg<NameIdx>,
-    },
-    DeleteDeref(Arg<NameIdx>),
-    DeleteFast(Arg<NameIdx>),
-    DeleteGlobal(Arg<NameIdx>),
-    DeleteLocal(Arg<NameIdx>),
-    DeleteSubscript,
+    } = 63,
+    DeleteDeref(Arg<NameIdx>) = 64,
+    DeleteFast(Arg<NameIdx>) = 65,
+    DeleteGlobal(Arg<NameIdx>) = 66,
+    DeleteName(Arg<NameIdx>) = 67,
+    DeleteSubscr = 9,
     DictUpdate {
         index: Arg<u32>,
-    },
-    EndAsyncFor,
+    } = 69,
+    EndAsyncFor = 10,
     /// Marker bytecode for the end of a finally sequence.
     /// When this bytecode is executed, the eval loop does one of those things:
     /// - Continue at a certain bytecode position
     /// - Propagate the exception
     /// - Return from a function
     /// - Do nothing at all, just continue
-    EndFinally,
+    EndFinally = 234, // TODO: Remove this bytecode
     /// Enter a finally block, without returning, excepting, just because we are there.
-    EnterFinally,
-    ExtendedArg,
+    EnterFinally = 235, // TODO: Remove this bytecode
+    ExtendedArg = 71,
     ForIter {
         target: Arg<Label>,
-    },
+    } = 72,
     /// Formats the value on top of stack:
     ///
     /// ```python
@@ -713,7 +717,7 @@ pub enum Instruction {
     /// ```
     ///
     /// Used for implementing formatted string literals (f-strings).
-    FormatSimple,
+    FormatSimple = 14,
     /// Formats the given value with the given format spec:
     ///
     /// ```python
@@ -724,177 +728,190 @@ pub enum Instruction {
     /// ```
     ///
     /// Used for implementing formatted string literals (f-strings).
-    FormatWithSpec,
-    GetAIter,
-    GetANext,
-    GetAwaitable,
-    GetIter,
-    GetLen,
+    FormatWithSpec = 15,
+    GetAIter = 16,
+    GetANext = 18,
+    GetAwaitable = 73,
+    GetIter = 19,
+    GetLen = 20,
     /// from ... import ...
     ImportFrom {
         idx: Arg<NameIdx>,
-    },
+    } = 74,
     /// Importing by name
     ImportName {
         idx: Arg<NameIdx>,
-    },
+    } = 75,
     /// Performs `is` comparison, or `is not` if `invert` is 1.
-    IsOp(Arg<Invert>),
+    IsOp(Arg<Invert>) = 76,
     /// Peek at the top of the stack, and jump if this value is false.
     /// Otherwise, pop top of stack.
     JumpIfFalseOrPop {
         target: Arg<Label>,
-    },
-    /// Performs exception matching for except.
-    /// Tests whether the STACK[-2] is an exception matching STACK[-1].
-    /// Pops STACK[-1] and pushes the boolean result of the test.
-    JumpIfNotExcMatch(Arg<Label>),
+    } = 236, // TODO: Remove this bytecode
     /// Peek at the top of the stack, and jump if this value is true.
     /// Otherwise, pop top of stack.
     JumpIfTrueOrPop {
         target: Arg<Label>,
-    },
+    } = 237, // TODO: Remove this bytecode
     Jump {
         target: Arg<Label>,
-    },
+    } = 255, // TODO: Make this opcode pseudo
     ListAppend {
         i: Arg<u32>,
-    },
+    } = 80,
     LoadAttr {
         idx: Arg<NameIdx>,
-    },
-    LoadBuildClass,
-    LoadClassDeref(Arg<NameIdx>),
-    LoadClosure(Arg<NameIdx>),
+    } = 82,
+    LoadBuildClass = 24,
+    LoadClassDeref(Arg<NameIdx>) = 238, // TODO: Remove this bytecode
+    LoadClosure(Arg<NameIdx>) = 254,    // TODO: Make this opcode pseudo
     LoadConst {
         /// index into constants vec
         idx: Arg<u32>,
-    },
-    LoadDeref(Arg<NameIdx>),
-    LoadFast(Arg<NameIdx>),
-    LoadGlobal(Arg<NameIdx>),
+    } = 83,
+    LoadDeref(Arg<NameIdx>) = 84,
+    LoadFast(Arg<NameIdx>) = 85,
+    LoadGlobal(Arg<NameIdx>) = 91,
     LoadMethod {
         idx: Arg<NameIdx>,
-    },
-    LoadNameAny(Arg<NameIdx>),
-    MakeFunction,
+    } = 253, // TODO: Make this opcode pseudo
+    LoadNameAny(Arg<NameIdx>) = 239, // TODO: Remove this bytecode
+    MakeFunction = 26,
     MapAdd {
         i: Arg<u32>,
-    },
-    MatchClass(Arg<u32>),
-    MatchKeys,
-    MatchMapping,
-    MatchSequence,
-    Nop,
-    PopBlock,
-    PopException,
+    } = 95,
+    MatchClass(Arg<u32>) = 96,
+    MatchKeys = 27,
+    MatchMapping = 28,
+    MatchSequence = 29,
+    Nop = 30,
+    PopBlock = 252, // TODO: Make this opcode pseudo
+    PopExcept = 31,
     /// Pop the top of the stack, and jump if this value is false.
     PopJumpIfFalse {
         target: Arg<Label>,
-    },
+    } = 97,
     /// Pop the top of the stack, and jump if this value is true.
     PopJumpIfTrue {
         target: Arg<Label>,
-    },
+    } = 100,
     /// Removes the top-of-stack item:
     /// ```py
     /// STACK.pop()
     /// ```
-    PopTop,
-    Raise {
+    PopTop = 32,
+    RaiseVarargs {
         kind: Arg<RaiseKind>,
-    },
+    } = 101,
     /// Resume execution (e.g., at function start, after yield, etc.)
     Resume {
         arg: Arg<u32>,
-    },
+    } = 149,
     ReturnConst {
         idx: Arg<u32>,
-    },
-    ReturnValue,
+    } = 103,
+    ReturnValue = 36,
     Reverse {
         amount: Arg<u32>,
-    },
+    } = 240, // TODO: Remove this bytecode
     SetAdd {
         i: Arg<u32>,
-    },
+    } = 105,
+    /// Set the current exception to TOS (for except* handlers).
+    /// Does not pop the value.
+    SetExcInfo = 241, // TODO: Remove this bytecode
     SetFunctionAttribute {
         attr: Arg<MakeFunctionFlags>,
-    },
-    SetupAnnotation,
+    } = 106,
+    SetupAnnotations = 37,
     SetupAsyncWith {
         end: Arg<Label>,
-    },
-
+    } = 242, // TODO: Remove this bytecode
     SetupExcept {
         handler: Arg<Label>,
-    },
+    } = 243, // TODO: Remove this bytecode
     /// Setup a finally handler, which will be called whenever one of this events occurs:
     /// - the block is popped
     /// - the function returns
     /// - an exception is returned
     SetupFinally {
         handler: Arg<Label>,
-    },
-    SetupLoop,
+    } = 251, // TODO: Make this opcode pseudo
+    SetupLoop = 244, // TODO: Remove this bytecode
     SetupWith {
         end: Arg<Label>,
-    },
+    } = 250, // TODO: Make this opcode pseudo
     StoreAttr {
         idx: Arg<NameIdx>,
-    },
-    StoreDeref(Arg<NameIdx>),
-    StoreFast(Arg<NameIdx>),
-    StoreGlobal(Arg<NameIdx>),
-    StoreLocal(Arg<NameIdx>),
-    StoreSubscript,
-    Subscript,
+    } = 108,
+    StoreDeref(Arg<NameIdx>) = 109,
+    StoreFast(Arg<NameIdx>) = 110,
+    StoreGlobal(Arg<NameIdx>) = 113,
+    StoreName(Arg<NameIdx>) = 114,
+    StoreSubscr = 39,
+    Subscript = 249, // TODO: Remove this bytecode
     Swap {
         index: Arg<u32>,
-    },
-    ToBool,
+    } = 115,
+    ToBool = 40,
     UnaryOperation {
         op: Arg<UnaryOperator>,
-    },
+    } = 245, // TODO: Remove this bytecode
     UnpackEx {
         args: Arg<UnpackExArgs>,
-    },
+    } = 116,
     UnpackSequence {
         size: Arg<u32>,
-    },
-    WithCleanupFinish,
-    WithCleanupStart,
-    YieldFrom,
-    YieldValue,
-    /// Set the current exception to TOS (for except* handlers).
-    /// Does not pop the value.
-    SetExcInfo,
-    // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
+    } = 117,
+    WithCleanupFinish = 246, // TODO: Remove this bytecode
+    WithCleanupStart = 247,  // TODO: Remove this bytecode
+    YieldFrom = 248,         // TODO: Remove this bytecode
+    YieldValue = 118,
 }
-
-// This must be kept up to date to avoid marshaling errors
-const LAST_INSTRUCTION: Instruction = Instruction::SetExcInfo;
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
-
-impl From<Instruction> for u8 {
-    #[inline]
-    fn from(ins: Instruction) -> Self {
-        // SAFETY: there's no padding bits
-        unsafe { core::mem::transmute::<Instruction, Self>(ins) }
-    }
-}
 
 impl TryFrom<u8> for Instruction {
     type Error = MarshalError;
 
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
-        if value <= u8::from(LAST_INSTRUCTION) {
-            Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
-        } else {
-            Err(MarshalError::InvalidBytecode)
-        }
+        Ok(match value {
+            1
+            | 5..=7
+            | 9
+            | 10
+            | 14..=16
+            | 18..=20
+            | 24
+            | 26..=32
+            | 36
+            | 37
+            | 39
+            | 40
+            | 45
+            | 47..=52
+            | 54..=56
+            | 58..=61
+            | 63..=67
+            | 69
+            | 71..=76
+            | 80
+            | 82..=85
+            | 91
+            | 95..=97
+            | 100
+            | 101
+            | 103
+            | 105
+            | 106
+            | 108..=110
+            | 113..=118
+            | 149
+            | 222..=255 => unsafe { core::mem::transmute::<u8, Self>(value) },
+            _ => return Err(MarshalError::InvalidBytecode),
+        })
     }
 }
 
@@ -1625,7 +1642,7 @@ impl Instruction {
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
-            | JumpIfNotExcMatch(l)
+            | CheckExcMatch(l)
             | PopJumpIfTrue { target: l }
             | PopJumpIfFalse { target: l }
             | JumpIfTrueOrPop { target: l }
@@ -1658,7 +1675,7 @@ impl Instruction {
                 | Break { .. }
                 | ReturnValue
                 | ReturnConst { .. }
-                | Raise { .. }
+                | RaiseVarargs { .. }
         )
     }
 
@@ -1682,19 +1699,19 @@ impl Instruction {
             ImportName { .. } => -1,
             ImportFrom { .. } => 1,
             LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
-            StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
-            DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
+            StoreFast(_) | StoreName(_) | StoreGlobal(_) | StoreDeref(_) => -1,
+            DeleteFast(_) | DeleteName(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
             LoadClosure(_) => 1,
             Subscript => -1,
-            StoreSubscript => -3,
-            DeleteSubscript => -2,
+            StoreSubscr => -3,
+            DeleteSubscr => -2,
             LoadAttr { .. } => 0,
             StoreAttr { .. } => -2,
             DeleteAttr { .. } => -1,
             LoadConst { .. } => 1,
             UnaryOperation { .. } => 0,
-            BinaryOp { .. } | CompareOperation { .. } => -1,
-            BinarySubscript => -1,
+            BinaryOp { .. } | CompareOp { .. } => -1,
+            BinarySubscr => -1,
             CopyItem { .. } => 1,
             PopTop => -1,
             Swap { .. } => 0,
@@ -1741,20 +1758,20 @@ impl Instruction {
                 }
             }
             IsOp(_) | ContainsOp(_) => -1,
-            JumpIfNotExcMatch(_) => -2,
+            CheckExcMatch(_) => -2,
             ReturnValue => -1,
             ReturnConst { .. } => 0,
             Resume { .. } => 0,
             YieldValue => 0,
             YieldFrom => -1,
             SetExcInfo => 0,
-            SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
+            SetupAnnotations | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
             SetupExcept { .. } => jump as i32,
             SetupWith { .. } => (!jump) as i32,
             WithCleanupStart => 0,
             WithCleanupFinish => -1,
             PopBlock => 0,
-            Raise { kind } => -(kind.get(arg) as u8 as i32),
+            RaiseVarargs { kind } => -(kind.get(arg) as u8 as i32),
             BuildString { size }
             | BuildTuple { size, .. }
             | BuildTupleFromTuples { size, .. }
@@ -1785,7 +1802,7 @@ impl Instruction {
                 let UnpackExArgs { before, after } = args.get(arg);
                 -1 + before as i32 + 1 + after as i32
             }
-            PopException => 0,
+            PopExcept => 0,
             Reverse { .. } => 0,
             GetAwaitable => 0,
             BeforeAsyncWith => 1,
@@ -1875,7 +1892,7 @@ impl Instruction {
         match self {
             BeforeAsyncWith => w!(BEFORE_ASYNC_WITH),
             BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
-            BinarySubscript => w!(BINARY_SUBSCRIPT),
+            BinarySubscr => w!(BINARY_SUBSCR),
             Break { target } => w!(BREAK, target),
             BuildListFromTuples { size } => w!(BUILD_LIST_FROM_TUPLES, size),
             BuildList { size } => w!(BUILD_LIST, size),
@@ -1897,7 +1914,7 @@ impl Instruction {
             CallMethodKeyword { nargs } => w!(CALL_METHOD_KEYWORD, nargs),
             CallMethodPositional { nargs } => w!(CALL_METHOD_POSITIONAL, nargs),
             CheckEgMatch => w!(CHECK_EG_MATCH),
-            CompareOperation { op } => w!(COMPARE_OPERATION, ?op),
+            CompareOp { op } => w!(COMPARE_OP, ?op),
             ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
             Continue { target } => w!(CONTINUE, target),
             ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
@@ -1906,8 +1923,8 @@ impl Instruction {
             DeleteDeref(idx) => w!(DELETE_DEREF, cell_name = idx),
             DeleteFast(idx) => w!(DELETE_FAST, varname = idx),
             DeleteGlobal(idx) => w!(DELETE_GLOBAL, name = idx),
-            DeleteLocal(idx) => w!(DELETE_LOCAL, name = idx),
-            DeleteSubscript => w!(DELETE_SUBSCRIPT),
+            DeleteName(idx) => w!(DELETE_NAME, name = idx),
+            DeleteSubscr => w!(DELETE_SUBSCR),
             DictUpdate { index } => w!(DICT_UPDATE, index),
             EndAsyncFor => w!(END_ASYNC_FOR),
             EndFinally => w!(END_FINALLY),
@@ -1925,7 +1942,7 @@ impl Instruction {
             ImportName { idx } => w!(IMPORT_NAME, name = idx),
             IsOp(inv) => w!(IS_OP, ?inv),
             JumpIfFalseOrPop { target } => w!(JUMP_IF_FALSE_OR_POP, target),
-            JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
+            CheckExcMatch(target) => w!(CHECK_EXC_MATCH, target),
             JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
             Jump { target } => w!(JUMP, target),
             ListAppend { i } => w!(LIST_APPEND, i),
@@ -1947,18 +1964,18 @@ impl Instruction {
             MatchSequence => w!(MATCH_SEQUENCE),
             Nop => w!(NOP),
             PopBlock => w!(POP_BLOCK),
-            PopException => w!(POP_EXCEPTION),
+            PopExcept => w!(POP_EXCEPT),
             PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
             PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
             PopTop => w!(POP_TOP),
-            Raise { kind } => w!(RAISE, ?kind),
+            RaiseVarargs { kind } => w!(RAISE_VARARGS, ?kind),
             Resume { arg } => w!(RESUME, arg),
             ReturnConst { idx } => fmt_const("RETURN_CONST", arg, f, idx),
             ReturnValue => w!(RETURN_VALUE),
             Reverse { amount } => w!(REVERSE, amount),
             SetAdd { i } => w!(SET_ADD, i),
             SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
-            SetupAnnotation => w!(SETUP_ANNOTATION),
+            SetupAnnotations => w!(SETUP_ANNOTATIONS),
             SetupAsyncWith { end } => w!(SETUP_ASYNC_WITH, end),
             SetupExcept { handler } => w!(SETUP_EXCEPT, handler),
             SetupFinally { handler } => w!(SETUP_FINALLY, handler),
@@ -1969,8 +1986,8 @@ impl Instruction {
             SetExcInfo => w!(SET_EXC_INFO),
             StoreFast(idx) => w!(STORE_FAST, varname = idx),
             StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
-            StoreLocal(idx) => w!(STORE_LOCAL, name = idx),
-            StoreSubscript => w!(STORE_SUBSCRIPT),
+            StoreName(idx) => w!(STORE_NAME, name = idx),
+            StoreSubscr => w!(STORE_SUBSCR),
             Subscript => w!(SUBSCRIPT),
             Swap { index } => w!(SWAP, index),
             ToBool => w!(TO_BOOL),

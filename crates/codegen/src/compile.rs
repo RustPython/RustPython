@@ -477,7 +477,7 @@ impl Compiler {
                 ExprContext::Store => {
                     // CPython uses STORE_SLICE
                     emit!(self, Instruction::BuildSlice { argc });
-                    emit!(self, Instruction::StoreSubscript);
+                    emit!(self, Instruction::StoreSubscr);
                 }
                 _ => unreachable!(),
             }
@@ -488,8 +488,8 @@ impl Compiler {
             // Emit appropriate instruction based on context
             match ctx {
                 ExprContext::Load => emit!(self, Instruction::Subscript),
-                ExprContext::Store => emit!(self, Instruction::StoreSubscript),
-                ExprContext::Del => emit!(self, Instruction::DeleteSubscript),
+                ExprContext::Store => emit!(self, Instruction::StoreSubscr),
+                ExprContext::Del => emit!(self, Instruction::DeleteSubscr),
                 ExprContext::Invalid => {
                     return Err(self.error(CodegenErrorType::SyntaxError(
                         "Invalid expression context".to_owned(),
@@ -1041,7 +1041,7 @@ impl Compiler {
         }
 
         if Self::find_ann(statements) {
-            emit!(self, Instruction::SetupAnnotation);
+            emit!(self, Instruction::SetupAnnotations);
         }
 
         self.compile_statements(statements)?;
@@ -1061,7 +1061,7 @@ impl Compiler {
         self.symbol_table_stack.push(symbol_table);
 
         if Self::find_ann(body) {
-            emit!(self, Instruction::SetupAnnotation);
+            emit!(self, Instruction::SetupAnnotations);
         }
 
         if let Some((last, body)) = body.split_last() {
@@ -1294,8 +1294,8 @@ impl Compiler {
                 let idx = self.get_global_name_index(&name);
                 let op = match usage {
                     NameUsage::Load => Instruction::LoadNameAny,
-                    NameUsage::Store => Instruction::StoreLocal,
-                    NameUsage::Delete => Instruction::DeleteLocal,
+                    NameUsage::Store => Instruction::StoreName,
+                    NameUsage::Delete => Instruction::DeleteName,
                 };
                 self.emit_arg(idx, op);
             }
@@ -1514,7 +1514,7 @@ impl Compiler {
                     None => bytecode::RaiseKind::Reraise,
                 };
                 self.set_source_range(*range);
-                emit!(self, Instruction::Raise { kind });
+                emit!(self, Instruction::RaiseVarargs { kind });
             }
             Stmt::Try(StmtTry {
                 body,
@@ -1585,7 +1585,7 @@ impl Compiler {
                     }
                     emit!(
                         self,
-                        Instruction::Raise {
+                        Instruction::RaiseVarargs {
                             kind: bytecode::RaiseKind::Raise,
                         }
                     );
@@ -2093,7 +2093,7 @@ impl Compiler {
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
-                emit!(self, Instruction::JumpIfNotExcMatch(next_handler));
+                emit!(self, Instruction::CheckExcMatch(next_handler));
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
@@ -2110,7 +2110,7 @@ impl Compiler {
 
             // Handler code:
             self.compile_statements(body)?;
-            emit!(self, Instruction::PopException);
+            emit!(self, Instruction::PopExcept);
 
             // Delete the exception variable if it was bound
             if let Some(alias) = name {
@@ -2141,7 +2141,7 @@ impl Compiler {
         // raise the exception again!
         emit!(
             self,
-            Instruction::Raise {
+            Instruction::RaiseVarargs {
                 kind: bytecode::RaiseKind::Reraise,
             }
         );
@@ -2398,7 +2398,7 @@ impl Compiler {
 
         // Nothing to reraise
         emit!(self, Instruction::PopTop);
-        emit!(self, Instruction::PopException);
+        emit!(self, Instruction::PopExcept);
 
         if !finalbody.is_empty() {
             emit!(self, Instruction::PopBlock);
@@ -2409,12 +2409,12 @@ impl Compiler {
 
         // Reraise the result
         self.switch_to_block(reraise_block);
-        // Don't call PopException before Raise - it truncates the stack and removes the result.
+        // Don't call PopExcept before Raise - it truncates the stack and removes the result.
         // When Raise is executed, the exception propagates through unwind_blocks which
         // will properly handle the ExceptHandler block.
         emit!(
             self,
-            Instruction::Raise {
+            Instruction::RaiseVarargs {
                 kind: bytecode::RaiseKind::Raise
             }
         );
@@ -2982,20 +2982,20 @@ impl Compiler {
         let dunder_name = self.name("__name__");
         emit!(self, Instruction::LoadGlobal(dunder_name));
         let dunder_module = self.name("__module__");
-        emit!(self, Instruction::StoreLocal(dunder_module));
+        emit!(self, Instruction::StoreName(dunder_module));
 
         // Store __qualname__
         self.emit_load_const(ConstantData::Str {
             value: qualname.into(),
         });
         let qualname_name = self.name("__qualname__");
-        emit!(self, Instruction::StoreLocal(qualname_name));
+        emit!(self, Instruction::StoreName(qualname_name));
 
         // Store __doc__ only if there's an explicit docstring
         if let Some(doc) = doc_str {
             self.emit_load_const(ConstantData::Str { value: doc.into() });
             let doc_name = self.name("__doc__");
-            emit!(self, Instruction::StoreLocal(doc_name));
+            emit!(self, Instruction::StoreName(doc_name));
         }
 
         // Store __firstlineno__ (new in Python 3.12+)
@@ -3003,7 +3003,7 @@ impl Compiler {
             value: BigInt::from(firstlineno),
         });
         let firstlineno_name = self.name("__firstlineno__");
-        emit!(self, Instruction::StoreLocal(firstlineno_name));
+        emit!(self, Instruction::StoreName(firstlineno_name));
 
         // Set __type_params__ if we have type parameters
         if type_params.is_some() {
@@ -3013,12 +3013,12 @@ impl Compiler {
 
             // Store as __type_params__
             let dunder_type_params = self.name("__type_params__");
-            emit!(self, Instruction::StoreLocal(dunder_type_params));
+            emit!(self, Instruction::StoreName(dunder_type_params));
         }
 
         // Setup annotations if needed
         if Self::find_ann(body) {
-            emit!(self, Instruction::SetupAnnotation);
+            emit!(self, Instruction::SetupAnnotations);
         }
 
         // 3. Compile the class body
@@ -3038,7 +3038,7 @@ impl Compiler {
             emit!(self, Instruction::LoadClosure(classcell_idx.to_u32()));
             emit!(self, Instruction::CopyItem { index: 1_u32 });
             let classcell = self.name("__classcell__");
-            emit!(self, Instruction::StoreLocal(classcell));
+            emit!(self, Instruction::StoreName(classcell));
         } else {
             self.emit_load_const(ConstantData::None);
         }
@@ -3080,7 +3080,7 @@ impl Compiler {
             // Compile type parameters and store as .type_params
             self.compile_type_params(type_params.unwrap())?;
             let dot_type_params = self.name(".type_params");
-            emit!(self, Instruction::StoreLocal(dot_type_params));
+            emit!(self, Instruction::StoreName(dot_type_params));
         }
 
         // Step 2: Compile class body (always done, whether generic or not)
@@ -3107,7 +3107,7 @@ impl Compiler {
                     func: bytecode::IntrinsicFunction1::SubscriptGeneric
                 }
             );
-            emit!(self, Instruction::StoreLocal(dot_generic_base));
+            emit!(self, Instruction::StoreName(dot_generic_base));
 
             // Generate class creation code
             emit!(self, Instruction::LoadBuildClass);
@@ -3618,7 +3618,7 @@ impl Compiler {
                 );
             }
             // Use BINARY_OP/NB_SUBSCR to extract the element.
-            emit!(self, Instruction::BinarySubscript);
+            emit!(self, Instruction::BinarySubscr);
             // Compile the subpattern in irrefutable mode.
             self.compile_pattern_subpattern(pattern, pc)?;
         }
@@ -3871,7 +3871,7 @@ impl Compiler {
             // Stack: [subject, len, size]
             emit!(
                 self,
-                Instruction::CompareOperation {
+                Instruction::CompareOp {
                     op: ComparisonOperator::GreaterOrEqual
                 }
             );
@@ -3997,7 +3997,7 @@ impl Compiler {
                 // Stack: [rest_dict, k1, ..., kn, rest_dict]
                 emit!(self, Instruction::Swap { index: 2 });
                 // Stack: [rest_dict, k1, ..., kn-1, rest_dict, kn]
-                emit!(self, Instruction::DeleteSubscript);
+                emit!(self, Instruction::DeleteSubscr);
                 // Stack: [rest_dict, k1, ..., kn-1] (removed kn from rest_dict)
                 remaining -= 1;
             }
@@ -4175,7 +4175,7 @@ impl Compiler {
             self.emit_load_const(ConstantData::Integer { value: size.into() });
             emit!(
                 self,
-                Instruction::CompareOperation {
+                Instruction::CompareOp {
                     op: ComparisonOperator::Equal
                 }
             );
@@ -4188,7 +4188,7 @@ impl Compiler {
             });
             emit!(
                 self,
-                Instruction::CompareOperation {
+                Instruction::CompareOp {
                     op: ComparisonOperator::GreaterOrEqual
                 }
             );
@@ -4217,7 +4217,7 @@ impl Compiler {
         self.compile_expression(&p.value)?;
         emit!(
             self,
-            Instruction::CompareOperation {
+            Instruction::CompareOp {
                 op: bytecode::ComparisonOperator::Equal
             }
         );
@@ -4361,13 +4361,13 @@ impl Compiler {
     fn compile_addcompare(&mut self, op: &CmpOp) {
         use bytecode::ComparisonOperator::*;
         match op {
-            CmpOp::Eq => emit!(self, Instruction::CompareOperation { op: Equal }),
-            CmpOp::NotEq => emit!(self, Instruction::CompareOperation { op: NotEqual }),
-            CmpOp::Lt => emit!(self, Instruction::CompareOperation { op: Less }),
-            CmpOp::LtE => emit!(self, Instruction::CompareOperation { op: LessOrEqual }),
-            CmpOp::Gt => emit!(self, Instruction::CompareOperation { op: Greater }),
+            CmpOp::Eq => emit!(self, Instruction::CompareOp { op: Equal }),
+            CmpOp::NotEq => emit!(self, Instruction::CompareOp { op: NotEqual }),
+            CmpOp::Lt => emit!(self, Instruction::CompareOp { op: Less }),
+            CmpOp::LtE => emit!(self, Instruction::CompareOp { op: LessOrEqual }),
+            CmpOp::Gt => emit!(self, Instruction::CompareOp { op: Greater }),
             CmpOp::GtE => {
-                emit!(self, Instruction::CompareOperation { op: GreaterOrEqual })
+                emit!(self, Instruction::CompareOp { op: GreaterOrEqual })
             }
             CmpOp::In => emit!(self, Instruction::ContainsOp(Invert::No)),
             CmpOp::NotIn => emit!(self, Instruction::ContainsOp(Invert::Yes)),
@@ -4507,7 +4507,7 @@ impl Compiler {
             self.emit_load_const(ConstantData::Str {
                 value: self.mangle(id.as_str()).into_owned().into(),
             });
-            emit!(self, Instruction::StoreSubscript);
+            emit!(self, Instruction::StoreSubscr);
         } else {
             // Drop annotation if not assigned to simple identifier.
             emit!(self, Instruction::PopTop);
@@ -4644,7 +4644,7 @@ impl Compiler {
                 // stack: CONTAINER SLICE RESULT
                 emit!(self, Instruction::Swap { index: 3 });
                 emit!(self, Instruction::Swap { index: 2 });
-                emit!(self, Instruction::StoreSubscript);
+                emit!(self, Instruction::StoreSubscr);
             }
             AugAssignKind::Attr { idx } => {
                 // stack: CONTAINER RESULT
