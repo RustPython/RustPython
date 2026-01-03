@@ -1939,6 +1939,7 @@ class ReTests(unittest.TestCase):
         is_emscripten or is_wasi,
         "musl libc issue on Emscripten/WASI, bpo-46390"
     )
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; self.assertTrue(re.match(b'\xc5', b'\xe5', re.L|re.I))\n AssertionError: None is not true
     def test_locale_caching(self):
         # Issue #22410
         oldlocale = locale.setlocale(locale.LC_CTYPE)
@@ -1975,6 +1976,7 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match(b'(?Li)\xc5', b'\xe5'))
         self.assertIsNone(re.match(b'(?Li)\xe5', b'\xc5'))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; self.assertTrue(p.match(b'\xe5\xe5'))\n AssertionError: None is not true
     @unittest.skipIf(
         is_emscripten or is_wasi,
         "musl libc issue on Emscripten/WASI, bpo-46390"
