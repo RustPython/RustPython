@@ -1124,7 +1124,40 @@ pub(super) mod _os {
     #[pyfunction]
     fn chdir(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         env::set_current_dir(&path.path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
+
+        #[cfg(windows)]
+        {
+            // win32_wchdir()
+
+            // On Windows, set the per-drive CWD environment variable (=X:)
+            // This is required for GetFullPathNameW to work correctly with drive-relative paths
+
+            use std::os::windows::ffi::OsStrExt;
+            use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
+
+            if let Ok(cwd) = env::current_dir() {
+                let cwd_str = cwd.as_os_str();
+                let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
+
+                // Check for UNC-like paths (\\server\share or //server/share)
+                // wcsncmp(new_path, L"\\\\", 2) == 0 || wcsncmp(new_path, L"//", 2) == 0
+                let is_unc_like_path = cwd_wide.len() >= 2
+                    && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
+                        || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
+
+                if !is_unc_like_path {
+                    // Create env var name "=X:" where X is the drive letter
+                    let env_name: [u16; 4] = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
+                    cwd_wide.push(0); // null-terminate the path
+                    unsafe {
+                        SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr());
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[pyfunction]
