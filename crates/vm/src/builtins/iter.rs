@@ -4,7 +4,7 @@
 
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
@@ -208,16 +208,7 @@ impl PySequenceIterator {
             };
             if let Some(obj) = obj {
                 let seq = obj.sequence_unchecked();
-                match seq.length(vm) {
-                    Ok(x) => Ok(PyInt::from(x).into_pyobject(vm)),
-                    Err(err) => {
-                        if err.fast_isinstance(vm.ctx.exceptions.recursion_error) {
-                            Err(err)
-                        } else {
-                            Ok(vm.ctx.not_implemented())
-                        }
-                    }
-                }
+                seq.length(vm).map(|x| PyInt::from(x).into_pyobject(vm))
             } else {
                 Ok(PyInt::from(0).into_pyobject(vm))
             }
