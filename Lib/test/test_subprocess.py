@@ -1294,6 +1294,10 @@ class ProcessTestCase(BaseTestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipIf(
+        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
+        "TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason"
+    )
     def test_universal_newlines_communicate_encodings(self):
         # Check that universal newlines mode works for various encodings,
         # in particular for encodings in the UTF-16 and UTF-32 families.

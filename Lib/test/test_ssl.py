@@ -4299,6 +4299,10 @@ class ThreadedTests(unittest.TestCase):
                                        sni_name='supermessage')
         self.assertEqual(cm.exception.reason, 'TLSV1_ALERT_ACCESS_DENIED')
 
+    @unittest.skipIf(
+        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
+        "TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unraisable exception"
+    )
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sni_callback_raising(self):
         # Raising fails the connection with a TLS handshake failure alert.

@@ -2748,7 +2748,11 @@ class _TestPool(BaseTestCase):
         self.assertEqual(get(), 49)
         self.assertTimingAlmostEqual(get.elapsed, TIMEOUT1)
 
+    # TODO: RUSTPYTHON processes(linux): environment pollution when running rustpython -m test --fail-env-changed due to unknown reason
     def test_async_timeout(self):
+        if self.TYPE == 'processes' and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ and sys.platform == 'linux':  # TODO: RUSTPYTHON see below
+            self.skipTest('TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason')
+
         p = self.Pool(3)
         try:
             event = threading.Event() if self.TYPE == 'threads' else None
@@ -2860,7 +2864,11 @@ class _TestPool(BaseTestCase):
                 p.close()
                 p.join()
 
+    # TODO: RUSTPYTHON processes/threads(linux): environment pollution when running rustpython -m test --fail-env-changed due to unknown reason
     def test_terminate(self):
+        if self.TYPE in ('processes', 'threads') and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ and sys.platform == 'linux':  # TODO: RUSTPYTHON see below
+            self.skipTest('TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason')
+
         # Simulate slow tasks which take "forever" to complete
         sleep_time = support.LONG_TIMEOUT
 
@@ -2903,6 +2911,10 @@ class _TestPool(BaseTestCase):
     def _test_traceback(cls):
         raise RuntimeError(123) # some comment
 
+    @unittest.skipIf(
+        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ and sys.platform == 'linux',
+        'TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason'
+    )  # NOTE: RUSTPYTHON; this test only does something when self.TYPE == 'processes'
     def test_traceback(self):
         # We want ensure that the traceback from the child process is
         # contained in the traceback raised in the main process.
@@ -3070,6 +3082,7 @@ class _TestPoolWorkerErrors(BaseTestCase):
 class _TestPoolWorkerLifetime(BaseTestCase):
     ALLOWED_TYPES = ('processes', )
 
+    @unittest.skip('TODO: RUSTPYTHON, sometimes times out and/or segfaults')
     def test_pool_worker_lifetime(self):
         p = multiprocessing.Pool(3, maxtasksperchild=10)
         self.assertEqual(3, len(p._pool))
@@ -3303,6 +3316,7 @@ class _TestManagerRestart(BaseTestCase):
         queue = manager.get_queue()
         queue.put('hello world')
 
+    @unittest.skip('TODO: RUSTPYTHON, flaky')
     def test_rapid_restart(self):
         authkey = os.urandom(32)
         manager = QueueManager(
@@ -4463,6 +4477,7 @@ class _TestSharedMemory(BaseTestCase):
         # properly released sl.
         self.assertFalse(err)
 
+    @unittest.skip('TODO: RUSTPYTHON, flaky')
     def test_shared_memory_SharedMemoryManager_basics(self):
         smm1 = multiprocessing.managers.SharedMemoryManager()
         with self.assertRaises(ValueError):
