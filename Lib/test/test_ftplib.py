@@ -15,7 +15,6 @@ try:
     import ssl
 except ImportError:
     ssl = None
-import sys
 
 from unittest import TestCase, skipUnless
 from test import support
@@ -846,7 +845,6 @@ class TestFTPClass(TestCase):
         self.assertEqual(ftplib.parse257('257 "/foo/b""ar"'), '/foo/b"ar')
         self.assertEqual(ftplib.parse257('257 "/foo/b""ar" created'), '/foo/b"ar')
 
-    @unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON")
     def test_line_too_long(self):
         self.assertRaises(ftplib.Error, self.client.sendcmd,
                           'x' * self.client.maxline * 2)
