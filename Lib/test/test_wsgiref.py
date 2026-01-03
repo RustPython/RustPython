@@ -800,7 +800,6 @@ class HandlerTests(TestCase):
             b"Hello, world!",
             written)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testClientConnectionTerminations(self):
         environ = {"SERVER_PROTOCOL": "HTTP/1.0"}
         for exception in (
@@ -819,7 +818,6 @@ class HandlerTests(TestCase):
 
                 self.assertFalse(stderr.getvalue())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testDontResetInternalStateOnException(self):
         class CustomException(ValueError):
             pass
