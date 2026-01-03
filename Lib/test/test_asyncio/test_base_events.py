@@ -1501,7 +1501,7 @@ class BaseEventLoopWithSelectorTests(test_utils.TestCase):
         support.is_android and platform.android_ver().api_level < 23,
         "Issue gh-71123: this fails on Android before API level 23"
     )
-    @unittest.skip('TODO: RUSTPYTHON; TypeError: unexpected type bytes')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: unexpected type bytes
     def test_create_connection_service_name(self, m_socket):
         m_socket.getaddrinfo = socket.getaddrinfo
         sock = m_socket.socket.return_value

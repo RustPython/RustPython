@@ -269,7 +269,7 @@ class PyEagerTaskFactoryLoopTests(EagerTaskFactoryLoopTests, test_utils.TestCase
     Task = tasks._PyTask
 
 
-@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
+# TODO: RUSTPYTHON: CPython specific test
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
 class CEagerTaskFactoryLoopTests(EagerTaskFactoryLoopTests, test_utils.TestCase):
@@ -416,13 +416,13 @@ class NonEagerPyTaskTests(BaseNonEagerTaskFactoryTests, test_utils.TestCase):
 class EagerPyTaskTests(BaseEagerTaskFactoryTests, test_utils.TestCase):
     Task = tasks._PyTask
 
-@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
+# TODO: RUSTPYTHON: CPython specific test
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
 class NonEagerCTaskTests(BaseNonEagerTaskFactoryTests, test_utils.TestCase):
     Task = getattr(tasks, '_CTask', None)
 
-@unittest.skip('TODO: RUSTPYTHON: CPython specific test')
+# TODO: RUSTPYTHON: CPython specific test
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
 class EagerCTaskTests(BaseEagerTaskFactoryTests, test_utils.TestCase):

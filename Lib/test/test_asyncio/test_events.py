@@ -444,8 +444,8 @@ class EventLoopTestsMixin:
         r.close()
         self.assertEqual(read, data)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; OSError: Failed to set signal
     @unittest.skipUnless(hasattr(signal, 'SIGKILL'), 'No SIGKILL')
-    @unittest.skip('TODO: RUSTPYTHON; OSError: Failed to set signal')
     def test_add_signal_handler(self):
         caught = 0
 
@@ -1172,8 +1172,8 @@ class EventLoopTestsMixin:
         server.close()
         self.loop.run_until_complete(proto.done)
 
-    @unittest.skipIf(ssl is None, 'No ssl module')
     @unittest.expectedFailure # TODO: RUSTPYTHON AssertionError: {'OCSP': ('http://testca.pythontest.net/tes[629 chars]': 3} != {'subject': ((('countryName', ''),), (('loc[419 chars]'),)}
+    @unittest.skipIf(ssl is None, 'No ssl module')
     def test_create_server_ssl_verified(self):
         proto = MyProto(loop=self.loop)
         server, host, port = self._make_ssl_server(
