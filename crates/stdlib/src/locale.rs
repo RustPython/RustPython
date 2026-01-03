@@ -49,6 +49,8 @@ mod _locale {
         convert::ToPyException,
         function::OptionalArg,
     };
+    #[cfg(windows)]
+    use windows_sys::Win32::Globalization::GetACP;
 
     #[cfg(all(
         unix,
@@ -258,6 +260,41 @@ mod _locale {
                 return Err(vm.new_exception_msg(error, String::from("unsupported locale setting")));
             }
             pystr_from_raw_cstr(vm, result)
+        }
+    }
+
+    /// Get the current locale encoding.
+    #[pyfunction]
+    fn getencoding() -> String {
+        #[cfg(windows)]
+        {
+            // On Windows, use GetACP() to get the ANSI code page
+            let acp = unsafe { GetACP() };
+            format!("cp{}", acp)
+        }
+        #[cfg(not(windows))]
+        {
+            // On Unix, use nl_langinfo(CODESET) or fallback to UTF-8
+            #[cfg(all(
+                unix,
+                not(any(target_os = "ios", target_os = "android", target_os = "redox"))
+            ))]
+            {
+                unsafe {
+                    let codeset = libc::nl_langinfo(libc::CODESET);
+                    if !codeset.is_null()
+                        && let Ok(s) = CStr::from_ptr(codeset).to_str()
+                        && !s.is_empty()
+                    {
+                        return s.to_string();
+                    }
+                }
+                "UTF-8".to_string()
+            }
+            #[cfg(any(target_os = "ios", target_os = "android", target_os = "redox"))]
+            {
+                "UTF-8".to_string()
+            }
         }
     }
 }
