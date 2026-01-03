@@ -872,21 +872,46 @@ pub enum Instruction {
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
-impl From<Instruction> for u8 {
-    #[inline]
-    fn from(ins: Instruction) -> Self {
-        // SAFETY: there's no padding bits
-        unsafe { core::mem::transmute::<Instruction, Self>(ins) }
-    }
-}
-
 impl TryFrom<u8> for Instruction {
     type Error = MarshalError;
 
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
-        // TODO: Use `num_enum`
-        Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
+        Ok(match value {
+            1
+            | 5..=7
+            | 9
+            | 10
+            | 14..=16
+            | 18..=20
+            | 24
+            | 26..=32
+            | 36
+            | 37
+            | 39
+            | 40
+            | 45
+            | 47..=52
+            | 54..=56
+            | 58..=61
+            | 63..=67
+            | 69
+            | 71..=76
+            | 80
+            | 82..=85
+            | 91
+            | 95..=97
+            | 100
+            | 101
+            | 103
+            | 105
+            | 106
+            | 108..=110
+            | 113..=118
+            | 149
+            | 222..=255 => unsafe { core::mem::transmute::<u8, Self>(value) },
+            _ => return Err(MarshalError::InvalidBytecode),
+        })
     }
 }
 
