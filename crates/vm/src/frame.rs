@@ -554,7 +554,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
-            bytecode::Instruction::BinarySubscript => {
+            bytecode::Instruction::BinarySubscr => {
                 let key = self.pop_value();
                 let container = self.pop_value();
                 self.state
@@ -697,7 +697,30 @@ impl ExecutingFrame<'_> {
                 self.push_value(matched);
                 Ok(None)
             }
-            bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
+            bytecode::Instruction::CheckExcMatch(target) => {
+                let b = self.pop_value();
+                let a = self.pop_value();
+                if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
+                    for exception in tuple_of_exceptions {
+                        if !exception
+                            .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
+                        {
+                            return Err(vm.new_type_error(
+                                "catching classes that do not inherit from BaseException is not allowed",
+                            ));
+                        }
+                    }
+                } else if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
+                    return Err(vm.new_type_error(
+                        "catching classes that do not inherit from BaseException is not allowed",
+                    ));
+                }
+
+                let value = a.is_instance(&b, vm)?;
+                self.push_value(vm.ctx.new_bool(value).into());
+                self.pop_jump_if(vm, target.get(arg), false)
+            }
+            bytecode::Instruction::CompareOp { op } => self.execute_compare(vm, op.get(arg)),
             bytecode::Instruction::ContainsOp(invert) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
@@ -765,7 +788,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::DeleteLocal(idx) => {
+            bytecode::Instruction::DeleteName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let res = self.locals.mapping().ass_subscript(name, None, vm);
 
@@ -778,7 +801,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
+            bytecode::Instruction::DeleteSubscr => self.execute_delete_subscript(vm),
             bytecode::Instruction::DictUpdate { index } => {
                 // Stack before: [..., dict, ..., source]  (source at TOS)
                 // Stack after:  [..., dict, ...]  (source consumed)
@@ -989,29 +1012,6 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::JumpIfFalseOrPop { target } => {
                 self.jump_if_or_pop(vm, target.get(arg), false)
-            }
-            bytecode::Instruction::JumpIfNotExcMatch(target) => {
-                let b = self.pop_value();
-                let a = self.pop_value();
-                if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
-                    for exception in tuple_of_exceptions {
-                        if !exception
-                            .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
-                        {
-                            return Err(vm.new_type_error(
-                                "catching classes that do not inherit from BaseException is not allowed",
-                            ));
-                        }
-                    }
-                } else if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
-                    return Err(vm.new_type_error(
-                        "catching classes that do not inherit from BaseException is not allowed",
-                    ));
-                }
-
-                let value = a.is_instance(&b, vm)?;
-                self.push_value(vm.ctx.new_bool(value).into());
-                self.pop_jump_if(vm, target.get(arg), false)
             }
             bytecode::Instruction::JumpIfTrueOrPop { target } => {
                 self.jump_if_or_pop(vm, target.get(arg), true)
@@ -1347,7 +1347,7 @@ impl ExecutingFrame<'_> {
                 self.pop_block();
                 Ok(None)
             }
-            bytecode::Instruction::PopException => {
+            bytecode::Instruction::PopExcept => {
                 let block = self.pop_block();
                 if let BlockType::ExceptHandler { prev_exc } = block.typ {
                     vm.set_exception(prev_exc);
@@ -1367,7 +1367,7 @@ impl ExecutingFrame<'_> {
                 self.pop_value();
                 Ok(None)
             }
-            bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
+            bytecode::Instruction::RaiseVarargs { kind } => self.execute_raise(vm, kind.get(arg)),
             bytecode::Instruction::Resume { arg: resume_arg } => {
                 // Resume execution after yield, await, or at function start
                 // In CPython, this checks instrumentation and eval breaker
@@ -1415,7 +1415,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::SetFunctionAttribute { attr } => {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
-            bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
+            bytecode::Instruction::SetupAnnotations => self.setup_annotations(vm),
             bytecode::Instruction::SetupAsyncWith { end } => {
                 let enter_res = self.pop_value();
                 self.push_block(BlockType::Finally {
@@ -1484,13 +1484,13 @@ impl ExecutingFrame<'_> {
                     .set_item(self.code.names[idx.get(arg) as usize], value, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::StoreLocal(idx) => {
+            bytecode::Instruction::StoreName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let value = self.pop_value();
                 self.locals.mapping().ass_subscript(name, Some(value), vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
+            bytecode::Instruction::StoreSubscr => self.execute_store_subscript(vm),
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::Swap { index } => {
                 let len = self.state.stack.len();
