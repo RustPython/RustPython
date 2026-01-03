@@ -61,12 +61,11 @@ FLAGS = {
     "x": SRE_FLAG_VERBOSE,
     # extensions
     "a": SRE_FLAG_ASCII,
-    "t": SRE_FLAG_TEMPLATE,
     "u": SRE_FLAG_UNICODE,
 }
 
 TYPE_FLAGS = SRE_FLAG_ASCII | SRE_FLAG_LOCALE | SRE_FLAG_UNICODE
-GLOBAL_FLAGS = SRE_FLAG_DEBUG | SRE_FLAG_TEMPLATE
+GLOBAL_FLAGS = SRE_FLAG_DEBUG
 
 # Maximal value returned by SubPattern.getwidth().
 # Must be larger than MAXREPEAT, MAXCODE and sys.maxsize.
@@ -781,8 +780,10 @@ def _parse(source, state, verbose, nested, first=False):
                                            source.tell() - start)
                     if char == "=":
                         subpatternappend((ASSERT, (dir, p)))
-                    else:
+                    elif p:
                         subpatternappend((ASSERT_NOT, (dir, p)))
+                    else:
+                        subpatternappend((FAILURE, ()))
                     continue
 
                 elif char == "(":
