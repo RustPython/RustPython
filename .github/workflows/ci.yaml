@@ -105,6 +105,33 @@ env:
     test_unpack
     test_weakref
     test_yield_from
+  ENV_POLLUTING_TESTS_COMMON: >-
+    test_raise
+    test_ssl
+    test_sys
+  ENV_POLLUTING_TESTS_LINUX: >-
+    test.test_multiprocessing_fork.test_processes
+    test.test_multiprocessing_fork.test_threads
+    test.test_multiprocessing_forkserver.test_processes
+    test.test_multiprocessing_forkserver.test_threads
+    test.test_multiprocessing_spawn.test_processes
+    test.test_multiprocessing_spawn.test_threads
+    test_file_eintr
+    test_subprocess
+  ENV_POLLUTING_TESTS_MACOS: >-
+    test_multiprocessing_forkserver.test_manager
+    test.test_multiprocessing_forkserver.test_misc
+    test.test_multiprocessing_forkserver.test_processes
+    test.test_multiprocessing_forkserver.test_threads
+    test.test_multiprocessing_spawn.test_manager
+    test.test_multiprocessing_spawn.test_misc
+    test.test_multiprocessing_spawn.test_processes
+    test.test_multiprocessing_spawn.test_threads
+    test_ftplib
+    test_logging
+    test_multiprocessing_main_handling
+    test_subprocess
+  ENV_POLLUTING_TESTS_WINDOWS: >-
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
@@ -278,25 +305,80 @@ jobs:
 
       - if: runner.os == 'Linux'
         name: run cpython platform-independent tests
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run:
           target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 35
 
       - if: runner.os == 'Linux'
         name: run cpython platform-dependent tests (Linux)
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 35
 
       - if: runner.os == 'macOS'
         name: run cpython platform-dependent tests (MacOS)
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 35
 
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run:
           target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
         timeout-minutes: 45
+
+      - if: runner.os == 'Linux'
+        name: run cpython tests to check if env polluters have stopped polluting (Common/Linux)
+        shell: bash
+        run: |
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_LINUX }}; do
+            set +e
+            target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+            exit_code=$?
+            set -e
+            if [ ${exit_code} -ne 3 ]; then
+              echo "Test ${thing} is no longer polluting the environment!"
+              exit 1
+            fi
+          done
+        timeout-minutes: 15
+
+      - if: runner.os == 'macOS'
+        name: run cpython tests to check if env polluters have stopped polluting (Common/macOS)
+        run: |
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_MACOS }}; do
+            set +e
+            target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+            exit_code=$?
+            set -e
+            if [ ${exit_code} -ne 3 ]; then
+              echo "Test ${thing} is no longer polluting the environment!"
+              exit 1
+            fi
+          done
+        timeout-minutes: 15
+
+      - if: runner.os == 'Windows'
+        name: run cpython tests to check if env polluters have stopped polluting (Common/windows)
+        shell: bash
+        run: |
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_WINDOWS }}; do
+            set +e
+            target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+            exit_code=$?
+            set -e
+            if [ ${exit_code} -ne 3 ]; then
+              echo "Test ${thing} is no longer polluting the environment!"
+              exit 1
+            fi
+          done
+        timeout-minutes: 15
 
       - if: runner.os != 'Windows'
         name: check that --install-pip succeeds
