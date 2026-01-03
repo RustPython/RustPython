@@ -296,8 +296,7 @@ class TestAsyncCase(unittest.TestCase):
         test.doCleanups()
         self.assertEqual(events, ['asyncSetUp', 'test', 'asyncTearDown', 'cleanup2', 'cleanup1'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_deprecation_of_return_val_from_test(self):
         # Issue 41322 - deprecate return of value that is not None from a test
         class Nothing:
