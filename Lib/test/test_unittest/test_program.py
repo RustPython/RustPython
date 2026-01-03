@@ -506,6 +506,7 @@ class TestCommandLineArgs(unittest.TestCase):
         self.assertEqual(program.testNamePatterns, ['*foo*', '*bar*', '*pat*'])
 
     @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON')
+    
     def testSelectedTestNamesFunctionalTest(self):
         def run_unittest(args):
             # Use -E to ignore PYTHONSAFEPATH env var

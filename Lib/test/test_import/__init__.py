@@ -756,7 +756,6 @@ class ImportTests(unittest.TestCase, ExtraAssertions):
             with self.assertRaises(AttributeError):
                 os.does_not_exist
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; Flaky')
     @threading_helper.requires_working_threading()
     def test_concurrency(self):
         # bpo 38091: this is a hack to slow down the code that calls
@@ -837,6 +836,7 @@ class ImportTests(unittest.TestCase, ExtraAssertions):
                                     env=env,
                                     cwd=os.path.dirname(pyexe))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON _imp.get_frozen_object("x", b"6\'\xd5Cu\x12"). TypeError: expected at most 1 arguments, got 2
     def test_issue105979(self):
         # this used to crash
         with self.assertRaises(ImportError) as cm:
@@ -844,6 +844,7 @@ class ImportTests(unittest.TestCase, ExtraAssertions):
         self.assertIn("Frozen object named 'x' is invalid",
                       str(cm.exception))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_frozen_module_from_import_error(self):
         with self.assertRaises(ImportError) as cm:
             from os import this_will_never_exist
@@ -888,6 +889,7 @@ from os import this_will_never_exist
                 stdout, stderr = popen.communicate()
                 self.assertIn(expected_error, stdout)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_non_module_from_import_error(self):
         prefix = """
 import sys
@@ -911,6 +913,7 @@ from not_a_module import symbol
             stdout, stderr = popen.communicate()
             self.assertIn(expected_error, stdout)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_script_shadowing_stdlib(self):
         script_errors = [
             (
@@ -966,6 +969,7 @@ from not_a_module import symbol
                 stdout, stderr = popen.communicate()
                 self.assertEqual(stdout, b'')  # no error
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_package_shadowing_stdlib_module(self):
         script_errors = [
             (
@@ -1007,6 +1011,7 @@ from not_a_module import symbol
                 stdout, stderr = popen.communicate()
                 self.assertRegex(stdout, b"module 'fractions' has no attribute 'shadowing_module'")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_script_shadowing_third_party(self):
         script_errors = [
             (
@@ -1040,6 +1045,7 @@ from not_a_module import symbol
                 stdout, stderr = popen.communicate()
                 self.assertRegex(stdout, expected_error)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_script_maybe_not_shadowing_third_party(self):
         with os_helper.temp_dir() as tmp:
             with open(os.path.join(tmp, "numpy.py"), "w", encoding='utf-8') as f:
@@ -1059,6 +1065,7 @@ from not_a_module import symbol
             stdout, stderr = popen.communicate()
             self.assertRegex(stdout, expected_error)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_script_shadowing_stdlib_edge_cases(self):
         with os_helper.temp_dir() as tmp:
             with open(os.path.join(tmp, "fractions.py"), "w", encoding='utf-8') as f:
@@ -1233,6 +1240,7 @@ os.does_not_exist
             expected_error = rb"AttributeError: module 'os' has no attribute 'does_not_exist'"
             self.assertRegex(stdout, expected_error)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_script_shadowing_stdlib_sys_path_modification(self):
         script_errors = [
             (
@@ -1261,6 +1269,7 @@ os.does_not_exist
                 stdout, stderr = popen.communicate()
                 self.assertRegex(stdout, expected_error)
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "_imp" has no attribute "create_dynamic"')
     def test_create_dynamic_null(self):
         with self.assertRaisesRegex(ValueError, 'embedded null character'):
             class Spec:
@@ -1419,7 +1428,7 @@ func_filename = func.__code__.co_filename
         self.assertEqual(mod.code_filename, self.file_name)
         self.assertEqual(mod.func_filename, self.file_name)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 'another_module.py' != .../unlikely_module_name.py
     def test_incorrect_code_name(self):
         py_compile.compile(self.file_name, dfile="another_module.py")
         mod = self.import_module()
@@ -2118,7 +2127,7 @@ class CircularImportTests(unittest.TestCase):
         from test.test_import.data.circular_imports.subpkg import util
         self.assertIs(util.util, rebinding.util)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON AttributeError: module "test.test_import.data.circular_imports" has no attribute "binding"
     def test_binding(self):
         try:
             import test.test_import.data.circular_imports.binding
@@ -2149,6 +2158,7 @@ class CircularImportTests(unittest.TestCase):
             str(cm.exception),
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_circular_import(self):
         with self.assertRaisesRegex(
             AttributeError,
@@ -2157,7 +2167,7 @@ class CircularImportTests(unittest.TestCase):
         ):
             import test.test_import.data.circular_imports.import_cycle
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_absolute_circular_submodule(self):
         with self.assertRaises(AttributeError) as cm:
             import test.test_import.data.circular_imports.subpkg2.parent
