@@ -4,7 +4,7 @@
 
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
@@ -199,24 +199,20 @@ impl PySequenceIterator {
     #[pymethod]
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         vm.with_recursion("in __length_hint__", || {
-            let obj = {
+            let (obj, position) = {
                 let internal = self.internal.lock();
                 match &internal.status {
-                    IterStatus::Active(obj) => Some(obj.clone()),
-                    IterStatus::Exhausted => None,
+                    IterStatus::Active(obj) => (Some(obj.clone()), internal.position),
+                    IterStatus::Exhausted => (None, 0),
                 }
             };
             if let Some(obj) = obj {
                 let seq = obj.sequence_unchecked();
-                match seq.length(vm) {
-                    Ok(x) => Ok(PyInt::from(x).into_pyobject(vm)),
-                    Err(err) => {
-                        if err.fast_isinstance(vm.ctx.exceptions.recursion_error) {
-                            Err(err)
-                        } else {
-                            Ok(vm.ctx.not_implemented())
-                        }
-                    }
+                match seq.length_opt(vm) {
+                    Some(len) => len.map(|len| {
+                        PyInt::from(len.saturating_sub(position)).into_pyobject(vm)
+                    }),
+                    None => Ok(vm.ctx.not_implemented()),
                 }
             } else {
                 Ok(PyInt::from(0).into_pyobject(vm))
