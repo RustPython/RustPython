@@ -637,7 +637,7 @@ pub enum Instruction {
     } = 229, // TODO: Remove this bytecode
     CallFunctionPositional {
         nargs: Arg<u32>,
-    }, // TODO: Remove this bytecode
+    } = 222, // TODO: Remove this bytecode
     CallIntrinsic1 {
         func: Arg<IntrinsicFunction1>,
     } = 55,
@@ -850,7 +850,7 @@ pub enum Instruction {
     StoreGlobal(Arg<NameIdx>) = 113,
     StoreName(Arg<NameIdx>) = 114,
     StoreSubscr = 39,
-    Subscript, // TODO: Remove this bytecode
+    Subscript = 249, // TODO: Remove this bytecode
     Swap {
         index: Arg<u32>,
     } = 115,
@@ -885,11 +885,8 @@ impl TryFrom<u8> for Instruction {
 
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
-        if value <= u8::from(LAST_INSTRUCTION) {
-            Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
-        } else {
-            Err(MarshalError::InvalidBytecode)
-        }
+        // TODO: Use `num_enum`
+        Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
     }
 }
 
@@ -1620,7 +1617,7 @@ impl Instruction {
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
-            | JumpIfNotExcMatch(l)
+            | CheckExcMatch(l)
             | PopJumpIfTrue { target: l }
             | PopJumpIfFalse { target: l }
             | JumpIfTrueOrPop { target: l }
@@ -1653,7 +1650,7 @@ impl Instruction {
                 | Break { .. }
                 | ReturnValue
                 | ReturnConst { .. }
-                | Raise { .. }
+                | RaiseVarargs { .. }
         )
     }
 
@@ -1677,8 +1674,8 @@ impl Instruction {
             ImportName { .. } => -1,
             ImportFrom { .. } => 1,
             LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
-            StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
-            DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
+            StoreFast(_) | StoreName(_) | StoreGlobal(_) | StoreDeref(_) => -1,
+            DeleteFast(_) | DeleteName(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
             LoadClosure(_) => 1,
             Subscript => -1,
             StoreSubscript => -3,
@@ -1688,7 +1685,7 @@ impl Instruction {
             DeleteAttr { .. } => -1,
             LoadConst { .. } => 1,
             UnaryOperation { .. } => 0,
-            BinaryOp { .. } | CompareOperation { .. } => -1,
+            BinaryOp { .. } | CompareOp { .. } => -1,
             BinarySubscript => -1,
             CopyItem { .. } => 1,
             PopTop => -1,
@@ -1736,20 +1733,20 @@ impl Instruction {
                 }
             }
             IsOp(_) | ContainsOp(_) => -1,
-            JumpIfNotExcMatch(_) => -2,
+            CheckExcMatch(_) => -2,
             ReturnValue => -1,
             ReturnConst { .. } => 0,
             Resume { .. } => 0,
             YieldValue => 0,
             YieldFrom => -1,
             SetExcInfo => 0,
-            SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
+            SetupAnnotations | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
             SetupExcept { .. } => jump as i32,
             SetupWith { .. } => (!jump) as i32,
             WithCleanupStart => 0,
             WithCleanupFinish => -1,
             PopBlock => 0,
-            Raise { kind } => -(kind.get(arg) as u8 as i32),
+            RaiseVarargs { kind } => -(kind.get(arg) as u8 as i32),
             BuildString { size }
             | BuildTuple { size, .. }
             | BuildTupleFromTuples { size, .. }
@@ -1892,7 +1889,7 @@ impl Instruction {
             CallMethodKeyword { nargs } => w!(CALL_METHOD_KEYWORD, nargs),
             CallMethodPositional { nargs } => w!(CALL_METHOD_POSITIONAL, nargs),
             CheckEgMatch => w!(CHECK_EG_MATCH),
-            CompareOperation { op } => w!(COMPARE_OPERATION, ?op),
+            CompareOp { op } => w!(COMPARE_OP, ?op),
             ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
             Continue { target } => w!(CONTINUE, target),
             ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
@@ -1901,7 +1898,7 @@ impl Instruction {
             DeleteDeref(idx) => w!(DELETE_DEREF, cell_name = idx),
             DeleteFast(idx) => w!(DELETE_FAST, varname = idx),
             DeleteGlobal(idx) => w!(DELETE_GLOBAL, name = idx),
-            DeleteLocal(idx) => w!(DELETE_LOCAL, name = idx),
+            DeleteName(idx) => w!(DELETE_NAME, name = idx),
             DeleteSubscript => w!(DELETE_SUBSCRIPT),
             DictUpdate { index } => w!(DICT_UPDATE, index),
             EndAsyncFor => w!(END_ASYNC_FOR),
@@ -1920,7 +1917,7 @@ impl Instruction {
             ImportName { idx } => w!(IMPORT_NAME, name = idx),
             IsOp(inv) => w!(IS_OP, ?inv),
             JumpIfFalseOrPop { target } => w!(JUMP_IF_FALSE_OR_POP, target),
-            JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
+            CheckExcMatch(target) => w!(CHECK_EXC_MATCH, target),
             JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
             Jump { target } => w!(JUMP, target),
             ListAppend { i } => w!(LIST_APPEND, i),
@@ -1946,14 +1943,14 @@ impl Instruction {
             PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
             PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
             PopTop => w!(POP_TOP),
-            Raise { kind } => w!(RAISE, ?kind),
+            RaiseVarargs { kind } => w!(RAISE_VARARGS, ?kind),
             Resume { arg } => w!(RESUME, arg),
             ReturnConst { idx } => fmt_const("RETURN_CONST", arg, f, idx),
             ReturnValue => w!(RETURN_VALUE),
             Reverse { amount } => w!(REVERSE, amount),
             SetAdd { i } => w!(SET_ADD, i),
             SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
-            SetupAnnotation => w!(SETUP_ANNOTATION),
+            SetupAnnotations => w!(SETUP_ANNOTATIONS),
             SetupAsyncWith { end } => w!(SETUP_ASYNC_WITH, end),
             SetupExcept { handler } => w!(SETUP_EXCEPT, handler),
             SetupFinally { handler } => w!(SETUP_FINALLY, handler),
@@ -1964,7 +1961,7 @@ impl Instruction {
             SetExcInfo => w!(SET_EXC_INFO),
             StoreFast(idx) => w!(STORE_FAST, varname = idx),
             StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
-            StoreLocal(idx) => w!(STORE_LOCAL, name = idx),
+            StoreName(idx) => w!(STORE_NAME, name = idx),
             StoreSubscript => w!(STORE_SUBSCRIPT),
             Subscript => w!(SUBSCRIPT),
             Swap { index } => w!(SWAP, index),
