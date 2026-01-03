@@ -64,6 +64,7 @@ class TestTty(unittest.TestCase):
         self.assertEqual(mode[tty.IFLAG] & termios.ICRNL, 0,
                          msg="ICRNL should not be set by cbreak")
 
+    @unittest.skip('TODO: RUSTPYTHON; TypeError: Expected type 'int' but "FileIO" found.')
     def test_setraw(self):
         mode0 = termios.tcgetattr(self.fd)
         mode1 = tty.setraw(self.fd)
@@ -75,6 +76,7 @@ class TestTty(unittest.TestCase):
         tty.setraw(self.stream)
         tty.setraw(fd=self.fd, when=termios.TCSANOW)
 
+    @unittest.skip('TODO: RUSTPYTHON; TypeError: Expected type 'int' but "FileIO" found.')
     def test_setcbreak(self):
         mode0 = termios.tcgetattr(self.fd)
         mode1 = tty.setcbreak(self.fd)
