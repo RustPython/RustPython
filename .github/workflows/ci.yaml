@@ -352,9 +352,13 @@ jobs:
         shell: bash
         run: |
           for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_LINUX }}; do
-            if [ target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}; [ $? -ne 3 ] ]; then
+            set +e
+            target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+            exit_code=$?
+            set -e
+            if [ ${exit_code} -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment!"
-              exit 422
+              exit 1
             fi
           done
         timeout-minutes: 15
@@ -363,9 +367,13 @@ jobs:
         name: run cpython tests to check if env polluters have stopped polluting (Common/macOS)
         run: |
           for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_MACOS }}; do
-            if [ target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}; [ $? -ne 3 ] ]; then
+            set +e
+            target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+            exit_code=$?
+            set -e
+            if [ ${exit_code} -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment!"
-              exit 422
+              exit 1
             fi
           done
         timeout-minutes: 15
@@ -375,9 +383,13 @@ jobs:
         shell: bash
         run: |
           for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_WINDOWS }}; do
-            if [ target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}; [ $? -ne 3 ] ]; then
+            set +e
+            target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+            exit_code=$?
+            set -e
+            if [ ${exit_code} -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment!"
-              exit 422
+              exit 1
             fi
           done
         timeout-minutes: 15
