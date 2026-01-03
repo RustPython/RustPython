@@ -35,3 +35,4 @@ refs/*
 .gitignore
 examples/breakpoint_resume_demo/demo.rpsnap
 examples/breakpoint_resume_demo/actor_complex_demo.rpsnap
+examples/breakpoint_resume_demo/comprehensive_demo.rpsnap
