@@ -26,6 +26,7 @@ mailbox = [
     {"type": "deposit", "amount": 1200.0, "meta": {"source": "salary"}},
     {"type": "transfer", "to": "actor:beta", "amount": 350.0, "meta": {"note": "rent"}},
     {"type": "transfer", "to": "actor:gamma", "amount": 650.0, "meta": {"note": "equipment"}},
+    {"type": "transfer", "to": "actor:zeta", "amount": 950.0, "meta": {"note": "equipment"}},
     {"type": "adjust", "amount": -50.0, "meta": {"reason": "fee"}},
     {"type": "query", "fields": ["balance", "flags"]},
     {"type": "noop"},
@@ -66,34 +67,39 @@ stage_function(actor, normalized_mailbox)
 
 
 print(SEP)
-# print("[2/5] loop stage")
-# for idx, msg in enumerate(normalized_mailbox):
-#     if msg["type"] == "transfer" and not actor.get("loop_checkpoint"):
-#         actor["loop_checkpoint"] = True
-#         actor["history"].append({"stage": "loop", "seq": idx})
-#         print("[checkpoint #2] inside loop")
-#         rpc.checkpoint(CHECKPOINT_PATH)
-#         print("[resume #2] after loop checkpoint")
+print("[2/5] loop stage")
+for idx, msg in enumerate(normalized_mailbox):
+    print(f"[loop] {idx} {msg}")
+    if msg["type"] == "transfer" and not actor.get("loop_checkpoint"):
+        actor["loop_checkpoint"] = True
+        actor["history"].append({"stage": "loop", "seq": idx})
+        print("[checkpoint #2] inside loop")
+        rpc.checkpoint(CHECKPOINT_PATH)
+        print("[resume #2] after loop checkpoint")
 
-#     match msg:
-#         case {"type": "deposit", "amount": amt}:
-#             actor["balance"] = round(actor["balance"] + amt, 2)
-#         case {"type": "transfer", "amount": amt, "to": target}:
-#             if actor["balance"] >= amt:
-#                 actor["balance"] = round(actor["balance"] - amt, 2)
-#             else:
-#                 actor["flags"].append(f"overdraft:{target}")
-#         case {"type": "adjust", "amount": amt}:
-#             actor["balance"] = round(actor["balance"] + amt, 2)
-#         case {"type": "query", "fields": fields}:
-#             snapshot = {field: actor.get(field) for field in fields}
-#             actor["history"].append({"stage": "query", "snapshot": snapshot})
-#         case {"type": "noop"}:
-#             actor["flags"].append("noop")
-#         case _:
-#             actor["flags"].append("unknown")
+    match msg:
+        case {"type": "deposit", "amount": amt}:
+            actor["balance"] = round(actor["balance"] + amt, 2)
+        case {"type": "transfer", "amount": amt, "to": target}:
+            if actor["balance"] >= amt:
+                actor["balance"] = round(actor["balance"] - amt, 2)
+            else:
+                actor["flags"].append(f"overdraft:{target}")
+        case {"type": "adjust", "amount": amt}:
+            actor["balance"] = round(actor["balance"] + amt, 2)
+        case {"type": "query", "fields": fields}:
+            snapshot = {field: actor.get(field) for field in fields}
+            actor["history"].append({"stage": "query", "snapshot": snapshot})
+        case {"type": "noop"}:
+            actor["flags"].append("noop")
+        case _:
+            actor["flags"].append("unknown")
 
-
+arr = [1,2,3]
+for i in enumerate(arr):
+    print(f"[loop] {i}")
+    rpc.checkpoint(CHECKPOINT_PATH)
+    print(f"[loop] {i} resumed")
 
 print(SEP)
 print("[3/5] if stage")

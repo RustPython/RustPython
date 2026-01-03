@@ -111,6 +111,9 @@ enum ObjTag {
     Zip = 22,
     Map = 23,
     Filter = 24,
+    ListIterator = 25,
+    RangeIterator = 26,
+    Range = 27,
 }
 
 #[derive(Debug)]
@@ -140,6 +143,9 @@ enum ObjectPayload {
     Zip { iterators: Vec<ObjId> },
     Map { function: ObjId, iterator: ObjId },
     Filter { function: ObjId, iterator: ObjId },
+    ListIterator { list: ObjId, position: usize },
+    RangeIterator { range: ObjId, position: usize },
+    Range { start: i64, stop: i64, step: i64 },
     BuiltinFunction(BuiltinFunctionPayload),
     Code(Vec<u8>),
     Type(TypePayload),
@@ -728,6 +734,49 @@ impl<'a> SnapshotWriter<'a> {
                 }
                 Ok(())
             }
+            ObjTag::ListIterator => {
+                // Visit the list via __reduce__
+                // list_iterator.__reduce__() returns (iter, (list,), position)
+                if let Some(reduce_fn) = get_attr_opt(self.vm, obj, "__reduce__")? {
+                    if let Ok(result) = self.vm.invoke(&reduce_fn, ()) {
+                        if let Some(tuple) = result.downcast_ref::<PyTuple>() {
+                            if tuple.len() >= 2 {
+                                // Get the args tuple: (list,)
+                                if let Some(args) = tuple.get(1).and_then(|o| o.downcast_ref::<PyTuple>()) {
+                                    if let Some(list) = args.get(0) {
+                                        self.assign_ids_phase(list)?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+            ObjTag::Range => {
+                // range object has start, stop, step which are integers
+                // No need to assign IDs for these primitive values
+                Ok(())
+            }
+            ObjTag::RangeIterator => {
+                // Visit the range via __reduce__
+                // range_iterator.__reduce__() returns (iter, (range,), position)
+                if let Some(reduce_fn) = get_attr_opt(self.vm, obj, "__reduce__")? {
+                    if let Ok(result) = self.vm.invoke(&reduce_fn, ()) {
+                        if let Some(tuple) = result.downcast_ref::<PyTuple>() {
+                            if tuple.len() >= 2 {
+                                // Get the args tuple: (range,)
+                                if let Some(args) = tuple.get(1).and_then(|o| o.downcast_ref::<PyTuple>()) {
+                                    if let Some(range) = args.get(0) {
+                                        self.assign_ids_phase(range)?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
         }
     }
     
@@ -1132,6 +1181,97 @@ impl<'a> SnapshotWriter<'a> {
                 
                 Ok(ObjectPayload::Filter { function: function_id, iterator: iterator_id })
             }
+            ObjTag::ListIterator => {
+                // Use __reduce__ to get list and position
+                // list_iterator.__reduce__() returns (iter, (list,), position)
+                let reduce_fn = get_attr(self.vm, obj, "__reduce__")?;
+                let result = self.vm.invoke(&reduce_fn, ())
+                    .map_err(|_| SnapshotError::msg("list_iterator __reduce__ failed"))?;
+                
+                let tuple = result.downcast_ref::<PyTuple>()
+                    .ok_or_else(|| SnapshotError::msg("list_iterator __reduce__ didn't return tuple"))?;
+                
+                if tuple.len() < 3 {
+                    return Err(SnapshotError::msg("list_iterator __reduce__ tuple too short"));
+                }
+                
+                // Get args tuple: (list,)
+                let args = tuple.get(1)
+                    .and_then(|o| o.downcast_ref::<PyTuple>())
+                    .ok_or_else(|| SnapshotError::msg("list_iterator __reduce__ args invalid"))?;
+                
+                let list = args.get(0)
+                    .ok_or_else(|| SnapshotError::msg("list_iterator missing list in __reduce__"))?
+                    .clone();
+                
+                let list_id = self.get_id(&list)?;
+                
+                // Get position (third element of reduce result)
+                let position = tuple.get(2)
+                    .and_then(|o| o.downcast_ref::<crate::builtins::int::PyInt>())
+                    .ok_or_else(|| SnapshotError::msg("list_iterator missing position in __reduce__"))?
+                    .try_to_primitive::<usize>(self.vm)
+                    .unwrap_or(0);
+                
+                Ok(ObjectPayload::ListIterator { list: list_id, position })
+            }
+            ObjTag::Range => {
+                // Serialize range object by extracting start, stop, step
+                let start = get_attr(self.vm, obj, "start")?
+                    .downcast_ref::<crate::builtins::int::PyInt>()
+                    .ok_or_else(|| SnapshotError::msg("range.start is not int"))?
+                    .try_to_primitive::<i64>(self.vm)
+                    .unwrap_or(0);
+                
+                let stop = get_attr(self.vm, obj, "stop")?
+                    .downcast_ref::<crate::builtins::int::PyInt>()
+                    .ok_or_else(|| SnapshotError::msg("range.stop is not int"))?
+                    .try_to_primitive::<i64>(self.vm)
+                    .unwrap_or(0);
+                
+                let step = get_attr(self.vm, obj, "step")?
+                    .downcast_ref::<crate::builtins::int::PyInt>()
+                    .ok_or_else(|| SnapshotError::msg("range.step is not int"))?
+                    .try_to_primitive::<i64>(self.vm)
+                    .unwrap_or(1);
+                
+                Ok(ObjectPayload::Range { start, stop, step })
+            }
+            ObjTag::RangeIterator => {
+                // Use __reduce__ to get range and position
+                // range_iterator.__reduce__() returns (iter, (range,), position)
+                let reduce_fn = get_attr(self.vm, obj, "__reduce__")?;
+                let result = self.vm.invoke(&reduce_fn, ())
+                    .map_err(|_| SnapshotError::msg("range_iterator __reduce__ failed"))?;
+                
+                let tuple = result.downcast_ref::<PyTuple>()
+                    .ok_or_else(|| SnapshotError::msg("range_iterator __reduce__ didn't return tuple"))?;
+                
+                if tuple.len() < 3 {
+                    return Err(SnapshotError::msg("range_iterator __reduce__ tuple too short"));
+                }
+                
+                // Get args tuple: (range,)
+                let args = tuple.get(1)
+                    .and_then(|o| o.downcast_ref::<PyTuple>())
+                    .ok_or_else(|| SnapshotError::msg("range_iterator __reduce__ args invalid"))?;
+                
+                let range = args.get(0)
+                    .ok_or_else(|| SnapshotError::msg("range_iterator missing range in __reduce__"))?
+                    .clone();
+                
+                // Use get_or_assign_id to handle range objects that may not have been visited yet
+                let range_id = self.get_or_assign_id(&range)?;
+                
+                // Get position (third element of reduce result)
+                let position = tuple.get(2)
+                    .and_then(|o| o.downcast_ref::<crate::builtins::int::PyInt>())
+                    .ok_or_else(|| SnapshotError::msg("range_iterator missing position in __reduce__"))?
+                    .try_to_primitive::<usize>(self.vm)
+                    .unwrap_or(0);
+                
+                Ok(ObjectPayload::RangeIterator { range: range_id, position })
+            }
         }
     }
 }
@@ -1194,6 +1334,9 @@ fn classify_obj(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<ObjTag, Snapsh
         "zip" => return Ok(ObjTag::Zip),
         "map" => return Ok(ObjTag::Map),
         "filter" => return Ok(ObjTag::Filter),
+        "list_iterator" => return Ok(ObjTag::ListIterator),
+        "range_iterator" => return Ok(ObjTag::RangeIterator),
+        "range" => return Ok(ObjTag::Range),
         _ => {}
     }
     if obj.downcast_ref::<PyCode>().is_some() {
@@ -1908,11 +2051,14 @@ impl<'a> SnapshotReader<'a> {
             }
             ObjectPayload::Enumerate { iterator, count } => {
                 // Restore enumerate object
-                let iter_obj = self.get_obj(*iterator)?;
+                // Important: get_obj will trigger list_iterator restoration with __setstate__
+                let iter_obj = self.get_obj(*iterator)
+                    .map_err(|e| SnapshotError::msg(format!("enumerate: failed to get iterator {}: {:?}", iterator, e)))?;
                 
                 // Call enumerate(iter, start=count) to recreate
+                // Note: iter_obj should already be at the correct position after get_obj
                 let enumerate_fn = self.vm.builtins.get_attr("enumerate", self.vm)
-                    .map_err(|_| SnapshotError::msg("enumerate not found"))?;
+                    .map_err(|e| SnapshotError::msg(format!("enumerate: builtin not found: {:?}", e)))?;
                 let count_obj = self.vm.ctx.new_int(*count);
                 
                 // Create kwargs with "start" parameter
@@ -1921,10 +2067,11 @@ impl<'a> SnapshotReader<'a> {
                 let mut kwargs_map = IndexMap::new();
                 kwargs_map.insert("start".to_string(), count_obj.into());
                 let kwargs = KwArgs::new(kwargs_map);
-                let args = FuncArgs::new(vec![iter_obj.clone()], kwargs);
+                // Use iter_obj directly (don't clone, as it's already the restored iterator)
+                let args = FuncArgs::new(vec![iter_obj], kwargs);
                 
                 self.vm.invoke(&enumerate_fn, args)
-                    .map_err(|_| SnapshotError::msg("enumerate restore failed"))?
+                    .map_err(|e| SnapshotError::msg(format!("enumerate(iterator={}, start={}) failed: {:?}", iterator, count, e)))?
             }
             ObjectPayload::Zip { iterators } => {
                 // Restore zip object
@@ -1954,6 +2101,87 @@ impl<'a> SnapshotReader<'a> {
                     .map_err(|_| SnapshotError::msg("filter not found"))?;
                 self.vm.invoke(&filter_fn, (func_obj, iter_obj))
                     .map_err(|_| SnapshotError::msg("filter restore failed"))?
+            }
+            ObjectPayload::ListIterator { list, position } => {
+                // Restore list_iterator object
+                // 1. Get the list object and fill it
+                let list_obj = self.get_obj(*list)?;
+                
+                // IMPORTANT: fill_container must be called to populate the list's elements
+                // Otherwise the list will be empty!
+                let list_idx = *list as usize;
+                self.fill_container(list_idx)?;
+                
+                // 2. Create a new iterator from the list
+                let iter_fn = self.vm.builtins.get_attr("iter", self.vm)
+                    .map_err(|_| SnapshotError::msg("iter not found"))?;
+                let new_iter = self.vm.invoke(&iter_fn, (list_obj.clone(),))
+                    .map_err(|e| SnapshotError::msg(format!("iter() failed: {:?}", e)))?;
+                
+                // 3. Advance the iterator to the saved position by calling __next__
+                for _ in 0..*position {
+                    match self.vm.call_method(&new_iter, "__next__", ()) {
+                        Ok(_) => {
+                            // Successfully advanced, continue
+                        }
+                        Err(e) => {
+                            // Check if it's StopIteration (iterator exhausted early)
+                            let class_name = e.class().name();
+                            if &*class_name == "StopIteration" {
+                                // Iterator exhausted before reaching target position, break
+                                break;
+                            } else {
+                                // Other error, propagate
+                                return Err(SnapshotError::msg(format!("list_iterator advance failed: {:?}", e)));
+                            }
+                        }
+                    }
+                }
+                
+                new_iter
+            }
+            ObjectPayload::Range { start, stop, step } => {
+                // Restore range object by calling range(start, stop, step)
+                let range_fn = self.vm.builtins.get_attr("range", self.vm)
+                    .map_err(|_| SnapshotError::msg("range not found"))?;
+                let start_obj = self.vm.ctx.new_int(*start);
+                let stop_obj = self.vm.ctx.new_int(*stop);
+                let step_obj = self.vm.ctx.new_int(*step);
+                self.vm.invoke(&range_fn, (start_obj, stop_obj, step_obj))
+                    .map_err(|e| SnapshotError::msg(format!("range({}, {}, {}) failed: {:?}", start, stop, step, e)))?
+            }
+            ObjectPayload::RangeIterator { range, position } => {
+                // Restore range_iterator object
+                // 1. Get the range object
+                let range_obj = self.get_obj(*range)?;
+                
+                // 2. Create a new iterator from the range
+                let iter_fn = self.vm.builtins.get_attr("iter", self.vm)
+                    .map_err(|_| SnapshotError::msg("iter not found"))?;
+                let new_iter = self.vm.invoke(&iter_fn, (range_obj.clone(),))
+                    .map_err(|e| SnapshotError::msg(format!("iter(range) failed: {:?}", e)))?;
+                
+                // 3. Advance the iterator to the saved position by calling __next__
+                for _ in 0..*position {
+                    match self.vm.call_method(&new_iter, "__next__", ()) {
+                        Ok(_) => {
+                            // Successfully advanced, continue
+                        }
+                        Err(e) => {
+                            // Check if it's StopIteration (iterator exhausted early)
+                            let class_name = e.class().name();
+                            if &*class_name == "StopIteration" {
+                                // Iterator exhausted before reaching target position, break
+                                break;
+                            } else {
+                                // Other error, propagate
+                                return Err(SnapshotError::msg(format!("range_iterator advance failed: {:?}", e)));
+                            }
+                        }
+                    }
+                }
+                
+                new_iter
             }
         };
         self.objects[idx] = Some(obj);
@@ -2722,6 +2950,19 @@ fn encode_object_entry(entry: &ObjectEntry) -> CborValue {
             (CborValue::Text("function".to_owned()), CborValue::Uint(*function as u64)),
             (CborValue::Text("iterator".to_owned()), CborValue::Uint(*iterator as u64)),
         ]),
+        ObjectPayload::ListIterator { list, position } => CborValue::Map(vec![
+            (CborValue::Text("list".to_owned()), CborValue::Uint(*list as u64)),
+            (CborValue::Text("position".to_owned()), CborValue::Uint(*position as u64)),
+        ]),
+        ObjectPayload::RangeIterator { range, position } => CborValue::Map(vec![
+            (CborValue::Text("range".to_owned()), CborValue::Uint(*range as u64)),
+            (CborValue::Text("position".to_owned()), CborValue::Uint(*position as u64)),
+        ]),
+        ObjectPayload::Range { start, stop, step } => CborValue::Map(vec![
+            (CborValue::Text("start".to_owned()), CborValue::Text(start.to_string())),
+            (CborValue::Text("stop".to_owned()), CborValue::Text(stop.to_string())),
+            (CborValue::Text("step".to_owned()), CborValue::Text(step.to_string())),
+        ]),
     };
     CborValue::Array(vec![CborValue::Uint(entry.tag as u64), payload])
 }
@@ -2758,6 +2999,9 @@ fn decode_object_entry(value: CborValue) -> Result<ObjectEntry, SnapshotError> {
         22 => ObjTag::Zip,
         23 => ObjTag::Map,
         24 => ObjTag::Filter,
+        25 => ObjTag::ListIterator,
+        26 => ObjTag::RangeIterator,
+        27 => ObjTag::Range,
         _ => return Err(SnapshotError::msg("unknown tag")),
     };
     let payload = decode_payload(tag, arr[1].clone())?;
@@ -2892,6 +3136,31 @@ fn decode_payload(tag: ObjTag, value: CborValue) -> Result<ObjectPayload, Snapsh
             Ok(ObjectPayload::Filter {
                 function: expect_uint(map_get(&map, "function")?)? as ObjId,
                 iterator: expect_uint(map_get(&map, "iterator")?)? as ObjId,
+            })
+        }
+        ObjTag::ListIterator => {
+            let map = expect_map(value)?;
+            Ok(ObjectPayload::ListIterator {
+                list: expect_uint(map_get(&map, "list")?)? as ObjId,
+                position: expect_uint(map_get(&map, "position")?)? as usize,
+            })
+        }
+        ObjTag::RangeIterator => {
+            let map = expect_map(value)?;
+            Ok(ObjectPayload::RangeIterator {
+                range: expect_uint(map_get(&map, "range")?)? as ObjId,
+                position: expect_uint(map_get(&map, "position")?)? as usize,
+            })
+        }
+        ObjTag::Range => {
+            let map = expect_map(value)?;
+            let start_str = expect_text(map_get(&map, "start")?)?;
+            let stop_str = expect_text(map_get(&map, "stop")?)?;
+            let step_str = expect_text(map_get(&map, "step")?)?;
+            Ok(ObjectPayload::Range {
+                start: start_str.parse::<i64>().unwrap_or(0),
+                stop: stop_str.parse::<i64>().unwrap_or(0),
+                step: step_str.parse::<i64>().unwrap_or(1),
             })
         }
     }
