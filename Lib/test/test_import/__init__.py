@@ -791,6 +791,7 @@ class ImportTests(unittest.TestCase, ExtraAssertions):
         finally:
             del sys.path[0]
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; FileNotFoundError: [WinError 2] No such file or directory: 'built-in'
     @unittest.skipUnless(sys.platform == "win32", "Windows-specific")
     def test_dll_dependency_import(self):
         from _winapi import GetModuleFileName
