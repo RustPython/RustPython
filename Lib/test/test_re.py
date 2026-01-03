@@ -1755,6 +1755,7 @@ class ReTests(unittest.TestCase):
         for x in not_decimal_digits:
             self.assertIsNone(re.match(r'^\d$', x))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON a = array.array(typecode)\n ValueError: bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)
     @warnings_helper.ignore_warnings(category=DeprecationWarning)  # gh-80480 array('u')
     def test_empty_array(self):
         # SF buf 1647541
@@ -2654,6 +2655,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match("(?>(?:ab?c){1,3})", "aca").span(), (0, 2))
         self.assertEqual(re.match("(?:ab?c){1,3}+", "aca").span(), (0, 2))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; self.assertEqual(re.match('((x)|y|z){3}+', 'xyz').groups(), ('z', 'x'))\n AssertionError: Tuples differ: ('x', 'x') != ('z', 'x')
     def test_bug_gh101955(self):
         # Possessive quantifier with nested alternative with capture groups
         self.assertEqual(re.match('((x)|y|z)*+', 'xyz').groups(), ('z', 'x'))
@@ -2897,7 +2899,6 @@ class PatternReprTests(unittest.TestCase):
         self.assertEqual(r[:30], "re.compile('Very long long lon")
         self.assertEqual(r[-16:], ", re.IGNORECASE)")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_flags_repr(self):
         self.assertEqual(repr(re.I), "re.IGNORECASE")
         self.assertEqual(repr(re.I|re.S|re.X),

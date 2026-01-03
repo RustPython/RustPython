@@ -554,7 +554,6 @@ mod _sre {
         #[inline]
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let flag_names = [
-                ("re.TEMPLATE", SreFlag::TEMPLATE),
                 ("re.IGNORECASE", SreFlag::IGNORECASE),
                 ("re.LOCALE", SreFlag::LOCALE),
                 ("re.MULTILINE", SreFlag::MULTILINE),
