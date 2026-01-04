@@ -1,8 +1,8 @@
 //! Python code execution functions.
 
 use crate::{
-    PyResult, VirtualMachine,
-    builtins::{PyCode, PyDictRef},
+    Py, PyResult, VirtualMachine,
+    builtins::{PyCode, PyDict},
     compiler::{self},
     scope::Scope,
 };
@@ -25,37 +25,14 @@ impl VirtualMachine {
     /// Execute a Python file with __main__ module setup.
     /// Sets __file__ and __cached__ before execution, removes them after.
     fn run_simple_file(&self, scope: Scope, path: &str) -> PyResult<()> {
-        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
-        let main_module = sys_modules.get_item(identifier!(self, __main__), self)?;
-        let module_dict = main_module.dict().expect("main module must have __dict__");
-
-        // Track whether we set __file__ (for cleanup)
-        let set_file_name = !module_dict.contains_key(identifier!(self, __file__), self);
-        if set_file_name {
-            module_dict.set_item(
-                identifier!(self, __file__),
-                self.ctx.new_str(path).into(),
-                self,
-            )?;
-            module_dict.set_item(identifier!(self, __cached__), self.ctx.none(), self)?;
-        }
-
-        let result = self.run_simple_file_inner(&module_dict, scope, path);
-
-        self.flush_io();
-
-        // Cleanup __file__ and __cached__ after execution
-        if set_file_name {
-            let _ = module_dict.del_item(identifier!(self, __file__), self);
-            let _ = module_dict.del_item(identifier!(self, __cached__), self);
-        }
-
-        result
+        self.with_simple_run(path, |module_dict| {
+            self.run_simple_file_inner(module_dict, scope, path)
+        })
     }
 
     fn run_simple_file_inner(
         &self,
-        module_dict: &PyDictRef,
+        module_dict: &Py<PyDict>,
         scope: Scope,
         path: &str,
     ) -> PyResult<()> {
@@ -123,22 +100,10 @@ impl VirtualMachine {
             .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
         self.run_code_obj(code_obj, scope)
     }
-
-    /// flush_io
-    ///
-    /// Flush stdout and stderr. Errors are silently ignored.
-    fn flush_io(&self) {
-        if let Ok(stdout) = self.sys_module.get_attr("stdout", self) {
-            let _ = self.call_method(&stdout, identifier!(self, flush).as_str(), ());
-        }
-        if let Ok(stderr) = self.sys_module.get_attr("stderr", self) {
-            let _ = self.call_method(&stderr, identifier!(self, flush).as_str(), ());
-        }
-    }
 }
 
 fn set_main_loader(
-    module_dict: &PyDictRef,
+    module_dict: &Py<PyDict>,
     filename: &str,
     loader_name: &str,
     vm: &VirtualMachine,
@@ -162,10 +127,10 @@ fn maybe_pyc_file(path: &str) -> bool {
     if path.ends_with(".pyc") {
         return true;
     }
-    maybe_pyc_file_with_magic(path, &crate::version::PYC_MAGIC_NUMBER_BYTES).unwrap_or(false)
+    maybe_pyc_file_with_magic(path).unwrap_or(false)
 }
 
-fn maybe_pyc_file_with_magic(path: &str, magic_number: &[u8]) -> std::io::Result<bool> {
+fn maybe_pyc_file_with_magic(path: &str) -> std::io::Result<bool> {
     let path_obj = std::path::Path::new(path);
     if !path_obj.is_file() {
         return Ok(false);
@@ -175,12 +140,12 @@ fn maybe_pyc_file_with_magic(path: &str, magic_number: &[u8]) -> std::io::Result
     let mut buf = [0u8; 2];
 
     use std::io::Read;
-    if file.read(&mut buf)? != 2 || magic_number.len() < 2 {
+    if file.read(&mut buf)? != 2 {
         return Ok(false);
     }
 
     // Read only two bytes of the magic. If the file was opened in
     // text mode, the bytes 3 and 4 of the magic (\r\n) might not
     // be read as they are on disk.
-    Ok(buf == magic_number[..2])
+    Ok(crate::import::check_pyc_magic_number_bytes(&buf))
 }
