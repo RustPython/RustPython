@@ -123,8 +123,6 @@ env:
     test.test_multiprocessing_forkserver.test_threads
     test.test_multiprocessing_spawn.test_processes
     test.test_multiprocessing_spawn.test_threads
-    test_logging
-    test_multiprocessing_main_handling
     test_subprocess
   ENV_POLLUTING_TESTS_WINDOWS: >-
   # Python version targeted by the CI.
