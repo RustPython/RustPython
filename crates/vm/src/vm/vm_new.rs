@@ -499,6 +499,20 @@ impl VirtualMachine {
             .set_attr("offset", offset, self)
             .unwrap();
 
+        // Set end_lineno and end_offset if available
+        if let Some((end_lineno, end_offset)) = error.python_end_location() {
+            let end_lineno = self.ctx.new_int(end_lineno);
+            let end_offset = self.ctx.new_int(end_offset);
+            syntax_error
+                .as_object()
+                .set_attr("end_lineno", end_lineno, self)
+                .unwrap();
+            syntax_error
+                .as_object()
+                .set_attr("end_offset", end_offset, self)
+                .unwrap();
+        }
+
         syntax_error
             .as_object()
             .set_attr("text", statement.to_pyobject(self), self)
