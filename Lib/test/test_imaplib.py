@@ -391,8 +391,6 @@ class NewIMAPTestsMixin():
         self.assertEqual(code, 'OK')
         self.assertEqual(server.response, b'ZmFrZQ==\r\n')  # b64 encoded 'fake'
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('md5', openssl=True)
     def test_login_cram_md5_bytes(self):
         class AuthHandler(SimpleIMAPHandler):
@@ -411,8 +409,6 @@ class NewIMAPTestsMixin():
         ret, _ = client.login_cram_md5("tim", b"tanstaaftanstaaf")
         self.assertEqual(ret, "OK")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('md5', openssl=True)
     def test_login_cram_md5_plain_text(self):
         class AuthHandler(SimpleIMAPHandler):
@@ -851,8 +847,6 @@ class ThreadedNetworkedTests(unittest.TestCase):
             self.assertEqual(server.response,
                              b'ZmFrZQ==\r\n')  # b64 encoded 'fake'
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @threading_helper.reap_threads
     @hashlib_helper.requires_hashdigest('md5', openssl=True)
     def test_login_cram_md5(self):
