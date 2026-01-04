@@ -15,7 +15,6 @@ try:
     import ssl
 except ImportError:
     ssl = None
-import sys
 
 from unittest import TestCase, skipUnless
 from test import support
