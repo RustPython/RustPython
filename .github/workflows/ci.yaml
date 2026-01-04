@@ -106,6 +106,7 @@ env:
     test_weakref
     test_yield_from
   ENV_POLLUTING_TESTS_COMMON: >-
+    test_import
     test_raise
     test_ssl
   ENV_POLLUTING_TESTS_LINUX: >-
