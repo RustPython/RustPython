@@ -46,7 +46,6 @@ def dump_enum(d, enum_name, derives, strip_prefix=""):
         list: A list of strings representing the enum definition.
     """
     items = sorted(d)
-    print(f"items is {items}")
     content = [f"{derives}\n"]
     content.append("#[repr(u32)]\n")
     content.append("#[allow(non_camel_case_types, clippy::upper_case_acronyms)]\n")
@@ -73,7 +72,8 @@ def dump_bitflags(d, prefix, derives, struct_name, int_t):
     """
     items = [(value, name) for name, value in d.items() if name.startswith(prefix)]
     content = ["bitflags! {\n"]
-    content.append(f"{derives}\n") if derives else None
+    if derives:
+        content.append(f"{derives}\n")
     content.append(f"    pub struct {struct_name}: {int_t} {{\n")
     for value, name in sorted(items):
         name = str(name).removeprefix(prefix)
@@ -137,49 +137,3 @@ if __name__ == "__main__":
     import sys
 
     main(*sys.argv[1:])
-
-
-#         dump(f, OPCODES, "SreOpcode", "u32", "")
-#         dump(f, ATCODES, "SreAtCode", "u32", "AT_")
-#         dump(f, CHCODES, "SreCatCode", "u32", "CATEGORY_")
-
-#         def bitflags(typ, int_t, prefix, flags):
-#             f.write(f"""\
-# bitflags! {{
-#     pub struct {typ}: {int_t} {{
-# """)
-#             for name in flags:
-#                 val = globals()[prefix + name]
-#                 f.write(f"        const {name} = {val};\n")
-#             f.write("""\
-#     }
-# }
-# """)
-
-#         bitflags("SreFlag", "u16", "SRE_FLAG_", [
-#             "TEMPLATE",
-#             "IGNORECASE",
-#             "LOCALE",
-#             "MULTILINE",
-#             "DOTALL",
-#             "UNICODE",
-#             "VERBOSE",
-#             "DEBUG",
-#             "ASCII",
-#         ])
-
-#         bitflags("SreInfo", "u32", "SRE_INFO_", [
-#             "PREFIX", "LITERAL", "CHARSET",
-#         ])
-
-#     print("done")
-
-
-# if __name__ == "__main__":
-#     import sys
-#     if len(sys.argv) > 1:
-#         constants_file = sys.argv[1]
-#     else:
-#         import os
-#         constants_file = os.path.join(os.path.dirname(__file__), "../../sre-engine/src/constants.rs")
-#     with open(constants_file, "w") as f:
