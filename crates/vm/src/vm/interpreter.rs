@@ -110,11 +110,12 @@ impl Interpreter {
 
     /// Finalize vm and turns an exception to exit code.
     ///
-    /// Finalization steps including 4 steps:
+    /// Finalization steps (matching Py_FinalizeEx):
     /// 1. Flush stdout and stderr.
-    /// 1. Handle exit exception and turn it to exit code.
-    /// 1. Run atexit exit functions.
-    /// 1. Mark vm as finalized.
+    /// 2. Handle exit exception and turn it to exit code.
+    /// 3. Wait for thread shutdown (call threading._shutdown).
+    /// 4. Mark vm as finalizing.
+    /// 5. Run atexit exit functions.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
     pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
@@ -128,9 +129,20 @@ impl Interpreter {
                 0
             };
 
-            atexit::_run_exitfuncs(vm);
+            // Wait for thread shutdown - call threading._shutdown() if available.
+            // This waits for all non-daemon threads to complete.
+            // threading module may not be imported, so ignore import errors.
+            if let Ok(threading) = vm.import("threading", 0)
+                && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
+            {
+                let _ = shutdown.call((), vm);
+            }
 
+            // Mark as finalizing AFTER thread shutdown
             vm.state.finalizing.store(true, Ordering::Release);
+
+            // Run atexit exit functions
+            atexit::_run_exitfuncs(vm);
 
             vm.flush_std();
 

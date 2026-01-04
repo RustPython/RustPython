@@ -1008,8 +1008,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
 
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
-    # TODO: RUSTPYTHON need to fix test_1_join_on_shutdown then this might work
-    @unittest.expectedFailure
     def test_2_join_in_forked_process(self):
         # Like the test above, but from a forked interpreter
         script = """if 1:
@@ -1730,8 +1728,6 @@ class InterruptMainTests(unittest.TestCase):
 
 class AtexitTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_atexit_output(self):
         rc, out, err = assert_python_ok("-c", """if True:
             import threading
