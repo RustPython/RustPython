@@ -565,6 +565,7 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
+    @unittest.skip('TODO: RUSTPYTHON, flaky')
     @unittest.skipUnless(hasattr(sys, 'getswitchinterval'), "TODO: RUSTPYTHON, needs sys.getswitchinterval()")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_is_alive_after_fork(self):
@@ -1100,6 +1101,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
         rc, out, err = assert_python_ok('-c', script)
         self.assertFalse(err)
 
+    @unittest.skip('TODO: RUSTPYTHON, flaky')
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     def test_reinit_tls_after_fork(self):

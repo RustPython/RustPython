@@ -137,6 +137,7 @@ class OtherNetworkTests(unittest.TestCase):
     # XXX The rest of these tests aren't very good -- they don't check much.
     # They do sometimes catch some major disasters, though.
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON urllib.error.URLError: <urlopen error ftp error: error_reply('200 Switching to Binary mode.')>
     @support.requires_resource('walltime')
     def test_ftp(self):
         # Testing the same URL twice exercises the caching in CacheFTPHandler
