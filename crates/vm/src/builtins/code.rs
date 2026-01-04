@@ -358,11 +358,17 @@ impl PyCode {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         if !crate::import::check_pyc_magic_number_bytes(pyc_bytes) {
-            return Err(vm.new_runtime_error("pyc bytes has wrong MAGIC"));
+            return Err(vm.new_value_error("pyc bytes has wrong MAGIC"));
         }
         let bootstrap_external = vm.import("_frozen_importlib_external", 0)?;
         let compile_bytecode = bootstrap_external.get_attr("_compile_bytecode", vm)?;
-        let code_bytes = &pyc_bytes[16..];
+        // 16 is the pyc header length
+        let Some((_, code_bytes)) = pyc_bytes.split_at_checked(16) else {
+            return Err(vm.new_value_error(format!(
+                "pyc_bytes header is broken. 16 bytes expected but {} bytes given.",
+                pyc_bytes.len()
+            )));
+        };
         let code_bytes_obj = vm.ctx.new_bytes(code_bytes.to_vec());
         let compiled =
             compile_bytecode.call((code_bytes_obj, name, bytecode_path, source_path), vm)?;
