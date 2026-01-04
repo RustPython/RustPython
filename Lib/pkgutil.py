@@ -14,27 +14,13 @@ import warnings
 __all__ = [
     'get_importer', 'iter_importers', 'get_loader', 'find_loader',
     'walk_packages', 'iter_modules', 'get_data',
-    'ImpImporter', 'ImpLoader', 'read_code', 'extend_path',
+    'read_code', 'extend_path',
     'ModuleInfo',
 ]
 
 
 ModuleInfo = namedtuple('ModuleInfo', 'module_finder name ispkg')
 ModuleInfo.__doc__ = 'A namedtuple with minimal info about a module.'
-
-
-def _get_spec(finder, name):
-    """Return the finder-specific module spec."""
-    # Works with legacy finders.
-    try:
-        find_spec = finder.find_spec
-    except AttributeError:
-        loader = finder.find_module(name)
-        if loader is None:
-            return None
-        return importlib.util.spec_from_loader(name, loader)
-    else:
-        return find_spec(name)
 
 
 def read_code(stream):
@@ -184,6 +170,7 @@ def _iter_file_finder_modules(importer, prefix=''):
 iter_importer_modules.register(
     importlib.machinery.FileFinder, _iter_file_finder_modules)
 
+
 try:
     import zipimport
     from zipimport import zipimporter
@@ -231,6 +218,7 @@ def get_importer(path_item):
     The cache (or part of it) can be cleared manually if a
     rescan of sys.path_hooks is necessary.
     """
+    path_item = os.fsdecode(path_item)
     try:
         importer = sys.path_importer_cache[path_item]
     except KeyError:
@@ -282,6 +270,10 @@ def get_loader(module_or_name):
     If the named module is not already imported, its containing package
     (if any) is imported, in order to establish the package __path__.
     """
+    warnings._deprecated("pkgutil.get_loader",
+                         f"{warnings._DEPRECATED_MSG}; "
+                         "use importlib.util.find_spec() instead",
+                         remove=(3, 14))
     if module_or_name in sys.modules:
         module_or_name = sys.modules[module_or_name]
         if module_or_name is None:
@@ -306,6 +298,10 @@ def find_loader(fullname):
     importlib.util.find_spec that converts most failures to ImportError
     and only returns the loader rather than the full spec
     """
+    warnings._deprecated("pkgutil.find_loader",
+                         f"{warnings._DEPRECATED_MSG}; "
+                         "use importlib.util.find_spec() instead",
+                         remove=(3, 14))
     if fullname.startswith('.'):
         msg = "Relative module name {!r} not supported".format(fullname)
         raise ImportError(msg)
@@ -328,10 +324,10 @@ def extend_path(path, name):
         from pkgutil import extend_path
         __path__ = extend_path(__path__, __name__)
 
-    This will add to the package's __path__ all subdirectories of
-    directories on sys.path named after the package.  This is useful
-    if one wants to distribute different parts of a single logical
-    package as multiple directories.
+    For each directory on sys.path that has a subdirectory that
+    matches the package name, add the subdirectory to the package's
+    __path__.  This is useful if one wants to distribute different
+    parts of a single logical package as multiple directories.
 
     It also looks for *.pkg files beginning where * matches the name
     argument.  This feature is similar to *.pth files (see site.py),
