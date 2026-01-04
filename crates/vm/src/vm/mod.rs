@@ -8,6 +8,8 @@ mod compile;
 mod context;
 mod interpreter;
 mod method;
+#[cfg(feature = "rustpython-compiler")]
+mod python_run;
 mod setting;
 pub mod thread;
 mod vm_new;
