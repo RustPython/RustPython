@@ -1088,7 +1088,7 @@ impl AnyStr for [u8] {
     }
 }
 
-#[derive(FromArgs)]
+#[derive(FromArgs, Debug)]
 pub struct DecodeArgs {
     #[pyarg(any, default)]
     encoding: Option<PyStrRef>,
@@ -1102,9 +1102,40 @@ pub fn bytes_decode(
     vm: &VirtualMachine,
 ) -> PyResult<PyStrRef> {
     let DecodeArgs { encoding, errors } = args;
-    let encoding = encoding
-        .as_ref()
-        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.as_str());
+
+    let encoding = match encoding.as_ref() {
+        Some(s) => match s.to_str() {
+            Some(valid_str) => valid_str,
+            None => {
+                let Some(errors) = &errors else {
+                    return Err(vm.new_unicode_encode_error(format!(
+                        "'{}' codec can't encode characters: surrogates not allowed",
+                        s
+                    )));
+                };
+
+                match errors.as_str() {
+                    "strict" => {
+                        return Err(
+                            vm.new_unicode_encode_error("Struct format must be a UTF-8 string")
+                        );
+                    }
+                    "ignore" => todo!("TODO"),
+                    "replace" => todo!("TODO"),
+                    "backslashreplace" => todo!("TODO"),
+                    "surrogateescape" => &s.to_string_lossy(),
+                    _ => {
+                        return Err(vm.new_unicode_encode_error(format!(
+                            "'{}' codec can't encode characters: surrogates not allowed",
+                            s
+                        )));
+                    }
+                }
+            }
+        },
+        None => crate::codecs::DEFAULT_ENCODING,
+    };
+
     vm.state
         .codec_registry
         .decode_text(zelf, encoding, errors, vm)
