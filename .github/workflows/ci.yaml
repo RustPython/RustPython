@@ -253,6 +253,8 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
+      LLVM_PROFILE_FILE: ${{ github.workspace }}/target/RustPython-%p-%m.profraw
+      CARGO_LLVM_COV: '1'
     name: Run snippets and cpython tests
     runs-on:  ${{ matrix.os }}
     strategy:
@@ -262,6 +264,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v6.1.0
         with:
@@ -277,12 +280,23 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
-      - name: build rustpython
+      - name: Clean coverage data
+        run: cargo llvm-cov clean --workspace
+      - name: build rustpython (macOS)
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
+        env:
+          RUSTFLAGS: -C instrument-coverage --cfg=coverage --cfg=trybuild_no_target
         if: runner.os == 'macOS'
-      - name: build rustpython
+      - name: build rustpython (Linux)
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }},jit
-        if: runner.os != 'macOS'
+        env:
+          RUSTFLAGS: -C instrument-coverage --cfg=coverage --cfg=trybuild_no_target
+        if: runner.os == 'Linux'
+      - name: build rustpython (Windows)
+        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }},jit
+        env:
+          RUSTFLAGS: -C link-arg=/STACK:8000000 -C instrument-coverage --cfg=coverage --cfg=trybuild_no_target
+        if: runner.os == 'Windows'
       - uses: actions/setup-python@v6.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -329,6 +343,14 @@ jobs:
           testvenv/bin/rustpython -m pip install wheel
       - name: Check whats_left is not broken
         run: python -I whats_left.py
+
+      - name: Generate coverage report
+        run: cargo llvm-cov report --release --lcov --output-path=codecov.lcov
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./codecov.lcov
+          fail_ci_if_error: false
 
   lint:
     name: Check Rust code with clippy
