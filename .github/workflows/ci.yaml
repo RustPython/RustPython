@@ -109,6 +109,7 @@ env:
     test_raise
     test_ssl
   ENV_POLLUTING_TESTS_LINUX: >-
+    test.test_multiprocessing_fork.test_misc
     test.test_multiprocessing_fork.test_processes
     test.test_multiprocessing_fork.test_threads
     test.test_multiprocessing_forkserver.test_processes
