@@ -520,7 +520,13 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         self.with_recursion("", || {
             self.frames.borrow_mut().push(frame.clone());
+            // Push a new exception context for frame isolation
+            // Each frame starts with no active exception (None)
+            // This prevents exceptions from leaking between function calls
+            self.push_exception(None);
             let result = f(frame);
+            // Pop the exception context - restores caller's exception state
+            self.pop_exception();
             // defer dec frame
             let _popped = self.frames.borrow_mut().pop();
             result
@@ -829,10 +835,6 @@ impl VirtualMachine {
         cur.exc
     }
 
-    pub(crate) fn take_exception(&self) -> Option<PyBaseExceptionRef> {
-        self.exceptions.borrow_mut().exc.take()
-    }
-
     pub(crate) fn current_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow().exc.clone()
     }
@@ -847,13 +849,25 @@ impl VirtualMachine {
         if let Some(context_exc) = self.topmost_exception()
             && !context_exc.is(exception)
         {
+            // Traverse the context chain to find `exception` and break cycles
+            // Uses Floyd's cycle detection: o moves every step, slow_o every other step
             let mut o = context_exc.clone();
+            let mut slow_o = context_exc.clone();
+            let mut slow_update_toggle = false;
             while let Some(context) = o.__context__() {
                 if context.is(exception) {
                     o.set___context__(None);
                     break;
                 }
                 o = context;
+                if o.is(&slow_o) {
+                    // Pre-existing cycle detected - all exceptions on the path were visited
+                    break;
+                }
+                if slow_update_toggle && let Some(slow_context) = slow_o.__context__() {
+                    slow_o = slow_context;
+                }
+                slow_update_toggle = !slow_update_toggle;
             }
             exception.set___context__(Some(context_exc))
         }

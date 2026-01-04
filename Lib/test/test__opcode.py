@@ -27,6 +27,7 @@ class OpListTests(unittest.TestCase):
         self.check_bool_function_result(_opcode.has_local, invalid, False)
         self.check_bool_function_result(_opcode.has_exc, invalid, False)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON - no instrumented opcodes
     def test_is_valid(self):
         names = [
             'CACHE',
@@ -56,7 +57,6 @@ class OpListTests(unittest.TestCase):
 
 
 class StackEffectTests(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_stack_effect(self):
         self.assertEqual(stack_effect(dis.opmap['POP_TOP']), -1)
         self.assertEqual(stack_effect(dis.opmap['BUILD_SLICE'], 0), -1)
@@ -111,6 +111,7 @@ class StackEffectTests(unittest.TestCase):
 
 
 class SpecializationStatsTests(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON - no specialization stats
     def test_specialization_stats(self):
         stat_names = ["success", "failure", "hit", "deferred", "miss", "deopt"]
         specialized_opcodes = [

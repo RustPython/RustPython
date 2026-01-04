@@ -14,6 +14,7 @@ cafile
 cellarg
 cellvar
 cellvars
+CLASSDEREF
 cmpop
 denom
 DICTFLAG

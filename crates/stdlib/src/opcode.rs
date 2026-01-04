@@ -37,72 +37,137 @@ mod opcode {
             Ok(Self(instruction))
         }
 
-        /// https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/internal/pycore_opcode_metadata.h#L914-L916
+        /// Check if opcode is valid (can be converted to an Instruction)
         #[must_use]
-        pub const fn is_valid(opcode: i32) -> bool {
-            opcode >= 0 && opcode < 268 && opcode != 255
+        pub fn is_valid(opcode: i32) -> bool {
+            if !(0..=255).contains(&opcode) {
+                return false;
+            }
+            Instruction::try_from(opcode as u8).is_ok()
         }
 
-        // All `has_*` methods below mimics
-        // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/internal/pycore_opcode_metadata.h#L966-L1190
-
+        /// Check if instruction has an argument
         #[must_use]
-        pub const fn has_arg(opcode: i32) -> bool {
+        pub fn has_arg(opcode: i32) -> bool {
             Self::is_valid(opcode) && opcode > Self::HAVE_ARGUMENT
         }
 
+        /// Check if instruction uses co_consts
         #[must_use]
-        pub const fn has_const(opcode: i32) -> bool {
-            Self::is_valid(opcode) && matches!(opcode, 83 | 103 | 240)
-        }
-
-        #[must_use]
-        pub const fn has_name(opcode: i32) -> bool {
-            Self::is_valid(opcode)
-                && matches!(
-                    opcode,
-                    63 | 66
-                        | 67
-                        | 74
-                        | 75
-                        | 82
-                        | 90
-                        | 91
-                        | 92
-                        | 93
-                        | 108
-                        | 113
-                        | 114
-                        | 259
-                        | 260
-                        | 261
-                        | 262
+        pub fn has_const(opcode: i32) -> bool {
+            if !Self::is_valid(opcode) {
+                return false;
+            }
+            if let Ok(instr) = Instruction::try_from(opcode as u8) {
+                matches!(
+                    instr,
+                    Instruction::LoadConst { .. } | Instruction::ReturnConst { .. }
                 )
+            } else {
+                false
+            }
         }
 
+        /// Check if instruction uses co_names
         #[must_use]
-        pub const fn has_jump(opcode: i32) -> bool {
-            Self::is_valid(opcode)
-                && matches!(
-                    opcode,
-                    72 | 77 | 78 | 79 | 97 | 98 | 99 | 100 | 104 | 256 | 257
+        pub fn has_name(opcode: i32) -> bool {
+            if !Self::is_valid(opcode) {
+                return false;
+            }
+            if let Ok(instr) = Instruction::try_from(opcode as u8) {
+                matches!(
+                    instr,
+                    Instruction::DeleteAttr { .. }
+                        | Instruction::DeleteGlobal(_)
+                        | Instruction::DeleteLocal(_)
+                        | Instruction::ImportFrom { .. }
+                        | Instruction::ImportName { .. }
+                        | Instruction::LoadAttr { .. }
+                        | Instruction::LoadGlobal(_)
+                        | Instruction::LoadMethod { .. }
+                        | Instruction::LoadNameAny(_)
+                        | Instruction::StoreAttr { .. }
+                        | Instruction::StoreGlobal(_)
+                        | Instruction::StoreLocal(_)
                 )
+            } else {
+                false
+            }
         }
 
+        /// Check if instruction is a jump
         #[must_use]
-        pub const fn has_free(opcode: i32) -> bool {
-            Self::is_valid(opcode) && matches!(opcode, 64 | 84 | 89 | 94 | 109)
+        pub fn has_jump(opcode: i32) -> bool {
+            if !Self::is_valid(opcode) {
+                return false;
+            }
+            if let Ok(instr) = Instruction::try_from(opcode as u8) {
+                matches!(
+                    instr,
+                    Instruction::Break { .. }
+                        | Instruction::Continue { .. }
+                        | Instruction::ForIter { .. }
+                        | Instruction::JumpIfFalseOrPop { .. }
+                        | Instruction::JumpIfNotExcMatch(_)
+                        | Instruction::JumpIfTrueOrPop { .. }
+                        | Instruction::Jump { .. }
+                        | Instruction::PopJumpIfFalse { .. }
+                        | Instruction::PopJumpIfTrue { .. }
+                        | Instruction::PopJumpIfNone { .. }
+                        | Instruction::PopJumpIfNotNone { .. }
+                        | Instruction::Send { .. }
+                )
+            } else {
+                false
+            }
         }
 
+        /// Check if instruction uses co_freevars/co_cellvars
         #[must_use]
-        pub const fn has_local(opcode: i32) -> bool {
-            Self::is_valid(opcode)
-                && matches!(opcode, 65 | 85 | 86 | 87 | 88 | 110 | 111 | 112 | 258 | 267)
+        pub fn has_free(opcode: i32) -> bool {
+            if !Self::is_valid(opcode) {
+                return false;
+            }
+            if let Ok(instr) = Instruction::try_from(opcode as u8) {
+                matches!(
+                    instr,
+                    Instruction::DeleteDeref(_)
+                        | Instruction::LoadClassDeref(_)
+                        | Instruction::LoadClosure(_)
+                        | Instruction::LoadDeref(_)
+                        | Instruction::StoreDeref(_)
+                )
+            } else {
+                false
+            }
         }
 
+        /// Check if instruction uses co_varnames (local variables)
         #[must_use]
-        pub const fn has_exc(opcode: i32) -> bool {
-            Self::is_valid(opcode) && matches!(opcode, 264..=266)
+        pub fn has_local(opcode: i32) -> bool {
+            if !Self::is_valid(opcode) {
+                return false;
+            }
+            if let Ok(instr) = Instruction::try_from(opcode as u8) {
+                matches!(
+                    instr,
+                    Instruction::DeleteFast(_)
+                        | Instruction::LoadFast(_)
+                        | Instruction::LoadFastAndClear(_)
+                        | Instruction::StoreFast(_)
+                        | Instruction::StoreFastLoadFast { .. }
+                )
+            } else {
+                false
+            }
+        }
+
+        /// Check if instruction has exception info
+        #[must_use]
+        pub fn has_exc(_opcode: i32) -> bool {
+            // No instructions have exception info in RustPython
+            // (exception handling is done via exception table)
+            false
         }
     }
 

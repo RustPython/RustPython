@@ -725,7 +725,6 @@ class GeneratorDeallocTest(unittest.TestCase):
 
 class GeneratorThrowTest(unittest.TestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_exception_context_with_yield(self):
         def f():
             try:
@@ -762,7 +761,6 @@ class GeneratorThrowTest(unittest.TestCase):
         # This ensures that the assertions inside were executed.
         self.assertEqual(actual, 'b')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_exception_context_with_yield_from(self):
         def f():
             yield

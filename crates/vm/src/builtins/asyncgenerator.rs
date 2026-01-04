@@ -8,7 +8,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, Representable, SelfIter},
+    types::{Destructor, IterNext, Iterable, Representable, SelfIter},
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -32,7 +32,7 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(PyRef, Representable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(PyRef, Representable, Destructor))]
 impl PyAsyncGen {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
@@ -73,15 +73,13 @@ impl PyAsyncGen {
         Ok(())
     }
 
-    /// Call finalizer hook if set
-    #[allow(dead_code)]
+    /// Call finalizer hook if set.
     fn call_finalizer(zelf: &Py<Self>, vm: &VirtualMachine) {
-        // = gen_dealloc
         let finalizer = zelf.ag_finalizer.lock().clone();
         if let Some(finalizer) = finalizer
             && !zelf.inner.closed.load()
         {
-            // Call finalizer, ignore any errors (PyErr_WriteUnraisable)
+            // Ignore any errors (PyErr_WriteUnraisable)
             let obj: PyObjectRef = zelf.to_owned().into();
             let _ = finalizer.call((obj,), vm);
         }
@@ -643,6 +641,19 @@ impl SelfIter for PyAnextAwaitable {}
 impl IterNext for PyAnextAwaitable {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
+    }
+}
+
+/// _PyGen_Finalize for async generators
+impl Destructor for PyAsyncGen {
+    fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        // Generator isn't paused, so no need to close
+        if zelf.inner.closed.load() {
+            return Ok(());
+        }
+
+        Self::call_finalizer(zelf, vm);
+        Ok(())
     }
 }
 
