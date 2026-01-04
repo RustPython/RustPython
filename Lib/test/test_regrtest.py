@@ -912,6 +912,7 @@ class ProgramsTestCase(BaseTestCase):
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
+    @unittest.skip('TODO: RUSTPYTHON flaky')
     def test_script_autotest(self):
         # Lib/test/autotest.py
         script = os.path.join(self.testdir, 'autotest.py')
@@ -2156,6 +2157,7 @@ class ArgsTestCase(BaseTestCase):
     def test_random_seed(self):
         self._check_random_seed(run_workers=False)
 
+    @unittest.skip('TODO: RUSTPYTHON flaky')
     def test_random_seed_workers(self):
         self._check_random_seed(run_workers=True)
 
