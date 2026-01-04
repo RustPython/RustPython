@@ -172,12 +172,21 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 // Create or get the block for this label:
                 let target_block = self.get_or_create_block(label);
 
-                // If the current block isn't terminated, jump:
+                // If the current block isn't terminated, add a fallthrough jump
                 if let Some(cur) = self.builder.current_block()
                     && cur != target_block
-                    && self.builder.func.layout.last_inst(cur).is_none()
                 {
-                    self.builder.ins().jump(target_block, &[]);
+                    // Check if the block needs a terminator by examining the last instruction
+                    let needs_terminator = match self.builder.func.layout.last_inst(cur) {
+                        None => true, // Empty block needs terminator
+                        Some(inst) => {
+                            // Check if the last instruction is a terminator
+                            !self.builder.func.dfg.insts[inst].opcode().is_terminator()
+                        }
+                    };
+                    if needs_terminator {
+                        self.builder.ins().jump(target_block, &[]);
+                    }
                 }
                 // Switch to the target block
                 if self.builder.current_block() != Some(target_block) {
@@ -196,20 +205,26 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             // Actually compile this instruction:
             self.add_instruction(func_ref, bytecode, instruction, arg)?;
 
-            // If that was a return instruction, mark future instructions unreachable
+            // If that was an unconditional branch or return, mark future instructions unreachable
             match instruction {
-                Instruction::ReturnValue | Instruction::ReturnConst { .. } => {
+                Instruction::ReturnValue
+                | Instruction::ReturnConst { .. }
+                | Instruction::Jump { .. } => {
                     in_unreachable_code = true;
                 }
                 _ => {}
             }
         }
 
-        // After processing, if the current block is unterminated, insert a trap or fallthrough
-        if let Some(cur) = self.builder.current_block()
-            && self.builder.func.layout.last_inst(cur).is_none()
-        {
-            self.builder.ins().trap(TrapCode::user(0).unwrap());
+        // After processing, if the current block is unterminated, insert a trap
+        if let Some(cur) = self.builder.current_block() {
+            let needs_terminator = match self.builder.func.layout.last_inst(cur) {
+                None => true,
+                Some(inst) => !self.builder.func.dfg.insts[inst].opcode().is_terminator(),
+            };
+            if needs_terminator {
+                self.builder.ins().trap(TrapCode::user(0).unwrap());
+            }
         }
         Ok(())
     }
@@ -593,12 +608,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.return_value(val)
-            }
-            Instruction::SetupLoop => {
-                let loop_head = self.builder.create_block();
-                self.builder.ins().jump(loop_head, &[]);
-                self.builder.switch_to_block(loop_head);
-                Ok(())
             }
             Instruction::StoreFast(idx) => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;

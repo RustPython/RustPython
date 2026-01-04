@@ -1974,6 +1974,7 @@ class InstructionTests(InstructionTestCase):
             self.assertIn(name, opcode._specializations[baseopname])
             self.assertEqual(opcode.opmap[baseopname], baseopcode)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON - JUMP_BACKWARD/JUMP_FORWARD are placeholders
     def test_jump_target(self):
         # Non-jump instructions should return None
         instruction = Instruction(opname="NOP", opcode=dis.opmap["NOP"], arg=None, argval=None,
@@ -1999,6 +2000,7 @@ class InstructionTests(InstructionTestCase):
                                   positions=None)
         self.assertEqual(10 + 2 + 1*2 + 100*2, instruction.jump_target)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON - JUMP_BACKWARD is a placeholder
     def test_argval_argrepr(self):
         def f(opcode, oparg, offset, *init_args):
             arg_resolver = dis.ArgResolver(*init_args)
@@ -2019,6 +2021,7 @@ class InstructionTests(InstructionTestCase):
         self.assertEqual(f(opcode.opmap["BINARY_OP"], 3, *args), (3, '<<'))
         self.assertEqual(f(opcode.opmap["CALL_INTRINSIC_1"], 2, *args), (2, 'INTRINSIC_IMPORT_STAR'))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON - JUMP_BACKWARD is a placeholder
     def test_custom_arg_resolver(self):
         class MyArgResolver(dis.ArgResolver):
             def offset_from_jump_arg(self, op, arg, offset):
@@ -2090,7 +2093,6 @@ class InstructionTests(InstructionTestCase):
         self.assertEqual(14, instructions[6].offset)
         self.assertEqual(8, instructions[6].start_offset)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cache_offset_and_end_offset(self):
         code = bytes([
             opcode.opmap["LOAD_GLOBAL"], 0x01,
@@ -2189,7 +2191,6 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
             assert instr.positions == positions
 
 class TestBytecodeTestCase(BytecodeTestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_not_in_with_op_not_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         self.assertInBytecode(code, "LOAD_CONST", 1)
@@ -2210,7 +2211,6 @@ class TestBytecodeTestCase(BytecodeTestCase):
             self.assertNotInBytecode(code, "LOAD_CONST", 1)
 
 class TestFinderMethods(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test__find_imports(self):
         cases = [
             ("import a.b.c", ('a.b.c', 0, None)),

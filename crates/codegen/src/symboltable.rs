@@ -55,6 +55,10 @@ pub struct SymbolTable {
 
     /// Whether this type param scope can see the parent class scope
     pub can_see_class_scope: bool,
+
+    /// Whether this comprehension scope should be inlined (PEP 709)
+    /// True for list/set/dict comprehensions in non-generator expressions
+    pub comp_inlined: bool,
 }
 
 impl SymbolTable {
@@ -70,6 +74,7 @@ impl SymbolTable {
             needs_class_closure: false,
             needs_classdict: false,
             can_see_class_scope: false,
+            comp_inlined: false,
         }
     }
 
@@ -343,6 +348,37 @@ impl SymbolTableAnalyzer {
         })?;
 
         symbol_table.symbols = info.0;
+
+        // PEP 709: Merge symbols from inlined comprehensions into parent scope
+        // Only merge symbols that are actually bound in the comprehension,
+        // not references to outer scope variables (Free symbols).
+        const BOUND_FLAGS: SymbolFlags = SymbolFlags::ASSIGNED
+            .union(SymbolFlags::PARAMETER)
+            .union(SymbolFlags::ITER)
+            .union(SymbolFlags::ASSIGNED_IN_COMPREHENSION);
+
+        for sub_table in sub_tables.iter() {
+            if sub_table.comp_inlined {
+                for (name, sub_symbol) in &sub_table.symbols {
+                    // Skip the .0 parameter - it's internal to the comprehension
+                    if name == ".0" {
+                        continue;
+                    }
+                    // Only merge symbols that are bound in the comprehension
+                    // Skip Free references to outer scope variables
+                    if !sub_symbol.flags.intersects(BOUND_FLAGS) {
+                        continue;
+                    }
+                    // If the symbol doesn't exist in parent, add it
+                    if !symbol_table.symbols.contains_key(name) {
+                        let mut symbol = sub_symbol.clone();
+                        // Mark as local in parent scope
+                        symbol.scope = SymbolScope::Local;
+                        symbol_table.symbols.insert(name.clone(), symbol);
+                    }
+                }
+            }
+        }
 
         // Analyze symbols:
         for symbol in symbol_table.symbols.values_mut() {
@@ -1241,7 +1277,8 @@ impl SymbolTableBuilder {
                 if context == ExpressionContext::IterDefinitionExp {
                     self.in_iter_def_exp = true;
                 }
-                self.scan_comprehension("genexpr", elt, None, generators, *range)?;
+                // Generator expression - is_generator = true
+                self.scan_comprehension("<genexpr>", elt, None, generators, *range, true)?;
                 self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::ListComp(ExprListComp {
@@ -1254,7 +1291,8 @@ impl SymbolTableBuilder {
                 if context == ExpressionContext::IterDefinitionExp {
                     self.in_iter_def_exp = true;
                 }
-                self.scan_comprehension("genexpr", elt, None, generators, *range)?;
+                // List comprehension - is_generator = false (can be inlined)
+                self.scan_comprehension("<listcomp>", elt, None, generators, *range, false)?;
                 self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::SetComp(ExprSetComp {
@@ -1267,7 +1305,8 @@ impl SymbolTableBuilder {
                 if context == ExpressionContext::IterDefinitionExp {
                     self.in_iter_def_exp = true;
                 }
-                self.scan_comprehension("genexpr", elt, None, generators, *range)?;
+                // Set comprehension - is_generator = false (can be inlined)
+                self.scan_comprehension("<setcomp>", elt, None, generators, *range, false)?;
                 self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::DictComp(ExprDictComp {
@@ -1281,7 +1320,8 @@ impl SymbolTableBuilder {
                 if context == ExpressionContext::IterDefinitionExp {
                     self.in_iter_def_exp = true;
                 }
-                self.scan_comprehension("genexpr", key, Some(value), generators, *range)?;
+                // Dict comprehension - is_generator = false (can be inlined)
+                self.scan_comprehension("<dictcomp>", key, Some(value), generators, *range, false)?;
                 self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::Call(ExprCall {
@@ -1451,6 +1491,7 @@ impl SymbolTableBuilder {
         elt2: Option<&Expr>,
         generators: &[Comprehension],
         range: TextRange,
+        is_generator: bool,
     ) -> SymbolTableResult {
         // Comprehensions are compiled as functions, so create a scope for them:
         self.enter_scope(
@@ -1458,6 +1499,21 @@ impl SymbolTableBuilder {
             CompilerScope::Comprehension,
             self.line_index_start(range),
         );
+
+        // Mark non-generator comprehensions as inlined (PEP 709)
+        // inline_comp = entry->ste_comprehension && !entry->ste_generator && !ste->ste_can_see_class_scope
+        // We check is_generator and can_see_class_scope of parent
+        let parent_can_see_class = self
+            .tables
+            .get(self.tables.len().saturating_sub(2))
+            .map(|t| t.can_see_class_scope)
+            .unwrap_or(false);
+        if !is_generator
+            && !parent_can_see_class
+            && let Some(table) = self.tables.last_mut()
+        {
+            table.comp_inlined = true;
+        }
 
         // Register the passed argument to the generator function as the name ".0"
         self.register_name(".0", SymbolUsage::Parameter, range)?;

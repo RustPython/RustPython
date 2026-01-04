@@ -76,6 +76,9 @@ pub enum CodegenErrorType {
     InvalidYield,
     InvalidYieldFrom,
     InvalidAwait,
+    InvalidAsyncFor,
+    InvalidAsyncWith,
+    InvalidAsyncComprehension,
     AsyncYieldFrom,
     AsyncReturnValue,
     InvalidFuturePlacement,
@@ -113,6 +116,14 @@ impl fmt::Display for CodegenErrorType {
             InvalidYield => write!(f, "'yield' outside function"),
             InvalidYieldFrom => write!(f, "'yield from' outside function"),
             InvalidAwait => write!(f, "'await' outside async function"),
+            InvalidAsyncFor => write!(f, "'async for' outside async function"),
+            InvalidAsyncWith => write!(f, "'async with' outside async function"),
+            InvalidAsyncComprehension => {
+                write!(
+                    f,
+                    "asynchronous comprehension outside of an asynchronous function"
+                )
+            }
             AsyncYieldFrom => write!(f, "'yield from' inside async function"),
             AsyncReturnValue => {
                 write!(f, "'return' with value inside async generator")

@@ -364,8 +364,6 @@ class TestDiscovery(unittest.TestCase):
                          [(loader, [], 'test*.py'),
                           (loader, [], 'test*.py')])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_discover(self):
         loader = unittest.TestLoader()
 
@@ -412,8 +410,6 @@ class TestDiscovery(unittest.TestCase):
         self.assertEqual(_find_tests_args, [(start_dir, 'pattern')])
         self.assertIn(top_level_dir, sys.path)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_discover_should_not_persist_top_level_dir_between_calls(self):
         original_isfile = os.path.isfile
         original_isdir = os.path.isdir

@@ -3749,8 +3749,6 @@ class TestTracebackException(unittest.TestCase):
         self.assertNotEqual(exc, object())
         self.assertEqual(exc, ALWAYS_EQ)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_comparison_params_variations(self):
         def raise_exc():
             try:

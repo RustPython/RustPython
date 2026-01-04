@@ -1152,7 +1152,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(c.__context__, b)
         self.assertIsNone(b.__context__)
 
-    @unittest.skip("TODO: RUSTPYTHON; Infinite loop")
     def test_no_hang_on_context_chain_cycle1(self):
         # See issue 25782. Cycle in context chain.
 
@@ -1208,7 +1207,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(b.__context__, a)
         self.assertIs(a.__context__, c)
 
-    @unittest.skip("TODO: RUSTPYTHON; Infinite loop")
     def test_no_hang_on_context_chain_cycle3(self):
         # See issue 25782. Longer context chain with cycle.
 
@@ -2560,7 +2558,6 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_finally_except, 4)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_lineno_after_with(self):
         class Noop:
             def __enter__(self):

@@ -1026,8 +1026,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         fut.cancel()
         self.loop.run_until_complete(asyncio.sleep(0.01))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_asyncio_gc_aclose_09(self):
         DONE = 0
 
@@ -1514,8 +1512,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         self.assertIn('an error occurred during closing of asynchronous generator',
                       message['message'])
 
-    # TODO: RUSTPYTHON, ValueError: not enough values to unpack (expected 1, got 0)
-    @unittest.expectedFailure
     def test_async_gen_asyncio_shutdown_exception_02(self):
         messages = []
 

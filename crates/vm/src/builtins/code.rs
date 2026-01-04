@@ -1004,7 +1004,26 @@ impl PyCode {
         let idx_err = |vm: &VirtualMachine| vm.new_index_error("tuple index out of range");
 
         let idx = usize::try_from(opcode).map_err(|_| idx_err(vm))?;
-        let name = self.code.varnames.get(idx).ok_or_else(|| idx_err(vm))?;
+
+        let varnames_len = self.code.varnames.len();
+        let cellvars_len = self.code.cellvars.len();
+
+        let name = if idx < varnames_len {
+            // Index in varnames
+            self.code.varnames.get(idx).ok_or_else(|| idx_err(vm))?
+        } else if idx < varnames_len + cellvars_len {
+            // Index in cellvars
+            self.code
+                .cellvars
+                .get(idx - varnames_len)
+                .ok_or_else(|| idx_err(vm))?
+        } else {
+            // Index in freevars
+            self.code
+                .freevars
+                .get(idx - varnames_len - cellvars_len)
+                .ok_or_else(|| idx_err(vm))?
+        };
         Ok(name.to_object())
     }
 }

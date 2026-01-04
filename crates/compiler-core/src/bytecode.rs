@@ -3,15 +3,86 @@
 
 use crate::{
     marshal::MarshalError,
+    varint::{read_varint, read_varint_with_start, write_varint, write_varint_with_start},
     {OneIndexed, SourceLocation},
 };
-use alloc::{collections::BTreeSet, fmt};
+use alloc::{collections::BTreeSet, fmt, vec::Vec};
 use bitflags::bitflags;
 use core::{hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
+
+/// Exception table entry for zero-cost exception handling
+/// Format: (start, size, target, depth<<1|lasti)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExceptionTableEntry {
+    /// Start instruction offset (inclusive)
+    pub start: u32,
+    /// End instruction offset (exclusive)
+    pub end: u32,
+    /// Handler target offset
+    pub target: u32,
+    /// Stack depth at handler entry
+    pub depth: u16,
+    /// Whether to push lasti before exception
+    pub push_lasti: bool,
+}
+
+impl ExceptionTableEntry {
+    pub fn new(start: u32, end: u32, target: u32, depth: u16, push_lasti: bool) -> Self {
+        Self {
+            start,
+            end,
+            target,
+            depth,
+            push_lasti,
+        }
+    }
+}
+
+/// Encode exception table entries.
+/// Uses 6-bit varint encoding with start marker (MSB) and continuation bit.
+pub fn encode_exception_table(entries: &[ExceptionTableEntry]) -> alloc::boxed::Box<[u8]> {
+    let mut data = Vec::new();
+    for entry in entries {
+        let size = entry.end.saturating_sub(entry.start);
+        let depth_lasti = ((entry.depth as u32) << 1) | (entry.push_lasti as u32);
+
+        write_varint_with_start(&mut data, entry.start);
+        write_varint(&mut data, size);
+        write_varint(&mut data, entry.target);
+        write_varint(&mut data, depth_lasti);
+    }
+    data.into_boxed_slice()
+}
+
+/// Find exception handler for given instruction offset.
+pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTableEntry> {
+    let mut pos = 0;
+    while pos < table.len() {
+        let start = read_varint_with_start(table, &mut pos)?;
+        let size = read_varint(table, &mut pos)?;
+        let target = read_varint(table, &mut pos)?;
+        let depth_lasti = read_varint(table, &mut pos)?;
+
+        let end = start + size;
+        let depth = (depth_lasti >> 1) as u16;
+        let push_lasti = (depth_lasti & 1) != 0;
+
+        if offset >= start && offset < end {
+            return Some(ExceptionTableEntry {
+                start,
+                end,
+                target,
+                depth,
+                push_lasti,
+            });
+        }
+    }
+    None
+}
 
 /// Oparg values for [`Instruction::ConvertValue`].
 ///
@@ -540,9 +611,21 @@ op_arg_enum!(
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
     pub enum RaiseKind {
-        Reraise = 0,
+        /// Bare `raise` statement with no arguments.
+        /// Gets the current exception from VM state (topmost_exception).
+        /// Maps to RAISE_VARARGS with oparg=0.
+        BareRaise = 0,
+        /// `raise exc` - exception is on the stack.
+        /// Maps to RAISE_VARARGS with oparg=1.
         Raise = 1,
+        /// `raise exc from cause` - exception and cause are on the stack.
+        /// Maps to RAISE_VARARGS with oparg=2.
         RaiseCause = 2,
+        /// Reraise exception from the stack top.
+        /// Used in exception handler cleanup blocks (finally, except).
+        /// Gets exception from stack, not from VM state.
+        /// Maps to the RERAISE opcode.
+        ReraiseFromStack = 3,
     }
 );
 
@@ -587,293 +670,449 @@ op_arg_enum!(
 pub type NameIdx = u32;
 
 /// A Single bytecode instruction.
+/// Instructions are ordered to match CPython 3.13 opcode numbers exactly.
+/// HAVE_ARGUMENT = 44: opcodes 0-43 have no argument, 44+ have arguments.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Instruction {
+    // ==================== No-argument instructions (opcode < 44) ====================
+    // 0: CACHE - placeholder for inline cache (not executed)
+    Cache,
+    // 1: BEFORE_ASYNC_WITH
     BeforeAsyncWith,
+    // 2: BEFORE_WITH
+    BeforeWith,
+    // 3: Reserved (BINARY_OP_INPLACE_ADD_UNICODE in CPython)
+    Reserved3,
+    // 4: BINARY_SLICE - not implemented, placeholder
+    BinarySlice,
+    // 5: BINARY_SUBSCR
+    BinarySubscript,
+    // 6: CHECK_EG_MATCH
+    CheckEgMatch,
+    // 7: CHECK_EXC_MATCH
+    CheckExcMatch,
+    // 8: CLEANUP_THROW
+    CleanupThrow,
+    // 9: DELETE_SUBSCR
+    DeleteSubscript,
+    // 10: END_ASYNC_FOR
+    EndAsyncFor,
+    // 11: END_FOR - not implemented, placeholder
+    EndFor,
+    // 12: END_SEND
+    EndSend,
+    // 13: EXIT_INIT_CHECK - not implemented, placeholder
+    ExitInitCheck,
+    // 14: FORMAT_SIMPLE
+    FormatSimple,
+    // 15: FORMAT_WITH_SPEC
+    FormatWithSpec,
+    // 16: GET_AITER
+    GetAIter,
+    // 17: RESERVED
+    Reserved17,
+    // 18: GET_ANEXT
+    GetANext,
+    // 19: GET_ITER
+    GetIter,
+    // 20: GET_LEN
+    GetLen,
+    // 21: GET_YIELD_FROM_ITER - not implemented, placeholder
+    GetYieldFromIter,
+    // 22: INTERPRETER_EXIT - not implemented, placeholder
+    InterpreterExit,
+    // 23: LOAD_ASSERTION_ERROR - not implemented, placeholder
+    LoadAssertionError,
+    // 24: LOAD_BUILD_CLASS
+    LoadBuildClass,
+    // 25: LOAD_LOCALS - not implemented, placeholder
+    LoadLocals,
+    // 26: MAKE_FUNCTION
+    MakeFunction,
+    // 27: MATCH_KEYS
+    MatchKeys,
+    // 28: MATCH_MAPPING
+    MatchMapping,
+    // 29: MATCH_SEQUENCE
+    MatchSequence,
+    // 30: NOP
+    Nop,
+    // 31: POP_EXCEPT
+    PopException,
+    // 32: POP_TOP
+    PopTop,
+    // 33: PUSH_EXC_INFO
+    PushExcInfo,
+    // 34: PUSH_NULL - not implemented, placeholder
+    PushNull,
+    // 35: RETURN_GENERATOR - not implemented, placeholder
+    ReturnGenerator,
+    // 36: RETURN_VALUE
+    ReturnValue,
+    // 37: SETUP_ANNOTATIONS
+    SetupAnnotation,
+    // 38: STORE_SLICE - not implemented, placeholder
+    StoreSlice,
+    // 39: STORE_SUBSCR
+    StoreSubscript,
+    // 40: TO_BOOL
+    ToBool,
+    // 41: UNARY_INVERT - placeholder (RustPython uses UnaryOperation)
+    UnaryInvert,
+    // 42: UNARY_NEGATIVE - placeholder
+    UnaryNegative,
+    // 43: UNARY_NOT - placeholder
+    UnaryNot,
+    // ==================== With-argument instructions (opcode >= 44) ====================
+    // 44: WITH_EXCEPT_START
+    WithExceptStart,
+    // 45: BINARY_OP
     BinaryOp {
         op: Arg<BinaryOperator>,
     },
-    BinarySubscript,
-    Break {
-        target: Arg<Label>,
-    },
-    BuildListFromTuples {
+    // 46: BUILD_CONST_KEY_MAP - not implemented, placeholder
+    BuildConstKeyMap {
         size: Arg<u32>,
     },
+    // 47: BUILD_LIST
     BuildList {
         size: Arg<u32>,
     },
-    BuildMapForCall {
-        size: Arg<u32>,
-    },
+    // 48: BUILD_MAP
     BuildMap {
         size: Arg<u32>,
     },
-    BuildSetFromTuples {
-        size: Arg<u32>,
-    },
+    // 49: BUILD_SET
     BuildSet {
         size: Arg<u32>,
     },
+    // 50: BUILD_SLICE
     BuildSlice {
         argc: Arg<BuildSliceArgCount>,
     },
+    // 51: BUILD_STRING
     BuildString {
         size: Arg<u32>,
     },
-    BuildTupleFromIter,
-    BuildTupleFromTuples {
-        size: Arg<u32>,
-    },
+    // 52: BUILD_TUPLE
     BuildTuple {
         size: Arg<u32>,
     },
-    CallFunctionEx {
-        has_kwargs: Arg<bool>,
-    },
-    CallFunctionKeyword {
-        nargs: Arg<u32>,
-    },
+    // 53: CALL
     CallFunctionPositional {
         nargs: Arg<u32>,
     },
+    // 54: CALL_FUNCTION_EX
+    CallFunctionEx {
+        has_kwargs: Arg<bool>,
+    },
+    // 55: CALL_INTRINSIC_1
     CallIntrinsic1 {
         func: Arg<IntrinsicFunction1>,
     },
+    // 56: CALL_INTRINSIC_2
     CallIntrinsic2 {
         func: Arg<IntrinsicFunction2>,
     },
-    CallMethodEx {
-        has_kwargs: Arg<bool>,
-    },
-    CallMethodKeyword {
+    // 57: CALL_KW
+    CallFunctionKeyword {
         nargs: Arg<u32>,
     },
-    CallMethodPositional {
-        nargs: Arg<u32>,
-    },
-    /// Check if exception matches except* handler type.
-    /// Pops exc_value and match_type, pushes (rest, match).
-    CheckEgMatch,
+    // 58: COMPARE_OP
     CompareOperation {
         op: Arg<ComparisonOperator>,
     },
-    /// Performs `in` comparison, or `not in` if `invert` is 1.
+    // 59: CONTAINS_OP
     ContainsOp(Arg<Invert>),
-    Continue {
-        target: Arg<Label>,
-    },
-    /// Convert value to a string, depending on `oparg`:
-    ///
-    /// ```python
-    /// value = STACK.pop()
-    /// result = func(value)
-    /// STACK.append(result)
-    /// ```
-    ///
-    /// Used for implementing formatted string literals (f-strings).
+    // 60: CONVERT_VALUE
     ConvertValue {
         oparg: Arg<ConvertValueOparg>,
     },
+    // 61: COPY
     CopyItem {
         index: Arg<u32>,
     },
+    // 62: COPY_FREE_VARS - not implemented, placeholder
+    CopyFreeVars {
+        count: Arg<u32>,
+    },
+    // 63: DELETE_ATTR
     DeleteAttr {
         idx: Arg<NameIdx>,
     },
+    // 64: DELETE_DEREF
     DeleteDeref(Arg<NameIdx>),
+    // 65: DELETE_FAST
     DeleteFast(Arg<NameIdx>),
+    // 66: DELETE_GLOBAL
     DeleteGlobal(Arg<NameIdx>),
+    // 67: DELETE_NAME
     DeleteLocal(Arg<NameIdx>),
-    DeleteSubscript,
+    // 68: DICT_MERGE - not implemented, placeholder
+    DictMerge {
+        index: Arg<u32>,
+    },
+    // 69: DICT_UPDATE
     DictUpdate {
         index: Arg<u32>,
     },
-    EndAsyncFor,
-    /// Marker bytecode for the end of a finally sequence.
-    /// When this bytecode is executed, the eval loop does one of those things:
-    /// - Continue at a certain bytecode position
-    /// - Propagate the exception
-    /// - Return from a function
-    /// - Do nothing at all, just continue
-    EndFinally,
-    /// Enter a finally block, without returning, excepting, just because we are there.
-    EnterFinally,
+    // 70: ENTER_EXECUTOR - not implemented, placeholder
+    EnterExecutor {
+        index: Arg<u32>,
+    },
+    // 71: EXTENDED_ARG
     ExtendedArg,
+    // 72: FOR_ITER
     ForIter {
         target: Arg<Label>,
     },
-    /// Formats the value on top of stack:
-    ///
-    /// ```python
-    /// value = STACK.pop()
-    /// result = value.__format__("")
-    /// STACK.append(result)
-    /// ```
-    ///
-    /// Used for implementing formatted string literals (f-strings).
-    FormatSimple,
-    /// Formats the given value with the given format spec:
-    ///
-    /// ```python
-    /// spec = STACK.pop()
-    /// value = STACK.pop()
-    /// result = value.__format__(spec)
-    /// STACK.append(result)
-    /// ```
-    ///
-    /// Used for implementing formatted string literals (f-strings).
-    FormatWithSpec,
-    GetAIter,
-    GetANext,
+    // 73: GET_AWAITABLE
     GetAwaitable,
-    GetIter,
-    GetLen,
-    /// from ... import ...
+    // 74: IMPORT_FROM
     ImportFrom {
         idx: Arg<NameIdx>,
     },
-    /// Importing by name
+    // 75: IMPORT_NAME
     ImportName {
         idx: Arg<NameIdx>,
     },
-    /// Performs `is` comparison, or `is not` if `invert` is 1.
+    // 76: IS_OP
     IsOp(Arg<Invert>),
-    /// Peek at the top of the stack, and jump if this value is false.
-    /// Otherwise, pop top of stack.
-    JumpIfFalseOrPop {
+    // 77: JUMP_BACKWARD - not implemented, placeholder
+    JumpBackward {
         target: Arg<Label>,
     },
-    /// Performs exception matching for except.
-    /// Tests whether the STACK[-2] is an exception matching STACK[-1].
-    /// Pops STACK[-1] and pushes the boolean result of the test.
-    JumpIfNotExcMatch(Arg<Label>),
-    /// Peek at the top of the stack, and jump if this value is true.
-    /// Otherwise, pop top of stack.
-    JumpIfTrueOrPop {
+    // 78: JUMP_BACKWARD_NO_INTERRUPT - not implemented, placeholder
+    JumpBackwardNoInterrupt {
         target: Arg<Label>,
     },
-    Jump {
+    // 79: JUMP_FORWARD - not implemented, placeholder
+    JumpForward {
         target: Arg<Label>,
     },
+    // 80: LIST_APPEND
     ListAppend {
         i: Arg<u32>,
     },
+    // 81: LIST_EXTEND - not implemented, placeholder
+    ListExtend {
+        i: Arg<u32>,
+    },
+    // 82: LOAD_ATTR
     LoadAttr {
         idx: Arg<NameIdx>,
     },
-    LoadBuildClass,
-    LoadClassDeref(Arg<NameIdx>),
-    LoadClosure(Arg<NameIdx>),
+    // 83: LOAD_CONST
     LoadConst {
-        /// index into constants vec
         idx: Arg<u32>,
     },
+    // 84: LOAD_DEREF
     LoadDeref(Arg<NameIdx>),
+    // 85: LOAD_FAST
     LoadFast(Arg<NameIdx>),
-    LoadGlobal(Arg<NameIdx>),
-    LoadMethod {
-        idx: Arg<NameIdx>,
+    // 86: LOAD_FAST_AND_CLEAR
+    LoadFastAndClear(Arg<NameIdx>),
+    // 87: LOAD_FAST_CHECK - not implemented, placeholder
+    LoadFastCheck(Arg<NameIdx>),
+    // 88: LOAD_FAST_LOAD_FAST - not implemented, placeholder
+    LoadFastLoadFast {
+        arg: Arg<u32>,
     },
+    // 89: LOAD_FROM_DICT_OR_DEREF - not implemented, placeholder
+    LoadFromDictOrDeref(Arg<NameIdx>),
+    // 90: LOAD_FROM_DICT_OR_GLOBALS - not implemented, placeholder
+    LoadFromDictOrGlobals(Arg<NameIdx>),
+    // 91: LOAD_GLOBAL
+    LoadGlobal(Arg<NameIdx>),
+    // 92: LOAD_NAME
     LoadNameAny(Arg<NameIdx>),
-    MakeFunction,
+    // 93: LOAD_SUPER_ATTR - not implemented, placeholder
+    LoadSuperAttr {
+        arg: Arg<u32>,
+    },
+    // 94: MAKE_CELL - not implemented, placeholder
+    MakeCell(Arg<NameIdx>),
+    // 95: MAP_ADD
     MapAdd {
         i: Arg<u32>,
     },
+    // 96: MATCH_CLASS
     MatchClass(Arg<u32>),
-    MatchKeys,
-    MatchMapping,
-    MatchSequence,
-    Nop,
-    PopBlock,
-    PopException,
-    /// Pop the top of the stack, and jump if this value is false.
+    // 97: POP_JUMP_IF_FALSE
     PopJumpIfFalse {
         target: Arg<Label>,
     },
-    /// Pop the top of the stack, and jump if this value is true.
+    // 98: POP_JUMP_IF_NONE - not implemented, placeholder
+    PopJumpIfNone {
+        target: Arg<Label>,
+    },
+    // 99: POP_JUMP_IF_NOT_NONE - not implemented, placeholder
+    PopJumpIfNotNone {
+        target: Arg<Label>,
+    },
+    // 100: POP_JUMP_IF_TRUE
     PopJumpIfTrue {
         target: Arg<Label>,
     },
-    /// Removes the top-of-stack item:
-    /// ```py
-    /// STACK.pop()
-    /// ```
-    PopTop,
+    // 101: RAISE_VARARGS
     Raise {
         kind: Arg<RaiseKind>,
     },
-    /// Resume execution (e.g., at function start, after yield, etc.)
-    Resume {
-        arg: Arg<u32>,
+    // 102: RERAISE
+    Reraise {
+        depth: Arg<u32>,
     },
+    // 103: RETURN_CONST
     ReturnConst {
         idx: Arg<u32>,
     },
-    ReturnValue,
-    Reverse {
-        amount: Arg<u32>,
+    // 104: SEND
+    Send {
+        target: Arg<Label>,
     },
+    // 105: SET_ADD
     SetAdd {
         i: Arg<u32>,
     },
+    // 106: SET_FUNCTION_ATTRIBUTE
     SetFunctionAttribute {
         attr: Arg<MakeFunctionFlags>,
     },
-    SetupAnnotation,
-    SetupAsyncWith {
-        end: Arg<Label>,
+    // 107: SET_UPDATE - not implemented, placeholder
+    SetUpdate {
+        i: Arg<u32>,
     },
-
-    SetupExcept {
-        handler: Arg<Label>,
-    },
-    /// Setup a finally handler, which will be called whenever one of this events occurs:
-    /// - the block is popped
-    /// - the function returns
-    /// - an exception is returned
-    SetupFinally {
-        handler: Arg<Label>,
-    },
-    SetupLoop,
-    SetupWith {
-        end: Arg<Label>,
-    },
+    // 108: STORE_ATTR
     StoreAttr {
         idx: Arg<NameIdx>,
     },
+    // 109: STORE_DEREF
     StoreDeref(Arg<NameIdx>),
+    // 110: STORE_FAST
     StoreFast(Arg<NameIdx>),
+    // 111: STORE_FAST_LOAD_FAST
+    StoreFastLoadFast {
+        store_idx: Arg<NameIdx>,
+        load_idx: Arg<NameIdx>,
+    },
+    // 112: STORE_FAST_STORE_FAST - not implemented, placeholder
+    StoreFastStoreFast {
+        arg: Arg<u32>,
+    },
+    // 113: STORE_GLOBAL
     StoreGlobal(Arg<NameIdx>),
+    // 114: STORE_NAME
     StoreLocal(Arg<NameIdx>),
-    StoreSubscript,
-    Subscript,
+    // 115: SWAP
     Swap {
         index: Arg<u32>,
     },
-    ToBool,
-    UnaryOperation {
-        op: Arg<UnaryOperator>,
-    },
+    // 116: UNPACK_EX
     UnpackEx {
         args: Arg<UnpackExArgs>,
     },
+    // 117: UNPACK_SEQUENCE
     UnpackSequence {
         size: Arg<u32>,
     },
-    WithCleanupFinish,
-    WithCleanupStart,
-    YieldFrom,
-    YieldValue,
-    /// Set the current exception to TOS (for except* handlers).
-    /// Does not pop the value.
+    // 118: YIELD_VALUE
+    YieldValue {
+        arg: Arg<u32>,
+    },
+    // ==================== RustPython-only instructions (119+) ====================
+    // 119: BREAK
+    Break {
+        target: Arg<Label>,
+    },
+    // 120: BUILD_LIST_FROM_TUPLES
+    BuildListFromTuples {
+        size: Arg<u32>,
+    },
+    // 121: BUILD_MAP_FOR_CALL
+    BuildMapForCall {
+        size: Arg<u32>,
+    },
+    // 122: BUILD_SET_FROM_TUPLES
+    BuildSetFromTuples {
+        size: Arg<u32>,
+    },
+    // 123: BUILD_TUPLE_FROM_ITER
+    BuildTupleFromIter,
+    // 124: BUILD_TUPLE_FROM_TUPLES
+    BuildTupleFromTuples {
+        size: Arg<u32>,
+    },
+    // 125: CALL_METHOD
+    CallMethodPositional {
+        nargs: Arg<u32>,
+    },
+    // 126: CALL_METHOD_KW
+    CallMethodKeyword {
+        nargs: Arg<u32>,
+    },
+    // 127: CALL_METHOD_EX
+    CallMethodEx {
+        has_kwargs: Arg<bool>,
+    },
+    // 128: CONTINUE
+    Continue {
+        target: Arg<Label>,
+    },
+    // 129: JUMP (CPython uses pseudo-op 256)
+    Jump {
+        target: Arg<Label>,
+    },
+    // 130: JUMP_IF_FALSE_OR_POP
+    JumpIfFalseOrPop {
+        target: Arg<Label>,
+    },
+    // 131: JUMP_IF_TRUE_OR_POP
+    JumpIfTrueOrPop {
+        target: Arg<Label>,
+    },
+    // 132: JUMP_IF_NOT_EXC_MATCH
+    JumpIfNotExcMatch(Arg<Label>),
+    // 133: LOAD_CLASSDEREF
+    LoadClassDeref(Arg<NameIdx>),
+    // 134: LOAD_CLOSURE (CPython uses pseudo-op 258)
+    LoadClosure(Arg<NameIdx>),
+    // 135: LOAD_METHOD (CPython uses pseudo-op 259)
+    LoadMethod {
+        idx: Arg<NameIdx>,
+    },
+    // 136: POP_BLOCK (CPython uses pseudo-op 263)
+    PopBlock,
+    // 137: REVERSE
+    Reverse {
+        amount: Arg<u32>,
+    },
+    // 138: SET_EXC_INFO
     SetExcInfo,
+    // 139: SUBSCRIPT
+    Subscript,
+    // 140: UNARY_OP (combines UNARY_*)
+    UnaryOperation {
+        op: Arg<UnaryOperator>,
+    },
+    // 141-148: Reserved (padding to keep RESUME at 149)
+    Reserved141,
+    Reserved142,
+    Reserved143,
+    Reserved144,
+    Reserved145,
+    Reserved146,
+    Reserved147,
+    Reserved148,
+    // 149: RESUME
+    Resume {
+        arg: Arg<u32>,
+    },
     // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
 }
 
 // This must be kept up to date to avoid marshaling errors
-const LAST_INSTRUCTION: Instruction = Instruction::SetExcInfo;
+const LAST_INSTRUCTION: Instruction = Instruction::Resume { arg: Arg::marker() };
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
@@ -1631,12 +1870,15 @@ impl Instruction {
             | JumpIfTrueOrPop { target: l }
             | JumpIfFalseOrPop { target: l }
             | ForIter { target: l }
-            | SetupFinally { handler: l }
-            | SetupExcept { handler: l }
-            | SetupWith { end: l }
-            | SetupAsyncWith { end: l }
             | Break { target: l }
-            | Continue { target: l } => Some(*l),
+            | Continue { target: l }
+            | Send { target: l }
+            // Dummy jump instructions (placeholders)
+            | JumpBackward { target: l }
+            | JumpBackwardNoInterrupt { target: l }
+            | JumpForward { target: l }
+            | PopJumpIfNone { target: l }
+            | PopJumpIfNotNone { target: l } => Some(*l),
             _ => None,
         }
     }
@@ -1659,6 +1901,7 @@ impl Instruction {
                 | ReturnValue
                 | ReturnConst { .. }
                 | Raise { .. }
+                | Reraise { .. }
         )
     }
 
@@ -1678,11 +1921,35 @@ impl Instruction {
     ///
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
+            // Dummy/placeholder instructions (never executed)
+            Cache | Reserved3 | Reserved17 | Reserved141 | Reserved142 | Reserved143
+            | Reserved144 | Reserved145 | Reserved146 | Reserved147 | Reserved148 => 0,
+            BinarySlice | EndFor | ExitInitCheck | GetYieldFromIter | InterpreterExit
+            | LoadAssertionError | LoadLocals | PushNull | ReturnGenerator | StoreSlice
+            | UnaryInvert | UnaryNegative | UnaryNot => 0,
+            BuildConstKeyMap { .. }
+            | CopyFreeVars { .. }
+            | DictMerge { .. }
+            | EnterExecutor { .. }
+            | ListExtend { .. }
+            | LoadFastCheck(_)
+            | LoadFastLoadFast { .. }
+            | LoadFromDictOrDeref(_)
+            | LoadFromDictOrGlobals(_)
+            | LoadSuperAttr { .. }
+            | MakeCell(_)
+            | SetUpdate { .. }
+            | StoreFastStoreFast { .. } => 0,
+            JumpBackward { .. } | JumpBackwardNoInterrupt { .. } | JumpForward { .. } => 0,
+            PopJumpIfNone { .. } | PopJumpIfNotNone { .. } => -1,
+
             Nop => 0,
             ImportName { .. } => -1,
             ImportFrom { .. } => 1,
-            LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
+            LoadFast(_) | LoadFastAndClear(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_)
+            | LoadClassDeref(_) => 1,
             StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
+            StoreFastLoadFast { .. } => 0, // pop 1, push 1
             DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
             LoadClosure(_) => 1,
             Subscript => -1,
@@ -1745,16 +2012,34 @@ impl Instruction {
             ReturnValue => -1,
             ReturnConst { .. } => 0,
             Resume { .. } => 0,
-            YieldValue => 0,
-            YieldFrom => -1,
+            YieldValue { .. } => 0,
+            // SEND: (receiver, val) -> (receiver, retval) - no change, both paths keep same depth
+            Send { .. } => 0,
+            // END_SEND: (receiver, value) -> (value)
+            EndSend => -1,
+            // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) = 3 pop, 2 push = -1
+            CleanupThrow => -1,
             SetExcInfo => 0,
-            SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
-            SetupExcept { .. } => jump as i32,
-            SetupWith { .. } => (!jump) as i32,
-            WithCleanupStart => 0,
-            WithCleanupFinish => -1,
+            PushExcInfo => 1,    // [exc] -> [prev_exc, exc]
+            CheckExcMatch => 0,  // [exc, type] -> [exc, bool] (pops type, pushes bool)
+            Reraise { .. } => 0, // Exception raised, stack effect doesn't matter
+            SetupAnnotation => 0,
+            BeforeWith => 1, // push __exit__, then replace ctx_mgr with __enter__ result
+            WithExceptStart => 1, // push __exit__ result
             PopBlock => 0,
-            Raise { kind } => -(kind.get(arg) as u8 as i32),
+            Raise { kind } => {
+                // Stack effects for different raise kinds:
+                // - Reraise (0): gets from VM state, no stack pop
+                // - Raise (1): pops 1 exception
+                // - RaiseCause (2): pops 2 (exception + cause)
+                // - ReraiseFromStack (3): pops 1 exception from stack
+                match kind.get(arg) {
+                    RaiseKind::BareRaise => 0,
+                    RaiseKind::Raise => -1,
+                    RaiseKind::RaiseCause => -2,
+                    RaiseKind::ReraiseFromStack => -1,
+                }
+            }
             BuildString { size }
             | BuildTuple { size, .. }
             | BuildTupleFromTuples { size, .. }
@@ -1775,7 +2060,12 @@ impl Instruction {
             BuildSlice { argc } => {
                 // push 1
                 // pops either 2/3
-                1 - (argc.get(arg).argc().get() as i32)
+                // Default to Two (2 args) if arg is invalid
+                1 - (argc
+                    .try_get(arg)
+                    .unwrap_or(BuildSliceArgCount::Two)
+                    .argc()
+                    .get() as i32)
             }
             ListAppend { .. } | SetAdd { .. } => -1,
             MapAdd { .. } => -2,
@@ -1789,16 +2079,9 @@ impl Instruction {
             Reverse { .. } => 0,
             GetAwaitable => 0,
             BeforeAsyncWith => 1,
-            SetupAsyncWith { .. } => {
-                if jump {
-                    -1
-                } else {
-                    0
-                }
-            }
             GetAIter => 0,
             GetANext => 1,
-            EndAsyncFor => -2,
+            EndAsyncFor => -2,                 // pops (awaitable, exc) from stack
             MatchMapping | MatchSequence => 1, // Push bool result
             MatchKeys => 1, // Pop 2 (subject, keys), push 3 (subject, keys_or_none, values_or_none)
             MatchClass(_) => -2,
@@ -1873,31 +2156,71 @@ impl Instruction {
             };
 
         match self {
+            // Dummy/placeholder instructions
+            Cache => w!(CACHE),
+            Reserved3 | Reserved17 | Reserved141 | Reserved142 | Reserved143 | Reserved144
+            | Reserved145 | Reserved146 | Reserved147 | Reserved148 => w!(RESERVED),
+            BinarySlice => w!(BINARY_SLICE),
+            EndFor => w!(END_FOR),
+            ExitInitCheck => w!(EXIT_INIT_CHECK),
+            GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
+            InterpreterExit => w!(INTERPRETER_EXIT),
+            LoadAssertionError => w!(LOAD_ASSERTION_ERROR),
+            LoadLocals => w!(LOAD_LOCALS),
+            PushNull => w!(PUSH_NULL),
+            ReturnGenerator => w!(RETURN_GENERATOR),
+            StoreSlice => w!(STORE_SLICE),
+            UnaryInvert => w!(UNARY_INVERT),
+            UnaryNegative => w!(UNARY_NEGATIVE),
+            UnaryNot => w!(UNARY_NOT),
+            BuildConstKeyMap { size } => w!(BUILD_CONST_KEY_MAP, size),
+            CopyFreeVars { count } => w!(COPY_FREE_VARS, count),
+            DictMerge { index } => w!(DICT_MERGE, index),
+            EnterExecutor { index } => w!(ENTER_EXECUTOR, index),
+            JumpBackward { target } => w!(JUMP_BACKWARD, target),
+            JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
+            JumpForward { target } => w!(JUMP_FORWARD, target),
+            ListExtend { i } => w!(LIST_EXTEND, i),
+            LoadFastCheck(idx) => w!(LOAD_FAST_CHECK, varname = idx),
+            LoadFastLoadFast { arg } => w!(LOAD_FAST_LOAD_FAST, arg),
+            LoadFromDictOrDeref(idx) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = idx),
+            LoadFromDictOrGlobals(idx) => w!(LOAD_FROM_DICT_OR_GLOBALS, name = idx),
+            LoadSuperAttr { arg } => w!(LOAD_SUPER_ATTR, arg),
+            MakeCell(idx) => w!(MAKE_CELL, cell_name = idx),
+            PopJumpIfNone { target } => w!(POP_JUMP_IF_NONE, target),
+            PopJumpIfNotNone { target } => w!(POP_JUMP_IF_NOT_NONE, target),
+            SetUpdate { i } => w!(SET_UPDATE, i),
+            StoreFastStoreFast { arg } => w!(STORE_FAST_STORE_FAST, arg),
+
+            // Real instructions
             BeforeAsyncWith => w!(BEFORE_ASYNC_WITH),
+            BeforeWith => w!(BEFORE_WITH),
             BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
-            BinarySubscript => w!(BINARY_SUBSCRIPT),
+            BinarySubscript => w!(BINARY_SUBSCR),
             Break { target } => w!(BREAK, target),
-            BuildListFromTuples { size } => w!(BUILD_LIST_FROM_TUPLES, size),
             BuildList { size } => w!(BUILD_LIST, size),
-            BuildMapForCall { size } => w!(BUILD_MAP_FOR_CALL, size),
+            BuildListFromTuples { size } => w!(BUILD_LIST_FROM_TUPLES, size),
             BuildMap { size } => w!(BUILD_MAP, size),
-            BuildSetFromTuples { size } => w!(BUILD_SET_FROM_TUPLES, size),
+            BuildMapForCall { size } => w!(BUILD_MAP_FOR_CALL, size),
             BuildSet { size } => w!(BUILD_SET, size),
+            BuildSetFromTuples { size } => w!(BUILD_SET_FROM_TUPLES, size),
             BuildSlice { argc } => w!(BUILD_SLICE, ?argc),
             BuildString { size } => w!(BUILD_STRING, size),
+            BuildTuple { size } => w!(BUILD_TUPLE, size),
             BuildTupleFromIter => w!(BUILD_TUPLE_FROM_ITER),
             BuildTupleFromTuples { size } => w!(BUILD_TUPLE_FROM_TUPLES, size),
-            BuildTuple { size } => w!(BUILD_TUPLE, size),
             CallFunctionEx { has_kwargs } => w!(CALL_FUNCTION_EX, has_kwargs),
-            CallFunctionKeyword { nargs } => w!(CALL_FUNCTION_KEYWORD, nargs),
-            CallFunctionPositional { nargs } => w!(CALL_FUNCTION_POSITIONAL, nargs),
+            CallFunctionKeyword { nargs } => w!(CALL_KW, nargs),
+            CallFunctionPositional { nargs } => w!(CALL, nargs),
             CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
             CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
             CallMethodEx { has_kwargs } => w!(CALL_METHOD_EX, has_kwargs),
-            CallMethodKeyword { nargs } => w!(CALL_METHOD_KEYWORD, nargs),
-            CallMethodPositional { nargs } => w!(CALL_METHOD_POSITIONAL, nargs),
+            CallMethodKeyword { nargs } => w!(CALL_METHOD_KW, nargs),
+            CallMethodPositional { nargs } => w!(CALL_METHOD, nargs),
             CheckEgMatch => w!(CHECK_EG_MATCH),
-            CompareOperation { op } => w!(COMPARE_OPERATION, ?op),
+            CheckExcMatch => w!(CHECK_EXC_MATCH),
+            CleanupThrow => w!(CLEANUP_THROW),
+            CompareOperation { op } => w!(COMPARE_OP, ?op),
             ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
             Continue { target } => w!(CONTINUE, target),
             ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
@@ -1906,12 +2229,11 @@ impl Instruction {
             DeleteDeref(idx) => w!(DELETE_DEREF, cell_name = idx),
             DeleteFast(idx) => w!(DELETE_FAST, varname = idx),
             DeleteGlobal(idx) => w!(DELETE_GLOBAL, name = idx),
-            DeleteLocal(idx) => w!(DELETE_LOCAL, name = idx),
-            DeleteSubscript => w!(DELETE_SUBSCRIPT),
+            DeleteLocal(idx) => w!(DELETE_NAME, name = idx),
+            DeleteSubscript => w!(DELETE_SUBSCR),
             DictUpdate { index } => w!(DICT_UPDATE, index),
             EndAsyncFor => w!(END_ASYNC_FOR),
-            EndFinally => w!(END_FINALLY),
-            EnterFinally => w!(ENTER_FINALLY),
+            EndSend => w!(END_SEND),
             ExtendedArg => w!(EXTENDED_ARG, Arg::<u32>::marker()),
             ForIter { target } => w!(FOR_ITER, target),
             FormatSimple => w!(FORMAT_SIMPLE),
@@ -1924,21 +2246,22 @@ impl Instruction {
             ImportFrom { idx } => w!(IMPORT_FROM, name = idx),
             ImportName { idx } => w!(IMPORT_NAME, name = idx),
             IsOp(inv) => w!(IS_OP, ?inv),
+            Jump { target } => w!(JUMP, target),
             JumpIfFalseOrPop { target } => w!(JUMP_IF_FALSE_OR_POP, target),
             JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
             JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
-            Jump { target } => w!(JUMP, target),
             ListAppend { i } => w!(LIST_APPEND, i),
             LoadAttr { idx } => w!(LOAD_ATTR, name = idx),
             LoadBuildClass => w!(LOAD_BUILD_CLASS),
-            LoadClassDeref(idx) => w!(LOAD_CLASS_DEREF, cell_name = idx),
+            LoadClassDeref(idx) => w!(LOAD_CLASSDEREF, cell_name = idx),
             LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
             LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
             LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             LoadFast(idx) => w!(LOAD_FAST, varname = idx),
+            LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
             LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
             LoadMethod { idx } => w!(LOAD_METHOD, name = idx),
-            LoadNameAny(idx) => w!(LOAD_NAME_ANY, name = idx),
+            LoadNameAny(idx) => w!(LOAD_NAME, name = idx),
             MakeFunction => w!(MAKE_FUNCTION),
             MapAdd { i } => w!(MAP_ADD, i),
             MatchClass(arg) => w!(MATCH_CLASS, arg),
@@ -1947,40 +2270,43 @@ impl Instruction {
             MatchSequence => w!(MATCH_SEQUENCE),
             Nop => w!(NOP),
             PopBlock => w!(POP_BLOCK),
-            PopException => w!(POP_EXCEPTION),
+            PopException => w!(POP_EXCEPT),
             PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
             PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
             PopTop => w!(POP_TOP),
-            Raise { kind } => w!(RAISE, ?kind),
+            PushExcInfo => w!(PUSH_EXC_INFO),
+            Raise { kind } => w!(RAISE_VARARGS, ?kind),
+            Reraise { depth } => w!(RERAISE, depth),
             Resume { arg } => w!(RESUME, arg),
             ReturnConst { idx } => fmt_const("RETURN_CONST", arg, f, idx),
             ReturnValue => w!(RETURN_VALUE),
             Reverse { amount } => w!(REVERSE, amount),
+            Send { target } => w!(SEND, target),
             SetAdd { i } => w!(SET_ADD, i),
+            SetExcInfo => w!(SET_EXC_INFO),
             SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
-            SetupAnnotation => w!(SETUP_ANNOTATION),
-            SetupAsyncWith { end } => w!(SETUP_ASYNC_WITH, end),
-            SetupExcept { handler } => w!(SETUP_EXCEPT, handler),
-            SetupFinally { handler } => w!(SETUP_FINALLY, handler),
-            SetupLoop => w!(SETUP_LOOP),
-            SetupWith { end } => w!(SETUP_WITH, end),
+            SetupAnnotation => w!(SETUP_ANNOTATIONS),
             StoreAttr { idx } => w!(STORE_ATTR, name = idx),
             StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
-            SetExcInfo => w!(SET_EXC_INFO),
             StoreFast(idx) => w!(STORE_FAST, varname = idx),
+            StoreFastLoadFast {
+                store_idx,
+                load_idx,
+            } => {
+                write!(f, "STORE_FAST_LOAD_FAST")?;
+                write!(f, " ({}, {})", store_idx.get(arg), load_idx.get(arg))
+            }
             StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
-            StoreLocal(idx) => w!(STORE_LOCAL, name = idx),
-            StoreSubscript => w!(STORE_SUBSCRIPT),
+            StoreLocal(idx) => w!(STORE_NAME, name = idx),
+            StoreSubscript => w!(STORE_SUBSCR),
             Subscript => w!(SUBSCRIPT),
             Swap { index } => w!(SWAP, index),
             ToBool => w!(TO_BOOL),
-            UnaryOperation { op } => w!(UNARY_OPERATION, ?op),
+            UnaryOperation { op } => w!(UNARY_OP, ?op),
             UnpackEx { args } => w!(UNPACK_EX, args),
             UnpackSequence { size } => w!(UNPACK_SEQUENCE, size),
-            WithCleanupFinish => w!(WITH_CLEANUP_FINISH),
-            WithCleanupStart => w!(WITH_CLEANUP_START),
-            YieldFrom => w!(YIELD_FROM),
-            YieldValue => w!(YIELD_VALUE),
+            WithExceptStart => w!(WITH_EXCEPT_START),
+            YieldValue { arg } => w!(YIELD_VALUE, arg),
         }
     }
 }
@@ -2035,5 +2361,76 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
             self.source_path.as_ref(),
             self.first_line_number.map_or(-1, |x| x.get() as i32)
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_exception_table_encode_decode() {
+        let entries = vec![
+            ExceptionTableEntry::new(0, 10, 20, 2, false),
+            ExceptionTableEntry::new(15, 25, 30, 1, true),
+        ];
+
+        let encoded = encode_exception_table(&entries);
+
+        // Find handler at offset 5 (in range [0, 10))
+        let handler = find_exception_handler(&encoded, 5);
+        assert!(handler.is_some());
+        let handler = handler.unwrap();
+        assert_eq!(handler.start, 0);
+        assert_eq!(handler.end, 10);
+        assert_eq!(handler.target, 20);
+        assert_eq!(handler.depth, 2);
+        assert!(!handler.push_lasti);
+
+        // Find handler at offset 20 (in range [15, 25))
+        let handler = find_exception_handler(&encoded, 20);
+        assert!(handler.is_some());
+        let handler = handler.unwrap();
+        assert_eq!(handler.start, 15);
+        assert_eq!(handler.end, 25);
+        assert_eq!(handler.target, 30);
+        assert_eq!(handler.depth, 1);
+        assert!(handler.push_lasti);
+
+        // No handler at offset 12 (not in any range)
+        let handler = find_exception_handler(&encoded, 12);
+        assert!(handler.is_none());
+
+        // No handler at offset 30 (past all ranges)
+        let handler = find_exception_handler(&encoded, 30);
+        assert!(handler.is_none());
+    }
+
+    #[test]
+    fn test_exception_table_empty() {
+        let entries: Vec<ExceptionTableEntry> = vec![];
+        let encoded = encode_exception_table(&entries);
+        assert!(encoded.is_empty());
+        assert!(find_exception_handler(&encoded, 0).is_none());
+    }
+
+    #[test]
+    fn test_exception_table_single_entry() {
+        let entries = vec![ExceptionTableEntry::new(5, 15, 100, 3, true)];
+        let encoded = encode_exception_table(&entries);
+
+        // Inside range
+        let handler = find_exception_handler(&encoded, 10);
+        assert!(handler.is_some());
+        let handler = handler.unwrap();
+        assert_eq!(handler.target, 100);
+        assert_eq!(handler.depth, 3);
+        assert!(handler.push_lasti);
+
+        // At start boundary (inclusive)
+        assert!(find_exception_handler(&encoded, 5).is_some());
+
+        // At end boundary (exclusive)
+        assert!(find_exception_handler(&encoded, 15).is_none());
     }
 }
