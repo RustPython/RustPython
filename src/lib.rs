@@ -177,9 +177,8 @@ fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
     if !vm.state.config.settings.safe_path {
         let dir = std::path::Path::new(path)
             .parent()
-            .unwrap()
-            .to_str()
-            .unwrap();
+            .and_then(|p| p.to_str())
+            .unwrap_or("");
         vm.insert_sys_path(vm.new_pyobj(dir))?;
     }
 
