@@ -1468,7 +1468,6 @@ class ArgsTestCase(BaseTestCase):
         subset = ['test_method1', 'test_method3']
         self.assertEqual(methods, subset)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_env_changed(self):
         code = textwrap.dedent("""
             import unittest
