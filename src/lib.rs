@@ -114,21 +114,6 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     rustpython_vm::common::os::exit_code(exitcode)
 }
 
-fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
-    let scope = vm.new_scope_with_builtins();
-    let main_module = vm.new_module("__main__", scope.globals.clone(), None);
-    main_module
-        .dict()
-        .set_item("__annotations__", vm.ctx.new_dict().into(), vm)
-        .expect("Failed to initialize __main__.__annotations__");
-
-    vm.sys_module
-        .get_attr("modules", vm)?
-        .set_item("__main__", main_module.into(), vm)?;
-
-    Ok(scope)
-}
-
 fn get_pip(scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
     let get_getpip = rustpython_vm::py_compile!(
         source = r#"\
@@ -221,7 +206,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
 
-    let scope = setup_main_module(vm)?;
+    let scope = vm.new_scope_with_main()?;
 
     // Import site first, before setting sys.path[0]
     // This matches CPython's behavior where site.removeduppaths() runs
@@ -366,11 +351,11 @@ mod tests {
     fn test_run_script() {
         interpreter().enter(|vm| {
             vm.unwrap_pyresult((|| {
-                let scope = setup_main_module(vm)?;
+                let scope = vm.new_scope_with_main()?;
                 // test file run
                 vm.run_any_file(scope, "extra_tests/snippets/dir_main/__main__.py")?;
 
-                let scope = setup_main_module(vm)?;
+                let scope = vm.new_scope_with_main()?;
                 // test module run (directory with __main__.py)
                 run_file(vm, scope, "extra_tests/snippets/dir_main")?;
 
