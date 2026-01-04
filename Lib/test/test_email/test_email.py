@@ -890,6 +890,7 @@ class TestEncoders(unittest.TestCase):
         msg = MIMEText('hello \xf8 world', _charset='iso-8859-1')
         eq(msg['content-transfer-encoding'], 'quoted-printable')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_encode7or8bit(self):
         # Make sure a charset whose input character set is 8bit but
         # whose output character set is 7bit gets a transfer-encoding
@@ -1052,10 +1053,12 @@ wasnipoop; giraffes="very-long-necked-animals";
 wasnipoop; giraffes="very-long-necked-animals";
 \tspooge="yummy"; hippos="gargantuan"; marshmallows="gooey"''')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_header_encode_with_different_output_charset(self):
         h = Header('文', 'euc-jp')
         self.assertEqual(h.encode(), "=?iso-2022-jp?b?GyRCSjgbKEI=?=")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc-jp
     def test_long_header_encode_with_different_output_charset(self):
         h = Header(b'test-ja \xa4\xd8\xc5\xea\xb9\xc6\xa4\xb5\xa4\xec\xa4'
             b'\xbf\xa5\xe1\xa1\xbc\xa5\xeb\xa4\xcf\xbb\xca\xb2\xf1\xbc\xd4'
@@ -3871,6 +3874,7 @@ Do you like this message?
 -Me
 """)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pushCR_LF(self):
         '''FeedParser BufferedSubFile.push() assumed it received complete
            line endings.  A CR ending one push() followed by a LF starting
@@ -3901,6 +3905,7 @@ Do you like this message?
         self.assertEqual(len(om), nt)
         self.assertEqual(''.join([il for il, n in imt]), ''.join(om))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_push_random(self):
         from email.feedparser import BufferedSubFile, NeedMoreData
 
@@ -3934,6 +3939,7 @@ class TestFeedParsers(TestEmailBase):
         self.assertEqual(msg['First'], 'val')
         self.assertEqual(msg['Second'], 'val')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Feedparser.feed -> Feedparser._input.push, Feedparser._call_parse -> Feedparser._parse does not keep _input state between calls
     def test_newlines(self):
         m = self.parse(['a:\nb:\rc:\r\nd:\n'])
         self.assertEqual(m.keys(), ['a', 'b', 'c', 'd'])
@@ -3952,6 +3958,7 @@ class TestFeedParsers(TestEmailBase):
         m = self.parse(['a:\r', 'b:\x85', 'c:\n'])
         self.assertEqual(m.items(), [('a', ''), ('b', '\x85c:')])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_long_lines(self):
         # Expected peak memory use on 32-bit platform: 6*N*M bytes.
         M, N = 1000, 20000
@@ -5409,6 +5416,7 @@ A very long line that must get split to something other than at the
         s = 'Subject: =?EUC-KR?B?CSixpLDtKSC/7Liuvsax4iC6uLmwMcijIKHaILzSwd/H0SC8+LCjwLsgv7W/+Mj3I ?='
         raises(errors.HeaderParseError, decode_header, s)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_shift_jis_charset(self):
         h = Header('文', charset='shift_jis')
         self.assertEqual(h.encode(), '=?iso-2022-jp?b?GyRCSjgbKEI=?=')

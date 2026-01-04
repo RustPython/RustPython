@@ -200,6 +200,14 @@ mod decl {
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
+    fn altzone(_vm: &VirtualMachine) -> core::ffi::c_long {
+        // FIXME: Add support for using the C altzone
+        unsafe { super::c_timezone - 3600 }
+    }
+
+    #[cfg(not(target_env = "msvc"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
     fn timezone(_vm: &VirtualMachine) -> core::ffi::c_long {
         unsafe { super::c_timezone }
     }
