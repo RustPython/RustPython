@@ -19,8 +19,8 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned, PyStrRef,
-        PyTypeRef, code::PyCode, pystr::AsPyStr, tuple::PyTuple,
+        PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
+        PyStrRef, PyTypeRef, code::PyCode, pystr::AsPyStr, tuple::PyTuple,
     },
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
@@ -460,6 +460,42 @@ impl VirtualMachine {
         self.signal_rx = Some(signal_rx);
     }
 
+    /// Execute Python bytecode (`.pyc`) from an in-memory buffer.
+    ///
+    /// When the RustPython CLI is available, `.pyc` files are normally executed by
+    /// invoking `rustpython <input>.pyc`. This method provides an alternative for
+    /// environments where the binary is unavailable or file I/O is restricted
+    /// (e.g. WASM).
+    ///
+    /// ## Preparing a `.pyc` file
+    ///
+    /// First, compile a Python source file into bytecode:
+    ///
+    /// ```sh
+    /// # Generate a .pyc file
+    /// $ rustpython -m py_compile <input>.py
+    /// ```
+    ///
+    /// ## Running the bytecode
+    ///
+    /// Load the resulting `.pyc` file into memory and execute it using the VM:
+    ///
+    /// ```no_run
+    /// use rustpython_vm::Interpreter;
+    /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
+    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-313.pyc").unwrap();
+    ///     let main_scope = vm.new_scope_with_main().unwrap();
+    ///     vm.run_pyc_bytes(&bytes, main_scope);
+    /// });
+    /// ```
+    pub fn run_pyc_bytes(&self, pyc_bytes: &[u8], scope: Scope) -> PyResult<()> {
+        let code = PyCode::from_pyc(pyc_bytes, Some("<pyc_bytes>"), None, None, self)?;
+        self.with_simple_run("<source>", |_module_dict| {
+            self.run_code_obj(code, scope)?;
+            Ok(())
+        })
+    }
+
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
         use crate::builtins::PyFunction;
 
@@ -497,6 +533,52 @@ impl VirtualMachine {
         match self.with_frame(frame, |f| f.run(self))? {
             ExecutionResult::Return(value) => Ok(value),
             _ => panic!("Got unexpected result from function"),
+        }
+    }
+
+    /// Run `run` with main scope.
+    fn with_simple_run(
+        &self,
+        path: &str,
+        run: impl FnOnce(&Py<PyDict>) -> PyResult<()>,
+    ) -> PyResult<()> {
+        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        let main_module = sys_modules.get_item(identifier!(self, __main__), self)?;
+        let module_dict = main_module.dict().expect("main module must have __dict__");
+
+        // Track whether we set __file__ (for cleanup)
+        let set_file_name = !module_dict.contains_key(identifier!(self, __file__), self);
+        if set_file_name {
+            module_dict.set_item(
+                identifier!(self, __file__),
+                self.ctx.new_str(path).into(),
+                self,
+            )?;
+            module_dict.set_item(identifier!(self, __cached__), self.ctx.none(), self)?;
+        }
+
+        let result = run(&module_dict);
+
+        self.flush_io();
+
+        // Cleanup __file__ and __cached__ after execution
+        if set_file_name {
+            let _ = module_dict.del_item(identifier!(self, __file__), self);
+            let _ = module_dict.del_item(identifier!(self, __cached__), self);
+        }
+
+        result
+    }
+
+    /// flush_io
+    ///
+    /// Flush stdout and stderr. Errors are silently ignored.
+    fn flush_io(&self) {
+        if let Ok(stdout) = self.sys_module.get_attr("stdout", self) {
+            let _ = self.call_method(&stdout, identifier!(self, flush).as_str(), ());
+        }
+        if let Ok(stderr) = self.sys_module.get_attr("stderr", self) {
+            let _ = self.call_method(&stderr, identifier!(self, flush).as_str(), ());
         }
     }
 
