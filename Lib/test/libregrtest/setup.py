@@ -54,7 +54,7 @@ def setup_process() -> None:
 
     adjust_rlimit_nofile()
 
-    # support.record_original_stdout(sys.stdout)  # TODO: RUSTPYTHON, figure out why this was disabled in the first place
+    support.record_original_stdout(sys.stdout)  # TODO: RUSTPYTHON, figure out why this was disabled in the first place
 
     # Set sys.stdout encoder error handler to backslashreplace,
     # similar to sys.stderr error handler, to avoid UnicodeEncodeError
