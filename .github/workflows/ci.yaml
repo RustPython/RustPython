@@ -126,7 +126,6 @@ env:
     test.test_multiprocessing_spawn.test_misc
     test.test_multiprocessing_spawn.test_processes
     test.test_multiprocessing_spawn.test_threads
-    test_ftplib
     test_logging
     test_multiprocessing_main_handling
     test_subprocess
