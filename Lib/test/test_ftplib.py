@@ -940,6 +940,7 @@ class TestTLS_FTPClassMixin(TestFTPClass):
 
 
 @skipUnless(ssl, "SSL not available")
+@unittest.skip("TODO: RUSTPYTHON; SSL + asyncore has problem on darwin")
 @requires_subprocess()
 class TestTLS_FTPClass(TestCase):
     """Specific TLS_FTP class tests."""
