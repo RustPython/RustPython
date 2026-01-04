@@ -47,6 +47,12 @@ struct CompiledModule {
     package: bool,
 }
 
+struct ExcludeCtx<'a> {
+    root: &'a Path,
+    resolved_root: Option<&'a Path>,
+    exclude: &'a [PathBuf],
+}
+
 struct CompilationSource {
     kind: CompilationSourceKind,
     span: (Span, Span),
@@ -83,14 +89,19 @@ impl CompilationSource {
         mode: Mode,
         module_name: String,
         compiler: &dyn Compiler,
+        exclude: &[PathBuf],
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
         match &self.kind {
-            CompilationSourceKind::Dir(rel_path) => self.compile_dir(
-                &CARGO_MANIFEST_DIR.join(rel_path),
-                String::new(),
-                mode,
-                compiler,
-            ),
+            CompilationSourceKind::Dir(rel_path) => {
+                let path = CARGO_MANIFEST_DIR.join(rel_path);
+                let resolved_root = Self::resolve_root(&path);
+                let exclude_ctx = ExcludeCtx {
+                    root: &path,
+                    resolved_root: resolved_root.as_deref(),
+                    exclude,
+                };
+                self.compile_dir(&path, String::new(), mode, compiler, &exclude_ctx)
+            }
             _ => Ok(hashmap! {
                 module_name.clone() => CompiledModule {
                     code: self.compile_single(mode, module_name, compiler)?,
@@ -130,12 +141,49 @@ impl CompilationSource {
         }
     }
 
+    /// Returns an alternate base path when `root` is a git-symlink text file on
+    /// Windows so exclusions still apply to the real directory; otherwise returns
+    /// `None` to use `root` directly.
+    fn resolve_root(root: &Path) -> Option<PathBuf> {
+        if cfg!(windows) && root.is_file() {
+            fs::read_to_string(root)
+                .ok()
+                .map(|path| PathBuf::from(path.trim()))
+        } else {
+            None
+        }
+    }
+
+    /// Check whether `path` should be excluded. The `resolved_root` is used on
+    /// Windows when `root` is a file that stores the real library path created
+    /// from a git symlink; otherwise exclusions are evaluated relative to `root`.
+    fn should_exclude(path: &Path, ctx: &ExcludeCtx<'_>) -> bool {
+        // Return true when the entry is under `base` and has an excluded prefix.
+        let matches_root = |base: &Path| match path.strip_prefix(base) {
+            Ok(rel_path) => ctx.exclude.iter().any(|e| rel_path.starts_with(e)),
+            Err(_) => false,
+        };
+
+        if matches_root(ctx.root) {
+            return true;
+        }
+
+        if let Some(real_root) = ctx.resolved_root
+            && matches_root(real_root)
+        {
+            return true;
+        }
+
+        false
+    }
+
     fn compile_dir(
         &self,
         path: &Path,
         parent: String,
         mode: Mode,
         compiler: &dyn Compiler,
+        exclude_ctx: &ExcludeCtx<'_>,
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(path)
@@ -155,6 +203,9 @@ impl CompilationSource {
                 Diagnostic::spans_error(self.span, format!("Failed to list file: {err}"))
             })?;
             let path = path.path();
+            if Self::should_exclude(&path, exclude_ctx) {
+                continue;
+            }
             let file_name = path.file_name().unwrap().to_str().ok_or_else(|| {
                 Diagnostic::spans_error(self.span, format!("Invalid UTF-8 in file name {path:?}"))
             })?;
@@ -168,6 +219,7 @@ impl CompilationSource {
                     },
                     mode,
                     compiler,
+                    exclude_ctx,
                 )?);
             } else if file_name.ends_with(".py") {
                 let stem = path.file_stem().unwrap().to_str().unwrap();
@@ -239,6 +291,7 @@ impl PyCompileArgs {
         let mut mode = None;
         let mut source: Option<CompilationSource> = None;
         let mut crate_name = None;
+        let mut exclude = Vec::new();
 
         fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), syn::Error> {
             if let Some(source) = source {
@@ -293,6 +346,12 @@ impl PyCompileArgs {
             } else if ident == "crate_name" {
                 let name = check_str()?.parse()?;
                 crate_name = Some(name);
+            } else if ident == "exclude" {
+                if !allow_dir {
+                    bail_span!(ident, "py_compile doesn't accept exclude")
+                }
+                let path = check_str()?.value().into();
+                exclude.push(path);
             } else {
                 return Err(meta.error("unknown attr"));
             }
@@ -307,11 +366,19 @@ impl PyCompileArgs {
             )
         })?;
 
+        if !exclude.is_empty() && !matches!(source.kind, CompilationSourceKind::Dir(_)) {
+            return Err(Diagnostic::spans_error(
+                source.span,
+                "exclude is only supported with dir source",
+            ));
+        }
+
         Ok(Self {
             source,
             mode: mode.unwrap_or(Mode::Exec),
             module_name: module_name.unwrap_or_else(|| "frozen".to_owned()),
             crate_name: crate_name.unwrap_or_else(|| syn::parse_quote!(::rustpython_vm)),
+            exclude,
         })
     }
 }
@@ -332,6 +399,7 @@ struct PyCompileArgs {
     mode: Mode,
     module_name: String,
     crate_name: syn::Path,
+    exclude: Vec<PathBuf>,
 }
 
 pub fn impl_py_compile(
@@ -362,7 +430,9 @@ pub fn impl_py_freeze(
     let args = PyCompileArgs::parse(input, true)?;
 
     let crate_name = args.crate_name;
-    let code_map = args.source.compile(args.mode, args.module_name, compiler)?;
+    let code_map = args
+        .source
+        .compile(args.mode, args.module_name, compiler, &args.exclude)?;
 
     let data = frozen::FrozenLib::encode(code_map.iter().map(|(k, v)| {
         let v = frozen::FrozenModule {
