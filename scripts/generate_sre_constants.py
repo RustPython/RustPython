@@ -35,7 +35,7 @@ def dump_enum(d, enum_name, derives, strip_prefix=""):
     """Generate Rust enum definitions from a Python dictionary.
 
     Args:
-        d (dict): The dictionary containing the enum variants.
+        d (list): The list containing the enum variants.
         enum_name (str): The name of the enum to generate.
         derives (str): The derive attributes to include.
         strip_prefix (str, optional): A prefix to strip from the variant names. Defaults to "".
@@ -44,6 +44,7 @@ def dump_enum(d, enum_name, derives, strip_prefix=""):
         list: A list of strings representing the enum definition.
     """
     items = sorted(d)
+    print(f"items is {items}")
     content = [f"{derives}\n"]
     content.append("#[repr(u32)]\n")
     content.append("#[allow(non_camel_case_types, clippy::upper_case_acronyms)]\n")
