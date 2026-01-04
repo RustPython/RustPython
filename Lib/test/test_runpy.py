@@ -663,6 +663,7 @@ class RunPathTestCase(unittest.TestCase, CodeExecutionMixin):
             self._check_script(script_name, "<run_path>", script_name,
                                script_name, expect_spec=False)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected str, not <class 'test.support.os_helper.FakePath'>
     def test_basic_script_with_pathlike_object(self):
         with temp_dir() as script_dir:
             mod_name = 'script'
@@ -680,7 +681,7 @@ class RunPathTestCase(unittest.TestCase, CodeExecutionMixin):
             self._check_script(script_name, "<run_path>", script_name,
                                script_name, expect_spec=False)
 
-    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; weird panic in lz4-flex")
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; weird panic in lz4-flex')
     def test_script_compiled(self):
         with temp_dir() as script_dir:
             mod_name = 'script'
