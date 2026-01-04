@@ -1473,6 +1473,16 @@ pub(super) fn ssl_read(
         None // BIO mode has no deadline
     };
 
+    // CRITICAL: Flush any pending TLS output before reading
+    // This ensures data from previous write() calls is sent before we wait for response.
+    // Without this, write() may leave data in pending_tls_output (if socket buffer was full),
+    // and read() would timeout waiting for a response that the server never received.
+    if !is_bio {
+        socket
+            .flush_pending_tls_output(vm, deadline)
+            .map_err(SslError::Py)?;
+    }
+
     // Loop to handle TLS records and post-handshake messages
     // Matches SSL_read behavior which loops until data is available
     //   - CPython uses OpenSSL's SSL_read which loops on SSL_ERROR_WANT_READ/WANT_WRITE
