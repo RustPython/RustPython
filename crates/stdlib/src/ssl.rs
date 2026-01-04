@@ -2724,6 +2724,8 @@ mod _ssl {
             recv_method.call((self.sock.clone(), vm.ctx.new_int(size)), vm)
         }
 
+        /// Socket send - just sends data, caller must handle pending flush
+        /// Use flush_pending_tls_output before this if ordering is important
         pub(crate) fn sock_send(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             // In BIO mode, write to outgoing BIO
             if let Some(ref bio) = self.outgoing_bio {
@@ -2742,19 +2744,45 @@ mod _ssl {
         }
 
         /// Flush any pending TLS output data to the socket
-        /// This should be called before generating new TLS output
-        pub(crate) fn flush_pending_tls_output(&self, vm: &VirtualMachine) -> PyResult<()> {
+        /// Optional deadline parameter allows respecting a read deadline during flush
+        pub(crate) fn flush_pending_tls_output(
+            &self,
+            vm: &VirtualMachine,
+            deadline: Option<std::time::Instant>,
+        ) -> PyResult<()> {
             let mut pending = self.pending_tls_output.lock();
             if pending.is_empty() {
                 return Ok(());
             }
 
-            let timeout = self.get_socket_timeout(vm)?;
-            let is_non_blocking = timeout.map(|t| t.is_zero()).unwrap_or(false);
+            let socket_timeout = self.get_socket_timeout(vm)?;
+            let is_non_blocking = socket_timeout.map(|t| t.is_zero()).unwrap_or(false);
 
             let mut sent_total = 0;
             while sent_total < pending.len() {
-                let timed_out = self.sock_wait_for_io_impl(SelectKind::Write, vm)?;
+                // Calculate timeout: use deadline if provided, otherwise use socket timeout
+                let timeout_to_use = if let Some(dl) = deadline {
+                    let now = std::time::Instant::now();
+                    if now >= dl {
+                        // Deadline already passed
+                        *pending = pending[sent_total..].to_vec();
+                        return Err(
+                            timeout_error_msg(vm, "The operation timed out".to_string()).upcast()
+                        );
+                    }
+                    Some(dl - now)
+                } else {
+                    socket_timeout
+                };
+
+                // Use sock_select directly with calculated timeout
+                let py_socket: PyRef<PySocket> = self.sock.clone().try_into_value(vm)?;
+                let socket = py_socket
+                    .sock()
+                    .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
+                let timed_out = sock_select(&socket, SelectKind::Write, timeout_to_use)
+                    .map_err(|e| vm.new_os_error(format!("select failed: {e}")))?;
+
                 if timed_out {
                     // Keep unsent data in pending buffer
                     *pending = pending[sent_total..].to_vec();
@@ -2888,7 +2916,7 @@ mod _ssl {
                     );
                 }
 
-                // Try to send pending data
+                // Try to send pending data (use raw to avoid recursion)
                 match self.sock_send(&pending_data, vm) {
                     Ok(result) => {
                         let sent: usize = result.try_to_value::<isize>(vm)?.try_into().unwrap_or(0);
@@ -3565,7 +3593,7 @@ mod _ssl {
                 // This ensures TLS 1.3 Finished message reaches server before application data
                 // Without this, server may not be ready to process our data
                 if !is_bio {
-                    self.flush_pending_tls_output(vm)?;
+                    self.flush_pending_tls_output(vm, None)?;
                 }
 
                 // Write data in chunks to avoid filling the internal TLS buffer
@@ -3599,7 +3627,7 @@ mod _ssl {
                         } else {
                             // Socket mode: flush all pending TLS data
                             // First, try to send any previously pending data
-                            self.flush_pending_tls_output(vm)?;
+                            self.flush_pending_tls_output(vm, None)?;
 
                             while conn.wants_write() {
                                 let mut buf = Vec::new();
@@ -3954,7 +3982,7 @@ mod _ssl {
                     self.blocking_flush_all_pending(vm)?;
                 } else {
                     // BIO mode: non-blocking flush (caller handles pending data)
-                    let _ = self.flush_pending_tls_output(vm);
+                    let _ = self.flush_pending_tls_output(vm, None);
                 }
 
                 conn.send_close_notify();
@@ -4030,12 +4058,12 @@ mod _ssl {
                         Some(0.0) => {
                             // Non-blocking: best-effort flush, ignore errors
                             // to avoid deadlock with asyncore-based servers
-                            let _ = self.flush_pending_tls_output(vm);
+                            let _ = self.flush_pending_tls_output(vm, None);
                         }
                         Some(_t) => {
                             // Timeout mode: use flush with socket's timeout
                             // Errors (including timeout) are propagated to caller
-                            self.flush_pending_tls_output(vm)?;
+                            self.flush_pending_tls_output(vm, None)?;
                         }
                         None => {
                             // Blocking mode: wait until all pending data is sent
@@ -4075,7 +4103,7 @@ mod _ssl {
         fn write_pending_tls(&self, conn: &mut TlsConnection, vm: &VirtualMachine) -> PyResult<()> {
             // First, flush any previously pending TLS output
             // Must succeed before sending new data to maintain order
-            self.flush_pending_tls_output(vm)?;
+            self.flush_pending_tls_output(vm, None)?;
 
             loop {
                 if !conn.wants_write() {
