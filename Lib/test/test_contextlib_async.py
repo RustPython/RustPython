@@ -535,6 +535,11 @@ class TestAsyncExitStack(TestBaseExitStack, unittest.IsolatedAsyncioTestCase):
         ('__aexit__', 'cb_suppress = cb(*exc_details)'),
     ]
 
+    # TODO: RUSTPYTHON - no _asyncio module, pure Python Task adds extra frame
+    @unittest.expectedFailure
+    def test_exit_exception_traceback(self):
+        super().test_exit_exception_traceback()
+
     async def test_async_callback(self):
         expected = [
             ((), {}),
