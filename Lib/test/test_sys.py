@@ -595,11 +595,6 @@ class SysModuleTest(unittest.TestCase):
             leave_g.set()
             t.join()
 
-    import os  # TODO: RUSTPYTHON see below
-    @unittest.skipIf(
-        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
-        "TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to dangling threads"
-    )
     @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute '_current_exceptions'
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
