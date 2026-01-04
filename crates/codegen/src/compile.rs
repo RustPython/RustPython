@@ -5656,13 +5656,20 @@ impl Compiler {
                 self.compile_expression(operand)?;
 
                 // Perform operation:
-                let op = match op {
-                    UnaryOp::UAdd => bytecode::UnaryOperator::Plus,
-                    UnaryOp::USub => bytecode::UnaryOperator::Minus,
-                    UnaryOp::Not => bytecode::UnaryOperator::Not,
-                    UnaryOp::Invert => bytecode::UnaryOperator::Invert,
+                match op {
+                    UnaryOp::UAdd => emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::UnaryPositive
+                        }
+                    ),
+                    UnaryOp::USub => emit!(self, Instruction::UnaryNegative),
+                    UnaryOp::Not => {
+                        emit!(self, Instruction::ToBool);
+                        emit!(self, Instruction::UnaryNot);
+                    }
+                    UnaryOp::Invert => emit!(self, Instruction::UnaryInvert),
                 };
-                emit!(self, Instruction::UnaryOperation { op });
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
                 self.compile_expression(value)?;
