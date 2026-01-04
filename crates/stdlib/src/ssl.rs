@@ -2344,7 +2344,7 @@ mod _ssl {
         // This prevents data loss when write_tls() drains rustls' internal buffer
         // but the socket cannot accept all the data immediately
         #[pytraverse(skip)]
-        pending_tls_output: PyMutex<Vec<u8>>,
+        pub(crate) pending_tls_output: PyMutex<Vec<u8>>,
         // Deferred client certificate verification error (for TLS 1.3)
         // Stores error message if client cert verification failed during handshake
         // Error is raised on first I/O operation after handshake
@@ -2724,16 +2724,12 @@ mod _ssl {
             recv_method.call((self.sock.clone(), vm.ctx.new_int(size)), vm)
         }
 
-        pub(crate) fn sock_send(
-            &self,
-            data: Vec<u8>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyObjectRef> {
+        pub(crate) fn sock_send(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             // In BIO mode, write to outgoing BIO
             if let Some(ref bio) = self.outgoing_bio {
                 let bio_obj: PyObjectRef = bio.clone().into();
                 let write_method = bio_obj.get_attr("write", vm)?;
-                return write_method.call((vm.ctx.new_bytes(data),), vm);
+                return write_method.call((vm.ctx.new_bytes(data.to_vec()),), vm);
             }
 
             // Normal socket mode
@@ -2742,12 +2738,12 @@ mod _ssl {
 
             // Call socket.socket.send(self.sock, data)
             let send_method = socket_class.get_attr("send", vm)?;
-            send_method.call((self.sock.clone(), vm.ctx.new_bytes(data)), vm)
+            send_method.call((self.sock.clone(), vm.ctx.new_bytes(data.to_vec())), vm)
         }
 
         /// Flush any pending TLS output data to the socket
         /// This should be called before generating new TLS output
-        fn flush_pending_tls_output(&self, vm: &VirtualMachine) -> PyResult<()> {
+        pub(crate) fn flush_pending_tls_output(&self, vm: &VirtualMachine) -> PyResult<()> {
             let mut pending = self.pending_tls_output.lock();
             if pending.is_empty() {
                 return Ok(());
@@ -2762,11 +2758,12 @@ mod _ssl {
                 if timed_out {
                     // Keep unsent data in pending buffer
                     *pending = pending[sent_total..].to_vec();
-                    return Err(vm.new_os_error("Write operation timed out"));
+                    return Err(
+                        timeout_error_msg(vm, "The write operation timed out".to_string()).upcast(),
+                    );
                 }
 
-                let to_send = pending[sent_total..].to_vec();
-                match self.sock_send(to_send, vm) {
+                match self.sock_send(&pending[sent_total..], vm) {
                     Ok(result) => {
                         let sent: usize = result.try_to_value::<isize>(vm)?.try_into().unwrap_or(0);
                         if sent == 0 {
@@ -2819,11 +2816,12 @@ mod _ssl {
                     self.pending_tls_output
                         .lock()
                         .extend_from_slice(&buf[sent_total..]);
-                    return Err(vm.new_os_error("Write operation timed out"));
+                    return Err(
+                        timeout_error_msg(vm, "The write operation timed out".to_string()).upcast(),
+                    );
                 }
 
-                let to_send = buf[sent_total..].to_vec();
-                match self.sock_send(to_send, vm) {
+                match self.sock_send(&buf[sent_total..], vm) {
                     Ok(result) => {
                         let sent: usize = result.try_to_value::<isize>(vm)?.try_into().unwrap_or(0);
                         if sent == 0 {
@@ -2859,6 +2857,56 @@ mod _ssl {
             }
 
             Ok(())
+        }
+
+        /// Flush all pending TLS output data, respecting socket timeout
+        /// Used during handshake completion and shutdown() to ensure all data is sent
+        pub(crate) fn blocking_flush_all_pending(&self, vm: &VirtualMachine) -> PyResult<()> {
+            // Get socket timeout to respect during flush
+            let timeout = self.get_socket_timeout(vm)?;
+
+            loop {
+                let pending_data = {
+                    let pending = self.pending_tls_output.lock();
+                    if pending.is_empty() {
+                        return Ok(());
+                    }
+                    pending.clone()
+                };
+
+                // Wait for socket to be writable, respecting socket timeout
+                let py_socket: PyRef<PySocket> = self.sock.clone().try_into_value(vm)?;
+                let socket = py_socket
+                    .sock()
+                    .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
+                let timed_out = sock_select(&socket, SelectKind::Write, timeout)
+                    .map_err(|e| vm.new_os_error(format!("select failed: {e}")))?;
+
+                if timed_out {
+                    return Err(
+                        timeout_error_msg(vm, "The write operation timed out".to_string()).upcast(),
+                    );
+                }
+
+                // Try to send pending data
+                match self.sock_send(&pending_data, vm) {
+                    Ok(result) => {
+                        let sent: usize = result.try_to_value::<isize>(vm)?.try_into().unwrap_or(0);
+                        if sent > 0 {
+                            let mut pending = self.pending_tls_output.lock();
+                            pending.drain(..sent);
+                        }
+                        // If sent == 0, socket wasn't ready despite select() saying so
+                        // Continue loop to retry - this avoids infinite loops
+                    }
+                    Err(e) => {
+                        if is_blocking_io_error(&e, vm) {
+                            continue;
+                        }
+                        return Err(e);
+                    }
+                }
+            }
         }
 
         #[pymethod]
@@ -3513,6 +3561,13 @@ mod _ssl {
                 let is_bio = self.is_bio_mode();
                 let data: &[u8] = data_bytes.as_ref();
 
+                // CRITICAL: Flush any pending TLS data before writing new data
+                // This ensures TLS 1.3 Finished message reaches server before application data
+                // Without this, server may not be ready to process our data
+                if !is_bio {
+                    self.flush_pending_tls_output(vm)?;
+                }
+
                 // Write data in chunks to avoid filling the internal TLS buffer
                 // rustls has a limited internal buffer, so we need to flush periodically
                 const CHUNK_SIZE: usize = 16384; // 16KB chunks (typical TLS record size)
@@ -3529,6 +3584,10 @@ mod _ssl {
                         writer
                             .write_all(chunk)
                             .map_err(|e| vm.new_os_error(format!("Write failed: {e}")))?;
+                        // Flush to ensure data is converted to TLS records
+                        writer
+                            .flush()
+                            .map_err(|e| vm.new_os_error(format!("Flush failed: {e}")))?;
                     }
 
                     written = chunk_end;
@@ -3869,8 +3928,35 @@ mod _ssl {
                 .as_mut()
                 .ok_or_else(|| vm.new_value_error("Connection not established"))?;
 
+            let is_bio = self.is_bio_mode();
+
             // Step 1: Send our close_notify if not already sent
             if current_state == ShutdownState::NotStarted {
+                // First, flush ALL pending TLS data BEFORE sending close_notify
+                // This is CRITICAL - close_notify must come AFTER all application data
+                // Otherwise data loss occurs when peer receives close_notify first
+
+                // Step 1a: Flush any pending TLS records from rustls internal buffer
+                // This ensures all application data is converted to TLS records
+                while conn.wants_write() {
+                    let mut buf = Vec::new();
+                    conn.write_tls(&mut buf)
+                        .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
+                    if !buf.is_empty() {
+                        self.send_tls_output(buf, vm)?;
+                    }
+                }
+
+                // Step 1b: Flush pending_tls_output buffer to socket
+                if !is_bio {
+                    // Socket mode: blocking flush to ensure data order
+                    // Must complete before sending close_notify
+                    self.blocking_flush_all_pending(vm)?;
+                } else {
+                    // BIO mode: non-blocking flush (caller handles pending data)
+                    let _ = self.flush_pending_tls_output(vm);
+                }
+
                 conn.send_close_notify();
 
                 // Write close_notify to outgoing buffer/BIO
@@ -3881,7 +3967,6 @@ mod _ssl {
             }
 
             // Step 2: Try to read and process peer's close_notify
-            let is_bio = self.is_bio_mode();
 
             // First check if we already have peer's close_notify
             // This can happen if it was received during a previous read() call
@@ -3923,7 +4008,7 @@ mod _ssl {
                     if self.try_read_close_notify(conn, vm)? {
                         peer_closed = true;
                     }
-                } else if let Some(_timeout) = timeout_mode {
+                } else if let Some(timeout) = timeout_mode {
                     // All socket modes (blocking, timeout, non-blocking):
                     // Return immediately after sending our close_notify.
                     //
@@ -3934,7 +4019,30 @@ mod _ssl {
                     // Waiting for peer's close_notify can cause deadlock with
                     // asyncore-based servers where both sides wait for the other's
                     // close_notify before closing the connection.
+
+                    // Ensure all pending TLS data is sent before returning
+                    // This prevents data loss when rustls drains its buffer
+                    // but the socket couldn't accept all data immediately
                     drop(conn_guard);
+
+                    // Respect socket timeout settings for flushing pending TLS data
+                    match timeout {
+                        Some(0.0) => {
+                            // Non-blocking: best-effort flush, ignore errors
+                            // to avoid deadlock with asyncore-based servers
+                            let _ = self.flush_pending_tls_output(vm);
+                        }
+                        Some(_t) => {
+                            // Timeout mode: use flush with socket's timeout
+                            // Errors (including timeout) are propagated to caller
+                            self.flush_pending_tls_output(vm)?;
+                        }
+                        None => {
+                            // Blocking mode: wait until all pending data is sent
+                            self.blocking_flush_all_pending(vm)?;
+                        }
+                    }
+
                     *self.shutdown_state.lock() = ShutdownState::Completed;
                     *self.connection.lock() = None;
                     return Ok(self.sock.clone());
@@ -3966,6 +4074,7 @@ mod _ssl {
         // Helper: Write all pending TLS data (including close_notify) to outgoing buffer/BIO
         fn write_pending_tls(&self, conn: &mut TlsConnection, vm: &VirtualMachine) -> PyResult<()> {
             // First, flush any previously pending TLS output
+            // Must succeed before sending new data to maintain order
             self.flush_pending_tls_output(vm)?;
 
             loop {
