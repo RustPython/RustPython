@@ -1,19 +1,20 @@
 #! /usr/bin/env python3
 # This script generates crates/sre_engine/src/constants.rs from Lib/re/_constants.py.
 
-SCRIPT_NAME = 'scripts/generate_sre_constants.py'
+SCRIPT_NAME = "scripts/generate_sre_constants.py"
 
 
 def update_file(file, content):
     try:
-        with open(file, 'r') as fobj:
+        with open(file, "r") as fobj:
             if fobj.read() == content:
                 return False
     except (OSError, ValueError):
         pass
-    with open(file, 'w') as fobj:
+    with open(file, "w") as fobj:
         fobj.write(content)
     return True
+
 
 sre_constants_header = f"""\
 /*
@@ -30,6 +31,7 @@ sre_constants_header = f"""\
  */
 
 """
+
 
 def dump_enum(d, enum_name, derives, strip_prefix=""):
     """Generate Rust enum definitions from a Python dictionary.
@@ -68,8 +70,7 @@ def dump_bitflags(d, prefix, derives, struct_name, int_t):
     Returns:
         list: A list of strings representing the bitflags definition.
     """
-    items = [(value, name) for name, value in d.items()
-                 if name.startswith(prefix)]
+    items = [(value, name) for name, value in d.items() if name.startswith(prefix)]
     content = ["bitflags! {\n"]
     content.append(f"{derives}\n") if derives else None
     content.append(f"    pub struct {struct_name}: {int_t} {{\n")
@@ -79,6 +80,7 @@ def dump_bitflags(d, prefix, derives, struct_name, int_t):
     content.append("    }\n")
     content.append("}\n\n")
     return content
+
 
 def main(
     infile="Lib/re/_constants.py",
@@ -92,22 +94,48 @@ def main(
     content = [sre_constants_header]
     content.append("use bitflags::bitflags;\n\n")
     content.append(f"pub const SRE_MAGIC: usize = {ns['MAGIC']};\n")
-    content.extend(dump_enum(ns["OPCODES"], "SreOpcode", "#[derive(num_enum::TryFromPrimitive, Debug, PartialEq, Eq)]"))
-    content.extend(dump_enum(ns["ATCODES"], "SreAtCode", "#[derive(num_enum::TryFromPrimitive, Debug, PartialEq, Eq)]", "AT_"))
-    content.extend(dump_enum(ns["CHCODES"], "SreCatCode", "#[derive(num_enum::TryFromPrimitive, Debug)]", "CATEGORY_"))
+    content.extend(
+        dump_enum(
+            ns["OPCODES"],
+            "SreOpcode",
+            "#[derive(num_enum::TryFromPrimitive, Debug, PartialEq, Eq)]",
+        )
+    )
+    content.extend(
+        dump_enum(
+            ns["ATCODES"],
+            "SreAtCode",
+            "#[derive(num_enum::TryFromPrimitive, Debug, PartialEq, Eq)]",
+            "AT_",
+        )
+    )
+    content.extend(
+        dump_enum(
+            ns["CHCODES"],
+            "SreCatCode",
+            "#[derive(num_enum::TryFromPrimitive, Debug)]",
+            "CATEGORY_",
+        )
+    )
 
-    content.extend(dump_bitflags(ns, "SRE_FLAG_", "#[derive(Debug, PartialEq, Eq, Clone, Copy)]", "SreFlag", "u16"))
-    content.extend(dump_bitflags(ns, "SRE_INFO_",  "", "SreInfo", "u32"))
+    content.extend(
+        dump_bitflags(
+            ns,
+            "SRE_FLAG_",
+            "#[derive(Debug, PartialEq, Eq, Clone, Copy)]",
+            "SreFlag",
+            "u16",
+        )
+    )
+    content.extend(dump_bitflags(ns, "SRE_INFO_", "", "SreInfo", "u32"))
 
-    update_file(outfile_constants, ''.join(content))
+    update_file(outfile_constants, "".join(content))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import sys
+
     main(*sys.argv[1:])
-
-
-
 
 
 #         dump(f, OPCODES, "SreOpcode", "u32", "")
@@ -144,8 +172,6 @@ if __name__ == '__main__':
 #         ])
 
 #     print("done")
-
-
 
 
 # if __name__ == "__main__":
