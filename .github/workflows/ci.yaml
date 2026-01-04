@@ -110,7 +110,6 @@ env:
     test_raise
     test_ssl
   ENV_POLLUTING_TESTS_LINUX: >-
-    test.test_multiprocessing_fork.test_misc
     test.test_multiprocessing_fork.test_processes
     test.test_multiprocessing_fork.test_threads
     test.test_multiprocessing_forkserver.test_processes
@@ -120,12 +119,8 @@ env:
     test_file_eintr
     test_subprocess
   ENV_POLLUTING_TESTS_MACOS: >-
-    test_multiprocessing_forkserver.test_manager
-    test.test_multiprocessing_forkserver.test_misc
     test.test_multiprocessing_forkserver.test_processes
     test.test_multiprocessing_forkserver.test_threads
-    test.test_multiprocessing_spawn.test_manager
-    test.test_multiprocessing_spawn.test_misc
     test.test_multiprocessing_spawn.test_processes
     test.test_multiprocessing_spawn.test_threads
     test_logging
