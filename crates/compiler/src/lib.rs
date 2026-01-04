@@ -25,6 +25,7 @@ pub struct ParseError {
     pub error: parser::ParseErrorType,
     pub raw_location: ruff_text_size::TextRange,
     pub location: SourceLocation,
+    pub end_location: SourceLocation,
     pub source_path: String,
 }
 
@@ -44,13 +45,26 @@ pub enum CompileError {
 
 impl CompileError {
     pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
-        let location = source_file
-            .to_source_code()
-            .source_location(error.location.start(), PositionEncoding::Utf8);
+        let source_code = source_file.to_source_code();
+        let location = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+        let mut end_location =
+            source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+        // If the error range ends at the start of a new line (column 1),
+        // adjust it to the end of the previous line
+        if end_location.character_offset.get() == 1 && end_location.line > location.line {
+            // Get the end of the previous line
+            let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+            end_location = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+            // Adjust column to be after the last character
+            end_location.character_offset = end_location.character_offset.saturating_add(1);
+        }
+
         Self::Parse(ParseError {
             error: error.error,
             raw_location: error.location,
             location,
+            end_location,
             source_path: source_file.name().to_owned(),
         })
     }
@@ -67,6 +81,16 @@ impl CompileError {
             (location.line.get(), location.character_offset.get())
         } else {
             (0, 0)
+        }
+    }
+
+    pub fn python_end_location(&self) -> Option<(usize, usize)> {
+        match self {
+            CompileError::Codegen(_) => None,
+            CompileError::Parse(parse_error) => Some((
+                parse_error.end_location.line.get(),
+                parse_error.end_location.character_offset.get(),
+            )),
         }
     }
 
