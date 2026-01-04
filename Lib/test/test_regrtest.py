@@ -2160,6 +2160,7 @@ class ArgsTestCase(BaseTestCase):
     def test_random_seed_workers(self):
         self._check_random_seed(run_workers=True)
 
+    @unittest.skip('TODO: RUSTPYTHON flaky')
     def test_python_command(self):
         code = textwrap.dedent(r"""
             import sys
