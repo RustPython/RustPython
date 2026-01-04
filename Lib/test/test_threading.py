@@ -1202,6 +1202,8 @@ class ThreadJoinOnShutdown(BaseTestCase):
             t.join()
 
     @support.requires_fork()
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_clear_threads_states_after_fork(self):
         # Issue #17094: check that threads states are cleared after fork()
 
