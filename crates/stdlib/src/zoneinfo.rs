@@ -26,7 +26,5 @@ mod _zoneinfo {
     }
 
     #[pyclass]
-    impl ZoneInfo {
-
-    }
+    impl ZoneInfo {}
 }
