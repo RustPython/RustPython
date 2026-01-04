@@ -1297,8 +1297,7 @@ class Test_TextTestRunner(unittest.TestCase):
         expected = ['startTestRun', 'stopTestRun']
         self.assertEqual(events, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickle_unpickle(self):
         # Issue #7197: a TextTestRunner should be (un)pickleable. This is
         # required by test_multiprocessing under Windows (in verbose mode).

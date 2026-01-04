@@ -81,11 +81,29 @@ impl Coro {
             return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
         }
 
-        vm.push_exception(self.exception.lock().take());
+        // swap exception state
+        // Get generator's saved exception state from last yield
+        let gen_exc = self.exception.lock().take();
 
-        let result = vm.with_frame(self.frame.clone(), func);
+        // Use a slot to capture generator's exception state before with_frame pops
+        let exception_slot = &self.exception;
 
-        *self.exception.lock() = vm.pop_exception();
+        // Run the generator frame
+        // with_frame does push_exception(None) which creates a new exception context
+        // The caller's exception remains in the chain via prev, so topmost_exception()
+        // will find it if generator's exception is None
+        let result = vm.with_frame(self.frame.clone(), |f| {
+            // with_frame pushed None, creating: { exc: None, prev: caller's exc_info }
+            // Pop None and push generator's exception instead
+            // This maintains the chain: { exc: gen_exc, prev: caller's exc_info }
+            vm.pop_exception();
+            vm.push_exception(gen_exc);
+            let result = func(f);
+            // Save generator's exception state BEFORE with_frame pops
+            // This is the generator's current exception context
+            *exception_slot.lock() = vm.current_exception();
+            result
+        });
 
         self.running.store(false);
         result
@@ -151,6 +169,11 @@ impl Coro {
 
     pub fn close(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if self.closed.load() {
+            return Ok(());
+        }
+        // If generator hasn't started (FRAME_CREATED), just mark as closed
+        if self.frame.lasti() == 0 {
+            self.closed.store(true);
             return Ok(());
         }
         let result = self.run_with_context(jen, vm, |f| {

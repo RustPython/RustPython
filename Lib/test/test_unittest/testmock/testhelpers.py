@@ -43,8 +43,7 @@ class AnyTest(unittest.TestCase):
         mock.assert_called_with(ANY, foo=ANY)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_any_mock_calls_comparison_order(self):
         mock = Mock()
         class Foo(object):

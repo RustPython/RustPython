@@ -11,14 +11,15 @@ import typing
 import builtins as bltns
 from collections import OrderedDict
 from datetime import date
+from functools import partial
 from enum import Enum, EnumMeta, IntEnum, StrEnum, EnumType, Flag, IntFlag, unique, auto
 from enum import STRICT, CONFORM, EJECT, KEEP, _simple_enum, _test_simple_enum
 from enum import verify, UNIQUE, CONTINUOUS, NAMED_FLAGS, ReprEnum
-from enum import member, nonmember, _iter_bits_lsb
+from enum import member, nonmember, _iter_bits_lsb, EnumDict
 from io import StringIO
 from pickle import dumps, loads, PicklingError, HIGHEST_PROTOCOL
 from test import support
-from test.support import ALWAYS_EQ
+from test.support import ALWAYS_EQ, REPO_ROOT
 from test.support import threading_helper
 from datetime import timedelta
 
@@ -26,17 +27,41 @@ python_version = sys.version_info[:2]
 
 def load_tests(loader, tests, ignore):
     tests.addTests(doctest.DocTestSuite(enum))
-    if os.path.exists('Doc/library/enum.rst'):
+
+    lib_tests = os.path.join(REPO_ROOT, 'Doc/library/enum.rst')
+    if os.path.exists(lib_tests):
         tests.addTests(doctest.DocFileSuite(
-                '../../Doc/library/enum.rst',
+                lib_tests,
+                module_relative=False,
                 optionflags=doctest.ELLIPSIS|doctest.NORMALIZE_WHITESPACE,
                 ))
-    if os.path.exists('Doc/howto/enum.rst'):
+    howto_tests = os.path.join(REPO_ROOT, 'Doc/howto/enum.rst')
+    if os.path.exists(howto_tests) and sys.float_repr_style == 'short':
         tests.addTests(doctest.DocFileSuite(
-                '../../Doc/howto/enum.rst',
+                howto_tests,
+                module_relative=False,
                 optionflags=doctest.ELLIPSIS|doctest.NORMALIZE_WHITESPACE,
                 ))
     return tests
+
+def reraise_if_not_enum(*enum_types_or_exceptions):
+    from functools import wraps
+
+    def decorator(func):
+        @wraps(func)
+        def inner(*args, **kwargs):
+            excs = [
+                e
+                for e in enum_types_or_exceptions
+                if isinstance(e, Exception)
+            ]
+            if len(excs) == 1:
+                raise excs[0]
+            elif excs:
+                raise ExceptionGroup('Enum Exceptions', excs)
+            return func(*args, **kwargs)
+        return inner
+    return decorator
 
 MODULE = __name__
 SHORT_MODULE = MODULE.split('.')[-1]
@@ -75,30 +100,42 @@ try:
 except Exception as exc:
     FlagStooges = exc
 
-class FlagStoogesWithZero(Flag):
-    NOFLAG = 0
-    LARRY = 1
-    CURLY = 2
-    MOE = 4
-    BIG = 389
+try:
+    class FlagStoogesWithZero(Flag):
+        NOFLAG = 0
+        LARRY = 1
+        CURLY = 2
+        MOE = 4
+        BIG = 389
+except Exception as exc:
+    FlagStoogesWithZero = exc
 
-class IntFlagStooges(IntFlag):
-    LARRY = 1
-    CURLY = 2
-    MOE = 4
-    BIG = 389
+try:
+    class IntFlagStooges(IntFlag):
+        LARRY = 1
+        CURLY = 2
+        MOE = 4
+        BIG = 389
+except Exception as exc:
+    IntFlagStooges = exc
 
-class IntFlagStoogesWithZero(IntFlag):
-    NOFLAG = 0
-    LARRY = 1
-    CURLY = 2
-    MOE = 4
-    BIG = 389
+try:
+    class IntFlagStoogesWithZero(IntFlag):
+        NOFLAG = 0
+        LARRY = 1
+        CURLY = 2
+        MOE = 4
+        BIG = 389
+except Exception as exc:
+    IntFlagStoogesWithZero = exc
 
 # for pickle test and subclass tests
-class Name(StrEnum):
-    BDFL = 'Guido van Rossum'
-    FLUFL = 'Barry Warsaw'
+try:
+    class Name(StrEnum):
+        BDFL = 'Guido van Rossum'
+        FLUFL = 'Barry Warsaw'
+except Exception as exc:
+    Name = exc
 
 try:
     Question = Enum('Question', 'who what when where why', module=__name__)
@@ -140,7 +177,7 @@ class TestHelpers(unittest.TestCase):
 
     sunder_names = '_bad_', '_good_', '_what_ho_'
     dunder_names = '__mal__', '__bien__', '__que_que__'
-    private_names = '_MyEnum__private', '_MyEnum__still_private'
+    private_names = '_MyEnum__private', '_MyEnum__still_private', '_MyEnum___triple_private'
     private_and_sunder_names = '_MyEnum__private_', '_MyEnum__also_private_'
     random_names = 'okay', '_semi_private', '_weird__', '_MyEnum__'
 
@@ -204,26 +241,35 @@ class classproperty:
 
 # for global repr tests
 
-@enum.global_enum
-class HeadlightsK(IntFlag, boundary=enum.KEEP):
-    OFF_K = 0
-    LOW_BEAM_K = auto()
-    HIGH_BEAM_K = auto()
-    FOG_K = auto()
+try:
+    @enum.global_enum
+    class HeadlightsK(IntFlag, boundary=enum.KEEP):
+        OFF_K = 0
+        LOW_BEAM_K = auto()
+        HIGH_BEAM_K = auto()
+        FOG_K = auto()
+except Exception as exc:
+    HeadlightsK = exc
 
 
-@enum.global_enum
-class HeadlightsC(IntFlag, boundary=enum.CONFORM):
-    OFF_C = 0
-    LOW_BEAM_C = auto()
-    HIGH_BEAM_C = auto()
-    FOG_C = auto()
+try:
+    @enum.global_enum
+    class HeadlightsC(IntFlag, boundary=enum.CONFORM):
+        OFF_C = 0
+        LOW_BEAM_C = auto()
+        HIGH_BEAM_C = auto()
+        FOG_C = auto()
+except Exception as exc:
+    HeadlightsC = exc
 
 
-@enum.global_enum
-class NoName(Flag):
-    ONE = 1
-    TWO = 2
+try:
+    @enum.global_enum
+    class NoName(Flag):
+        ONE = 1
+        TWO = 2
+except Exception as exc:
+    NoName = exc
 
 
 # tests
@@ -399,10 +445,12 @@ class _EnumTests:
         with self.assertRaises(AttributeError):
             del Season.SPRING.name
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Error calling __set_name__ on '_proto_member' instance failed in 'BadSuper'
     def test_bad_new_super(self):
         with self.assertRaisesRegex(
                 TypeError,
-                'has no members defined',
+                'do not use .super...__new__;',
             ):
             class BadSuper(self.enum_type):
                 def __new__(cls, value):
@@ -417,6 +465,7 @@ class _EnumTests:
             self.assertEqual(str(TE), "<flag 'MainEnum'>")
             self.assertEqual(format(TE), "<flag 'MainEnum'>")
             self.assertTrue(TE(5) is self.dupe2)
+            self.assertTrue(7 in TE)
         else:
             self.assertEqual(repr(TE), "<enum 'MainEnum'>")
             self.assertEqual(str(TE), "<enum 'MainEnum'>")
@@ -469,6 +518,7 @@ class _EnumTests:
             self.assertFalse('first' in MainEnum)
         val = MainEnum.dupe
         self.assertIn(val, MainEnum)
+        self.assertNotIn(float('nan'), MainEnum)
         #
         class OtherEnum(Enum):
             one = auto()
@@ -1005,6 +1055,22 @@ class TestPlainEnumFunction(_EnumTests, _PlainOutputTests, unittest.TestCase):
 class TestPlainFlagClass(_EnumTests, _PlainOutputTests, _FlagTests, unittest.TestCase):
     enum_type = Flag
 
+    def test_none_member(self):
+        class FlagWithNoneMember(Flag):
+            A = 1
+            E = None
+
+        self.assertEqual(FlagWithNoneMember.A.value, 1)
+        self.assertIs(FlagWithNoneMember.E.value, None)
+        with self.assertRaisesRegex(TypeError, r"'FlagWithNoneMember.E' cannot be combined with other flags with |"):
+            FlagWithNoneMember.A | FlagWithNoneMember.E
+        with self.assertRaisesRegex(TypeError, r"'FlagWithNoneMember.E' cannot be combined with other flags with &"):
+            FlagWithNoneMember.E & FlagWithNoneMember.A
+        with self.assertRaisesRegex(TypeError, r"'FlagWithNoneMember.E' cannot be combined with other flags with \^"):
+            FlagWithNoneMember.A ^ FlagWithNoneMember.E
+        with self.assertRaisesRegex(TypeError, r"'FlagWithNoneMember.E' cannot be inverted"):
+            ~FlagWithNoneMember.E
+
 
 class TestPlainFlagFunction(_EnumTests, _PlainOutputTests, _FlagTests, unittest.TestCase):
     enum_type = Flag
@@ -1292,7 +1358,7 @@ class TestSpecial(unittest.TestCase):
                 red = 1
                 green = 2
                 blue = 3
-                def red(self):
+                def red(self):  # noqa: F811
                     return 'red'
         #
         with self.assertRaises(TypeError):
@@ -1300,13 +1366,12 @@ class TestSpecial(unittest.TestCase):
                 @enum.property
                 def red(self):
                     return 'redder'
-                red = 1
+                red = 1  # noqa: F811
                 green = 2
                 blue = 3
 
+    @reraise_if_not_enum(Theory)
     def test_enum_function_with_qualname(self):
-        if isinstance(Theory, Exception):
-            raise Theory
         self.assertEqual(Theory.__qualname__, 'spanish_inquisition')
 
     def test_enum_of_types(self):
@@ -1369,12 +1434,10 @@ class TestSpecial(unittest.TestCase):
             [Outer.a, Outer.b, Outer.Inner],
             )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(
-        python_version < (3, 13),
-        'inner classes are still members',
-    )
+            python_version < (3, 13),
+            'inner classes are still members',
+            )
     def test_nested_classes_in_enum_are_not_members(self):
         """Support locally-defined nested classes."""
         class Outer(Enum):
@@ -1439,6 +1502,27 @@ class TestSpecial(unittest.TestCase):
             spam = nonmember(SpamEnumIsInner)
         self.assertTrue(SpamEnum.spam is SpamEnumIsInner)
 
+    def test_using_members_as_nonmember(self):
+        class Example(Flag):
+            A = 1
+            B = 2
+            ALL = nonmember(A | B)
+
+        self.assertEqual(Example.A.value, 1)
+        self.assertEqual(Example.B.value, 2)
+        self.assertEqual(Example.ALL, 3)
+        self.assertIs(type(Example.ALL), int)
+
+        class Example(Flag):
+            A = auto()
+            B = auto()
+            ALL = nonmember(A | B)
+
+        self.assertEqual(Example.A.value, 1)
+        self.assertEqual(Example.B.value, 2)
+        self.assertEqual(Example.ALL, 3)
+        self.assertIs(type(Example.ALL), int)
+
     def test_nested_classes_in_enum_with_member(self):
         """Support locally-defined nested classes."""
         class Outer(Enum):
@@ -1459,6 +1543,22 @@ class TestSpecial(unittest.TestCase):
             list(Outer),
             [Outer.a, Outer.b, Outer.Inner],
             )
+
+    # TODO: RUSTPYTHON
+    # AssertionError: FutureWarning not triggered
+    @unittest.expectedFailure
+    def test_partial(self):
+        def func(a, b=5):
+            return a, b
+        with self.assertWarnsRegex(FutureWarning, r'partial.*enum\.member') as cm:
+            class E(Enum):
+                a = 1
+                b = partial(func)
+        self.assertEqual(cm.filename, __file__)
+        self.assertIsInstance(E.b, partial)
+        self.assertEqual(E.b(2), (2, 5))
+        with self.assertWarnsRegex(FutureWarning, 'partial'):
+            self.assertEqual(E.a.b(2), (2, 5))
 
     def test_enum_with_value_name(self):
         class Huh(Enum):
@@ -1490,6 +1590,17 @@ class TestSpecial(unittest.TestCase):
             X = 1
         self.assertIn(IntEnum1.X, IntFlag1)
         self.assertIn(IntFlag1.X, IntEnum1)
+
+    def test_contains_does_not_call_missing(self):
+        class AnEnum(Enum):
+            UNKNOWN = None
+            LUCKY = 3
+            @classmethod
+            def _missing_(cls, *values):
+                return cls.UNKNOWN
+        self.assertTrue(None in AnEnum)
+        self.assertTrue(3 in AnEnum)
+        self.assertFalse(7 in AnEnum)
 
     def test_inherited_data_type(self):
         class HexInt(int):
@@ -1537,6 +1648,7 @@ class TestSpecial(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, MyUnBrokenEnum.I)
         test_pickle_dump_load(self.assertIs, MyUnBrokenEnum)
 
+    @reraise_if_not_enum(FloatStooges)
     def test_floatenum_fromhex(self):
         h = float.hex(FloatStooges.MOE.value)
         self.assertIs(FloatStooges.fromhex(h), FloatStooges.MOE)
@@ -1657,8 +1769,8 @@ class TestSpecial(unittest.TestCase):
         self.assertIs(ThreePart((3, 3.0, 'three')), ThreePart.THREE)
         self.assertIs(ThreePart(3, 3.0, 'three'), ThreePart.THREE)
 
-    # TODO: RUSTPYTHON, AssertionError: <test.test_enum.IntStooges object at 0x55c70c38a240> is not <IntStooges.MOE: 3>
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: <test.test_enum.IntStooges object at 0x55c70c38a240> is not <IntStooges.MOE: 3>
+    @reraise_if_not_enum(IntStooges)
     def test_intenum_from_bytes(self):
         self.assertIs(IntStooges.from_bytes(b'\x00\x03', 'big'), IntStooges.MOE)
         with self.assertRaises(ValueError):
@@ -1687,33 +1799,28 @@ class TestSpecial(unittest.TestCase):
             class Huh(MyStr, MyInt, Enum):
                 One = 1
 
+    @reraise_if_not_enum(Stooges)
     def test_pickle_enum(self):
-        if isinstance(Stooges, Exception):
-            raise Stooges
         test_pickle_dump_load(self.assertIs, Stooges.CURLY)
         test_pickle_dump_load(self.assertIs, Stooges)
 
+    @reraise_if_not_enum(IntStooges)
     def test_pickle_int(self):
-        if isinstance(IntStooges, Exception):
-            raise IntStooges
         test_pickle_dump_load(self.assertIs, IntStooges.CURLY)
         test_pickle_dump_load(self.assertIs, IntStooges)
 
+    @reraise_if_not_enum(FloatStooges)
     def test_pickle_float(self):
-        if isinstance(FloatStooges, Exception):
-            raise FloatStooges
         test_pickle_dump_load(self.assertIs, FloatStooges.CURLY)
         test_pickle_dump_load(self.assertIs, FloatStooges)
 
+    @reraise_if_not_enum(Answer)
     def test_pickle_enum_function(self):
-        if isinstance(Answer, Exception):
-            raise Answer
         test_pickle_dump_load(self.assertIs, Answer.him)
         test_pickle_dump_load(self.assertIs, Answer)
 
+    @reraise_if_not_enum(Question)
     def test_pickle_enum_function_with_module(self):
-        if isinstance(Question, Exception):
-            raise Question
         test_pickle_dump_load(self.assertIs, Question.who)
         test_pickle_dump_load(self.assertIs, Question)
 
@@ -1776,9 +1883,8 @@ class TestSpecial(unittest.TestCase):
                 [Season.SUMMER, Season.WINTER, Season.AUTUMN, Season.SPRING],
                 )
 
+    @reraise_if_not_enum(Name)
     def test_subclassing(self):
-        if isinstance(Name, Exception):
-            raise Name
         self.assertEqual(Name.BDFL, 'Guido van Rossum')
         self.assertTrue(Name.BDFL, Name('Guido van Rossum'))
         self.assertIs(Name.BDFL, getattr(Name, 'BDFL'))
@@ -1816,6 +1922,27 @@ class TestSpecial(unittest.TestCase):
         with self.assertRaises(TypeError):
             class Wrong(Enum, str):
                 NotHere = 'error before this point'
+
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Error calling __set_name__ on '_proto_member' instance INVALID in 'RgbColor'
+    def test_raise_custom_error_on_creation(self):
+        class InvalidRgbColorError(ValueError):
+            def __init__(self, r, g, b):
+                self.r = r
+                self.g = g
+                self.b = b
+                super().__init__(f'({r}, {g}, {b}) is not a valid RGB color')
+
+        with self.assertRaises(InvalidRgbColorError):
+            class RgbColor(Enum):
+                RED = (255, 0, 0)
+                GREEN = (0, 255, 0)
+                BLUE = (0, 0, 255)
+                INVALID = (256, 0, 0)
+
+                def __init__(self, r, g, b):
+                    if not all(0 <= val <= 255 for val in (r, g, b)):
+                        raise InvalidRgbColorError(r, g, b)
 
     def test_intenum_transitivity(self):
         class number(IntEnum):
@@ -2003,8 +2130,7 @@ class TestSpecial(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, NEI.y)
         test_pickle_dump_load(self.assertIs, NEI)
 
-    # TODO: RUSTPYTHON, fails on pickle
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; fails on pickle
     def test_subclasses_with_getnewargs_ex(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'       # needed for pickle protocol 4
@@ -2312,6 +2438,40 @@ class TestSpecial(unittest.TestCase):
         globals()['SomeTuple'] = SomeTuple
         test_pickle_dump_load(self.assertIs, SomeTuple.first)
 
+    def test_tuple_subclass_with_auto_1(self):
+        from collections import namedtuple
+        T = namedtuple('T', 'index desc')
+        class SomeEnum(T, Enum):
+            __qualname__ = 'SomeEnum'      # needed for pickle protocol 4
+            first = auto(), 'for the money'
+            second = auto(), 'for the show'
+            third = auto(), 'for the music'
+        self.assertIs(type(SomeEnum.first), SomeEnum)
+        self.assertEqual(SomeEnum.third.value, (3, 'for the music'))
+        self.assertIsInstance(SomeEnum.third.value, T)
+        self.assertEqual(SomeEnum.first.index, 1)
+        self.assertEqual(SomeEnum.second.desc, 'for the show')
+        globals()['SomeEnum'] = SomeEnum
+        globals()['T'] = T
+        test_pickle_dump_load(self.assertIs, SomeEnum.first)
+
+    def test_tuple_subclass_with_auto_2(self):
+        from collections import namedtuple
+        T = namedtuple('T', 'index desc')
+        class SomeEnum(Enum):
+            __qualname__ = 'SomeEnum'      # needed for pickle protocol 4
+            first = T(auto(), 'for the money')
+            second = T(auto(), 'for the show')
+            third = T(auto(), 'for the music')
+        self.assertIs(type(SomeEnum.first), SomeEnum)
+        self.assertEqual(SomeEnum.third.value, (3, 'for the music'))
+        self.assertIsInstance(SomeEnum.third.value, T)
+        self.assertEqual(SomeEnum.first.value.index, 1)
+        self.assertEqual(SomeEnum.second.value.desc, 'for the show')
+        globals()['SomeEnum'] = SomeEnum
+        globals()['T'] = T
+        test_pickle_dump_load(self.assertIs, SomeEnum.first)
+
     def test_duplicate_values_give_unique_enum_items(self):
         class AutoNumber(Enum):
             first = ()
@@ -2453,6 +2613,8 @@ class TestSpecial(unittest.TestCase):
         self.assertEqual(Test.flash.flash, 'flashy dynamic')
         self.assertEqual(Test.flash.value, 1)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Error calling __set_name__ on '_proto_member' instance grene in 'Color'
     def test_no_duplicates(self):
         class UniqueEnum(Enum):
             def __init__(self, *args):
@@ -2838,6 +3000,8 @@ class TestSpecial(unittest.TestCase):
         local_ls = {}
         exec(code, global_ns, local_ls)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Error calling __set_name__ on '_proto_member' instance one in 'FirstFailedStrEnum'
     def test_strenum(self):
         class GoodStrEnum(StrEnum):
             one = '1'
@@ -2900,8 +3064,7 @@ class TestSpecial(unittest.TestCase):
                 one = '1'
                 two = b'2', 'ascii', 9
 
-    # TODO: RUSTPYTHON, fails on encoding testing : TypeError: Expected type 'str' but 'builtin_function_or_method' found
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; fails on encoding testing : TypeError: Expected type 'str' but 'builtin_function_or_method' found
     def test_custom_strenum(self):
         class CustomStrEnum(str, Enum):
             pass
@@ -2952,15 +3115,19 @@ class TestSpecial(unittest.TestCase):
         class ThirdFailedStrEnum(CustomStrEnum):
             one = '1'
             two = 2  # this will become '2'
-        with self.assertRaisesRegex(TypeError, '.encoding. must be str, not '):
+        with self.assertRaisesRegex(TypeError,
+                r"argument (2|'encoding') must be str, not "):
             class ThirdFailedStrEnum(CustomStrEnum):
                 one = '1'
                 two = b'2', sys.getdefaultencoding
-        with self.assertRaisesRegex(TypeError, '.errors. must be str, not '):
+        with self.assertRaisesRegex(TypeError,
+                r"argument (3|'errors') must be str, not "):
             class ThirdFailedStrEnum(CustomStrEnum):
                 one = '1'
                 two = b'2', 'ascii', 9
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Error calling __set_name__ on '_proto_member' instance key_type in 'Combined'
     def test_missing_value_error(self):
         with self.assertRaisesRegex(TypeError, "_value_ not set in __new__"):
             class Combined(str, Enum):
@@ -3170,6 +3337,37 @@ class TestSpecial(unittest.TestCase):
                 [TTuple(id=0, a=0, blist=[]), TTuple(id=1, a=2, blist=[4]), TTuple(id=2, a=4, blist=[0, 1, 2])],
                 )
 
+        self.assertRaises(AttributeError, getattr, NTEnum.NONE, 'id')
+        #
+        class NTCEnum(TTuple, Enum):
+            NONE = 0, 0, []
+            A = 1, 2, [4]
+            B = 2, 4, [0, 1, 2]
+        self.assertEqual(repr(NTCEnum.NONE), "<NTCEnum.NONE: TTuple(id=0, a=0, blist=[])>")
+        self.assertEqual(NTCEnum.NONE.value, TTuple(id=0, a=0, blist=[]))
+        self.assertEqual(NTCEnum.NONE.id, 0)
+        self.assertEqual(NTCEnum.A.a, 2)
+        self.assertEqual(NTCEnum.B.blist, [0, 1 ,2])
+        self.assertEqual(
+                [x.value for x in NTCEnum],
+                [TTuple(id=0, a=0, blist=[]), TTuple(id=1, a=2, blist=[4]), TTuple(id=2, a=4, blist=[0, 1, 2])],
+                )
+        #
+        class NTDEnum(Enum):
+            def __new__(cls, id, a, blist):
+                member = object.__new__(cls)
+                member.id = id
+                member.a = a
+                member.blist = blist
+                return member
+            NONE = TTuple(0, 0, [])
+            A = TTuple(1, 2, [4])
+            B = TTuple(2, 4, [0, 1, 2])
+        self.assertEqual(repr(NTDEnum.NONE), "<NTDEnum.NONE: TTuple(id=0, a=0, blist=[])>")
+        self.assertEqual(NTDEnum.NONE.id, 0)
+        self.assertEqual(NTDEnum.A.a, 2)
+        self.assertEqual(NTDEnum.B.blist, [0, 1 ,2])
+
     def test_flag_with_custom_new(self):
         class FlagFromChar(IntFlag):
             def __new__(cls, c):
@@ -3216,6 +3414,8 @@ class TestSpecial(unittest.TestCase):
         self.assertEqual(FlagFromChar.a, 158456325028528675187087900672)
         self.assertEqual(FlagFromChar.a|1, 158456325028528675187087900673)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Error calling __set_name__ on '_proto_member' instance A in 'MyEnum'
     def test_init_exception(self):
         class Base:
             def __new__(cls, *args):
@@ -3236,6 +3436,102 @@ class TestSpecial(unittest.TestCase):
                     member = Base.__new__(cls)
                     member._value_ = Base(value)
                     return member
+
+    def test_extra_member_creation(self):
+        class IDEnumMeta(EnumMeta):
+            def __new__(metacls, cls, bases, classdict, **kwds):
+                # add new entries to classdict
+                for name in classdict.member_names:
+                    classdict[f'{name}_DESC'] = f'-{classdict[name]}'
+                return super().__new__(metacls, cls, bases, classdict, **kwds)
+        class IDEnum(StrEnum, metaclass=IDEnumMeta):
+            pass
+        class MyEnum(IDEnum):
+            ID = 'id'
+            NAME = 'name'
+        self.assertEqual(list(MyEnum), [MyEnum.ID, MyEnum.NAME, MyEnum.ID_DESC, MyEnum.NAME_DESC])
+
+    def test_add_alias(self):
+        class mixin:
+            @property
+            def ORG(self):
+                return 'huh'
+        class Color(mixin, Enum):
+            RED = 1
+            GREEN = 2
+            BLUE = 3
+        Color.RED._add_alias_('ROJO')
+        self.assertIs(Color.RED, Color['ROJO'])
+        self.assertIs(Color.RED, Color.ROJO)
+        Color.BLUE._add_alias_('ORG')
+        self.assertIs(Color.BLUE, Color['ORG'])
+        self.assertIs(Color.BLUE, Color.ORG)
+        self.assertEqual(Color.RED.ORG, 'huh')
+        self.assertEqual(Color.GREEN.ORG, 'huh')
+        self.assertEqual(Color.BLUE.ORG, 'huh')
+        self.assertEqual(Color.ORG.ORG, 'huh')
+
+    def test_add_value_alias_after_creation(self):
+        class Color(Enum):
+            RED = 1
+            GREEN = 2
+            BLUE = 3
+        Color.RED._add_value_alias_(5)
+        self.assertIs(Color.RED, Color(5))
+
+    def test_add_value_alias_during_creation(self):
+        class Types(Enum):
+            Unknown = 0,
+            Source  = 1, 'src'
+            NetList = 2, 'nl'
+            def __new__(cls, int_value, *value_aliases):
+                member = object.__new__(cls)
+                member._value_ = int_value
+                for alias in value_aliases:
+                    member._add_value_alias_(alias)
+                return member
+        self.assertIs(Types(0), Types.Unknown)
+        self.assertIs(Types(1), Types.Source)
+        self.assertIs(Types('src'), Types.Source)
+        self.assertIs(Types(2), Types.NetList)
+        self.assertIs(Types('nl'), Types.NetList)
+
+    def test_second_tuple_item_is_falsey(self):
+        class Cardinal(Enum):
+            RIGHT = (1, 0)
+            UP = (0, 1)
+            LEFT = (-1, 0)
+            DOWN = (0, -1)
+        self.assertIs(Cardinal(1, 0), Cardinal.RIGHT)
+        self.assertIs(Cardinal(-1, 0), Cardinal.LEFT)
+
+    def test_no_members(self):
+        with self.assertRaisesRegex(
+                TypeError,
+                'has no members',
+            ):
+            Enum(7)
+        with self.assertRaisesRegex(
+                TypeError,
+                'has no members',
+            ):
+            Flag(7)
+
+    def test_empty_names(self):
+        for nothing in '', [], {}:
+            for e_type in None, int:
+                empty_enum = Enum('empty_enum', nothing, type=e_type)
+                self.assertEqual(len(empty_enum), 0)
+                self.assertRaisesRegex(TypeError, 'has no members', empty_enum, 0)
+        self.assertRaisesRegex(TypeError, '.int. object is not iterable', Enum, 'bad_enum', names=0)
+        self.assertRaisesRegex(TypeError, '.int. object is not iterable', Enum, 'bad_enum', 0, type=int)
+
+    def test_nonhashable_matches_hashable(self):    # issue 125710
+        class Directions(Enum):
+            DOWN_ONLY = frozenset({"sc"})
+            UP_ONLY = frozenset({"cs"})
+            UNRESTRICTED = frozenset({"sc", "cs"})
+        self.assertIs(Directions({"sc"}), Directions.DOWN_ONLY)
 
 
 class TestOrder(unittest.TestCase):
@@ -3518,9 +3814,13 @@ class OldTestFlag(unittest.TestCase):
             self.assertIn(e, Perm)
             self.assertIs(type(e), Perm)
 
+    @reraise_if_not_enum(
+        FlagStooges,
+        FlagStoogesWithZero,
+        IntFlagStooges,
+        IntFlagStoogesWithZero,
+    )
     def test_pickle(self):
-        if isinstance(FlagStooges, Exception):
-            raise FlagStooges
         test_pickle_dump_load(self.assertIs, FlagStooges.CURLY)
         test_pickle_dump_load(self.assertEqual,
                         FlagStooges.CURLY|FlagStooges.MOE)
@@ -3704,7 +4004,7 @@ class OldTestFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
+    @unittest.skip('TODO: RUSTPYTHON; flaky test')
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_unique_composite(self):
@@ -3826,6 +4126,7 @@ class OldTestIntFlag(unittest.TestCase):
         self.assertTrue(isinstance(Open.WO | Open.RW, Open))
         self.assertEqual(Open.WO | Open.RW, 3)
 
+    @reraise_if_not_enum(HeadlightsK)
     def test_global_repr_keep(self):
         self.assertEqual(
                 repr(HeadlightsK(0)),
@@ -3840,6 +4141,7 @@ class OldTestIntFlag(unittest.TestCase):
                 '%(m)s.HeadlightsK(8)' % {'m': SHORT_MODULE},
                 )
 
+    @reraise_if_not_enum(HeadlightsC)
     def test_global_repr_conform1(self):
         self.assertEqual(
                 repr(HeadlightsC(0)),
@@ -3854,13 +4156,14 @@ class OldTestIntFlag(unittest.TestCase):
                 '%(m)s.OFF_C' % {'m': SHORT_MODULE},
                 )
 
+    @reraise_if_not_enum(NoName)
     def test_global_enum_str(self):
+        self.assertEqual(repr(NoName.ONE), 'test_enum.ONE')
+        self.assertEqual(repr(NoName(0)), 'test_enum.NoName(0)')
         self.assertEqual(str(NoName.ONE & NoName.TWO), 'NoName(0)')
         self.assertEqual(str(NoName(0)), 'NoName(0)')
 
-
-    # TODO: RUSTPYTHON, format(NewPerm.R) does not use __str__
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; format(NewPerm.R) does not use __str__
     def test_format(self):
         Perm = self.Perm
         self.assertEqual(format(Perm.R, ''), '4')
@@ -4223,7 +4526,7 @@ class OldTestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
+    @unittest.skip('TODO: RUSTPYTHON; flaky test')
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_unique_composite(self):
@@ -4548,35 +4851,28 @@ class TestInternals(unittest.TestCase):
                 red = 'red'
                 blue = 2
                 green = auto()
-                yellow = auto()
 
-        self.assertEqual(list(Color),
-                         [Color.red, Color.blue, Color.green, Color.yellow])
+        self.assertEqual(list(Color), [Color.red, Color.blue, Color.green])
         self.assertEqual(Color.red.value, 'red')
         self.assertEqual(Color.blue.value, 2)
         self.assertEqual(Color.green.value, 3)
-        self.assertEqual(Color.yellow.value, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(
-        python_version < (3, 13),
-        'inner classes are still members',
-    )
+            python_version < (3, 13),
+            'mixed types with auto() will raise in 3.13',
+            )
     def test_auto_garbage_fail(self):
-        with self.assertRaisesRegex(TypeError, 'will require all values to be sortable'):
+        with self.assertRaisesRegex(TypeError, "unable to increment 'red'"):
             class Color(Enum):
                 red = 'red'
                 blue = auto()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(
-        python_version < (3, 13),
-        'inner classes are still members',
-    )
+            python_version < (3, 13),
+            'mixed types with auto() will raise in 3.13',
+            )
     def test_auto_garbage_corrected_fail(self):
-        with self.assertRaisesRegex(TypeError, 'will require all values to be sortable'):
+        with self.assertRaisesRegex(TypeError, 'unable to sort non-numeric values'):
             class Color(Enum):
                 red = 'red'
                 blue = 2
@@ -4604,9 +4900,9 @@ class TestInternals(unittest.TestCase):
         self.assertEqual(Color.blue.value, 'blue')
 
     @unittest.skipIf(
-        python_version < (3, 13),
-        'inner classes are still members',
-    )
+            python_version < (3, 13),
+            'auto() will return highest value + 1 in 3.13',
+            )
     def test_auto_with_aliases(self):
         class Color(Enum):
             red = auto()
@@ -4670,8 +4966,6 @@ class TestInternals(unittest.TestCase):
         self.assertEqual(Huh.TWO.value, (2, 2))
         self.assertEqual(Huh.THREE.value, (3, 3, 3))
 
-class TestEnumTypeSubclassing(unittest.TestCase):
-    pass
 
 expected_help_output_with_docs = """\
 Help on class Color in module %s:
@@ -4702,22 +4996,23 @@ class Color(enum.Enum)
  |      The value of the Enum member.
  |
  |  ----------------------------------------------------------------------
- |  Methods inherited from enum.EnumType:
+ |  Static methods inherited from enum.EnumType:
  |
- |  __contains__(value) from enum.EnumType
+ |  __contains__(value)
  |      Return True if `value` is in `cls`.
  |
  |      `value` is in `cls` if:
  |      1) `value` is a member of `cls`, or
  |      2) `value` is the value of one of the `cls`'s members.
+ |      3) `value` is a pseudo-member (flags)
  |
- |  __getitem__(name) from enum.EnumType
+ |  __getitem__(name)
  |      Return the member matching `name`.
  |
- |  __iter__() from enum.EnumType
+ |  __iter__()
  |      Return members in definition order.
  |
- |  __len__() from enum.EnumType
+ |  __len__()
  |      Return the number of members (no aliases)
  |
  |  ----------------------------------------------------------------------
@@ -4742,11 +5037,11 @@ class Color(enum.Enum)
  |
  |  Data and other attributes defined here:
  |
- |  YELLOW = <Color.YELLOW: 3>
+ |  CYAN = <Color.CYAN: 1>
  |
  |  MAGENTA = <Color.MAGENTA: 2>
  |
- |  CYAN = <Color.CYAN: 1>
+ |  YELLOW = <Color.YELLOW: 3>
  |
  |  ----------------------------------------------------------------------
  |  Data descriptors inherited from enum.Enum:
@@ -4756,7 +5051,18 @@ class Color(enum.Enum)
  |  value
  |
  |  ----------------------------------------------------------------------
- |  Data descriptors inherited from enum.EnumType:
+ |  Static methods inherited from enum.EnumType:
+ |
+ |  __contains__(value)
+ |
+ |  __getitem__(name)
+ |
+ |  __iter__()
+ |
+ |  __len__()
+ |
+ |  ----------------------------------------------------------------------
+ |  Readonly properties inherited from enum.EnumType:
  |
  |  __members__"""
 
@@ -4769,8 +5075,7 @@ class TestStdLib(unittest.TestCase):
         MAGENTA = 2
         YELLOW = 3
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pydoc(self):
         # indirectly test __objclass__
         if StrEnum.__doc__ is None:
@@ -4903,8 +5208,7 @@ class TestStdLib(unittest.TestCase):
                     ]),
                 )
 
-    # TODO: RUSTPYTHON, len is often/always > 256
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; len is often/always > 256
     def test_test_simple_enum(self):
         @_simple_enum(Enum)
         class SimpleColor:
@@ -4921,12 +5225,14 @@ class TestStdLib(unittest.TestCase):
             @bltns.property
             def zeroth(self):
                 return 'zeroed %s' % self.name
-        self.assertTrue(_test_simple_enum(CheckedColor, SimpleColor) is None)
+        _test_simple_enum(CheckedColor, SimpleColor)
         SimpleColor.MAGENTA._value_ = 9
         self.assertRaisesRegex(
                 TypeError, "enum mismatch",
                 _test_simple_enum, CheckedColor, SimpleColor,
                 )
+        #
+        #
         class CheckedMissing(IntFlag, boundary=KEEP):
             SIXTY_FOUR = 64
             ONE_TWENTY_EIGHT = 128
@@ -4943,8 +5249,78 @@ class TestStdLib(unittest.TestCase):
             ALL = 2048 + 128 + 64 + 12
         M = Missing
         self.assertEqual(list(CheckedMissing), [M.SIXTY_FOUR, M.ONE_TWENTY_EIGHT, M.TWENTY_FORTY_EIGHT])
-        #
         _test_simple_enum(CheckedMissing, Missing)
+        #
+        #
+        class CheckedUnhashable(Enum):
+            ONE = dict()
+            TWO = set()
+            name = 'python'
+        self.assertIn(dict(), CheckedUnhashable)
+        self.assertIn('python', CheckedUnhashable)
+        self.assertEqual(CheckedUnhashable.name.value, 'python')
+        self.assertEqual(CheckedUnhashable.name.name, 'name')
+        #
+        @_simple_enum()
+        class Unhashable:
+            ONE = dict()
+            TWO = set()
+            name = 'python'
+        self.assertIn(dict(), Unhashable)
+        self.assertIn('python', Unhashable)
+        self.assertEqual(Unhashable.name.value, 'python')
+        self.assertEqual(Unhashable.name.name, 'name')
+        _test_simple_enum(CheckedUnhashable, Unhashable)
+        ##
+        class CheckedComplexStatus(IntEnum):
+            def __new__(cls, value, phrase, description=''):
+                obj = int.__new__(cls, value)
+                obj._value_ = value
+                obj.phrase = phrase
+                obj.description = description
+                return obj
+            CONTINUE = 100, 'Continue', 'Request received, please continue'
+            PROCESSING = 102, 'Processing'
+            EARLY_HINTS = 103, 'Early Hints'
+            SOME_HINTS = 103, 'Some Early Hints'
+        #
+        @_simple_enum(IntEnum)
+        class ComplexStatus:
+            def __new__(cls, value, phrase, description=''):
+                obj = int.__new__(cls, value)
+                obj._value_ = value
+                obj.phrase = phrase
+                obj.description = description
+                return obj
+            CONTINUE = 100, 'Continue', 'Request received, please continue'
+            PROCESSING = 102, 'Processing'
+            EARLY_HINTS = 103, 'Early Hints'
+            SOME_HINTS = 103, 'Some Early Hints'
+        _test_simple_enum(CheckedComplexStatus, ComplexStatus)
+        #
+        #
+        class CheckedComplexFlag(IntFlag):
+            def __new__(cls, value, label):
+                obj = int.__new__(cls, value)
+                obj._value_ = value
+                obj.label = label
+                return obj
+            SHIRT = 1, 'upper half'
+            VEST = 1, 'outer upper half'
+            PANTS = 2, 'lower half'
+        self.assertIs(CheckedComplexFlag.SHIRT, CheckedComplexFlag.VEST)
+        #
+        @_simple_enum(IntFlag)
+        class ComplexFlag:
+            def __new__(cls, value, label):
+                obj = int.__new__(cls, value)
+                obj._value_ = value
+                obj.label = label
+                return obj
+            SHIRT = 1, 'upper half'
+            VEST = 1, 'uppert half'
+            PANTS = 2, 'lower half'
+        _test_simple_enum(CheckedComplexFlag, ComplexFlag)
 
 
 class MiscTestCase(unittest.TestCase):
@@ -5031,7 +5407,7 @@ class TestConvert(unittest.TestCase):
                 filter=lambda x: x.startswith('CONVERT_TEST_'))
         # We don't want the reverse lookup value to vary when there are
         # multiple possible names for a given value.  It should always
-        # report the first lexigraphical name in that case.
+        # report the first lexicographical name in that case.
         self.assertEqual(test_type(5).name, 'CONVERT_TEST_NAME_A')
 
     def test_convert_int(self):
@@ -5117,6 +5493,37 @@ class TestConvert(unittest.TestCase):
         self.assertEqual(format(test_type.CONVERT_STRING_TEST_NAME_A), '5')
 
 
+class TestEnumDict(unittest.TestCase):
+    def test_enum_dict_in_metaclass(self):
+        """Test that EnumDict is usable as a class namespace"""
+        class Meta(type):
+            @classmethod
+            def __prepare__(metacls, cls, bases, **kwds):
+                return EnumDict(cls)
+
+        class MyClass(metaclass=Meta):
+            a = 1
+
+            with self.assertRaises(TypeError):
+                a = 2  # duplicate
+
+            with self.assertRaises(ValueError):
+                _a_sunder_ = 3
+
+    def test_enum_dict_standalone(self):
+        """Test that EnumDict is usable on its own"""
+        enumdict = EnumDict()
+        enumdict['a'] = 1
+
+        with self.assertRaises(TypeError):
+            enumdict['a'] = 'other value'
+
+        # Only MutableMapping interface is overridden for now.
+        # If this stops passing, update the documentation.
+        enumdict |= {'a': 'other value'}
+        self.assertEqual(enumdict['a'], 'other value')
+
+
 # helpers
 
 def enum_dir(cls):
@@ -5151,7 +5558,7 @@ def member_dir(member):
                     allowed.add(name)
                 else:
                     allowed.discard(name)
-            else:
+            elif name not in member._member_map_:
                 allowed.add(name)
     return sorted(allowed)
 

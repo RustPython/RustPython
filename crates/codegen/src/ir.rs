@@ -4,9 +4,11 @@ use crate::{IndexMap, IndexSet, error::InternalError};
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
-        CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, InstrDisplayContext, Instruction,
-        Label, OpArg, PyCodeLocationInfoKind,
+        CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
+        InstrDisplayContext, Instruction, Label, OpArg, PyCodeLocationInfoKind,
+        encode_exception_table,
     },
+    varint::{write_signed_varint, write_varint},
 };
 
 /// Metadata for a code unit
@@ -88,6 +90,18 @@ pub struct InstructionInfo {
     pub target: BlockIdx,
     pub location: SourceLocation,
     pub end_location: SourceLocation,
+    pub except_handler: Option<ExceptHandlerInfo>,
+}
+
+/// Exception handler information for an instruction
+#[derive(Debug, Clone)]
+pub struct ExceptHandlerInfo {
+    /// Block to jump to when exception occurs
+    pub handler_block: BlockIdx,
+    /// Stack depth at handler entry
+    pub stack_depth: u32,
+    /// Whether to push lasti before exception
+    pub preserve_lasti: bool,
 }
 
 // spell-checker:ignore petgraph
@@ -176,12 +190,19 @@ impl CodeInfo {
         let mut locations = Vec::new();
 
         let mut block_to_offset = vec![Label(0); blocks.len()];
+        // block_to_index: maps block idx to instruction index (for exception table)
+        // This is the index into the final instructions array, including EXTENDED_ARG
+        let mut block_to_index = vec![0u32; blocks.len()];
         loop {
             let mut num_instructions = 0;
             for (idx, block) in iter_blocks(&blocks) {
                 block_to_offset[idx.idx()] = Label(num_instructions as u32);
+                // block_to_index uses the same value as block_to_offset but as u32
+                // because lasti in frame.rs is the index into instructions array
+                // and instructions array index == byte offset (each instruction is 1 CodeUnit)
+                block_to_index[idx.idx()] = num_instructions as u32;
                 for instr in &block.instructions {
-                    num_instructions += instr.arg.instr_size()
+                    num_instructions += instr.arg.instr_size();
                 }
             }
 
@@ -228,6 +249,9 @@ impl CodeInfo {
             opts.debug_ranges,
         );
 
+        // Generate exception table before moving source_path
+        let exceptiontable = generate_exception_table(&blocks, &block_to_index);
+
         Ok(CodeObject {
             flags,
             posonlyarg_count,
@@ -248,7 +272,7 @@ impl CodeInfo {
             freevars: freevar_cache.into_iter().collect(),
             cell2arg,
             linetable,
-            exceptiontable: Box::new([]), // TODO: Generate actual exception table
+            exceptiontable,
         })
     }
 
@@ -305,12 +329,24 @@ impl CodeInfo {
         start_depths[0] = 0;
         stack.push(BlockIdx(0));
         const DEBUG: bool = false;
-        'process_blocks: while let Some(block) = stack.pop() {
-            let mut depth = start_depths[block.idx()];
-            if DEBUG {
-                eprintln!("===BLOCK {}===", block.0);
+        // Global iteration limit as safety guard
+        // The algorithm is monotonic (depths only increase), so it should converge quickly.
+        // Max iterations = blocks * max_possible_depth_increases per block
+        let max_iterations = self.blocks.len() * 100;
+        let mut iterations = 0usize;
+        'process_blocks: while let Some(block_idx) = stack.pop() {
+            iterations += 1;
+            if iterations > max_iterations {
+                // Safety guard: should never happen in valid code
+                // Return error instead of silently breaking to avoid underestimated stack depth
+                return Err(InternalError::StackOverflow);
             }
-            let block = &self.blocks[block];
+            let idx = block_idx.idx();
+            let mut depth = start_depths[idx];
+            if DEBUG {
+                eprintln!("===BLOCK {}===", block_idx.0);
+            }
+            let block = &self.blocks[block_idx];
             for ins in &block.instructions {
                 let instr = &ins.instr;
                 let effect = instr.stack_effect(ins.arg, false);
@@ -336,15 +372,8 @@ impl CodeInfo {
                 if new_depth > maxdepth {
                     maxdepth = new_depth
                 }
-                // we don't want to worry about Break/Continue, they use unwinding to jump to
-                // their targets and as such the stack size is taken care of in frame.rs by setting
-                // it back to the level it was at when SetupLoop was run
-                if ins.target != BlockIdx::NULL
-                    && !matches!(
-                        instr,
-                        Instruction::Continue { .. } | Instruction::Break { .. }
-                    )
-                {
+                // Process target blocks for branching instructions
+                if ins.target != BlockIdx::NULL {
                     let effect = instr.stack_effect(ins.arg, true);
                     let target_depth = depth.checked_add_signed(effect).ok_or({
                         if effect < 0 {
@@ -357,6 +386,35 @@ impl CodeInfo {
                         maxdepth = target_depth
                     }
                     stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
+                }
+                // Process exception handler blocks
+                // When exception occurs, stack is unwound to handler.stack_depth, then:
+                // - If preserve_lasti: push lasti (+1)
+                // - Push exception (+1)
+                // - Handler block starts with PUSH_EXC_INFO as its first instruction
+                // So the starting depth for the handler block (BEFORE PUSH_EXC_INFO) is:
+                // handler.stack_depth + preserve_lasti + 1 (exc)
+                // PUSH_EXC_INFO will then add +1 when the block is processed
+                if let Some(ref handler) = ins.except_handler {
+                    let handler_depth = handler.stack_depth + 1 + (handler.preserve_lasti as u32); // +1 for exception, +1 for lasti if preserve_lasti
+                    if DEBUG {
+                        eprintln!(
+                            "  HANDLER: block={} depth={} (base={} lasti={})",
+                            handler.handler_block.0,
+                            handler_depth,
+                            handler.stack_depth,
+                            handler.preserve_lasti
+                        );
+                    }
+                    if handler_depth > maxdepth {
+                        maxdepth = handler_depth;
+                    }
+                    stackdepth_push(
+                        &mut stack,
+                        &mut start_depths,
+                        handler.handler_block,
+                        handler_depth,
+                    );
                 }
                 depth = new_depth;
                 if instr.unconditional_branch() {
@@ -401,8 +459,10 @@ fn stackdepth_push(
     target: BlockIdx,
     depth: u32,
 ) {
-    let block_depth = &mut start_depths[target.idx()];
-    if *block_depth == u32::MAX || depth > *block_depth {
+    let idx = target.idx();
+    let block_depth = &mut start_depths[idx];
+    if depth > *block_depth || *block_depth == u32::MAX {
+        // Found a path with higher depth (or first visit): update max and queue
         *block_depth = depth;
         stack.push(target);
     }
@@ -420,7 +480,7 @@ fn iter_blocks(blocks: &[Block]) -> impl Iterator<Item = (BlockIdx, &Block)> + '
     })
 }
 
-/// Generate CPython 3.11+ format linetable from source locations
+/// Generate Python 3.11+ format linetable from source locations
 fn generate_linetable(
     locations: &[(SourceLocation, SourceLocation)],
     first_line: i32,
@@ -540,27 +600,77 @@ fn generate_linetable(
     linetable.into_boxed_slice()
 }
 
-/// Write a variable-length unsigned integer (6-bit chunks)
-/// Returns the number of bytes written
-fn write_varint(buf: &mut Vec<u8>, mut val: u32) -> usize {
-    let start_len = buf.len();
-    while val >= 64 {
-        buf.push(0x40 | (val & 0x3f) as u8);
-        val >>= 6;
-    }
-    buf.push(val as u8);
-    buf.len() - start_len
-}
+/// Generate Python 3.11+ exception table from instruction handler info
+fn generate_exception_table(blocks: &[Block], block_to_index: &[u32]) -> Box<[u8]> {
+    let mut entries: Vec<ExceptionTableEntry> = Vec::new();
+    let mut current_entry: Option<(ExceptHandlerInfo, u32)> = None; // (handler_info, start_index)
+    let mut instr_index = 0u32;
 
-/// Write a variable-length signed integer
-/// Returns the number of bytes written
-fn write_signed_varint(buf: &mut Vec<u8>, val: i32) -> usize {
-    let uval = if val < 0 {
-        // (unsigned int)(-val) has an undefined behavior for INT_MIN
-        // So we use (0 - val as u32) to handle it correctly
-        ((0u32.wrapping_sub(val as u32)) << 1) | 1
-    } else {
-        (val as u32) << 1
-    };
-    write_varint(buf, uval)
+    // Iterate through all instructions in block order
+    // instr_index is the index into the final instructions array (including EXTENDED_ARG)
+    // This matches how frame.rs uses lasti
+    for (_, block) in iter_blocks(blocks) {
+        for instr in &block.instructions {
+            // instr_size includes EXTENDED_ARG instructions
+            let instr_size = instr.arg.instr_size() as u32;
+
+            match (&current_entry, &instr.except_handler) {
+                // No current entry, no handler - nothing to do
+                (None, None) => {}
+
+                // No current entry, handler starts - begin new entry
+                (None, Some(handler)) => {
+                    current_entry = Some((handler.clone(), instr_index));
+                }
+
+                // Current entry exists, same handler - continue
+                (Some((curr_handler, _)), Some(handler))
+                    if curr_handler.handler_block == handler.handler_block
+                        && curr_handler.stack_depth == handler.stack_depth
+                        && curr_handler.preserve_lasti == handler.preserve_lasti => {}
+
+                // Current entry exists, different handler - finish current, start new
+                (Some((curr_handler, start)), Some(handler)) => {
+                    let target_index = block_to_index[curr_handler.handler_block.idx()];
+                    entries.push(ExceptionTableEntry::new(
+                        *start,
+                        instr_index,
+                        target_index,
+                        curr_handler.stack_depth as u16,
+                        curr_handler.preserve_lasti,
+                    ));
+                    current_entry = Some((handler.clone(), instr_index));
+                }
+
+                // Current entry exists, no handler - finish current entry
+                (Some((curr_handler, start)), None) => {
+                    let target_index = block_to_index[curr_handler.handler_block.idx()];
+                    entries.push(ExceptionTableEntry::new(
+                        *start,
+                        instr_index,
+                        target_index,
+                        curr_handler.stack_depth as u16,
+                        curr_handler.preserve_lasti,
+                    ));
+                    current_entry = None;
+                }
+            }
+
+            instr_index += instr_size; // Account for EXTENDED_ARG instructions
+        }
+    }
+
+    // Finish any remaining entry
+    if let Some((curr_handler, start)) = current_entry {
+        let target_index = block_to_index[curr_handler.handler_block.idx()];
+        entries.push(ExceptionTableEntry::new(
+            start,
+            instr_index,
+            target_index,
+            curr_handler.stack_depth as u16,
+            curr_handler.preserve_lasti,
+        ));
+    }
+
+    encode_exception_table(&entries)
 }

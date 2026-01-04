@@ -8,16 +8,17 @@ mod _overlapped {
     // straight-forward port of Modules/overlapped.c
 
     use crate::vm::{
-        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyType},
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
+        function::OptionalArg,
         protocol::PyBuffer,
         types::Constructor,
     };
     use windows_sys::Win32::{
         Foundation::{self, GetLastError, HANDLE},
-        Networking::WinSock::SOCKADDR_IN6,
+        Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR_IN, SOCKADDR_IN6},
         System::IO::OVERLAPPED,
     };
 
@@ -153,6 +154,51 @@ mod _overlapped {
         overlapped.Internal != (Foundation::STATUS_PENDING as usize)
     }
 
+    /// Parse a SOCKADDR_IN6 (which can also hold IPv4 addresses) to a Python address tuple
+    fn unparse_address(
+        addr: &SOCKADDR_IN6,
+        _addr_len: libc::c_int,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
+        use crate::vm::convert::ToPyObject;
+
+        unsafe {
+            let family = addr.sin6_family;
+            if family == AF_INET {
+                // IPv4 address stored in SOCKADDR_IN6 structure
+                let addr_in = &*(addr as *const SOCKADDR_IN6 as *const SOCKADDR_IN);
+                let ip_bytes = addr_in.sin_addr.S_un.S_un_b;
+                let ip_str = format!(
+                    "{}.{}.{}.{}",
+                    ip_bytes.s_b1, ip_bytes.s_b2, ip_bytes.s_b3, ip_bytes.s_b4
+                );
+                let port = u16::from_be(addr_in.sin_port);
+                (ip_str, port).to_pyobject(vm)
+            } else if family == AF_INET6 {
+                // IPv6 address
+                let ip_bytes = addr.sin6_addr.u.Byte;
+                let ip_str = format!(
+                    "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+                    u16::from_be_bytes([ip_bytes[0], ip_bytes[1]]),
+                    u16::from_be_bytes([ip_bytes[2], ip_bytes[3]]),
+                    u16::from_be_bytes([ip_bytes[4], ip_bytes[5]]),
+                    u16::from_be_bytes([ip_bytes[6], ip_bytes[7]]),
+                    u16::from_be_bytes([ip_bytes[8], ip_bytes[9]]),
+                    u16::from_be_bytes([ip_bytes[10], ip_bytes[11]]),
+                    u16::from_be_bytes([ip_bytes[12], ip_bytes[13]]),
+                    u16::from_be_bytes([ip_bytes[14], ip_bytes[15]]),
+                );
+                let port = u16::from_be(addr.sin6_port);
+                let flowinfo = addr.sin6_flowinfo;
+                let scope_id = addr.Anonymous.sin6_scope_id;
+                (ip_str, port, flowinfo, scope_id).to_pyobject(vm)
+            } else {
+                // Unknown address family, return None
+                vm.ctx.none()
+            }
+        }
+    }
+
     #[pyclass(with(Constructor))]
     impl Overlapped {
         #[pygetset]
@@ -258,6 +304,139 @@ mod _overlapped {
                 return Err(vm.new_last_os_error());
             }
             Ok(())
+        }
+
+        #[pymethod]
+        fn getresult(zelf: &Py<Self>, wait: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult {
+            use windows_sys::Win32::Foundation::{
+                ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
+            };
+            use windows_sys::Win32::System::IO::GetOverlappedResult;
+
+            let mut inner = zelf.inner.lock();
+            let wait = wait.unwrap_or(false);
+
+            // Check operation state
+            if matches!(inner.data, OverlappedData::None) {
+                return Err(vm.new_value_error("operation not yet attempted".to_owned()));
+            }
+            if matches!(inner.data, OverlappedData::NotStarted) {
+                return Err(vm.new_value_error("operation failed to start".to_owned()));
+            }
+
+            // Get the result
+            let mut transferred: u32 = 0;
+            let ret = unsafe {
+                GetOverlappedResult(
+                    inner.handle,
+                    &inner.overlapped,
+                    &mut transferred,
+                    if wait { 1 } else { 0 },
+                )
+            };
+
+            let err = if ret != 0 {
+                ERROR_SUCCESS
+            } else {
+                unsafe { GetLastError() }
+            };
+            inner.error = err;
+
+            // Handle errors
+            match err {
+                ERROR_SUCCESS | ERROR_MORE_DATA => {}
+                ERROR_BROKEN_PIPE => {
+                    // For read operations, broken pipe is acceptable
+                    match &inner.data {
+                        OverlappedData::Read(_) | OverlappedData::ReadInto(_) => {}
+                        OverlappedData::ReadFrom(rf)
+                            if rf.result.is(&vm.ctx.none())
+                                || rf.allocated_buffer.is(&vm.ctx.none()) =>
+                        {
+                            return Err(from_windows_err(err, vm));
+                        }
+                        OverlappedData::ReadFrom(_) => {}
+                        OverlappedData::ReadFromInto(rfi) if rfi.result.is(&vm.ctx.none()) => {
+                            return Err(from_windows_err(err, vm));
+                        }
+                        OverlappedData::ReadFromInto(_) => {}
+                        _ => return Err(from_windows_err(err, vm)),
+                    }
+                }
+                ERROR_IO_PENDING => {
+                    return Err(from_windows_err(err, vm));
+                }
+                _ => return Err(from_windows_err(err, vm)),
+            }
+
+            // Return result based on operation type
+            match &inner.data {
+                OverlappedData::Read(buf) => {
+                    // Resize buffer to actual bytes read
+                    let bytes = buf.as_bytes();
+                    let result = if transferred as usize != bytes.len() {
+                        vm.ctx.new_bytes(bytes[..transferred as usize].to_vec())
+                    } else {
+                        buf.clone()
+                    };
+                    Ok(result.into())
+                }
+                OverlappedData::ReadInto(_) => {
+                    // Return number of bytes read
+                    Ok(vm.ctx.new_int(transferred).into())
+                }
+                OverlappedData::Write(_) => {
+                    // Return number of bytes written
+                    Ok(vm.ctx.new_int(transferred).into())
+                }
+                OverlappedData::Accept(_) => {
+                    // Return None for accept
+                    Ok(vm.ctx.none())
+                }
+                OverlappedData::Connect => {
+                    // Return None for connect
+                    Ok(vm.ctx.none())
+                }
+                OverlappedData::Disconnect => {
+                    // Return None for disconnect
+                    Ok(vm.ctx.none())
+                }
+                OverlappedData::ConnectNamedPipe => {
+                    // Return None for connect named pipe
+                    Ok(vm.ctx.none())
+                }
+                OverlappedData::WaitNamedPipeAndConnect => {
+                    // Return None
+                    Ok(vm.ctx.none())
+                }
+                OverlappedData::ReadFrom(rf) => {
+                    // Return (resized_buffer, (host, port)) tuple
+                    let buf = rf
+                        .allocated_buffer
+                        .downcast_ref::<crate::vm::builtins::PyBytes>()
+                        .unwrap();
+                    let bytes = buf.as_bytes();
+                    let resized_buf = if transferred as usize != bytes.len() {
+                        vm.ctx.new_bytes(bytes[..transferred as usize].to_vec())
+                    } else {
+                        buf.to_owned()
+                    };
+                    let addr_tuple = unparse_address(&rf.address, rf.address_length, vm);
+                    Ok(vm
+                        .ctx
+                        .new_tuple(vec![resized_buf.into(), addr_tuple])
+                        .into())
+                }
+                OverlappedData::ReadFromInto(rfi) => {
+                    // Return (transferred, (host, port)) tuple
+                    let addr_tuple = unparse_address(&rfi.address, rfi.address_length, vm);
+                    Ok(vm
+                        .ctx
+                        .new_tuple(vec![vm.ctx.new_int(transferred).into(), addr_tuple])
+                        .into())
+                }
+                _ => Ok(vm.ctx.none()),
+            }
         }
     }
 

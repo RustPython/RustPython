@@ -1778,8 +1778,6 @@ class PatchTest(unittest.TestCase):
                             'exception traceback not propagated')
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_name_resolution_import_rebinding(self):
         # Currently mock.patch uses pkgutil.resolve_name(), but repeat
         # similar tests just for the case.
@@ -1814,8 +1812,6 @@ class PatchTest(unittest.TestCase):
             check('package3:submodule.B.attr')
             check_error('package3:submodule.A.attr')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_name_resolution_import_rebinding2(self):
         path = os.path.join(os.path.dirname(test.__file__), 'test_import', 'data')
         def check(name):
@@ -2016,8 +2012,7 @@ class PatchTest(unittest.TestCase):
         self.assertEqual(dic2, origdic2)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_special_attrs(self):
         def foo(x=0):
             """TEST"""

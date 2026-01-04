@@ -1,86 +1,141 @@
 ---
 source: crates/codegen/src/compile.rs
-expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n    with self.subTest(type=type(stop_exc)):\n        try:\n            async with egg():\n                raise stop_exc\n        except Exception as ex:\n            self.assertIs(ex, stop_exc)\n        else:\n            self.fail(f'{stop_exc} was suppressed')\n\")"
+expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
-  1           0 SETUP_LOOP
-              1 LOAD_NAME_ANY        (0, StopIteration)
-              2 LOAD_CONST           ("spam")
-              3 CALL_FUNCTION_POSITIONAL(1)
-              4 LOAD_NAME_ANY        (1, StopAsyncIteration)
-              5 LOAD_CONST           ("ham")
-              6 CALL_FUNCTION_POSITIONAL(1)
-              7 BUILD_TUPLE          (2)
-              8 GET_ITER
-        >>    9 FOR_ITER             (71)
-             10 STORE_LOCAL          (2, stop_exc)
+  3           0 LOAD_CONST           (<code object test at ??? file "source_path", line 1>):  1               0 RESUME               (0)
 
-  2          11 LOAD_NAME_ANY        (3, self)
-             12 LOAD_METHOD          (4, subTest)
-             13 LOAD_NAME_ANY        (5, type)
-             14 LOAD_NAME_ANY        (2, stop_exc)
-             15 CALL_FUNCTION_POSITIONAL(1)
-             16 LOAD_CONST           (("type"))
-             17 CALL_METHOD_KEYWORD  (1)
-             18 SETUP_WITH           (68)
-             19 POP_TOP
+  2               1 LOAD_GLOBAL          (0, StopIteration)
+                  2 LOAD_CONST           ("spam")
+                  3 CALL                 (1)
+                  4 LOAD_GLOBAL          (1, StopAsyncIteration)
+                  5 LOAD_CONST           ("ham")
+                  6 CALL                 (1)
+                  7 BUILD_TUPLE          (2)
+                  8 GET_ITER
+            >>    9 FOR_ITER             (123)
+                 10 STORE_FAST           (0, stop_exc)
 
-  3          20 SETUP_EXCEPT         (42)
+  3              11 LOAD_GLOBAL          (2, self)
+                 12 LOAD_METHOD          (3, subTest)
+                 13 LOAD_GLOBAL          (4, type)
+                 14 LOAD_FAST            (0, stop_exc)
+                 15 CALL                 (1)
+                 16 LOAD_CONST           (("type"))
+                 17 CALL_METHOD_KW       (1)
+                 18 BEFORE_WITH
+                 19 POP_TOP
 
-  4          21 LOAD_NAME_ANY        (6, egg)
-             22 CALL_FUNCTION_POSITIONAL(0)
-             23 BEFORE_ASYNC_WITH
-             24 GET_AWAITABLE
-             25 LOAD_CONST           (None)
-             26 YIELD_FROM
-             27 RESUME               (3)
-             28 SETUP_ASYNC_WITH     (34)
-             29 POP_TOP
+  5              20 LOAD_GLOBAL          (5, egg)
+                 21 CALL                 (0)
+                 22 BEFORE_ASYNC_WITH
+                 23 GET_AWAITABLE
+                 24 LOAD_CONST           (None)
+            >>   25 SEND                 (30)
+                 26 YIELD_VALUE          (1)
+                 27 RESUME               (3)
+                 28 JUMP                 (25)
+                 29 CLEANUP_THROW
+            >>   30 END_SEND
+                 31 POP_TOP
 
-  5          30 LOAD_NAME_ANY        (2, stop_exc)
-             31 RAISE                (Raise)
+  6              32 LOAD_FAST            (0, stop_exc)
+                 33 RAISE_VARARGS        (Raise)
 
-  4          32 POP_BLOCK
-             33 ENTER_FINALLY
-        >>   34 WITH_CLEANUP_START
-             35 GET_AWAITABLE
-             36 LOAD_CONST           (None)
-             37 YIELD_FROM
-             38 RESUME               (3)
-             39 WITH_CLEANUP_FINISH
-             40 POP_BLOCK
-             41 JUMP                 (58)
-        >>   42 COPY                 (1)
+  5              34 LOAD_CONST           (None)
+                 35 LOAD_CONST           (None)
+                 36 LOAD_CONST           (None)
+                 37 CALL                 (3)
+                 38 GET_AWAITABLE
+                 39 LOAD_CONST           (None)
+            >>   40 SEND                 (45)
+                 41 YIELD_VALUE          (1)
+                 42 RESUME               (3)
+                 43 JUMP                 (40)
+                 44 CLEANUP_THROW
+            >>   45 END_SEND
+                 46 POP_TOP
+                 47 JUMP                 (69)
+                 48 PUSH_EXC_INFO
+                 49 WITH_EXCEPT_START
+                 50 GET_AWAITABLE
+                 51 LOAD_CONST           (None)
+            >>   52 SEND                 (57)
+                 53 YIELD_VALUE          (1)
+                 54 RESUME               (3)
+                 55 JUMP                 (52)
+                 56 CLEANUP_THROW
+            >>   57 END_SEND
+                 58 TO_BOOL
+                 59 POP_JUMP_IF_TRUE     (61)
+                 60 RERAISE              (2)
+            >>   61 POP_TOP
+                 62 POP_EXCEPT
+                 63 POP_TOP
+                 64 POP_TOP
+                 65 JUMP                 (69)
+                 66 COPY                 (3)
+                 67 POP_EXCEPT
+                 68 RERAISE              (1)
+            >>   69 JUMP                 (95)
+                 70 PUSH_EXC_INFO
+                 71 COPY                 (1)
 
-  6          43 LOAD_NAME_ANY        (7, Exception)
-             44 JUMP_IF_NOT_EXC_MATCH(57)
-             45 STORE_LOCAL          (8, ex)
+  7              72 LOAD_GLOBAL          (6, Exception)
+                 73 JUMP_IF_NOT_EXC_MATCH(91)
+                 74 STORE_FAST           (1, ex)
 
-  7          46 LOAD_NAME_ANY        (3, self)
-             47 LOAD_METHOD          (9, assertIs)
-             48 LOAD_NAME_ANY        (8, ex)
-             49 LOAD_NAME_ANY        (2, stop_exc)
-             50 CALL_METHOD_POSITIONAL(2)
-             51 POP_TOP
-             52 POP_EXCEPTION
-             53 LOAD_CONST           (None)
-             54 STORE_LOCAL          (8, ex)
-             55 DELETE_LOCAL         (8, ex)
-             56 JUMP                 (66)
-        >>   57 RAISE                (Reraise)
+  8              75 LOAD_GLOBAL          (2, self)
+                 76 LOAD_METHOD          (7, assertIs)
+                 77 LOAD_FAST            (1, ex)
+                 78 LOAD_FAST            (0, stop_exc)
+                 79 CALL_METHOD          (2)
+                 80 POP_TOP
+                 81 JUMP                 (86)
+                 82 LOAD_CONST           (None)
+                 83 STORE_FAST           (1, ex)
+                 84 DELETE_FAST          (1, ex)
+                 85 RAISE_VARARGS        (ReraiseFromStack)
+            >>   86 POP_EXCEPT
+                 87 LOAD_CONST           (None)
+                 88 STORE_FAST           (1, ex)
+                 89 DELETE_FAST          (1, ex)
+                 90 JUMP                 (103)
+            >>   91 RAISE_VARARGS        (ReraiseFromStack)
+                 92 COPY                 (3)
+                 93 POP_EXCEPT
+                 94 RAISE_VARARGS        (ReraiseFromStack)
 
-  9     >>   58 LOAD_NAME_ANY        (3, self)
-             59 LOAD_METHOD          (10, fail)
-             60 LOAD_NAME_ANY        (2, stop_exc)
-             61 FORMAT_SIMPLE
-             62 LOAD_CONST           (" was suppressed")
-             63 BUILD_STRING         (2)
-             64 CALL_METHOD_POSITIONAL(1)
-             65 POP_TOP
+ 10         >>   95 LOAD_GLOBAL          (2, self)
+                 96 LOAD_METHOD          (8, fail)
+                 97 LOAD_FAST            (0, stop_exc)
+                 98 FORMAT_SIMPLE
+                 99 LOAD_CONST           (" was suppressed")
+                100 BUILD_STRING         (2)
+                101 CALL_METHOD          (1)
+                102 POP_TOP
 
-  2     >>   66 POP_BLOCK
-             67 ENTER_FINALLY
-        >>   68 WITH_CLEANUP_START
-             69 WITH_CLEANUP_FINISH
-             70 JUMP                 (9)
-        >>   71 POP_BLOCK
-             72 RETURN_CONST         (None)
+  3         >>  103 LOAD_CONST           (None)
+                104 LOAD_CONST           (None)
+                105 LOAD_CONST           (None)
+                106 CALL                 (3)
+                107 POP_TOP
+                108 JUMP                 (122)
+                109 PUSH_EXC_INFO
+                110 WITH_EXCEPT_START
+                111 TO_BOOL
+                112 POP_JUMP_IF_TRUE     (114)
+                113 RERAISE              (2)
+            >>  114 POP_TOP
+                115 POP_EXCEPT
+                116 POP_TOP
+                117 POP_TOP
+                118 JUMP                 (122)
+                119 COPY                 (3)
+                120 POP_EXCEPT
+                121 RERAISE              (1)
+            >>  122 JUMP                 (9)
+            >>  123 RETURN_CONST         (None)
+
+              1 MAKE_FUNCTION
+              2 STORE_NAME           (0, test)
+              3 RETURN_CONST         (None)
