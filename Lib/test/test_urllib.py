@@ -1556,7 +1556,6 @@ class Pathname_Tests(unittest.TestCase):
 
     @unittest.skipIf(sys.platform == 'win32',
                      'test specific to POSIX pathnames')
-    @unittest.expectedFailure # AssertionError: '//a/b.c' != '////a/b.c'
     def test_pathname2url_posix(self):
         fn = urllib.request.pathname2url
         self.assertEqual(fn('/'), '/')
@@ -1617,7 +1616,6 @@ class Pathname_Tests(unittest.TestCase):
 
     @unittest.skipIf(sys.platform == 'win32',
                      'test specific to POSIX pathnames')
-    @unittest.expectedFailure # AssertionError: '///foo/bar' != '/foo/bar'
     def test_url2pathname_posix(self):
         fn = urllib.request.url2pathname
         self.assertEqual(fn('/foo/bar'), '/foo/bar')
