@@ -196,7 +196,7 @@ class PtyTest(unittest.TestCase):
         s2 = _readline(master_fd)
         self.assertEqual(b'For my pet fish, Eric.\n', normalize_output(s2))
 
-    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "tty" has no attribute "tcgetwinsize"')
+    @unittest.skip('TODO: RUSTPYTHON; "Not runnable. tty.tcgetwinsize" is required to setUp')
     def test_fork(self):
         debug("calling pty.fork()")
         pid, master_fd = pty.fork()
