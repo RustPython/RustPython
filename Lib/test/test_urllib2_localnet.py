@@ -686,13 +686,6 @@ class TestUrlopen(unittest.TestCase, ExtraAssertions):
         self.assertEqual(b"1234567890", request.data)
         self.assertEqual("10", request.get_header("Content-length"))
 
-    @unittest.skipIf(os.name == 'nt', 'TODO: RUSTPYTHON; ValueError: illegal environment variable name')
-    def test_https_with_cadefault(self):
-        return super().test_https_with_cadefault()
-
-    @unittest.skipIf(os.name == 'nt', 'TODO: RUSTPYTHON; ValueError: illegal environment variable name')
-    def test_https_with_cafile(self):
-        return super().test_https_with_cafile()
 
 def setUpModule():
     thread_info = threading_helper.threading_setup()

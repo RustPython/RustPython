@@ -654,7 +654,6 @@ class CookieTests(unittest.TestCase):
         self.assertIn('expires', cookies)
         self.assertIn('version', cookies)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; need to update http library to remove warnings
     def test_expires(self):
         # if expires is in future, keep cookie...
         c = CookieJar()
