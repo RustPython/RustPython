@@ -4,9 +4,8 @@ pub(crate) use opcode::make_module;
 mod opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyBool, PyInt, PyIntRef, PyNone},
+        builtins::{PyInt, PyIntRef},
         bytecode::Instruction,
-        match_class,
     };
     use core::ops::Deref;
 
@@ -55,29 +54,20 @@ mod opcode {
         /// Check if instruction uses co_consts
         #[must_use]
         pub fn has_const(opcode: i32) -> bool {
-            if !Self::is_valid(opcode) {
-                return false;
-            }
-            if let Ok(instr) = Instruction::try_from(opcode as u8) {
-                matches!(
-                    instr,
-                    Instruction::LoadConst { .. } | Instruction::ReturnConst { .. }
+            Self::is_valid(opcode)
+                && matches!(
+                    Instruction::try_from(opcode as u8),
+                    Ok(Instruction::LoadConst { .. } | Instruction::ReturnConst { .. })
                 )
-            } else {
-                false
-            }
         }
 
         /// Check if instruction uses co_names
         #[must_use]
         pub fn has_name(opcode: i32) -> bool {
-            if !Self::is_valid(opcode) {
-                return false;
-            }
-            if let Ok(instr) = Instruction::try_from(opcode as u8) {
-                matches!(
-                    instr,
-                    Instruction::DeleteAttr { .. }
+            Self::is_valid(opcode)
+                && matches!(
+                    Instruction::try_from(opcode as u8),
+                    Ok(Instruction::DeleteAttr { .. }
                         | Instruction::DeleteGlobal(_)
                         | Instruction::DeleteLocal(_)
                         | Instruction::ImportFrom { .. }
@@ -88,23 +78,17 @@ mod opcode {
                         | Instruction::LoadNameAny(_)
                         | Instruction::StoreAttr { .. }
                         | Instruction::StoreGlobal(_)
-                        | Instruction::StoreLocal(_)
+                        | Instruction::StoreLocal(_))
                 )
-            } else {
-                false
-            }
         }
 
         /// Check if instruction is a jump
         #[must_use]
         pub fn has_jump(opcode: i32) -> bool {
-            if !Self::is_valid(opcode) {
-                return false;
-            }
-            if let Ok(instr) = Instruction::try_from(opcode as u8) {
-                matches!(
-                    instr,
-                    Instruction::Break { .. }
+            Self::is_valid(opcode)
+                && matches!(
+                    Instruction::try_from(opcode as u8),
+                    Ok(Instruction::Break { .. }
                         | Instruction::Continue { .. }
                         | Instruction::ForIter { .. }
                         | Instruction::JumpIfFalseOrPop { .. }
@@ -115,51 +99,36 @@ mod opcode {
                         | Instruction::PopJumpIfTrue { .. }
                         | Instruction::PopJumpIfNone { .. }
                         | Instruction::PopJumpIfNotNone { .. }
-                        | Instruction::Send { .. }
+                        | Instruction::Send { .. })
                 )
-            } else {
-                false
-            }
         }
 
         /// Check if instruction uses co_freevars/co_cellvars
         #[must_use]
         pub fn has_free(opcode: i32) -> bool {
-            if !Self::is_valid(opcode) {
-                return false;
-            }
-            if let Ok(instr) = Instruction::try_from(opcode as u8) {
-                matches!(
-                    instr,
-                    Instruction::DeleteDeref(_)
+            Self::is_valid(opcode)
+                && matches!(
+                    Instruction::try_from(opcode as u8),
+                    Ok(Instruction::DeleteDeref(_)
                         | Instruction::LoadClassDeref(_)
                         | Instruction::LoadClosure(_)
                         | Instruction::LoadDeref(_)
-                        | Instruction::StoreDeref(_)
+                        | Instruction::StoreDeref(_))
                 )
-            } else {
-                false
-            }
         }
 
         /// Check if instruction uses co_varnames (local variables)
         #[must_use]
         pub fn has_local(opcode: i32) -> bool {
-            if !Self::is_valid(opcode) {
-                return false;
-            }
-            if let Ok(instr) = Instruction::try_from(opcode as u8) {
-                matches!(
-                    instr,
-                    Instruction::DeleteFast(_)
+            Self::is_valid(opcode)
+                && matches!(
+                    Instruction::try_from(opcode as u8),
+                    Ok(Instruction::DeleteFast(_)
                         | Instruction::LoadFast(_)
                         | Instruction::LoadFastAndClear(_)
                         | Instruction::StoreFast(_)
-                        | Instruction::StoreFastLoadFast { .. }
+                        | Instruction::StoreFastLoadFast { .. })
                 )
-            } else {
-                false
-            }
         }
 
         /// Check if instruction has exception info
@@ -196,7 +165,12 @@ mod opcode {
                     )));
                 }
                 v.downcast_ref::<PyInt>()
-                    .ok_or_else(|| vm.new_type_error(""))?
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "'{}' object cannot be interpreted as an integer",
+                            v.class().name()
+                        ))
+                    })?
                     .try_to_primitive::<u32>(vm)
             })
             .unwrap_or(Ok(0))?;
@@ -204,12 +178,8 @@ mod opcode {
         let jump = args
             .jump
             .map(|v| {
-                match_class!(match v {
-                    b @ PyBool => Ok(b.is(&vm.ctx.true_value)),
-                    _n @ PyNone => Ok(false),
-                    _ => {
-                        Err(vm.new_value_error("stack_effect: jump must be False, True or None"))
-                    }
+                v.try_to_bool(vm).map_err(|_| {
+                    vm.new_value_error("stack_effect: jump must be False, True or None")
                 })
             })
             .unwrap_or(Ok(false))?;
