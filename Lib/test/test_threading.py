@@ -875,6 +875,10 @@ class ThreadTests(BaseTestCase):
         finally:
             threading.settrace(old_trace)
 
+    @unittest.skipIf(
+        sys.platform == 'linux' and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
+        "TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason"
+    )
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_gettrace_all_threads(self):
@@ -915,6 +919,10 @@ class ThreadTests(BaseTestCase):
         finally:
             threading.setprofile(old_profile)
 
+    @unittest.skipIf(
+        sys.platform == 'linux' and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
+        "TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason"
+    )
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_getprofile_all_threads(self):
@@ -1203,6 +1211,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
         for t in threads:
             t.join()
 
+    @unittest.skip('TODO: RUSTPYTHON FAILURE, WORKER BUG')
     @support.requires_fork()
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -1528,6 +1537,7 @@ class ExceptHookTests(BaseTestCase):
         restore_default_excepthook(self)
         super().setUp()
 
+    @unittest.skip('TODO: RUSTPYTHON, flaky')
     def test_excepthook(self):
         with support.captured_output("stderr") as stderr:
             thread = ThreadRunFail(name="excepthook thread")

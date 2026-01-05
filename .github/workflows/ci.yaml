@@ -118,6 +118,7 @@ env:
     test.test_multiprocessing_spawn.test_threads
     test_file_eintr
     test_subprocess
+    test_threading
   ENV_POLLUTING_TESTS_MACOS: >-
     test.test_multiprocessing_forkserver.test_processes
     test.test_multiprocessing_forkserver.test_threads
