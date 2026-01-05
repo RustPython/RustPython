@@ -4,8 +4,8 @@ use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::bytecode::{
-    self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction, Label,
-    OpArg, OpArgState,
+    self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction,
+    IntrinsicFunction1, Label, OpArg, OpArgState,
 };
 use std::collections::HashMap;
 
@@ -472,6 +472,21 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         Ok(())
                     }
                     _ => Err(JitCompileError::BadBytecode),
+                }
+            }
+            Instruction::CallIntrinsic1 { func } => {
+                match func {
+                    IntrinsicFunction1::UnaryPositive => {
+                        match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
+                            JitValue::Int(val) => {
+                                // Nothing to do
+                                self.stack.push(JitValue::Int(val));
+                                Ok(())
+                            }
+                            _ => Err(JitCompileError::NotSupported),
+                        }
+                    }
+                    _ => Err(JitCompileError::NotSupported),
                 }
             }
             Instruction::CompareOperation { op, .. } => {
