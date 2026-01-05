@@ -126,4 +126,3 @@ bitflags! {
         const CHARSET = 4;
     }
 }
-
