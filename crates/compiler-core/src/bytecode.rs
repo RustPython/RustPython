@@ -640,7 +640,7 @@ op_arg_enum!(
         ImportStar = 2,
         // StopIterationError = 3,
         // AsyncGenWrap = 4,
-        // UnaryPositive = 5,
+        UnaryPositive = 5,
         /// Convert list to tuple
         ListToTuple = 6,
         /// Type parameter related
@@ -758,11 +758,11 @@ pub enum Instruction {
     StoreSubscript,
     // 40: TO_BOOL
     ToBool,
-    // 41: UNARY_INVERT - placeholder (RustPython uses UnaryOperation)
+    // 41: UNARY_INVERT
     UnaryInvert,
-    // 42: UNARY_NEGATIVE - placeholder
+    // 42: UNARY_NEGATIVE
     UnaryNegative,
-    // 43: UNARY_NOT - placeholder
+    // 43: UNARY_NOT
     UnaryNot,
     // ==================== With-argument instructions (opcode >= 44) ====================
     // 44: WITH_EXCEPT_START
@@ -1091,11 +1091,8 @@ pub enum Instruction {
     SetExcInfo,
     // 139: SUBSCRIPT
     Subscript,
-    // 140: UNARY_OP (combines UNARY_*)
-    UnaryOperation {
-        op: Arg<UnaryOperator>,
-    },
-    // 141-148: Reserved (padding to keep RESUME at 149)
+    // 140-148: Reserved (padding to keep RESUME at 149)
+    Reserved140,
     Reserved141,
     Reserved142,
     Reserved143,
@@ -1539,18 +1536,6 @@ impl fmt::Display for BinaryOperator {
 }
 
 op_arg_enum!(
-    /// The possible unary operators
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    #[repr(u8)]
-    pub enum UnaryOperator {
-        Not = 0,
-        Invert = 1,
-        Minus = 2,
-        Plus = 3,
-    }
-);
-
-op_arg_enum!(
     /// Whether or not to invert the operation.
     #[repr(u8)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1910,23 +1895,21 @@ impl Instruction {
     /// # Examples
     ///
     /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label, UnaryOperator};
+    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label};
     /// let (target, jump_arg) = Arg::new(Label(0xF));
     /// let jump_instruction = Instruction::Jump { target };
-    /// let (op, invert_arg) = Arg::new(UnaryOperator::Invert);
-    /// let invert_instruction = Instruction::UnaryOperation { op };
     /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
-    /// assert_eq!(invert_instruction.stack_effect(invert_arg, false), 0);
     /// ```
     ///
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             // Dummy/placeholder instructions (never executed)
-            Cache | Reserved3 | Reserved17 | Reserved141 | Reserved142 | Reserved143
-            | Reserved144 | Reserved145 | Reserved146 | Reserved147 | Reserved148 => 0,
+            Cache | Reserved3 | Reserved17 | Reserved140 | Reserved141 | Reserved142
+            | Reserved143 | Reserved144 | Reserved145 | Reserved146 | Reserved147 | Reserved148 => {
+                0
+            }
             BinarySlice | EndFor | ExitInitCheck | GetYieldFromIter | InterpreterExit
-            | LoadAssertionError | LoadLocals | PushNull | ReturnGenerator | StoreSlice
-            | UnaryInvert | UnaryNegative | UnaryNot => 0,
+            | LoadAssertionError | LoadLocals | PushNull | ReturnGenerator | StoreSlice => 0,
             BuildConstKeyMap { .. }
             | CopyFreeVars { .. }
             | DictMerge { .. }
@@ -1959,7 +1942,6 @@ impl Instruction {
             StoreAttr { .. } => -2,
             DeleteAttr { .. } => -1,
             LoadConst { .. } => 1,
-            UnaryOperation { .. } => 0,
             BinaryOp { .. } | CompareOperation { .. } => -1,
             BinarySubscript => -1,
             CopyItem { .. } => 1,
@@ -2086,6 +2068,9 @@ impl Instruction {
             MatchKeys => 1, // Pop 2 (subject, keys), push 3 (subject, keys_or_none, values_or_none)
             MatchClass(_) => -2,
             ExtendedArg => 0,
+            UnaryInvert => 0,
+            UnaryNegative => 0,
+            UnaryNot => 0,
         }
     }
 
@@ -2158,8 +2143,8 @@ impl Instruction {
         match self {
             // Dummy/placeholder instructions
             Cache => w!(CACHE),
-            Reserved3 | Reserved17 | Reserved141 | Reserved142 | Reserved143 | Reserved144
-            | Reserved145 | Reserved146 | Reserved147 | Reserved148 => w!(RESERVED),
+            Reserved3 | Reserved17 | Reserved140 | Reserved141 | Reserved142 | Reserved143
+            | Reserved144 | Reserved145 | Reserved146 | Reserved147 | Reserved148 => w!(RESERVED),
             BinarySlice => w!(BINARY_SLICE),
             EndFor => w!(END_FOR),
             ExitInitCheck => w!(EXIT_INIT_CHECK),
@@ -2302,7 +2287,6 @@ impl Instruction {
             Subscript => w!(SUBSCRIPT),
             Swap { index } => w!(SWAP, index),
             ToBool => w!(TO_BOOL),
-            UnaryOperation { op } => w!(UNARY_OP, ?op),
             UnpackEx { args } => w!(UNPACK_EX, args),
             UnpackSequence { size } => w!(UNPACK_SEQUENCE, size),
             WithExceptStart => w!(WITH_EXCEPT_START),

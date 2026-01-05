@@ -1652,7 +1652,6 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(bool_val).into());
                 Ok(None)
             }
-            bytecode::Instruction::UnaryOperation { op } => self.execute_unary_op(vm, op.get(arg)),
             bytecode::Instruction::UnpackEx { args } => {
                 let args = args.get(arg);
                 self.execute_unpack_ex(vm, args.before, args.after)
@@ -1762,7 +1761,24 @@ impl ExecutingFrame<'_> {
                     .map_err(|_| vm.new_type_error("exception expected".to_owned()))?;
                 Err(exc)
             }
-
+            bytecode::Instruction::UnaryInvert => {
+                let a = self.pop_value();
+                let value = vm._invert(&a)?;
+                self.push_value(value);
+                Ok(None)
+            }
+            bytecode::Instruction::UnaryNegative => {
+                let a = self.pop_value();
+                let value = vm._neg(&a)?;
+                self.push_value(value);
+                Ok(None)
+            }
+            bytecode::Instruction::UnaryNot => {
+                let obj = self.pop_value();
+                let value = obj.try_to_bool(vm)?;
+                self.push_value(vm.ctx.new_bool(!value).into());
+                Ok(None)
+            }
             // Placeholder/dummy instructions - these should never be executed
             bytecode::Instruction::Cache
             | bytecode::Instruction::Reserved3
@@ -1776,9 +1792,6 @@ impl ExecutingFrame<'_> {
             | bytecode::Instruction::PushNull
             | bytecode::Instruction::ReturnGenerator
             | bytecode::Instruction::StoreSlice
-            | bytecode::Instruction::UnaryInvert
-            | bytecode::Instruction::UnaryNegative
-            | bytecode::Instruction::UnaryNot
             | bytecode::Instruction::BuildConstKeyMap { .. }
             | bytecode::Instruction::CopyFreeVars { .. }
             | bytecode::Instruction::DictMerge { .. }
@@ -1797,6 +1810,7 @@ impl ExecutingFrame<'_> {
             | bytecode::Instruction::PopJumpIfNotNone { .. }
             | bytecode::Instruction::SetUpdate { .. }
             | bytecode::Instruction::StoreFastStoreFast { .. }
+            | bytecode::Instruction::Reserved140
             | bytecode::Instruction::Reserved141
             | bytecode::Instruction::Reserved142
             | bytecode::Instruction::Reserved143
@@ -2440,26 +2454,6 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_unary_op(
-        &mut self,
-        vm: &VirtualMachine,
-        op: bytecode::UnaryOperator,
-    ) -> FrameResult {
-        let a = self.pop_value();
-        let value = match op {
-            bytecode::UnaryOperator::Minus => vm._neg(&a)?,
-            bytecode::UnaryOperator::Plus => vm._pos(&a)?,
-            bytecode::UnaryOperator::Invert => vm._invert(&a)?,
-            bytecode::UnaryOperator::Not => {
-                let value = a.try_to_bool(vm)?;
-                vm.ctx.new_bool(!value).into()
-            }
-        };
-        self.push_value(value);
-        Ok(None)
-    }
-
     #[cold]
     fn setup_annotations(&mut self, vm: &VirtualMachine) -> FrameResult {
         let __annotations__ = identifier!(vm, __annotations__);
@@ -2634,6 +2628,7 @@ impl ExecutingFrame<'_> {
                 self.import_star(vm)?;
                 Ok(vm.ctx.none())
             }
+            bytecode::IntrinsicFunction1::UnaryPositive => vm._pos(&arg),
             bytecode::IntrinsicFunction1::SubscriptGeneric => {
                 // Used for PEP 695: Generic[*type_params]
                 crate::builtins::genericalias::subscript_generic(arg, vm)

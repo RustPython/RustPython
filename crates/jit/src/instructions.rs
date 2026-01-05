@@ -4,8 +4,8 @@ use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::bytecode::{
-    self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction, Label,
-    OpArg, OpArgState, UnaryOperator,
+    self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction,
+    IntrinsicFunction1, Label, OpArg, OpArgState,
 };
 use std::collections::HashMap;
 
@@ -474,6 +474,21 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::BadBytecode),
                 }
             }
+            Instruction::CallIntrinsic1 { func } => {
+                match func.get(arg) {
+                    IntrinsicFunction1::UnaryPositive => {
+                        match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
+                            JitValue::Int(val) => {
+                                // Nothing to do
+                                self.stack.push(JitValue::Int(val));
+                                Ok(())
+                            }
+                            _ => Err(JitCompileError::NotSupported),
+                        }
+                    }
+                    _ => Err(JitCompileError::NotSupported),
+                }
+            }
             Instruction::CompareOperation { op, .. } => {
                 let op = op.get(arg);
                 // the rhs is popped off first
@@ -620,26 +635,28 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.swap(i, j);
                 Ok(())
             }
-            Instruction::UnaryOperation { op, .. } => {
-                let op = op.get(arg);
+            Instruction::ToBool => {
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                match (op, a) {
-                    (UnaryOperator::Minus, JitValue::Int(val)) => {
-                        // Compile minus as 0 - a.
+                let value = self.boolean_val(a)?;
+                self.stack.push(JitValue::Bool(value));
+                Ok(())
+            }
+            Instruction::UnaryNot => {
+                let boolean = match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
+                    JitValue::Bool(val) => val,
+                    _ => return Err(JitCompileError::BadBytecode),
+                };
+                let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
+                self.stack.push(JitValue::Bool(not_boolean));
+                Ok(())
+            }
+            Instruction::UnaryNegative => {
+                match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
+                    JitValue::Int(val) => {
+                        // Compile minus as 0 - val.
                         let zero = self.builder.ins().iconst(types::I64, 0);
                         let out = self.compile_sub(zero, val);
                         self.stack.push(JitValue::Int(out));
-                        Ok(())
-                    }
-                    (UnaryOperator::Plus, JitValue::Int(val)) => {
-                        // Nothing to do
-                        self.stack.push(JitValue::Int(val));
-                        Ok(())
-                    }
-                    (UnaryOperator::Not, a) => {
-                        let boolean = self.boolean_val(a)?;
-                        let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
-                        self.stack.push(JitValue::Bool(not_boolean));
                         Ok(())
                     }
                     _ => Err(JitCompileError::NotSupported),
