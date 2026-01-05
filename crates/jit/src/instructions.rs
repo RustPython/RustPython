@@ -635,9 +635,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.swap(i, j);
                 Ok(())
             }
-            Instruction::UnaryNot => {
+            Instruction::ToBool => {
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                let boolean = self.boolean_val(a)?;
+                let value = self.boolean_val(a)?;
+                self.stack.push(JitValue::Bool(value));
+                Ok(())
+            }
+            Instruction::UnaryNot => {
+                let boolean = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
                 self.stack.push(JitValue::Bool(not_boolean));
                 Ok(())
