@@ -441,19 +441,6 @@ mod decl {
         ))
     }
 
-    // same as the get_process_time impl for most unixes
-    #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
-    pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let time: libc::timespec = unsafe {
-            let mut time = std::mem::MaybeUninit::uninit();
-            if libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, time.as_mut_ptr()) == -1 {
-                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-            }
-            time.assume_init()
-        };
-        Ok(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
-    }
-
     #[cfg(not(any(
         windows,
         target_os = "macos",
@@ -466,7 +453,7 @@ mod decl {
         target_os = "solaris",
         target_os = "openbsd",
         target_os = "redox",
-        all(target_arch = "wasm32", not(target_os = "unknown"))
+        all(target_arch = "wasm32", target_os = "emscripten")
     )))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         Err(vm.new_not_implemented_error("process time unsupported in this system"))
@@ -601,6 +588,7 @@ mod platform {
         target_os = "netbsd",
         target_os = "solaris",
         target_os = "openbsd",
+        target_os = "wasi",
     )))]
     #[pyattr]
     use libc::CLOCK_PROCESS_CPUTIME_ID;
