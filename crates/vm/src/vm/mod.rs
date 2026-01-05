@@ -8,6 +8,8 @@ mod compile;
 mod context;
 mod interpreter;
 mod method;
+#[cfg(feature = "rustpython-compiler")]
+mod python_run;
 mod setting;
 pub mod thread;
 mod vm_new;
@@ -17,8 +19,8 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned, PyStrRef,
-        PyTypeRef, code::PyCode, pystr::AsPyStr, tuple::PyTuple,
+        PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
+        PyStrRef, PyTypeRef, code::PyCode, pystr::AsPyStr, tuple::PyTuple,
     },
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
@@ -458,6 +460,42 @@ impl VirtualMachine {
         self.signal_rx = Some(signal_rx);
     }
 
+    /// Execute Python bytecode (`.pyc`) from an in-memory buffer.
+    ///
+    /// When the RustPython CLI is available, `.pyc` files are normally executed by
+    /// invoking `rustpython <input>.pyc`. This method provides an alternative for
+    /// environments where the binary is unavailable or file I/O is restricted
+    /// (e.g. WASM).
+    ///
+    /// ## Preparing a `.pyc` file
+    ///
+    /// First, compile a Python source file into bytecode:
+    ///
+    /// ```sh
+    /// # Generate a .pyc file
+    /// $ rustpython -m py_compile <input>.py
+    /// ```
+    ///
+    /// ## Running the bytecode
+    ///
+    /// Load the resulting `.pyc` file into memory and execute it using the VM:
+    ///
+    /// ```no_run
+    /// use rustpython_vm::Interpreter;
+    /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
+    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-313.pyc").unwrap();
+    ///     let main_scope = vm.new_scope_with_main().unwrap();
+    ///     vm.run_pyc_bytes(&bytes, main_scope);
+    /// });
+    /// ```
+    pub fn run_pyc_bytes(&self, pyc_bytes: &[u8], scope: Scope) -> PyResult<()> {
+        let code = PyCode::from_pyc(pyc_bytes, Some("<pyc_bytes>"), None, None, self)?;
+        self.with_simple_run("<source>", |_module_dict| {
+            self.run_code_obj(code, scope)?;
+            Ok(())
+        })
+    }
+
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
         use crate::builtins::PyFunction;
 
@@ -498,6 +536,52 @@ impl VirtualMachine {
         }
     }
 
+    /// Run `run` with main scope.
+    fn with_simple_run(
+        &self,
+        path: &str,
+        run: impl FnOnce(&Py<PyDict>) -> PyResult<()>,
+    ) -> PyResult<()> {
+        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        let main_module = sys_modules.get_item(identifier!(self, __main__), self)?;
+        let module_dict = main_module.dict().expect("main module must have __dict__");
+
+        // Track whether we set __file__ (for cleanup)
+        let set_file_name = !module_dict.contains_key(identifier!(self, __file__), self);
+        if set_file_name {
+            module_dict.set_item(
+                identifier!(self, __file__),
+                self.ctx.new_str(path).into(),
+                self,
+            )?;
+            module_dict.set_item(identifier!(self, __cached__), self.ctx.none(), self)?;
+        }
+
+        let result = run(&module_dict);
+
+        self.flush_io();
+
+        // Cleanup __file__ and __cached__ after execution
+        if set_file_name {
+            let _ = module_dict.del_item(identifier!(self, __file__), self);
+            let _ = module_dict.del_item(identifier!(self, __cached__), self);
+        }
+
+        result
+    }
+
+    /// flush_io
+    ///
+    /// Flush stdout and stderr. Errors are silently ignored.
+    fn flush_io(&self) {
+        if let Ok(stdout) = self.sys_module.get_attr("stdout", self) {
+            let _ = self.call_method(&stdout, identifier!(self, flush).as_str(), ());
+        }
+        if let Ok(stderr) = self.sys_module.get_attr("stderr", self) {
+            let _ = self.call_method(&stderr, identifier!(self, flush).as_str(), ());
+        }
+    }
+
     pub fn current_recursion_depth(&self) -> usize {
         self.recursion_depth.get()
     }
@@ -520,7 +604,13 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         self.with_recursion("", || {
             self.frames.borrow_mut().push(frame.clone());
+            // Push a new exception context for frame isolation
+            // Each frame starts with no active exception (None)
+            // This prevents exceptions from leaking between function calls
+            self.push_exception(None);
             let result = f(frame);
+            // Pop the exception context - restores caller's exception state
+            self.pop_exception();
             // defer dec frame
             let _popped = self.frames.borrow_mut().pop();
             result
@@ -829,10 +919,6 @@ impl VirtualMachine {
         cur.exc
     }
 
-    pub(crate) fn take_exception(&self) -> Option<PyBaseExceptionRef> {
-        self.exceptions.borrow_mut().exc.take()
-    }
-
     pub(crate) fn current_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow().exc.clone()
     }
@@ -847,13 +933,25 @@ impl VirtualMachine {
         if let Some(context_exc) = self.topmost_exception()
             && !context_exc.is(exception)
         {
+            // Traverse the context chain to find `exception` and break cycles
+            // Uses Floyd's cycle detection: o moves every step, slow_o every other step
             let mut o = context_exc.clone();
+            let mut slow_o = context_exc.clone();
+            let mut slow_update_toggle = false;
             while let Some(context) = o.__context__() {
                 if context.is(exception) {
                     o.set___context__(None);
                     break;
                 }
                 o = context;
+                if o.is(&slow_o) {
+                    // Pre-existing cycle detected - all exceptions on the path were visited
+                    break;
+                }
+                if slow_update_toggle && let Some(slow_context) = slow_o.__context__() {
+                    slow_o = slow_context;
+                }
+                slow_update_toggle = !slow_update_toggle;
             }
             exception.set___context__(Some(context_exc))
         }

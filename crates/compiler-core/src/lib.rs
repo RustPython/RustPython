@@ -7,6 +7,7 @@ pub mod bytecode;
 pub mod frozen;
 pub mod marshal;
 mod mode;
+pub mod varint;
 
 pub use mode::Mode;
 

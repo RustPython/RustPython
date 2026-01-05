@@ -2,11 +2,11 @@
 
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyStrInterned,
     bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
-    convert::ToPyObject,
+    convert::{ToPyException, ToPyObject},
     frozen,
     function::OptionalArg,
     types::{Constructor, Representable},
@@ -335,6 +335,44 @@ impl Deref for PyCode {
 impl PyCode {
     pub const fn new(code: CodeObject) -> Self {
         Self { code }
+    }
+    pub fn from_pyc_path(path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        let name = match path.file_stem() {
+            Some(stem) => stem.display().to_string(),
+            None => "".to_owned(),
+        };
+        let content = std::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
+        Self::from_pyc(
+            &content,
+            Some(&name),
+            Some(&path.display().to_string()),
+            Some("<source>"),
+            vm,
+        )
+    }
+    pub fn from_pyc(
+        pyc_bytes: &[u8],
+        name: Option<&str>,
+        bytecode_path: Option<&str>,
+        source_path: Option<&str>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        if !crate::import::check_pyc_magic_number_bytes(pyc_bytes) {
+            return Err(vm.new_value_error("pyc bytes has wrong MAGIC"));
+        }
+        let bootstrap_external = vm.import("_frozen_importlib_external", 0)?;
+        let compile_bytecode = bootstrap_external.get_attr("_compile_bytecode", vm)?;
+        // 16 is the pyc header length
+        let Some((_, code_bytes)) = pyc_bytes.split_at_checked(16) else {
+            return Err(vm.new_value_error(format!(
+                "pyc_bytes header is broken. 16 bytes expected but {} bytes given.",
+                pyc_bytes.len()
+            )));
+        };
+        let code_bytes_obj = vm.ctx.new_bytes(code_bytes.to_vec());
+        let compiled =
+            compile_bytecode.call((code_bytes_obj, name, bytecode_path, source_path), vm)?;
+        compiled.try_downcast(vm)
     }
 }
 
@@ -1004,7 +1042,26 @@ impl PyCode {
         let idx_err = |vm: &VirtualMachine| vm.new_index_error("tuple index out of range");
 
         let idx = usize::try_from(opcode).map_err(|_| idx_err(vm))?;
-        let name = self.code.varnames.get(idx).ok_or_else(|| idx_err(vm))?;
+
+        let varnames_len = self.code.varnames.len();
+        let cellvars_len = self.code.cellvars.len();
+
+        let name = if idx < varnames_len {
+            // Index in varnames
+            self.code.varnames.get(idx).ok_or_else(|| idx_err(vm))?
+        } else if idx < varnames_len + cellvars_len {
+            // Index in cellvars
+            self.code
+                .cellvars
+                .get(idx - varnames_len)
+                .ok_or_else(|| idx_err(vm))?
+        } else {
+            // Index in freevars
+            self.code
+                .freevars
+                .get(idx - varnames_len - cellvars_len)
+                .ok_or_else(|| idx_err(vm))?
+        };
         Ok(name.to_object())
     }
 }

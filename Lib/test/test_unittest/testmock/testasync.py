@@ -340,8 +340,7 @@ class AsyncSpecTest(unittest.TestCase):
         # only the shape of the spec at the time of mock construction matters
         self.assertNotIsInstance(mock_async_instance.later_async_func_attr, AsyncMock)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_spec_mock_type_kw(self):
         def inner_test(mock_type):
             async_mock = mock_type(spec=async_func)
@@ -356,8 +355,7 @@ class AsyncSpecTest(unittest.TestCase):
             with self.subTest(f"test spec kwarg with {mock_type}"):
                 inner_test(mock_type)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_spec_mock_type_positional(self):
         def inner_test(mock_type):
             async_mock = mock_type(async_func)
@@ -736,8 +734,7 @@ class AsyncIteratorTest(unittest.TestCase):
 
         async def __anext__(self): pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_aiter_set_return_value(self):
         mock_iter = AsyncMock(name="tester")
         mock_iter.__aiter__.return_value = [1, 2, 3]
@@ -763,8 +760,7 @@ class AsyncIteratorTest(unittest.TestCase):
                 inner_test(mock_type)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_mock_async_for(self):
         async def iterate(iterator):
             accumulator = []
@@ -810,8 +806,7 @@ class AsyncMockAssert(unittest.TestCase):
     async def _await_coroutine(self, coroutine):
         return await coroutine
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_called_but_not_awaited(self):
         mock = AsyncMock(AsyncClass)
         with assertNeverAwaited(self):
@@ -852,8 +847,7 @@ class AsyncMockAssert(unittest.TestCase):
         self.mock.assert_called_once()
         self.mock.assert_awaited_once()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_called_twice_and_awaited_once(self):
         mock = AsyncMock(AsyncClass)
         coroutine = mock.async_method()
@@ -868,8 +862,7 @@ class AsyncMockAssert(unittest.TestCase):
         mock.async_method.assert_awaited()
         mock.async_method.assert_awaited_once()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_called_once_and_awaited_twice(self):
         mock = AsyncMock(AsyncClass)
         coroutine = mock.async_method()
@@ -894,8 +887,7 @@ class AsyncMockAssert(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.mock.assert_called()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_has_calls_not_awaits(self):
         kalls = [call('foo')]
         with assertNeverAwaited(self):
@@ -904,8 +896,7 @@ class AsyncMockAssert(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.mock.assert_has_awaits(kalls)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_has_mock_calls_on_async_mock_no_spec(self):
         with assertNeverAwaited(self):
             self.mock()
@@ -919,8 +910,7 @@ class AsyncMockAssert(unittest.TestCase):
         mock_kalls = ([call(), call('foo'), call('baz')])
         self.assertEqual(self.mock.mock_calls, mock_kalls)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_has_mock_calls_on_async_mock_with_spec(self):
         a_class_mock = AsyncMock(AsyncClass)
         with assertNeverAwaited(self):
@@ -936,8 +926,7 @@ class AsyncMockAssert(unittest.TestCase):
         self.assertEqual(a_class_mock.async_method.mock_calls, method_kalls)
         self.assertEqual(a_class_mock.mock_calls, mock_kalls)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_async_method_calls_recorded(self):
         with assertNeverAwaited(self):
             self.mock.something(3, fish=None)
@@ -953,8 +942,7 @@ class AsyncMockAssert(unittest.TestCase):
                          [("something", (6,), {'cake': sentinel.Cake})],
                          "method calls not recorded correctly")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_async_arg_lists(self):
         def assert_attrs(mock):
             names = ('call_args_list', 'method_calls', 'mock_calls')

@@ -1003,6 +1003,80 @@ pub(super) fn is_blocking_io_error(err: &Py<PyBaseException>, vm: &VirtualMachin
     err.fast_isinstance(vm.ctx.exceptions.blocking_io_error)
 }
 
+// Socket I/O Helper Functions
+
+/// Send all bytes to socket, handling partial sends with blocking wait
+///
+/// Loops until all bytes are sent. For blocking sockets, this will wait
+/// until all data is sent. For non-blocking sockets, returns WantWrite
+/// if no progress can be made.
+/// Optional deadline parameter allows respecting a read deadline during flush.
+fn send_all_bytes(
+    socket: &PySSLSocket,
+    buf: Vec<u8>,
+    vm: &VirtualMachine,
+    deadline: Option<std::time::Instant>,
+) -> SslResult<()> {
+    // First, flush any previously pending TLS data with deadline
+    socket
+        .flush_pending_tls_output(vm, deadline)
+        .map_err(SslError::Py)?;
+
+    if buf.is_empty() {
+        return Ok(());
+    }
+
+    let mut sent_total = 0;
+    while sent_total < buf.len() {
+        // Check deadline before each send attempt
+        if let Some(dl) = deadline
+            && std::time::Instant::now() >= dl
+        {
+            socket
+                .pending_tls_output
+                .lock()
+                .extend_from_slice(&buf[sent_total..]);
+            return Err(SslError::Timeout("The operation timed out".to_string()));
+        }
+
+        match socket.sock_send(&buf[sent_total..], vm) {
+            Ok(result) => {
+                let sent: usize = result
+                    .try_to_value::<isize>(vm)
+                    .map_err(SslError::Py)?
+                    .try_into()
+                    .map_err(|_| SslError::Syscall("Invalid send return value".to_string()))?;
+                if sent == 0 {
+                    // No progress - save unsent bytes to pending buffer
+                    socket
+                        .pending_tls_output
+                        .lock()
+                        .extend_from_slice(&buf[sent_total..]);
+                    return Err(SslError::WantWrite);
+                }
+                sent_total += sent;
+            }
+            Err(e) => {
+                if is_blocking_io_error(&e, vm) {
+                    // Save unsent bytes to pending buffer
+                    socket
+                        .pending_tls_output
+                        .lock()
+                        .extend_from_slice(&buf[sent_total..]);
+                    return Err(SslError::WantWrite);
+                }
+                // For other errors, also save unsent bytes
+                socket
+                    .pending_tls_output
+                    .lock()
+                    .extend_from_slice(&buf[sent_total..]);
+                return Err(SslError::Py(e));
+            }
+        }
+    }
+    Ok(())
+}
+
 // Handshake Helper Functions
 
 /// Write TLS handshake data to socket/BIO
@@ -1017,6 +1091,12 @@ fn handshake_write_loop(
 ) -> SslResult<bool> {
     let mut made_progress = false;
 
+    // Flush any previously pending TLS data before generating new output
+    // Must succeed before sending new data to maintain order
+    socket
+        .flush_pending_tls_output(vm, None)
+        .map_err(SslError::Py)?;
+
     while conn.wants_write() || force_initial_write {
         if force_initial_write && !conn.wants_write() {
             // No data to write on first iteration - break to avoid infinite loop
@@ -1029,20 +1109,9 @@ fn handshake_write_loop(
             .map_err(SslError::Io)?;
 
         if written > 0 && !buf.is_empty() {
-            // Send directly without select - blocking sockets will wait automatically
-            // Handle BlockingIOError from non-blocking sockets
-            match socket.sock_send(buf, vm) {
-                Ok(_) => {
-                    made_progress = true;
-                }
-                Err(e) => {
-                    if is_blocking_io_error(&e, vm) {
-                        // Non-blocking socket would block - return SSLWantWriteError
-                        return Err(SslError::WantWrite);
-                    }
-                    return Err(SslError::Py(e));
-                }
-            }
+            // Send all bytes to socket, handling partial sends
+            send_all_bytes(socket, buf, vm, None)?;
+            made_progress = true;
         } else if written == 0 {
             // No data written but wants_write is true - should not happen normally
             // Break to avoid infinite loop
@@ -1160,7 +1229,7 @@ fn handle_handshake_complete(
             // Do NOT loop on wants_write() - avoid infinite loop/deadlock
             let tls_data = ssl_write_tls_records(conn)?;
             if !tls_data.is_empty() {
-                socket.sock_send(tls_data, vm).map_err(SslError::Py)?;
+                send_all_bytes(socket, tls_data, vm, None)?;
             }
 
             // IMPORTANT: Don't check wants_write() again!
@@ -1168,13 +1237,28 @@ fn handle_handshake_complete(
         }
     } else if conn.wants_write() {
         // Send all pending data (e.g., TLS 1.3 NewSessionTicket) to socket
+        // Best-effort: WantWrite means socket buffer full, pending data will be
+        // sent in subsequent read/write calls. Don't fail handshake for this.
         while conn.wants_write() {
             let tls_data = ssl_write_tls_records(conn)?;
             if tls_data.is_empty() {
                 break;
             }
-            socket.sock_send(tls_data, vm).map_err(SslError::Py)?;
+            match send_all_bytes(socket, tls_data, vm, None) {
+                Ok(()) => {}
+                Err(SslError::WantWrite) => break,
+                Err(e) => return Err(e),
+            }
         }
+    }
+
+    // CRITICAL: Ensure all pending TLS data is sent before returning
+    // TLS 1.3 Finished must reach server before handshake is considered complete
+    // Without this, server may not process application data
+    if !socket.is_bio_mode() {
+        socket
+            .blocking_flush_all_pending(vm)
+            .map_err(SslError::Py)?;
     }
 
     Ok(true)
@@ -1249,11 +1333,14 @@ pub(super) fn ssl_do_handshake(
             // Send close_notify on error
             if !is_bio {
                 conn.send_close_notify();
-                // Actually send the close_notify alert
+                // Flush any pending TLS data before sending close_notify
+                let _ = socket.flush_pending_tls_output(vm, None);
+                // Actually send the close_notify alert using send_all_bytes
+                // for proper partial send handling and retry logic
                 if let Ok(alert_data) = ssl_write_tls_records(conn)
                     && !alert_data.is_empty()
                 {
-                    let _ = socket.sock_send(alert_data, vm);
+                    let _ = send_all_bytes(socket, alert_data, vm, None);
                 }
             }
 
@@ -1304,9 +1391,7 @@ pub(super) fn ssl_do_handshake(
                         break;
                     }
                     // Send to outgoing BIO
-                    socket
-                        .sock_send(buf[..n].to_vec(), vm)
-                        .map_err(SslError::Py)?;
+                    send_all_bytes(socket, buf[..n].to_vec(), vm, None)?;
                     // Check if there's more to write
                     if !conn.wants_write() {
                         break;
@@ -1388,6 +1473,16 @@ pub(super) fn ssl_read(
         None // BIO mode has no deadline
     };
 
+    // CRITICAL: Flush any pending TLS output before reading
+    // This ensures data from previous write() calls is sent before we wait for response.
+    // Without this, write() may leave data in pending_tls_output (if socket buffer was full),
+    // and read() would timeout waiting for a response that the server never received.
+    if !is_bio {
+        socket
+            .flush_pending_tls_output(vm, deadline)
+            .map_err(SslError::Py)?;
+    }
+
     // Loop to handle TLS records and post-handshake messages
     // Matches SSL_read behavior which loops until data is available
     //   - CPython uses OpenSSL's SSL_read which loops on SSL_ERROR_WANT_READ/WANT_WRITE
@@ -1396,6 +1491,7 @@ pub(super) fn ssl_read(
     //   - Blocking sockets: sock_select() and recv() wait at kernel level (no CPU busy-wait)
     //   - Non-blocking sockets: immediate return on first WantRead
     //   - Deadline prevents timeout issues
+
     loop {
         // Check deadline
         if let Some(deadline) = deadline
@@ -1420,11 +1516,43 @@ pub(super) fn ssl_read(
             // Check if connection needs to write data first (e.g., TLS key update, renegotiation)
             // This mirrors the handshake logic which checks both wants_read() and wants_write()
             if conn.wants_write() && !is_bio {
+                // Check deadline BEFORE attempting flush
+                if let Some(deadline) = deadline
+                    && std::time::Instant::now() >= deadline
+                {
+                    return Err(SslError::Timeout(
+                        "The read operation timed out".to_string(),
+                    ));
+                }
+
                 // Flush pending TLS data before continuing
+                // CRITICAL: Pass deadline so flush respects read timeout
                 let tls_data = ssl_write_tls_records(conn)?;
                 if !tls_data.is_empty() {
-                    socket.sock_send(tls_data, vm).map_err(SslError::Py)?;
+                    // Use best-effort send - don't fail READ just because WRITE couldn't complete
+                    match send_all_bytes(socket, tls_data, vm, deadline) {
+                        Ok(()) => {}
+                        Err(SslError::WantWrite) => {
+                            // Socket buffer full - acceptable during READ operation
+                            // Pending data will be sent on next write/read call
+                        }
+                        Err(SslError::Timeout(_)) => {
+                            // Timeout during flush is acceptable during READ
+                            // Pending data stays buffered for next operation
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
+
+                // Check deadline AFTER flush attempt
+                if let Some(deadline) = deadline
+                    && std::time::Instant::now() >= deadline
+                {
+                    return Err(SslError::Timeout(
+                        "The read operation timed out".to_string(),
+                    ));
+                }
+
                 // After flushing, rustls may want to read again - continue loop
                 continue;
             }
@@ -1487,7 +1615,6 @@ pub(super) fn ssl_read(
         }
 
         // Read and process TLS records
-        // This will block for blocking sockets
         match ssl_ensure_data_available(conn, socket, vm) {
             Ok(_bytes_read) => {
                 // Successfully read and processed TLS data

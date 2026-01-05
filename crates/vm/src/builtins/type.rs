@@ -1997,9 +1997,24 @@ fn calculate_meta_class(
     let mut winner = metatype;
     for base in bases {
         let base_type = base.class();
+
+        // First try fast_issubclass for PyType instances
         if winner.fast_issubclass(base_type) {
             continue;
         } else if base_type.fast_issubclass(&winner) {
+            winner = base_type.to_owned();
+            continue;
+        }
+
+        // If fast_issubclass didn't work, fall back to general is_subclass
+        // This handles cases where metaclasses are not PyType subclasses
+        let winner_is_subclass = winner.as_object().is_subclass(base_type.as_object(), vm)?;
+        if winner_is_subclass {
+            continue;
+        }
+
+        let base_type_is_subclass = base_type.as_object().is_subclass(winner.as_object(), vm)?;
+        if base_type_is_subclass {
             winner = base_type.to_owned();
             continue;
         }

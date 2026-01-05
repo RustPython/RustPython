@@ -8,6 +8,10 @@ use crate::{
     vm::{VirtualMachine, resolve_frozen_alias, thread},
 };
 
+pub(crate) fn check_pyc_magic_number_bytes(buf: &[u8]) -> bool {
+    buf.starts_with(&crate::version::PYC_MAGIC_NUMBER_BYTES[..2])
+}
+
 pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
     flame_guard!("init importlib");
 

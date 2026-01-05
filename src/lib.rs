@@ -49,7 +49,7 @@ mod interpreter;
 mod settings;
 mod shell;
 
-use rustpython_vm::{PyResult, VirtualMachine, scope::Scope};
+use rustpython_vm::{AsObject, PyObjectRef, PyResult, VirtualMachine, scope::Scope};
 use std::env;
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -114,21 +114,6 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     rustpython_vm::common::os::exit_code(exitcode)
 }
 
-fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
-    let scope = vm.new_scope_with_builtins();
-    let main_module = vm.new_module("__main__", scope.globals.clone(), None);
-    main_module
-        .dict()
-        .set_item("__annotations__", vm.ctx.new_dict().into(), vm)
-        .expect("Failed to initialize __main__.__annotations__");
-
-    vm.sys_module
-        .get_attr("modules", vm)?
-        .set_item("__main__", main_module.into(), vm)?;
-
-    Ok(scope)
-}
-
 fn get_pip(scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
     let get_getpip = rustpython_vm::py_compile!(
         source = r#"\
@@ -144,7 +129,7 @@ __import__("io").TextIOWrapper(
         .downcast()
         .expect("TextIOWrapper.read() should return str");
     eprintln!("running get-pip.py...");
-    vm.run_code_string(scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
+    vm.run_string(scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
     Ok(())
 }
 
@@ -162,12 +147,66 @@ fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> 
     }
 }
 
+// pymain_run_file_obj in Modules/main.c
+fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
+    // Check if path is a package/directory with __main__.py
+    if let Some(_importer) = get_importer(path, vm)? {
+        vm.insert_sys_path(vm.new_pyobj(path))?;
+        let runpy = vm.import("runpy", 0)?;
+        let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
+        run_module_as_main.call((vm::identifier!(vm, __main__).to_owned(), false), vm)?;
+        return Ok(());
+    }
+
+    // Add script directory to sys.path[0]
+    if !vm.state.config.settings.safe_path {
+        let dir = std::path::Path::new(path)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or("");
+        vm.insert_sys_path(vm.new_pyobj(dir))?;
+    }
+
+    vm.run_any_file(scope, path)
+}
+
+fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+    use rustpython_vm::builtins::PyDictRef;
+    use rustpython_vm::convert::TryFromObject;
+
+    let path_importer_cache = vm.sys_module.get_attr("path_importer_cache", vm)?;
+    let path_importer_cache = PyDictRef::try_from_object(vm, path_importer_cache)?;
+    if let Some(importer) = path_importer_cache.get_item_opt(path, vm)? {
+        return Ok(Some(importer));
+    }
+    let path_obj = vm.ctx.new_str(path);
+    let path_hooks = vm.sys_module.get_attr("path_hooks", vm)?;
+    let mut importer = None;
+    let path_hooks: Vec<PyObjectRef> = path_hooks.try_into_value(vm)?;
+    for path_hook in path_hooks {
+        match path_hook.call((path_obj.clone(),), vm) {
+            Ok(imp) => {
+                importer = Some(imp);
+                break;
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.import_error) => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(if let Some(imp) = importer {
+        let imp = path_importer_cache.get_or_insert(vm, path_obj.into(), || imp.clone())?;
+        Some(imp)
+    } else {
+        None
+    })
+}
+
 // pymain_run_python
 fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
 
-    let scope = setup_main_module(vm)?;
+    let scope = vm.new_scope_with_main()?;
 
     // Import site first, before setting sys.path[0]
     // This matches CPython's behavior where site.removeduppaths() runs
@@ -199,11 +238,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     // Enable faulthandler if -X faulthandler, PYTHONFAULTHANDLER or -X dev is set
     // _PyFaulthandler_Init()
     if vm.state.config.settings.faulthandler {
-        let _ = vm.run_code_string(
-            vm.new_scope_with_builtins(),
-            "import faulthandler; faulthandler.enable()",
-            "<faulthandler>".to_owned(),
-        );
+        let _ = vm.run_simple_string("import faulthandler; faulthandler.enable()");
     }
 
     let is_repl = matches!(run_mode, RunMode::Repl);
@@ -226,7 +261,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     let res = match run_mode {
         RunMode::Command(command) => {
             debug!("Running command {command}");
-            vm.run_code_string(scope.clone(), &command, "<string>".to_owned())
+            vm.run_string(scope.clone(), &command, "<string>".to_owned())
                 .map(drop)
         }
         RunMode::Module(module) => {
@@ -235,9 +270,9 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         }
         RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),
         RunMode::Script(script_path) => {
-            // pymain_run_file
+            // pymain_run_file_obj
             debug!("Running script {}", &script_path);
-            vm.run_script(scope.clone(), &script_path)
+            run_file(vm, scope.clone(), &script_path)
         }
         RunMode::Repl => Ok(()),
     };
@@ -316,13 +351,13 @@ mod tests {
     fn test_run_script() {
         interpreter().enter(|vm| {
             vm.unwrap_pyresult((|| {
-                let scope = setup_main_module(vm)?;
+                let scope = vm.new_scope_with_main()?;
                 // test file run
-                vm.run_script(scope, "extra_tests/snippets/dir_main/__main__.py")?;
+                vm.run_any_file(scope, "extra_tests/snippets/dir_main/__main__.py")?;
 
-                let scope = setup_main_module(vm)?;
-                // test module run
-                vm.run_script(scope, "extra_tests/snippets/dir_main")?;
+                let scope = vm.new_scope_with_main()?;
+                // test module run (directory with __main__.py)
+                run_file(vm, scope, "extra_tests/snippets/dir_main")?;
 
                 Ok(())
             })());

@@ -611,8 +611,6 @@ class CmdLineTest(unittest.TestCase):
             text = stderr.decode('ascii')
             self.assertEqual(text.rstrip(), "some text")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_syntaxerror_unindented_caret_position(self):
         script = "1 + 1 = 2\n"
         with os_helper.temp_dir() as script_dir:
@@ -622,8 +620,7 @@ class CmdLineTest(unittest.TestCase):
             # Confirm that the caret is located under the '=' sign
             self.assertIn("\n    ^^^^^\n", text)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_syntaxerror_indented_caret_position(self):
         script = textwrap.dedent("""\
             if True:

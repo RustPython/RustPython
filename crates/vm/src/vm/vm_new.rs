@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyRef,
+    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError, PyStrRef,
         PyType, PyTypeRef,
@@ -60,6 +60,23 @@ impl VirtualMachine {
 
     pub fn new_scope_with_builtins(&self) -> Scope {
         Scope::with_builtins(None, self.ctx.new_dict(), self)
+    }
+
+    pub fn new_scope_with_main(&self) -> PyResult<Scope> {
+        let scope = self.new_scope_with_builtins();
+        let main_module = self.new_module("__main__", scope.globals.clone(), None);
+        main_module
+            .dict()
+            .set_item("__annotations__", self.ctx.new_dict().into(), self)
+            .expect("Failed to initialize __main__.__annotations__");
+
+        self.sys_module.get_attr("modules", self)?.set_item(
+            "__main__",
+            main_module.into(),
+            self,
+        )?;
+
+        Ok(scope)
     }
 
     pub fn new_function<F, FKind>(&self, name: &'static str, f: F) -> PyRef<PyNativeFunction>
@@ -481,6 +498,20 @@ impl VirtualMachine {
             .as_object()
             .set_attr("offset", offset, self)
             .unwrap();
+
+        // Set end_lineno and end_offset if available
+        if let Some((end_lineno, end_offset)) = error.python_end_location() {
+            let end_lineno = self.ctx.new_int(end_lineno);
+            let end_offset = self.ctx.new_int(end_offset);
+            syntax_error
+                .as_object()
+                .set_attr("end_lineno", end_lineno, self)
+                .unwrap();
+            syntax_error
+                .as_object()
+                .set_attr("end_offset", end_offset, self)
+                .unwrap();
+        }
 
         syntax_error
             .as_object()
