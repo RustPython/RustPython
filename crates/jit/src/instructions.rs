@@ -475,7 +475,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 }
             }
             Instruction::CallIntrinsic1 { func } => {
-                match func {
+                match func.get(arg) {
                     IntrinsicFunction1::UnaryPositive => {
                         match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
                             JitValue::Int(val) => {
