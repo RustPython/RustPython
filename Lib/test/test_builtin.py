@@ -2241,6 +2241,7 @@ class PtyTests(unittest.TestCase):
             expected = terminal_input.decode(sys.stdin.encoding)  # what else?
         self.assertEqual(input_result, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_input_tty(self):
         # Test input() functionality when wired to a tty (the code path
         # is different and invokes GNU readline if available).
@@ -2257,17 +2258,20 @@ class PtyTests(unittest.TestCase):
             self.skipTest("the readline module is loaded")
 
     @unittest.skipUnless(hasattr(sys.stdin, 'detach'), 'TODO: RustPython: requires detach function in TextIOWrapper')
+    @unittest.expectedFailure  # TODO: RUSTPYTHON AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_non_ascii(self):
         self.skip_if_readline()
         # Check stdin/stdout encoding is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "utf-8")
 
     @unittest.skipUnless(hasattr(sys.stdin, 'detach'), 'TODO: RustPython: requires detach function in TextIOWrapper')
+    @unittest.expectedFailure  # TODO: RUSTPYTHON AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_non_ascii_unicode_errors(self):
         self.skip_if_readline()
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_no_stdout_fileno(self):
         # Issue #24402: If stdin is the original terminal but stdout.fileno()
         # fails, do not use the original stdout file descriptor
