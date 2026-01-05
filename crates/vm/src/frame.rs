@@ -1810,6 +1810,7 @@ impl ExecutingFrame<'_> {
             | bytecode::Instruction::PopJumpIfNotNone { .. }
             | bytecode::Instruction::SetUpdate { .. }
             | bytecode::Instruction::StoreFastStoreFast { .. }
+            | bytecode::Instruction::Reserved140
             | bytecode::Instruction::Reserved141
             | bytecode::Instruction::Reserved142
             | bytecode::Instruction::Reserved143

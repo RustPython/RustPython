@@ -1091,7 +1091,8 @@ pub enum Instruction {
     SetExcInfo,
     // 139: SUBSCRIPT
     Subscript,
-    // 141-148: Reserved (padding to keep RESUME at 149)
+    // 140-148: Reserved (padding to keep RESUME at 149)
+    Reserved140,
     Reserved141,
     Reserved142,
     Reserved143,
@@ -1903,8 +1904,10 @@ impl Instruction {
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             // Dummy/placeholder instructions (never executed)
-            Cache | Reserved3 | Reserved17 | Reserved141 | Reserved142 | Reserved143
-            | Reserved144 | Reserved145 | Reserved146 | Reserved147 | Reserved148 => 0,
+            Cache | Reserved3 | Reserved17 | Reserved140 | Reserved141 | Reserved142
+            | Reserved143 | Reserved144 | Reserved145 | Reserved146 | Reserved147 | Reserved148 => {
+                0
+            }
             BinarySlice | EndFor | ExitInitCheck | GetYieldFromIter | InterpreterExit
             | LoadAssertionError | LoadLocals | PushNull | ReturnGenerator | StoreSlice => 0,
             BuildConstKeyMap { .. }
@@ -2140,8 +2143,8 @@ impl Instruction {
         match self {
             // Dummy/placeholder instructions
             Cache => w!(CACHE),
-            Reserved3 | Reserved17 | Reserved141 | Reserved142 | Reserved143 | Reserved144
-            | Reserved145 | Reserved146 | Reserved147 | Reserved148 => w!(RESERVED),
+            Reserved3 | Reserved17 | Reserved140 | Reserved141 | Reserved142 | Reserved143
+            | Reserved144 | Reserved145 | Reserved146 | Reserved147 | Reserved148 => w!(RESERVED),
             BinarySlice => w!(BINARY_SLICE),
             EndFor => w!(END_FOR),
             ExitInitCheck => w!(EXIT_INIT_CHECK),
