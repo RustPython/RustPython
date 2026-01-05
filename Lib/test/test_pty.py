@@ -110,7 +110,7 @@ class PtyTest(unittest.TestCase):
         pass
 
     @expectedFailureIfStdinIsTTY
-    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "tty" has no attribute "tcgetwinsize"')
+    @unittest.skip('TODO: RUSTPYTHON; "Not runnable. tty.tcgetwinsize" is required to setUp')
     def test_openpty(self):
         try:
             mode = tty.tcgetattr(pty.STDIN_FILENO)
