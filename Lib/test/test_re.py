@@ -1,7 +1,7 @@
 from test.support import (gc_collect, bigmemtest, _2G,
                           cpython_only, captured_stdout,
                           check_disallow_instantiation, is_emscripten, is_wasi,
-                          SHORT_TIMEOUT, requires_resource)
+                          warnings_helper, SHORT_TIMEOUT, CPUStopwatch, requires_resource)
 import locale
 import re
 import string
@@ -47,7 +47,7 @@ class ReTests(unittest.TestCase):
         recurse(actual, expect)
 
     def checkPatternError(self, pattern, errmsg, pos=None):
-        with self.assertRaises(re.error) as cm:
+        with self.assertRaises(re.PatternError) as cm:
             re.compile(pattern)
         with self.subTest(pattern=pattern):
             err = cm.exception
@@ -56,7 +56,7 @@ class ReTests(unittest.TestCase):
                 self.assertEqual(err.pos, pos)
 
     def checkTemplateError(self, pattern, repl, string, errmsg, pos=None):
-        with self.assertRaises(re.error) as cm:
+        with self.assertRaises(re.PatternError) as cm:
             re.sub(pattern, repl, string)
         with self.subTest(pattern=pattern, repl=repl):
             err = cm.exception
@@ -64,8 +64,10 @@ class ReTests(unittest.TestCase):
             if pos is not None:
                 self.assertEqual(err.pos, pos)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    def test_error_is_PatternError_alias(self):
+        assert re.error is re.PatternError
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_keep_buffer(self):
         # See bug 14212
         b = bytearray(b'x')
@@ -129,8 +131,10 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.sub("(?i)b+", "x", "bbbb BBBB"), 'x x')
         self.assertEqual(re.sub(r'\d+', self.bump_num, '08.2 -2 23x99y'),
                          '9.3 -3 24x100y')
-        self.assertEqual(re.sub(r'\d+', self.bump_num, '08.2 -2 23x99y', 3),
-                         '9.3 -3 23x99y')
+        with self.assertWarns(DeprecationWarning) as w:
+            self.assertEqual(re.sub(r'\d+', self.bump_num, '08.2 -2 23x99y', 3),
+                             '9.3 -3 23x99y')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(re.sub(r'\d+', self.bump_num, '08.2 -2 23x99y', count=3),
                          '9.3 -3 23x99y')
 
@@ -154,7 +158,7 @@ class ReTests(unittest.TestCase):
                          (chr(9)+chr(10)+chr(11)+chr(13)+chr(12)+chr(7)+chr(8)))
         for c in 'cdehijklmopqsuwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ':
             with self.subTest(c):
-                with self.assertRaises(re.error):
+                with self.assertRaises(re.PatternError):
                     self.assertEqual(re.sub('a', '\\' + c, 'a'), '\\' + c)
 
         self.assertEqual(re.sub(r'^\s*', 'X', 'test'), 'Xtest')
@@ -237,8 +241,41 @@ class ReTests(unittest.TestCase):
 
     def test_qualified_re_sub(self):
         self.assertEqual(re.sub('a', 'b', 'aaaaa'), 'bbbbb')
-        self.assertEqual(re.sub('a', 'b', 'aaaaa', 1), 'baaaa')
+        with self.assertWarns(DeprecationWarning) as w:
+            self.assertEqual(re.sub('a', 'b', 'aaaaa', 1), 'baaaa')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(re.sub('a', 'b', 'aaaaa', count=1), 'baaaa')
+
+        with self.assertRaisesRegex(TypeError,
+                r"sub\(\) got multiple values for argument 'count'"):
+            re.sub('a', 'b', 'aaaaa', 1, count=1)
+        with self.assertRaisesRegex(TypeError,
+                r"sub\(\) got multiple values for argument 'flags'"):
+            re.sub('a', 'b', 'aaaaa', 1, 0, flags=0)
+        with self.assertRaisesRegex(TypeError,
+                r"sub\(\) takes from 3 to 5 positional arguments but 6 "
+                r"were given"):
+            re.sub('a', 'b', 'aaaaa', 1, 0, 0)
+
+    def test_misuse_flags(self):
+        with self.assertWarns(DeprecationWarning) as w:
+            result = re.sub('a', 'b', 'aaaaa', re.I)
+        self.assertEqual(result, re.sub('a', 'b', 'aaaaa', count=int(re.I)))
+        self.assertEqual(str(w.warning),
+                         "'count' is passed as positional argument")
+        self.assertEqual(w.filename, __file__)
+        with self.assertWarns(DeprecationWarning) as w:
+            result = re.subn("b*", "x", "xyz", re.I)
+        self.assertEqual(result, re.subn("b*", "x", "xyz", count=int(re.I)))
+        self.assertEqual(str(w.warning),
+                         "'count' is passed as positional argument")
+        self.assertEqual(w.filename, __file__)
+        with self.assertWarns(DeprecationWarning) as w:
+            result = re.split(":", ":a:b::c", re.I)
+        self.assertEqual(result, re.split(":", ":a:b::c", maxsplit=int(re.I)))
+        self.assertEqual(str(w.warning),
+                         "'maxsplit' is passed as positional argument")
+        self.assertEqual(w.filename, __file__)
 
     def test_bug_114660(self):
         self.assertEqual(re.sub(r'(\S)\s+(\S)', r'\1 \2', 'hello  there'),
@@ -346,8 +383,21 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.subn("b+", "x", "bbbb BBBB"), ('x BBBB', 1))
         self.assertEqual(re.subn("b+", "x", "xyz"), ('xyz', 0))
         self.assertEqual(re.subn("b*", "x", "xyz"), ('xxxyxzx', 4))
-        self.assertEqual(re.subn("b*", "x", "xyz", 2), ('xxxyz', 2))
+        with self.assertWarns(DeprecationWarning) as w:
+            self.assertEqual(re.subn("b*", "x", "xyz", 2), ('xxxyz', 2))
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(re.subn("b*", "x", "xyz", count=2), ('xxxyz', 2))
+
+        with self.assertRaisesRegex(TypeError,
+                r"subn\(\) got multiple values for argument 'count'"):
+            re.subn('a', 'b', 'aaaaa', 1, count=1)
+        with self.assertRaisesRegex(TypeError,
+                r"subn\(\) got multiple values for argument 'flags'"):
+            re.subn('a', 'b', 'aaaaa', 1, 0, flags=0)
+        with self.assertRaisesRegex(TypeError,
+                r"subn\(\) takes from 3 to 5 positional arguments but 6 "
+                r"were given"):
+            re.subn('a', 'b', 'aaaaa', 1, 0, 0)
 
     def test_re_split(self):
         for string in ":a:b::c", S(":a:b::c"):
@@ -403,7 +453,9 @@ class ReTests(unittest.TestCase):
                 self.assertTypedEqual(re.split(sep, ':a:b::c'), expected)
 
     def test_qualified_re_split(self):
-        self.assertEqual(re.split(":", ":a:b::c", 2), ['', 'a', 'b::c'])
+        with self.assertWarns(DeprecationWarning) as w:
+            self.assertEqual(re.split(":", ":a:b::c", 2), ['', 'a', 'b::c'])
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(re.split(":", ":a:b::c", maxsplit=2), ['', 'a', 'b::c'])
         self.assertEqual(re.split(':', 'a:b:c:d', maxsplit=2), ['a', 'b', 'c:d'])
         self.assertEqual(re.split("(:)", ":a:b::c", maxsplit=2),
@@ -412,6 +464,17 @@ class ReTests(unittest.TestCase):
                          ['', ':', 'a', ':', 'b::c'])
         self.assertEqual(re.split("(:*)", ":a:b::c", maxsplit=2),
                          ['', ':', '', '', 'a:b::c'])
+
+        with self.assertRaisesRegex(TypeError,
+                r"split\(\) got multiple values for argument 'maxsplit'"):
+            re.split(":", ":a:b::c", 2, maxsplit=2)
+        with self.assertRaisesRegex(TypeError,
+                r"split\(\) got multiple values for argument 'flags'"):
+            re.split(":", ":a:b::c", 2, 0, flags=0)
+        with self.assertRaisesRegex(TypeError,
+                r"split\(\) takes from 2 to 4 positional arguments but 5 "
+                r"were given"):
+            re.split(":", ":a:b::c", 2, 0, 0)
 
     def test_re_findall(self):
         self.assertEqual(re.findall(":+", "abc"), [])
@@ -663,8 +726,7 @@ class ReTests(unittest.TestCase):
                                   'first second').groupdict(),
                          {'first':'first', 'second':'second'})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_expand(self):
         self.assertEqual(re.match("(?P<first>first) (?P<second>second)",
                                   "first second")
@@ -711,8 +773,7 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'x{2,1}',
                                'min repeat greater than max repeat', 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_getattr(self):
         self.assertEqual(re.compile("(?i)(a)(b)").pattern, "(?i)(a)(b)")
         self.assertEqual(re.compile("(?i)(a)(b)").flags, re.I | re.U)
@@ -781,13 +842,12 @@ class ReTests(unittest.TestCase):
         re.purge()  # for warnings
         for c in 'ceghijklmopqyzCEFGHIJKLMNOPQRTVXY':
             with self.subTest(c):
-                self.assertRaises(re.error, re.compile, '\\%c' % c)
+                self.assertRaises(re.PatternError, re.compile, '\\%c' % c)
         for c in 'ceghijklmopqyzABCEFGHIJKLMNOPQRTVXYZ':
             with self.subTest(c):
-                self.assertRaises(re.error, re.compile, '[\\%c]' % c)
+                self.assertRaises(re.PatternError, re.compile, '[\\%c]' % c)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_unicode_escapes(self):
         # test individual Unicode named escapes
         self.assertTrue(re.match(r'\N{LESS-THAN SIGN}', '<'))
@@ -828,31 +888,137 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(br'\N{LESS-THAN SIGN}', r'bad escape \N', 0)
         self.checkPatternError(br'[\N{LESS-THAN SIGN}]', r'bad escape \N', 1)
 
-    def test_string_boundaries(self):
+    def test_word_boundaries(self):
         # See http://bugs.python.org/issue10713
-        self.assertEqual(re.search(r"\b(abc)\b", "abc").group(1),
-                         "abc")
+        self.assertEqual(re.search(r"\b(abc)\b", "abc").group(1), "abc")
+        self.assertEqual(re.search(r"\b(abc)\b", "abc", re.ASCII).group(1), "abc")
+        self.assertEqual(re.search(br"\b(abc)\b", b"abc").group(1), b"abc")
+        self.assertEqual(re.search(br"\b(abc)\b", b"abc", re.LOCALE).group(1), b"abc")
+        self.assertEqual(re.search(r"\b(ьюя)\b", "ьюя").group(1), "ьюя")
+        self.assertIsNone(re.search(r"\b(ьюя)\b", "ьюя", re.ASCII))
+        # There's a word boundary between a word and a non-word.
+        self.assertTrue(re.match(r".\b", "a="))
+        self.assertTrue(re.match(r".\b", "a=", re.ASCII))
+        self.assertTrue(re.match(br".\b", b"a="))
+        self.assertTrue(re.match(br".\b", b"a=", re.LOCALE))
+        self.assertTrue(re.match(r".\b", "я="))
+        self.assertIsNone(re.match(r".\b", "я=", re.ASCII))
+        # There's a word boundary between a non-word and a word.
+        self.assertTrue(re.match(r".\b", "=a"))
+        self.assertTrue(re.match(r".\b", "=a", re.ASCII))
+        self.assertTrue(re.match(br".\b", b"=a"))
+        self.assertTrue(re.match(br".\b", b"=a", re.LOCALE))
+        self.assertTrue(re.match(r".\b", "=я"))
+        self.assertIsNone(re.match(r".\b", "=я", re.ASCII))
+        # There is no word boundary inside a word.
+        self.assertIsNone(re.match(r".\b", "ab"))
+        self.assertIsNone(re.match(r".\b", "ab", re.ASCII))
+        self.assertIsNone(re.match(br".\b", b"ab"))
+        self.assertIsNone(re.match(br".\b", b"ab", re.LOCALE))
+        self.assertIsNone(re.match(r".\b", "юя"))
+        self.assertIsNone(re.match(r".\b", "юя", re.ASCII))
+        # There is no word boundary between a non-word characters.
+        self.assertIsNone(re.match(r".\b", "=-"))
+        self.assertIsNone(re.match(r".\b", "=-", re.ASCII))
+        self.assertIsNone(re.match(br".\b", b"=-"))
+        self.assertIsNone(re.match(br".\b", b"=-", re.LOCALE))
+        # There is no non-boundary match between a word and a non-word.
+        self.assertIsNone(re.match(r".\B", "a="))
+        self.assertIsNone(re.match(r".\B", "a=", re.ASCII))
+        self.assertIsNone(re.match(br".\B", b"a="))
+        self.assertIsNone(re.match(br".\B", b"a=", re.LOCALE))
+        self.assertIsNone(re.match(r".\B", "я="))
+        self.assertTrue(re.match(r".\B", "я=", re.ASCII))
+        # There is no non-boundary match between a non-word and a word.
+        self.assertIsNone(re.match(r".\B", "=a"))
+        self.assertIsNone(re.match(r".\B", "=a", re.ASCII))
+        self.assertIsNone(re.match(br".\B", b"=a"))
+        self.assertIsNone(re.match(br".\B", b"=a", re.LOCALE))
+        self.assertIsNone(re.match(r".\B", "=я"))
+        self.assertTrue(re.match(r".\B", "=я", re.ASCII))
+        # There's a non-boundary match inside a word.
+        self.assertTrue(re.match(r".\B", "ab"))
+        self.assertTrue(re.match(r".\B", "ab", re.ASCII))
+        self.assertTrue(re.match(br".\B", b"ab"))
+        self.assertTrue(re.match(br".\B", b"ab", re.LOCALE))
+        self.assertTrue(re.match(r".\B", "юя"))
+        self.assertTrue(re.match(r".\B", "юя", re.ASCII))
+        # There's a non-boundary match between a non-word characters.
+        self.assertTrue(re.match(r".\B", "=-"))
+        self.assertTrue(re.match(r".\B", "=-", re.ASCII))
+        self.assertTrue(re.match(br".\B", b"=-"))
+        self.assertTrue(re.match(br".\B", b"=-", re.LOCALE))
         # There's a word boundary at the start of a string.
         self.assertTrue(re.match(r"\b", "abc"))
+        self.assertTrue(re.match(r"\b", "abc", re.ASCII))
+        self.assertTrue(re.match(br"\b", b"abc"))
+        self.assertTrue(re.match(br"\b", b"abc", re.LOCALE))
+        self.assertTrue(re.match(r"\b", "ьюя"))
+        self.assertIsNone(re.match(r"\b", "ьюя", re.ASCII))
+        # There's a word boundary at the end of a string.
+        self.assertTrue(re.fullmatch(r".+\b", "abc"))
+        self.assertTrue(re.fullmatch(r".+\b", "abc", re.ASCII))
+        self.assertTrue(re.fullmatch(br".+\b", b"abc"))
+        self.assertTrue(re.fullmatch(br".+\b", b"abc", re.LOCALE))
+        self.assertTrue(re.fullmatch(r".+\b", "ьюя"))
+        self.assertIsNone(re.search(r"\b", "ьюя", re.ASCII))
         # A non-empty string includes a non-boundary zero-length match.
-        self.assertTrue(re.search(r"\B", "abc"))
+        self.assertEqual(re.search(r"\B", "abc").span(), (1, 1))
+        self.assertEqual(re.search(r"\B", "abc", re.ASCII).span(), (1, 1))
+        self.assertEqual(re.search(br"\B", b"abc").span(), (1, 1))
+        self.assertEqual(re.search(br"\B", b"abc", re.LOCALE).span(), (1, 1))
+        self.assertEqual(re.search(r"\B", "ьюя").span(), (1, 1))
+        self.assertEqual(re.search(r"\B", "ьюя", re.ASCII).span(), (0, 0))
         # There is no non-boundary match at the start of a string.
-        self.assertFalse(re.match(r"\B", "abc"))
+        self.assertIsNone(re.match(r"\B", "abc"))
+        self.assertIsNone(re.match(r"\B", "abc", re.ASCII))
+        self.assertIsNone(re.match(br"\B", b"abc"))
+        self.assertIsNone(re.match(br"\B", b"abc", re.LOCALE))
+        self.assertIsNone(re.match(r"\B", "ьюя"))
+        self.assertTrue(re.match(r"\B", "ьюя", re.ASCII))
+        # There is no non-boundary match at the end of a string.
+        self.assertIsNone(re.fullmatch(r".+\B", "abc"))
+        self.assertIsNone(re.fullmatch(r".+\B", "abc", re.ASCII))
+        self.assertIsNone(re.fullmatch(br".+\B", b"abc"))
+        self.assertIsNone(re.fullmatch(br".+\B", b"abc", re.LOCALE))
+        self.assertIsNone(re.fullmatch(r".+\B", "ьюя"))
+        self.assertTrue(re.fullmatch(r".+\B", "ьюя", re.ASCII))
         # However, an empty string contains no word boundaries, and also no
         # non-boundaries.
-        self.assertIsNone(re.search(r"\B", ""))
+        self.assertIsNone(re.search(r"\b", ""))
+        self.assertIsNone(re.search(r"\b", "", re.ASCII))
+        self.assertIsNone(re.search(br"\b", b""))
+        self.assertIsNone(re.search(br"\b", b"", re.LOCALE))
         # This one is questionable and different from the perlre behaviour,
         # but describes current behavior.
-        self.assertIsNone(re.search(r"\b", ""))
+        self.assertIsNone(re.search(r"\B", ""))
+        self.assertIsNone(re.search(r"\B", "", re.ASCII))
+        self.assertIsNone(re.search(br"\B", b""))
+        self.assertIsNone(re.search(br"\B", b"", re.LOCALE))
         # A single word-character string has two boundaries, but no
         # non-boundary gaps.
         self.assertEqual(len(re.findall(r"\b", "a")), 2)
+        self.assertEqual(len(re.findall(r"\b", "a", re.ASCII)), 2)
+        self.assertEqual(len(re.findall(br"\b", b"a")), 2)
+        self.assertEqual(len(re.findall(br"\b", b"a", re.LOCALE)), 2)
         self.assertEqual(len(re.findall(r"\B", "a")), 0)
+        self.assertEqual(len(re.findall(r"\B", "a", re.ASCII)), 0)
+        self.assertEqual(len(re.findall(br"\B", b"a")), 0)
+        self.assertEqual(len(re.findall(br"\B", b"a", re.LOCALE)), 0)
         # If there are no words, there are no boundaries
         self.assertEqual(len(re.findall(r"\b", " ")), 0)
+        self.assertEqual(len(re.findall(r"\b", " ", re.ASCII)), 0)
+        self.assertEqual(len(re.findall(br"\b", b" ")), 0)
+        self.assertEqual(len(re.findall(br"\b", b" ", re.LOCALE)), 0)
         self.assertEqual(len(re.findall(r"\b", "   ")), 0)
+        self.assertEqual(len(re.findall(r"\b", "   ", re.ASCII)), 0)
+        self.assertEqual(len(re.findall(br"\b", b"   ")), 0)
+        self.assertEqual(len(re.findall(br"\b", b"   ", re.LOCALE)), 0)
         # Can match around the whitespace.
         self.assertEqual(len(re.findall(r"\B", " ")), 2)
+        self.assertEqual(len(re.findall(r"\B", " ", re.ASCII)), 2)
+        self.assertEqual(len(re.findall(br"\B", b" ")), 2)
+        self.assertEqual(len(re.findall(br"\B", b" ", re.LOCALE)), 2)
 
     def test_bigcharset(self):
         self.assertEqual(re.match("([\u2222\u2223])",
@@ -917,14 +1083,14 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match(r'(?:(a)|(x))b(?<=(?(1)c|x))c', 'abc'))
         self.assertTrue(re.match(r'(?:(a)|(x))b(?<=(?(1)b|x))c', 'abc'))
         # Group used before defined.
-        self.assertRaises(re.error, re.compile, r'(a)b(?<=(?(2)b|x))(c)')
+        self.assertRaises(re.PatternError, re.compile, r'(a)b(?<=(?(2)b|x))(c)')
         self.assertIsNone(re.match(r'(a)b(?<=(?(1)c|x))(c)', 'abc'))
         self.assertTrue(re.match(r'(a)b(?<=(?(1)b|x))(c)', 'abc'))
         # Group defined in the same lookbehind pattern
-        self.assertRaises(re.error, re.compile, r'(a)b(?<=(.)\2)(c)')
-        self.assertRaises(re.error, re.compile, r'(a)b(?<=(?P<a>.)(?P=a))(c)')
-        self.assertRaises(re.error, re.compile, r'(a)b(?<=(a)(?(2)b|x))(c)')
-        self.assertRaises(re.error, re.compile, r'(a)b(?<=(.)(?<=\2))(c)')
+        self.assertRaises(re.PatternError, re.compile, r'(a)b(?<=(.)\2)(c)')
+        self.assertRaises(re.PatternError, re.compile, r'(a)b(?<=(?P<a>.)(?P=a))(c)')
+        self.assertRaises(re.PatternError, re.compile, r'(a)b(?<=(a)(?(2)b|x))(c)')
+        self.assertRaises(re.PatternError, re.compile, r'(a)b(?<=(.)(?<=\2))(c)')
 
     def test_ignore_case(self):
         self.assertEqual(re.match("abc", "ABC", re.I).group(0), "ABC")
@@ -975,6 +1141,39 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.match(br'[19a]', b'a', re.I))
         self.assertTrue(re.match(br'[19a]', b'A', re.I))
         self.assertTrue(re.match(br'[19A]', b'a', re.I))
+        self.assertTrue(re.match(r'[19\xc7]', '\xc7', re.I))
+        self.assertTrue(re.match(r'[19\xc7]', '\xe7', re.I))
+        self.assertTrue(re.match(r'[19\xe7]', '\xc7', re.I))
+        self.assertTrue(re.match(r'[19\xe7]', '\xe7', re.I))
+        self.assertTrue(re.match(r'[19\u0400]', '\u0400', re.I))
+        self.assertTrue(re.match(r'[19\u0400]', '\u0450', re.I))
+        self.assertTrue(re.match(r'[19\u0450]', '\u0400', re.I))
+        self.assertTrue(re.match(r'[19\u0450]', '\u0450', re.I))
+        self.assertTrue(re.match(r'[19\U00010400]', '\U00010400', re.I))
+        self.assertTrue(re.match(r'[19\U00010400]', '\U00010428', re.I))
+        self.assertTrue(re.match(r'[19\U00010428]', '\U00010400', re.I))
+        self.assertTrue(re.match(r'[19\U00010428]', '\U00010428', re.I))
+
+        self.assertTrue(re.match(br'[19A]', b'A', re.I))
+        self.assertTrue(re.match(br'[19a]', b'a', re.I))
+        self.assertTrue(re.match(br'[19a]', b'A', re.I))
+        self.assertTrue(re.match(br'[19A]', b'a', re.I))
+        self.assertTrue(re.match(r'[19A]', 'A', re.I|re.A))
+        self.assertTrue(re.match(r'[19a]', 'a', re.I|re.A))
+        self.assertTrue(re.match(r'[19a]', 'A', re.I|re.A))
+        self.assertTrue(re.match(r'[19A]', 'a', re.I|re.A))
+        self.assertTrue(re.match(r'[19\xc7]', '\xc7', re.I|re.A))
+        self.assertIsNone(re.match(r'[19\xc7]', '\xe7', re.I|re.A))
+        self.assertIsNone(re.match(r'[19\xe7]', '\xc7', re.I|re.A))
+        self.assertTrue(re.match(r'[19\xe7]', '\xe7', re.I|re.A))
+        self.assertTrue(re.match(r'[19\u0400]', '\u0400', re.I|re.A))
+        self.assertIsNone(re.match(r'[19\u0400]', '\u0450', re.I|re.A))
+        self.assertIsNone(re.match(r'[19\u0450]', '\u0400', re.I|re.A))
+        self.assertTrue(re.match(r'[19\u0450]', '\u0450', re.I|re.A))
+        self.assertTrue(re.match(r'[19\U00010400]', '\U00010400', re.I|re.A))
+        self.assertIsNone(re.match(r'[19\U00010400]', '\U00010428', re.I|re.A))
+        self.assertIsNone(re.match(r'[19\U00010428]', '\U00010400', re.I|re.A))
+        self.assertTrue(re.match(r'[19\U00010428]', '\U00010428', re.I|re.A))
 
         # Two different characters have the same lowercase.
         assert 'K'.lower() == '\u212a'.lower() == 'k' # 'K'
@@ -1011,8 +1210,10 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.match(br'[9-a]', b'_', re.I))
         self.assertIsNone(re.match(br'[9-A]', b'_', re.I))
         self.assertTrue(re.match(r'[\xc0-\xde]', '\xd7', re.I))
+        self.assertTrue(re.match(r'[\xc0-\xde]', '\xe7', re.I))
         self.assertIsNone(re.match(r'[\xc0-\xde]', '\xf7', re.I))
         self.assertTrue(re.match(r'[\xe0-\xfe]', '\xf7', re.I))
+        self.assertTrue(re.match(r'[\xe0-\xfe]', '\xc7', re.I))
         self.assertIsNone(re.match(r'[\xe0-\xfe]', '\xd7', re.I))
         self.assertTrue(re.match(r'[\u0430-\u045f]', '\u0450', re.I))
         self.assertTrue(re.match(r'[\u0430-\u045f]', '\u0400', re.I))
@@ -1022,6 +1223,26 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.match(r'[\U00010428-\U0001044f]', '\U00010400', re.I))
         self.assertTrue(re.match(r'[\U00010400-\U00010427]', '\U00010428', re.I))
         self.assertTrue(re.match(r'[\U00010400-\U00010427]', '\U00010400', re.I))
+
+        self.assertTrue(re.match(r'[\xc0-\xde]', '\xd7', re.I|re.A))
+        self.assertIsNone(re.match(r'[\xc0-\xde]', '\xe7', re.I|re.A))
+        self.assertTrue(re.match(r'[\xe0-\xfe]', '\xf7', re.I|re.A))
+        self.assertIsNone(re.match(r'[\xe0-\xfe]', '\xc7', re.I|re.A))
+        self.assertTrue(re.match(r'[\u0430-\u045f]', '\u0450', re.I|re.A))
+        self.assertIsNone(re.match(r'[\u0430-\u045f]', '\u0400', re.I|re.A))
+        self.assertIsNone(re.match(r'[\u0400-\u042f]', '\u0450', re.I|re.A))
+        self.assertTrue(re.match(r'[\u0400-\u042f]', '\u0400', re.I|re.A))
+        self.assertTrue(re.match(r'[\U00010428-\U0001044f]', '\U00010428', re.I|re.A))
+        self.assertIsNone(re.match(r'[\U00010428-\U0001044f]', '\U00010400', re.I|re.A))
+        self.assertIsNone(re.match(r'[\U00010400-\U00010427]', '\U00010428', re.I|re.A))
+        self.assertTrue(re.match(r'[\U00010400-\U00010427]', '\U00010400', re.I|re.A))
+
+        self.assertTrue(re.match(r'[N-\x7f]', 'A', re.I|re.A))
+        self.assertTrue(re.match(r'[n-\x7f]', 'Z', re.I|re.A))
+        self.assertTrue(re.match(r'[N-\uffff]', 'A', re.I|re.A))
+        self.assertTrue(re.match(r'[n-\uffff]', 'Z', re.I|re.A))
+        self.assertTrue(re.match(r'[N-\U00010000]', 'A', re.I|re.A))
+        self.assertTrue(re.match(r'[n-\U00010000]', 'Z', re.I|re.A))
 
         # Two different characters have the same lowercase.
         assert 'K'.lower() == '\u212a'.lower() == 'k' # 'K'
@@ -1060,47 +1281,76 @@ class ReTests(unittest.TestCase):
 
     def test_possible_set_operations(self):
         s = bytes(range(128)).decode()
-        with self.assertWarns(FutureWarning):
+        with self.assertWarnsRegex(FutureWarning, 'Possible set difference') as w:
             p = re.compile(r'[0-9--1]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list('-./0123456789'))
+        with self.assertWarnsRegex(FutureWarning, 'Possible set difference') as w:
+            self.assertEqual(re.findall(r'[0-9--2]', s), list('-./0123456789'))
+        self.assertEqual(w.filename, __file__)
+
         self.assertEqual(re.findall(r'[--1]', s), list('-./01'))
-        with self.assertWarns(FutureWarning):
+
+        with self.assertWarnsRegex(FutureWarning, 'Possible set difference') as w:
             p = re.compile(r'[%--1]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list("%&'()*+,-1"))
-        with self.assertWarns(FutureWarning):
+
+        with self.assertWarnsRegex(FutureWarning, 'Possible set difference ') as w:
             p = re.compile(r'[%--]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list("%&'()*+,-"))
 
-        with self.assertWarns(FutureWarning):
+        with self.assertWarnsRegex(FutureWarning, 'Possible set intersection ') as w:
             p = re.compile(r'[0-9&&1]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list('&0123456789'))
-        with self.assertWarns(FutureWarning):
+        with self.assertWarnsRegex(FutureWarning, 'Possible set intersection ') as w:
+            self.assertEqual(re.findall(r'[0-8&&1]', s), list('&012345678'))
+        self.assertEqual(w.filename, __file__)
+
+        with self.assertWarnsRegex(FutureWarning, 'Possible set intersection ') as w:
             p = re.compile(r'[\d&&1]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list('&0123456789'))
+
         self.assertEqual(re.findall(r'[&&1]', s), list('&1'))
 
-        with self.assertWarns(FutureWarning):
+        with self.assertWarnsRegex(FutureWarning, 'Possible set union ') as w:
             p = re.compile(r'[0-9||a]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list('0123456789a|'))
-        with self.assertWarns(FutureWarning):
+
+        with self.assertWarnsRegex(FutureWarning, 'Possible set union ') as w:
             p = re.compile(r'[\d||a]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list('0123456789a|'))
+
         self.assertEqual(re.findall(r'[||1]', s), list('1|'))
 
-        with self.assertWarns(FutureWarning):
+        with self.assertWarnsRegex(FutureWarning, 'Possible set symmetric difference ') as w:
             p = re.compile(r'[0-9~~1]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list('0123456789~'))
-        with self.assertWarns(FutureWarning):
+
+        with self.assertWarnsRegex(FutureWarning, 'Possible set symmetric difference ') as w:
             p = re.compile(r'[\d~~1]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list('0123456789~'))
+
         self.assertEqual(re.findall(r'[~~1]', s), list('1~'))
 
-        with self.assertWarns(FutureWarning):
+        with self.assertWarnsRegex(FutureWarning, 'Possible nested set ') as w:
             p = re.compile(r'[[0-9]|]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list('0123456789[]'))
+        with self.assertWarnsRegex(FutureWarning, 'Possible nested set ') as w:
+            self.assertEqual(re.findall(r'[[0-8]|]', s), list('012345678[]'))
+        self.assertEqual(w.filename, __file__)
 
-        with self.assertWarns(FutureWarning):
+        with self.assertWarnsRegex(FutureWarning, 'Possible nested set ') as w:
             p = re.compile(r'[[:digit:]|]')
+        self.assertEqual(w.filename, __file__)
         self.assertEqual(p.findall(s), list(':[]dgit'))
 
     def test_search_coverage(self):
@@ -1175,8 +1425,7 @@ class ReTests(unittest.TestCase):
         # current pickle expects the _compile() reconstructor in re module
         from re import _compile
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_copying(self):
         import copy
         p = re.compile(r'(?P<int>\d+)(?:\.(?P<frac>\d*))?')
@@ -1267,8 +1516,8 @@ class ReTests(unittest.TestCase):
             self.assertTrue(re.match((r"\x%02x" % i).encode(), bytes([i])))
             self.assertTrue(re.match((r"\x%02x0" % i).encode(), bytes([i])+b"0"))
             self.assertTrue(re.match((r"\x%02xz" % i).encode(), bytes([i])+b"z"))
-        self.assertRaises(re.error, re.compile, br"\u1234")
-        self.assertRaises(re.error, re.compile, br"\U00012345")
+        self.assertRaises(re.PatternError, re.compile, br"\u1234")
+        self.assertRaises(re.PatternError, re.compile, br"\U00012345")
         self.assertTrue(re.match(br"\0", b"\000"))
         self.assertTrue(re.match(br"\08", b"\0008"))
         self.assertTrue(re.match(br"\01", b"\001"))
@@ -1290,8 +1539,8 @@ class ReTests(unittest.TestCase):
             self.assertTrue(re.match((r"[\x%02x]" % i).encode(), bytes([i])))
             self.assertTrue(re.match((r"[\x%02x0]" % i).encode(), bytes([i])))
             self.assertTrue(re.match((r"[\x%02xz]" % i).encode(), bytes([i])))
-        self.assertRaises(re.error, re.compile, br"[\u1234]")
-        self.assertRaises(re.error, re.compile, br"[\U00012345]")
+        self.assertRaises(re.PatternError, re.compile, br"[\u1234]")
+        self.assertRaises(re.PatternError, re.compile, br"[\U00012345]")
         self.checkPatternError(br"[\567]",
                                r'octal escape value \567 outside of '
                                r'range 0-0o377', 1)
@@ -1484,8 +1733,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(next(iter).span(), (4, 4))
         self.assertRaises(StopIteration, next, iter)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_6561(self):
         # '\d' should match characters in Unicode category 'Nd'
         # (Number, Decimal Digit), but not those in 'Nl' (Number,
@@ -1507,10 +1755,12 @@ class ReTests(unittest.TestCase):
         for x in not_decimal_digits:
             self.assertIsNone(re.match(r'^\d$', x))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON a = array.array(typecode)\n ValueError: bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)
+    @warnings_helper.ignore_warnings(category=DeprecationWarning)  # gh-80480 array('u')
     def test_empty_array(self):
         # SF buf 1647541
         import array
-        for typecode in 'bBuhHiIlLfd':
+        for typecode in 'bBhuwHiIlLfd':
             a = array.array(typecode)
             self.assertIsNone(re.compile(b"bla").match(a))
             self.assertEqual(re.compile(b"").match(a).groups(), ())
@@ -1625,11 +1875,11 @@ class ReTests(unittest.TestCase):
             self.assertIsNone(pat.match(b'\xe0'))
         # Incompatibilities
         self.assertRaises(ValueError, re.compile, br'\w', re.UNICODE)
-        self.assertRaises(re.error, re.compile, br'(?u)\w')
+        self.assertRaises(re.PatternError, re.compile, br'(?u)\w')
         self.assertRaises(ValueError, re.compile, r'\w', re.UNICODE | re.ASCII)
         self.assertRaises(ValueError, re.compile, r'(?u)\w', re.ASCII)
         self.assertRaises(ValueError, re.compile, r'(?a)\w', re.UNICODE)
-        self.assertRaises(re.error, re.compile, r'(?au)\w')
+        self.assertRaises(re.PatternError, re.compile, r'(?au)\w')
 
     def test_locale_flag(self):
         enc = locale.getpreferredencoding()
@@ -1670,11 +1920,11 @@ class ReTests(unittest.TestCase):
             self.assertIsNone(pat.match(bletter))
         # Incompatibilities
         self.assertRaises(ValueError, re.compile, '', re.LOCALE)
-        self.assertRaises(re.error, re.compile, '(?L)')
+        self.assertRaises(re.PatternError, re.compile, '(?L)')
         self.assertRaises(ValueError, re.compile, b'', re.LOCALE | re.ASCII)
         self.assertRaises(ValueError, re.compile, b'(?L)', re.ASCII)
         self.assertRaises(ValueError, re.compile, b'(?a)', re.LOCALE)
-        self.assertRaises(re.error, re.compile, b'(?aL)')
+        self.assertRaises(re.PatternError, re.compile, b'(?aL)')
 
     def test_scoped_flags(self):
         self.assertTrue(re.match(r'(?i:a)b', 'Ab'))
@@ -1854,8 +2104,7 @@ class ReTests(unittest.TestCase):
                 self.assertEqual(re.compile(pattern, re.S).findall(b'xyz'),
                                  [b'xyz'], msg=pattern)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_match_repr(self):
         for string in '[abracadabra]', S('[abracadabra]'):
             m = re.search(r'(.+)(.*?)\1', string)
@@ -1935,6 +2184,7 @@ class ReTests(unittest.TestCase):
         # with ignore case.
         self.assertEqual(re.fullmatch('[a-c]+', 'ABC', re.I).span(), (0, 3))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertTrue(re.match(b'\xc5', b'\xe5', re.L|re.I))\n AssertionError: None is not true
     @unittest.skipIf(
         is_emscripten or is_wasi,
         "musl libc issue on Emscripten/WASI, bpo-46390"
@@ -2012,7 +2262,7 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(p4.match(b'\xc5\xc5'))
 
     def test_error(self):
-        with self.assertRaises(re.error) as cm:
+        with self.assertRaises(re.PatternError) as cm:
             re.compile('(\u20ac))')
         err = cm.exception
         self.assertIsInstance(err.pattern, str)
@@ -2024,14 +2274,14 @@ class ReTests(unittest.TestCase):
         self.assertIn(' at position 3', str(err))
         self.assertNotIn(' at position 3', err.msg)
         # Bytes pattern
-        with self.assertRaises(re.error) as cm:
+        with self.assertRaises(re.PatternError) as cm:
             re.compile(b'(\xa4))')
         err = cm.exception
         self.assertIsInstance(err.pattern, bytes)
         self.assertEqual(err.pattern, b'(\xa4))')
         self.assertEqual(err.pos, 3)
         # Multiline pattern
-        with self.assertRaises(re.error) as cm:
+        with self.assertRaises(re.PatternError) as cm:
             re.compile("""
                 (
                     abc
@@ -2231,24 +2481,24 @@ class ReTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "got 'type'"):
             re.search("x*", type)
 
-    @unittest.skip("TODO: RUSTPYTHON: flaky, improve perf")
+    # gh-117594: The test is not slow by itself, but it relies on
+    # the absolute computation time and can fail on very slow computers.
+    @unittest.skip('TODO: RUSTPYTHON; flaky, improve perf')
     @requires_resource('cpu')
     def test_search_anchor_at_beginning(self):
         s = 'x'*10**7
-        start = time.perf_counter()
-        for p in r'\Ay', r'^y':
-            self.assertIsNone(re.search(p, s))
-            self.assertEqual(re.split(p, s), [s])
-            self.assertEqual(re.findall(p, s), [])
-            self.assertEqual(list(re.finditer(p, s)), [])
-            self.assertEqual(re.sub(p, '', s), s)
-        t = time.perf_counter() - start
+        with CPUStopwatch() as stopwatch:
+            for p in r'\Ay', r'^y':
+                self.assertIsNone(re.search(p, s))
+                self.assertEqual(re.split(p, s), [s])
+                self.assertEqual(re.findall(p, s), [])
+                self.assertEqual(list(re.finditer(p, s)), [])
+                self.assertEqual(re.sub(p, '', s), s)
         # Without optimization it takes 1 second on my computer.
         # With optimization -- 0.0003 seconds.
-        self.assertLess(t, 0.2)
+        self.assertLess(stopwatch.seconds, 0.1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_possessive_quantifiers(self):
         """Test Possessive Quantifiers
         Test quantifiers of the form @+ for some repetition operator @,
@@ -2288,8 +2538,7 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match("^x{}+$", "xxx"))
         self.assertTrue(re.match("^x{}+$", "x{}"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_fullmatch_possessive_quantifiers(self):
         self.assertTrue(re.fullmatch(r'a++', 'a'))
         self.assertTrue(re.fullmatch(r'a*+', 'a'))
@@ -2342,8 +2591,7 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match(r'(?>x)++x', 'xxx'))
         self.assertIsNone(re.match(r'(?>x++)x', 'xxx'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_fullmatch_atomic_grouping(self):
         self.assertTrue(re.fullmatch(r'(?>a+)', 'a'))
         self.assertTrue(re.fullmatch(r'(?>a*)', 'a'))
@@ -2382,39 +2630,12 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.findall(r'(?>(?:ab)?)', 'ababc'), ['ab', 'ab', '', ''])
         self.assertEqual(re.findall(r'(?>(?:ab){1,3})', 'ababc'), ['abab'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_gh91616(self):
         self.assertTrue(re.fullmatch(r'(?s:(?>.*?\.).*)\Z', "a.txt")) # reproducer
         self.assertTrue(re.fullmatch(r'(?s:(?=(?P<g0>.*?\.))(?P=g0).*)\Z', "a.txt"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_template_function_and_flag_is_deprecated(self):
-        with self.assertWarns(DeprecationWarning) as cm:
-            template_re1 = re.template(r'a')
-        self.assertIn('re.template()', str(cm.warning))
-        self.assertIn('is deprecated', str(cm.warning))
-        self.assertIn('function', str(cm.warning))
-        self.assertNotIn('flag', str(cm.warning))
-
-        with self.assertWarns(DeprecationWarning) as cm:
-            # we deliberately use more flags here to test that that still
-            # triggers the warning
-            # if paranoid, we could test multiple different combinations,
-            # but it's probably not worth it
-            template_re2 = re.compile(r'a', flags=re.TEMPLATE|re.UNICODE)
-        self.assertIn('re.TEMPLATE', str(cm.warning))
-        self.assertIn('is deprecated', str(cm.warning))
-        self.assertIn('flag', str(cm.warning))
-        self.assertNotIn('function', str(cm.warning))
-
-        # while deprecated, is should still function
-        self.assertEqual(template_re1, template_re2)
-        self.assertTrue(template_re1.match('ahoy'))
-        self.assertFalse(template_re1.match('nope'))
-
-    def test_bug_gh106052(self):
+    def test_bug_gh100061(self):
         # gh-100061
         self.assertEqual(re.match('(?>(?:.(?!D))+)', 'ABCDE').span(), (0, 2))
         self.assertEqual(re.match('(?:.(?!D))++', 'ABCDE').span(), (0, 2))
@@ -2434,8 +2655,13 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match("(?>(?:ab?c){1,3})", "aca").span(), (0, 2))
         self.assertEqual(re.match("(?:ab?c){1,3}+", "aca").span(), (0, 2))
 
-    # TODO: RUSTPYTHON
-    @unittest.skipUnless(sys.platform == 'linux', 'multiprocessing related issue')
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; self.assertEqual(re.match('((x)|y|z){3}+', 'xyz').groups(), ('z', 'x'))\n AssertionError: Tuples differ: ('x', 'x') != ('z', 'x')
+    def test_bug_gh101955(self):
+        # Possessive quantifier with nested alternative with capture groups
+        self.assertEqual(re.match('((x)|y|z)*+', 'xyz').groups(), ('z', 'x'))
+        self.assertEqual(re.match('((x)|y|z){3}+', 'xyz').groups(), ('z', 'x'))
+        self.assertEqual(re.match('((x)|y|z){3,}+', 'xyz').groups(), ('z', 'x'))
+
     @unittest.skipIf(multiprocessing is None, 'test requires multiprocessing')
     def test_regression_gh94675(self):
         pattern = re.compile(r'(?<=[({}])(((//[^\n]*)?[\n])([\000-\040])*)*'
@@ -2455,6 +2681,54 @@ class ReTests(unittest.TestCase):
             if p.is_alive():
                 p.terminate()
                 p.join()
+
+    def test_fail(self):
+        self.assertEqual(re.search(r'12(?!)|3', '123')[0], '3')
+
+    def test_character_set_any(self):
+        # The union of complementary character sets matches any character
+        # and is equivalent to "(?s:.)".
+        s = '1x\n'
+        for p in r'[\s\S]', r'[\d\D]', r'[\w\W]', r'[\S\s]', r'\s|\S':
+            with self.subTest(pattern=p):
+                self.assertEqual(re.findall(p, s), list(s))
+                self.assertEqual(re.fullmatch('(?:' + p + ')+', s).group(), s)
+
+    def test_character_set_none(self):
+        # Negation of the union of complementary character sets does not match
+        # any character.
+        s = '1x\n'
+        for p in r'[^\s\S]', r'[^\d\D]', r'[^\w\W]', r'[^\S\s]':
+            with self.subTest(pattern=p):
+                self.assertIsNone(re.search(p, s))
+                self.assertIsNone(re.search('(?s:.)' + p, s))
+
+    def check_interrupt(self, pattern, string, maxcount):
+        class Interrupt(Exception):
+            pass
+        p = re.compile(pattern)
+        for n in range(maxcount):
+            try:
+                p._fail_after(n, Interrupt)
+                p.match(string)
+                return n
+            except Interrupt:
+                pass
+            finally:
+                p._fail_after(-1, None)
+
+    @unittest.skipUnless(hasattr(re.Pattern, '_fail_after'), 'requires debug build')
+    def test_memory_leaks(self):
+        self.check_interrupt(r'(.)*:', 'abc:', 100)
+        self.check_interrupt(r'([^:])*?:', 'abc:', 100)
+        self.check_interrupt(r'([^:])*+:', 'abc:', 100)
+        self.check_interrupt(r'(.){2,4}:', 'abc:', 100)
+        self.check_interrupt(r'([^:]){2,4}?:', 'abc:', 100)
+        self.check_interrupt(r'([^:]){2,4}+:', 'abc:', 100)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_template_function_and_flag_is_deprecated(self):
+        return super().test_template_function_and_flag_is_deprecated()
 
 
 def get_debug_out(pat):
@@ -2590,8 +2864,7 @@ class PatternReprTests(unittest.TestCase):
         self.check('(?i)pattern',
                    "re.compile('(?i)pattern', re.IGNORECASE)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_unknown_flags(self):
         self.check_flags('random pattern', 0x123000,
                          "re.compile('random pattern', 0x123000)")
@@ -2626,8 +2899,6 @@ class PatternReprTests(unittest.TestCase):
         self.assertEqual(r[:30], "re.compile('Very long long lon")
         self.assertEqual(r[-16:], ", re.IGNORECASE)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_flags_repr(self):
         self.assertEqual(repr(re.I), "re.IGNORECASE")
         self.assertEqual(repr(re.I|re.S|re.X),
@@ -2636,11 +2907,11 @@ class PatternReprTests(unittest.TestCase):
                          "re.IGNORECASE|re.DOTALL|re.VERBOSE|0x100000")
         self.assertEqual(
                 repr(~re.I),
-                "re.ASCII|re.LOCALE|re.UNICODE|re.MULTILINE|re.DOTALL|re.VERBOSE|re.TEMPLATE|re.DEBUG")
+                "re.ASCII|re.LOCALE|re.UNICODE|re.MULTILINE|re.DOTALL|re.VERBOSE|re.DEBUG|0x1")
         self.assertEqual(repr(~(re.I|re.S|re.X)),
-                         "re.ASCII|re.LOCALE|re.UNICODE|re.MULTILINE|re.TEMPLATE|re.DEBUG")
+                         "re.ASCII|re.LOCALE|re.UNICODE|re.MULTILINE|re.DEBUG|0x1")
         self.assertEqual(repr(~(re.I|re.S|re.X|(1<<20))),
-                         "re.ASCII|re.LOCALE|re.UNICODE|re.MULTILINE|re.TEMPLATE|re.DEBUG|0xffe00")
+                         "re.ASCII|re.LOCALE|re.UNICODE|re.MULTILINE|re.DEBUG|0xffe01")
 
 
 class ImplementationTest(unittest.TestCase):
@@ -2681,8 +2952,7 @@ class ImplementationTest(unittest.TestCase):
         pat = re.compile("")
         check_disallow_instantiation(self, type(pat.scanner("")))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_deprecated_modules(self):
         deprecated = {
             'sre_compile': ['compile', 'error',
@@ -2813,7 +3083,7 @@ class ExternalTests(unittest.TestCase):
 
             with self.subTest(pattern=pattern, string=s):
                 if outcome == SYNTAX_ERROR:  # Expected a syntax error
-                    with self.assertRaises(re.error):
+                    with self.assertRaises(re.PatternError):
                         re.compile(pattern)
                     continue
 

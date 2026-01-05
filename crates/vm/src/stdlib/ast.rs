@@ -271,13 +271,15 @@ pub(crate) fn parse(
 ) -> Result<PyObjectRef, CompileError> {
     let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
     let top = parser::parse(source, mode.into())
-        .map_err(|parse_error| ParseError {
-            error: parse_error.error,
-            raw_location: parse_error.location,
-            location: text_range_to_source_range(&source_file, parse_error.location)
-                .start
-                .to_source_location(),
-            source_path: "<unknown>".to_string(),
+        .map_err(|parse_error| {
+            let range = text_range_to_source_range(&source_file, parse_error.location);
+            ParseError {
+                error: parse_error.error,
+                raw_location: parse_error.location,
+                location: range.start.to_source_location(),
+                end_location: range.end.to_source_location(),
+                source_path: "<unknown>".to_string(),
+            }
         })?
         .into_syntax();
     let top = match top {

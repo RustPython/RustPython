@@ -79,6 +79,17 @@ def settrace(func):
     global _trace_hook
     _trace_hook = func
 
+# TODO: RUSTPYTHON
+def settrace_all_threads(func):
+    """Set a trace function for all threads started from the threading module
+    and all Python threads that are currently executing.
+
+    The func will be passed to sys.settrace() for each thread, before its run()
+    method is called.
+    """
+    settrace(func)
+    _sys._settraceallthreads(func)
+
 def gettrace():
     """Get the trace function as set by threading.settrace()."""
     return _trace_hook
