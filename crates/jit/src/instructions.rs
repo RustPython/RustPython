@@ -642,7 +642,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(JitValue::Bool(not_boolean));
                 Ok(())
             }
-            Instruction::UnaryInvert => {
+            Instruction::UnaryNegative => {
                 match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
                     JitValue::Int(val) => {
                         // Compile minus as 0 - val.
