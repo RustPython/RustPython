@@ -5,7 +5,7 @@ use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::bytecode::{
     self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction, Label,
-    OpArg, OpArgState, UnaryOperator,
+    OpArg, OpArgState,
 };
 use std::collections::HashMap;
 
@@ -620,26 +620,20 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.swap(i, j);
                 Ok(())
             }
-            Instruction::UnaryOperation { op, .. } => {
-                let op = op.get(arg);
+            Instruction::UnaryNot => {
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                match (op, a) {
-                    (UnaryOperator::Minus, JitValue::Int(val)) => {
-                        // Compile minus as 0 - a.
+                let boolean = self.boolean_val(a)?;
+                let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
+                self.stack.push(JitValue::Bool(not_boolean));
+                Ok(())
+            }
+            Instruction::UnaryInvert => {
+                match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
+                    JitValue::Int(val) => {
+                        // Compile minus as 0 - val.
                         let zero = self.builder.ins().iconst(types::I64, 0);
                         let out = self.compile_sub(zero, val);
                         self.stack.push(JitValue::Int(out));
-                        Ok(())
-                    }
-                    (UnaryOperator::Plus, JitValue::Int(val)) => {
-                        // Nothing to do
-                        self.stack.push(JitValue::Int(val));
-                        Ok(())
-                    }
-                    (UnaryOperator::Not, a) => {
-                        let boolean = self.boolean_val(a)?;
-                        let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
-                        self.stack.push(JitValue::Bool(not_boolean));
                         Ok(())
                     }
                     _ => Err(JitCompileError::NotSupported),
