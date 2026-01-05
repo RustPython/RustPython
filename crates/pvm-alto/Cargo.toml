@@ -1,5 +1,5 @@
 [package]
-name = "pvm-runtime"
+name = "pvm-alto"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -7,12 +7,6 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
-[features]
-default = ["stdlib"]
-stdlib = ["rustpython/stdlib"]
-
 [dependencies]
 pvm-host = { path = "../pvm-host" }
-rustpython = { path = "../.." }
-rustpython-common = { workspace = true }
-rustpython-vm = { workspace = true }
+pvm-runtime = { path = "../pvm-runtime" }

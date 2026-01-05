@@ -21,6 +21,54 @@ pub enum HostError {
     Internal,
 }
 
+impl HostError {
+    pub const fn code(&self) -> u32 {
+        match self {
+            HostError::OutOfGas => 1,
+            HostError::InvalidInput => 2,
+            HostError::NotFound => 3,
+            HostError::StorageError => 4,
+            HostError::Forbidden => 5,
+            HostError::Internal => 6,
+        }
+    }
+
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            HostError::OutOfGas => "out_of_gas",
+            HostError::InvalidInput => "invalid_input",
+            HostError::NotFound => "not_found",
+            HostError::StorageError => "storage_error",
+            HostError::Forbidden => "forbidden",
+            HostError::Internal => "internal",
+        }
+    }
+
+    pub fn from_code(code: u32) -> Option<Self> {
+        match code {
+            1 => Some(HostError::OutOfGas),
+            2 => Some(HostError::InvalidInput),
+            3 => Some(HostError::NotFound),
+            4 => Some(HostError::StorageError),
+            5 => Some(HostError::Forbidden),
+            6 => Some(HostError::Internal),
+            _ => None,
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "out_of_gas" => Some(HostError::OutOfGas),
+            "invalid_input" => Some(HostError::InvalidInput),
+            "not_found" => Some(HostError::NotFound),
+            "storage_error" => Some(HostError::StorageError),
+            "forbidden" => Some(HostError::Forbidden),
+            "internal" => Some(HostError::Internal),
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Display for HostError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = match self {

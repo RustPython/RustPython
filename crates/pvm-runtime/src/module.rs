@@ -5,13 +5,24 @@ mod pvm_host_module {
     use crate::host;
     use ::pvm_host::{HostApi, HostContext, HostError};
     use rustpython_vm::{
+        AsObject,
         PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyStrRef},
+        builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
         function::ArgBytesLike,
     };
 
     fn host_error(vm: &VirtualMachine, err: HostError) -> PyBaseExceptionRef {
-        vm.new_runtime_error(format!("pvm host error: {err}"))
+        let exc = vm.new_exception(
+            host_error_type(vm),
+            vec![vm.ctx.new_str(err.to_string()).into()],
+        );
+        let _ = exc
+            .as_object()
+            .set_attr("code", vm.new_pyobj(err.code()), vm);
+        let _ = exc
+            .as_object()
+            .set_attr("name", vm.ctx.new_str(err.as_str()), vm);
+        exc
     }
 
     fn with_host<R>(
@@ -73,6 +84,15 @@ mod pvm_host_module {
     fn randomness(domain: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let bytes = with_host(vm, |host| domain.with_ref(|d| host.randomness(d)))?;
         Ok(vm.ctx.new_bytes(bytes.to_vec()).into())
+    }
+
+    #[pyattr(name = "HostError", once)]
+    fn host_error_type(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "pvm_host",
+            "HostError",
+            Some(vec![vm.ctx.exceptions.runtime_error.to_owned()]),
+        )
     }
 
     fn host_context_to_dict(

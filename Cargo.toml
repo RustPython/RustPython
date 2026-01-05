@@ -54,6 +54,8 @@ rustyline = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 pyo3 = { version = "0.27", features = ["auto-initialize"] }
+pvm-alto = { path = "crates/pvm-alto" }
+pvm-host = { path = "crates/pvm-host" }
 
 [[bench]]
 name = "execution"
