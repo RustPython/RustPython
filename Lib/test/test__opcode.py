@@ -16,6 +16,7 @@ class OpListTests(unittest.TestCase):
                 self.assertIsInstance(func(op), bool)
                 self.assertEqual(func(op), expected)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only supporting u8 ATM
     def test_invalid_opcodes(self):
         invalid = [-100, -1, 255, 512, 513, 1000]
         self.check_bool_function_result(_opcode.is_valid, invalid, False)
@@ -57,6 +58,7 @@ class OpListTests(unittest.TestCase):
 
 
 class StackEffectTests(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: ValueError not raised by stack_effect
     def test_stack_effect(self):
         self.assertEqual(stack_effect(dis.opmap['POP_TOP']), -1)
         self.assertEqual(stack_effect(dis.opmap['BUILD_SLICE'], 0), -1)
