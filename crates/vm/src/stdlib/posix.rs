@@ -1765,7 +1765,13 @@ pub mod module {
         vm: &VirtualMachine,
     ) -> PyResult<OwnedFd> {
         let flags = flags.unwrap_or(0);
-        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, flags as libc::c_uint) };
+        let fd = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_open,
+                pid,
+                flags as libc::c_uint,
+            ) as libc::c_long
+        };
         if fd == -1 {
             Err(vm.new_last_errno_error())
         } else {

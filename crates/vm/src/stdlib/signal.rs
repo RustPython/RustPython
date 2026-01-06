@@ -455,7 +455,7 @@ pub(crate) mod _signal {
                 sig,
                 std::ptr::null::<libc::siginfo_t>(),
                 flags,
-            )
+            ) as libc::c_long
         };
 
         if ret == 0 {
