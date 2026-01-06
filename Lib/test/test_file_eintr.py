@@ -186,10 +186,6 @@ class TestFileIOSignalInterrupt:
 class CTestFileIOSignalInterrupt(TestFileIOSignalInterrupt, unittest.TestCase):
     modname = '_io'
 
-    @unittest.skipIf(
-        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
-        "TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason"
-    )
     # TODO: RUSTPYTHON - _io.FileIO.readall uses read_to_end which differs from _pyio.FileIO.readall
     @unittest.expectedFailure
     def test_readall(self):
