@@ -1822,18 +1822,6 @@ dependencies = [
 
 [[package]]
 name = "malachite-base"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0c91cb6071ed9ac48669d3c79bd2792db596c7e542dbadd217b385bb359f42d"
-dependencies = [
- "hashbrown 0.16.1",
- "itertools 0.14.0",
- "libm",
- "ryu",
-]
-
-[[package]]
-name = "malachite-base"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5eb2a098b227df48779e28ed4125dd3161b792a9254961377cea6f5c19e5b417"
@@ -1846,27 +1834,15 @@ dependencies = [
 
 [[package]]
 name = "malachite-bigint"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ff3af5010102f29f2ef4ee6f7b1c5b3f08a6c261b5164e01c41cf43772b6f90"
+checksum = "6eaf19f1b8ba023528050372eafd72ca11f80f70c9dc2af9bb22f888bf079013"
 dependencies = [
- "malachite-base 0.8.0",
- "malachite-nz 0.8.0",
+ "malachite-base",
+ "malachite-nz",
  "num-integer",
  "num-traits",
  "paste",
-]
-
-[[package]]
-name = "malachite-nz"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d9ecf4dd76246fd622de4811097966106aa43f9cd7cc36cb85e774fe84c8adc"
-dependencies = [
- "itertools 0.14.0",
- "libm",
- "malachite-base 0.8.0",
- "wide",
 ]
 
 [[package]]
@@ -1877,7 +1853,7 @@ checksum = "ab7c0ddc4e2681459d70591baf30ca5abd31c25969e76d3605838bec794c8077"
 dependencies = [
  "itertools 0.14.0",
  "libm",
- "malachite-base 0.9.0",
+ "malachite-base",
  "wide",
 ]
 
@@ -1888,8 +1864,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13d19f04fc672f251d477c8d58c13c6c5550553dfba6a665c9ad3604466ac9a"
 dependencies = [
  "itertools 0.14.0",
- "malachite-base 0.9.0",
- "malachite-nz 0.9.0",
+ "malachite-base",
+ "malachite-nz",
 ]
 
 [[package]]
@@ -3035,7 +3011,7 @@ dependencies = [
  "itertools 0.14.0",
  "libc",
  "lock_api",
- "malachite-base 0.8.0",
+ "malachite-base",
  "malachite-bigint",
  "malachite-q",
  "nix 0.30.1",
