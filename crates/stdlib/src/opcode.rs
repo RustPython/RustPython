@@ -69,16 +69,16 @@ mod opcode {
                     Instruction::try_from(opcode as u8),
                     Ok(Instruction::DeleteAttr { .. }
                         | Instruction::DeleteGlobal(_)
-                        | Instruction::DeleteLocal(_)
+                        | Instruction::DeleteName(_)
                         | Instruction::ImportFrom { .. }
                         | Instruction::ImportName { .. }
                         | Instruction::LoadAttr { .. }
                         | Instruction::LoadGlobal(_)
                         | Instruction::LoadMethod { .. }
-                        | Instruction::LoadNameAny(_)
+                        | Instruction::LoadName(_)
                         | Instruction::StoreAttr { .. }
                         | Instruction::StoreGlobal(_)
-                        | Instruction::StoreLocal(_))
+                        | Instruction::StoreName(_))
                 )
         }
 
@@ -97,8 +97,6 @@ mod opcode {
                         | Instruction::Jump { .. }
                         | Instruction::PopJumpIfFalse { .. }
                         | Instruction::PopJumpIfTrue { .. }
-                        | Instruction::PopJumpIfNone { .. }
-                        | Instruction::PopJumpIfNotNone { .. }
                         | Instruction::Send { .. })
                 )
         }
