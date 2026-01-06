@@ -141,11 +141,14 @@ fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResul
             // Handle int specially to check overflow
             if let Some(int_obj) = value.downcast_ref_if_exact::<PyInt>(vm) {
                 // Check if int can fit in f64
-                if int_obj.as_bigint().to_f64().is_some() {
-                    return Ok(value.to_owned());
-                } else {
-                    return Err(vm.new_overflow_error("int too large to convert to float"));
+                // Note: malachite 0.9.0+ returns Some(inf) for very large integers,
+                // so we need to check if the result is finite
+                if let Some(f) = int_obj.as_bigint().to_f64() {
+                    if f.is_finite() {
+                        return Ok(value.to_owned());
+                    }
                 }
+                return Err(vm.new_overflow_error("int too large to convert to float"));
             }
             // __float__ protocol
             if value.try_float(vm).is_ok() {
