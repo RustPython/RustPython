@@ -391,7 +391,7 @@ impl ExecutingFrame<'_> {
                     // Instruction::Reraise are reraise operations that should not add
                     // new traceback entries
                     let is_reraise = match op {
-                        bytecode::Instruction::Raise { kind } => matches!(
+                        bytecode::Instruction::RaiseVarArgs { kind } => matches!(
                             kind.get(arg),
                             bytecode::RaiseKind::BareRaise | bytecode::RaiseKind::ReraiseFromStack
                         ),
@@ -610,7 +610,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
-            bytecode::Instruction::BinarySubscript => {
+            bytecode::Instruction::BinarySubscr => {
                 let key = self.pop_value();
                 let container = self.pop_value();
                 self.state
@@ -711,11 +711,11 @@ impl ExecutingFrame<'_> {
                 let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
                 self.execute_call(args, vm)
             }
-            bytecode::Instruction::CallFunctionKeyword { nargs } => {
+            bytecode::Instruction::CallKw { nargs } => {
                 let args = self.collect_keyword_args(nargs.get(arg));
                 self.execute_call(args, vm)
             }
-            bytecode::Instruction::CallFunctionPositional { nargs } => {
+            bytecode::Instruction::Call { nargs } => {
                 let args = self.collect_positional_args(nargs.get(arg));
                 self.execute_call(args, vm)
             }
@@ -753,7 +753,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(matched);
                 Ok(None)
             }
-            bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
+            bytecode::Instruction::CompareOp { op } => self.execute_compare(vm, op.get(arg)),
             bytecode::Instruction::ContainsOp(invert) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
@@ -822,7 +822,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::DeleteLocal(idx) => {
+            bytecode::Instruction::DeleteName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let res = self.locals.mapping().ass_subscript(name, None, vm);
 
@@ -835,7 +835,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
+            bytecode::Instruction::DeleteSubscr => self.execute_delete_subscript(vm),
             bytecode::Instruction::DictUpdate { index } => {
                 // Stack before: [..., dict, ..., source]  (source at TOS)
                 // Stack after:  [..., dict, ...]  (source consumed)
@@ -1192,7 +1192,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(func);
                 Ok(None)
             }
-            bytecode::Instruction::LoadNameAny(idx) => {
+            bytecode::Instruction::LoadName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let result = self.locals.mapping().subscript(name, vm);
                 match result {
@@ -1428,7 +1428,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Nop => Ok(None),
             // PopBlock is now a pseudo-instruction - exception table handles this
             bytecode::Instruction::PopBlock => Ok(None),
-            bytecode::Instruction::PopException => {
+            bytecode::Instruction::PopExcept => {
                 // Pop prev_exc from value stack and restore it
                 let prev_exc = self.pop_value();
                 if vm.is_none(&prev_exc) {
@@ -1457,7 +1457,7 @@ impl ExecutingFrame<'_> {
                 self.pop_value();
                 Ok(None)
             }
-            bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
+            bytecode::Instruction::RaiseVarArgs { kind } => self.execute_raise(vm, kind.get(arg)),
             bytecode::Instruction::Resume { arg: resume_arg } => {
                 // Resume execution after yield, await, or at function start
                 // In CPython, this checks instrumentation and eval breaker
@@ -1559,7 +1559,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::SetFunctionAttribute { attr } => {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
-            bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
+            bytecode::Instruction::SetupAnnotations => self.setup_annotations(vm),
             bytecode::Instruction::BeforeWith => {
                 // TOS: context_manager
                 // Result: [..., __exit__, __enter__ result]
@@ -1621,13 +1621,13 @@ impl ExecutingFrame<'_> {
                     .set_item(self.code.names[idx.get(arg) as usize], value, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::StoreLocal(idx) => {
+            bytecode::Instruction::StoreName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let value = self.pop_value();
                 self.locals.mapping().ass_subscript(name, Some(value), vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
+            bytecode::Instruction::StoreSubscr => self.execute_store_subscript(vm),
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::Swap { index } => {
                 let len = self.state.stack.len();
@@ -1778,6 +1778,9 @@ impl ExecutingFrame<'_> {
                 let value = obj.try_to_bool(vm)?;
                 self.push_value(vm.ctx.new_bool(!value).into());
                 Ok(None)
+            }
+            bytecode::Instruction::Reserved => {
+                unreachable!("{instruction:?} instruction should not be executed")
             }
         }
     }
