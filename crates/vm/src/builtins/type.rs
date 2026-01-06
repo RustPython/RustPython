@@ -1,6 +1,6 @@
 use super::{
-    PyClassMethod, PyDictRef, PyList, PyStr, PyStrInterned, PyStrRef, PyTupleRef, PyWeak,
-    mappingproxy::PyMappingProxy, object, union_,
+    PyClassMethod, PyDictRef, PyList, PyStaticMethod, PyStr, PyStrInterned, PyStrRef, PyTupleRef,
+    PyWeak, mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -1164,6 +1164,12 @@ impl Constructor for PyType {
             && f.class().is(vm.ctx.types.function_type)
         {
             *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
+        }
+
+        if let Some(f) = attributes.get_mut(identifier!(vm, __new__))
+            && f.class().is(vm.ctx.types.function_type)
+        {
+            *f = PyStaticMethod::from(f.clone()).into_pyobject(vm);
         }
 
         if let Some(current_frame) = vm.current_frame() {
