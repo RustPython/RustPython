@@ -454,7 +454,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(JitValue::Tuple(elements));
                 Ok(())
             }
-            Instruction::CallFunctionPositional { nargs } => {
+            Instruction::Call { nargs } => {
                 let nargs = nargs.get(arg);
 
                 let mut args = Vec::new();
@@ -489,7 +489,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::CompareOperation { op, .. } => {
+            Instruction::CompareOp { op, .. } => {
                 let op = op.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
