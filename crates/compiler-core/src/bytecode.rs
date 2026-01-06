@@ -902,28 +902,39 @@ pub enum Instruction {
     PopBlock = 255,                  // CPython uses pseudo-op 263
 }
 
-// This must be kept up to date to avoid marshaling errors
-const LAST_INSTRUCTION: Instruction = Instruction::Resume { arg: Arg::marker() };
-
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
-
-impl From<Instruction> for u8 {
-    #[inline]
-    fn from(ins: Instruction) -> Self {
-        // SAFETY: there's no padding bits
-        unsafe { core::mem::transmute::<Instruction, Self>(ins) }
-    }
-}
 
 impl TryFrom<u8> for Instruction {
     type Error = MarshalError;
 
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
-        if value <= u8::from(LAST_INSTRUCTION) {
-            Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
-        } else {
-            Err(MarshalError::InvalidBytecode)
+        match value {
+            1
+            | 2
+            | 5..=10
+            | 12
+            | 14..=21
+            | 24
+            | 26..=33
+            | 36
+            | 37
+            | 39..=45
+            | 47..=61
+            | 63..=67
+            | 69
+            | 71..=76
+            | 80
+            | 82..=86
+            | 91
+            | 92
+            | 95..=97
+            | 100..=106
+            | 108..=111
+            | 113..=135
+            | 149
+            | 252..=255 => Ok(unsafe { core::mem::transmute::<u8, Self>(value) }),
+            _ => Err(Self::Error::InvalidBytecode),
         }
     }
 }
