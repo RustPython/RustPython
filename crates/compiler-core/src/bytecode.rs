@@ -705,6 +705,9 @@ pub enum Instruction {
     SetupAnnotations = 37,
     StoreSubscr = 39,
     ToBool = 40,
+    UnaryInvert = 41,
+    UnaryNegative = 42,
+    UnaryNot = 43,
     WithExceptStart = 44,
     // ==================== With-argument instructions (opcode > 44) ====================
     BinaryOp {
@@ -1648,13 +1651,7 @@ impl Instruction {
             | ForIter { target: l }
             | Break { target: l }
             | Continue { target: l }
-            | Send { target: l }
-            // Dummy jump instructions (placeholders)
-            | JumpBackward { target: l }
-            | JumpBackwardNoInterrupt { target: l }
-            | JumpForward { target: l }
-            | PopJumpIfNone { target: l }
-            | PopJumpIfNotNone { target: l } => Some(*l),
+            | Send { target: l } => Some(*l),
             _ => None,
         }
     }
@@ -1676,7 +1673,7 @@ impl Instruction {
                 | Break { .. }
                 | ReturnValue
                 | ReturnConst { .. }
-                | Raise { .. }
+                | RaiseVarArgs { .. }
                 | Reraise { .. }
         )
     }
@@ -1694,47 +1691,25 @@ impl Instruction {
     ///
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
-            // Dummy/placeholder instructions (never executed)
-            Cache | Reserved3 | Reserved17 | Reserved140 | Reserved141 | Reserved142
-            | Reserved143 | Reserved144 | Reserved145 | Reserved146 | Reserved147 | Reserved148 => {
-                0
-            }
-            BinarySlice | EndFor | ExitInitCheck | GetYieldFromIter | InterpreterExit
-            | LoadAssertionError | LoadLocals | PushNull | ReturnGenerator | StoreSlice => 0,
-            BuildConstKeyMap { .. }
-            | CopyFreeVars { .. }
-            | DictMerge { .. }
-            | EnterExecutor { .. }
-            | ListExtend { .. }
-            | LoadFastCheck(_)
-            | LoadFastLoadFast { .. }
-            | LoadFromDictOrDeref(_)
-            | LoadFromDictOrGlobals(_)
-            | LoadSuperAttr { .. }
-            | MakeCell(_)
-            | SetUpdate { .. }
-            | StoreFastStoreFast { .. } => 0,
-            JumpBackward { .. } | JumpBackwardNoInterrupt { .. } | JumpForward { .. } => 0,
-            PopJumpIfNone { .. } | PopJumpIfNotNone { .. } => -1,
-
             Nop => 0,
             ImportName { .. } => -1,
             ImportFrom { .. } => 1,
-            LoadFast(_) | LoadFastAndClear(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_)
+            LoadFast(_) | LoadFastAndClear(_) | LoadName(_) | LoadGlobal(_) | LoadDeref(_)
             | LoadClassDeref(_) => 1,
-            StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
+            StoreFast(_) | StoreName(_) | StoreGlobal(_) | StoreDeref(_) => -1,
             StoreFastLoadFast { .. } => 0, // pop 1, push 1
-            DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
+            DeleteFast(_) | DeleteName(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
             LoadClosure(_) => 1,
             Subscript => -1,
-            StoreSubscript => -3,
-            DeleteSubscript => -2,
+            StoreSubscr => -3,
+            DeleteSubscr => -2,
             LoadAttr { .. } => 0,
             StoreAttr { .. } => -2,
             DeleteAttr { .. } => -1,
             LoadConst { .. } => 1,
-            BinaryOp { .. } | CompareOperation { .. } => -1,
-            BinarySubscript => -1,
+            Reserved => 0,
+            BinaryOp { .. } | CompareOp { .. } => -1,
+            BinarySubscr => -1,
             CopyItem { .. } => 1,
             PopTop => -1,
             Swap { .. } => 0,
@@ -1762,9 +1737,9 @@ impl Instruction {
                 // pops attribute value and function, pushes function back
                 -2 + 1
             }
-            CallFunctionPositional { nargs } => -(nargs.get(arg) as i32) - 1 + 1,
+            Call { nargs } => -(nargs.get(arg) as i32) - 1 + 1,
             CallMethodPositional { nargs } => -(nargs.get(arg) as i32) - 3 + 1,
-            CallFunctionKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 1 + 1,
+            CallKw { nargs } => -1 - (nargs.get(arg) as i32) - 1 + 1,
             CallMethodKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 3 + 1,
             CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
             CallMethodEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
@@ -1796,11 +1771,11 @@ impl Instruction {
             PushExcInfo => 1,    // [exc] -> [prev_exc, exc]
             CheckExcMatch => 0,  // [exc, type] -> [exc, bool] (pops type, pushes bool)
             Reraise { .. } => 0, // Exception raised, stack effect doesn't matter
-            SetupAnnotation => 0,
+            SetupAnnotations => 0,
             BeforeWith => 1, // push __exit__, then replace ctx_mgr with __enter__ result
             WithExceptStart => 1, // push __exit__ result
             PopBlock => 0,
-            Raise { kind } => {
+            RaiseVarArgs { kind } => {
                 // Stack effects for different raise kinds:
                 // - Reraise (0): gets from VM state, no stack pop
                 // - Raise (1): pops 1 exception
@@ -1848,7 +1823,7 @@ impl Instruction {
                 let UnpackExArgs { before, after } = args.get(arg);
                 -1 + before as i32 + 1 + after as i32
             }
-            PopException => 0,
+            PopExcept => 0,
             Reverse { .. } => 0,
             GetAwaitable => 0,
             BeforeAsyncWith => 1,
@@ -1932,47 +1907,10 @@ impl Instruction {
             };
 
         match self {
-            // Dummy/placeholder instructions
-            Cache => w!(CACHE),
-            Reserved3 | Reserved17 | Reserved140 | Reserved141 | Reserved142 | Reserved143
-            | Reserved144 | Reserved145 | Reserved146 | Reserved147 | Reserved148 => w!(RESERVED),
-            BinarySlice => w!(BINARY_SLICE),
-            EndFor => w!(END_FOR),
-            ExitInitCheck => w!(EXIT_INIT_CHECK),
-            GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
-            InterpreterExit => w!(INTERPRETER_EXIT),
-            LoadAssertionError => w!(LOAD_ASSERTION_ERROR),
-            LoadLocals => w!(LOAD_LOCALS),
-            PushNull => w!(PUSH_NULL),
-            ReturnGenerator => w!(RETURN_GENERATOR),
-            StoreSlice => w!(STORE_SLICE),
-            UnaryInvert => w!(UNARY_INVERT),
-            UnaryNegative => w!(UNARY_NEGATIVE),
-            UnaryNot => w!(UNARY_NOT),
-            BuildConstKeyMap { size } => w!(BUILD_CONST_KEY_MAP, size),
-            CopyFreeVars { count } => w!(COPY_FREE_VARS, count),
-            DictMerge { index } => w!(DICT_MERGE, index),
-            EnterExecutor { index } => w!(ENTER_EXECUTOR, index),
-            JumpBackward { target } => w!(JUMP_BACKWARD, target),
-            JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
-            JumpForward { target } => w!(JUMP_FORWARD, target),
-            ListExtend { i } => w!(LIST_EXTEND, i),
-            LoadFastCheck(idx) => w!(LOAD_FAST_CHECK, varname = idx),
-            LoadFastLoadFast { arg } => w!(LOAD_FAST_LOAD_FAST, arg),
-            LoadFromDictOrDeref(idx) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = idx),
-            LoadFromDictOrGlobals(idx) => w!(LOAD_FROM_DICT_OR_GLOBALS, name = idx),
-            LoadSuperAttr { arg } => w!(LOAD_SUPER_ATTR, arg),
-            MakeCell(idx) => w!(MAKE_CELL, cell_name = idx),
-            PopJumpIfNone { target } => w!(POP_JUMP_IF_NONE, target),
-            PopJumpIfNotNone { target } => w!(POP_JUMP_IF_NOT_NONE, target),
-            SetUpdate { i } => w!(SET_UPDATE, i),
-            StoreFastStoreFast { arg } => w!(STORE_FAST_STORE_FAST, arg),
-
-            // Real instructions
             BeforeAsyncWith => w!(BEFORE_ASYNC_WITH),
             BeforeWith => w!(BEFORE_WITH),
             BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
-            BinarySubscript => w!(BINARY_SUBSCR),
+            BinarySubscr => w!(BINARY_SUBSCR),
             Break { target } => w!(BREAK, target),
             BuildList { size } => w!(BUILD_LIST, size),
             BuildListFromTuples { size } => w!(BUILD_LIST_FROM_TUPLES, size),
@@ -1985,9 +1923,9 @@ impl Instruction {
             BuildTuple { size } => w!(BUILD_TUPLE, size),
             BuildTupleFromIter => w!(BUILD_TUPLE_FROM_ITER),
             BuildTupleFromTuples { size } => w!(BUILD_TUPLE_FROM_TUPLES, size),
+            Call { nargs } => w!(CALL, nargs),
             CallFunctionEx { has_kwargs } => w!(CALL_FUNCTION_EX, has_kwargs),
-            CallFunctionKeyword { nargs } => w!(CALL_KW, nargs),
-            CallFunctionPositional { nargs } => w!(CALL, nargs),
+            CallKw { nargs } => w!(CALL_KW, nargs),
             CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
             CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
             CallMethodEx { has_kwargs } => w!(CALL_METHOD_EX, has_kwargs),
@@ -1996,7 +1934,7 @@ impl Instruction {
             CheckEgMatch => w!(CHECK_EG_MATCH),
             CheckExcMatch => w!(CHECK_EXC_MATCH),
             CleanupThrow => w!(CLEANUP_THROW),
-            CompareOperation { op } => w!(COMPARE_OP, ?op),
+            CompareOp { op } => w!(COMPARE_OP, ?op),
             ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
             Continue { target } => w!(CONTINUE, target),
             ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
@@ -2005,8 +1943,8 @@ impl Instruction {
             DeleteDeref(idx) => w!(DELETE_DEREF, cell_name = idx),
             DeleteFast(idx) => w!(DELETE_FAST, varname = idx),
             DeleteGlobal(idx) => w!(DELETE_GLOBAL, name = idx),
-            DeleteLocal(idx) => w!(DELETE_NAME, name = idx),
-            DeleteSubscript => w!(DELETE_SUBSCR),
+            DeleteName(idx) => w!(DELETE_NAME, name = idx),
+            DeleteSubscr => w!(DELETE_SUBSCR),
             DictUpdate { index } => w!(DICT_UPDATE, index),
             EndAsyncFor => w!(END_ASYNC_FOR),
             EndSend => w!(END_SEND),
@@ -2017,6 +1955,7 @@ impl Instruction {
             GetAIter => w!(GET_AITER),
             GetANext => w!(GET_ANEXT),
             GetAwaitable => w!(GET_AWAITABLE),
+            Reserved => w!(RESERVED),
             GetIter => w!(GET_ITER),
             GetLen => w!(GET_LEN),
             ImportFrom { idx } => w!(IMPORT_FROM, name = idx),
@@ -2037,7 +1976,7 @@ impl Instruction {
             LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
             LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
             LoadMethod { idx } => w!(LOAD_METHOD, name = idx),
-            LoadNameAny(idx) => w!(LOAD_NAME, name = idx),
+            LoadName(idx) => w!(LOAD_NAME, name = idx),
             MakeFunction => w!(MAKE_FUNCTION),
             MapAdd { i } => w!(MAP_ADD, i),
             MatchClass(arg) => w!(MATCH_CLASS, arg),
@@ -2046,12 +1985,12 @@ impl Instruction {
             MatchSequence => w!(MATCH_SEQUENCE),
             Nop => w!(NOP),
             PopBlock => w!(POP_BLOCK),
-            PopException => w!(POP_EXCEPT),
+            PopExcept => w!(POP_EXCEPT),
             PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
             PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
             PopTop => w!(POP_TOP),
             PushExcInfo => w!(PUSH_EXC_INFO),
-            Raise { kind } => w!(RAISE_VARARGS, ?kind),
+            RaiseVarArgs { kind } => w!(RAISE_VARARGS, ?kind),
             Reraise { depth } => w!(RERAISE, depth),
             Resume { arg } => w!(RESUME, arg),
             ReturnConst { idx } => fmt_const("RETURN_CONST", arg, f, idx),
@@ -2061,7 +2000,7 @@ impl Instruction {
             SetAdd { i } => w!(SET_ADD, i),
             SetExcInfo => w!(SET_EXC_INFO),
             SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
-            SetupAnnotation => w!(SETUP_ANNOTATIONS),
+            SetupAnnotations => w!(SETUP_ANNOTATIONS),
             StoreAttr { idx } => w!(STORE_ATTR, name = idx),
             StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
             StoreFast(idx) => w!(STORE_FAST, varname = idx),
@@ -2073,14 +2012,17 @@ impl Instruction {
                 write!(f, " ({}, {})", store_idx.get(arg), load_idx.get(arg))
             }
             StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
-            StoreLocal(idx) => w!(STORE_NAME, name = idx),
-            StoreSubscript => w!(STORE_SUBSCR),
+            StoreName(idx) => w!(STORE_NAME, name = idx),
+            StoreSubscr => w!(STORE_SUBSCR),
             Subscript => w!(SUBSCRIPT),
             Swap { index } => w!(SWAP, index),
             ToBool => w!(TO_BOOL),
             UnpackEx { args } => w!(UNPACK_EX, args),
             UnpackSequence { size } => w!(UNPACK_SEQUENCE, size),
             WithExceptStart => w!(WITH_EXCEPT_START),
+            UnaryInvert => w!(UNARY_INVERT),
+            UnaryNegative => w!(UNARY_NEGATIVE),
+            UnaryNot => w!(UNARY_NOT),
             YieldValue { arg } => w!(YIELD_VALUE, arg),
         }
     }
