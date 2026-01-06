@@ -876,7 +876,7 @@ class ThreadTests(BaseTestCase):
             threading.settrace(old_trace)
 
     @unittest.skipIf(
-        sys.platform == 'linux' and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
+        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
         "TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason"
     )
     # TODO: RUSTPYTHON
@@ -920,7 +920,7 @@ class ThreadTests(BaseTestCase):
             threading.setprofile(old_profile)
 
     @unittest.skipIf(
-        sys.platform == 'linux' and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
+        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
         "TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason"
     )
     # TODO: RUSTPYTHON
