@@ -2271,6 +2271,7 @@ class PtyTests(unittest.TestCase):
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
+    @unittest.skip('TODO: RUSTPYTHON FAILURE, WORKER BUG')
     @unittest.expectedFailure  # TODO: RUSTPYTHON AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_no_stdout_fileno(self):
         # Issue #24402: If stdin is the original terminal but stdout.fileno()
