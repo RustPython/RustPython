@@ -1757,6 +1757,23 @@ pub mod module {
         libc::WTERMSIG(status)
     }
 
+    #[cfg(target_os = "linux")]
+    #[pyfunction]
+    fn pidfd_open(
+        pid: libc::pid_t,
+        flags: OptionalArg<u32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<OwnedFd> {
+        let flags = flags.unwrap_or(0);
+        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, flags) as libc::c_long };
+        if fd == -1 {
+            Err(vm.new_last_errno_error())
+        } else {
+            // Safety: syscall returns a new owned file descriptor.
+            Ok(unsafe { OwnedFd::from_raw_fd(fd as libc::c_int) })
+        }
+    }
+
     #[pyfunction]
     fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
