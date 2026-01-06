@@ -195,7 +195,7 @@ parking_lot = "0.12.3"
 paste = "1.0.15"
 proc-macro2 = "1.0.93"
 pymath = "0.0.2"
-quote = "1.0.38"
+quote = "1.0.43"
 radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
