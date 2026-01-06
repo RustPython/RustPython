@@ -1779,51 +1779,6 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(!value).into());
                 Ok(None)
             }
-            // Placeholder/dummy instructions - these should never be executed
-            bytecode::Instruction::Cache
-            | bytecode::Instruction::Reserved3
-            | bytecode::Instruction::Reserved17
-            | bytecode::Instruction::BinarySlice
-            | bytecode::Instruction::EndFor
-            | bytecode::Instruction::ExitInitCheck
-            | bytecode::Instruction::InterpreterExit
-            | bytecode::Instruction::LoadAssertionError
-            | bytecode::Instruction::LoadLocals
-            | bytecode::Instruction::PushNull
-            | bytecode::Instruction::ReturnGenerator
-            | bytecode::Instruction::StoreSlice
-            | bytecode::Instruction::BuildConstKeyMap { .. }
-            | bytecode::Instruction::CopyFreeVars { .. }
-            | bytecode::Instruction::DictMerge { .. }
-            | bytecode::Instruction::EnterExecutor { .. }
-            | bytecode::Instruction::JumpBackward { .. }
-            | bytecode::Instruction::JumpBackwardNoInterrupt { .. }
-            | bytecode::Instruction::JumpForward { .. }
-            | bytecode::Instruction::ListExtend { .. }
-            | bytecode::Instruction::LoadFastCheck(_)
-            | bytecode::Instruction::LoadFastLoadFast { .. }
-            | bytecode::Instruction::LoadFromDictOrDeref(_)
-            | bytecode::Instruction::LoadFromDictOrGlobals(_)
-            | bytecode::Instruction::LoadSuperAttr { .. }
-            | bytecode::Instruction::MakeCell(_)
-            | bytecode::Instruction::PopJumpIfNone { .. }
-            | bytecode::Instruction::PopJumpIfNotNone { .. }
-            | bytecode::Instruction::SetUpdate { .. }
-            | bytecode::Instruction::StoreFastStoreFast { .. }
-            | bytecode::Instruction::Reserved140
-            | bytecode::Instruction::Reserved141
-            | bytecode::Instruction::Reserved142
-            | bytecode::Instruction::Reserved143
-            | bytecode::Instruction::Reserved144
-            | bytecode::Instruction::Reserved145
-            | bytecode::Instruction::Reserved146
-            | bytecode::Instruction::Reserved147
-            | bytecode::Instruction::Reserved148 => {
-                unreachable!(
-                    "placeholder instruction should not be executed: {:?}",
-                    instruction
-                )
-            }
         }
     }
 
