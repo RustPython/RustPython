@@ -431,6 +431,39 @@ pub(crate) mod _signal {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    #[pyfunction]
+    fn pidfd_send_signal(
+        pidfd: i32,
+        sig: i32,
+        siginfo: OptionalArg<PyObjectRef>,
+        flags: OptionalArg<u32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let OptionalArg::Present(obj) = siginfo {
+            if !vm.is_none(&obj) {
+                return Err(vm.new_type_error("siginfo must be None".to_owned()));
+            }
+        }
+
+        let flags = flags.unwrap_or(0);
+        let ret = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                pidfd,
+                sig,
+                std::ptr::null::<libc::siginfo_t>(),
+                flags,
+            )
+        };
+
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_last_errno_error())
+        }
+    }
+
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "siginterrupt")]
     fn py_siginterrupt(signum: i32, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
