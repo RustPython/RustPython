@@ -101,7 +101,7 @@ class _SSLProtocolTransport(transports._FlowControlMixin,
         return self._ssl_protocol._app_protocol
 
     def is_closing(self):
-        return self._closed
+        return self._closed or self._ssl_protocol._is_transport_closing()
 
     def close(self):
         """Close the transport.
@@ -379,6 +379,9 @@ class SSLProtocol(protocols.BufferedProtocol):
             self._app_transport_created = True
         return self._app_transport
 
+    def _is_transport_closing(self):
+        return self._transport is not None and self._transport.is_closing()
+
     def connection_made(self, transport):
         """Called when the low-level connection is made.
 
@@ -542,7 +545,7 @@ class SSLProtocol(protocols.BufferedProtocol):
         # start handshake timeout count down
         self._handshake_timeout_handle = \
             self._loop.call_later(self._ssl_handshake_timeout,
-                                  lambda: self._check_handshake_timeout())
+                                  self._check_handshake_timeout)
 
         self._do_handshake()
 
@@ -623,7 +626,7 @@ class SSLProtocol(protocols.BufferedProtocol):
             self._set_state(SSLProtocolState.FLUSHING)
             self._shutdown_timeout_handle = self._loop.call_later(
                 self._ssl_shutdown_timeout,
-                lambda: self._check_shutdown_timeout()
+                self._check_shutdown_timeout
             )
             self._do_flush()
 
@@ -762,7 +765,7 @@ class SSLProtocol(protocols.BufferedProtocol):
                     else:
                         break
                 else:
-                    self._loop.call_soon(lambda: self._do_read())
+                    self._loop.call_soon(self._do_read)
         except SSLAgainErrors:
             pass
         if offset > 0:
