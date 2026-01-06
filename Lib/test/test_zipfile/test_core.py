@@ -3483,13 +3483,13 @@ class EncodedMetadataTests(unittest.TestCase):
             self.assertEqual(info.file_size, len(content))
             self.assertEqual(zipfp.read(name), content)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 
     def test_read_with_metadata_encoding(self):
         # Read the ZIP archive with correct metadata_encoding
         with zipfile.ZipFile(TESTFN, "r", metadata_encoding='shift_jis') as zipfp:
             self._test_read(zipfp, self.file_names, self.file_content)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 
     def test_read_without_metadata_encoding(self):
         # Read the ZIP archive without metadata_encoding
         expected_names = [name.encode('shift_jis').decode('cp437')
@@ -3497,7 +3497,7 @@ class EncodedMetadataTests(unittest.TestCase):
         with zipfile.ZipFile(TESTFN, "r") as zipfp:
             self._test_read(zipfp, expected_names, self.file_content)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 
     def test_read_with_incorrect_metadata_encoding(self):
         # Read the ZIP archive with incorrect metadata_encoding
         expected_names = [name.encode('shift_jis').decode('koi8-u')
@@ -3505,7 +3505,7 @@ class EncodedMetadataTests(unittest.TestCase):
         with zipfile.ZipFile(TESTFN, "r", metadata_encoding='koi8-u') as zipfp:
             self._test_read(zipfp, expected_names, self.file_content)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 
     def test_read_with_unsuitable_metadata_encoding(self):
         # Read the ZIP archive with metadata_encoding unsuitable for
         # decoding metadata
@@ -3514,7 +3514,7 @@ class EncodedMetadataTests(unittest.TestCase):
         with self.assertRaises(UnicodeDecodeError):
             zipfile.ZipFile(TESTFN, "r", metadata_encoding='utf-8')
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 
     def test_read_after_append(self):
         newname = '\u56db'  # Han 'four'
         expected_names = [name.encode('shift_jis').decode('cp437')
@@ -3541,7 +3541,7 @@ class EncodedMetadataTests(unittest.TestCase):
                 else:
                     self.assertEqual(zipfp.read(name), content)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 
     def test_write_with_metadata_encoding(self):
         ZF = zipfile.ZipFile
         for mode in ("w", "x", "a"):
@@ -3549,7 +3549,7 @@ class EncodedMetadataTests(unittest.TestCase):
                                         "^metadata_encoding is only"):
                 ZF("nonesuch.zip", mode, metadata_encoding="shift_jis")
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 
     def test_cli_with_metadata_encoding(self):
         errmsg = "Non-conforming encodings not supported with -c."
         args = ["--metadata-encoding=shift_jis", "-c", "nonesuch", "nonesuch"]
@@ -3569,7 +3569,7 @@ class EncodedMetadataTests(unittest.TestCase):
         for name in self.file_names:
             self.assertIn(name, listing)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 
     def test_cli_with_metadata_encoding_extract(self):
         os.mkdir(TESTFN2)
         self.addCleanup(rmtree, TESTFN2)
