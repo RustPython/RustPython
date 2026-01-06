@@ -440,6 +440,7 @@ pub(crate) mod _signal {
         flags: OptionalArg<u32>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        signal::assert_in_range(sig, vm)?;
         if let OptionalArg::Present(obj) = siginfo {
             if !vm.is_none(&obj) {
                 return Err(vm.new_type_error("siginfo must be None".to_owned()));
