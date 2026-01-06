@@ -5208,7 +5208,6 @@ class TestStdLib(unittest.TestCase):
                     ]),
                 )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; len is often/always > 256
     def test_test_simple_enum(self):
         @_simple_enum(Enum)
         class SimpleColor:
