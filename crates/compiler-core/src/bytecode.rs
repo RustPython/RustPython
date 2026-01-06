@@ -692,6 +692,7 @@ pub enum Instruction {
     GetANext = 18,
     GetIter = 19,
     GetLen = 20,
+    GetYieldFromIter = 21,
     LoadBuildClass = 24,
     MakeFunction = 26,
     MatchKeys = 27,
@@ -890,7 +891,6 @@ pub enum Instruction {
     } = 133,
     SetExcInfo = 134,
     Subscript = 135,
-
     // ===== Pseudo Opcodes (252+) ======
     Jump {
         target: Arg<Label>,
@@ -1837,6 +1837,7 @@ impl Instruction {
             UnaryInvert => 0,
             UnaryNegative => 0,
             UnaryNot => 0,
+            GetYieldFromIter => 0,
         }
     }
 
@@ -2024,6 +2025,7 @@ impl Instruction {
             UnaryNegative => w!(UNARY_NEGATIVE),
             UnaryNot => w!(UNARY_NOT),
             YieldValue { arg } => w!(YIELD_VALUE, arg),
+            GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
         }
     }
 }
