@@ -1769,7 +1769,7 @@ pub mod module {
             libc::syscall(
                 libc::SYS_pidfd_open,
                 pid,
-                flags as libc::c_uint,
+                flags,
             ) as libc::c_long
         };
         if fd == -1 {

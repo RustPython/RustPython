@@ -458,10 +458,10 @@ pub(crate) mod _signal {
             ) as libc::c_long
         };
 
-        if ret == 0 {
-            Ok(())
-        } else {
+        if ret == -1 {
             Err(vm.new_last_errno_error())
+        } else {
+            Ok(())
         }
     }
 
