@@ -584,6 +584,7 @@ assert ClassWithNew.__new__.__qualname__ == "ClassWithNew.__new__"
 assert ClassWithNew().__new__.__qualname__ == "ClassWithNew.__new__"
 assert ClassWithNew.__new__.__name__ == "__new__"
 assert ClassWithNew().__new__.__name__ == "__new__"
+assert isinstance(ClassWithNew.__dict__.get("__new__"), staticmethod)
 
 assert ClassWithNew.N.__new__.__qualname__ == "ClassWithNew.N.__new__"
 assert ClassWithNew().N.__new__.__qualname__ == "ClassWithNew.N.__new__"
@@ -593,6 +594,7 @@ assert ClassWithNew.N().__new__.__qualname__ == "ClassWithNew.N.__new__"
 assert ClassWithNew().N().__new__.__qualname__ == "ClassWithNew.N.__new__"
 assert ClassWithNew.N().__new__.__name__ == "__new__"
 assert ClassWithNew().N().__new__.__name__ == "__new__"
+assert isinstance(ClassWithNew.N.__dict__.get("__new__"), staticmethod)
 
 
 # Regression to:
