@@ -107,6 +107,8 @@ env:
     test_yield_from
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
 
 jobs:
   rust_tests:
@@ -118,7 +120,7 @@ jobs:
     timeout-minutes: 45
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-latest, ubuntu-latest, windows-2025]
       fail-fast: false
     steps:
       - uses: actions/checkout@v6.0.1
@@ -127,14 +129,6 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
-      # Only for OpenSSL builds
-      # - name: Set up the Windows environment
-      #   shell: bash
-      #   run: |
-      #     git config --system core.longpaths true
-      #     cargo install --target-dir=target -v cargo-vcpkg
-      #     cargo vcpkg -v build
-      #   if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
@@ -257,7 +251,7 @@ jobs:
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-latest, ubuntu-latest, windows-2025]
       fail-fast: false
     steps:
       - uses: actions/checkout@v6.0.1
@@ -266,14 +260,6 @@ jobs:
       - uses: actions/setup-python@v6.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      # Only for OpenSSL builds
-      # - name: Set up the Windows environment
-      #   shell: bash
-      #   run: |
-      #     git config --system core.longpaths true
-      #     cargo install cargo-vcpkg
-      #     cargo vcpkg build
-      #   if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'

@@ -115,11 +115,11 @@ dns-lookup = "3.0"
 # OpenSSL dependencies (optional, for ssl-openssl feature)
 openssl = { version = "0.10.72", optional = true }
 openssl-sys = { version = "0.9.110", optional = true }
-openssl-probe = { version = "0.1.5", optional = true }
+openssl-probe = { version = "0.2.0", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
 
 # Rustls dependencies (optional, for ssl-rustls feature)
-rustls = { version = "0.23.35", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
+rustls = { version = "0.23.36", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 rustls-pemfile = { version = "2.2", optional = true }
 rustls-platform-verifier = { version = "0.6", optional = true }

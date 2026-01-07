@@ -592,10 +592,7 @@ pub(crate) fn impl_pystruct_sequence(
 
         // Subtype uses base type's payload_type_id
         impl ::rustpython_vm::PyPayload for #pytype_ident {
-            #[inline]
-            fn payload_type_id() -> ::std::any::TypeId {
-                <::rustpython_vm::builtins::PyTuple as ::rustpython_vm::PyPayload>::payload_type_id()
-            }
+            const PAYLOAD_TYPE_ID: ::core::any::TypeId = <::rustpython_vm::builtins::PyTuple as ::rustpython_vm::PyPayload>::PAYLOAD_TYPE_ID;
 
             #[inline]
             fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {

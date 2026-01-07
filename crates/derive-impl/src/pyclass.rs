@@ -635,10 +635,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         quote! {
             // static_assertions::const_assert!(std::mem::size_of::<#base_type>() <= std::mem::size_of::<#ident>());
             impl ::rustpython_vm::PyPayload for #ident {
-                #[inline]
-                fn payload_type_id() -> ::std::any::TypeId {
-                    <#base_type as ::rustpython_vm::PyPayload>::payload_type_id()
-                }
+                const PAYLOAD_TYPE_ID: ::core::any::TypeId = <#base_type as ::rustpython_vm::PyPayload>::PAYLOAD_TYPE_ID;
 
                 #[inline]
                 fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
