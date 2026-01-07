@@ -644,7 +644,7 @@ impl Compiler {
             .last_mut()
             .expect("no current symbol table");
 
-        if current_table.sub_tables.is_empty() {
+        if current_table.next_sub_table >= current_table.sub_tables.len() {
             let name = current_table.name.clone();
             let typ = current_table.typ;
             return Err(self.error(CodegenErrorType::SyntaxError(format!(
@@ -653,7 +653,9 @@ impl Compiler {
             ))));
         }
 
-        let table = current_table.sub_tables.remove(0);
+        let idx = current_table.next_sub_table;
+        current_table.next_sub_table += 1;
+        let table = current_table.sub_tables[idx].clone();
 
         // Push the next table onto the stack
         self.symbol_table_stack.push(table);
@@ -2331,13 +2333,10 @@ impl Compiler {
 
             // Snapshot sub_tables before first finally compilation
             // This allows us to restore them for the second compilation (exception path)
-            let sub_tables_snapshot = if !finalbody.is_empty() && finally_except_block.is_some() {
-                Some(
-                    self.symbol_table_stack
-                        .last()
-                        .map(|t| t.sub_tables.clone())
-                        .unwrap_or_default(),
-                )
+            let sub_table_cursor = if !finalbody.is_empty() && finally_except_block.is_some() {
+                self.symbol_table_stack
+                    .last()
+                    .map(|t| t.next_sub_table)
             } else {
                 None
             };
@@ -2352,10 +2351,10 @@ impl Compiler {
 
             if let Some(finally_except) = finally_except_block {
                 // Restore sub_tables for exception path compilation
-                if let Some(snapshot) = sub_tables_snapshot
+                if let Some(cursor) = sub_table_cursor
                     && let Some(current_table) = self.symbol_table_stack.last_mut()
                 {
-                    current_table.sub_tables = snapshot;
+                    current_table.next_sub_table = cursor;
                 }
 
                 self.switch_to_block(finally_except);
@@ -2616,13 +2615,10 @@ impl Compiler {
         }
 
         // Snapshot sub_tables before first finally compilation (for double compilation issue)
-        let sub_tables_snapshot = if !finalbody.is_empty() && finally_except_block.is_some() {
-            Some(
-                self.symbol_table_stack
-                    .last()
-                    .map(|t| t.sub_tables.clone())
-                    .unwrap_or_default(),
-            )
+        let sub_table_cursor = if !finalbody.is_empty() && finally_except_block.is_some() {
+            self.symbol_table_stack
+                .last()
+                .map(|t| t.next_sub_table)
         } else {
             None
         };
@@ -2641,10 +2637,10 @@ impl Compiler {
         // Stack at entry: [lasti, exc] (from exception table with preserve_lasti=true)
         if let Some(finally_except) = finally_except_block {
             // Restore sub_tables for exception path compilation
-            if let Some(snapshot) = sub_tables_snapshot
+            if let Some(cursor) = sub_table_cursor
                 && let Some(current_table) = self.symbol_table_stack.last_mut()
             {
-                current_table.sub_tables = snapshot;
+                current_table.next_sub_table = cursor;
             }
 
             self.switch_to_block(finally_except);
