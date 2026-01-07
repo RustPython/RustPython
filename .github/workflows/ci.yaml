@@ -117,13 +117,11 @@ env:
     test.test_multiprocessing_forkserver.test_threads
     test.test_multiprocessing_spawn.test_processes
     test.test_multiprocessing_spawn.test_threads
-    test_subprocess
   ENV_POLLUTING_TESTS_MACOS: >-
     test.test_multiprocessing_forkserver.test_processes
     test.test_multiprocessing_forkserver.test_threads
     test.test_multiprocessing_spawn.test_processes
     test.test_multiprocessing_spawn.test_threads
-    test_subprocess
   ENV_POLLUTING_TESTS_WINDOWS: >-
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
