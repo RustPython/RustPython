@@ -42,8 +42,10 @@ cfg_if::cfg_if! {
         static PROBE: LazyLock<ProbeResult> = LazyLock::new(openssl_probe::probe);
         fn probe() -> &'static ProbeResult { &PROBE }
     } else {
+        use std::sync::LazyLock;
+        static EMPTY_PROBE: LazyLock<ProbeResult> = LazyLock::new(|| ProbeResult { cert_file: None, cert_dir: vec![] });
         fn probe() -> &'static ProbeResult {
-            &ProbeResult { cert_file: None, cert_dir: None }
+            &EMPTY_PROBE
         }
     }
 }
@@ -446,7 +448,7 @@ mod _ssl {
             });
         let cert_dir = probe
             .cert_dir
-            .as_ref()
+            .first()
             .map(PathBuf::from)
             .unwrap_or_else(|| {
                 path_from_cstr(unsafe { CStr::from_ptr(sys::X509_get_default_cert_dir()) })
