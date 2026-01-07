@@ -1,4 +1,5 @@
 use alloc::fmt;
+use core::any::TypeId;
 
 use crate::{
     PyObject,
@@ -11,6 +12,7 @@ use crate::{
 use super::{Traverse, TraverseFn};
 
 pub(in crate::object) struct PyObjVTable {
+    pub(in crate::object) typeid: TypeId,
     pub(in crate::object) drop_dealloc: unsafe fn(*mut PyObject),
     pub(in crate::object) debug: unsafe fn(&PyObject, &mut fmt::Formatter<'_>) -> fmt::Result,
     pub(in crate::object) trace: Option<unsafe fn(&PyObject, &mut TraverseFn<'_>)>,
@@ -19,6 +21,7 @@ pub(in crate::object) struct PyObjVTable {
 impl PyObjVTable {
     pub const fn of<T: PyObjectPayload>() -> &'static Self {
         &Self {
+            typeid: T::PAYLOAD_TYPE_ID,
             drop_dealloc: drop_dealloc_obj::<T>,
             debug: debug_obj::<T>,
             trace: const {
