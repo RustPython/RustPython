@@ -2334,9 +2334,7 @@ impl Compiler {
             // Snapshot sub_tables before first finally compilation
             // This allows us to restore them for the second compilation (exception path)
             let sub_table_cursor = if !finalbody.is_empty() && finally_except_block.is_some() {
-                self.symbol_table_stack
-                    .last()
-                    .map(|t| t.next_sub_table)
+                self.symbol_table_stack.last().map(|t| t.next_sub_table)
             } else {
                 None
             };
@@ -2616,9 +2614,7 @@ impl Compiler {
 
         // Snapshot sub_tables before first finally compilation (for double compilation issue)
         let sub_table_cursor = if !finalbody.is_empty() && finally_except_block.is_some() {
-            self.symbol_table_stack
-                .last()
-                .map(|t| t.next_sub_table)
+            self.symbol_table_stack.last().map(|t| t.next_sub_table)
         } else {
             None
         };
