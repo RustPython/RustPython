@@ -303,7 +303,8 @@ pub mod windows {
 
         let GetFileInformationByName = GET_FILE_INFORMATION_BY_NAME
             .get_or_init(|| {
-                let library_name = OsString::from("api-ms-win-core-file-l2-1-4").to_wide_with_nul();
+                let library_name =
+                    OsString::from("api-ms-win-core-file-l2-1-4.dll").to_wide_with_nul();
                 let module = unsafe { LoadLibraryW(library_name.as_ptr()) };
                 if module.is_null() {
                     return None;
