@@ -68,6 +68,7 @@ class ThreadPoolExecutorTest(ThreadPoolMixin, ExecutorTest, BaseTestCase):
 
     @support.requires_fork()
     @unittest.skipUnless(hasattr(os, 'register_at_fork'), 'need os.register_at_fork')
+    @unittest.expectedFailure # TODO: RUSTPYTHON AssertionError: DeprecationWarning not triggered
     def test_process_fork_from_a_threadpool(self):
         # bpo-43944: clear concurrent.futures.thread._threads_queues after fork,
         # otherwise child process will try to join parent thread

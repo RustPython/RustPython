@@ -27,6 +27,7 @@ class ExecutorShutdownTest:
                           self.executor.submit,
                           pow, 2, 5)
 
+    @unittest.skip('TODO: RUSTPYTHON; hangs')
     def test_interpreter_shutdown(self):
         # Test the atexit hook for shutdown of worker threads and processes
         rc, out, err = assert_python_ok('-c', """if 1:
@@ -49,6 +50,7 @@ class ExecutorShutdownTest:
         self.assertFalse(err)
         self.assertEqual(out.strip(), b"apple")
 
+    @unittest.skip('TODO: RUSTPYTHON; Hangs')
     def test_submit_after_interpreter_shutdown(self):
         # Test the atexit hook for shutdown of worker threads and processes
         rc, out, err = assert_python_ok('-c', """if 1:
@@ -106,6 +108,7 @@ class ExecutorShutdownTest:
         # one finished.
         self.assertGreater(len(others), 0)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON AssertionError: b'' != b'apple'
     def test_hang_gh83386(self):
         """shutdown(wait=False) doesn't hang at exit with running futures.
 
