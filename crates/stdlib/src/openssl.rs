@@ -25,6 +25,7 @@ cfg_if::cfg_if! {
 
 use crate::vm::{PyRef, VirtualMachine, builtins::PyModule};
 use openssl_probe::ProbeResult;
+use std::sync::LazyLock;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     // if openssl is vendored, it doesn't know the locations
@@ -38,11 +39,9 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 // easily, without having to have a bunch of cfgs
 cfg_if::cfg_if! {
     if #[cfg(openssl_vendored)] {
-        use std::sync::LazyLock;
         static PROBE: LazyLock<ProbeResult> = LazyLock::new(openssl_probe::probe);
         fn probe() -> &'static ProbeResult { &PROBE }
     } else {
-        use std::sync::LazyLock;
         static EMPTY_PROBE: LazyLock<ProbeResult> = LazyLock::new(|| ProbeResult { cert_file: None, cert_dir: vec![] });
         fn probe() -> &'static ProbeResult {
             &EMPTY_PROBE
