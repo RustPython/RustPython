@@ -19,7 +19,7 @@ The contents of the Development Guide include:
 
 RustPython requires the following:
 
-- Rust latest stable version (e.g 1.69.0 as of Apr 20 2023)
+- Rust latest stable version (e.g 1.92.0 as of Jan 7 2026)
     - To check Rust version: `rustc --version` 
     - If you have `rustup` on your system, enter to update to the latest
       stable version: `rustup update stable`
@@ -118,18 +118,17 @@ exists a raw html viewer which is currently broken, and we welcome a PR to fix i
 Understanding a new codebase takes time. Here's a brief view of the
 repository's structure:
 
-- `compiler/src`: python compilation to bytecode
-  - `core/src`: python bytecode representation in rust structures
-  - `parser/src`: python lexing, parsing and ast
-- `derive/src`: Rust language extensions and macros specific to rustpython
+- `crates/compiler/src`: python compilation to bytecode
+  - `crates/compiler-core/src`: python bytecode representation in rust structures
+- `crates/derive/src` and `crates/derive-impl/src`: Rust language extensions and macros specific to rustpython
 - `Lib`: Carefully selected / copied files from CPython sourcecode. This is
    the python side of the standard library.
   - `test`: CPython test suite
-- `vm/src`: python virtual machine
+- `crates/vm/src`: python virtual machine
   - `builtins`: Builtin functions and types
   - `stdlib`: Standard library parts implemented in rust.
 - `src`: using the other subcrates to bring rustpython to life.
-- `wasm`: Binary crate and resources for WebAssembly build
+- `crates/wasm`: Binary crate and resources for WebAssembly build
 - `extra_tests`: extra integration test snippets as a supplement to `Lib/test`.
   Add new RustPython-only regression tests here; do not place new tests under `Lib/test`.
 
@@ -142,8 +141,8 @@ implementation is found in the `src` directory (specifically, `src/lib.rs`).
 The top-level `rustpython` binary depends on several lower-level crates including:
 
 - `rustpython-parser` (implementation in `compiler/parser/src`)
-- `rustpython-compiler` (implementation in `compiler/src`)
-- `rustpython-vm` (implementation in `vm/src`)
+- `rustpython-compiler` (implementation in `crates/compiler/src`)
+- `rustpython-vm` (implementation in `crates/vm/src`)
 
 Together, these crates provide the functions of a programming language and
 enable a line of code to go through a series of steps:
@@ -174,11 +173,11 @@ an Abstract Syntax Tree (AST):
 
 The `rustpython-compiler` crate's purpose is to transform the AST (Abstract Syntax
 Tree) to bytecode. The implementation of the compiler is found in the
-`compiler/src` directory. The compiler implements Python's symbol table,
+`crates/compiler/src` directory. The compiler implements Python's symbol table,
 ast->bytecode compiler, and bytecode optimizer in Rust.
 
-Implementation of bytecode structure in Rust is found in the `compiler/core/src`
-directory. `compiler/core/src/bytecode.rs` contains the representation of
+Implementation of bytecode structure in Rust is found in the `crates/compiler-core/src`
+directory. `crates/compiler-core/src/bytecode.rs` contains the representation of
 instructions and operations in Rust. Further information about Python's
 bytecode instructions can be found in the
 [Python documentation](https://docs.python.org/3/library/dis.html#bytecodes).
@@ -186,14 +185,14 @@ bytecode instructions can be found in the
 ### rustpython-vm
 
 The `rustpython-vm` crate has the important job of running the virtual machine that
-executes Python's instructions. The `vm/src` directory contains code to
+executes Python's instructions. The `crates/vm/src` directory contains code to
 implement the read and evaluation loop that fetches and dispatches
 instructions. This directory also contains the implementation of the
-Python Standard Library modules in Rust (`vm/src/stdlib`). In Python
-everything can be represented as an object. The `vm/src/builtins` directory holds
+Python Standard Library modules in Rust (`crates/vm/src/stdlib`). In Python
+everything can be represented as an object. The `crates/vm/src/builtins` directory holds
 the Rust code used to represent different Python objects and their methods. The
 core implementation of what a Python object is can be found in
-`vm/src/object/core.rs`.
+`crates/vm/src/object/core.rs`.
 
 ### Code generation
 
