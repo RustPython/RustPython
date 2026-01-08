@@ -341,6 +341,12 @@ jobs:
             done
             if [ ${exit_code} -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_LINUX in '.github/workflows/ci.yaml'."
+              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
+              if [ ${exit_code} -ne 0 ]; then
+                echo "Test ${thing} failed with exit code ${exit_code}."
+                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
+              fi
               exit 1
             fi
           done
@@ -348,6 +354,7 @@ jobs:
 
       - if: runner.os == 'macOS'
         name: run cpython tests to check if env polluters have stopped polluting (Common/macOS)
+        shell: bash
         run: |
           for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_MACOS }}; do
             for i in $(seq 1 10); do
@@ -362,6 +369,12 @@ jobs:
             done
             if [ ${exit_code} -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_MACOS in '.github/workflows/ci.yaml'."
+              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
+              if [ ${exit_code} -ne 0 ]; then
+                echo "Test ${thing} failed with exit code ${exit_code}."
+                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
+              fi
               exit 1
             fi
           done
@@ -384,6 +397,12 @@ jobs:
             done
             if [ ${exit_code} -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_WINDOWS in '.github/workflows/ci.yaml'."
+              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
+              if [ ${exit_code} -ne 0 ]; then
+                echo "Test ${thing} failed with exit code ${exit_code}."
+                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
+              fi
               exit 1
             fi
           done
