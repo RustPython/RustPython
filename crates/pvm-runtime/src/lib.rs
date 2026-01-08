@@ -1,11 +1,14 @@
 mod host;
+mod determinism;
+mod guard;
 mod module;
 
+pub use determinism::DeterminismOptions;
 use pvm_host::{Bytes, HostApi, HostError};
 use rustpython::InterpreterConfig;
 use rustpython_vm::{
     AsObject,
-    PyResult, Settings, VirtualMachine,
+    PyObjectRef, PyResult, Settings, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyNone},
     compiler::Mode,
     convert::TryFromObject,
@@ -24,6 +27,7 @@ pub struct ExecutionOptions {
     pub init_stdlib: bool,
     pub deterministic: bool,
     pub hash_seed: Option<u32>,
+    pub determinism: Option<DeterminismOptions>,
     pub set_main_module: bool,
 }
 
@@ -40,6 +44,7 @@ impl Default for ExecutionOptions {
             init_stdlib: true,
             deterministic: false,
             hash_seed: None,
+            determinism: None,
             set_main_module: true,
         }
     }
@@ -70,6 +75,11 @@ impl ExecutionOptions {
         self.deterministic = true;
         self
     }
+
+    pub fn with_determinism(mut self, determinism: DeterminismOptions) -> Self {
+        self.determinism = Some(determinism);
+        self
+    }
 }
 
 pub fn execute_tx(host: &mut dyn HostApi, code: &[u8], input: &[u8]) -> Result<Bytes, HostError> {
@@ -89,17 +99,25 @@ pub fn execute_tx_with_options(
     } else {
         options.argv.clone()
     };
-    if let Some(seed) = options.hash_seed {
-        settings.hash_seed = Some(seed);
-    }
-    if options.deterministic {
-        settings.hash_seed = Some(options.hash_seed.unwrap_or(0));
+
+    let determinism = options.determinism.clone().or_else(|| {
+        if options.deterministic {
+            Some(DeterminismOptions::deterministic(options.hash_seed))
+        } else {
+            None
+        }
+    });
+
+    if let Some(det) = determinism.as_ref().filter(|item| item.enabled) {
+        settings.hash_seed = Some(det.hash_seed);
         settings.ignore_environment = true;
         settings.import_site = false;
         settings.user_site_directory = false;
         settings.isolated = true;
         settings.safe_path = true;
         settings.install_signal_handlers = false;
+    } else if let Some(seed) = options.hash_seed {
+        settings.hash_seed = Some(seed);
     }
 
     let _host_guard = host::HostGuard::install(host);
@@ -115,6 +133,12 @@ pub fn execute_tx_with_options(
     let interpreter = config.interpreter();
 
     interpreter.enter(|vm| {
+        if let Some(det) = determinism.as_ref().filter(|item| item.enabled) {
+            if let Err(err) = guard::install(vm, det, options.host_module_name.as_str()) {
+                vm.print_exception(err);
+                return Err(HostError::Internal);
+            }
+        }
         let res = run_source(vm, source, input, options);
         match res {
             Ok(bytes) => Ok(bytes),
@@ -216,6 +240,10 @@ fn map_exception(
     if let Some(host_error) = host_error_from_exception(vm, err, options) {
         return host_error;
     }
+    if let Some(host_error) = determinism_error_from_exception(vm, err, options) {
+        vm.print_exception(err.clone());
+        return host_error;
+    }
 
     let is_syntax = err.fast_isinstance(vm.ctx.exceptions.syntax_error);
     if is_syntax {
@@ -230,19 +258,42 @@ fn map_exception(
     HostError::Internal
 }
 
+fn determinism_error_from_exception(
+    vm: &VirtualMachine,
+    err: &PyBaseExceptionRef,
+    options: &ExecutionOptions,
+) -> Option<HostError> {
+    let module = get_host_module(vm, options)?;
+    let det_err_obj = module.get_attr("DeterministicValidationError", vm).ok()?;
+    let det_err_type = rustpython_vm::builtins::PyTypeRef::try_from_object(vm, det_err_obj).ok()?;
+    if err.fast_isinstance(&det_err_type) {
+        return Some(HostError::InvalidInput);
+    }
+
+    let nondet_obj = module.get_attr("NonDeterministicError", vm).ok()?;
+    let nondet_type = rustpython_vm::builtins::PyTypeRef::try_from_object(vm, nondet_obj).ok()?;
+    if err.fast_isinstance(&nondet_type) {
+        return Some(HostError::Forbidden);
+    }
+
+    let ooo_obj = module.get_attr("OutOfGasError", vm).ok()?;
+    let ooo_type = rustpython_vm::builtins::PyTypeRef::try_from_object(vm, ooo_obj).ok()?;
+    if err.fast_isinstance(&ooo_type) {
+        return Some(HostError::OutOfGas);
+    }
+
+    None
+}
+
 fn host_error_from_exception(
     vm: &VirtualMachine,
     err: &PyBaseExceptionRef,
     options: &ExecutionOptions,
 ) -> Option<HostError> {
-    let modules_obj = vm.sys_module.get_attr("modules", vm).ok()?;
-    let modules = rustpython_vm::builtins::PyDictRef::try_from_object(vm, modules_obj).ok()?;
-    let module = modules
-        .get_item_opt(options.host_module_name.as_str(), vm)
-        .ok()
-        .flatten()?;
+    let module = get_host_module(vm, options)?;
     let host_error_obj = module.get_attr("HostError", vm).ok()?;
-    let host_error_type = rustpython_vm::builtins::PyTypeRef::try_from_object(vm, host_error_obj).ok()?;
+    let host_error_type =
+        rustpython_vm::builtins::PyTypeRef::try_from_object(vm, host_error_obj).ok()?;
     if !err.fast_isinstance(&host_error_type) {
         return None;
     }
@@ -253,4 +304,13 @@ fn host_error_from_exception(
         let name = name_obj.str(vm).ok()?.to_string();
         HostError::from_name(name.as_str())
     })
+}
+
+fn get_host_module(vm: &VirtualMachine, options: &ExecutionOptions) -> Option<PyObjectRef> {
+    let modules_obj = vm.sys_module.get_attr("modules", vm).ok()?;
+    let modules = rustpython_vm::builtins::PyDictRef::try_from_object(vm, modules_obj).ok()?;
+    modules
+        .get_item_opt(options.host_module_name.as_str(), vm)
+        .ok()
+        .flatten()
 }

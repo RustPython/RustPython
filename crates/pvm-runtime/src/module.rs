@@ -95,6 +95,33 @@ mod pvm_host_module {
         )
     }
 
+    #[pyattr(name = "DeterministicValidationError", once)]
+    fn deterministic_validation_error_type(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "pvm_host",
+            "DeterministicValidationError",
+            Some(vec![vm.ctx.exceptions.value_error.to_owned()]),
+        )
+    }
+
+    #[pyattr(name = "NonDeterministicError", once)]
+    fn nondeterministic_error_type(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "pvm_host",
+            "NonDeterministicError",
+            Some(vec![vm.ctx.exceptions.runtime_error.to_owned()]),
+        )
+    }
+
+    #[pyattr(name = "OutOfGasError", once)]
+    fn out_of_gas_error_type(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "pvm_host",
+            "OutOfGasError",
+            Some(vec![vm.ctx.exceptions.runtime_error.to_owned()]),
+        )
+    }
+
     fn host_context_to_dict(
         vm: &VirtualMachine,
         ctx: HostContext,
