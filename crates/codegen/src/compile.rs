@@ -637,25 +637,29 @@ impl Compiler {
     }
 
     /// Push the next symbol table on to the stack
-    fn push_symbol_table(&mut self) -> &SymbolTable {
+    fn push_symbol_table(&mut self) -> CompileResult<&SymbolTable> {
         // Look up the next table contained in the scope of the current table
         let current_table = self
             .symbol_table_stack
             .last_mut()
             .expect("no current symbol table");
 
-        if current_table.sub_tables.is_empty() {
-            panic!(
-                "push_symbol_table: no sub_tables available in {} (type: {:?})",
-                current_table.name, current_table.typ
-            );
+        if current_table.next_sub_table >= current_table.sub_tables.len() {
+            let name = current_table.name.clone();
+            let typ = current_table.typ;
+            return Err(self.error(CodegenErrorType::SyntaxError(format!(
+                "no symbol table available in {} (type: {:?})",
+                name, typ
+            ))));
         }
 
-        let table = current_table.sub_tables.remove(0);
+        let idx = current_table.next_sub_table;
+        current_table.next_sub_table += 1;
+        let table = current_table.sub_tables[idx].clone();
 
         // Push the next table onto the stack
         self.symbol_table_stack.push(table);
-        self.current_symbol_table()
+        Ok(self.current_symbol_table())
     }
 
     /// Pop the current symbol table off the stack
@@ -853,9 +857,9 @@ impl Compiler {
         arg_count: u32,
         kwonlyarg_count: u32,
         obj_name: String,
-    ) {
+    ) -> CompileResult<()> {
         // First push the symbol table
-        let table = self.push_symbol_table();
+        let table = self.push_symbol_table()?;
         let scope_type = table.typ;
 
         // The key is the current position in the symbol table stack
@@ -865,11 +869,7 @@ impl Compiler {
         let lineno = self.get_source_line_number().get();
 
         // Call enter_scope which does most of the work
-        if let Err(e) = self.enter_scope(&obj_name, scope_type, key, lineno.to_u32()) {
-            // In the current implementation, push_output doesn't return an error,
-            // so we panic here. This maintains the same behavior.
-            panic!("enter_scope failed: {e:?}");
-        }
+        self.enter_scope(&obj_name, scope_type, key, lineno.to_u32())?;
 
         // Override the values that push_output sets explicitly
         // enter_scope sets default values based on scope_type, but push_output
@@ -880,6 +880,7 @@ impl Compiler {
             info.metadata.posonlyargcount = posonlyarg_count;
             info.metadata.kwonlyargcount = kwonlyarg_count;
         }
+        Ok(())
     }
 
     // compiler_exit_scope
@@ -1984,7 +1985,7 @@ impl Compiler {
 
                 if let Some(type_params) = type_params {
                     // For TypeAlias, we need to use push_symbol_table to properly handle the TypeAlias scope
-                    self.push_symbol_table();
+                    self.push_symbol_table()?;
 
                     // Compile type params and push to stack
                     self.compile_type_params(type_params)?;
@@ -2067,7 +2068,7 @@ impl Compiler {
             (parameters.posonlyargs.len() + parameters.args.len()).to_u32(),
             parameters.kwonlyargs.len().to_u32(),
             name.to_owned(),
-        );
+        )?;
 
         let args_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
@@ -2113,7 +2114,7 @@ impl Compiler {
         allow_starred: bool,
     ) -> CompileResult<()> {
         // Push the next symbol table onto the stack
-        self.push_symbol_table();
+        self.push_symbol_table()?;
 
         // Get the current symbol table
         let key = self.symbol_table_stack.len() - 1;
@@ -2332,13 +2333,8 @@ impl Compiler {
 
             // Snapshot sub_tables before first finally compilation
             // This allows us to restore them for the second compilation (exception path)
-            let sub_tables_snapshot = if !finalbody.is_empty() && finally_except_block.is_some() {
-                Some(
-                    self.symbol_table_stack
-                        .last()
-                        .map(|t| t.sub_tables.clone())
-                        .unwrap_or_default(),
-                )
+            let sub_table_cursor = if !finalbody.is_empty() && finally_except_block.is_some() {
+                self.symbol_table_stack.last().map(|t| t.next_sub_table)
             } else {
                 None
             };
@@ -2353,10 +2349,10 @@ impl Compiler {
 
             if let Some(finally_except) = finally_except_block {
                 // Restore sub_tables for exception path compilation
-                if let Some(snapshot) = sub_tables_snapshot
+                if let Some(cursor) = sub_table_cursor
                     && let Some(current_table) = self.symbol_table_stack.last_mut()
                 {
-                    current_table.sub_tables = snapshot;
+                    current_table.next_sub_table = cursor;
                 }
 
                 self.switch_to_block(finally_except);
@@ -2617,13 +2613,8 @@ impl Compiler {
         }
 
         // Snapshot sub_tables before first finally compilation (for double compilation issue)
-        let sub_tables_snapshot = if !finalbody.is_empty() && finally_except_block.is_some() {
-            Some(
-                self.symbol_table_stack
-                    .last()
-                    .map(|t| t.sub_tables.clone())
-                    .unwrap_or_default(),
-            )
+        let sub_table_cursor = if !finalbody.is_empty() && finally_except_block.is_some() {
+            self.symbol_table_stack.last().map(|t| t.next_sub_table)
         } else {
             None
         };
@@ -2642,10 +2633,10 @@ impl Compiler {
         // Stack at entry: [lasti, exc] (from exception table with preserve_lasti=true)
         if let Some(finally_except) = finally_except_block {
             // Restore sub_tables for exception path compilation
-            if let Some(snapshot) = sub_tables_snapshot
+            if let Some(cursor) = sub_table_cursor
                 && let Some(current_table) = self.symbol_table_stack.last_mut()
             {
-                current_table.sub_tables = snapshot;
+                current_table.next_sub_table = cursor;
             }
 
             self.switch_to_block(finally_except);
@@ -3246,7 +3237,7 @@ impl Compiler {
                 num_typeparam_args as u32,
                 0,
                 type_params_name,
-            );
+            )?;
 
             // Add parameter names to varnames for the type params scope
             // These will be passed as arguments when the closure is called
@@ -3554,7 +3545,7 @@ impl Compiler {
     ) -> CompileResult<CodeObject> {
         // 1. Enter class scope
         let key = self.symbol_table_stack.len();
-        self.push_symbol_table();
+        self.push_symbol_table()?;
         self.enter_scope(name, CompilerScope::Class, key, firstlineno)?;
 
         // Set qualname using the new method
@@ -3660,7 +3651,7 @@ impl Compiler {
                 0,
                 0,
                 type_params_name,
-            );
+            )?;
 
             // Set private name for name mangling
             self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
@@ -6322,7 +6313,7 @@ impl Compiler {
         };
 
         // Create magnificent function <listcomp>:
-        self.push_output(flags, 1, 1, 0, name.to_owned());
+        self.push_output(flags, 1, 1, 0, name.to_owned())?;
 
         // Mark that we're in an inlined comprehension
         self.current_code_info().in_inlined_comp = true;
