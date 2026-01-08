@@ -8,6 +8,9 @@ It runs a Python contract through `pvm-runtime` and writes state/events to local
 - `main.rs`: Example runner that loads the Python contract and executes it.
 - `contract.py`: Sample contract using `pvm_host`.
 - `determinism_demo.py`: Determinism demo (import guard + stdlib shims + host context).
+- `escrow_marketplace_demo.py`: Escrow marketplace flow with expiry, funding, and release.
+- `batch_payroll_demo.py`: Batch payroll settlement with fees and audit sampling.
+- `staking_rewards_demo.py`: Staking rewards distribution with weighted proposer selection.
 
 ## Run
 
@@ -52,6 +55,33 @@ python examples/pvm_runtime_chain_demo/determinism_check.py --runs 5 --decode
 ```
 
 Use `--keep-state` if you want to keep `tmp/pvm_state` between runs.
+
+## Business Scenario Demos
+
+Each demo supports `demo` as input for a built-in batch, or a JSON object with
+`action`/`params` or `actions` (list). Outputs include a `state_hash` to
+compare determinism.
+
+```bash
+python examples/pvm_runtime_chain_demo/determinism_check.py \
+  --runs 5 --decode \
+  --script examples/pvm_runtime_chain_demo/escrow_marketplace_demo.py \
+  --input demo
+```
+
+```bash
+python examples/pvm_runtime_chain_demo/determinism_check.py \
+  --runs 5 --decode \
+  --script examples/pvm_runtime_chain_demo/batch_payroll_demo.py \
+  --input demo
+```
+
+```bash
+python examples/pvm_runtime_chain_demo/determinism_check.py \
+  --runs 5 --decode \
+  --script examples/pvm_runtime_chain_demo/staking_rewards_demo.py \
+  --input demo
+```
 
 ## Import Trace (Whitelist Generator)
 
