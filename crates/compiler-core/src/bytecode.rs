@@ -951,7 +951,7 @@ pub enum Instruction {
         target: Arg<Label>,
     } = 252, // CPython uses pseudo-op 256
     LoadClosure(Arg<NameIdx>) = 253, // CPython uses pseudo-op 258
-    LoadMethod {
+    LoadAttrMethod {
         idx: Arg<NameIdx>,
     } = 254, // CPython uses pseudo-op 259
     PopBlock = 255,                  // CPython uses pseudo-op 263
@@ -1775,6 +1775,8 @@ impl Instruction {
             StoreSubscr => -3,
             DeleteSubscr => -2,
             LoadAttr { .. } => 0,
+            // LoadAttrMethod: pop obj, push method + self_or_null
+            LoadAttrMethod { .. } => 1,
             StoreAttr { .. } => -2,
             DeleteAttr { .. } => -1,
             LoadConst { .. } => 1,
@@ -1808,17 +1810,16 @@ impl Instruction {
                 // pops attribute value and function, pushes function back
                 -2 + 1
             }
-            Call { nargs } => -(nargs.get(arg) as i32) - 1 + 1,
-            CallMethodPositional { nargs } => -(nargs.get(arg) as i32) - 3 + 1,
-            CallKw { nargs } => -1 - (nargs.get(arg) as i32) - 1 + 1,
-            CallMethodKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 3 + 1,
-            CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
-            CallMethodEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
+            // Call: pops nargs + self_or_null + callable, pushes result
+            Call { nargs } => -(nargs.get(arg) as i32) - 2 + 1,
+            // CallKw: pops kw_names_tuple + nargs + self_or_null + callable, pushes result
+            CallKw { nargs } => -1 - (nargs.get(arg) as i32) - 2 + 1,
+            // CallFunctionEx: pops kwargs(if any) + args_tuple + self_or_null + callable, pushes result
+            CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 2 + 1,
             CheckEgMatch => 0, // pops 2 (exc, type), pushes 2 (rest, match)
             ConvertValue { .. } => 0,
             FormatSimple => 0,
             FormatWithSpec => -1,
-            LoadMethod { .. } => -1 + 3,
             ForIter { .. } => {
                 if jump {
                     -1
@@ -1909,6 +1910,7 @@ impl Instruction {
             UnaryNegative => 0,
             UnaryNot => 0,
             GetYieldFromIter => 0,
+            PushNull => 1, // Push NULL for call protocol
             _ => 0,
         }
     }
@@ -2001,9 +2003,6 @@ impl Instruction {
             CallKw { nargs } => w!(CALL_KW, nargs),
             CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
             CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
-            CallMethodEx { has_kwargs } => w!(CALL_METHOD_EX, has_kwargs),
-            CallMethodKeyword { nargs } => w!(CALL_METHOD_KW, nargs),
-            CallMethodPositional { nargs } => w!(CALL_METHOD, nargs),
             CheckEgMatch => w!(CHECK_EG_MATCH),
             CheckExcMatch => w!(CHECK_EXC_MATCH),
             CleanupThrow => w!(CLEANUP_THROW),
@@ -2040,6 +2039,7 @@ impl Instruction {
             JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
             ListAppend { i } => w!(LIST_APPEND, i),
             LoadAttr { idx } => w!(LOAD_ATTR, name = idx),
+            LoadAttrMethod { idx } => w!(LOAD_ATTR_METHOD, name = idx),
             LoadBuildClass => w!(LOAD_BUILD_CLASS),
             LoadClassDeref(idx) => w!(LOAD_CLASSDEREF, cell_name = idx),
             LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
@@ -2048,7 +2048,6 @@ impl Instruction {
             LoadFast(idx) => w!(LOAD_FAST, varname = idx),
             LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
             LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
-            LoadMethod { idx } => w!(LOAD_METHOD, name = idx),
             LoadName(idx) => w!(LOAD_NAME, name = idx),
             MakeFunction => w!(MAKE_FUNCTION),
             MapAdd { i } => w!(MAP_ADD, i),
