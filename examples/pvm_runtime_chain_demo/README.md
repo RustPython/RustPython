@@ -33,6 +33,7 @@ cargo run --release --example pvm_runtime_chain_demo -- examples/pvm_runtime_cha
 ## Determinism Demo
 
 ```bash
+DYLD_LIBRARY_PATH=/opt/homebrew/opt/libffi/lib \
 cargo run --release --example pvm_runtime_chain_demo -- examples/pvm_runtime_chain_demo/determinism_demo.py hello
 ```
 
@@ -51,6 +52,29 @@ python examples/pvm_runtime_chain_demo/determinism_check.py --runs 5 --decode
 ```
 
 Use `--keep-state` if you want to keep `tmp/pvm_state` between runs.
+
+## Import Trace (Whitelist Generator)
+
+Generate an import trace (with non-whitelisted imports allowed) and print a
+suggested whitelist:
+
+```bash
+python examples/pvm_runtime_chain_demo/determinism_check.py \
+  --runs 1 \
+  --trace-imports tmp/pvm_import_trace.json \
+  --trace-allow-all \
+  --print-whitelist
+```
+
+Or run the binary directly:
+
+```bash
+DYLD_LIBRARY_PATH=/opt/homebrew/opt/libffi/lib \
+cargo run --release --example pvm_runtime_chain_demo -- \
+  --trace-imports tmp/pvm_import_trace.json \
+  --trace-allow-all \
+  examples/pvm_runtime_chain_demo/determinism_demo.py hello
+```
 
 ## Contract Behavior
 

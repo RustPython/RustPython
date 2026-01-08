@@ -5,11 +5,14 @@ mod module;
 
 pub use determinism::DeterminismOptions;
 use pvm_host::{Bytes, HostApi, HostError};
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
 use rustpython::InterpreterConfig;
 use rustpython_vm::{
     AsObject,
     PyObjectRef, PyResult, Settings, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyNone},
+    builtins::{PyBaseExceptionRef, PyListRef, PyNone},
     compiler::Mode,
     convert::TryFromObject,
     scope::Scope,
@@ -140,9 +143,22 @@ pub fn execute_tx_with_options(
             }
         }
         let res = run_source(vm, source, input, options);
+        let trace_result = determinism
+            .as_ref()
+            .filter(|item| item.enabled)
+            .map(|det| export_import_trace(vm, det))
+            .unwrap_or(Ok(()));
         match res {
-            Ok(bytes) => Ok(bytes),
+            Ok(bytes) => {
+                if let Err(err) = trace_result {
+                    return Err(err);
+                }
+                Ok(bytes)
+            }
             Err(err) => {
+                if let Err(trace_err) = trace_result {
+                    eprintln!("pvm import trace failed: {trace_err}");
+                }
                 let host_error = map_exception(vm, &err, options);
                 if host_error == HostError::Internal {
                     vm.print_exception(err.clone());
@@ -313,4 +329,155 @@ fn get_host_module(vm: &VirtualMachine, options: &ExecutionOptions) -> Option<Py
         .get_item_opt(options.host_module_name.as_str(), vm)
         .ok()
         .flatten()
+}
+
+fn export_import_trace(vm: &VirtualMachine, det: &DeterminismOptions) -> Result<(), HostError> {
+    if !det.trace_imports {
+        return Ok(());
+    }
+    let Some(path) = det.trace_path.as_ref() else {
+        return Ok(());
+    };
+
+    let trace = read_trace_list(vm, "_pvm_import_trace")?;
+    let blocked = read_trace_list(vm, "_pvm_import_blocked")?;
+    let unique = dedup_in_order(&trace);
+    let blocked_unique = dedup_in_order(&blocked);
+
+    let blacklist = det.stdlib_blacklist.clone();
+    let mut whitelist = det.stdlib_whitelist.clone();
+    let mut missing = Vec::new();
+    let mut blacklisted = Vec::new();
+
+    for name in &unique {
+        if denied_by_list(&blacklist, name) {
+            blacklisted.push(name.clone());
+            continue;
+        }
+        if allowed_by_list(&whitelist, name) {
+            continue;
+        }
+        missing.push(name.clone());
+        whitelist.push(name.clone());
+    }
+
+    let payload = format!(
+        "{{\"trace\":{},\"unique\":{},\"blocked\":{},\"missing\":{},\"blacklisted\":{},\"whitelist_base\":{},\"whitelist_suggested\":{},\"blacklist\":{}}}\n",
+        json_list(&trace),
+        json_list(&unique),
+        json_list(&blocked_unique),
+        json_list(&missing),
+        json_list(&blacklisted),
+        json_list(&det.stdlib_whitelist),
+        json_list(&whitelist),
+        json_list(&blacklist),
+    );
+
+    write_trace_file(path, &payload)?;
+    Ok(())
+}
+
+fn read_trace_list(vm: &VirtualMachine, name: &str) -> Result<Vec<String>, HostError> {
+    let name_obj = vm.ctx.new_str(name);
+    let obj = vm
+        .sys_module
+        .get_attr(&name_obj, vm)
+        .map_err(|_| HostError::Internal)?;
+    let list = PyListRef::try_from_object(vm, obj).map_err(|_| HostError::Internal)?;
+    let items = list.borrow_vec();
+    let mut out = Vec::with_capacity(items.len());
+    for item in items.iter() {
+        let value = item.str(vm).map_err(|_| HostError::Internal)?;
+        out.push(value.to_string());
+    }
+    Ok(out)
+}
+
+fn dedup_in_order(items: &[String]) -> Vec<String> {
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut out = Vec::new();
+    for item in items {
+        if seen.insert(item.as_str()) {
+            out.push(item.clone());
+        }
+    }
+    out
+}
+
+fn allowed_by_list(list: &[String], name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    if list.iter().any(|item| item == name) {
+        return true;
+    }
+    let mut prefix = String::new();
+    for (idx, part) in name.split('.').enumerate() {
+        if idx > 0 {
+            prefix.push('.');
+        }
+        prefix.push_str(part);
+        if list.iter().any(|item| item == &prefix) {
+            return true;
+        }
+    }
+    let name_prefix = format!("{name}.");
+    list.iter().any(|item| item.starts_with(&name_prefix))
+}
+
+fn denied_by_list(list: &[String], name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let mut prefix = String::new();
+    for (idx, part) in name.split('.').enumerate() {
+        if idx > 0 {
+            prefix.push('.');
+        }
+        prefix.push_str(part);
+        if list.iter().any(|item| item == &prefix) {
+            return true;
+        }
+    }
+    false
+}
+
+fn write_trace_file(path: &str, payload: &str) -> Result<(), HostError> {
+    let path = Path::new(path);
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|_| HostError::Internal)?;
+        }
+    }
+    fs::write(path, payload).map_err(|_| HostError::Internal)?;
+    Ok(())
+}
+
+fn json_list(items: &[String]) -> String {
+    let mut out = String::from("[");
+    for (idx, item) in items.iter().enumerate() {
+        if idx > 0 {
+            out.push(',');
+        }
+        out.push('"');
+        out.push_str(&json_escape(item));
+        out.push('"');
+    }
+    out.push(']');
+    out
+}
+
+fn json_escape(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }

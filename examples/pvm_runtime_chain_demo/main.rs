@@ -4,13 +4,50 @@ use std::path::PathBuf;
 
 use pvm_alto::{default_options, execute_tx_fs, FsTxConfig};
 use pvm_host::HostContext;
+use pvm_runtime::DeterminismOptions;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
-    let script_path = args
-        .next()
-        .ok_or("usage: pvm_runtime_chain_demo <script.py> [input]")?;
-    let input = args.next().map(|s| s.into_bytes()).unwrap_or_default();
+    let mut trace_path: Option<String> = None;
+    let mut trace_allow_all = false;
+    let mut script_path: Option<String> = None;
+    let mut input: Option<Vec<u8>> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--trace-imports" => {
+                let value = args.next().ok_or_else(|| usage())?;
+                trace_path = Some(value);
+            }
+            "--trace-allow-all" => {
+                trace_allow_all = true;
+            }
+            "--help" | "-h" => {
+                println!("{}", usage());
+                return Ok(());
+            }
+            _ => {
+                if let Some(value) = arg.strip_prefix("--trace-imports=") {
+                    trace_path = Some(value.to_owned());
+                    continue;
+                }
+                if script_path.is_none() {
+                    script_path = Some(arg);
+                } else if input.is_none() {
+                    input = Some(arg.into_bytes());
+                } else {
+                    return Err(usage().into());
+                }
+            }
+        }
+    }
+
+    if trace_allow_all && trace_path.is_none() {
+        return Err("--trace-allow-all requires --trace-imports".into());
+    }
+
+    let script_path = script_path.ok_or_else(|| usage())?;
+    let input = input.unwrap_or_default();
 
     let code = fs::read(&script_path)?;
 
@@ -29,7 +66,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         context: ctx,
     };
 
-    let options = default_options().with_source_path(script_path);
+    let mut options = default_options().with_source_path(script_path);
+    if let Some(path) = trace_path {
+        let mut det = DeterminismOptions::deterministic(None);
+        det.trace_imports = true;
+        det.trace_allow_all = trace_allow_all;
+        det.trace_path = Some(path);
+        options = options.with_determinism(det);
+    }
     let output = execute_tx_fs(&code, &input, config, &options)?;
 
     println!("output_hex={}", encode_hex(&output));
@@ -44,4 +88,8 @@ fn encode_hex(bytes: &[u8]) -> String {
         out.push(HEX[(byte & 0x0f) as usize] as char);
     }
     out
+}
+
+fn usage() -> &'static str {
+    "usage: pvm_runtime_chain_demo [--trace-imports <path>] [--trace-allow-all] <script.py> [input]"
 }

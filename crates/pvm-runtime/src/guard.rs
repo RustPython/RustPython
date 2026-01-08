@@ -13,6 +13,12 @@ _ALLOW = set(PVM_WHITELIST)
 _DENY = set(PVM_BLACKLIST)
 _REAL_IMPORT = builtins.__import__
 _HOST = _REAL_IMPORT(PVM_HOST_MODULE, None, None, (), 0)
+_TRACE_IMPORTS = bool(PVM_TRACE_IMPORTS)
+_TRACE_ALLOW_ALL = bool(PVM_TRACE_ALLOW_ALL)
+_TRACE = []
+_TRACE_BLOCKED = []
+sys._pvm_import_trace = _TRACE
+sys._pvm_import_blocked = _TRACE_BLOCKED
 
 _ALIAS = {
     "time": "pvm_sdk.pvm_time",
@@ -89,6 +95,16 @@ def _alias(name, target):
     sys.modules[name] = mod
 
 
+def _record_import(name, allowed):
+    if not _TRACE_IMPORTS:
+        return
+    if not name:
+        return
+    _TRACE.append(name)
+    if not allowed:
+        _TRACE_BLOCKED.append(name)
+
+
 if PVM_SYS_PATH is not None:
     sys.path[:] = PVM_SYS_PATH
     try:
@@ -103,11 +119,14 @@ for _name, _target in _ALIAS.items():
 def _pvm_import(name, globals=None, locals=None, fromlist=(), level=0):
     resolved = _resolve_name(name, globals, level)
     if resolved in _ALIAS:
+        _record_import(_ALIAS[resolved], True)
         mod = sys.modules.get(resolved)
         if mod is None:
             raise _HOST.DeterministicValidationError("alias module missing: " + resolved)
         return mod
-    if not _is_allowed(name, globals, level):
+    allowed = _is_allowed(name, globals, level)
+    _record_import(resolved or name, allowed)
+    if not allowed and not _TRACE_ALLOW_ALL:
         raise _HOST.NonDeterministicError("module not allowed: " + name)
     return _REAL_IMPORT(name, globals, locals, fromlist, level)
 
@@ -118,7 +137,8 @@ builtins.__import__ = _pvm_import
 class _PvmImportGuard:
     def find_spec(self, fullname, path=None, target=None):
         if not _is_allowed(fullname):
-            raise _HOST.NonDeterministicError("module not allowed: " + fullname)
+            if not _TRACE_ALLOW_ALL:
+                raise _HOST.NonDeterministicError("module not allowed: " + fullname)
         return None
 
 
@@ -172,6 +192,16 @@ pub(crate) fn install(
     scope.globals.set_item(
         "PVM_HOST_MODULE",
         vm.ctx.new_str(host_module_name).into(),
+        vm,
+    )?;
+    scope.globals.set_item(
+        "PVM_TRACE_IMPORTS",
+        vm.ctx.new_bool(options.trace_imports).into(),
+        vm,
+    )?;
+    scope.globals.set_item(
+        "PVM_TRACE_ALLOW_ALL",
+        vm.ctx.new_bool(options.trace_allow_all).into(),
         vm,
     )?;
 

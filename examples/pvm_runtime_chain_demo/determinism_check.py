@@ -58,8 +58,12 @@ def apply_dyld_fallback(env: dict) -> None:
         )
 
 
-def run_once(root: Path, exe: Path, script: str, input_text: str, env: dict) -> str:
-    cmd = [str(exe), script]
+def run_once(
+    root: Path, exe: Path, script: str, input_text: str, env: dict, extra_args: list[str]
+) -> str:
+    cmd = [str(exe)]
+    cmd.extend(extra_args)
+    cmd.append(script)
     if input_text:
         cmd.append(input_text)
     result = subprocess.run(
@@ -114,6 +118,20 @@ def main() -> int:
         action="store_true",
         help="Skip cargo build if the example binary already exists.",
     )
+    parser.add_argument(
+        "--trace-imports",
+        help="Write import trace JSON to this path.",
+    )
+    parser.add_argument(
+        "--trace-allow-all",
+        action="store_true",
+        help="Allow non-whitelisted imports during tracing.",
+    )
+    parser.add_argument(
+        "--print-whitelist",
+        action="store_true",
+        help="Print suggested whitelist from the trace output.",
+    )
     args = parser.parse_args()
 
     root = repo_root()
@@ -129,11 +147,19 @@ def main() -> int:
     env_run = env.copy()
     apply_dyld_fallback(env_run)
 
+    extra_args = []
+    if args.trace_imports:
+        extra_args.extend(["--trace-imports", args.trace_imports])
+        if args.trace_allow_all:
+            extra_args.append("--trace-allow-all")
+
     outputs = []
     for idx in range(args.runs):
         if args.reset_state:
             reset_state(root)
-        out_hex = run_once(root, exe, args.script, args.input, env_run)
+        out_hex = run_once(
+            root, exe, args.script, args.input, env_run, extra_args
+        )
         outputs.append(out_hex)
         print(f"run[{idx}] output_hex={out_hex}")
         if args.decode:
@@ -151,6 +177,25 @@ def main() -> int:
         return 1
 
     print(f"determinism check ok: {args.runs} runs match")
+
+    if args.trace_imports and args.print_whitelist:
+        trace_path = Path(args.trace_imports)
+        if not trace_path.exists():
+            print(f"trace file not found: {trace_path}")
+            return 1
+        with trace_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        missing = data.get("missing", [])
+        suggested = data.get("whitelist_suggested", [])
+        print("missing imports (add to whitelist):")
+        for item in missing:
+            print(f"- {item}")
+        print("whitelist_suggested (Rust vec!):")
+        print("vec![")
+        for item in suggested:
+            print(f'    "{item}",')
+        print("]")
+
     return 0
 
 

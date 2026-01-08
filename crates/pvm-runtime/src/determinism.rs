@@ -7,6 +7,9 @@ pub struct DeterminismOptions {
     pub stdlib_hash: Option<String>,
     pub enable_softfloat: bool,
     pub enable_gas: bool,
+    pub trace_imports: bool,
+    pub trace_allow_all: bool,
+    pub trace_path: Option<String>,
 }
 
 impl DeterminismOptions {
@@ -129,6 +132,9 @@ impl Default for DeterminismOptions {
             stdlib_hash: None,
             enable_softfloat: false,
             enable_gas: false,
+            trace_imports: false,
+            trace_allow_all: false,
+            trace_path: None,
         }
     }
 }
