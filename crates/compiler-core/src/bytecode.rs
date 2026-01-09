@@ -803,7 +803,7 @@ pub enum Instruction {
     PopJumpIfTrue {
         target: Arg<Label>,
     } = 100,
-    RaiseVarArgs {
+    RaiseVarargs {
         kind: Arg<RaiseKind>,
     } = 101,
     Reraise {
@@ -1684,7 +1684,7 @@ impl Instruction {
                 | Break { .. }
                 | ReturnValue
                 | ReturnConst { .. }
-                | RaiseVarArgs { .. }
+                | RaiseVarargs { .. }
                 | Reraise { .. }
         )
     }
@@ -1786,7 +1786,7 @@ impl Instruction {
             BeforeWith => 1, // push __exit__, then replace ctx_mgr with __enter__ result
             WithExceptStart => 1, // push __exit__ result
             PopBlock => 0,
-            RaiseVarArgs { kind } => {
+            RaiseVarargs { kind } => {
                 // Stack effects for different raise kinds:
                 // - Reraise (0): gets from VM state, no stack pop
                 // - Raise (1): pops 1 exception
@@ -2002,7 +2002,7 @@ impl Instruction {
             PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
             PopTop => w!(POP_TOP),
             PushExcInfo => w!(PUSH_EXC_INFO),
-            RaiseVarArgs { kind } => w!(RAISE_VARARGS, ?kind),
+            RaiseVarargs { kind } => w!(RAISE_VARARGS, ?kind),
             Reraise { depth } => w!(RERAISE, depth),
             Resume { arg } => w!(RESUME, arg),
             ReturnConst { idx } => fmt_const("RETURN_CONST", arg, f, idx),

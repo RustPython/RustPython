@@ -391,7 +391,7 @@ impl ExecutingFrame<'_> {
                     // Instruction::Reraise are reraise operations that should not add
                     // new traceback entries
                     let is_reraise = match op {
-                        bytecode::Instruction::RaiseVarArgs { kind } => matches!(
+                        bytecode::Instruction::RaiseVarargs { kind } => matches!(
                             kind.get(arg),
                             bytecode::RaiseKind::BareRaise | bytecode::RaiseKind::ReraiseFromStack
                         ),
@@ -1457,7 +1457,7 @@ impl ExecutingFrame<'_> {
                 self.pop_value();
                 Ok(None)
             }
-            bytecode::Instruction::RaiseVarArgs { kind } => self.execute_raise(vm, kind.get(arg)),
+            bytecode::Instruction::RaiseVarargs { kind } => self.execute_raise(vm, kind.get(arg)),
             bytecode::Instruction::Resume { arg: resume_arg } => {
                 // Resume execution after yield, await, or at function start
                 // In CPython, this checks instrumentation and eval breaker

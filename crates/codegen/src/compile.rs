@@ -1815,7 +1815,7 @@ impl Compiler {
                     None => bytecode::RaiseKind::BareRaise,
                 };
                 self.set_source_range(*range);
-                emit!(self, Instruction::RaiseVarArgs { kind });
+                emit!(self, Instruction::RaiseVarargs { kind });
             }
             Stmt::Try(StmtTry {
                 body,
@@ -1886,7 +1886,7 @@ impl Compiler {
                     }
                     emit!(
                         self,
-                        Instruction::RaiseVarArgs {
+                        Instruction::RaiseVarargs {
                             kind: bytecode::RaiseKind::Raise,
                         }
                     );
@@ -2379,7 +2379,7 @@ impl Compiler {
                 // which then properly restores prev_exc before going to outer handler
                 emit!(
                     self,
-                    Instruction::RaiseVarArgs {
+                    Instruction::RaiseVarargs {
                         kind: bytecode::RaiseKind::ReraiseFromStack
                     }
                 );
@@ -2394,7 +2394,7 @@ impl Compiler {
                 emit!(self, Instruction::PopExcept);
                 emit!(
                     self,
-                    Instruction::RaiseVarArgs {
+                    Instruction::RaiseVarargs {
                         kind: bytecode::RaiseKind::ReraiseFromStack
                     }
                 );
@@ -2524,7 +2524,7 @@ impl Compiler {
                 // which does COPY 3; POP_EXCEPT; RERAISE
                 emit!(
                     self,
-                    Instruction::RaiseVarArgs {
+                    Instruction::RaiseVarargs {
                         kind: bytecode::RaiseKind::ReraiseFromStack,
                     }
                 );
@@ -2577,7 +2577,7 @@ impl Compiler {
         // NOTE: We emit RERAISE 0 BEFORE popping fblock so it is within cleanup handler scope
         emit!(
             self,
-            Instruction::RaiseVarArgs {
+            Instruction::RaiseVarargs {
                 kind: bytecode::RaiseKind::ReraiseFromStack,
             }
         );
@@ -2596,7 +2596,7 @@ impl Compiler {
         emit!(self, Instruction::PopExcept);
         emit!(
             self,
-            Instruction::RaiseVarArgs {
+            Instruction::RaiseVarargs {
                 kind: bytecode::RaiseKind::ReraiseFromStack,
             }
         );
@@ -2671,7 +2671,7 @@ impl Compiler {
             // Stack: [lasti, prev_exc, exc] - exception is on top
             emit!(
                 self,
-                Instruction::RaiseVarArgs {
+                Instruction::RaiseVarargs {
                     kind: bytecode::RaiseKind::ReraiseFromStack,
                 }
             );
@@ -2693,7 +2693,7 @@ impl Compiler {
             // RERAISE 1: reraise with lasti from stack
             emit!(
                 self,
-                Instruction::RaiseVarArgs {
+                Instruction::RaiseVarargs {
                     kind: bytecode::RaiseKind::ReraiseFromStack,
                 }
             );
@@ -6622,7 +6622,7 @@ impl Compiler {
             // Re-raise the exception
             emit!(
                 self,
-                Instruction::RaiseVarArgs {
+                Instruction::RaiseVarargs {
                     kind: bytecode::RaiseKind::ReraiseFromStack
                 }
             );
