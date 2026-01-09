@@ -972,19 +972,37 @@ impl TryFrom<u8> for Instruction {
 
         // RustPython-only opcodes (explicit list to avoid gaps like 125-127)
         let custom_ops: &[u8] = &[
-            u8::from(Self::Break { target: Arg::marker() }),
-            u8::from(Self::BuildListFromTuples { size: Arg::marker() }),
-            u8::from(Self::BuildMapForCall { size: Arg::marker() }),
-            u8::from(Self::BuildSetFromTuples { size: Arg::marker() }),
+            u8::from(Self::Break {
+                target: Arg::marker(),
+            }),
+            u8::from(Self::BuildListFromTuples {
+                size: Arg::marker(),
+            }),
+            u8::from(Self::BuildMapForCall {
+                size: Arg::marker(),
+            }),
+            u8::from(Self::BuildSetFromTuples {
+                size: Arg::marker(),
+            }),
             u8::from(Self::BuildTupleFromIter),
-            u8::from(Self::BuildTupleFromTuples { size: Arg::marker() }),
+            u8::from(Self::BuildTupleFromTuples {
+                size: Arg::marker(),
+            }),
             // 125, 126, 127 are unused
-            u8::from(Self::Continue { target: Arg::marker() }),
-            u8::from(Self::JumpIfFalseOrPop { target: Arg::marker() }),
-            u8::from(Self::JumpIfTrueOrPop { target: Arg::marker() }),
+            u8::from(Self::Continue {
+                target: Arg::marker(),
+            }),
+            u8::from(Self::JumpIfFalseOrPop {
+                target: Arg::marker(),
+            }),
+            u8::from(Self::JumpIfTrueOrPop {
+                target: Arg::marker(),
+            }),
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
             u8::from(Self::LoadClassDeref(Arg::marker())),
-            u8::from(Self::Reverse { amount: Arg::marker() }),
+            u8::from(Self::Reverse {
+                amount: Arg::marker(),
+            }),
             u8::from(Self::SetExcInfo),
             u8::from(Self::Subscript),
         ];
