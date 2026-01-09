@@ -6212,16 +6212,17 @@ impl Compiler {
             }
             emit!(self, Instruction::CallFunctionEx { has_kwargs });
         } else if !arguments.keywords.is_empty() {
+            // No **kwargs in this branch (has_double_star is false),
+            // so all keywords have arg.is_some()
             let mut kwarg_names = vec![];
             for keyword in &arguments.keywords {
-                if let Some(name) = &keyword.arg {
-                    kwarg_names.push(ConstantData::Str {
-                        value: name.as_str().into(),
-                    });
-                } else {
-                    // This means **kwargs!
-                    panic!("name must be set");
-                }
+                let name = keyword
+                    .arg
+                    .as_ref()
+                    .expect("has_double_star is false, so arg must be Some");
+                kwarg_names.push(ConstantData::Str {
+                    value: name.as_str().into(),
+                });
                 self.compile_expression(&keyword.value)?;
             }
 
