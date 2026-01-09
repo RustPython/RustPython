@@ -44,6 +44,9 @@ pub struct SymbolTable {
     /// AST nodes.
     pub sub_tables: Vec<SymbolTable>,
 
+    /// Cursor pointing to the next sub-table to consume during compilation.
+    pub next_sub_table: usize,
+
     /// Variable names in definition order (parameters first, then locals)
     pub varnames: Vec<String>,
 
@@ -70,6 +73,7 @@ impl SymbolTable {
             is_nested,
             symbols: IndexMap::default(),
             sub_tables: vec![],
+            next_sub_table: 0,
             varnames: Vec::new(),
             needs_class_closure: false,
             needs_classdict: false,
