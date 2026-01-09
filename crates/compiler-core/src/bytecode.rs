@@ -1909,7 +1909,7 @@ impl Instruction {
             UnaryNegative => 0,
             UnaryNot => 0,
             GetYieldFromIter => 0,
-            _ => unreachable!("Tried to get stack effect of a placeholder instruction ({self:?}"),
+            _ => 0,
         }
     }
 
