@@ -1779,7 +1779,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(!value).into());
                 Ok(None)
             }
-            bytecode::Instruction::Reserved => {
+            _ => {
                 unreachable!("{instruction:?} instruction should not be executed")
             }
         }

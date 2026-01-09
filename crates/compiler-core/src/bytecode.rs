@@ -959,32 +959,42 @@ pub enum Instruction {
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
+impl From<Instruction> for u8 {
+    #[inline]
+    fn from(ins: Instruction) -> Self {
+        // SAFETY: there's no padding bits
+        unsafe { core::mem::transmute::<Instruction, Self>(ins) }
+    }
+}
+
 impl TryFrom<u8> for Instruction {
     type Error = MarshalError;
 
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
-        let cpython_start = Instruction::Cache as u8;
-        let cpython_end = Instruction::YieldValue as u8;
+        let cpython_start = u8::from(Self::Cache);
+        let cpython_end = u8::from(Self::YieldValue { arg: Arg::marker() });
 
-        let resume_id = Instruction::Resume { arg: Arg::marker() } as u8;
+        let resume_id = u8::from(Self::Resume { arg: Arg::marker() });
 
-        let custom_start = Instruction::Break {
+        let custom_start = u8::from(Self::Break {
             target: Arg::marker(),
-        } as u8;
-        let custom_end = Instruction::Subscript as u8;
+        });
+        let custom_end = u8::from(Self::Subscript);
 
-        let pseudo_start = Instruction::Jump {
+        let pseudo_start = u8::from(Self::Jump {
             target: Arg::marker(),
-        } as u8;
-        let pseudo_end = Instruction::PopBlock as u8;
+        });
+        let pseudo_end = u8::from(Self::PopBlock);
 
-        match value {
-            cpython_start..=cpython_end
-            | resume_id
-            | custom_start..=custom_end
-            | pseudo_start..=pseudo_end => Ok(unsafe { core::mem::transmute::<u8, Self>(value) }),
-            _ => Err(Self::Error::InvalidBytecode),
+        if (cpython_start..=cpython_end).contains(&value)
+            || value == resume_id
+            || (custom_start..=custom_end).contains(&value)
+            || (pseudo_start..=pseudo_end).contains(&value)
+        {
+            Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
+        } else {
+            Err(Self::Error::InvalidBytecode)
         }
     }
 }
@@ -1899,6 +1909,7 @@ impl Instruction {
             UnaryNegative => 0,
             UnaryNot => 0,
             GetYieldFromIter => 0,
+            _ => unreachable!("Tried to get stack effect of a placeholder instruction ({self:?}"),
         }
     }
 
@@ -2087,6 +2098,7 @@ impl Instruction {
             UnaryNot => w!(UNARY_NOT),
             YieldValue { arg } => w!(YIELD_VALUE, arg),
             GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
+            _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
     }
 }
