@@ -74,7 +74,7 @@ mod opcode {
                         | Instruction::ImportName { .. }
                         | Instruction::LoadAttr { .. }
                         | Instruction::LoadGlobal(_)
-                        | Instruction::LoadMethod { .. }
+                        | Instruction::LoadAttrMethod { .. }
                         | Instruction::LoadName(_)
                         | Instruction::StoreAttr { .. }
                         | Instruction::StoreGlobal(_)
