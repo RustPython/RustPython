@@ -280,7 +280,7 @@ jobs:
         shell: pwsh
         if: runner.os == 'Windows'
       - name: Clean coverage data
-        run: cargo llvm-cov clean --workspace --target-dir target
+        run: cargo llvm-cov clean --workspace
       - name: build rustpython
         run: cargo llvm-cov build --no-report --release --target-dir target --verbose --features=threading ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
