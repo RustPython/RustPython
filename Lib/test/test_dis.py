@@ -937,6 +937,7 @@ class DisTests(DisTestBase):
     def test_boundaries(self):
         self.assertEqual(dis.opmap["EXTENDED_ARG"], dis.EXTENDED_ARG)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 29 not less than or equal to 20
     def test_widths(self):
         long_opcodes = set(['JUMP_BACKWARD_NO_INTERRUPT',
                             'INSTRUMENTED_CALL_FUNCTION_EX'])

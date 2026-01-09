@@ -96,10 +96,10 @@ impl StackMachine {
                 let idx = idx.get(arg);
                 self.stack.push(constants[idx as usize].clone().into())
             }
-            Instruction::LoadNameAny(idx) => self
+            Instruction::LoadName(idx) => self
                 .stack
                 .push(StackValue::String(names[idx.get(arg) as usize].clone())),
-            Instruction::StoreLocal(idx) => {
+            Instruction::StoreName(idx) => {
                 let idx = idx.get(arg);
                 self.locals
                     .insert(names[idx as usize].clone(), self.stack.pop().unwrap());

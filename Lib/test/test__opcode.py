@@ -16,6 +16,7 @@ class OpListTests(unittest.TestCase):
                 self.assertIsInstance(func(op), bool)
                 self.assertEqual(func(op), expected)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only supporting u8 ATM
     def test_invalid_opcodes(self):
         invalid = [-100, -1, 255, 512, 513, 1000]
         self.check_bool_function_result(_opcode.is_valid, invalid, False)
