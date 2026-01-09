@@ -902,7 +902,7 @@ pub enum Instruction {
     Resume {
         arg: Arg<u32>,
     } = 149,
-    // ==================== RustPython-only instructions (119-135) ====================
+    // ==================== RustPython-only instructions (119-134) ====================
     // Ideally, we want to be fully aligned with CPython opcodes, but we still have some leftovers.
     // So we assign random IDs to these opcodes.
     Break {
@@ -941,11 +941,8 @@ pub enum Instruction {
     } = 130,
     JumpIfNotExcMatch(Arg<Label>) = 131,
     LoadClassDeref(Arg<NameIdx>) = 132,
-    Reverse {
-        amount: Arg<u32>,
-    } = 133,
-    SetExcInfo = 134,
-    Subscript = 135,
+    SetExcInfo = 133,
+    Subscript = 134,
     // ===== Pseudo Opcodes (252+) ======
     Jump {
         target: Arg<Label>,
@@ -1895,7 +1892,6 @@ impl Instruction {
                 -1 + before as i32 + 1 + after as i32
             }
             PopExcept => 0,
-            Reverse { .. } => 0,
             GetAwaitable => 0,
             BeforeAsyncWith => 1,
             GetAIter => 0,
@@ -2068,7 +2064,6 @@ impl Instruction {
             Resume { arg } => w!(RESUME, arg),
             ReturnConst { idx } => fmt_const("RETURN_CONST", arg, f, idx),
             ReturnValue => w!(RETURN_VALUE),
-            Reverse { amount } => w!(REVERSE, amount),
             Send { target } => w!(SEND, target),
             SetAdd { i } => w!(SET_ADD, i),
             SetExcInfo => w!(SET_EXC_INFO),
