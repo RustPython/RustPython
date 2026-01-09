@@ -24,6 +24,7 @@ use crate::{
     vm::VirtualMachine,
 };
 use alloc::fmt;
+use core::borrow::Borrow;
 use core::ops::Deref;
 use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
@@ -719,8 +720,10 @@ impl PySet {
     }
 
     fn __iand__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.inner
-            .intersection_update(core::iter::once(set.into_iterable(vm)?), vm)?;
+        if !set.is(zelf.as_object()) {
+            zelf.inner
+                .intersection_update(core::iter::once(set.into_iterable(vm)?), vm)?;
+        }
         Ok(zelf)
     }
 
@@ -731,8 +734,12 @@ impl PySet {
     }
 
     fn __isub__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.inner
-            .difference_update(set.into_iterable_iter(vm)?, vm)?;
+        if set.is(zelf.as_object()) {
+            zelf.inner.clear();
+        } else {
+            zelf.inner
+                .difference_update(set.into_iterable_iter(vm)?, vm)?;
+        }
         Ok(zelf)
     }
 
@@ -748,8 +755,12 @@ impl PySet {
     }
 
     fn __ixor__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.inner
-            .symmetric_difference_update(set.into_iterable_iter(vm)?, vm)?;
+        if set.is(zelf.as_object()) {
+            zelf.inner.clear();
+        } else {
+            zelf.inner
+                .symmetric_difference_update(set.into_iterable_iter(vm)?, vm)?;
+        }
         Ok(zelf)
     }
 
@@ -1295,6 +1306,13 @@ impl Representable for PyFrozenSet {
 
 struct AnySet {
     object: PyObjectRef,
+}
+
+impl Borrow<PyObject> for AnySet {
+    #[inline(always)]
+    fn borrow(&self) -> &PyObject {
+        &self.object
+    }
 }
 
 impl AnySet {
