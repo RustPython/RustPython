@@ -280,12 +280,12 @@ jobs:
         shell: pwsh
         if: runner.os == 'Windows'
       - name: Clean coverage data
-        run: cargo llvm-cov clean --workspace
+        run: cargo llvm-cov clean --workspace --target-dir target
       - name: build rustpython
-        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
+        run: cargo llvm-cov build --no-report --release --target-dir target --verbose --features=threading ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
       - name: build rustpython
-        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }},jit
+        run: cargo llvm-cov build --no-report --release --target-dir target --verbose --features=threading ${{ env.CARGO_ARGS }},jit
         if: runner.os != 'macOS'
       - uses: actions/setup-python@v6.1.0
         with:
@@ -335,7 +335,7 @@ jobs:
         run: python -I whats_left.py
 
       - name: Generate coverage report
-        run: cargo llvm-cov report --release --lcov --output-path=codecov.lcov
+        run: cargo llvm-cov report --release --target-dir target --lcov --output-path=codecov.lcov
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
