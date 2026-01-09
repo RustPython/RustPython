@@ -276,7 +276,7 @@ jobs:
         if: runner.os != 'Windows'
       - name: Set up coverage environment (Windows)
         run: |
-          $output = cargo llvm-cov show-env
+          $output = cargo llvm-cov show-env --export-prefix
           foreach ($line in $output) {
             $line = $line.Trim()
             if ($line -match "^export\s+([A-Z_]+)='([^']*)'") {
