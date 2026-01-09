@@ -265,16 +265,29 @@ jobs:
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
       - name: Set up coverage environment (Unix)
-        run: cargo llvm-cov show-env --export-prefix | sed "s/^export //" | sed "s/'//g" >> $GITHUB_ENV
+        run: |
+          source <(cargo llvm-cov show-env --export-prefix)
+          echo "RUSTFLAGS<<EOF" >> $GITHUB_ENV
+          echo "$RUSTFLAGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" >> $GITHUB_ENV
+          echo "CARGO_LLVM_COV=1" >> $GITHUB_ENV
+          echo "CARGO_LLVM_COV_TARGET_DIR=$CARGO_LLVM_COV_TARGET_DIR" >> $GITHUB_ENV
         if: runner.os != 'Windows'
       - name: Set up coverage environment (Windows)
         run: |
-          $env_vars = cargo llvm-cov show-env
-          foreach ($line in $env_vars) {
-            if ($line -match '^export\s+(\w+)=(.*)$') {
+          $output = cargo llvm-cov show-env
+          foreach ($line in $output) {
+            if ($line -match "^export\s+([A-Z_]+)='(.*)'$") {
               $name = $Matches[1]
-              $value = $Matches[2] -replace "^'|'$", ""
-              "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              $value = $Matches[2]
+              if ($name -eq "RUSTFLAGS") {
+                "$name<<EOF" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+                $value | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+                "EOF" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              } else {
+                "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              }
             }
           }
         shell: pwsh
