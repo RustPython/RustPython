@@ -1028,13 +1028,16 @@ impl Compiler {
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
+                // Stack after swap: [..., return_value, __exit__] or [..., __exit__]
 
-                // Call __exit__(None, None, None) - compiler_call_exit_with_nones
-                // Stack: [..., __exit__] or [..., return_value, __exit__]
+                // Call __exit__(None, None, None)
+                // Call protocol: [callable, self_or_null, arg1, arg2, arg3]
                 emit!(self, Instruction::PushNull);
+                // Stack: [..., __exit__, NULL]
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
+                // Stack: [..., __exit__, NULL, None, None, None]
                 emit!(self, Instruction::Call { nargs: 3 });
 
                 // For async with, await the result
@@ -2088,6 +2091,8 @@ impl Compiler {
         Ok(())
     }
 
+    /// Push decorators onto the stack in source order.
+    /// For @dec1 @dec2 def foo(): stack becomes [dec1, NULL, dec2, NULL]
     fn prepare_decorators(&mut self, decorator_list: &[Decorator]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(&decorator.expression)?;
@@ -2096,8 +2101,11 @@ impl Compiler {
         Ok(())
     }
 
+    /// Apply decorators in reverse order (LIFO from stack).
+    /// Stack [dec1, NULL, dec2, NULL, func] -> dec2(func) -> dec1(dec2(func))
+    /// The forward loop works because each Call pops from TOS, naturally
+    /// applying decorators bottom-up (innermost first).
     fn apply_decorators(&mut self, decorator_list: &[Decorator]) {
-        // Apply decorators - each pops [decorator, NULL, arg] and pushes result
         for _ in decorator_list {
             emit!(self, Instruction::Call { nargs: 1 });
         }
@@ -3300,21 +3308,29 @@ impl Compiler {
             // Make closure for type params code
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
 
-            // Call the closure
-            // Call expects stack: [callable, self_or_null, arg1, ..., argN]
+            // Call the type params closure with defaults/kwdefaults as arguments.
+            // Call protocol: [callable, self_or_null, arg1, ..., argN]
+            // We need to reorder: [args..., closure] -> [closure, NULL, args...]
+            // Using Swap operations to move closure down and insert NULL.
+            // Note: num_typeparam_args is at most 2 (defaults tuple, kwdefaults dict).
             if num_typeparam_args > 0 {
-                // Stack: [arg1, ..., argN, closure]
-                // Need: [closure, NULL, arg1, ..., argN]
-                let reverse_amount = (num_typeparam_args + 1) as u32;
-                emit!(
-                    self,
-                    Instruction::Reverse {
-                        amount: reverse_amount
+                match num_typeparam_args {
+                    1 => {
+                        // Stack: [arg1, closure]
+                        emit!(self, Instruction::Swap { index: 2 }); // [closure, arg1]
+                        emit!(self, Instruction::PushNull); // [closure, arg1, NULL]
+                        emit!(self, Instruction::Swap { index: 2 }); // [closure, NULL, arg1]
                     }
-                );
-                // Stack: [closure, argN, ..., arg1]
-                emit!(self, Instruction::PushNull);
-                // Stack: [closure, argN, ..., arg1, NULL]
+                    2 => {
+                        // Stack: [arg1, arg2, closure]
+                        emit!(self, Instruction::Swap { index: 3 }); // [closure, arg2, arg1]
+                        emit!(self, Instruction::Swap { index: 2 }); // [closure, arg1, arg2]
+                        emit!(self, Instruction::PushNull); // [closure, arg1, arg2, NULL]
+                        emit!(self, Instruction::Swap { index: 3 }); // [closure, NULL, arg2, arg1]
+                        emit!(self, Instruction::Swap { index: 2 }); // [closure, NULL, arg1, arg2]
+                    }
+                    _ => unreachable!("only defaults and kwdefaults are supported"),
+                }
                 emit!(
                     self,
                     Instruction::Call {
@@ -3325,7 +3341,6 @@ impl Compiler {
                 // Stack: [closure]
                 emit!(self, Instruction::PushNull);
                 // Stack: [closure, NULL]
-                // Call pops: args (0), then self_or_null (NULL), then callable (closure)
                 emit!(self, Instruction::Call { nargs: 0 });
             }
         }
@@ -3705,49 +3720,91 @@ impl Compiler {
             self.make_closure(class_code, func_flags)?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
-            // Compile original bases
-            let base_count = if let Some(arguments) = arguments {
-                for arg in &arguments.args {
-                    self.compile_expression(arg)?;
+            // Compile bases and call __build_class__
+            // Check for starred bases or **kwargs
+            let has_starred = arguments
+                .is_some_and(|args| args.args.iter().any(|arg| matches!(arg, Expr::Starred(_))));
+            let has_double_star =
+                arguments.is_some_and(|args| args.keywords.iter().any(|kw| kw.arg.is_none()));
+
+            if has_starred || has_double_star {
+                // Use CallFunctionEx for *bases or **kwargs
+                // Stack has: [__build_class__, NULL, class_func, name]
+                // Need to build: args tuple = (class_func, name, *bases, .generic_base)
+
+                // Compile bases with gather_elements (handles starred)
+                let (size, unpack) = if let Some(arguments) = arguments {
+                    self.gather_elements(2, &arguments.args)? // 2 = class_func + name already on stack
+                } else {
+                    // Just class_func and name (no bases)
+                    (2, false)
+                };
+
+                // Add .generic_base as final base
+                emit!(self, Instruction::LoadName(dot_generic_base));
+
+                // Build args tuple
+                if unpack {
+                    // Starred: gather_elements produced tuples on stack
+                    emit!(self, Instruction::BuildTuple { size: 1 }); // (.generic_base,)
+                    emit!(self, Instruction::BuildTupleFromTuples { size: size + 1 });
+                } else {
+                    // No starred: individual elements on stack
+                    // size includes class_func + name + bases count, +1 for .generic_base
+                    emit!(self, Instruction::BuildTuple { size: size + 1 });
                 }
-                arguments.args.len()
+
+                // Build kwargs if needed
+                let has_kwargs = arguments.is_some_and(|args| !args.keywords.is_empty());
+                if has_kwargs {
+                    self.compile_keywords(&arguments.unwrap().keywords)?;
+                }
+                emit!(self, Instruction::CallFunctionEx { has_kwargs });
             } else {
-                0
-            };
-
-            // Load .generic_base as the last base
-            emit!(self, Instruction::LoadName(dot_generic_base));
-
-            let nargs = 2 + u32::try_from(base_count).expect("too many base classes") + 1; // function, name, bases..., generic_base
-
-            // Handle keyword arguments
-            if let Some(arguments) = arguments
-                && !arguments.keywords.is_empty()
-            {
-                let mut kwarg_names = vec![];
-                for keyword in &arguments.keywords {
-                    let name = keyword
-                        .arg
-                        .as_ref()
-                        .expect("keyword argument name must be set");
-                    kwarg_names.push(ConstantData::Str {
-                        value: name.as_str().into(),
-                    });
-                    self.compile_expression(&keyword.value)?;
-                }
-                self.emit_load_const(ConstantData::Tuple {
-                    elements: kwarg_names,
-                });
-                emit!(
-                    self,
-                    Instruction::CallKw {
-                        nargs: nargs
-                            + u32::try_from(arguments.keywords.len())
-                                .expect("too many keyword arguments")
+                // Simple case: no starred bases, no **kwargs
+                // Compile bases normally
+                let base_count = if let Some(arguments) = arguments {
+                    for arg in &arguments.args {
+                        self.compile_expression(arg)?;
                     }
-                );
-            } else {
-                emit!(self, Instruction::Call { nargs });
+                    arguments.args.len()
+                } else {
+                    0
+                };
+
+                // Load .generic_base as the last base
+                emit!(self, Instruction::LoadName(dot_generic_base));
+
+                let nargs = 2 + u32::try_from(base_count).expect("too many base classes") + 1;
+
+                // Handle keyword arguments (no **kwargs here)
+                if let Some(arguments) = arguments
+                    && !arguments.keywords.is_empty()
+                {
+                    let mut kwarg_names = vec![];
+                    for keyword in &arguments.keywords {
+                        let name = keyword.arg.as_ref().expect(
+                            "keyword argument name must be set (no **kwargs in this branch)",
+                        );
+                        kwarg_names.push(ConstantData::Str {
+                            value: name.as_str().into(),
+                        });
+                        self.compile_expression(&keyword.value)?;
+                    }
+                    self.emit_load_const(ConstantData::Tuple {
+                        elements: kwarg_names,
+                    });
+                    emit!(
+                        self,
+                        Instruction::CallKw {
+                            nargs: nargs
+                                + u32::try_from(arguments.keywords.len())
+                                    .expect("too many keyword arguments")
+                        }
+                    );
+                } else {
+                    emit!(self, Instruction::Call { nargs });
+                }
             }
 
             // Return the created class

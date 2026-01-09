@@ -921,15 +921,6 @@ pub enum Instruction {
     BuildTupleFromTuples {
         size: Arg<u32>,
     } = 124,
-    CallMethodPositional {
-        nargs: Arg<u32>,
-    } = 125,
-    CallMethodKeyword {
-        nargs: Arg<u32>,
-    } = 126,
-    CallMethodEx {
-        has_kwargs: Arg<bool>,
-    } = 127,
     Continue {
         target: Arg<Label>,
     } = 128,
@@ -2062,6 +2053,7 @@ impl Instruction {
             PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
             PopTop => w!(POP_TOP),
             PushExcInfo => w!(PUSH_EXC_INFO),
+            PushNull => w!(PUSH_NULL),
             RaiseVarargs { kind } => w!(RAISE_VARARGS, ?kind),
             Reraise { depth } => w!(RERAISE, depth),
             Resume { arg } => w!(RESUME, arg),
