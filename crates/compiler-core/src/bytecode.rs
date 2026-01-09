@@ -676,15 +676,20 @@ pub type NameIdx = u32;
 #[repr(u8)]
 pub enum Instruction {
     // ==================== No-argument instructions (opcode < 44) ====================
+    Cache = 0, // Placeholder
     BeforeAsyncWith = 1,
     BeforeWith = 2,
+    BinaryOpInplaceAddUnicode = 3, // Placeholder
+    BinarySlice = 4,               // Placeholder
     BinarySubscr = 5,
     CheckEgMatch = 6,
     CheckExcMatch = 7,
     CleanupThrow = 8,
     DeleteSubscr = 9,
     EndAsyncFor = 10,
+    EndFor = 11, // Placeholder
     EndSend = 12,
+    ExitInitCheck = 13, // Placeholder
     FormatSimple = 14,
     FormatWithSpec = 15,
     GetAIter = 16,
@@ -693,7 +698,10 @@ pub enum Instruction {
     GetIter = 19,
     GetLen = 20,
     GetYieldFromIter = 21,
+    InterpreterExit = 22,    // Placeholder
+    LoadAssertionError = 23, // Placeholder
     LoadBuildClass = 24,
+    LoadLocals = 25, // Placeholder
     MakeFunction = 26,
     MatchKeys = 27,
     MatchMapping = 28,
@@ -702,8 +710,11 @@ pub enum Instruction {
     PopExcept = 31,
     PopTop = 32,
     PushExcInfo = 33,
+    PushNull = 34,        // Placeholder
+    ReturnGenerator = 35, // Placeholder
     ReturnValue = 36,
     SetupAnnotations = 37,
+    StoreSlice = 38, // Placeholder
     StoreSubscr = 39,
     ToBool = 40,
     UnaryInvert = 41,
@@ -714,6 +725,9 @@ pub enum Instruction {
     BinaryOp {
         op: Arg<BinaryOperator>,
     } = 45,
+    BuildConstKeyMap {
+        size: Arg<u32>,
+    } = 46, // Placeholder
     BuildList {
         size: Arg<u32>,
     } = 47,
@@ -757,6 +771,9 @@ pub enum Instruction {
     CopyItem {
         index: Arg<u32>,
     } = 61,
+    CopyFreeVars {
+        count: Arg<u32>,
+    } = 62, // Placeholder
     DeleteAttr {
         idx: Arg<NameIdx>,
     } = 63,
@@ -764,9 +781,13 @@ pub enum Instruction {
     DeleteFast(Arg<NameIdx>) = 65,
     DeleteGlobal(Arg<NameIdx>) = 66,
     DeleteName(Arg<NameIdx>) = 67,
+    DictMerge {
+        index: Arg<u32>,
+    } = 68, // Placeholder
     DictUpdate {
         index: Arg<u32>,
     } = 69,
+    EnterExecutor = 70, // Placeholder
     ExtendedArg = 71,
     ForIter {
         target: Arg<Label>,
@@ -779,9 +800,21 @@ pub enum Instruction {
         idx: Arg<NameIdx>,
     } = 75,
     IsOp(Arg<Invert>) = 76,
+    JumpBackward {
+        target: Arg<Label>,
+    } = 77, // Placeholder
+    JumpBackwardNoInterrupt {
+        target: Arg<Label>,
+    } = 78, // Placeholder
+    JumpForward {
+        target: Arg<Label>,
+    } = 79, // Placeholder
     ListAppend {
         i: Arg<u32>,
     } = 80,
+    ListExtend {
+        i: Arg<u32>,
+    } = 81, // Placeholder
     LoadAttr {
         idx: Arg<NameIdx>,
     } = 82,
@@ -791,8 +824,18 @@ pub enum Instruction {
     LoadDeref(Arg<NameIdx>) = 84,
     LoadFast(Arg<NameIdx>) = 85,
     LoadFastAndClear(Arg<NameIdx>) = 86,
+    LoadFastCheck(Arg<NameIdx>) = 87, // Placeholder
+    LoadFastLoadFast {
+        arg: Arg<u32>,
+    } = 88, // Placeholder
+    LoadFromDictOrDeref(Arg<NameIdx>) = 89, // Placeholder
+    LoadFromDictOrGlobals(Arg<NameIdx>) = 90, // Placeholder
     LoadGlobal(Arg<NameIdx>) = 91,
     LoadName(Arg<NameIdx>) = 92,
+    LoadSuperAttr {
+        arg: Arg<u32>,
+    } = 93, // Placeholder
+    MakeCell(Arg<NameIdx>) = 94, // Placeholder
     MapAdd {
         i: Arg<u32>,
     } = 95,
@@ -800,6 +843,12 @@ pub enum Instruction {
     PopJumpIfFalse {
         target: Arg<Label>,
     } = 97,
+    PopJumpIfNone {
+        target: Arg<Label>,
+    } = 98, // Placeholder
+    PopJumpIfNotNone {
+        target: Arg<Label>,
+    } = 99, // Placeholder
     PopJumpIfTrue {
         target: Arg<Label>,
     } = 100,
@@ -821,6 +870,9 @@ pub enum Instruction {
     SetFunctionAttribute {
         attr: Arg<MakeFunctionFlags>,
     } = 106,
+    SetUpdate {
+        i: Arg<u32>,
+    } = 107, // Placeholder
     StoreAttr {
         idx: Arg<NameIdx>,
     } = 108,
@@ -830,6 +882,9 @@ pub enum Instruction {
         store_idx: Arg<NameIdx>,
         load_idx: Arg<NameIdx>,
     } = 111,
+    StoreFastStoreFast {
+        arg: Arg<u32>,
+    } = 112, // Placeholder
     StoreGlobal(Arg<NameIdx>) = 113,
     StoreName(Arg<NameIdx>) = 114,
     Swap {
@@ -909,31 +964,26 @@ impl TryFrom<u8> for Instruction {
 
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
+        let cpython_start = Instruction::Cache as u8;
+        let cpython_end = Instruction::YieldValue as u8;
+
+        let resume_id = Instruction::Resume { arg: Arg::marker() } as u8;
+
+        let custom_start = Instruction::Break {
+            target: Arg::marker(),
+        } as u8;
+        let custom_end = Instruction::Subscript as u8;
+
+        let pseudo_start = Instruction::Jump {
+            target: Arg::marker(),
+        } as u8;
+        let pseudo_end = Instruction::PopBlock as u8;
+
         match value {
-            1
-            | 2
-            | 5..=10
-            | 12
-            | 14..=21
-            | 24
-            | 26..=33
-            | 36
-            | 37
-            | 39..=45
-            | 47..=61
-            | 63..=67
-            | 69
-            | 71..=76
-            | 80
-            | 82..=86
-            | 91
-            | 92
-            | 95..=97
-            | 100..=106
-            | 108..=111
-            | 113..=135
-            | 149
-            | 252..=255 => Ok(unsafe { core::mem::transmute::<u8, Self>(value) }),
+            cpython_start..=cpython_end
+            | resume_id
+            | custom_start..=custom_end
+            | pseudo_start..=pseudo_end => Ok(unsafe { core::mem::transmute::<u8, Self>(value) }),
             _ => Err(Self::Error::InvalidBytecode),
         }
     }
