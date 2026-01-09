@@ -201,6 +201,18 @@ with assert_raises(TypeError):
     a &= [1, 2, 3]
 
 a = set([1, 2, 3])
+a &= a
+assert a == set([1, 2, 3])
+
+a = set([1, 2, 3])
+a -= a
+assert a == set()
+
+a = set([1, 2, 3])
+a ^= a
+assert a == set()
+
+a = set([1, 2, 3])
 a.difference_update([3, 4, 5])
 assert a == set([1, 2])
 assert_raises(TypeError, lambda: a.difference_update(1))
