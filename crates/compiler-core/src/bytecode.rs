@@ -941,8 +941,8 @@ pub enum Instruction {
     } = 130,
     JumpIfNotExcMatch(Arg<Label>) = 131,
     LoadClassDeref(Arg<NameIdx>) = 132,
-    SetExcInfo = 133,
-    Subscript = 134,
+    SetExcInfo = 134,
+    Subscript = 135,
     // ===== Pseudo Opcodes (252+) ======
     Jump {
         target: Arg<Label>,
