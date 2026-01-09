@@ -963,16 +963,33 @@ impl TryFrom<u8> for Instruction {
 
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
+        // CPython-compatible opcodes (0-118)
         let cpython_start = u8::from(Self::Cache);
         let cpython_end = u8::from(Self::YieldValue { arg: Arg::marker() });
 
+        // Resume has a non-contiguous opcode (149)
         let resume_id = u8::from(Self::Resume { arg: Arg::marker() });
 
-        let custom_start = u8::from(Self::Break {
-            target: Arg::marker(),
-        });
-        let custom_end = u8::from(Self::Subscript);
+        // RustPython-only opcodes (explicit list to avoid gaps like 125-127)
+        let custom_ops: &[u8] = &[
+            u8::from(Self::Break { target: Arg::marker() }),
+            u8::from(Self::BuildListFromTuples { size: Arg::marker() }),
+            u8::from(Self::BuildMapForCall { size: Arg::marker() }),
+            u8::from(Self::BuildSetFromTuples { size: Arg::marker() }),
+            u8::from(Self::BuildTupleFromIter),
+            u8::from(Self::BuildTupleFromTuples { size: Arg::marker() }),
+            // 125, 126, 127 are unused
+            u8::from(Self::Continue { target: Arg::marker() }),
+            u8::from(Self::JumpIfFalseOrPop { target: Arg::marker() }),
+            u8::from(Self::JumpIfTrueOrPop { target: Arg::marker() }),
+            u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
+            u8::from(Self::LoadClassDeref(Arg::marker())),
+            u8::from(Self::Reverse { amount: Arg::marker() }),
+            u8::from(Self::SetExcInfo),
+            u8::from(Self::Subscript),
+        ];
 
+        // Pseudo opcodes (252-255)
         let pseudo_start = u8::from(Self::Jump {
             target: Arg::marker(),
         });
@@ -980,7 +997,7 @@ impl TryFrom<u8> for Instruction {
 
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
-            || (custom_start..=custom_end).contains(&value)
+            || custom_ops.contains(&value)
             || (pseudo_start..=pseudo_end).contains(&value)
         {
             Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
