@@ -278,9 +278,11 @@ jobs:
         run: |
           $output = cargo llvm-cov show-env
           foreach ($line in $output) {
-            if ($line -match "^export\s+([A-Z_]+)='(.*)'$") {
+            $line = $line.Trim()
+            if ($line -match "^export\s+([A-Z_]+)='([^']*)'") {
               $name = $Matches[1]
               $value = $Matches[2]
+              Write-Host "Setting $name"
               if ($name -eq "RUSTFLAGS") {
                 "$name<<EOF" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
                 $value | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
