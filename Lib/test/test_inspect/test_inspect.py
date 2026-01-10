@@ -384,8 +384,6 @@ class TestPredicates(IsTestBase):
 
         coro.close(); gen_coro.close(); # silence warnings
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_isawaitable(self):
         def gen(): yield
         self.assertFalse(inspect.isawaitable(gen()))
