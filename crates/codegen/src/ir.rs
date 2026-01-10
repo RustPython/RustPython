@@ -283,8 +283,8 @@ impl CodeInfo {
 
         let total_args = self.metadata.argcount
             + self.metadata.kwonlyargcount
-            + self.flags.contains(CodeFlags::HAS_VARARGS) as u32
-            + self.flags.contains(CodeFlags::HAS_VARKEYWORDS) as u32;
+            + self.flags.contains(CodeFlags::VARARGS) as u32
+            + self.flags.contains(CodeFlags::VARKEYWORDS) as u32;
 
         let mut found_cellarg = false;
         let cell2arg = self

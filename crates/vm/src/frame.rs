@@ -186,7 +186,7 @@ impl Frame {
                 Ok(())
             };
             map_to_dict(&code.cellvars, &self.cells_frees)?;
-            if code.flags.contains(bytecode::CodeFlags::IS_OPTIMIZED) {
+            if code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
                 map_to_dict(&code.freevars, &self.cells_frees[code.cellvars.len()..])?;
             }
         }
@@ -1000,11 +1000,7 @@ impl ExecutingFrame<'_> {
                 let iterable = self.pop_value();
                 let iter = if iterable.class().is(vm.ctx.types.coroutine_type) {
                     // Coroutine requires CO_COROUTINE or CO_ITERABLE_COROUTINE flag
-                    if !self
-                        .code
-                        .flags
-                        .intersects(bytecode::CodeFlags::IS_COROUTINE)
-                    {
+                    if !self.code.flags.intersects(bytecode::CodeFlags::COROUTINE) {
                         return Err(vm.new_type_error(
                             "cannot 'yield from' a coroutine object in a non-coroutine generator"
                                 .to_owned(),
@@ -1662,7 +1658,7 @@ impl ExecutingFrame<'_> {
                 // arg=0: direct yield (wrapped for async generators)
                 // arg=1: yield from await/yield-from (NOT wrapped)
                 let wrap = oparg.get(arg) == 0;
-                let value = if wrap && self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
+                let value = if wrap && self.code.flags.contains(bytecode::CodeFlags::COROUTINE) {
                     PyAsyncGenWrappedValue(value).into_pyobject(vm)
                 } else {
                     value

@@ -377,7 +377,7 @@ enum CollectionType {
 impl Compiler {
     fn new(opts: CompileOpts, source_file: SourceFile, code_name: String) -> Self {
         let module_code = ir::CodeInfo {
-            flags: bytecode::CodeFlags::NEW_LOCALS,
+            flags: bytecode::CodeFlags::NEWLOCALS,
             source_path: source_file.name().to_owned(),
             private: None,
             blocks: vec![ir::Block::default()],
@@ -749,19 +749,19 @@ impl Compiler {
             CompilerScope::Module => (bytecode::CodeFlags::empty(), 0, 0, 0),
             CompilerScope::Class => (bytecode::CodeFlags::empty(), 0, 0, 0),
             CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda => (
-                bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
+                bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
                 0, // Will be set later in enter_function
                 0, // Will be set later in enter_function
                 0, // Will be set later in enter_function
             ),
             CompilerScope::Comprehension => (
-                bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
+                bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
                 0,
                 1, // comprehensions take one argument (.0)
                 0,
             ),
             CompilerScope::TypeParams => (
-                bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
+                bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
                 0,
                 0,
                 0,
@@ -1298,7 +1298,7 @@ impl Compiler {
             let parent_obj_name = &parent.metadata.name;
 
             // Determine if parent is a function-like scope
-            let is_function_parent = parent.flags.contains(bytecode::CodeFlags::IS_OPTIMIZED)
+            let is_function_parent = parent.flags.contains(bytecode::CodeFlags::OPTIMIZED)
                 && !parent_obj_name.starts_with("<") // Not a special scope like <lambda>, <listcomp>, etc.
                 && parent_obj_name != "<module>"; // Not the module scope
 
@@ -1914,7 +1914,7 @@ impl Compiler {
                             && self
                                 .current_code_info()
                                 .flags
-                                .contains(bytecode::CodeFlags::IS_GENERATOR)
+                                .contains(bytecode::CodeFlags::GENERATOR)
                         {
                             return Err(self.error_ranged(
                                 CodegenErrorType::AsyncReturnValue,
@@ -2062,7 +2062,7 @@ impl Compiler {
         }
 
         self.push_output(
-            bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
+            bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
             parameters.posonlyargs.len().to_u32(),
             (parameters.posonlyargs.len() + parameters.args.len()).to_u32(),
             parameters.kwonlyargs.len().to_u32(),
@@ -2080,11 +2080,11 @@ impl Compiler {
         }
 
         if let Some(name) = parameters.vararg.as_deref() {
-            self.current_code_info().flags |= bytecode::CodeFlags::HAS_VARARGS;
+            self.current_code_info().flags |= bytecode::CodeFlags::VARARGS;
             self.varname(name.name.as_str())?;
         }
         if let Some(name) = parameters.kwarg.as_deref() {
-            self.current_code_info().flags |= bytecode::CodeFlags::HAS_VARKEYWORDS;
+            self.current_code_info().flags |= bytecode::CodeFlags::VARKEYWORDS;
             self.varname(name.name.as_str())?;
         }
 
@@ -3103,7 +3103,7 @@ impl Compiler {
         self.enter_function(name, parameters)?;
         self.current_code_info()
             .flags
-            .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
+            .set(bytecode::CodeFlags::COROUTINE, is_async);
 
         // Set up context
         let prev_ctx = self.ctx;
@@ -3233,7 +3233,7 @@ impl Compiler {
             // Enter type params scope
             let type_params_name = format!("<generic parameters of {name}>");
             self.push_output(
-                bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
+                bytecode::CodeFlags::OPTIMIZED | bytecode::CodeFlags::NEWLOCALS,
                 0,
                 num_typeparam_args as u32,
                 0,
@@ -3664,7 +3664,7 @@ impl Compiler {
         if is_generic {
             let type_params_name = format!("<generic parameters of {name}>");
             self.push_output(
-                bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
+                bytecode::CodeFlags::OPTIMIZED | bytecode::CodeFlags::NEWLOCALS,
                 0,
                 0,
                 0,
@@ -6361,9 +6361,9 @@ impl Compiler {
             in_async_scope: prev_ctx.in_async_scope || is_async,
         };
 
-        let flags = bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED;
+        let flags = bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED;
         let flags = if is_async {
-            flags | bytecode::CodeFlags::IS_COROUTINE
+            flags | bytecode::CodeFlags::COROUTINE
         } else {
             flags
         };
@@ -7030,7 +7030,7 @@ impl Compiler {
     }
 
     fn mark_generator(&mut self) {
-        self.current_code_info().flags |= bytecode::CodeFlags::IS_GENERATOR
+        self.current_code_info().flags |= bytecode::CodeFlags::GENERATOR
     }
 
     /// Whether the expression contains an await expression and

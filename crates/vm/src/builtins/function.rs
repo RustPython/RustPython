@@ -124,7 +124,7 @@ impl PyFunction {
 
         let mut vararg_offset = total_args;
         // Pack other positional arguments in to *args:
-        if code.flags.contains(bytecode::CodeFlags::HAS_VARARGS) {
+        if code.flags.contains(bytecode::CodeFlags::VARARGS) {
             let vararg_value = vm.ctx.new_tuple(args_iter.collect());
             fastlocals[vararg_offset] = Some(vararg_value.into());
             vararg_offset += 1;
@@ -155,7 +155,7 @@ impl PyFunction {
         }
 
         // Do we support `**kwargs` ?
-        let kwargs = if code.flags.contains(bytecode::CodeFlags::HAS_VARKEYWORDS) {
+        let kwargs = if code.flags.contains(bytecode::CodeFlags::VARKEYWORDS) {
             let d = vm.ctx.new_dict();
             fastlocals[vararg_offset] = Some(d.clone().into());
             Some(d)
@@ -414,7 +414,7 @@ impl Py<PyFunction> {
 
         let code = self.code.lock().clone();
 
-        let locals = if code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             ArgMapping::from_dict_exact(vm.ctx.new_dict())
         } else if let Some(locals) = locals {
             locals
@@ -436,8 +436,8 @@ impl Py<PyFunction> {
         self.fill_locals_from_args(&frame, func_args, vm)?;
 
         // If we have a generator, create a new generator
-        let is_gen = code.flags.contains(bytecode::CodeFlags::IS_GENERATOR);
-        let is_coro = code.flags.contains(bytecode::CodeFlags::IS_COROUTINE);
+        let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
+        let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
         match (is_gen, is_coro) {
             (true, false) => {
                 Ok(PyGenerator::new(frame, self.__name__(), self.__qualname__()).into_pyobject(vm))

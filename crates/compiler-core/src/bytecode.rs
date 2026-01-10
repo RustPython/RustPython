@@ -357,26 +357,13 @@ pub struct CodeObject<C: Constant = ConstantData> {
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct CodeFlags: u16 {
-        const NEW_LOCALS = 0x01;
-        const IS_GENERATOR = 0x02;
-        const IS_COROUTINE = 0x04;
-        const HAS_VARARGS = 0x08;
-        const HAS_VARKEYWORDS = 0x10;
-        const IS_OPTIMIZED = 0x20;
+        const OPTIMIZED = 0x0001;
+        const NEWLOCALS = 0x0002;
+        const VARARGS = 0x0004;
+        const VARKEYWORDS = 0x0008;
+        const GENERATOR = 0x0020;
+        const COROUTINE = 0x0080;
     }
-}
-
-impl CodeFlags {
-    pub const NAME_MAPPING: &'static [(&'static str, Self)] = &[
-        ("GENERATOR", Self::IS_GENERATOR),
-        ("COROUTINE", Self::IS_COROUTINE),
-        (
-            "ASYNC_GENERATOR",
-            Self::from_bits_truncate(Self::IS_GENERATOR.bits() | Self::IS_COROUTINE.bits()),
-        ),
-        ("VARARGS", Self::HAS_VARARGS),
-        ("VARKEYWORDS", Self::HAS_VARKEYWORDS),
-    ];
 }
 
 /// an opcode argument that may be extended by a prior ExtendedArg
@@ -1550,14 +1537,14 @@ impl<C: Constant> CodeObject<C> {
         let args = &self.varnames[..nargs];
         let kwonlyargs = &self.varnames[nargs..varargs_pos];
 
-        let vararg = if self.flags.contains(CodeFlags::HAS_VARARGS) {
+        let vararg = if self.flags.contains(CodeFlags::VARARGS) {
             let vararg = &self.varnames[varargs_pos];
             varargs_pos += 1;
             Some(vararg)
         } else {
             None
         };
-        let varkwarg = if self.flags.contains(CodeFlags::HAS_VARKEYWORDS) {
+        let varkwarg = if self.flags.contains(CodeFlags::VARKEYWORDS) {
             Some(&self.varnames[varargs_pos])
         } else {
             None
