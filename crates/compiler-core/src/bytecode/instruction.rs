@@ -3,25 +3,9 @@ use std::mem;
 
 use crate::{
     bytecode::{
-        Arg,
-        BinaryOperator,
-        BorrowedConstant,
-        BuildSliceArgCount,
-        ComparisonOperator,
-        Constant,
-        ConvertValueOparg,
-        // a
-        InstrDisplayContext,
-        IntrinsicFunction1,
-        IntrinsicFunction2,
-        Invert,
-        Label,
-        MakeFunctionFlags,
-        NameIdx,
-        OpArg,
-        RaiseKind,
-        UnpackExArgs,
-        decode_load_attr_arg,
+        Arg, BinaryOperator, BorrowedConstant, BuildSliceArgCount, ComparisonOperator, Constant,
+        ConvertValueOparg, InstrDisplayContext, IntrinsicFunction1, IntrinsicFunction2, Invert,
+        Label, MakeFunctionFlags, NameIdx, OpArg, RaiseKind, UnpackExArgs, decode_load_attr_arg,
     },
     marshal::MarshalError,
 };
