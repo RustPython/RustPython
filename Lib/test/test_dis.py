@@ -971,11 +971,9 @@ class DisTests(DisTestBase):
 
         self.do_disassembly_test(bug1333982, dis_bug1333982)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_42562(self):
         self.do_disassembly_test(bug42562, dis_bug42562)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_45757(self):
         # Extended arg followed by NOP
         self.do_disassembly_test(code_bug_45757, dis_bug_45757)
@@ -997,7 +995,6 @@ class DisTests(DisTestBase):
         self.do_disassembly_test("+a", dis_intrinsic_1_5)
         self.do_disassembly_test("(*a,)", dis_intrinsic_1_6)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_intrinsic_2(self):
         self.assertIn("CALL_INTRINSIC_2         1 (INTRINSIC_PREP_RERAISE_STAR)",
                       self.get_disassembly("try: pass\nexcept* Exception: x"))
@@ -1059,19 +1056,16 @@ class DisTests(DisTestBase):
     def test_disassemble_class_method(self):
         self.do_disassembly_test(_C.cm, dis_c_class_method)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_generator(self):
         gen_func_disas = self.get_disassembly(_g)  # Generator function
         gen_disas = self.get_disassembly(_g(1))  # Generator iterator
         self.assertEqual(gen_disas, gen_func_disas)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_async_generator(self):
         agen_func_disas = self.get_disassembly(_ag)  # Async generator function
         agen_disas = self.get_disassembly(_ag(1))  # Async generator iterator
         self.assertEqual(agen_disas, agen_func_disas)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_coroutine(self):
         coro_func_disas = self.get_disassembly(_co)  # Coroutine function
         coro = _co(1)  # Coroutine object
@@ -1096,7 +1090,6 @@ class DisTests(DisTestBase):
         self.do_disassembly_test(_tryfinally, dis_tryfinally)
         self.do_disassembly_test(_tryfinallyconst, dis_tryfinallyconst)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_dis_none(self):
         try:
             del sys.last_exc
@@ -1108,7 +1101,6 @@ class DisTests(DisTestBase):
             pass
         self.assertRaises(RuntimeError, dis.dis, None)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_dis_traceback(self):
         self.maxDiff = None
         try:
@@ -2198,14 +2190,12 @@ class TestBytecodeTestCase(BytecodeTestCase):
         self.assertNotInBytecode(code, "LOAD_NAME")
         self.assertNotInBytecode(code, "LOAD_NAME", "a")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_not_in_with_arg_not_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         self.assertInBytecode(code, "LOAD_CONST")
         self.assertInBytecode(code, "LOAD_CONST", 1)
         self.assertNotInBytecode(code, "LOAD_CONST", 2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_not_in_with_arg_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         with self.assertRaises(AssertionError):
