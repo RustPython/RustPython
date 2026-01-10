@@ -997,9 +997,6 @@ impl TryFrom<u8> for Instruction {
             }),
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
             u8::from(Self::LoadClassDeref(Arg::marker())),
-            u8::from(Self::Reverse {
-                amount: Arg::marker(),
-            }),
             u8::from(Self::SetExcInfo),
             u8::from(Self::Subscript),
         ];
