@@ -432,10 +432,6 @@ class ImportTests(unittest.TestCase, ExtraAssertions):
         self.assertIn(cm.exception.name, {'posixpath', 'ntpath'})
         self.assertIsNotNone(cm.exception)
 
-    @unittest.skipIf(  # TODO: RUSTPYTHON
-        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,  # TODO: RUSTPYTHON
-        'TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason'
-    )  # TODO: RUSTPYTHON
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_from_import_star_invalid_type(self):
         import re
