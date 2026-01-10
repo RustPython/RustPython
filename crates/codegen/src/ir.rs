@@ -4,9 +4,9 @@ use crate::{IndexMap, IndexSet, error::InternalError};
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
-        CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
+        Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
         InstrDisplayContext, Instruction, Label, OpArg, PyCodeLocationInfoKind,
-        encode_exception_table,
+        encode_exception_table, encode_load_attr_arg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -189,6 +189,34 @@ impl CodeInfo {
         let mut instructions = Vec::new();
         let mut locations = Vec::new();
 
+        // convert_pseudo_ops: instructions before the main loop
+        for block in blocks
+            .iter_mut()
+            .filter(|b| b.next != BlockIdx::NULL || !b.instructions.is_empty())
+        {
+            for info in &mut block.instructions {
+                match info.instr {
+                    // LOAD_ATTR_METHOD pseudo → LOAD_ATTR (with method flag=1)
+                    Instruction::LoadAttrMethod { idx } => {
+                        let encoded = encode_load_attr_arg(idx.get(info.arg), true);
+                        info.arg = OpArg(encoded);
+                        info.instr = Instruction::LoadAttr { idx: Arg::marker() };
+                    }
+                    // LOAD_ATTR → encode with method flag=0
+                    Instruction::LoadAttr { idx } => {
+                        let encoded = encode_load_attr_arg(idx.get(info.arg), false);
+                        info.arg = OpArg(encoded);
+                        info.instr = Instruction::LoadAttr { idx: Arg::marker() };
+                    }
+                    // POP_BLOCK pseudo → NOP
+                    Instruction::PopBlock => {
+                        info.instr = Instruction::Nop;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         let mut block_to_offset = vec![Label(0); blocks.len()];
         // block_to_index: maps block idx to instruction index (for exception table)
         // This is the index into the final instructions array, including EXTENDED_ARG
@@ -213,23 +241,44 @@ impl CodeInfo {
             let mut next_block = BlockIdx(0);
             while next_block != BlockIdx::NULL {
                 let block = &mut blocks[next_block];
+                // Track current instruction offset for jump direction resolution
+                let mut current_offset = block_to_offset[next_block.idx()].0;
                 for info in &mut block.instructions {
-                    let (op, arg, target) = (info.instr, &mut info.arg, info.target);
+                    let target = info.target;
                     if target != BlockIdx::NULL {
                         let new_arg = OpArg(block_to_offset[target.idx()].0);
-                        recompile_extended_arg |= new_arg.instr_size() != arg.instr_size();
-                        *arg = new_arg;
+                        recompile_extended_arg |= new_arg.instr_size() != info.arg.instr_size();
+                        info.arg = new_arg;
                     }
-                    let (extras, lo_arg) = arg.split();
+
+                    // Convert JUMP pseudo to real instructions (direction depends on offset)
+                    let op = match info.instr {
+                        Instruction::Jump { .. } if target != BlockIdx::NULL => {
+                            let target_offset = block_to_offset[target.idx()].0;
+                            if target_offset > current_offset {
+                                Instruction::JumpForward {
+                                    target: Arg::marker(),
+                                }
+                            } else {
+                                Instruction::JumpBackward {
+                                    target: Arg::marker(),
+                                }
+                            }
+                        }
+                        other => other,
+                    };
+
+                    let (extras, lo_arg) = info.arg.split();
                     locations.extend(core::iter::repeat_n(
                         (info.location, info.end_location),
-                        arg.instr_size(),
+                        info.arg.instr_size(),
                     ));
                     instructions.extend(
                         extras
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))
                             .chain([CodeUnit { op, arg: lo_arg }]),
                     );
+                    current_offset += info.arg.instr_size() as u32;
                 }
                 next_block = block.next;
             }
