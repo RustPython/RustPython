@@ -227,7 +227,9 @@ class saved_test_environment:
     # to track reference leaks.
     def get_threading__dangling(self):
         # This copies the weakrefs without making any strong reference
-        return threading._dangling.copy()
+        # XXX: RUSTPYTHON - filter out dead threads since gc doesn't clean WeakSet. Revert this line when we have a GC
+        # return threading._dangling.copy()
+        return {t for t in threading._dangling if t.is_alive()}
     def restore_threading__dangling(self, saved):
         threading._dangling.clear()
         threading._dangling.update(saved)
