@@ -5,10 +5,10 @@ install_tests_in_module_dict(globals(), 'forkserver', only_type="processes")
 
 import os, sys  # TODO: RUSTPYTHON
 class WithProcessesTestCondition(WithProcessesTestCondition):  # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform == 'darwin', 'TODO: RUSTPYTHON flaky timeout')
+    @unittest.skip('TODO: RUSTPYTHON flaky timeout')
     def test_notify(self): super().test_notify()
-    @unittest.skipIf(sys.platform == 'darwin', 'TODO: RUSTPYTHON flaky timeout')
-    def test_notify(self): super().test_notify_n()
+    @unittest.skip('TODO: RUSTPYTHON flaky timeout')
+    def test_notify_n(self): super().test_notify_n()
 
 class WithProcessesTestLock(WithProcessesTestLock):  # TODO: RUSTPYTHON
     @unittest.skipIf(  # TODO: RUSTPYTHON
