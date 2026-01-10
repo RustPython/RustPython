@@ -1561,7 +1561,7 @@ impl Compiler {
                     NameUsage::Load => {
                         // Special case for class scope
                         if self.ctx.in_class && !self.ctx.in_func() {
-                            Instruction::LoadClassDeref
+                            Instruction::LoadFromDictOrDeref
                         } else {
                             Instruction::LoadDeref
                         }
