@@ -324,11 +324,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
             components: clippy
+
       - name: run clippy on wasm
         run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: Ensure docs generate no warnings
         run: cargo doc
+
+      - name: Ensure Lib/_opcode_metadata is updated
+        run: |
+          python scripts/generate_opcode_metadata.py
+          if [ -z "$(git status --porcelain)" ]; then
+            exit 1
+          fi
 
       - name: Install ruff
         uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1

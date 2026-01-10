@@ -47,6 +47,7 @@ jobs:
 
       - run: ruff format
       - run: ruff check --select I --fix
+      - run: python scripts/generate_opcode_metadata.py
 
       - name: Configure git
         run: |
