@@ -19,7 +19,6 @@ from opcode import (
 
 from _opcode import get_executor
 
-
 __all__ = ["code_info", "dis", "disassemble", "distb", "disco",
            "findlinestarts", "findlabels", "show_code",
            "get_instructions", "Instruction", "Bytecode"] + _opcodes_all
@@ -1052,9 +1051,6 @@ class Bytecode:
             return output.getvalue()
 
 
-from _dis import * # TODO: RUSTPYTHON; Remove this import (and module)
-
-
 def main(args=None):
     import argparse
 
@@ -1073,9 +1069,7 @@ def main(args=None):
         with open(args.infile, 'rb') as infile:
             source = infile.read()
     code = compile(source, name, "exec")
-    # TODO: RUSTPYTHON; Add support for `show_caches` & `show_offsets` arguments
-    # dis(code, show_caches=args.show_caches, show_offsets=args.show_offsets)
-    dis(code)
+    dis(code, show_caches=args.show_caches, show_offsets=args.show_offsets)
 
 if __name__ == "__main__":
     main()
