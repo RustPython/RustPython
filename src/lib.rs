@@ -276,11 +276,11 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         }
         RunMode::Repl => Ok(()),
     };
-    if is_repl || vm.state.config.settings.inspect {
-        shell::run_shell(vm, scope)?;
+    let result = if is_repl || vm.state.config.settings.inspect {
+        shell::run_shell(vm, scope)
     } else {
-        res?;
-    }
+        res
+    };
 
     #[cfg(feature = "flame-it")]
     {
@@ -289,7 +289,8 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
             error!("Error writing profile information: {}", e);
         }
     }
-    Ok(())
+
+    result
 }
 
 #[cfg(feature = "flame-it")]
