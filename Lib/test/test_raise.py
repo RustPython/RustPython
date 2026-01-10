@@ -464,11 +464,6 @@ class TestContext(unittest.TestCase):
 
         f()
 
-    import os  # TODO: RUSTPYTHON see below
-    @unittest.skipIf(
-        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
-        "TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unraisable exception"
-    )
     def test_3611(self):
         import gc
         # A re-raised exception in a __del__ caused the __context__
