@@ -68,8 +68,8 @@ class ThreadPoolExecutorTest(ThreadPoolMixin, ExecutorTest, BaseTestCase):
 
     import sys  # TODO: RUSTPYTHON
     @unittest.skipIf(
-        sys.platform == 'darwin' and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
-        'TODO: RUSTPYTHON, TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason'
+        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
+        'TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason'
     )
     @support.requires_fork()
     @unittest.skipUnless(hasattr(os, 'register_at_fork'), 'need os.register_at_fork')

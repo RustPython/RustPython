@@ -111,6 +111,7 @@ env:
     test_ssl
     test_threading
   ENV_POLLUTING_TESTS_LINUX: >-
+    test.test_concurrent_futures.test_thread_pool
     test.test_multiprocessing_fork.test_processes
     test.test_multiprocessing_fork.test_threads
     test.test_multiprocessing_forkserver.test_processes
