@@ -2038,7 +2038,6 @@ class MathTests(unittest.TestCase):
         else:
             self.fail("sqrt(-1) didn't raise ValueError")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_IEEE_754
     def test_testfile(self):
         # Some tests need to be skipped on ancient OS X versions.
