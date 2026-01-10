@@ -902,7 +902,7 @@ pub enum Instruction {
     Resume {
         arg: Arg<u32>,
     } = 149,
-    // ==================== RustPython-only instructions (119-134) ====================
+    // ==================== RustPython-only instructions (119-135) ====================
     // Ideally, we want to be fully aligned with CPython opcodes, but we still have some leftovers.
     // So we assign random IDs to these opcodes.
     Break {
