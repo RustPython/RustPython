@@ -84,8 +84,6 @@ enum SuperCallType<'a> {
         self_arg: &'a Expr,
     },
     /// super() - implicit 0-argument form (uses __class__ cell)
-    /// TODO: Enable after fixing __class__ cell handling in nested classes
-    #[allow(dead_code)]
     ZeroArg,
 }
 
@@ -715,14 +713,20 @@ impl Compiler {
             return None;
         }
 
-        // 6. "super" must be GlobalImplicit (not redefined locally)
+        // 6. "super" must be GlobalImplicit (not redefined locally or at module level)
         let table = self.current_symbol_table();
-        if let Some(symbol) = table.lookup("super") {
-            if symbol.scope != SymbolScope::GlobalImplicit {
-                return None;
-            }
-        } else {
-            // super not found in symbol table - assume it's a global builtin
+        if let Some(symbol) = table.lookup("super")
+            && symbol.scope != SymbolScope::GlobalImplicit
+        {
+            return None;
+        }
+        // Also check top-level scope to detect module-level shadowing.
+        // Only block if super is actually *bound* at module level (not just used).
+        if let Some(top_table) = self.symbol_table_stack.first()
+            && let Some(sym) = top_table.lookup("super")
+            && sym.scope != SymbolScope::GlobalImplicit
+        {
+            return None;
         }
 
         // 7. Check argument pattern
@@ -743,10 +747,26 @@ impl Compiler {
             }
             0 => {
                 // 0-arg: super() - need __class__ cell and first parameter
-                // TODO: 0-arg super() optimization is disabled due to __class__ cell issues
-                // The __class__ cell handling in nested class definitions needs more work.
-                // For now, fall back to regular super() call.
-                None
+                // Enclosing function should have at least one positional argument
+                let info = self.code_stack.last()?;
+                if info.metadata.argcount == 0 && info.metadata.posonlyargcount == 0 {
+                    return None;
+                }
+
+                // Check if __class__ is available as a cell/free variable
+                // The scope must be Free (from enclosing class) or have FREE_CLASS flag
+                if let Some(symbol) = table.lookup("__class__") {
+                    if symbol.scope != SymbolScope::Free
+                        && !symbol.flags.contains(SymbolFlags::FREE_CLASS)
+                    {
+                        return None;
+                    }
+                } else {
+                    // __class__ not in symbol table, optimization not possible
+                    return None;
+                }
+
+                Some(SuperCallType::ZeroArg)
             }
             _ => None, // 1 or 3+ args - not optimizable
         }
@@ -782,7 +802,9 @@ impl Compiler {
                 };
                 self.emit_arg(idx, Instruction::LoadDeref);
 
-                // Load first parameter (typically 'self')
+                // Load first parameter (typically 'self').
+                // Safety: can_optimize_super_call() ensures argcount > 0, and
+                // parameters are always added to varnames first (see symboltable.rs).
                 let first_param = {
                     let info = self.code_stack.last().unwrap();
                     info.metadata.varnames.first().cloned()
@@ -3494,12 +3516,14 @@ impl Compiler {
     /// Determines if a variable should be CELL or FREE type
     // = get_ref_type
     fn get_ref_type(&self, name: &str) -> Result<SymbolScope, CodegenErrorType> {
+        let table = self.symbol_table_stack.last().unwrap();
+
         // Special handling for __class__ and __classdict__ in class scope
-        if self.ctx.in_class && (name == "__class__" || name == "__classdict__") {
+        // This should only apply when we're actually IN a class body,
+        // not when we're in a method nested inside a class.
+        if table.typ == CompilerScope::Class && (name == "__class__" || name == "__classdict__") {
             return Ok(SymbolScope::Cell);
         }
-
-        let table = self.symbol_table_stack.last().unwrap();
         match table.lookup(name) {
             Some(symbol) => match symbol.scope {
                 SymbolScope::Cell => Ok(SymbolScope::Cell),

@@ -2535,7 +2535,8 @@ impl ExecutingFrame<'_> {
         let (name_idx, load_method, has_class) = bytecode::decode_load_super_attr_arg(oparg);
         let attr_name = self.code.names[name_idx as usize];
 
-        // Pop [super, class, self] from stack
+        // Stack layout (bottom to top): [super, class, self]
+        // Pop in LIFO order: self, class, super
         let self_obj = self.pop_value();
         let class = self.pop_value();
         let global_super = self.pop_value();
