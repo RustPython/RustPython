@@ -734,7 +734,6 @@ class AsyncIteratorTest(unittest.TestCase):
 
         async def __anext__(self): pass
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_aiter_set_return_value(self):
         mock_iter = AsyncMock(name="tester")
         mock_iter.__aiter__.return_value = [1, 2, 3]
@@ -760,7 +759,6 @@ class AsyncIteratorTest(unittest.TestCase):
                 inner_test(mock_type)
 
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_mock_async_for(self):
         async def iterate(iterator):
             accumulator = []
