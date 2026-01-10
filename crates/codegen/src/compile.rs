@@ -98,12 +98,6 @@ enum NameUsage {
     Delete,
 }
 
-enum CallType {
-    Positional { nargs: u32 },
-    Keyword { nargs: u32 },
-    Ex { has_kwargs: bool },
-}
-
 fn is_forbidden_name(name: &str) -> bool {
     // See https://docs.python.org/3/library/constants.html#built-in-constants
     const BUILTIN_CONSTANTS: &[&str] = &["__debug__"];
@@ -1034,12 +1028,16 @@ impl Compiler {
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
+                // Stack after swap: [..., return_value, __exit__] or [..., __exit__]
 
-                // Call __exit__(None, None, None) - compiler_call_exit_with_nones
-                // Stack: [..., __exit__] or [..., return_value, __exit__]
+                // Call __exit__(None, None, None)
+                // Call protocol: [callable, self_or_null, arg1, arg2, arg3]
+                emit!(self, Instruction::PushNull);
+                // Stack: [..., __exit__, NULL]
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
+                // Stack: [..., __exit__, NULL, None, None, None]
                 emit!(self, Instruction::Call { nargs: 3 });
 
                 // For async with, await the result
@@ -1875,6 +1873,7 @@ impl Compiler {
 
                     let assertion_error = self.name("AssertionError");
                     emit!(self, Instruction::LoadGlobal(assertion_error));
+                    emit!(self, Instruction::PushNull);
                     match msg {
                         Some(e) => {
                             self.compile_expression(e)?;
@@ -2092,15 +2091,21 @@ impl Compiler {
         Ok(())
     }
 
+    /// Push decorators onto the stack in source order.
+    /// For @dec1 @dec2 def foo(): stack becomes [dec1, NULL, dec2, NULL]
     fn prepare_decorators(&mut self, decorator_list: &[Decorator]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(&decorator.expression)?;
+            emit!(self, Instruction::PushNull);
         }
         Ok(())
     }
 
+    /// Apply decorators in reverse order (LIFO from stack).
+    /// Stack [dec1, NULL, dec2, NULL, func] -> dec2(func) -> dec1(dec2(func))
+    /// The forward loop works because each Call pops from TOS, naturally
+    /// applying decorators bottom-up (innermost first).
     fn apply_decorators(&mut self, decorator_list: &[Decorator]) {
-        // Apply decorators:
         for _ in decorator_list {
             emit!(self, Instruction::Call { nargs: 1 });
         }
@@ -2142,6 +2147,7 @@ impl Compiler {
 
         // Create type params function with closure
         self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+        emit!(self, Instruction::PushNull);
 
         // Call the function immediately
         emit!(self, Instruction::Call { nargs: 0 });
@@ -3224,11 +3230,6 @@ impl Compiler {
                 num_typeparam_args += 1;
             }
 
-            // SWAP if we have both
-            if num_typeparam_args == 2 {
-                emit!(self, Instruction::Swap { index: 2 });
-            }
-
             // Enter type params scope
             let type_params_name = format!("<generic parameters of {name}>");
             self.push_output(
@@ -3307,14 +3308,29 @@ impl Compiler {
             // Make closure for type params code
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
 
-            // Call the closure
+            // Call the type params closure with defaults/kwdefaults as arguments.
+            // Call protocol: [callable, self_or_null, arg1, ..., argN]
+            // We need to reorder: [args..., closure] -> [closure, NULL, args...]
+            // Using Swap operations to move closure down and insert NULL.
+            // Note: num_typeparam_args is at most 2 (defaults tuple, kwdefaults dict).
             if num_typeparam_args > 0 {
-                emit!(
-                    self,
-                    Instruction::Swap {
-                        index: (num_typeparam_args + 1) as u32
+                match num_typeparam_args {
+                    1 => {
+                        // Stack: [arg1, closure]
+                        emit!(self, Instruction::Swap { index: 2 }); // [closure, arg1]
+                        emit!(self, Instruction::PushNull); // [closure, arg1, NULL]
+                        emit!(self, Instruction::Swap { index: 2 }); // [closure, NULL, arg1]
                     }
-                );
+                    2 => {
+                        // Stack: [arg1, arg2, closure]
+                        emit!(self, Instruction::Swap { index: 3 }); // [closure, arg2, arg1]
+                        emit!(self, Instruction::Swap { index: 2 }); // [closure, arg1, arg2]
+                        emit!(self, Instruction::PushNull); // [closure, arg1, arg2, NULL]
+                        emit!(self, Instruction::Swap { index: 3 }); // [closure, NULL, arg2, arg1]
+                        emit!(self, Instruction::Swap { index: 2 }); // [closure, NULL, arg1, arg2]
+                    }
+                    _ => unreachable!("only defaults and kwdefaults are supported"),
+                }
                 emit!(
                     self,
                     Instruction::Call {
@@ -3322,7 +3338,9 @@ impl Compiler {
                     }
                 );
             } else {
-                // No arguments, just call the closure
+                // Stack: [closure]
+                emit!(self, Instruction::PushNull);
+                // Stack: [closure, NULL]
                 emit!(self, Instruction::Call { nargs: 0 });
             }
         }
@@ -3691,6 +3709,7 @@ impl Compiler {
 
             // Generate class creation code
             emit!(self, Instruction::LoadBuildClass);
+            emit!(self, Instruction::PushNull);
 
             // Set up the class function with type params
             let mut func_flags = bytecode::MakeFunctionFlags::empty();
@@ -3701,43 +3720,91 @@ impl Compiler {
             self.make_closure(class_code, func_flags)?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
-            // Compile original bases
-            let base_count = if let Some(arguments) = arguments {
-                for arg in &arguments.args {
-                    self.compile_expression(arg)?;
+            // Compile bases and call __build_class__
+            // Check for starred bases or **kwargs
+            let has_starred = arguments
+                .is_some_and(|args| args.args.iter().any(|arg| matches!(arg, Expr::Starred(_))));
+            let has_double_star =
+                arguments.is_some_and(|args| args.keywords.iter().any(|kw| kw.arg.is_none()));
+
+            if has_starred || has_double_star {
+                // Use CallFunctionEx for *bases or **kwargs
+                // Stack has: [__build_class__, NULL, class_func, name]
+                // Need to build: args tuple = (class_func, name, *bases, .generic_base)
+
+                // Compile bases with gather_elements (handles starred)
+                let (size, unpack) = if let Some(arguments) = arguments {
+                    self.gather_elements(2, &arguments.args)? // 2 = class_func + name already on stack
+                } else {
+                    // Just class_func and name (no bases)
+                    (2, false)
+                };
+
+                // Add .generic_base as final base
+                emit!(self, Instruction::LoadName(dot_generic_base));
+
+                // Build args tuple
+                if unpack {
+                    // Starred: gather_elements produced tuples on stack
+                    emit!(self, Instruction::BuildTuple { size: 1 }); // (.generic_base,)
+                    emit!(self, Instruction::BuildTupleFromTuples { size: size + 1 });
+                } else {
+                    // No starred: individual elements on stack
+                    // size includes class_func + name + bases count, +1 for .generic_base
+                    emit!(self, Instruction::BuildTuple { size: size + 1 });
                 }
-                arguments.args.len()
+
+                // Build kwargs if needed
+                let has_kwargs = arguments.is_some_and(|args| !args.keywords.is_empty());
+                if has_kwargs {
+                    self.compile_keywords(&arguments.unwrap().keywords)?;
+                }
+                emit!(self, Instruction::CallFunctionEx { has_kwargs });
             } else {
-                0
-            };
+                // Simple case: no starred bases, no **kwargs
+                // Compile bases normally
+                let base_count = if let Some(arguments) = arguments {
+                    for arg in &arguments.args {
+                        self.compile_expression(arg)?;
+                    }
+                    arguments.args.len()
+                } else {
+                    0
+                };
 
-            // Load .generic_base as the last base
-            emit!(self, Instruction::LoadName(dot_generic_base));
+                // Load .generic_base as the last base
+                emit!(self, Instruction::LoadName(dot_generic_base));
 
-            let nargs = 2 + u32::try_from(base_count).expect("too many base classes") + 1; // function, name, bases..., generic_base
+                let nargs = 2 + u32::try_from(base_count).expect("too many base classes") + 1;
 
-            // Handle keyword arguments
-            if let Some(arguments) = arguments
-                && !arguments.keywords.is_empty()
-            {
-                for keyword in &arguments.keywords {
-                    if let Some(name) = &keyword.arg {
-                        self.emit_load_const(ConstantData::Str {
+                // Handle keyword arguments (no **kwargs here)
+                if let Some(arguments) = arguments
+                    && !arguments.keywords.is_empty()
+                {
+                    let mut kwarg_names = vec![];
+                    for keyword in &arguments.keywords {
+                        let name = keyword.arg.as_ref().expect(
+                            "keyword argument name must be set (no **kwargs in this branch)",
+                        );
+                        kwarg_names.push(ConstantData::Str {
                             value: name.as_str().into(),
                         });
+                        self.compile_expression(&keyword.value)?;
                     }
-                    self.compile_expression(&keyword.value)?;
+                    self.emit_load_const(ConstantData::Tuple {
+                        elements: kwarg_names,
+                    });
+                    emit!(
+                        self,
+                        Instruction::CallKw {
+                            nargs: nargs
+                                + u32::try_from(arguments.keywords.len())
+                                    .expect("too many keyword arguments")
+                        }
+                    );
+                } else {
+                    emit!(self, Instruction::Call { nargs });
                 }
-                emit!(
-                    self,
-                    Instruction::CallKw {
-                        nargs: nargs
-                            + u32::try_from(arguments.keywords.len())
-                                .expect("too many keyword arguments")
-                    }
-                );
-            } else {
-                emit!(self, Instruction::Call { nargs });
             }
 
             // Return the created class
@@ -3748,21 +3815,22 @@ impl Compiler {
 
             // Execute the type params function
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
+            emit!(self, Instruction::PushNull);
             emit!(self, Instruction::Call { nargs: 0 });
         } else {
             // Non-generic class: standard path
             emit!(self, Instruction::LoadBuildClass);
+            emit!(self, Instruction::PushNull);
 
             // Create class function with closure
             self.make_closure(class_code, bytecode::MakeFunctionFlags::empty())?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
-            let call = if let Some(arguments) = arguments {
-                self.compile_call_inner(2, arguments)?
+            if let Some(arguments) = arguments {
+                self.compile_call_helper(2, arguments)?;
             } else {
-                CallType::Positional { nargs: 2 }
-            };
-            self.compile_normal_call(call);
+                emit!(self, Instruction::Call { nargs: 2 });
+            }
         }
 
         // Step 4: Apply decorators and store (common to both paths)
@@ -3912,6 +3980,7 @@ impl Compiler {
         // Stack: [..., __exit__]
         // Call __exit__(None, None, None)
         self.set_source_range(with_range);
+        emit!(self, Instruction::PushNull);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
@@ -6087,49 +6156,36 @@ impl Compiler {
     }
 
     fn compile_call(&mut self, func: &Expr, args: &Arguments) -> CompileResult<()> {
-        let method = if let Expr::Attribute(ExprAttribute { value, attr, .. }) = &func {
+        // Method call: obj → LOAD_ATTR_METHOD → [method, self_or_null] → args → CALL
+        // Regular call: func → PUSH_NULL → args → CALL
+        if let Expr::Attribute(ExprAttribute { value, attr, .. }) = &func {
+            // Method call: compile object, then LOAD_ATTR_METHOD
+            // LOAD_ATTR_METHOD pushes [method, self_or_null] on stack
             self.compile_expression(value)?;
             let idx = self.name(attr.as_str());
-            emit!(self, Instruction::LoadMethod { idx });
-            true
+            emit!(self, Instruction::LoadAttrMethod { idx });
+            self.compile_call_helper(0, args)?;
         } else {
+            // Regular call: push func, then NULL for self_or_null slot
+            // Stack layout: [func, NULL, args...] - same as method call [func, self, args...]
             self.compile_expression(func)?;
-            false
-        };
-        let call = self.compile_call_inner(0, args)?;
-        if method {
-            self.compile_method_call(call)
-        } else {
-            self.compile_normal_call(call)
+            emit!(self, Instruction::PushNull);
+            self.compile_call_helper(0, args)?;
         }
         Ok(())
     }
 
-    fn compile_normal_call(&mut self, ty: CallType) {
-        match ty {
-            CallType::Positional { nargs } => {
-                emit!(self, Instruction::Call { nargs })
-            }
-            CallType::Keyword { nargs } => emit!(self, Instruction::CallKw { nargs }),
-            CallType::Ex { has_kwargs } => emit!(self, Instruction::CallFunctionEx { has_kwargs }),
-        }
-    }
-    fn compile_method_call(&mut self, ty: CallType) {
-        match ty {
-            CallType::Positional { nargs } => {
-                emit!(self, Instruction::CallMethodPositional { nargs })
-            }
-            CallType::Keyword { nargs } => emit!(self, Instruction::CallMethodKeyword { nargs }),
-            CallType::Ex { has_kwargs } => emit!(self, Instruction::CallMethodEx { has_kwargs }),
-        }
-    }
-
-    fn compile_call_inner(
+    /// Compile call arguments and emit the appropriate CALL instruction.
+    /// This is shared between compiler_call and compiler_class.
+    fn compile_call_helper(
         &mut self,
         additional_positional: u32,
         arguments: &Arguments,
-    ) -> CompileResult<CallType> {
-        let count = u32::try_from(arguments.len()).unwrap() + additional_positional;
+    ) -> CompileResult<()> {
+        let args_count = u32::try_from(arguments.len()).expect("too many arguments");
+        let count = args_count
+            .checked_add(additional_positional)
+            .expect("too many arguments");
 
         // Normal arguments:
         let (size, unpack) = self.gather_elements(additional_positional, &arguments.args)?;
@@ -6141,7 +6197,7 @@ impl Compiler {
             }
         }
 
-        let call = if unpack || has_double_star {
+        if unpack || has_double_star {
             // Create a tuple with positional args:
             if unpack {
                 emit!(self, Instruction::BuildTupleFromTuples { size });
@@ -6154,7 +6210,7 @@ impl Compiler {
             if has_kwargs {
                 self.compile_keywords(&arguments.keywords)?;
             }
-            CallType::Ex { has_kwargs }
+            emit!(self, Instruction::CallFunctionEx { has_kwargs });
         } else if !arguments.keywords.is_empty() {
             let mut kwarg_names = vec![];
             for keyword in &arguments.keywords {
@@ -6172,12 +6228,12 @@ impl Compiler {
             self.emit_load_const(ConstantData::Tuple {
                 elements: kwarg_names,
             });
-            CallType::Keyword { nargs: count }
+            emit!(self, Instruction::CallKw { nargs: count });
         } else {
-            CallType::Positional { nargs: count }
-        };
+            emit!(self, Instruction::Call { nargs: count });
+        }
 
-        Ok(call)
+        Ok(())
     }
 
     // Given a vector of expr / star expr generate code which gives either
@@ -6409,6 +6465,7 @@ impl Compiler {
 
         // Create comprehension function with closure
         self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+        emit!(self, Instruction::PushNull);
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;
@@ -6838,6 +6895,7 @@ impl Compiler {
             match action {
                 UnwindAction::With { is_async } => {
                     // compiler_call_exit_with_nones
+                    emit!(self, Instruction::PushNull);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);

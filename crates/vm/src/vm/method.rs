@@ -3,8 +3,8 @@
 
 use super::VirtualMachine;
 use crate::{
-    builtins::{PyBaseObject, PyStr, PyStrInterned},
-    function::IntoFuncArgs,
+    builtins::{PyBaseObject, PyStr, PyStrInterned, descriptor::PyMethodDescriptor},
+    function::{IntoFuncArgs, PyMethodFlags},
     object::{AsObject, Py, PyObject, PyObjectRef, PyResult},
     types::PyTypeFlags,
 };
@@ -38,8 +38,15 @@ impl PyMethod {
                     .flags
                     .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
                 {
-                    is_method = true;
-                    None
+                    // For classmethods, we need descr_get to convert instance to class
+                    if let Some(method_descr) = descr.downcast_ref::<PyMethodDescriptor>()
+                        && method_descr.method.flags.contains(PyMethodFlags::CLASS)
+                    {
+                        descr_cls.slots.descr_get.load()
+                    } else {
+                        is_method = true;
+                        None
+                    }
                 } else {
                     let descr_get = descr_cls.slots.descr_get.load();
                     if let Some(descr_get) = descr_get

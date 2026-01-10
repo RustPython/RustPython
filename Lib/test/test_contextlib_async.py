@@ -120,8 +120,7 @@ class AsyncContextManagerTestCase(unittest.IsolatedAsyncioTestCase):
                 raise ZeroDivisionError()
         self.assertEqual(state, [1, 42, 999])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     async def test_contextmanager_traceback(self):
         @asynccontextmanager
         async def f():
@@ -253,8 +252,7 @@ class AsyncContextManagerTestCase(unittest.IsolatedAsyncioTestCase):
             raise ZeroDivisionError(999)
         self.assertEqual(state, [1, 42, 999])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     async def test_contextmanager_except_stopiter(self):
         @asynccontextmanager
         async def woohoo():
@@ -535,11 +533,6 @@ class TestAsyncExitStack(TestBaseExitStack, unittest.IsolatedAsyncioTestCase):
         ('__aexit__', 'cb_suppress = cb(*exc_details)'),
     ]
 
-    # TODO: RUSTPYTHON - no _asyncio module, pure Python Task adds extra frame
-    @unittest.expectedFailure
-    def test_exit_exception_traceback(self):
-        super().test_exit_exception_traceback()
-
     async def test_async_callback(self):
         expected = [
             ((), {}),
@@ -657,8 +650,7 @@ class TestAsyncExitStack(TestBaseExitStack, unittest.IsolatedAsyncioTestCase):
                 await stack.enter_async_context(LacksExit())
             self.assertFalse(stack._exit_callbacks)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     async def test_async_exit_exception_chaining(self):
         # Ensure exception chaining matches the reference behaviour
         async def raise_exc(exc):
@@ -690,8 +682,7 @@ class TestAsyncExitStack(TestBaseExitStack, unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     async def test_async_exit_exception_explicit_none_context(self):
         # Ensure AsyncExitStack chaining matches actual nested `with` statements
         # regarding explicit __context__ = None.
@@ -736,6 +727,10 @@ class TestAsyncExitStack(TestBaseExitStack, unittest.IsolatedAsyncioTestCase):
             await stack.enter_async_context(cm)
         stack.push_async_exit(cm)
         self.assertIs(stack._exit_callbacks[-1][1], cm)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; - no _asyncio module, pure Python Task adds extra frame
+    def test_exit_exception_traceback(self):
+        return super().test_exit_exception_traceback()
 
 
 class TestAsyncNullcontext(unittest.IsolatedAsyncioTestCase):
