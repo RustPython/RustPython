@@ -22,6 +22,7 @@ ssl-rustls-fips = ["ssl-rustls", "aws-lc-rs/fips"]
 ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
 ssl-vendor = ["ssl-openssl", "openssl/vendored"]
 tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
+flame-it = ["flame"]
 
 [dependencies]
 # rustpython crates
@@ -33,6 +34,7 @@ ahash = { workspace = true }
 ascii = { workspace = true }
 cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
+flame = { workspace = true, optional = true }
 hex = { workspace = true }
 itertools = { workspace = true }
 indexmap = { workspace = true }
