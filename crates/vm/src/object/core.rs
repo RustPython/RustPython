@@ -99,6 +99,31 @@ pub(super) unsafe fn try_trace_obj<T: PyPayload>(x: &PyObject, tracer_fn: &mut T
     payload.try_traverse(tracer_fn)
 }
 
+bitflags::bitflags! {
+    /// GC bits for free-threading support (like ob_gc_bits in Py_GIL_DISABLED)
+    /// These bits are stored in a separate atomic field for lock-free access.
+    /// See Include/internal/pycore_gc.h
+    #[derive(Copy, Clone, Debug, Default)]
+    pub(crate) struct GcBits: u8 {
+        /// Tracked by the GC
+        const TRACKED = 1 << 0;
+        /// tp_finalize was called (prevents __del__ from being called twice)
+        const FINALIZED = 1 << 1;
+        /// Object is unreachable (during GC collection)
+        const UNREACHABLE = 1 << 2;
+        /// Object is frozen (immutable)
+        const FROZEN = 1 << 3;
+        /// Memory the object references is shared between multiple threads
+        /// and needs special handling when freeing due to possible in-flight lock-free reads
+        const SHARED = 1 << 4;
+        /// Memory of the object itself is shared between multiple threads
+        /// Objects with this bit that are GC objects will automatically be delay-freed
+        const SHARED_INLINE = 1 << 5;
+        /// Use deferred reference counting
+        const DEFERRED = 1 << 6;
+    }
+}
+
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
@@ -106,6 +131,8 @@ pub(super) unsafe fn try_trace_obj<T: PyPayload>(x: &PyObject, tracer_fn: &mut T
 pub(super) struct PyInner<T> {
     pub(super) ref_count: RefCount,
     pub(super) vtable: &'static PyObjVTable,
+    /// GC bits for free-threading (like ob_gc_bits)
+    pub(super) gc_bits: PyAtomic<u8>,
 
     pub(super) typ: PyAtomicRef<PyType>, // __class__ member
     pub(super) dict: Option<InstanceDict>,
@@ -448,6 +475,7 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
         Box::new(Self {
             ref_count: RefCount::new(),
             vtable: PyObjVTable::of::<T>(),
+            gc_bits: Radium::new(0),
             typ: PyAtomicRef::from(typ),
             dict: dict.map(InstanceDict::new),
             weak_list: WeakRefList::new(),
@@ -780,6 +808,23 @@ impl PyObject {
         self
     }
 
+    /// Check if the object has been finalized (__del__ already called).
+    /// _PyGC_FINALIZED in Py_GIL_DISABLED mode.
+    #[inline]
+    fn gc_finalized(&self) -> bool {
+        use core::sync::atomic::Ordering::Relaxed;
+        GcBits::from_bits_retain(self.0.gc_bits.load(Relaxed)).contains(GcBits::FINALIZED)
+    }
+
+    /// Mark the object as finalized. Should be called before __del__.
+    /// _PyGC_SET_FINALIZED in Py_GIL_DISABLED mode.
+    #[inline]
+    fn set_gc_finalized(&self) {
+        use core::sync::atomic::Ordering::Relaxed;
+        // Atomic RMW to avoid clobbering other concurrent bit updates.
+        self.0.gc_bits.fetch_or(GcBits::FINALIZED.bits(), Relaxed);
+    }
+
     #[inline(always)] // the outer function is never inlined
     fn drop_slow_inner(&self) -> Result<(), ()> {
         // __del__ is mostly not implemented
@@ -809,9 +854,12 @@ impl PyObject {
             }
         }
 
-        // CPython-compatible drop implementation
+        // __del__ should only be called once (like _PyGC_FINALIZED check in GIL_DISABLED)
         let del = self.class().slots.del.load();
-        if let Some(slot_del) = del {
+        if let Some(slot_del) = del
+            && !self.gc_finalized()
+        {
+            self.set_gc_finalized();
             call_slot_del(self, slot_del)?;
         }
         if let Some(wrl) = self.weak_ref_list() {
@@ -1274,6 +1322,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             PyInner::<PyType> {
                 ref_count: RefCount::new(),
                 vtable: PyObjVTable::of::<PyType>(),
+                gc_bits: Radium::new(0),
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: type_payload,
@@ -1285,6 +1334,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             PyInner::<PyType> {
                 ref_count: RefCount::new(),
                 vtable: PyObjVTable::of::<PyType>(),
+                gc_bits: Radium::new(0),
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: object_payload,

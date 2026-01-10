@@ -6212,23 +6212,33 @@ impl Compiler {
             }
             emit!(self, Instruction::CallFunctionEx { has_kwargs });
         } else if !arguments.keywords.is_empty() {
-            let mut kwarg_names = vec![];
+            // No **kwargs in this branch (has_double_star is false),
+            // so all keywords have arg.is_some()
+            let mut kwarg_names = Vec::with_capacity(arguments.keywords.len());
             for keyword in &arguments.keywords {
-                if let Some(name) = &keyword.arg {
-                    kwarg_names.push(ConstantData::Str {
-                        value: name.as_str().into(),
-                    });
-                } else {
-                    // This means **kwargs!
-                    panic!("name must be set");
-                }
+                let name = keyword
+                    .arg
+                    .as_ref()
+                    .expect("has_double_star is false, so arg must be Some");
+                kwarg_names.push(ConstantData::Str {
+                    value: name.as_str().into(),
+                });
                 self.compile_expression(&keyword.value)?;
             }
 
             self.emit_load_const(ConstantData::Tuple {
                 elements: kwarg_names,
             });
-            emit!(self, Instruction::CallKw { nargs: count });
+            // nargs = positional args + keyword args
+            let positional = additional_positional
+                .checked_add(u32::try_from(arguments.args.len()).expect("too many positional args"))
+                .expect("too many positional args");
+            let keyword_count =
+                u32::try_from(arguments.keywords.len()).expect("too many keyword args");
+            let nargs = positional
+                .checked_add(keyword_count)
+                .expect("too many arguments");
+            emit!(self, Instruction::CallKw { nargs });
         } else {
             emit!(self, Instruction::Call { nargs: count });
         }

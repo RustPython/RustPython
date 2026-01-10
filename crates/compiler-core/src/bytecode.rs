@@ -84,6 +84,20 @@ pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTabl
     None
 }
 
+/// Encode LOAD_ATTR oparg: bit 0 = method flag, bits 1+ = name index.
+#[inline]
+pub const fn encode_load_attr_arg(name_idx: u32, is_method: bool) -> u32 {
+    (name_idx << 1) | (is_method as u32)
+}
+
+/// Decode LOAD_ATTR oparg: returns (name_idx, is_method).
+#[inline]
+pub const fn decode_load_attr_arg(oparg: u32) -> (u32, bool) {
+    let is_method = (oparg & 1) == 1;
+    let name_idx = oparg >> 1;
+    (name_idx, is_method)
+}
+
 /// Oparg values for [`Instruction::ConvertValue`].
 ///
 /// ## See also
@@ -1721,6 +1735,9 @@ impl Instruction {
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
+            | JumpBackward { target: l }
+            | JumpBackwardNoInterrupt { target: l }
+            | JumpForward { target: l }
             | JumpIfNotExcMatch(l)
             | PopJumpIfTrue { target: l }
             | PopJumpIfFalse { target: l }
@@ -1747,6 +1764,9 @@ impl Instruction {
         matches!(
             self,
             Jump { .. }
+                | JumpForward { .. }
+                | JumpBackward { .. }
+                | JumpBackwardNoInterrupt { .. }
                 | Continue { .. }
                 | Break { .. }
                 | ReturnValue
@@ -2040,11 +2060,27 @@ impl Instruction {
             ImportName { idx } => w!(IMPORT_NAME, name = idx),
             IsOp(inv) => w!(IS_OP, ?inv),
             Jump { target } => w!(JUMP, target),
+            JumpBackward { target } => w!(JUMP_BACKWARD, target),
+            JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
+            JumpForward { target } => w!(JUMP_FORWARD, target),
             JumpIfFalseOrPop { target } => w!(JUMP_IF_FALSE_OR_POP, target),
             JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
             JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
             ListAppend { i } => w!(LIST_APPEND, i),
-            LoadAttr { idx } => w!(LOAD_ATTR, name = idx),
+            LoadAttr { idx } => {
+                let encoded = idx.get(arg);
+                let (name_idx, is_method) = decode_load_attr_arg(encoded);
+                let attr_name = name(name_idx);
+                if is_method {
+                    write!(
+                        f,
+                        "{:pad$}({}, {}, method=true)",
+                        "LOAD_ATTR", encoded, attr_name
+                    )
+                } else {
+                    write!(f, "{:pad$}({}, {})", "LOAD_ATTR", encoded, attr_name)
+                }
+            }
             LoadAttrMethod { idx } => w!(LOAD_ATTR_METHOD, name = idx),
             LoadBuildClass => w!(LOAD_BUILD_CLASS),
             LoadClassDeref(idx) => w!(LOAD_CLASSDEREF, cell_name = idx),

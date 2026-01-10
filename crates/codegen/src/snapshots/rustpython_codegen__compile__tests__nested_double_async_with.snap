@@ -18,7 +18,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  12 STORE_FAST           (0, stop_exc)
 
   3              13 LOAD_GLOBAL          (2, self)
-                 14 LOAD_ATTR_METHOD     (3, subTest)
+                 14 LOAD_ATTR            (7, subTest, method=true)
                  15 LOAD_GLOBAL          (4, type)
                  16 PUSH_NULL
                  17 LOAD_FAST            (0, stop_exc)
@@ -37,7 +37,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
             >>   29 SEND                 (34)
                  30 YIELD_VALUE          (1)
                  31 RESUME               (3)
-                 32 JUMP                 (29)
+                 32 JUMP_BACKWARD        (29)
                  33 CLEANUP_THROW
             >>   34 END_SEND
                  35 POP_TOP
@@ -55,11 +55,11 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
             >>   45 SEND                 (50)
                  46 YIELD_VALUE          (1)
                  47 RESUME               (3)
-                 48 JUMP                 (45)
+                 48 JUMP_BACKWARD        (45)
                  49 CLEANUP_THROW
             >>   50 END_SEND
                  51 POP_TOP
-                 52 JUMP                 (74)
+                 52 JUMP_FORWARD         (74)
                  53 PUSH_EXC_INFO
                  54 WITH_EXCEPT_START
                  55 GET_AWAITABLE
@@ -67,7 +67,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
             >>   57 SEND                 (62)
                  58 YIELD_VALUE          (1)
                  59 RESUME               (3)
-                 60 JUMP                 (57)
+                 60 JUMP_BACKWARD        (57)
                  61 CLEANUP_THROW
             >>   62 END_SEND
                  63 TO_BOOL
@@ -77,11 +77,11 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  67 POP_EXCEPT
                  68 POP_TOP
                  69 POP_TOP
-                 70 JUMP                 (74)
+                 70 JUMP_FORWARD         (74)
                  71 COPY                 (3)
                  72 POP_EXCEPT
                  73 RERAISE              (1)
-            >>   74 JUMP                 (100)
+            >>   74 JUMP_FORWARD         (100)
                  75 PUSH_EXC_INFO
                  76 COPY                 (1)
 
@@ -90,12 +90,12 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  79 STORE_FAST           (1, ex)
 
   8              80 LOAD_GLOBAL          (2, self)
-                 81 LOAD_ATTR_METHOD     (7, assertIs)
+                 81 LOAD_ATTR            (15, assertIs, method=true)
                  82 LOAD_FAST            (1, ex)
                  83 LOAD_FAST            (0, stop_exc)
                  84 CALL                 (2)
                  85 POP_TOP
-                 86 JUMP                 (91)
+                 86 JUMP_FORWARD         (91)
                  87 LOAD_CONST           (None)
                  88 STORE_FAST           (1, ex)
                  89 DELETE_FAST          (1, ex)
@@ -104,14 +104,14 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  92 LOAD_CONST           (None)
                  93 STORE_FAST           (1, ex)
                  94 DELETE_FAST          (1, ex)
-                 95 JUMP                 (108)
+                 95 JUMP_FORWARD         (108)
             >>   96 RAISE_VARARGS        (ReraiseFromStack)
                  97 COPY                 (3)
                  98 POP_EXCEPT
                  99 RAISE_VARARGS        (ReraiseFromStack)
 
  10         >>  100 LOAD_GLOBAL          (2, self)
-                101 LOAD_ATTR_METHOD     (8, fail)
+                101 LOAD_ATTR            (17, fail, method=true)
                 102 LOAD_FAST            (0, stop_exc)
                 103 FORMAT_SIMPLE
                 104 LOAD_CONST           (" was suppressed")
@@ -125,7 +125,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 111 LOAD_CONST           (None)
                 112 CALL                 (3)
                 113 POP_TOP
-                114 JUMP                 (128)
+                114 JUMP_FORWARD         (128)
                 115 PUSH_EXC_INFO
                 116 WITH_EXCEPT_START
                 117 TO_BOOL
@@ -135,11 +135,11 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 121 POP_EXCEPT
                 122 POP_TOP
                 123 POP_TOP
-                124 JUMP                 (128)
+                124 JUMP_FORWARD         (128)
                 125 COPY                 (3)
                 126 POP_EXCEPT
                 127 RERAISE              (1)
-            >>  128 JUMP                 (11)
+            >>  128 JUMP_BACKWARD        (11)
             >>  129 RETURN_CONST         (None)
 
               1 MAKE_FUNCTION

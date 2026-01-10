@@ -1,4 +1,4 @@
-// spell-checker: ignore ssleof aesccm aesgcm getblocking setblocking ENDTLS
+// spell-checker: ignore ssleof aesccm aesgcm getblocking setblocking ENDTLS TLSEXT
 
 //! Pure Rust SSL/TLS implementation using rustls
 //!
@@ -2652,7 +2652,31 @@ mod _ssl {
             };
             let initial_context: PyObjectRef = self.context.read().clone().into();
 
-            let result = callback.call((ssl_sock, server_name_py, initial_context), vm)?;
+            // catches exceptions from the callback and reports them as unraisable
+            let result = match callback.call((ssl_sock, server_name_py, initial_context), vm) {
+                Ok(result) => result,
+                Err(exc) => {
+                    vm.run_unraisable(
+                        exc,
+                        Some("in ssl servername callback".to_owned()),
+                        callback.clone(),
+                    );
+                    // Return SSL error like SSL_TLSEXT_ERR_ALERT_FATAL
+                    let ssl_exc: PyBaseExceptionRef = vm
+                        .new_os_subtype_error(
+                            PySSLError::class(&vm.ctx).to_owned(),
+                            None,
+                            "SNI callback raised exception",
+                        )
+                        .upcast();
+                    let _ = ssl_exc.as_object().set_attr(
+                        "reason",
+                        vm.ctx.new_str("TLSV1_ALERT_INTERNAL_ERROR"),
+                        vm,
+                    );
+                    return Err(ssl_exc);
+                }
+            };
 
             // Check return value type (must be None or integer)
             if !vm.is_none(&result) {
