@@ -2,9 +2,19 @@
 __doc__ = """
 This tool helps with updating test files from CPython.
 
+Quick Upgrade
+-------------
+    ./{fname} --quick-upgrade cpython/Lib/test/test_threading.py
+    ./{fname} --quick-upgrade ../somewhere/Lib/threading.py
+
+    Any path containing `/Lib/` will auto-detect the target:
+    -> Extracts patches from Lib/... (auto-detected from path)
+    -> Applies them to the source file
+    -> Writes result to Lib/...
+
 Examples
 --------
-To move the patches found in `Lib/test/foo.py` to ` ~/cpython/Lib/test/foo.py` then write the contents back to `Lib/test/foo.py`
+To move the patches found in `Lib/test/foo.py` to `~/cpython/Lib/test/foo.py` then write the contents back to `Lib/test/foo.py`
 
 >>> ./{fname} --from Lib/test/foo.py --to ~/cpython/Lib/test/foo.py -o Lib/test/foo.py
 
@@ -289,6 +299,12 @@ def build_argparse() -> argparse.ArgumentParser:
 
     patches_group = parser.add_mutually_exclusive_group(required=True)
     patches_group.add_argument(
+        "--quick-upgrade",
+        help="Quick upgrade: path containing /Lib/ (e.g., cpython/Lib/test/foo.py)",
+        type=pathlib.Path,
+        metavar="PATH",
+    )
+    patches_group.add_argument(
         "-p",
         "--patches",
         help="File path to file containing patches in a JSON format",
@@ -301,7 +317,7 @@ def build_argparse() -> argparse.ArgumentParser:
         type=pathlib.Path,
     )
 
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
         "--to",
         help="File to apply patches to",
@@ -321,6 +337,28 @@ def build_argparse() -> argparse.ArgumentParser:
 if __name__ == "__main__":
     parser = build_argparse()
     args = parser.parse_args()
+
+    # Quick upgrade: auto-fill --from, --to, -o from path
+    if args.quick_upgrade is not None:
+        path_str = str(args.quick_upgrade)
+        lib_marker = "/Lib/"
+
+        if lib_marker not in path_str:
+            parser.error(f"--quick-upgrade path must contain '/Lib/' (got: {path_str})")
+
+        idx = path_str.index(lib_marker)
+        lib_path = pathlib.Path(path_str[idx + 1 :])
+
+        args.gather_from = lib_path
+        args.to = args.quick_upgrade
+        if args.output == "-":
+            args.output = str(lib_path)
+
+    # Validate required arguments
+    if args.patches is None and args.gather_from is None:
+        parser.error("--from or --patches is required (or use --quick-upgrade)")
+    if args.to is None and not args.show_patches:
+        parser.error("--to or --show-patches is required")
 
     if args.patches:
         patches = {
