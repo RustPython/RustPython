@@ -1458,11 +1458,6 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
-            bytecode::Instruction::Reverse { amount } => {
-                let stack_len = self.state.stack.len();
-                self.state.stack[stack_len - amount.get(arg) as usize..stack_len].reverse();
-                Ok(None)
-            }
             bytecode::Instruction::SetAdd { i } => {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg));

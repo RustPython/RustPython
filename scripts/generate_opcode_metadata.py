@@ -25,8 +25,6 @@ class Opcode(typing.NamedTuple):
         name = self.rust_name
         name = re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", name)
         return re.sub(r"(\D)(\d+)$", r"\1_\2", name).upper()
-        return re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", self.rust_name).upper()
-        return re.sub(r"(?<!^)(?=[A-Z])", "_", self.rust_name).upper()
 
     @classmethod
     def from_str(cls, body: str):

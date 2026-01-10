@@ -4,10 +4,6 @@
 
 _specializations = {}
 
-
-
-
-
 _specialized_opmap = {}
 
 opmap = {
@@ -141,7 +137,6 @@ opmap = {
     'JUMP_IF_TRUE_OR_POP': 130,
     'JUMP_IF_NOT_EXC_MATCH': 131,
     'LOAD_CLASS_DEREF': 132,
-    'REVERSE': 133,
     'SET_EXC_INFO': 134,
     'SUBSCRIPT': 135,
     'RESUME': 149,

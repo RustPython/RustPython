@@ -334,7 +334,7 @@ jobs:
       - name: Ensure Lib/_opcode_metadata is updated
         run: |
           python scripts/generate_opcode_metadata.py
-          if [ -z "$(git status --porcelain)" ]; then
+          if [ -n "$(git status --porcelain)" ]; then
             exit 1
           fi
 
