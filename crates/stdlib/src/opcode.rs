@@ -108,7 +108,7 @@ mod opcode {
                 && matches!(
                     Instruction::try_from(opcode as u8),
                     Ok(Instruction::DeleteDeref(_)
-                        | Instruction::LoadClassDeref(_)
+                        | Instruction::LoadFromDictOrDeref(_)
                         | Instruction::LoadClosure(_)
                         | Instruction::LoadDeref(_)
                         | Instruction::StoreDeref(_))

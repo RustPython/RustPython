@@ -842,7 +842,7 @@ pub enum Instruction {
     LoadFastLoadFast {
         arg: Arg<u32>,
     } = 88, // Placeholder
-    LoadFromDictOrDeref(Arg<NameIdx>) = 89, // Placeholder
+    LoadFromDictOrDeref(Arg<NameIdx>) = 89,
     LoadFromDictOrGlobals(Arg<NameIdx>) = 90, // Placeholder
     LoadGlobal(Arg<NameIdx>) = 91,
     LoadName(Arg<NameIdx>) = 92,
@@ -945,7 +945,6 @@ pub enum Instruction {
         target: Arg<Label>,
     } = 130,
     JumpIfNotExcMatch(Arg<Label>) = 131,
-    LoadClassDeref(Arg<NameIdx>) = 132,
     SetExcInfo = 134,
     Subscript = 135,
     // ===== Pseudo Opcodes (252+) ======
@@ -1010,7 +1009,6 @@ impl TryFrom<u8> for Instruction {
                 target: Arg::marker(),
             }),
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
-            u8::from(Self::LoadClassDeref(Arg::marker())),
             u8::from(Self::SetExcInfo),
             u8::from(Self::Subscript),
         ];
@@ -1805,14 +1803,14 @@ impl Instruction {
             Nop => 0,
             ImportName { .. } => -1,
             ImportFrom { .. } => 1,
-            LoadFast(_) | LoadFastAndClear(_) | LoadName(_) | LoadGlobal(_) | LoadDeref(_)
-            | LoadClassDeref(_) => 1,
+            LoadFast(_) | LoadFastAndClear(_) | LoadName(_) | LoadGlobal(_) | LoadDeref(_) => 1,
             StoreFast(_) | StoreName(_) | StoreGlobal(_) | StoreDeref(_) => -1,
             StoreFastLoadFast { .. } => 0, // pop 1, push 1
             DeleteFast(_) | DeleteName(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
             LoadClosure(_) => 1,
             Subscript => -1,
             StoreSubscr => -3,
+            LoadFromDictOrDeref(_) => 1,
             DeleteSubscr => -2,
             LoadAttr { .. } => 0,
             // LoadAttrMethod: pop obj, push method + self_or_null
@@ -1950,7 +1948,33 @@ impl Instruction {
             UnaryNot => 0,
             GetYieldFromIter => 0,
             PushNull => 1, // Push NULL for call protocol
-            _ => 0,
+            Cache => 0,
+            BinarySlice => 0,
+            BinaryOpInplaceAddUnicode => 0,
+            EndFor => 0,
+            ExitInitCheck => 0,
+            InterpreterExit => 0,
+            LoadAssertionError => 0,
+            LoadLocals => 0,
+            ReturnGenerator => 0,
+            StoreSlice => 0,
+            DictMerge { .. } => 0,
+            BuildConstKeyMap { .. } => 0,
+            CopyFreeVars { .. } => 0,
+            EnterExecutor => 0,
+            JumpBackwardNoInterrupt { .. } => 0,
+            JumpBackward { .. } => 0,
+            JumpForward { .. } => 0,
+            ListExtend { .. } => 0,
+            LoadFastCheck(_) => 0,
+            LoadFastLoadFast { .. } => 0,
+            LoadFromDictOrGlobals(_) => 0,
+            SetUpdate { .. } => 0,
+            MakeCell(_) => 0,
+            LoadSuperAttr { .. } => 0,
+            StoreFastStoreFast { .. } => 0,
+            PopJumpIfNone { .. } => 0,
+            PopJumpIfNotNone { .. } => 0,
         }
     }
 
@@ -2096,7 +2120,7 @@ impl Instruction {
             }
             LoadAttrMethod { idx } => w!(LOAD_ATTR_METHOD, name = idx),
             LoadBuildClass => w!(LOAD_BUILD_CLASS),
-            LoadClassDeref(idx) => w!(LOAD_CLASSDEREF, cell_name = idx),
+            LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
             LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
             LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
             LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
