@@ -169,7 +169,7 @@ pub enum Instruction {
     LoadFastLoadFast {
         arg: Arg<u32>,
     } = 88, // Placeholder
-    LoadFromDictOrDeref(Arg<NameIdx>) = 89, // Placeholder
+    LoadFromDictOrDeref(Arg<NameIdx>) = 89,
     LoadFromDictOrGlobals(Arg<NameIdx>) = 90, // Placeholder
     LoadGlobal(Arg<NameIdx>) = 91,
     LoadName(Arg<NameIdx>) = 92,
@@ -272,7 +272,6 @@ pub enum Instruction {
         target: Arg<Label>,
     } = 130,
     JumpIfNotExcMatch(Arg<Label>) = 131,
-    LoadClassDeref(Arg<NameIdx>) = 132,
     SetExcInfo = 134,
     Subscript = 135,
     // ===== Pseudo Opcodes (252+) ======
@@ -337,7 +336,6 @@ impl TryFrom<u8> for Instruction {
                 target: Arg::marker(),
             }),
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
-            u8::from(Self::LoadClassDeref(Arg::marker())),
             u8::from(Self::SetExcInfo),
             u8::from(Self::Subscript),
         ];
@@ -428,7 +426,6 @@ impl Instruction {
             Self::LoadName(_) => 1,
             Self::LoadGlobal(_) => 1,
             Self::LoadDeref(_) => 1,
-            Self::LoadClassDeref(_) => 1,
             Self::StoreFast(_) => -1,
             Self::StoreName(_) => -1,
             Self::StoreGlobal(_) => -1,
@@ -438,6 +435,7 @@ impl Instruction {
             Self::DeleteName(_) => 0,
             Self::DeleteGlobal(_) => 0,
             Self::DeleteDeref(_) => 0,
+            Self::LoadFromDictOrDeref(_) => 1,
             Self::LoadClosure(_) => 1,
             Self::Subscript => -1,
             Self::StoreSubscr => -3,
@@ -590,7 +588,33 @@ impl Instruction {
             Self::UnaryNot => 0,
             Self::GetYieldFromIter => 0,
             Self::PushNull => 1, // Push NULL for call protocol
-            _ => 0,
+            Self::Cache => 0,
+            Self::BinarySlice => 0,
+            Self::BinaryOpInplaceAddUnicode => 0,
+            Self::EndFor => 0,
+            Self::ExitInitCheck => 0,
+            Self::InterpreterExit => 0,
+            Self::LoadAssertionError => 0,
+            Self::LoadLocals => 0,
+            Self::ReturnGenerator => 0,
+            Self::StoreSlice => 0,
+            Self::DictMerge { .. } => 0,
+            Self::BuildConstKeyMap { .. } => 0,
+            Self::CopyFreeVars { .. } => 0,
+            Self::EnterExecutor => 0,
+            Self::JumpBackwardNoInterrupt { .. } => 0,
+            Self::JumpBackward { .. } => 0,
+            Self::JumpForward { .. } => 0,
+            Self::ListExtend { .. } => 0,
+            Self::LoadFastCheck(_) => 0,
+            Self::LoadFastLoadFast { .. } => 0,
+            Self::LoadFromDictOrGlobals(_) => 0,
+            Self::SetUpdate { .. } => 0,
+            Self::MakeCell(_) => 0,
+            Self::LoadSuperAttr { .. } => 0,
+            Self::StoreFastStoreFast { .. } => 0,
+            Self::PopJumpIfNone { .. } => 0,
+            Self::PopJumpIfNotNone { .. } => 0,
         }
     }
 
@@ -736,7 +760,7 @@ impl Instruction {
             }
             Self::LoadAttrMethod { idx } => w!(LOAD_ATTR_METHOD, name = idx),
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
-            Self::LoadClassDeref(idx) => w!(LOAD_CLASSDEREF, cell_name = idx),
+            Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
             Self::LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
             Self::LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
             Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
