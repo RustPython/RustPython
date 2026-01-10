@@ -72,7 +72,7 @@ pub fn get_jit_arg_types(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult
 
     if code
         .flags
-        .intersects(CodeFlags::HAS_VARARGS | CodeFlags::HAS_VARKEYWORDS)
+        .intersects(CodeFlags::VARARGS | CodeFlags::VARKEYWORDS)
     {
         return Err(new_jit_error(
             "Can't jit functions with variable number of arguments".to_owned(),
