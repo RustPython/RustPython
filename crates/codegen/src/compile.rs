@@ -1382,7 +1382,7 @@ impl Compiler {
 
             if let Stmt::Expr(StmtExpr { value, .. }) = &last {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::Copy { index: 1_u32 });
                 emit!(
                     self,
                     Instruction::CallIntrinsic1 {
@@ -1420,7 +1420,7 @@ impl Compiler {
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                     let pop_instructions = self.current_block().instructions.pop();
                     let store_inst = compiler_unwrap_option(self, pop_instructions); // pop Instruction::Store
-                    emit!(self, Instruction::CopyItem { index: 1_u32 });
+                    emit!(self, Instruction::Copy { index: 1_u32 });
                     self.current_block().instructions.push(store_inst);
                 }
                 _ => self.emit_load_const(ConstantData::None),
@@ -1938,7 +1938,7 @@ impl Compiler {
 
                 for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
-                        emit!(self, Instruction::CopyItem { index: 1_u32 });
+                        emit!(self, Instruction::Copy { index: 1_u32 });
                     }
                     self.compile_store(target)?;
                 }
@@ -2205,7 +2205,7 @@ impl Compiler {
                         );
                     }
 
-                    emit!(self, Instruction::CopyItem { index: 1_u32 });
+                    emit!(self, Instruction::Copy { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
@@ -2230,7 +2230,7 @@ impl Compiler {
                         );
                     }
 
-                    emit!(self, Instruction::CopyItem { index: 1_u32 });
+                    emit!(self, Instruction::Copy { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
@@ -2256,7 +2256,7 @@ impl Compiler {
                         );
                     }
 
-                    emit!(self, Instruction::CopyItem { index: 1_u32 });
+                    emit!(self, Instruction::Copy { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
             };
@@ -2396,7 +2396,7 @@ impl Compiler {
 
             if let Some(cleanup) = finally_cleanup_block {
                 self.switch_to_block(cleanup);
-                emit!(self, Instruction::CopyItem { index: 3_u32 });
+                emit!(self, Instruction::Copy { index: 3_u32 });
                 emit!(self, Instruction::PopExcept);
                 emit!(
                     self,
@@ -2457,7 +2457,7 @@ impl Compiler {
             // check if this handler can handle the exception:
             if let Some(exc_type) = type_ {
                 // Duplicate exception for test:
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::Copy { index: 1_u32 });
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
@@ -2598,7 +2598,7 @@ impl Compiler {
         // POP_EXCEPT: pop prev_exc from stack and restore -> [prev_exc, lasti, exc]
         // RERAISE 1: reraise with lasti
         self.switch_to_block(cleanup_block);
-        emit!(self, Instruction::CopyItem { index: 3_u32 });
+        emit!(self, Instruction::Copy { index: 3_u32 });
         emit!(self, Instruction::PopExcept);
         emit!(
             self,
@@ -2693,7 +2693,7 @@ impl Compiler {
         if let Some(cleanup) = finally_cleanup_block {
             self.switch_to_block(cleanup);
             // COPY 3: copy the exception from position 3
-            emit!(self, Instruction::CopyItem { index: 3_u32 });
+            emit!(self, Instruction::Copy { index: 3_u32 });
             // POP_EXCEPT: restore prev_exc as current exception
             emit!(self, Instruction::PopExcept);
             // RERAISE 1: reraise with lasti from stack
@@ -2787,7 +2787,7 @@ impl Compiler {
                 emit!(self, Instruction::BuildList { size: 0 });
                 // Stack: [prev_exc, exc, []]
                 // ADDOP_I(c, loc, COPY, 2);
-                emit!(self, Instruction::CopyItem { index: 2 });
+                emit!(self, Instruction::Copy { index: 2 });
                 // Stack: [prev_exc, exc, [], exc_copy]
                 // Now stack is: [prev_exc, orig, list, rest]
             }
@@ -2817,7 +2817,7 @@ impl Compiler {
 
             // ADDOP_I(c, loc, COPY, 1);
             // ADDOP_JUMP(c, loc, POP_JUMP_IF_NONE, no_match);
-            emit!(self, Instruction::CopyItem { index: 1 });
+            emit!(self, Instruction::Copy { index: 1 });
             self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::IsOp(bytecode::Invert::No)); // is None?
             emit!(
@@ -2947,7 +2947,7 @@ impl Compiler {
         // Stack: [prev_exc, result]
 
         // COPY 1
-        emit!(self, Instruction::CopyItem { index: 1 });
+        emit!(self, Instruction::Copy { index: 1 });
         // Stack: [prev_exc, result, result]
 
         // POP_JUMP_IF_NOT_NONE reraise
@@ -3149,7 +3149,7 @@ impl Compiler {
 
         // Handle docstring if present
         if let Some(doc) = doc_str {
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
+            emit!(self, Instruction::Copy { index: 1_u32 });
             self.emit_load_const(ConstantData::Str {
                 value: doc.to_string().into(),
             });
@@ -3633,7 +3633,7 @@ impl Compiler {
 
         if let Some(classcell_idx) = classcell_idx {
             emit!(self, Instruction::LoadClosure(classcell_idx.to_u32()));
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
+            emit!(self, Instruction::Copy { index: 1_u32 });
             let classcell = self.name("__classcell__");
             emit!(self, Instruction::StoreName(classcell));
         } else {
@@ -4081,7 +4081,7 @@ impl Compiler {
         // to be in the exception table for these instructions.
         // If we cleared fblock, exceptions here would propagate uncaught.
         self.switch_to_block(cleanup_block);
-        emit!(self, Instruction::CopyItem { index: 3 });
+        emit!(self, Instruction::Copy { index: 3 });
         emit!(self, Instruction::PopExcept);
         emit!(self, Instruction::Reraise { depth: 1 });
 
@@ -4384,7 +4384,7 @@ impl Compiler {
                 continue;
             }
             // Duplicate the subject.
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
+            emit!(self, Instruction::Copy { index: 1_u32 });
             if i < star {
                 // For indices before the star, use a nonnegative index equal to i.
                 self.emit_load_const(ConstantData::Integer { value: i.into() });
@@ -4457,7 +4457,7 @@ impl Compiler {
 
         // Otherwise, there is a sub-pattern. Duplicate the object on top of the stack.
         pc.on_top += 1;
-        emit!(self, Instruction::CopyItem { index: 1_u32 });
+        emit!(self, Instruction::Copy { index: 1_u32 });
         // Compile the sub-pattern.
         self.compile_pattern(p.pattern.as_ref().unwrap(), pc)?;
         // After success, decrement the on_top counter.
@@ -4558,7 +4558,7 @@ impl Compiler {
         // 2. Emit MATCH_CLASS with nargs.
         emit!(self, Instruction::MatchClass(u32::try_from(nargs).unwrap()));
         // 3. Duplicate the top of the stack.
-        emit!(self, Instruction::CopyItem { index: 1_u32 });
+        emit!(self, Instruction::Copy { index: 1_u32 });
         // 4. Load None.
         self.emit_load_const(ConstantData::None);
         // 5. Compare with IS_OP 1.
@@ -4723,7 +4723,7 @@ impl Compiler {
         pc.on_top += 2; // subject and keys_tuple are underneath
 
         // Check if match succeeded
-        emit!(self, Instruction::CopyItem { index: 1_u32 });
+        emit!(self, Instruction::Copy { index: 1_u32 });
         // Stack: [subject, keys_tuple, values_tuple, values_tuple_copy]
 
         // Check if copy is None (consumes the copy like POP_JUMP_IF_NONE)
@@ -4776,7 +4776,7 @@ impl Compiler {
                 // Copy rest_dict which is at position (1 + remaining) from TOS
                 emit!(
                     self,
-                    Instruction::CopyItem {
+                    Instruction::Copy {
                         index: 1 + remaining
                     }
                 );
@@ -4833,7 +4833,7 @@ impl Compiler {
             pc.fail_pop.clear();
             pc.on_top = 0;
             // Emit a COPY(1) instruction before compiling the alternative.
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
+            emit!(self, Instruction::Copy { index: 1_u32 });
             self.compile_pattern(alt, pc)?;
 
             let n_stores = pc.stores.len();
@@ -5080,7 +5080,7 @@ impl Compiler {
         for (i, m) in cases.iter().enumerate().take(case_count) {
             // Only copy the subject if not on the last case
             if i != case_count - 1 {
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::Copy { index: 1_u32 });
             }
 
             pattern_context.stores = Vec::with_capacity(1);
@@ -5127,7 +5127,7 @@ impl Compiler {
             if let Some(ref guard) = m.guard {
                 // Compile guard and jump to end if false
                 self.compile_expression(guard)?;
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::Copy { index: 1_u32 });
                 emit!(self, Instruction::PopJumpIfFalse { target: end });
                 emit!(self, Instruction::PopTop);
             }
@@ -5207,13 +5207,13 @@ impl Compiler {
 
             // store rhs for the next comparison in chain
             emit!(self, Instruction::Swap { index: 2 });
-            emit!(self, Instruction::CopyItem { index: 2 });
+            emit!(self, Instruction::Copy { index: 2 });
 
             self.compile_addcompare(op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
             /*
-            emit!(self, Instruction::CopyItem { index: 1 });
+            emit!(self, Instruction::Copy { index: 1 });
             // emit!(self, Instruction::ToBool); // TODO: Uncomment this
             emit!(self, Instruction::PopJumpIfFalse { target: cleanup });
             emit!(self, Instruction::PopTop);
@@ -5398,8 +5398,8 @@ impl Compiler {
                 // But we can't use compile_subscript directly because we need DUP_TOP2
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
-                emit!(self, Instruction::CopyItem { index: 2_u32 });
-                emit!(self, Instruction::CopyItem { index: 2_u32 });
+                emit!(self, Instruction::Copy { index: 2_u32 });
+                emit!(self, Instruction::Copy { index: 2_u32 });
                 emit!(self, Instruction::Subscript);
                 AugAssignKind::Subscript
             }
@@ -5407,7 +5407,7 @@ impl Compiler {
                 let attr = attr.as_str();
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::Copy { index: 1_u32 });
                 let idx = self.name(attr);
                 emit!(self, Instruction::LoadAttr { idx });
                 AugAssignKind::Attr { idx }
@@ -5564,7 +5564,7 @@ impl Compiler {
         for value in values {
             self.compile_expression(value)?;
 
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
+            emit!(self, Instruction::Copy { index: 1_u32 });
             match op {
                 BoolOp::And => {
                     emit!(
@@ -6062,7 +6062,7 @@ impl Compiler {
                 range: _,
             }) => {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::Copy { index: 1_u32 });
                 self.compile_store(target)?;
             }
             Expr::FString(fstring) => {
