@@ -75,6 +75,20 @@ pub enum FBlockDatum {
     ExceptionName(String),
 }
 
+/// Type of super() call optimization detected by can_optimize_super_call()
+#[derive(Debug, Clone)]
+enum SuperCallType<'a> {
+    /// super(class, self) - explicit 2-argument form
+    TwoArg {
+        class_arg: &'a Expr,
+        self_arg: &'a Expr,
+    },
+    /// super() - implicit 0-argument form (uses __class__ cell)
+    /// TODO: Enable after proper __class__ cell handling
+    #[allow(dead_code)]
+    ZeroArg,
+}
+
 #[derive(Debug, Clone)]
 pub struct FBlockInfo {
     pub fb_type: FBlockType,
@@ -659,6 +673,129 @@ impl Compiler {
     /// Pop the current symbol table off the stack
     fn pop_symbol_table(&mut self) -> SymbolTable {
         self.symbol_table_stack.pop().expect("compiler bug")
+    }
+
+    /// Check if a super() call can be optimized
+    /// Returns Some(SuperCallType) if optimization is possible, None otherwise
+    fn can_optimize_super_call<'a>(
+        &self,
+        value: &'a Expr,
+        attr: &str,
+    ) -> Option<SuperCallType<'a>> {
+        use ruff_python_ast::*;
+
+        // 1. value must be a Call expression
+        let Expr::Call(ExprCall {
+            func, arguments, ..
+        }) = value
+        else {
+            return None;
+        };
+
+        // 2. func must be Name("super")
+        let Expr::Name(ExprName { id, .. }) = func.as_ref() else {
+            return None;
+        };
+        if id.as_str() != "super" {
+            return None;
+        }
+
+        // 3. attr must not be "__class__"
+        if attr == "__class__" {
+            return None;
+        }
+
+        // 4. No keyword arguments
+        if !arguments.keywords.is_empty() {
+            return None;
+        }
+
+        // 5. Must be inside a function (not at module level or class body)
+        if !self.ctx.in_func() {
+            return None;
+        }
+
+        // 6. "super" must be GlobalImplicit (not redefined locally)
+        let table = self.current_symbol_table();
+        if let Some(symbol) = table.lookup("super") {
+            if symbol.scope != SymbolScope::GlobalImplicit {
+                return None;
+            }
+        } else {
+            // super not found in symbol table - assume it's a global builtin
+        }
+
+        // 7. Check argument pattern
+        let args = &arguments.args;
+
+        // No starred expressions allowed
+        if args.iter().any(|arg| matches!(arg, Expr::Starred(_))) {
+            return None;
+        }
+
+        match args.len() {
+            2 => {
+                // 2-arg: super(class, self)
+                Some(SuperCallType::TwoArg {
+                    class_arg: &args[0],
+                    self_arg: &args[1],
+                })
+            }
+            0 => {
+                // 0-arg: super() - need __class__ cell and first parameter
+                // TODO: Enable 0-arg super() optimization after proper __class__ cell handling
+                // For now, skip optimization to avoid issues with nested class definitions
+                // and other complex scenarios where __class__ might not be properly available
+                None
+            }
+            _ => None, // 1 or 3+ args - not optimizable
+        }
+    }
+
+    /// Load arguments for super() optimization onto the stack
+    /// Stack result: [global_super, class, self]
+    fn load_args_for_super(&mut self, super_type: &SuperCallType<'_>) -> CompileResult<()> {
+        // 1. Load global super
+        self.compile_name("super", NameUsage::Load)?;
+
+        match super_type {
+            SuperCallType::TwoArg {
+                class_arg,
+                self_arg,
+            } => {
+                // 2-arg: load provided arguments
+                self.compile_expression(class_arg)?;
+                self.compile_expression(self_arg)?;
+            }
+            SuperCallType::ZeroArg => {
+                // 0-arg: load __class__ cell and first parameter
+                // Load __class__ from cell/free variable
+                let scope = self.get_ref_type("__class__").map_err(|e| self.error(e))?;
+                let idx = match scope {
+                    SymbolScope::Cell => self.get_cell_var_index("__class__")?,
+                    SymbolScope::Free => self.get_free_var_index("__class__")?,
+                    _ => {
+                        return Err(self.error(CodegenErrorType::SyntaxError(
+                            "super(): __class__ cell not found".to_owned(),
+                        )));
+                    }
+                };
+                self.emit_arg(idx, Instruction::LoadDeref);
+
+                // Load first parameter (typically 'self')
+                let first_param = {
+                    let info = self.code_stack.last().unwrap();
+                    info.metadata.varnames.first().cloned()
+                };
+                let first_param = first_param.ok_or_else(|| {
+                    self.error(CodegenErrorType::SyntaxError(
+                        "super(): no arguments and no first parameter".to_owned(),
+                    ))
+                })?;
+                self.compile_name(&first_param, NameUsage::Load)?;
+            }
+        }
+        Ok(())
     }
 
     /// Check if this is an inlined comprehension context (PEP 709)
@@ -5732,9 +5869,28 @@ impl Compiler {
                 };
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-                self.compile_expression(value)?;
-                let idx = self.name(attr.as_str());
-                emit!(self, Instruction::LoadAttr { idx });
+                // Check for super() attribute access optimization
+                if let Some(super_type) = self.can_optimize_super_call(value, attr.as_str()) {
+                    // super().attr or super(cls, self).attr optimization
+                    // Stack: [global_super, class, self] → LOAD_SUPER_ATTR → [attr]
+                    self.load_args_for_super(&super_type)?;
+                    let idx = self.name(attr.as_str());
+                    match super_type {
+                        SuperCallType::TwoArg { .. } => {
+                            // LoadSuperAttr (pseudo) - will be converted to real LoadSuperAttr
+                            // with flags=0b10 (has_class=true, load_method=false) in ir.rs
+                            emit!(self, Instruction::LoadSuperAttr { arg: idx });
+                        }
+                        SuperCallType::ZeroArg => {
+                            emit!(self, Instruction::LoadZeroSuperAttr { idx });
+                        }
+                    }
+                } else {
+                    // Normal attribute access
+                    self.compile_expression(value)?;
+                    let idx = self.name(attr.as_str());
+                    emit!(self, Instruction::LoadAttr { idx });
+                }
             }
             Expr::Compare(ExprCompare {
                 left,
@@ -6159,12 +6315,29 @@ impl Compiler {
         // Method call: obj → LOAD_ATTR_METHOD → [method, self_or_null] → args → CALL
         // Regular call: func → PUSH_NULL → args → CALL
         if let Expr::Attribute(ExprAttribute { value, attr, .. }) = &func {
-            // Method call: compile object, then LOAD_ATTR_METHOD
-            // LOAD_ATTR_METHOD pushes [method, self_or_null] on stack
-            self.compile_expression(value)?;
-            let idx = self.name(attr.as_str());
-            emit!(self, Instruction::LoadAttrMethod { idx });
-            self.compile_call_helper(0, args)?;
+            // Check for super() method call optimization
+            if let Some(super_type) = self.can_optimize_super_call(value, attr.as_str()) {
+                // super().method() or super(cls, self).method() optimization
+                // Stack: [global_super, class, self] → LOAD_SUPER_METHOD → [method, self]
+                self.load_args_for_super(&super_type)?;
+                let idx = self.name(attr.as_str());
+                match super_type {
+                    SuperCallType::TwoArg { .. } => {
+                        emit!(self, Instruction::LoadSuperMethod { idx });
+                    }
+                    SuperCallType::ZeroArg => {
+                        emit!(self, Instruction::LoadZeroSuperMethod { idx });
+                    }
+                }
+                self.compile_call_helper(0, args)?;
+            } else {
+                // Normal method call: compile object, then LOAD_ATTR_METHOD
+                // LOAD_ATTR_METHOD pushes [method, self_or_null] on stack
+                self.compile_expression(value)?;
+                let idx = self.name(attr.as_str());
+                emit!(self, Instruction::LoadAttrMethod { idx });
+                self.compile_call_helper(0, args)?;
+            }
         } else {
             // Regular call: push func, then NULL for self_or_null slot
             // Stack layout: [func, NULL, args...] - same as method call [func, self, args...]
