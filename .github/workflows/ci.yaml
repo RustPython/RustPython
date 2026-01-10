@@ -266,13 +266,14 @@ jobs:
         if: runner.os == 'macOS'
       - name: Set up coverage environment (Unix)
         run: |
-          source <(cargo llvm-cov show-env --export-prefix)
+          eval "$(cargo llvm-cov show-env --export-prefix)"
           echo "RUSTFLAGS<<EOF" >> $GITHUB_ENV
           echo "$RUSTFLAGS" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
           echo "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" >> $GITHUB_ENV
           echo "CARGO_LLVM_COV=1" >> $GITHUB_ENV
           echo "CARGO_LLVM_COV_TARGET_DIR=$CARGO_LLVM_COV_TARGET_DIR" >> $GITHUB_ENV
+        shell: bash
         if: runner.os != 'Windows'
       - name: Set up coverage environment (Windows)
         run: |
