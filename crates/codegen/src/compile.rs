@@ -84,7 +84,7 @@ enum SuperCallType<'a> {
         self_arg: &'a Expr,
     },
     /// super() - implicit 0-argument form (uses __class__ cell)
-    /// TODO: Enable after proper __class__ cell handling
+    /// TODO: Enable after fixing __class__ cell handling in nested classes
     #[allow(dead_code)]
     ZeroArg,
 }
@@ -743,9 +743,9 @@ impl Compiler {
             }
             0 => {
                 // 0-arg: super() - need __class__ cell and first parameter
-                // TODO: Enable 0-arg super() optimization after proper __class__ cell handling
-                // For now, skip optimization to avoid issues with nested class definitions
-                // and other complex scenarios where __class__ might not be properly available
+                // TODO: 0-arg super() optimization is disabled due to __class__ cell issues
+                // The __class__ cell handling in nested class definitions needs more work.
+                // For now, fall back to regular super() call.
                 None
             }
             _ => None, // 1 or 3+ args - not optimizable

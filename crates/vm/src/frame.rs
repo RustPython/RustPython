@@ -2532,7 +2532,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn load_super_attr(&mut self, vm: &VirtualMachine, oparg: u32) -> FrameResult {
-        let (name_idx, load_method, _has_class) = bytecode::decode_load_super_attr_arg(oparg);
+        let (name_idx, load_method, has_class) = bytecode::decode_load_super_attr_arg(oparg);
         let attr_name = self.code.names[name_idx as usize];
 
         // Pop [super, class, self] from stack
@@ -2540,8 +2540,13 @@ impl ExecutingFrame<'_> {
         let class = self.pop_value();
         let global_super = self.pop_value();
 
-        // Create super(class, self) object
-        let super_obj = global_super.call((class.clone(), self_obj.clone()), vm)?;
+        // Create super object - pass args based on has_class flag
+        // When super is shadowed, has_class=false means call with 0 args
+        let super_obj = if has_class {
+            global_super.call((class.clone(), self_obj.clone()), vm)?
+        } else {
+            global_super.call((), vm)?
+        };
 
         if load_method {
             // Method load: push [method, self_or_null]
