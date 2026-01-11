@@ -27,7 +27,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from lib_updater import apply_patches, PatchSpec, UtMethod
+from lib_updater import PatchSpec, UtMethod, apply_patches
 
 
 def parse_args():
