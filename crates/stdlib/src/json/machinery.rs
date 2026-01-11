@@ -108,7 +108,7 @@ pub struct DecodeError {
     pub pos: usize,
 }
 impl DecodeError {
-    fn new(msg: impl Into<String>, pos: usize) -> Self {
+    pub fn new(msg: impl Into<String>, pos: usize) -> Self {
         let msg = msg.into();
         Self { msg, pos }
     }

@@ -16,6 +16,26 @@ mod _json {
     use malachite_bigint::BigInt;
     use rustpython_common::wtf8::Wtf8Buf;
 
+    /// Skip JSON whitespace characters (space, tab, newline, carriage return).
+    /// Works with a character iterator and returns the number of characters skipped.
+    #[inline]
+    fn skip_whitespace_chars<I>(chars: &mut std::iter::Peekable<I>) -> usize
+    where
+        I: Iterator<Item = char>,
+    {
+        let mut count = 0;
+        while let Some(&c) = chars.peek() {
+            match c {
+                ' ' | '\t' | '\n' | '\r' => {
+                    chars.next();
+                    count += 1;
+                }
+                _ => break,
+            }
+        }
+        count
+    }
+
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner", traverse)]
     #[derive(Debug, PyPayload)]
@@ -90,27 +110,16 @@ mod _json {
                         .map(|x| PyIterReturn::Return(x.to_pyobject(vm)));
                 }
                 '{' => {
-                    // TODO: parse the object in rust
-                    let parse_obj = self.ctx.get_attr("parse_object", vm)?;
-                    let result = parse_obj.call(
-                        (
-                            (pystr, next_idx),
-                            self.strict,
-                            scan_once,
-                            self.object_hook.clone(),
-                            self.object_pairs_hook.clone(),
-                        ),
-                        vm,
-                    );
-                    return PyIterReturn::from_pyresult(result, vm);
+                    // Parse object in Rust
+                    return self
+                        .parse_object(pystr, next_idx, &scan_once, vm)
+                        .map(|(obj, end)| PyIterReturn::Return(vm.new_tuple((obj, end)).into()));
                 }
                 '[' => {
-                    // TODO: parse the array in rust
-                    let parse_array = self.ctx.get_attr("parse_array", vm)?;
-                    return PyIterReturn::from_pyresult(
-                        parse_array.call(((pystr, next_idx), scan_once), vm),
-                        vm,
-                    );
+                    // Parse array in Rust
+                    return self
+                        .parse_array(pystr, next_idx, &scan_once, vm)
+                        .map(|(obj, end)| PyIterReturn::Return(vm.new_tuple((obj, end)).into()));
                 }
                 _ => {}
             }
@@ -188,6 +197,316 @@ mod _json {
                 Ok(vm.new_pyobj(BigInt::from_str(buf).unwrap()))
             };
             Some((ret, buf.len()))
+        }
+
+        /// Parse a JSON object starting after the opening '{'.
+        /// Returns (parsed_object, end_character_index).
+        fn parse_object(
+            &self,
+            pystr: PyStrRef,
+            start_idx: usize, // Character index right after '{'
+            scan_once: &PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, usize)> {
+            flame_guard!("JsonScanner::parse_object");
+
+            let s = pystr.as_str();
+            let mut chars = s.chars().skip(start_idx).peekable();
+            let mut idx = start_idx;
+
+            // Skip initial whitespace
+            idx += skip_whitespace_chars(&mut chars);
+
+            // Check for empty object
+            match chars.peek() {
+                Some('}') => {
+                    return self.finalize_object(vec![], idx + 1, vm);
+                }
+                Some('"') => {
+                    // Continue to parse first key
+                }
+                Some(_) | None => {
+                    return Err(self.make_decode_error(
+                        "Expecting property name enclosed in double quotes",
+                        pystr,
+                        idx,
+                        vm,
+                    ));
+                }
+            }
+
+            let mut pairs: Vec<(PyObjectRef, PyObjectRef)> = Vec::new();
+
+            loop {
+                // We're now at '"', skip it
+                chars.next();
+                idx += 1;
+
+                // Parse key string using existing scanstring
+                let (key_wtf8, key_end) = machinery::scanstring(pystr.as_wtf8(), idx, self.strict)
+                    .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
+
+                let key_str = key_wtf8.to_string();
+                let key: PyObjectRef = vm.ctx.new_str(key_str).into();
+
+                // Update position and rebuild iterator
+                idx = key_end;
+                chars = s.chars().skip(idx).peekable();
+
+                // Skip whitespace after key
+                idx += skip_whitespace_chars(&mut chars);
+
+                // Expect ':' delimiter
+                match chars.peek() {
+                    Some(':') => {
+                        chars.next();
+                        idx += 1;
+                    }
+                    _ => {
+                        return Err(self.make_decode_error(
+                            "Expecting ':' delimiter",
+                            pystr,
+                            idx,
+                            vm,
+                        ));
+                    }
+                }
+
+                // Skip whitespace after ':'
+                idx += skip_whitespace_chars(&mut chars);
+
+                // Parse value recursively using scan_once
+                let (value, value_end) = self.call_scan_once(scan_once, pystr.clone(), idx, vm)?;
+
+                pairs.push((key, value));
+                idx = value_end;
+                chars = s.chars().skip(idx).peekable();
+
+                // Skip whitespace after value
+                idx += skip_whitespace_chars(&mut chars);
+
+                // Check for ',' or '}'
+                match chars.peek() {
+                    Some('}') => {
+                        idx += 1;
+                        break;
+                    }
+                    Some(',') => {
+                        let comma_idx = idx;
+                        chars.next();
+                        idx += 1;
+
+                        // Skip whitespace after comma
+                        idx += skip_whitespace_chars(&mut chars);
+
+                        // Next must be '"'
+                        match chars.peek() {
+                            Some('"') => {
+                                // Continue to next key-value pair
+                            }
+                            Some('}') => {
+                                // Trailing comma before end of object
+                                return Err(self.make_decode_error(
+                                    "Illegal trailing comma before end of object",
+                                    pystr,
+                                    comma_idx,
+                                    vm,
+                                ));
+                            }
+                            _ => {
+                                return Err(self.make_decode_error(
+                                    "Expecting property name enclosed in double quotes",
+                                    pystr,
+                                    idx,
+                                    vm,
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(self.make_decode_error(
+                            "Expecting ',' delimiter",
+                            pystr,
+                            idx,
+                            vm,
+                        ));
+                    }
+                }
+            }
+
+            self.finalize_object(pairs, idx, vm)
+        }
+
+        /// Parse a JSON array starting after the opening '['.
+        /// Returns (parsed_array, end_character_index).
+        fn parse_array(
+            &self,
+            pystr: PyStrRef,
+            start_idx: usize, // Character index right after '['
+            scan_once: &PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, usize)> {
+            flame_guard!("JsonScanner::parse_array");
+
+            let s = pystr.as_str();
+            let mut chars = s.chars().skip(start_idx).peekable();
+            let mut idx = start_idx;
+
+            // Skip initial whitespace
+            idx += skip_whitespace_chars(&mut chars);
+
+            // Check for empty array
+            if chars.peek() == Some(&']') {
+                return Ok((vm.ctx.new_list(vec![]).into(), idx + 1));
+            }
+
+            let mut values: Vec<PyObjectRef> = Vec::new();
+
+            loop {
+                // Parse value
+                let (value, value_end) = self.call_scan_once(scan_once, pystr.clone(), idx, vm)?;
+
+                values.push(value);
+                idx = value_end;
+                chars = s.chars().skip(idx).peekable();
+
+                // Skip whitespace after value
+                idx += skip_whitespace_chars(&mut chars);
+
+                match chars.peek() {
+                    Some(']') => {
+                        idx += 1;
+                        break;
+                    }
+                    Some(',') => {
+                        let comma_idx = idx;
+                        chars.next();
+                        idx += 1;
+                        // Skip whitespace after comma
+                        idx += skip_whitespace_chars(&mut chars);
+
+                        // Check for trailing comma
+                        if chars.peek() == Some(&']') {
+                            return Err(self.make_decode_error(
+                                "Illegal trailing comma before end of array",
+                                pystr,
+                                comma_idx,
+                                vm,
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(self.make_decode_error(
+                            "Expecting ',' delimiter",
+                            pystr,
+                            idx,
+                            vm,
+                        ));
+                    }
+                }
+            }
+
+            Ok((vm.ctx.new_list(values).into(), idx))
+        }
+
+        /// Finalize object construction with hooks.
+        fn finalize_object(
+            &self,
+            pairs: Vec<(PyObjectRef, PyObjectRef)>,
+            end_idx: usize,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, usize)> {
+            let result = if let Some(ref pairs_hook) = self.object_pairs_hook {
+                // object_pairs_hook takes priority - pass list of tuples
+                let pairs_list: Vec<PyObjectRef> = pairs
+                    .into_iter()
+                    .map(|(k, v)| vm.new_tuple((k, v)).into())
+                    .collect();
+                pairs_hook.call((vm.ctx.new_list(pairs_list),), vm)?
+            } else {
+                // Build a dict from pairs
+                let dict = vm.ctx.new_dict();
+                for (key, value) in pairs {
+                    dict.set_item(&*key, value, vm)?;
+                }
+
+                // Apply object_hook if present
+                let dict_obj: PyObjectRef = dict.into();
+                if let Some(ref hook) = self.object_hook {
+                    hook.call((dict_obj,), vm)?
+                } else {
+                    dict_obj
+                }
+            };
+
+            Ok((result, end_idx))
+        }
+
+        /// Call scan_once and handle the result.
+        fn call_scan_once(
+            &self,
+            scan_once: &PyObjectRef,
+            pystr: PyStrRef,
+            idx: usize,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, usize)> {
+            // First try to handle common cases directly in Rust
+            let s = pystr.as_str();
+            let mut chars = s.chars().skip(idx).peekable();
+
+            match chars.peek() {
+                Some('"') => {
+                    // String - parse directly in Rust
+                    let (wtf8, end) = machinery::scanstring(pystr.as_wtf8(), idx + 1, self.strict)
+                        .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
+                    let py_str = vm.ctx.new_str(wtf8.to_string());
+                    return Ok((py_str.into(), end));
+                }
+                Some('{') => {
+                    // Nested object - parse recursively in Rust
+                    return self.parse_object(pystr, idx + 1, scan_once, vm);
+                }
+                Some('[') => {
+                    // Nested array - parse recursively in Rust
+                    return self.parse_array(pystr, idx + 1, scan_once, vm);
+                }
+                _ => {
+                    // For other cases (numbers, null, true, false, etc.)
+                    // fall through to call scan_once
+                }
+            }
+
+            // Fall back to scan_once for other value types
+            let result = scan_once.call((pystr.clone(), idx as isize), vm);
+
+            match result {
+                Ok(tuple) => {
+                    use crate::vm::builtins::PyTupleRef;
+                    let tuple: PyTupleRef = tuple.try_into_value(vm)?;
+                    if tuple.len() != 2 {
+                        return Err(vm.new_value_error("scan_once must return 2-tuple"));
+                    }
+                    let value = tuple.as_slice()[0].clone();
+                    let end_idx: isize = tuple.as_slice()[1].try_to_value(vm)?;
+                    Ok((value, end_idx as usize))
+                }
+                Err(err) if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) => {
+                    Err(self.make_decode_error("Expecting value", pystr, idx, vm))
+                }
+                Err(err) => Err(err),
+            }
+        }
+
+        /// Create a decode error.
+        fn make_decode_error(
+            &self,
+            msg: &str,
+            s: PyStrRef,
+            pos: usize,
+            vm: &VirtualMachine,
+        ) -> PyBaseExceptionRef {
+            let err = machinery::DecodeError::new(msg, pos);
+            py_decode_error(err, s, vm)
         }
     }
 
