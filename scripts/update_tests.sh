@@ -14,6 +14,7 @@ Options:
   -s/--check-skipped         Check existing skipped tests (must be run separate from updating the tests)
   -t/--timeout               Set a timeout for a test
   -a/--annotate              While copying tests, run them and annotate failures dynamically
+  -j/--jobs                  How many libraries can be processed at a time
   -h/--help                  Show this help message and exit
 
 Example Usage: 
@@ -34,6 +35,7 @@ copy_untracked=false
 annotate=false
 timeout=300
 check_skip_flag=false
+num_jobs=5
 libraries=()
 
 while [[ $# -gt 0 ]]; do
@@ -66,6 +68,10 @@ while [[ $# -gt 0 ]]; do
             annotate=true
             shift
             ;;
+        -j|--jobs)
+            num_jobs="$2"
+            shift 2
+            ;;
         *)
             libraries+=("$1")
             shift
@@ -81,6 +87,7 @@ update_tests() {
     local libraries=("$@")
     for lib in "${libraries[@]}"
     do 
+        sem
         update_test "$lib" &
     done
     wait
@@ -91,7 +98,7 @@ update_test() {
     local clib_path="$cpython_path/$lib"
     local rlib_path="$rpython_path/$lib"
 
-    if files_equal "$clib_path" "$rlib_path"; then
+    if [[ -f "$clib_path" && -f "$rlib_path" ]] && files_equal "$clib_path" "$rlib_path"; then
         echo "No changes in $lib. Skipping..." 
         return
     fi
@@ -117,6 +124,7 @@ check_skips() {
     local libraries=("$@")
     for lib in "${libraries[@]}"
     do
+        sem
         check_skip "$lib" &
     done
     wait
@@ -132,7 +140,7 @@ check_skip() {
 }
 
 annotate_lib() {
-    local lib=$(echo "$1" | sed 's/\//./g')
+    local lib=${1//\//.}
     local rlib_path=$2
     local output=$(rustpython $lib 2>&1)
 
@@ -147,7 +155,7 @@ annotate_lib() {
     while ! grep -q "Tests result: SUCCESS" <<< "$output"; do
         ((attempts++))
         echo "$lib failing, annotating..."
-        readarray -t failed_tests <<< $(echo "$output" | awk '/^(FAIL:|ERROR:)/ {print $2}' | sort -u)
+        readarray -t failed_tests <<< "$(echo "$output" | awk '/^(FAIL:|ERROR:)/ {print $2}' | sort -u)"
         
         # If the test fails/errors, then expectedFailure it
         for test in "${failed_tests[@]}"
@@ -159,26 +167,32 @@ annotate_lib() {
         if grep -q "\.\.\.$" <<< "$output"; then
             crashing_test=$(echo "$output" | grep '\.\.\.$' | head -n 1 | awk '{print $1}')
             if grep -q "Timeout" <<< "$output"; then
-                message="; hanging"
+                message=" hanging"
             fi
-            add_above_test $rlib_path $crashing_test "@unittest.skip('TODO: RUSTPYTHON$message')"
+            add_above_test $rlib_path $crashing_test "@unittest.skip('TODO: RUSTPYTHON;$message')"
         fi
 
         output=$(rustpython $lib 2>&1)
 
         if [[ attempts -gt 10 ]]; then 
-            echo "Issue annotating $lib" 
+            echo "Issue annotating $lib" >&2
             break;
         fi
     done
 }
 
 files_equal() {
-    [[ -f "$1" && -f "$2" ]] && cmp --silent "$1" "$2"
+    cmp --silent "$1" "$2"
 }
 
 rustpython() {
     cargo run --release --features encodings,sqlite -- -m test -j 1 -u all --fail-env-changed --timeout "$timeout" -v "$@"
+}
+
+sem() {
+    while (( $(jobs -rp | wc -l) >= $num_jobs )); do
+        sleep 0.1  # brief pause before checking again
+    done
 }
 
 add_above_test() {
