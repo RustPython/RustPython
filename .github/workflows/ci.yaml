@@ -105,6 +105,23 @@ env:
     test_unpack
     test_weakref
     test_yield_from
+  ENV_POLLUTING_TESTS_COMMON: >-
+    test_threading
+  ENV_POLLUTING_TESTS_LINUX: >-
+    test.test_concurrent_futures.test_thread_pool
+    test.test_multiprocessing_fork.test_processes
+    test.test_multiprocessing_fork.test_threads
+    test.test_multiprocessing_forkserver.test_processes
+    test.test_multiprocessing_forkserver.test_threads
+    test.test_multiprocessing_spawn.test_processes
+    test.test_multiprocessing_spawn.test_threads
+  ENV_POLLUTING_TESTS_MACOS: >-
+    test.test_concurrent_futures.test_thread_pool
+    test.test_multiprocessing_forkserver.test_processes
+    test.test_multiprocessing_forkserver.test_threads
+    test.test_multiprocessing_spawn.test_processes
+    test.test_multiprocessing_spawn.test_threads
+  ENV_POLLUTING_TESTS_WINDOWS: >-
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
@@ -116,7 +133,7 @@ jobs:
     env:
       RUST_BACKTRACE: full
     name: Run rust tests
-    runs-on:  ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       matrix:
@@ -147,8 +164,7 @@ jobs:
         run: cargo check ${{ env.CARGO_ARGS }}
 
       - name: Test openssl build
-        run:
-          cargo build --no-default-features --features ssl-openssl
+        run: cargo build --no-default-features --features ssl-openssl
         if: runner.os == 'Linux'
 
       # - name: Install tk-dev for tkinter build
@@ -160,7 +176,7 @@ jobs:
       #   if: runner.os == 'Linux'
 
       - name: Test example projects
-        run:
+        run: |
           cargo run --manifest-path example_projects/barebone/Cargo.toml
           cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
         if: runner.os == 'Linux'
@@ -248,7 +264,7 @@ jobs:
     env:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
-    runs-on:  ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-2025]
@@ -278,25 +294,115 @@ jobs:
 
       - if: runner.os == 'Linux'
         name: run cpython platform-independent tests
-        run:
-          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 35
 
       - if: runner.os == 'Linux'
         name: run cpython platform-dependent tests (Linux)
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 35
 
       - if: runner.os == 'macOS'
         name: run cpython platform-dependent tests (MacOS)
-        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 35
 
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
-        run:
-          target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
         timeout-minutes: 45
+
+      - if: runner.os == 'Linux'
+        name: run cpython tests to check if env polluters have stopped polluting (Common/Linux)
+        shell: bash
+        run: |
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_LINUX }}; do
+            for i in $(seq 1 10); do
+              set +e
+              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+              exit_code=$?
+              set -e
+              if [ ${exit_code} -eq 3 ]; then
+                echo "Test ${thing} polluted the environment on attempt ${i}."
+                break
+              fi
+            done
+            if [ ${exit_code} -ne 3 ]; then
+              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_LINUX in '.github/workflows/ci.yaml'."
+              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
+              if [ ${exit_code} -ne 0 ]; then
+                echo "Test ${thing} failed with exit code ${exit_code}."
+                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
+              fi
+              exit 1
+            fi
+          done
+        timeout-minutes: 15
+
+      - if: runner.os == 'macOS'
+        name: run cpython tests to check if env polluters have stopped polluting (Common/macOS)
+        shell: bash
+        run: |
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_MACOS }}; do
+            for i in $(seq 1 10); do
+              set +e
+              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+              exit_code=$?
+              set -e
+              if [ ${exit_code} -eq 3 ]; then
+                echo "Test ${thing} polluted the environment on attempt ${i}."
+                break
+              fi
+            done
+            if [ ${exit_code} -ne 3 ]; then
+              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_MACOS in '.github/workflows/ci.yaml'."
+              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
+              if [ ${exit_code} -ne 0 ]; then
+                echo "Test ${thing} failed with exit code ${exit_code}."
+                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
+              fi
+              exit 1
+            fi
+          done
+        timeout-minutes: 15
+
+      - if: runner.os == 'Windows'
+        name: run cpython tests to check if env polluters have stopped polluting (Common/windows)
+        shell: bash
+        run: |
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_WINDOWS }}; do
+            for i in $(seq 1 10); do
+              set +e
+              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+              exit_code=$?
+              set -e
+              if [ ${exit_code} -eq 3 ]; then
+                echo "Test ${thing} polluted the environment on attempt ${i}."
+                break
+              fi
+            done
+            if [ ${exit_code} -ne 3 ]; then
+              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_WINDOWS in '.github/workflows/ci.yaml'."
+              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
+              if [ ${exit_code} -ne 0 ]; then
+                echo "Test ${thing} failed with exit code ${exit_code}."
+                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
+              fi
+              exit 1
+            fi
+          done
+        timeout-minutes: 15
 
       - if: runner.os != 'Windows'
         name: check that --install-pip succeeds
@@ -323,7 +429,7 @@ jobs:
       - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
-            components: clippy
+          components: clippy
 
       - name: run clippy on wasm
         run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
@@ -360,7 +466,7 @@ jobs:
       - name: spell checker
         uses: streetsidesoftware/cspell-action@v8
         with:
-          files: '**/*.rs'
+          files: "**/*.rs"
           incremental_files_only: true
 
   miri:
@@ -375,17 +481,17 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-            toolchain: ${{ env.NIGHTLY_CHANNEL }}
-            components: miri
+          toolchain: ${{ env.NIGHTLY_CHANNEL }}
+          components: miri
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Run tests under miri
         run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test -p rustpython-vm -- miri_test
         env:
-        # miri-ignore-leaks because the type-object circular reference means that there will always be
-        # a memory leak, at least until we have proper cyclic gc
-          MIRIFLAGS: '-Zmiri-ignore-leaks'
+          # miri-ignore-leaks because the type-object circular reference means that there will always be
+          # a memory leak, at least until we have proper cyclic gc
+          MIRIFLAGS: "-Zmiri-ignore-leaks"
 
   wasm:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}

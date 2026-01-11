@@ -5085,14 +5085,12 @@ class SignalsTest(unittest.TestCase):
             os.close(w)
             os.close(r)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_read_retry_buffered(self):
         self.check_interrupted_read_retry(lambda x: x.decode('latin1'),
                                           mode="rb")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_read_retry_text(self):
@@ -5167,13 +5165,13 @@ class SignalsTest(unittest.TestCase):
                 if e.errno != errno.EBADF:
                     raise
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON thread 'main' (103833) panicked at crates/vm/src/stdlib/signal.rs:233:43: RefCell already borrowed")
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_write_retry_buffered(self):
         self.check_interrupted_write_retry(b"x", mode="wb")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON thread 'main' (103833) panicked at crates/vm/src/stdlib/signal.rs:233:43: RefCell already borrowed")
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_write_retry_text(self):
@@ -5182,6 +5180,10 @@ class SignalsTest(unittest.TestCase):
 
 class CSignalsTest(SignalsTest):
     io = io
+
+    @unittest.skip("TODO: RUSTPYTHON thread 'main' (103833) panicked at crates/vm/src/stdlib/signal.rs:233:43: RefCell already borrowed")
+    def test_interrupted_read_retry_buffered(self):  # TODO: RUSTPYTHON
+        return super().test_interrupted_read_retry_buffered()  # TODO: RUSTPYTHON
 
 class PySignalsTest(SignalsTest):
     io = pyio

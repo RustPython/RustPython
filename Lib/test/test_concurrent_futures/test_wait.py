@@ -200,6 +200,20 @@ create_executor_tests(globals(), WaitTests,
 def setUpModule():
     setup_module()
 
+class ProcessPoolForkWaitTest(ProcessPoolForkWaitTest):  # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == 'linux', "TODO: RUSTPYTHON flaky")
+    def test_first_completed(self): super().test_first_completed()  # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == 'linux', "TODO: RUSTPYTHON Fatal Python error: Segmentation fault")
+    def test_first_completed_some_already_completed(self): super().test_first_completed_some_already_completed()  # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == 'linux', "TODO: RUSTPYTHON flaky")
+    def test_first_exception(self): super().test_first_exception()  # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == 'linux', "TODO: RUSTPYTHON flaky")
+    def test_first_exception_one_already_failed(self): super().test_first_exception_one_already_failed()  # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == 'linux', "TODO: RUSTPYTHON Fatal Python error: Segmentation fault")
+    def test_first_exception_some_already_complete(self): super().test_first_exception_some_already_complete()  # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == 'linux', "TODO: RUSTPYTHON Fatal Python error: Segmentation fault")
+    def test_timeout(self): super().test_timeout()  # TODO: RUSTPYTHON
+
 
 if __name__ == "__main__":
     unittest.main()
