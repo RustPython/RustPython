@@ -68,7 +68,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            libraries+=("$1.py")
+            libraries+=("$1")
             shift
             ;;
     esac
@@ -76,10 +76,6 @@ done
 
 cpython_path="$cpython_path/Lib/test"
 rpython_path="$rpython_path/Lib/test"
-
-if [[ ${#libraries[@]} -eq 0 ]]; then
-    libraries=$(find ${cpython_path} -type f -printf "%P\n")
-fi
 
 
 update_tests() {
@@ -97,7 +93,7 @@ update_test() {
 
     if files_equal "$clib_path" "$rlib_path"; then
         echo "No changes in $lib. Skipping..." 
-        continue
+        return
     fi
 
     if [[ ! -f "$rlib_path" ]]; then
@@ -112,7 +108,7 @@ update_test() {
     fi
 
 
-    if $annotate; then
+    if [[ $annotate && -f "$rlib_path" && $(basename -- "$rlib_path") == test_*.py ]]; then
         annotate_lib $lib $rlib_path
     fi
 }
@@ -135,33 +131,38 @@ check_skip() {
 }
 
 annotate_lib() {
-        lib=$1
-        rlib_path=$2
-        output=$(rustpython $lib 2>&1)
+    lib=$(echo "$1" | sed 's/\//./g')
+    rlib_path=$2
+    output=$(rustpython $lib 2>&1)
 
-        echo "Annotating $lib"
+    if grep -q "NO TESTS RAN" <<< "$output"; then
+        echo "No tests ran in $lib. skipping annotation"
+        return
+    fi
+    
+    echo "Annotating $lib"
 
-        while ! grep -q "Tests result: SUCCESS" <<< "$output"; do
-            echo "$lib failing, annotating..."
-            readarray -t failed_tests <<< $(echo "$output" | awk '/^(FAIL:|ERROR:)/ {print $2}' | sort -u)
-            
-            # If the test fails/errors, then expectedFailure it
-            for test in "${failed_tests[@]}"
-            do
-                add_above_test $rlib_path $test "@unittest.expectedFailure # TODO: RUSTPYTHON" 
-            done
-
-            # If the test crashes/hangs, then skip it
-            if grep -q "\.\.\.$" <<< "$output"; then
-                crashing_test=$(echo "$output" | grep '\.\.\.$' | head -n 1 | awk '{print $1}')
-                if grep -q "Timeout" <<< "$output"; then
-                    message="; hanging"
-                fi
-                add_above_test $rlib_path $crashing_test "@unittest.skip('TODO: RUSTPYTHON$message')"
-            fi
-
-            output=$(rustpython $lib 2>&1)
+    while ! grep -q "Tests result: SUCCESS" <<< "$output"; do
+        echo "$lib failing, annotating..."
+        readarray -t failed_tests <<< $(echo "$output" | awk '/^(FAIL:|ERROR:)/ {print $2}' | sort -u)
+        
+        # If the test fails/errors, then expectedFailure it
+        for test in "${failed_tests[@]}"
+        do
+            add_above_test $rlib_path $test "@unittest.expectedFailure # TODO: RUSTPYTHON" 
         done
+
+        # If the test crashes/hangs, then skip it
+        if grep -q "\.\.\.$" <<< "$output"; then
+            crashing_test=$(echo "$output" | grep '\.\.\.$' | head -n 1 | awk '{print $1}')
+            if grep -q "Timeout" <<< "$output"; then
+                message="; hanging"
+            fi
+            add_above_test $rlib_path $crashing_test "@unittest.skip('TODO: RUSTPYTHON$message')"
+        fi
+
+        output=$(rustpython $lib 2>&1)
+    done
 }
 
 files_equal() {
@@ -184,13 +185,22 @@ add_above_test() {
 
 remove_skips() {
     rlib_path=$1
+
+    echo "Removing all skips from $rlib_path"
+
     sed -i -E '/^[[:space:]]*@unittest\.skip.*\(["'\'']TODO\s?:\s?RUSTPYTHON.*["'\'']\)/Id' $rlib_path
 }
 
 if ! $check_skip_flag; then
     echo "Updating Tests"
+
+    if [[ ${#libraries[@]} -eq 0 ]]; then
+        readarray -t libraries <<< $(find ${cpython_path} -type f -printf "%P\n")
+    fi
     update_tests $libraries
 else
     echo "Checking Skips"
+
+    readarray -t libraries <<< $(find ${rpython_path} -iname "test_*.py" -type f -printf "%P\n")
     check_skips $libraries
 fi
