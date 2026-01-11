@@ -422,8 +422,14 @@ jobs:
         run: |
           target/release/rustpython -m venv testvenv
           testvenv/bin/rustpython -m pip install wheel
-      - name: Check whats_left is not broken
-        run: python -I scripts/whats_left.py
+      - if: runner.os != 'macOS'
+        name: Check whats_left is not broken
+        shell: bash
+        run: python -I scripts/whats_left.py --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading,jit"
+      - if: runner.os == 'macOS' # TODO fix jit on macOS
+        name: Check whats_left is not broken (macOS)
+        shell: bash
+        run: python -I scripts/whats_left.py --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading" # no jit on macOS for now
 
   lint:
     name: Check Rust code with clippy
