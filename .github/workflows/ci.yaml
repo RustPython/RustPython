@@ -176,7 +176,8 @@ jobs:
       #   if: runner.os == 'Linux'
 
       - name: Test example projects
-        run: cargo run --manifest-path example_projects/barebone/Cargo.toml
+        run: |
+          cargo run --manifest-path example_projects/barebone/Cargo.toml
           cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
         if: runner.os == 'Linux'
 
