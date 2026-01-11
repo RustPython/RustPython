@@ -25,7 +25,6 @@ EOF
 
 if [[ $# -eq 0 ]]; then
     usage
-    exit 1
 fi
 
 
@@ -53,14 +52,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         -h|--help)
             usage
-            return
+            exit 1
             ;;
         -s|--check-skipped)
             check_skip_flag=true
             shift
             ;;
         -t|--timeout)
-            timout="$2"
+            timeout="$2"
             shift 2
             ;;
         -a|--annotate)
@@ -79,17 +78,18 @@ rpython_path="$rpython_path/Lib/test"
 
 
 update_tests() {
-    libraries=$1
+    local libraries=("$@")
     for lib in "${libraries[@]}"
     do 
-        update_test "$lib"
+        update_test "$lib" &
     done
+    wait
 }
 
 update_test() {
-    lib=$1
-    clib_path="$cpython_path/$lib"
-    rlib_path="$rpython_path/$lib"
+    local lib=$1
+    local clib_path="$cpython_path/$lib"
+    local rlib_path="$rpython_path/$lib"
 
     if files_equal "$clib_path" "$rlib_path"; then
         echo "No changes in $lib. Skipping..." 
@@ -114,16 +114,17 @@ update_test() {
 }
 
 check_skips() {
-    libraries=$1
+    local libraries=("$@")
     for lib in "${libraries[@]}"
     do
-        check_skip "$lib"
+        check_skip "$lib" &
     done
+    wait
 }
 
 check_skip() {
-    lib=$1
-    rlib_path="$rpython_path/$lib"
+    local lib=$1
+    local rlib_path="$rpython_path/$lib"
 
     remove_skips $rlib_path
 
@@ -131,9 +132,9 @@ check_skip() {
 }
 
 annotate_lib() {
-    lib=$(echo "$1" | sed 's/\//./g')
-    rlib_path=$2
-    output=$(rustpython $lib 2>&1)
+    local lib=$(echo "$1" | sed 's/\//./g')
+    local rlib_path=$2
+    local output=$(rustpython $lib 2>&1)
 
     if grep -q "NO TESTS RAN" <<< "$output"; then
         echo "No tests ran in $lib. skipping annotation"
@@ -142,7 +143,9 @@ annotate_lib() {
     
     echo "Annotating $lib"
 
+    local attempts=0
     while ! grep -q "Tests result: SUCCESS" <<< "$output"; do
+        ((attempts++))
         echo "$lib failing, annotating..."
         readarray -t failed_tests <<< $(echo "$output" | awk '/^(FAIL:|ERROR:)/ {print $2}' | sort -u)
         
@@ -162,29 +165,31 @@ annotate_lib() {
         fi
 
         output=$(rustpython $lib 2>&1)
+
+        if [[ attempts -gt 10 ]]; then 
+            echo "Issue annotating $lib" 
+            break;
+        fi
     done
 }
 
 files_equal() {
-    file1=$1
-    file2=$2
-    cmp --silent $file1 $file2 && files_equal=0 || files_equal=1
-    return $files_equal
+    [[ -f "$1" && -f "$2" ]] && cmp --silent "$1" "$2"
 }
 
 rustpython() {
-    cargo run --release --features encodings,sqlite -- -m test -j 1 -u all --fail-env-changed --timeout 300 -v "$@"
+    cargo run --release --features encodings,sqlite -- -m test -j 1 -u all --fail-env-changed --timeout "$timeout" -v "$@"
 }
 
 add_above_test() {
-    file=$1
-    test=$2
-    line=$3
+    local file=$1
+    local test=$2
+    local line=$3
     sed -i "s/^\([[:space:]]*\)def $test(/\1$line\n\1def $test(/" "$file"
 }
 
 remove_skips() {
-    rlib_path=$1
+    local rlib_path=$1
 
     echo "Removing all skips from $rlib_path"
 
@@ -197,10 +202,10 @@ if ! $check_skip_flag; then
     if [[ ${#libraries[@]} -eq 0 ]]; then
         readarray -t libraries <<< $(find ${cpython_path} -type f -printf "%P\n")
     fi
-    update_tests $libraries
+    update_tests "${libraries[@]}"
 else
     echo "Checking Skips"
 
     readarray -t libraries <<< $(find ${rpython_path} -iname "test_*.py" -type f -printf "%P\n")
-    check_skips $libraries
+    check_skips "${libraries[@]}"
 fi
