@@ -15,7 +15,7 @@ use crate::{
 /// HAVE_ARGUMENT = 44: opcodes 0-43 have no argument, 44+ have arguments.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
-pub enum Instruction {
+pub enum RealInstruction {
     // ==================== No-argument instructions (opcode < 44) ====================
     Cache = 0, // Placeholder
     BeforeAsyncWith = 1,
@@ -274,28 +274,19 @@ pub enum Instruction {
     JumpIfNotExcMatch(Arg<Label>) = 131,
     SetExcInfo = 134,
     Subscript = 135,
-    // ===== Pseudo Opcodes (252+) ======
-    Jump {
-        target: Arg<Label>,
-    } = 252, // CPython uses pseudo-op 256
-    LoadClosure(Arg<NameIdx>) = 253, // CPython uses pseudo-op 258
-    LoadAttrMethod {
-        idx: Arg<NameIdx>,
-    } = 254, // CPython uses pseudo-op 259
-    PopBlock = 255,                  // CPython uses pseudo-op 263
 }
 
-const _: () = assert!(mem::size_of::<Instruction>() == 1);
+const _: () = assert!(mem::size_of::<RealInstruction>() == 1);
 
-impl From<Instruction> for u8 {
+impl From<RealInstruction> for u8 {
     #[inline]
-    fn from(ins: Instruction) -> Self {
+    fn from(ins: RealInstruction) -> Self {
         // SAFETY: there's no padding bits
-        unsafe { core::mem::transmute::<Instruction, Self>(ins) }
+        unsafe { core::mem::transmute::<RealInstruction, Self>(ins) }
     }
 }
 
-impl TryFrom<u8> for Instruction {
+impl TryFrom<u8> for RealInstruction {
     type Error = MarshalError;
 
     #[inline]
@@ -340,16 +331,9 @@ impl TryFrom<u8> for Instruction {
             u8::from(Self::Subscript),
         ];
 
-        // Pseudo opcodes (252-255)
-        let pseudo_start = u8::from(Self::Jump {
-            target: Arg::marker(),
-        });
-        let pseudo_end = u8::from(Self::PopBlock);
-
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
             || custom_ops.contains(&value)
-            || (pseudo_start..=pseudo_end).contains(&value)
         {
             Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
         } else {
@@ -358,7 +342,7 @@ impl TryFrom<u8> for Instruction {
     }
 }
 
-impl Instruction {
+impl RealInstruction {
     /// Gets the label stored inside this instruction, if it exists
     #[inline]
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
@@ -385,8 +369,8 @@ impl Instruction {
     /// # Examples
     ///
     /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, Instruction};
-    /// let jump_inst = Instruction::Jump { target: Arg::marker() };
+    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction};
+    /// let jump_inst = RealInstruction::Jump { target: Arg::marker() };
     /// assert!(jump_inst.unconditional_branch())
     /// ```
     pub const fn unconditional_branch(&self) -> bool {
@@ -410,9 +394,9 @@ impl Instruction {
     /// # Examples
     ///
     /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label};
+    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, Label};
     /// let (target, jump_arg) = Arg::new(Label(0xF));
-    /// let jump_instruction = Instruction::Jump { target };
+    /// let jump_instruction = RealInstruction::Jump { target };
     /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
     /// ```
     ///
@@ -522,7 +506,6 @@ impl Instruction {
             Self::SetupAnnotations => 0,
             Self::BeforeWith => 1, // push __exit__, then replace ctx_mgr with __enter__ result
             Self::WithExceptStart => 1, // push __exit__ result
-            Self::PopBlock => 0,
             Self::RaiseVarargs { kind } => {
                 // Stack effects for different raise kinds:
                 // - Reraise (0): gets from VM state, no stack pop
@@ -775,7 +758,6 @@ impl Instruction {
             Self::MatchMapping => w!(MATCH_MAPPING),
             Self::MatchSequence => w!(MATCH_SEQUENCE),
             Self::Nop => w!(NOP),
-            Self::PopBlock => w!(POP_BLOCK),
             Self::PopExcept => w!(POP_EXCEPT),
             Self::PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
             Self::PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
@@ -818,5 +800,34 @@ impl Instruction {
             Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
             _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(u16)]
+enum PseudoInstruction {
+    Jump { target: Arg<Label> } = 256,
+    LoadClosure(Arg<NameIdx>) = 258,
+    LoadAttrMethod { idx: Arg<NameIdx> } = 259,
+    PopBlock = 263,
+}
+
+const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum Instruction {
+    Real(RealInstruction),
+    Pseudo(PseudoInstruction),
+}
+
+impl From<RealInstruction> for Instruction {
+    fn from(value: RealInstruction) -> Self {
+        Self::Real(value)
+    }
+}
+
+impl From<PseudoInstruction> for Instruction {
+    fn from(value: PseudoInstruction) -> Self {
+        Self::Pseudo(value)
     }
 }

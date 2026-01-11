@@ -14,7 +14,7 @@ use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
-pub use crate::bytecode::instruction::Instruction;
+pub use crate::bytecode::instruction::{Instruction, PseudoInstruction, RealInstruction};
 
 mod instruction;
 
@@ -102,7 +102,7 @@ pub const fn decode_load_attr_arg(oparg: u32) -> (u32, bool) {
     (name_idx, is_method)
 }
 
-/// Oparg values for [`Instruction::ConvertValue`].
+/// Oparg values for [`RealInstruction::ConvertValue`].
 ///
 /// ## See also
 ///
@@ -146,7 +146,7 @@ impl fmt::Display for ConvertValueOparg {
             Self::Str => "1 (str)",
             Self::Repr => "2 (repr)",
             Self::Ascii => "3 (ascii)",
-            // We should never reach this. `FVC_NONE` are being handled by `Instruction::FormatSimple`
+            // We should never reach this. `FVC_NONE` are being handled by `RealInstruction::FormatSimple`
             Self::None => "",
         };
 
@@ -452,9 +452,9 @@ pub struct OpArgState {
 
 impl OpArgState {
     #[inline(always)]
-    pub fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
+    pub fn get(&mut self, ins: CodeUnit) -> (RealInstruction, OpArg) {
         let arg = self.extend(ins.arg);
-        if ins.op != Instruction::ExtendedArg {
+        if ins.op != RealInstruction::ExtendedArg {
             self.reset();
         }
         (ins.op, arg)
@@ -590,7 +590,7 @@ impl<T: OpArgType> fmt::Debug for Arg<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
 // XXX: if you add a new instruction that stores a Label, make sure to add it in
-// Instruction::label_arg
+// RealInstruction::label_arg
 pub struct Label(pub u32);
 
 impl OpArgType for Label {
@@ -677,14 +677,14 @@ pub type NameIdx = u32;
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct CodeUnit {
-    pub op: Instruction,
+    pub op: RealInstruction,
     pub arg: OpArgByte,
 }
 
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
 impl CodeUnit {
-    pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
+    pub const fn new(op: RealInstruction, arg: OpArgByte) -> Self {
         Self { op, arg }
     }
 }
@@ -941,9 +941,9 @@ op_arg_enum!(
     /// # Examples
     ///
     /// ```rust
-    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, Instruction};
+    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, RealInstruction};
     /// let (op, _) = Arg::new(BinaryOperator::Add);
-    /// let instruction = Instruction::BinaryOp { op };
+    /// let instruction = RealInstruction::BinaryOp { op };
     /// ```
     ///
     /// See also:
