@@ -38,8 +38,8 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
-        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, Invert, OpArg, OpArgType,
-        UnpackExArgs,
+        ComparisonOperator, ConstantData, ConvertValueOparg, Invert, OpArg, OpArgType,
+        RealInstruction, UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -274,17 +274,17 @@ pub fn compile_expression(
 }
 
 macro_rules! emit {
-    ($c:expr, Instruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
-        $c.emit_arg($arg, |x| Instruction::$op { $arg: x })
+    ($c:expr, $inst:ty { $arg:ident$(,)? }$(,)?) => {
+        $c.emit_arg($arg, |x| $inst { $arg: x })
     };
-    ($c:expr, Instruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
-        $c.emit_arg($arg_val, |x| Instruction::$op { $arg: x })
+    ($c:expr, $inst:ty { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
+        $c.emit_arg($arg_val, |x| $inst { $arg: x })
     };
-    ($c:expr, Instruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
-        $c.emit_arg($arg_val, Instruction::$op)
+    ($c:expr, $inst:ty( $arg_val:expr $(,)? )$(,)?) => {
+        $c.emit_arg($arg_val, $inst)
     };
-    ($c:expr, Instruction::$op:ident$(,)?) => {
-        $c.emit_no_arg(Instruction::$op)
+    ($c:expr, $inst:ty$(,)?) => {
+        $c.emit_no_arg($inst)
     };
 }
 
@@ -495,12 +495,12 @@ impl Compiler {
             };
             match ctx {
                 ExprContext::Load => {
-                    emit!(self, Instruction::BuildSlice { argc });
-                    emit!(self, Instruction::Subscript);
+                    emit!(self, RealInstruction::BuildSlice { argc });
+                    emit!(self, RealInstruction::Subscript);
                 }
                 ExprContext::Store => {
-                    emit!(self, Instruction::BuildSlice { argc });
-                    emit!(self, Instruction::StoreSubscr);
+                    emit!(self, RealInstruction::BuildSlice { argc });
+                    emit!(self, RealInstruction::StoreSubscr);
                 }
                 _ => unreachable!(),
             }
@@ -510,9 +510,9 @@ impl Compiler {
 
             // Emit appropriate instruction based on context
             match ctx {
-                ExprContext::Load => emit!(self, Instruction::Subscript),
-                ExprContext::Store => emit!(self, Instruction::StoreSubscr),
-                ExprContext::Del => emit!(self, Instruction::DeleteSubscr),
+                ExprContext::Load => emit!(self, RealInstruction::Subscript),
+                ExprContext::Store => emit!(self, RealInstruction::StoreSubscr),
+                ExprContext::Del => emit!(self, RealInstruction::DeleteSubscr),
                 ExprContext::Invalid => {
                     return Err(self.error(CodegenErrorType::SyntaxError(
                         "Invalid expression context".to_owned(),
@@ -546,28 +546,28 @@ impl Compiler {
             match collection_type {
                 CollectionType::Tuple => {
                     if size > 1 || pushed > 0 {
-                        emit!(self, Instruction::BuildTupleFromTuples { size });
+                        emit!(self, RealInstruction::BuildTupleFromTuples { size });
                     }
                     // If size == 1 and pushed == 0, the single tuple is already on the stack
                 }
                 CollectionType::List => {
-                    emit!(self, Instruction::BuildListFromTuples { size });
+                    emit!(self, RealInstruction::BuildListFromTuples { size });
                 }
                 CollectionType::Set => {
-                    emit!(self, Instruction::BuildSetFromTuples { size });
+                    emit!(self, RealInstruction::BuildSetFromTuples { size });
                 }
             }
         } else {
             // No starred elements
             match collection_type {
                 CollectionType::Tuple => {
-                    emit!(self, Instruction::BuildTuple { size });
+                    emit!(self, RealInstruction::BuildTuple { size });
                 }
                 CollectionType::List => {
-                    emit!(self, Instruction::BuildList { size });
+                    emit!(self, RealInstruction::BuildList { size });
                 }
                 CollectionType::Set => {
-                    emit!(self, Instruction::BuildSet { size });
+                    emit!(self, RealInstruction::BuildSet { size });
                 }
             }
         }
@@ -800,7 +800,7 @@ impl Compiler {
                         )));
                     }
                 };
-                self.emit_arg(idx, Instruction::LoadDeref);
+                self.emit_arg(idx, RealInstruction::LoadDeref);
 
                 // Load first parameter (typically 'self').
                 // Safety: can_optimize_super_call() ensures argcount > 0, and
@@ -990,7 +990,7 @@ impl Compiler {
         self.current_source_range = TextRange::default();
         emit!(
             self,
-            Instruction::Resume {
+            RealInstruction::Resume {
                 arg: bytecode::ResumeType::AtFuncStart as u32
             }
         );
@@ -1146,9 +1146,9 @@ impl Compiler {
             FBlockType::ForLoop => {
                 // Pop the iterator
                 if preserve_tos {
-                    emit!(self, Instruction::Swap { index: 2 });
+                    emit!(self, RealInstruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
             }
 
             FBlockType::TryExcept => {
@@ -1168,53 +1168,53 @@ impl Compiler {
                 // Note: No lasti here - it's only pushed for cleanup handler exceptions
                 // We need to pop: exc, prev_exc (via PopExcept)
                 if preserve_tos {
-                    emit!(self, Instruction::Swap { index: 2 });
+                    emit!(self, RealInstruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopTop); // exc
+                emit!(self, RealInstruction::PopTop); // exc
                 if preserve_tos {
-                    emit!(self, Instruction::Swap { index: 2 });
+                    emit!(self, RealInstruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopExcept); // prev_exc is restored
+                emit!(self, RealInstruction::PopExcept); // prev_exc is restored
             }
 
             FBlockType::With | FBlockType::AsyncWith => {
                 // Stack when entering: [..., __exit__, return_value (if preserve_tos)]
                 // Need to call __exit__(None, None, None)
 
-                emit!(self, Instruction::PopBlock);
+                emit!(self, RealInstruction::PopBlock);
 
                 // If preserving return value, swap it below __exit__
                 if preserve_tos {
-                    emit!(self, Instruction::Swap { index: 2 });
+                    emit!(self, RealInstruction::Swap { index: 2 });
                 }
                 // Stack after swap: [..., return_value, __exit__] or [..., __exit__]
 
                 // Call __exit__(None, None, None)
                 // Call protocol: [callable, self_or_null, arg1, arg2, arg3]
-                emit!(self, Instruction::PushNull);
+                emit!(self, RealInstruction::PushNull);
                 // Stack: [..., __exit__, NULL]
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
                 // Stack: [..., __exit__, NULL, None, None, None]
-                emit!(self, Instruction::Call { nargs: 3 });
+                emit!(self, RealInstruction::Call { nargs: 3 });
 
                 // For async with, await the result
                 if matches!(info.fb_type, FBlockType::AsyncWith) {
-                    emit!(self, Instruction::GetAwaitable);
+                    emit!(self, RealInstruction::GetAwaitable);
                     self.emit_load_const(ConstantData::None);
                     self.compile_yield_from_sequence(true)?;
                 }
 
                 // Pop the __exit__ result
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
             }
 
             FBlockType::HandlerCleanup => {
                 if preserve_tos {
-                    emit!(self, Instruction::Swap { index: 2 });
+                    emit!(self, RealInstruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopExcept);
+                emit!(self, RealInstruction::PopExcept);
 
                 // If there's an exception name, clean it up
                 if let FBlockDatum::ExceptionName(ref name) = info.fb_datum {
@@ -1226,9 +1226,9 @@ impl Compiler {
 
             FBlockType::PopValue => {
                 if preserve_tos {
-                    emit!(self, Instruction::Swap { index: 2 });
+                    emit!(self, RealInstruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
             }
         }
         Ok(())
@@ -1495,11 +1495,11 @@ impl Compiler {
                 value: value.into(),
             });
             let doc = self.name("__doc__");
-            emit!(self, Instruction::StoreGlobal(doc))
+            emit!(self, RealInstruction::StoreGlobal(doc))
         }
 
         if Self::find_ann(statements) {
-            emit!(self, Instruction::SetupAnnotations);
+            emit!(self, RealInstruction::SetupAnnotations);
         }
 
         self.compile_statements(statements)?;
@@ -1519,7 +1519,7 @@ impl Compiler {
         self.symbol_table_stack.push(symbol_table);
 
         if Self::find_ann(body) {
-            emit!(self, Instruction::SetupAnnotations);
+            emit!(self, RealInstruction::SetupAnnotations);
         }
 
         if let Some((last, body)) = body.split_last() {
@@ -1528,12 +1528,12 @@ impl Compiler {
                     self.compile_expression(value)?;
                     emit!(
                         self,
-                        Instruction::CallIntrinsic1 {
+                        RealInstruction::CallIntrinsic1 {
                             func: bytecode::IntrinsicFunction1::Print
                         }
                     );
 
-                    emit!(self, Instruction::PopTop);
+                    emit!(self, RealInstruction::PopTop);
                 } else {
                     self.compile_statement(statement)?;
                 }
@@ -1541,15 +1541,15 @@ impl Compiler {
 
             if let Stmt::Expr(StmtExpr { value, .. }) = &last {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::Copy { index: 1_u32 });
+                emit!(self, RealInstruction::Copy { index: 1_u32 });
                 emit!(
                     self,
-                    Instruction::CallIntrinsic1 {
+                    RealInstruction::CallIntrinsic1 {
                         func: bytecode::IntrinsicFunction1::Print
                     }
                 );
 
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
             } else {
                 self.compile_statement(last)?;
                 self.emit_load_const(ConstantData::None);
@@ -1574,12 +1574,12 @@ impl Compiler {
         if let Some(last_statement) = body.last() {
             match last_statement {
                 Stmt::Expr(_) => {
-                    self.current_block().instructions.pop(); // pop Instruction::PopTop
+                    self.current_block().instructions.pop(); // pop RealInstruction::PopTop
                 }
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                     let pop_instructions = self.current_block().instructions.pop();
-                    let store_inst = compiler_unwrap_option(self, pop_instructions); // pop Instruction::Store
-                    emit!(self, Instruction::Copy { index: 1_u32 });
+                    let store_inst = compiler_unwrap_option(self, pop_instructions); // pop RealInstruction::Store
+                    emit!(self, RealInstruction::Copy { index: 1_u32 });
                     self.current_block().instructions.push(store_inst);
                 }
                 _ => self.emit_load_const(ConstantData::None),
@@ -1720,40 +1720,40 @@ impl Compiler {
                     NameUsage::Load => {
                         // Special case for class scope
                         if self.ctx.in_class && !self.ctx.in_func() {
-                            Instruction::LoadFromDictOrDeref
+                            RealInstruction::LoadFromDictOrDeref
                         } else {
-                            Instruction::LoadDeref
+                            RealInstruction::LoadDeref
                         }
                     }
-                    NameUsage::Store => Instruction::StoreDeref,
-                    NameUsage::Delete => Instruction::DeleteDeref,
+                    NameUsage::Store => RealInstruction::StoreDeref,
+                    NameUsage::Delete => RealInstruction::DeleteDeref,
                 };
                 self.emit_arg(idx, op);
             }
             NameOp::Fast => {
                 let idx = self.get_local_var_index(&name)?;
                 let op = match usage {
-                    NameUsage::Load => Instruction::LoadFast,
-                    NameUsage::Store => Instruction::StoreFast,
-                    NameUsage::Delete => Instruction::DeleteFast,
+                    NameUsage::Load => RealInstruction::LoadFast,
+                    NameUsage::Store => RealInstruction::StoreFast,
+                    NameUsage::Delete => RealInstruction::DeleteFast,
                 };
                 self.emit_arg(idx, op);
             }
             NameOp::Global => {
                 let idx = self.get_global_name_index(&name);
                 let op = match usage {
-                    NameUsage::Load => Instruction::LoadGlobal,
-                    NameUsage::Store => Instruction::StoreGlobal,
-                    NameUsage::Delete => Instruction::DeleteGlobal,
+                    NameUsage::Load => RealInstruction::LoadGlobal,
+                    NameUsage::Store => RealInstruction::StoreGlobal,
+                    NameUsage::Delete => RealInstruction::DeleteGlobal,
                 };
                 self.emit_arg(idx, op);
             }
             NameOp::Name => {
                 let idx = self.get_global_name_index(&name);
                 let op = match usage {
-                    NameUsage::Load => Instruction::LoadName,
-                    NameUsage::Store => Instruction::StoreName,
-                    NameUsage::Delete => Instruction::DeleteName,
+                    NameUsage::Load => RealInstruction::LoadName,
+                    NameUsage::Store => RealInstruction::StoreName,
+                    NameUsage::Delete => RealInstruction::DeleteName,
                 };
                 self.emit_arg(idx, op);
             }
@@ -1796,11 +1796,11 @@ impl Compiler {
                     });
                     self.emit_load_const(ConstantData::None);
                     let idx = self.name(&name.name);
-                    emit!(self, Instruction::ImportName { idx });
+                    emit!(self, RealInstruction::ImportName { idx });
                     if let Some(alias) = &name.asname {
                         for part in name.name.split('.').skip(1) {
                             let idx = self.name(part);
-                            emit!(self, Instruction::LoadAttr { idx });
+                            emit!(self, RealInstruction::LoadAttr { idx });
                         }
                         self.store_name(alias.as_str())?
                     } else {
@@ -1843,13 +1843,13 @@ impl Compiler {
 
                 let module_name = module.as_ref().map_or("", |s| s.as_str());
                 let module_idx = self.name(module_name);
-                emit!(self, Instruction::ImportName { idx: module_idx });
+                emit!(self, RealInstruction::ImportName { idx: module_idx });
 
                 if import_star {
                     // from .... import *
                     emit!(
                         self,
-                        Instruction::CallIntrinsic1 {
+                        RealInstruction::CallIntrinsic1 {
                             func: bytecode::IntrinsicFunction1::ImportStar
                         }
                     );
@@ -1860,7 +1860,7 @@ impl Compiler {
                         let name = &name;
                         let idx = self.name(name.name.as_str());
                         // import symbol from module:
-                        emit!(self, Instruction::ImportFrom { idx });
+                        emit!(self, RealInstruction::ImportFrom { idx });
 
                         // Store module under proper name:
                         if let Some(alias) = &name.asname {
@@ -1871,14 +1871,14 @@ impl Compiler {
                     }
 
                     // Pop module from stack:
-                    emit!(self, Instruction::PopTop);
+                    emit!(self, RealInstruction::PopTop);
                 }
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 self.compile_expression(value)?;
 
                 // Pop result of stack, since we not use it:
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
             }
             Stmt::Global(_) | Stmt::Nonlocal(_) => {
                 // Handled during symbol table construction.
@@ -1906,7 +1906,7 @@ impl Compiler {
                         self.compile_statements(body)?;
                         emit!(
                             self,
-                            Instruction::Jump {
+                            PseudoInstruction::Jump {
                                 target: after_block
                             }
                         );
@@ -1922,7 +1922,7 @@ impl Compiler {
                             self.compile_statements(&clause.body)?;
                             emit!(
                                 self,
-                                Instruction::Jump {
+                                PseudoInstruction::Jump {
                                     target: after_block
                                 }
                             );
@@ -1972,7 +1972,7 @@ impl Compiler {
                     None => bytecode::RaiseKind::BareRaise,
                 };
                 self.set_source_range(*range);
-                emit!(self, Instruction::RaiseVarargs { kind });
+                emit!(self, RealInstruction::RaiseVarargs { kind });
             }
             Stmt::Try(StmtTry {
                 body,
@@ -2031,20 +2031,20 @@ impl Compiler {
                     self.compile_jump_if(test, true, after_block)?;
 
                     let assertion_error = self.name("AssertionError");
-                    emit!(self, Instruction::LoadGlobal(assertion_error));
-                    emit!(self, Instruction::PushNull);
+                    emit!(self, RealInstruction::LoadGlobal(assertion_error));
+                    emit!(self, RealInstruction::PushNull);
                     match msg {
                         Some(e) => {
                             self.compile_expression(e)?;
-                            emit!(self, Instruction::Call { nargs: 1 });
+                            emit!(self, RealInstruction::Call { nargs: 1 });
                         }
                         None => {
-                            emit!(self, Instruction::Call { nargs: 0 });
+                            emit!(self, RealInstruction::Call { nargs: 0 });
                         }
                     }
                     emit!(
                         self,
-                        Instruction::RaiseVarargs {
+                        RealInstruction::RaiseVarargs {
                             kind: bytecode::RaiseKind::Raise,
                         }
                     );
@@ -2097,7 +2097,7 @@ impl Compiler {
 
                 for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
-                        emit!(self, Instruction::Copy { index: 1_u32 });
+                        emit!(self, RealInstruction::Copy { index: 1_u32 });
                     }
                     self.compile_store(target)?;
                 }
@@ -2166,10 +2166,10 @@ impl Compiler {
                 }
 
                 // Build tuple of 3 elements and call intrinsic
-                emit!(self, Instruction::BuildTuple { size: 3 });
+                emit!(self, RealInstruction::BuildTuple { size: 3 });
                 emit!(
                     self,
-                    Instruction::CallIntrinsic1 {
+                    RealInstruction::CallIntrinsic1 {
                         func: bytecode::IntrinsicFunction1::TypeAlias
                     }
                 );
@@ -2188,7 +2188,7 @@ impl Compiler {
                 self.check_forbidden_name(attr.as_str(), NameUsage::Delete)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                emit!(self, Instruction::DeleteAttr { idx });
+                emit!(self, RealInstruction::DeleteAttr { idx });
             }
             Expr::Subscript(ExprSubscript {
                 value, slice, ctx, ..
@@ -2255,7 +2255,7 @@ impl Compiler {
     fn prepare_decorators(&mut self, decorator_list: &[Decorator]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(&decorator.expression)?;
-            emit!(self, Instruction::PushNull);
+            emit!(self, RealInstruction::PushNull);
         }
         Ok(())
     }
@@ -2266,7 +2266,7 @@ impl Compiler {
     /// applying decorators bottom-up (innermost first).
     fn apply_decorators(&mut self, decorator_list: &[Decorator]) {
         for _ in decorator_list {
-            emit!(self, Instruction::Call { nargs: 1 });
+            emit!(self, RealInstruction::Call { nargs: 1 });
         }
     }
 
@@ -2291,14 +2291,14 @@ impl Compiler {
         if allow_starred && matches!(expr, Expr::Starred(_)) {
             if let Expr::Starred(starred) = expr {
                 self.compile_expression(&starred.value)?;
-                emit!(self, Instruction::UnpackSequence { size: 1 });
+                emit!(self, RealInstruction::UnpackSequence { size: 1 });
             }
         } else {
             self.compile_expression(expr)?;
         }
 
         // Return value
-        emit!(self, Instruction::ReturnValue);
+        emit!(self, RealInstruction::ReturnValue);
 
         // Exit scope and create closure
         let code = self.exit_scope();
@@ -2306,10 +2306,10 @@ impl Compiler {
 
         // Create type params function with closure
         self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
-        emit!(self, Instruction::PushNull);
+        emit!(self, RealInstruction::PushNull);
 
         // Call the function immediately
-        emit!(self, Instruction::Call { nargs: 0 });
+        emit!(self, RealInstruction::Call { nargs: 0 });
 
         Ok(())
     }
@@ -2343,11 +2343,11 @@ impl Compiler {
                         } else {
                             bytecode::IntrinsicFunction2::TypeVarWithBound
                         };
-                        emit!(self, Instruction::CallIntrinsic2 { func: intrinsic });
+                        emit!(self, RealInstruction::CallIntrinsic2 { func: intrinsic });
                     } else {
                         emit!(
                             self,
-                            Instruction::CallIntrinsic1 {
+                            RealInstruction::CallIntrinsic1 {
                                 func: bytecode::IntrinsicFunction1::TypeVar
                             }
                         );
@@ -2358,13 +2358,13 @@ impl Compiler {
                         self.compile_type_param_bound_or_default(default_expr, &scope_name, false)?;
                         emit!(
                             self,
-                            Instruction::CallIntrinsic2 {
+                            RealInstruction::CallIntrinsic2 {
                                 func: bytecode::IntrinsicFunction2::SetTypeparamDefault
                             }
                         );
                     }
 
-                    emit!(self, Instruction::Copy { index: 1_u32 });
+                    emit!(self, RealInstruction::Copy { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
@@ -2373,7 +2373,7 @@ impl Compiler {
                     });
                     emit!(
                         self,
-                        Instruction::CallIntrinsic1 {
+                        RealInstruction::CallIntrinsic1 {
                             func: bytecode::IntrinsicFunction1::ParamSpec
                         }
                     );
@@ -2383,13 +2383,13 @@ impl Compiler {
                         self.compile_type_param_bound_or_default(default_expr, &scope_name, false)?;
                         emit!(
                             self,
-                            Instruction::CallIntrinsic2 {
+                            RealInstruction::CallIntrinsic2 {
                                 func: bytecode::IntrinsicFunction2::SetTypeparamDefault
                             }
                         );
                     }
 
-                    emit!(self, Instruction::Copy { index: 1_u32 });
+                    emit!(self, RealInstruction::Copy { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
@@ -2398,7 +2398,7 @@ impl Compiler {
                     });
                     emit!(
                         self,
-                        Instruction::CallIntrinsic1 {
+                        RealInstruction::CallIntrinsic1 {
                             func: bytecode::IntrinsicFunction1::TypeVarTuple
                         }
                     );
@@ -2409,20 +2409,20 @@ impl Compiler {
                         self.compile_type_param_bound_or_default(default_expr, &scope_name, true)?;
                         emit!(
                             self,
-                            Instruction::CallIntrinsic2 {
+                            RealInstruction::CallIntrinsic2 {
                                 func: bytecode::IntrinsicFunction2::SetTypeparamDefault
                             }
                         );
                     }
 
-                    emit!(self, Instruction::Copy { index: 1_u32 });
+                    emit!(self, RealInstruction::Copy { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
             };
         }
         emit!(
             self,
-            Instruction::BuildTuple {
+            RealInstruction::BuildTuple {
                 size: u32::try_from(type_params.len()).unwrap(),
             }
         );
@@ -2510,7 +2510,7 @@ impl Compiler {
             }
 
             // Jump to end (skip exception path blocks)
-            emit!(self, Instruction::Jump { target: end_block });
+            emit!(self, PseudoInstruction::Jump { target: end_block });
 
             if let Some(finally_except) = finally_except_block {
                 // Restore sub_tables for exception path compilation
@@ -2524,7 +2524,7 @@ impl Compiler {
                 // PUSH_EXC_INFO first, THEN push FinallyEnd fblock
                 // Stack after unwind (no lasti): [exc] (depth = current_depth + 1)
                 // Stack after PUSH_EXC_INFO: [prev_exc, exc] (depth = current_depth + 2)
-                emit!(self, Instruction::PushExcInfo);
+                emit!(self, RealInstruction::PushExcInfo);
                 if let Some(cleanup) = finally_cleanup_block {
                     // FinallyEnd fblock must be pushed AFTER PUSH_EXC_INFO
                     // Depth = current_depth + 1 (only prev_exc remains after RERAISE pops exc)
@@ -2544,7 +2544,7 @@ impl Compiler {
                 // which then properly restores prev_exc before going to outer handler
                 emit!(
                     self,
-                    Instruction::RaiseVarargs {
+                    RealInstruction::RaiseVarargs {
                         kind: bytecode::RaiseKind::ReraiseFromStack
                     }
                 );
@@ -2555,11 +2555,11 @@ impl Compiler {
 
             if let Some(cleanup) = finally_cleanup_block {
                 self.switch_to_block(cleanup);
-                emit!(self, Instruction::Copy { index: 3_u32 });
-                emit!(self, Instruction::PopExcept);
+                emit!(self, RealInstruction::Copy { index: 3_u32 });
+                emit!(self, RealInstruction::PopExcept);
                 emit!(
                     self,
-                    Instruction::RaiseVarargs {
+                    RealInstruction::RaiseVarargs {
                         kind: bytecode::RaiseKind::ReraiseFromStack
                     }
                 );
@@ -2583,7 +2583,7 @@ impl Compiler {
         self.compile_statements(body)?;
         self.pop_fblock(FBlockType::TryExcept);
         // No PopBlock emit - exception table handles this
-        emit!(self, Instruction::Jump { target: else_block });
+        emit!(self, PseudoInstruction::Jump { target: else_block });
 
         // except handlers:
         self.switch_to_block(handler_block);
@@ -2605,7 +2605,7 @@ impl Compiler {
 
         // Exception is on top of stack now, pushed by unwind_blocks
         // PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] for PopExcept
-        emit!(self, Instruction::PushExcInfo);
+        emit!(self, RealInstruction::PushExcInfo);
         for handler in handlers {
             let ExceptHandler::ExceptHandler(ExceptHandlerExceptHandler {
                 type_, name, body, ..
@@ -2616,23 +2616,23 @@ impl Compiler {
             // check if this handler can handle the exception:
             if let Some(exc_type) = type_ {
                 // Duplicate exception for test:
-                emit!(self, Instruction::Copy { index: 1_u32 });
+                emit!(self, RealInstruction::Copy { index: 1_u32 });
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
-                emit!(self, Instruction::JumpIfNotExcMatch(next_handler));
+                emit!(self, PseudoInstruction::JumpIfNotExcMatch(next_handler));
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
                     self.store_name(alias.as_str())?
                 } else {
                     // Drop exception from top of stack:
-                    emit!(self, Instruction::PopTop);
+                    emit!(self, RealInstruction::PopTop);
                 }
             } else {
                 // Catch all!
                 // Drop exception from top of stack:
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
             }
 
             // If name is bound, we need a cleanup handler for RERAISE
@@ -2666,7 +2666,7 @@ impl Compiler {
             let handler_normal_exit = self.new_block();
             emit!(
                 self,
-                Instruction::Jump {
+                PseudoInstruction::Jump {
                     target: handler_normal_exit,
                 }
             );
@@ -2689,7 +2689,7 @@ impl Compiler {
                 // which does COPY 3; POP_EXCEPT; RERAISE
                 emit!(
                     self,
-                    Instruction::RaiseVarargs {
+                    RealInstruction::RaiseVarargs {
                         kind: bytecode::RaiseKind::ReraiseFromStack,
                     }
                 );
@@ -2702,7 +2702,7 @@ impl Compiler {
             // POP_BLOCK (HandlerCleanup) then POP_BLOCK (SETUP_CLEANUP)
             // followed by POP_EXCEPT
             self.pop_fblock(FBlockType::ExceptionHandler);
-            emit!(self, Instruction::PopExcept);
+            emit!(self, RealInstruction::PopExcept);
 
             // Delete the exception variable if it was bound (normal path)
             if let Some(alias) = name {
@@ -2715,7 +2715,7 @@ impl Compiler {
             // Jump to finally block
             emit!(
                 self,
-                Instruction::Jump {
+                PseudoInstruction::Jump {
                     target: finally_block,
                 }
             );
@@ -2742,7 +2742,7 @@ impl Compiler {
         // NOTE: We emit RERAISE 0 BEFORE popping fblock so it is within cleanup handler scope
         emit!(
             self,
-            Instruction::RaiseVarargs {
+            RealInstruction::RaiseVarargs {
                 kind: bytecode::RaiseKind::ReraiseFromStack,
             }
         );
@@ -2757,11 +2757,11 @@ impl Compiler {
         // POP_EXCEPT: pop prev_exc from stack and restore -> [prev_exc, lasti, exc]
         // RERAISE 1: reraise with lasti
         self.switch_to_block(cleanup_block);
-        emit!(self, Instruction::Copy { index: 3_u32 });
-        emit!(self, Instruction::PopExcept);
+        emit!(self, RealInstruction::Copy { index: 3_u32 });
+        emit!(self, RealInstruction::PopExcept);
         emit!(
             self,
-            Instruction::RaiseVarargs {
+            RealInstruction::RaiseVarargs {
                 kind: bytecode::RaiseKind::ReraiseFromStack,
             }
         );
@@ -2790,7 +2790,7 @@ impl Compiler {
             self.compile_statements(finalbody)?;
             // Jump to end_block to skip exception path blocks
             // This prevents fall-through to finally_except_block
-            emit!(self, Instruction::Jump { target: end_block });
+            emit!(self, PseudoInstruction::Jump { target: end_block });
         }
 
         // finally (exception path)
@@ -2824,7 +2824,7 @@ impl Compiler {
 
             // PUSH_EXC_INFO: [lasti, exc] -> [lasti, prev_exc, exc]
             // Sets exc as current VM exception, saves prev_exc for restoration
-            emit!(self, Instruction::PushExcInfo);
+            emit!(self, RealInstruction::PushExcInfo);
 
             // Run finally body
             self.compile_statements(finalbody)?;
@@ -2836,7 +2836,7 @@ impl Compiler {
             // Stack: [lasti, prev_exc, exc] - exception is on top
             emit!(
                 self,
-                Instruction::RaiseVarargs {
+                RealInstruction::RaiseVarargs {
                     kind: bytecode::RaiseKind::ReraiseFromStack,
                 }
             );
@@ -2852,13 +2852,13 @@ impl Compiler {
         if let Some(cleanup) = finally_cleanup_block {
             self.switch_to_block(cleanup);
             // COPY 3: copy the exception from position 3
-            emit!(self, Instruction::Copy { index: 3_u32 });
+            emit!(self, RealInstruction::Copy { index: 3_u32 });
             // POP_EXCEPT: restore prev_exc as current exception
-            emit!(self, Instruction::PopExcept);
+            emit!(self, RealInstruction::PopExcept);
             // RERAISE 1: reraise with lasti from stack
             emit!(
                 self,
-                Instruction::RaiseVarargs {
+                RealInstruction::RaiseVarargs {
                     kind: bytecode::RaiseKind::ReraiseFromStack,
                 }
             );
@@ -2916,14 +2916,14 @@ impl Compiler {
         )?;
         self.compile_statements(body)?;
         self.pop_fblock(FBlockType::TryExcept);
-        emit!(self, Instruction::Jump { target: else_block });
+        emit!(self, PseudoInstruction::Jump { target: else_block });
 
         // Exception handler entry
         self.switch_to_block(handler_block);
         // Stack: [exc] (from exception table)
 
         // PUSH_EXC_INFO
-        emit!(self, Instruction::PushExcInfo);
+        emit!(self, RealInstruction::PushExcInfo);
         // Stack: [prev_exc, exc]
 
         // Push EXCEPTION_GROUP_HANDLER fblock
@@ -2943,10 +2943,10 @@ impl Compiler {
             // first handler creates list and copies exc
             if i == 0 {
                 // ADDOP_I(c, loc, BUILD_LIST, 0);
-                emit!(self, Instruction::BuildList { size: 0 });
+                emit!(self, RealInstruction::BuildList { size: 0 });
                 // Stack: [prev_exc, exc, []]
                 // ADDOP_I(c, loc, COPY, 2);
-                emit!(self, Instruction::Copy { index: 2 });
+                emit!(self, RealInstruction::Copy { index: 2 });
                 // Stack: [prev_exc, exc, [], exc_copy]
                 // Now stack is: [prev_exc, orig, list, rest]
             }
@@ -2971,17 +2971,17 @@ impl Compiler {
             // Stack: [prev_exc, orig, list, rest, type]
 
             // ADDOP(c, loc, CHECK_EG_MATCH);
-            emit!(self, Instruction::CheckEgMatch);
+            emit!(self, RealInstruction::CheckEgMatch);
             // Stack: [prev_exc, orig, list, new_rest, match]
 
             // ADDOP_I(c, loc, COPY, 1);
             // ADDOP_JUMP(c, loc, POP_JUMP_IF_NONE, no_match);
-            emit!(self, Instruction::Copy { index: 1 });
+            emit!(self, RealInstruction::Copy { index: 1 });
             self.emit_load_const(ConstantData::None);
-            emit!(self, Instruction::IsOp(bytecode::Invert::No)); // is None?
+            emit!(self, RealInstruction::IsOp(bytecode::Invert::No)); // is None?
             emit!(
                 self,
-                Instruction::PopJumpIfTrue {
+                RealInstruction::PopJumpIfTrue {
                     target: no_match_block
                 }
             );
@@ -2993,13 +2993,13 @@ impl Compiler {
             // Set matched exception as current exception (for __context__ in handler body)
             // This ensures that exceptions raised in the handler get the matched part
             // as their __context__, not the original full exception group
-            emit!(self, Instruction::SetExcInfo);
+            emit!(self, RealInstruction::SetExcInfo);
 
             // Store match to name or pop
             if let Some(alias) = name {
                 self.store_name(alias.as_str())?;
             } else {
-                emit!(self, Instruction::PopTop); // pop match
+                emit!(self, RealInstruction::PopTop); // pop match
             }
             // Stack: [prev_exc, orig, list, new_rest]
 
@@ -3029,7 +3029,7 @@ impl Compiler {
             }
 
             // Jump to next handler
-            emit!(self, Instruction::Jump { target: next_block });
+            emit!(self, PseudoInstruction::Jump { target: next_block });
 
             // Handler raised an exception (cleanup_end label)
             self.switch_to_block(handler_except_block);
@@ -3048,20 +3048,20 @@ impl Compiler {
             // After pop: [prev_exc, orig, list, new_rest, lasti] (len=5)
             // nth_value(i) = stack[len - i - 1], we need stack[2] = list
             // stack[5 - i - 1] = 2 -> i = 2
-            emit!(self, Instruction::ListAppend { i: 2 });
+            emit!(self, RealInstruction::ListAppend { i: 2 });
             // Stack: [prev_exc, orig, list, new_rest, lasti]
 
             // POP_TOP - pop lasti
-            emit!(self, Instruction::PopTop);
+            emit!(self, RealInstruction::PopTop);
             // Stack: [prev_exc, orig, list, new_rest]
 
             // JUMP except_with_error
             // We directly JUMP to next_block since no_match_block falls through to it
-            emit!(self, Instruction::Jump { target: next_block });
+            emit!(self, PseudoInstruction::Jump { target: next_block });
 
             // No match - pop match (None)
             self.switch_to_block(no_match_block);
-            emit!(self, Instruction::PopTop); // pop match (None)
+            emit!(self, RealInstruction::PopTop); // pop match (None)
             // Stack: [prev_exc, orig, list, new_rest]
             // Falls through to next_block
 
@@ -3077,11 +3077,11 @@ impl Compiler {
                 // PEEK(1) = stack[len-1] after pop
                 // RustPython nth_value(i) = stack[len-i-1] after pop
                 // For LIST_APPEND 1: stack[len-1] = stack[len-i-1] -> i = 0
-                emit!(self, Instruction::ListAppend { i: 0 });
+                emit!(self, RealInstruction::ListAppend { i: 0 });
                 // Stack: [prev_exc, orig, list]
                 emit!(
                     self,
-                    Instruction::Jump {
+                    PseudoInstruction::Jump {
                         target: reraise_star_block
                     }
                 );
@@ -3099,22 +3099,22 @@ impl Compiler {
         // Takes 2 args (orig, list) and produces result
         emit!(
             self,
-            Instruction::CallIntrinsic2 {
+            RealInstruction::CallIntrinsic2 {
                 func: bytecode::IntrinsicFunction2::PrepReraiseStar
             }
         );
         // Stack: [prev_exc, result]
 
         // COPY 1
-        emit!(self, Instruction::Copy { index: 1 });
+        emit!(self, RealInstruction::Copy { index: 1 });
         // Stack: [prev_exc, result, result]
 
         // POP_JUMP_IF_NOT_NONE reraise
         self.emit_load_const(ConstantData::None);
-        emit!(self, Instruction::IsOp(bytecode::Invert::Yes)); // is not None?
+        emit!(self, RealInstruction::IsOp(bytecode::Invert::Yes)); // is not None?
         emit!(
             self,
-            Instruction::PopJumpIfTrue {
+            RealInstruction::PopJumpIfTrue {
                 target: reraise_block
             }
         );
@@ -3122,19 +3122,19 @@ impl Compiler {
 
         // Nothing to reraise
         // POP_TOP - pop result (None)
-        emit!(self, Instruction::PopTop);
+        emit!(self, RealInstruction::PopTop);
         // Stack: [prev_exc]
 
         // POP_BLOCK - no-op for us with exception tables (fblocks handle this)
         // POP_EXCEPT - restore previous exception context
-        emit!(self, Instruction::PopExcept);
+        emit!(self, RealInstruction::PopExcept);
         // Stack: []
 
         if !finalbody.is_empty() {
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
-        emit!(self, Instruction::Jump { target: end_block });
+        emit!(self, PseudoInstruction::Jump { target: end_block });
 
         // Reraise the result
         self.switch_to_block(reraise_block);
@@ -3142,15 +3142,15 @@ impl Compiler {
 
         // POP_BLOCK - no-op for us
         // SWAP 2
-        emit!(self, Instruction::Swap { index: 2 });
+        emit!(self, RealInstruction::Swap { index: 2 });
         // Stack: [result, prev_exc]
 
         // POP_EXCEPT
-        emit!(self, Instruction::PopExcept);
+        emit!(self, RealInstruction::PopExcept);
         // Stack: [result]
 
         // RERAISE 0
-        emit!(self, Instruction::Reraise { depth: 0 });
+        emit!(self, RealInstruction::Reraise { depth: 0 });
 
         // try-else path
         // NOTE: When we reach here in compilation, the nothing-to-reraise path above
@@ -3175,7 +3175,7 @@ impl Compiler {
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
-        emit!(self, Instruction::Jump { target: end_block });
+        emit!(self, PseudoInstruction::Jump { target: end_block });
 
         self.switch_to_block(end_block);
         if !finalbody.is_empty() {
@@ -3213,7 +3213,7 @@ impl Compiler {
             }
             emit!(
                 self,
-                Instruction::BuildTuple {
+                RealInstruction::BuildTuple {
                     size: defaults.len().to_u32()
                 }
             );
@@ -3238,7 +3238,7 @@ impl Compiler {
             }
             emit!(
                 self,
-                Instruction::BuildMap {
+                RealInstruction::BuildMap {
                     size: kw_with_defaults.len().to_u32(),
                 }
             );
@@ -3308,13 +3308,13 @@ impl Compiler {
 
         // Handle docstring if present
         if let Some(doc) = doc_str {
-            emit!(self, Instruction::Copy { index: 1_u32 });
+            emit!(self, RealInstruction::Copy { index: 1_u32 });
             self.emit_load_const(ConstantData::Str {
                 value: doc.to_string().into(),
             });
-            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, RealInstruction::Swap { index: 2 });
             let doc_attr = self.name("__doc__");
-            emit!(self, Instruction::StoreAttr { idx: doc_attr });
+            emit!(self, RealInstruction::StoreAttr { idx: doc_attr });
         }
 
         Ok(())
@@ -3420,7 +3420,7 @@ impl Compiler {
 
             // Load defaults/kwdefaults with LOAD_FAST
             for i in 0..num_typeparam_args {
-                emit!(self, Instruction::LoadFast(i as u32));
+                emit!(self, RealInstruction::LoadFast(i as u32));
             }
         }
 
@@ -3431,7 +3431,7 @@ impl Compiler {
             annotations_flag = bytecode::MakeFunctionFlags::ANNOTATIONS;
             emit!(
                 self,
-                Instruction::BuildMap {
+                RealInstruction::BuildMap {
                     size: num_annotations,
                 }
             );
@@ -3445,18 +3445,18 @@ impl Compiler {
         if is_generic {
             // SWAP to get function on top
             // Stack: [type_params_tuple, function] -> [function, type_params_tuple]
-            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, RealInstruction::Swap { index: 2 });
 
             // Call INTRINSIC_SET_FUNCTION_TYPE_PARAMS
             emit!(
                 self,
-                Instruction::CallIntrinsic2 {
+                RealInstruction::CallIntrinsic2 {
                     func: bytecode::IntrinsicFunction2::SetFunctionTypeParams,
                 }
             );
 
             // Return the function object from type params scope
-            emit!(self, Instruction::ReturnValue);
+            emit!(self, RealInstruction::ReturnValue);
 
             // Set argcount for type params scope
             self.current_code_info().metadata.argcount = num_typeparam_args as u32;
@@ -3476,31 +3476,31 @@ impl Compiler {
                 match num_typeparam_args {
                     1 => {
                         // Stack: [arg1, closure]
-                        emit!(self, Instruction::Swap { index: 2 }); // [closure, arg1]
-                        emit!(self, Instruction::PushNull); // [closure, arg1, NULL]
-                        emit!(self, Instruction::Swap { index: 2 }); // [closure, NULL, arg1]
+                        emit!(self, RealInstruction::Swap { index: 2 }); // [closure, arg1]
+                        emit!(self, RealInstruction::PushNull); // [closure, arg1, NULL]
+                        emit!(self, RealInstruction::Swap { index: 2 }); // [closure, NULL, arg1]
                     }
                     2 => {
                         // Stack: [arg1, arg2, closure]
-                        emit!(self, Instruction::Swap { index: 3 }); // [closure, arg2, arg1]
-                        emit!(self, Instruction::Swap { index: 2 }); // [closure, arg1, arg2]
-                        emit!(self, Instruction::PushNull); // [closure, arg1, arg2, NULL]
-                        emit!(self, Instruction::Swap { index: 3 }); // [closure, NULL, arg2, arg1]
-                        emit!(self, Instruction::Swap { index: 2 }); // [closure, NULL, arg1, arg2]
+                        emit!(self, RealInstruction::Swap { index: 3 }); // [closure, arg2, arg1]
+                        emit!(self, RealInstruction::Swap { index: 2 }); // [closure, arg1, arg2]
+                        emit!(self, RealInstruction::PushNull); // [closure, arg1, arg2, NULL]
+                        emit!(self, RealInstruction::Swap { index: 3 }); // [closure, NULL, arg2, arg1]
+                        emit!(self, RealInstruction::Swap { index: 2 }); // [closure, NULL, arg1, arg2]
                     }
                     _ => unreachable!("only defaults and kwdefaults are supported"),
                 }
                 emit!(
                     self,
-                    Instruction::Call {
+                    RealInstruction::Call {
                         nargs: num_typeparam_args as u32
                     }
                 );
             } else {
                 // Stack: [closure]
-                emit!(self, Instruction::PushNull);
+                emit!(self, RealInstruction::PushNull);
                 // Stack: [closure, NULL]
-                emit!(self, Instruction::Call { nargs: 0 });
+                emit!(self, RealInstruction::Call { nargs: 0 });
             }
         }
 
@@ -3601,13 +3601,13 @@ impl Compiler {
                     }
                 };
 
-                emit!(self, Instruction::LoadClosure(idx.to_u32()));
+                emit!(self, RealInstruction::LoadClosure(idx.to_u32()));
             }
 
             // Build tuple of closure variables
             emit!(
                 self,
-                Instruction::BuildTuple {
+                RealInstruction::BuildTuple {
                     size: code.freevars.len().to_u32(),
                 }
             );
@@ -3619,7 +3619,7 @@ impl Compiler {
         });
 
         // Create function with no flags
-        emit!(self, Instruction::MakeFunction);
+        emit!(self, RealInstruction::MakeFunction);
 
         // Now set attributes one by one using SET_FUNCTION_ATTRIBUTE
         // Note: The order matters! Values must be on stack before calling SET_FUNCTION_ATTRIBUTE
@@ -3628,7 +3628,7 @@ impl Compiler {
         if has_freevars {
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
+                RealInstruction::SetFunctionAttribute {
                     attr: bytecode::MakeFunctionFlags::CLOSURE
                 }
             );
@@ -3638,7 +3638,7 @@ impl Compiler {
         if flags.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
+                RealInstruction::SetFunctionAttribute {
                     attr: bytecode::MakeFunctionFlags::ANNOTATIONS
                 }
             );
@@ -3648,7 +3648,7 @@ impl Compiler {
         if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
+                RealInstruction::SetFunctionAttribute {
                     attr: bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS
                 }
             );
@@ -3658,7 +3658,7 @@ impl Compiler {
         if flags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
+                RealInstruction::SetFunctionAttribute {
                     attr: bytecode::MakeFunctionFlags::DEFAULTS
                 }
             );
@@ -3668,7 +3668,7 @@ impl Compiler {
         if flags.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
+                RealInstruction::SetFunctionAttribute {
                     attr: bytecode::MakeFunctionFlags::TYPE_PARAMS
                 }
             );
@@ -3738,22 +3738,22 @@ impl Compiler {
 
         // Load (global) __name__ and store as __module__
         let dunder_name = self.name("__name__");
-        emit!(self, Instruction::LoadGlobal(dunder_name));
+        emit!(self, RealInstruction::LoadGlobal(dunder_name));
         let dunder_module = self.name("__module__");
-        emit!(self, Instruction::StoreName(dunder_module));
+        emit!(self, RealInstruction::StoreName(dunder_module));
 
         // Store __qualname__
         self.emit_load_const(ConstantData::Str {
             value: qualname.into(),
         });
         let qualname_name = self.name("__qualname__");
-        emit!(self, Instruction::StoreName(qualname_name));
+        emit!(self, RealInstruction::StoreName(qualname_name));
 
         // Store __doc__ only if there's an explicit docstring
         if let Some(doc) = doc_str {
             self.emit_load_const(ConstantData::Str { value: doc.into() });
             let doc_name = self.name("__doc__");
-            emit!(self, Instruction::StoreName(doc_name));
+            emit!(self, RealInstruction::StoreName(doc_name));
         }
 
         // Store __firstlineno__ (new in Python 3.12+)
@@ -3761,22 +3761,22 @@ impl Compiler {
             value: BigInt::from(firstlineno),
         });
         let firstlineno_name = self.name("__firstlineno__");
-        emit!(self, Instruction::StoreName(firstlineno_name));
+        emit!(self, RealInstruction::StoreName(firstlineno_name));
 
         // Set __type_params__ if we have type parameters
         if type_params.is_some() {
             // Load .type_params from enclosing scope
             let dot_type_params = self.name(".type_params");
-            emit!(self, Instruction::LoadName(dot_type_params));
+            emit!(self, RealInstruction::LoadName(dot_type_params));
 
             // Store as __type_params__
             let dunder_type_params = self.name("__type_params__");
-            emit!(self, Instruction::StoreName(dunder_type_params));
+            emit!(self, RealInstruction::StoreName(dunder_type_params));
         }
 
         // Setup annotations if needed
         if Self::find_ann(body) {
-            emit!(self, Instruction::SetupAnnotations);
+            emit!(self, RealInstruction::SetupAnnotations);
         }
 
         // 3. Compile the class body
@@ -3793,10 +3793,10 @@ impl Compiler {
             .position(|var| *var == "__class__");
 
         if let Some(classcell_idx) = classcell_idx {
-            emit!(self, Instruction::LoadClosure(classcell_idx.to_u32()));
-            emit!(self, Instruction::Copy { index: 1_u32 });
+            emit!(self, RealInstruction::LoadClosure(classcell_idx.to_u32()));
+            emit!(self, RealInstruction::Copy { index: 1_u32 });
             let classcell = self.name("__classcell__");
-            emit!(self, Instruction::StoreName(classcell));
+            emit!(self, RealInstruction::StoreName(classcell));
         } else {
             self.emit_load_const(ConstantData::None);
         }
@@ -3838,7 +3838,7 @@ impl Compiler {
             // Compile type parameters and store as .type_params
             self.compile_type_params(type_params.unwrap())?;
             let dot_type_params = self.name(".type_params");
-            emit!(self, Instruction::StoreName(dot_type_params));
+            emit!(self, RealInstruction::StoreName(dot_type_params));
         }
 
         // Step 2: Compile class body (always done, whether generic or not)
@@ -3859,22 +3859,22 @@ impl Compiler {
             let dot_generic_base = self.name(".generic_base");
 
             // Create .generic_base
-            emit!(self, Instruction::LoadName(dot_type_params));
+            emit!(self, RealInstruction::LoadName(dot_type_params));
             emit!(
                 self,
-                Instruction::CallIntrinsic1 {
+                RealInstruction::CallIntrinsic1 {
                     func: bytecode::IntrinsicFunction1::SubscriptGeneric
                 }
             );
-            emit!(self, Instruction::StoreName(dot_generic_base));
+            emit!(self, RealInstruction::StoreName(dot_generic_base));
 
             // Generate class creation code
-            emit!(self, Instruction::LoadBuildClass);
-            emit!(self, Instruction::PushNull);
+            emit!(self, RealInstruction::LoadBuildClass);
+            emit!(self, RealInstruction::PushNull);
 
             // Set up the class function with type params
             let mut func_flags = bytecode::MakeFunctionFlags::empty();
-            emit!(self, Instruction::LoadName(dot_type_params));
+            emit!(self, RealInstruction::LoadName(dot_type_params));
             func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
 
             // Create class function with closure
@@ -3902,17 +3902,20 @@ impl Compiler {
                 };
 
                 // Add .generic_base as final base
-                emit!(self, Instruction::LoadName(dot_generic_base));
+                emit!(self, RealInstruction::LoadName(dot_generic_base));
 
                 // Build args tuple
                 if unpack {
                     // Starred: gather_elements produced tuples on stack
-                    emit!(self, Instruction::BuildTuple { size: 1 }); // (.generic_base,)
-                    emit!(self, Instruction::BuildTupleFromTuples { size: size + 1 });
+                    emit!(self, RealInstruction::BuildTuple { size: 1 }); // (.generic_base,)
+                    emit!(
+                        self,
+                        RealInstruction::BuildTupleFromTuples { size: size + 1 }
+                    );
                 } else {
                     // No starred: individual elements on stack
                     // size includes class_func + name + bases count, +1 for .generic_base
-                    emit!(self, Instruction::BuildTuple { size: size + 1 });
+                    emit!(self, RealInstruction::BuildTuple { size: size + 1 });
                 }
 
                 // Build kwargs if needed
@@ -3920,7 +3923,7 @@ impl Compiler {
                 if has_kwargs {
                     self.compile_keywords(&arguments.unwrap().keywords)?;
                 }
-                emit!(self, Instruction::CallFunctionEx { has_kwargs });
+                emit!(self, RealInstruction::CallFunctionEx { has_kwargs });
             } else {
                 // Simple case: no starred bases, no **kwargs
                 // Compile bases normally
@@ -3934,7 +3937,7 @@ impl Compiler {
                 };
 
                 // Load .generic_base as the last base
-                emit!(self, Instruction::LoadName(dot_generic_base));
+                emit!(self, RealInstruction::LoadName(dot_generic_base));
 
                 let nargs = 2 + u32::try_from(base_count).expect("too many base classes") + 1;
 
@@ -3957,14 +3960,14 @@ impl Compiler {
                     });
                     emit!(
                         self,
-                        Instruction::CallKw {
+                        RealInstruction::CallKw {
                             nargs: nargs
                                 + u32::try_from(arguments.keywords.len())
                                     .expect("too many keyword arguments")
                         }
                     );
                 } else {
-                    emit!(self, Instruction::Call { nargs });
+                    emit!(self, RealInstruction::Call { nargs });
                 }
             }
 
@@ -3976,12 +3979,12 @@ impl Compiler {
 
             // Execute the type params function
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
-            emit!(self, Instruction::PushNull);
-            emit!(self, Instruction::Call { nargs: 0 });
+            emit!(self, RealInstruction::PushNull);
+            emit!(self, RealInstruction::Call { nargs: 0 });
         } else {
             // Non-generic class: standard path
-            emit!(self, Instruction::LoadBuildClass);
-            emit!(self, Instruction::PushNull);
+            emit!(self, RealInstruction::LoadBuildClass);
+            emit!(self, RealInstruction::PushNull);
 
             // Create class function with closure
             self.make_closure(class_code, bytecode::MakeFunctionFlags::empty())?;
@@ -3990,7 +3993,7 @@ impl Compiler {
             if let Some(arguments) = arguments {
                 self.compile_call_helper(2, arguments)?;
             } else {
-                emit!(self, Instruction::Call { nargs: 2 });
+                emit!(self, RealInstruction::Call { nargs: 2 });
             }
         }
 
@@ -4017,7 +4020,7 @@ impl Compiler {
         self.ctx.loop_data = was_in_loop;
         emit!(
             self,
-            Instruction::Jump {
+            PseudoInstruction::Jump {
                 target: while_block,
             }
         );
@@ -4081,12 +4084,12 @@ impl Compiler {
             if self.ctx.func != FunctionContext::AsyncFunction {
                 return Err(self.error(CodegenErrorType::InvalidAsyncWith));
             }
-            emit!(self, Instruction::BeforeAsyncWith);
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, RealInstruction::BeforeAsyncWith);
+            emit!(self, RealInstruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         } else {
-            emit!(self, Instruction::BeforeWith);
+            emit!(self, RealInstruction::BeforeWith);
         }
 
         // Stack: [..., __exit__, enter_result]
@@ -4114,7 +4117,7 @@ impl Compiler {
                 self.compile_store(var)?;
             }
             None => {
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
             }
         }
         // Stack: [..., __exit__]
@@ -4141,20 +4144,20 @@ impl Compiler {
         // Stack: [..., __exit__]
         // Call __exit__(None, None, None)
         self.set_source_range(with_range);
-        emit!(self, Instruction::PushNull);
+        emit!(self, RealInstruction::PushNull);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
-        emit!(self, Instruction::Call { nargs: 3 });
+        emit!(self, RealInstruction::Call { nargs: 3 });
         if is_async {
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, RealInstruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         }
-        emit!(self, Instruction::PopTop); // Pop __exit__ result
+        emit!(self, RealInstruction::PopTop); // Pop __exit__ result
         emit!(
             self,
-            Instruction::Jump {
+            PseudoInstruction::Jump {
                 target: after_block
             }
         );
@@ -4184,24 +4187,24 @@ impl Compiler {
         )?;
 
         // PUSH_EXC_INFO: [exc] -> [prev_exc, exc]
-        emit!(self, Instruction::PushExcInfo);
+        emit!(self, RealInstruction::PushExcInfo);
 
         // WITH_EXCEPT_START: call __exit__(type, value, tb)
         // Stack: [..., __exit__, lasti, prev_exc, exc]
         // __exit__ is at TOS-3, call with exception info
-        emit!(self, Instruction::WithExceptStart);
+        emit!(self, RealInstruction::WithExceptStart);
 
         if is_async {
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, RealInstruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         }
 
         // TO_BOOL + POP_JUMP_IF_TRUE: check if exception is suppressed
-        emit!(self, Instruction::ToBool);
+        emit!(self, RealInstruction::ToBool);
         emit!(
             self,
-            Instruction::PopJumpIfTrue {
+            RealInstruction::PopJumpIfTrue {
                 target: suppress_block
             }
         );
@@ -4213,20 +4216,20 @@ impl Compiler {
         self.pop_fblock(FBlockType::ExceptionHandler);
 
         // Not suppressed: RERAISE 2
-        emit!(self, Instruction::Reraise { depth: 2 });
+        emit!(self, RealInstruction::Reraise { depth: 2 });
 
         // ===== Suppress block =====
         // Exception was suppressed, clean up stack
         // Stack: [..., __exit__, lasti, prev_exc, exc, True]
         // Need to pop: True, exc, prev_exc, __exit__
         self.switch_to_block(suppress_block);
-        emit!(self, Instruction::PopTop); // pop True (TO_BOOL result)
-        emit!(self, Instruction::PopExcept); // pop exc and restore prev_exc
-        emit!(self, Instruction::PopTop); // pop __exit__
-        emit!(self, Instruction::PopTop); // pop lasti
+        emit!(self, RealInstruction::PopTop); // pop True (TO_BOOL result)
+        emit!(self, RealInstruction::PopExcept); // pop exc and restore prev_exc
+        emit!(self, RealInstruction::PopTop); // pop __exit__
+        emit!(self, RealInstruction::PopTop); // pop lasti
         emit!(
             self,
-            Instruction::Jump {
+            PseudoInstruction::Jump {
                 target: after_block
             }
         );
@@ -4242,9 +4245,9 @@ impl Compiler {
         // to be in the exception table for these instructions.
         // If we cleared fblock, exceptions here would propagate uncaught.
         self.switch_to_block(cleanup_block);
-        emit!(self, Instruction::Copy { index: 3 });
-        emit!(self, Instruction::PopExcept);
-        emit!(self, Instruction::Reraise { depth: 1 });
+        emit!(self, RealInstruction::Copy { index: 3 });
+        emit!(self, RealInstruction::PopExcept);
+        emit!(self, RealInstruction::Reraise { depth: 1 });
 
         // ===== After block =====
         self.switch_to_block(after_block);
@@ -4272,7 +4275,7 @@ impl Compiler {
             if self.ctx.func != FunctionContext::AsyncFunction {
                 return Err(self.error(CodegenErrorType::InvalidAsyncFor));
             }
-            emit!(self, Instruction::GetAIter);
+            emit!(self, RealInstruction::GetAIter);
 
             self.switch_to_block(for_block);
 
@@ -4290,21 +4293,21 @@ impl Compiler {
                 false,            // no lasti needed
             )?;
 
-            emit!(self, Instruction::GetANext);
+            emit!(self, RealInstruction::GetANext);
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
             self.compile_store(target)?;
             // Note: PopBlock is no longer emitted (exception table handles this)
         } else {
             // Retrieve Iterator
-            emit!(self, Instruction::GetIter);
+            emit!(self, RealInstruction::GetIter);
 
             self.switch_to_block(for_block);
 
             // Push fblock for for loop
             self.push_fblock(FBlockType::ForLoop, for_block, after_block)?;
 
-            emit!(self, Instruction::ForIter { target: else_block });
+            emit!(self, RealInstruction::ForIter { target: else_block });
 
             // Start of loop iteration, set targets:
             self.compile_store(target)?;
@@ -4313,7 +4316,7 @@ impl Compiler {
         let was_in_loop = self.ctx.loop_data.replace((for_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
-        emit!(self, Instruction::Jump { target: for_block });
+        emit!(self, PseudoInstruction::Jump { target: for_block });
 
         self.switch_to_block(else_block);
 
@@ -4321,7 +4324,7 @@ impl Compiler {
         self.pop_fblock(FBlockType::ForLoop);
 
         if is_async {
-            emit!(self, Instruction::EndAsyncFor);
+            emit!(self, RealInstruction::EndAsyncFor);
         }
         self.compile_statements(orelse)?;
 
@@ -4372,7 +4375,7 @@ impl Compiler {
             JumpOp::Jump => {
                 emit!(
                     self,
-                    Instruction::Jump {
+                    PseudoInstruction::Jump {
                         target: pc.fail_pop[pops]
                     }
                 );
@@ -4380,7 +4383,7 @@ impl Compiler {
             JumpOp::PopJumpIfFalse => {
                 emit!(
                     self,
-                    Instruction::PopJumpIfFalse {
+                    RealInstruction::PopJumpIfFalse {
                         target: pc.fail_pop[pops]
                     }
                 );
@@ -4401,7 +4404,7 @@ impl Compiler {
         for &label in pc.fail_pop.iter().skip(1).rev() {
             self.switch_to_block(label);
             // Emit the POP instruction.
-            emit!(self, Instruction::PopTop);
+            emit!(self, RealInstruction::PopTop);
         }
         // Finally, use the first label.
         self.switch_to_block(pc.fail_pop[0]);
@@ -4422,7 +4425,7 @@ impl Compiler {
             // Emit a SWAP instruction with the current count.
             emit!(
                 self,
-                Instruction::Swap {
+                RealInstruction::Swap {
                     index: u32::try_from(count).unwrap()
                 }
             );
@@ -4445,7 +4448,7 @@ impl Compiler {
         match n {
             // If no name is provided, simply pop the top of the stack.
             None => {
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
                 Ok(())
             }
             Some(name) => {
@@ -4487,7 +4490,7 @@ impl Compiler {
                         before: u8::try_from(i).unwrap(),
                         after: u8::try_from(n - i - 1).unwrap(),
                     };
-                    emit!(self, Instruction::UnpackEx { args });
+                    emit!(self, RealInstruction::UnpackEx { args });
                     seen_star = true;
                 } else {
                     // TODO: Fix error msg
@@ -4499,7 +4502,7 @@ impl Compiler {
         if !seen_star {
             emit!(
                 self,
-                Instruction::UnpackSequence {
+                RealInstruction::UnpackSequence {
                     size: u32::try_from(n).unwrap()
                 }
             );
@@ -4545,33 +4548,33 @@ impl Compiler {
                 continue;
             }
             // Duplicate the subject.
-            emit!(self, Instruction::Copy { index: 1_u32 });
+            emit!(self, RealInstruction::Copy { index: 1_u32 });
             if i < star {
                 // For indices before the star, use a nonnegative index equal to i.
                 self.emit_load_const(ConstantData::Integer { value: i.into() });
             } else {
                 // For indices after the star, compute a nonnegative index:
                 // index = len(subject) - (size - i)
-                emit!(self, Instruction::GetLen);
+                emit!(self, RealInstruction::GetLen);
                 self.emit_load_const(ConstantData::Integer {
                     value: (patterns.len() - i).into(),
                 });
                 // Subtract to compute the correct index.
                 emit!(
                     self,
-                    Instruction::BinaryOp {
+                    RealInstruction::BinaryOp {
                         op: BinaryOperator::Subtract
                     }
                 );
             }
             // Use BINARY_OP/NB_SUBSCR to extract the element.
-            emit!(self, Instruction::BinarySubscr);
+            emit!(self, RealInstruction::BinarySubscr);
             // Compile the subpattern in irrefutable mode.
             self.compile_pattern_subpattern(pattern, pc)?;
         }
         // Pop the subject off the stack.
         pc.on_top -= 1;
-        emit!(self, Instruction::PopTop);
+        emit!(self, RealInstruction::PopTop);
         Ok(())
     }
 
@@ -4618,7 +4621,7 @@ impl Compiler {
 
         // Otherwise, there is a sub-pattern. Duplicate the object on top of the stack.
         pc.on_top += 1;
-        emit!(self, Instruction::Copy { index: 1_u32 });
+        emit!(self, RealInstruction::Copy { index: 1_u32 });
         // Compile the sub-pattern.
         self.compile_pattern(p.pattern.as_ref().unwrap(), pc)?;
         // After success, decrement the on_top counter.
@@ -4717,13 +4720,16 @@ impl Compiler {
             elements: attr_names,
         });
         // 2. Emit MATCH_CLASS with nargs.
-        emit!(self, Instruction::MatchClass(u32::try_from(nargs).unwrap()));
+        emit!(
+            self,
+            RealInstruction::MatchClass(u32::try_from(nargs).unwrap())
+        );
         // 3. Duplicate the top of the stack.
-        emit!(self, Instruction::Copy { index: 1_u32 });
+        emit!(self, RealInstruction::Copy { index: 1_u32 });
         // 4. Load None.
         self.emit_load_const(ConstantData::None);
         // 5. Compare with IS_OP 1.
-        emit!(self, Instruction::IsOp(Invert::Yes));
+        emit!(self, RealInstruction::IsOp(Invert::Yes));
 
         // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
@@ -4733,7 +4739,7 @@ impl Compiler {
         let total = nargs + n_attrs;
         emit!(
             self,
-            Instruction::UnpackSequence {
+            RealInstruction::UnpackSequence {
                 size: u32::try_from(total).unwrap()
             }
         );
@@ -4755,7 +4761,7 @@ impl Compiler {
             pc.on_top -= 1;
 
             if is_true_wildcard {
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
                 continue; // Don't compile wildcard patterns
             }
 
@@ -4796,7 +4802,7 @@ impl Compiler {
         // Stack: [subject]
         pc.on_top += 1;
 
-        emit!(self, Instruction::MatchMapping);
+        emit!(self, RealInstruction::MatchMapping);
         // Stack: [subject, is_mapping]
 
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
@@ -4806,19 +4812,19 @@ impl Compiler {
         if size == 0 && star_target.is_none() {
             // If the pattern is just "{}", we're done! Pop the subject
             pc.on_top -= 1;
-            emit!(self, Instruction::PopTop);
+            emit!(self, RealInstruction::PopTop);
             return Ok(());
         }
 
         // Length check for patterns with keys
         if size > 0 {
             // Check if the mapping has at least 'size' keys
-            emit!(self, Instruction::GetLen);
+            emit!(self, RealInstruction::GetLen);
             self.emit_load_const(ConstantData::Integer { value: size.into() });
             // Stack: [subject, len, size]
             emit!(
                 self,
-                Instruction::CompareOp {
+                RealInstruction::CompareOp {
                     op: ComparisonOperator::GreaterOrEqual
                 }
             );
@@ -4875,28 +4881,28 @@ impl Compiler {
         // Stack: [subject, key1, key2, ..., key_n]
 
         // Build tuple of keys (empty tuple if size==0)
-        emit!(self, Instruction::BuildTuple { size });
+        emit!(self, RealInstruction::BuildTuple { size });
         // Stack: [subject, keys_tuple]
 
         // Match keys
-        emit!(self, Instruction::MatchKeys);
+        emit!(self, RealInstruction::MatchKeys);
         // Stack: [subject, keys_tuple, values_or_none]
         pc.on_top += 2; // subject and keys_tuple are underneath
 
         // Check if match succeeded
-        emit!(self, Instruction::Copy { index: 1_u32 });
+        emit!(self, RealInstruction::Copy { index: 1_u32 });
         // Stack: [subject, keys_tuple, values_tuple, values_tuple_copy]
 
         // Check if copy is None (consumes the copy like POP_JUMP_IF_NONE)
         self.emit_load_const(ConstantData::None);
-        emit!(self, Instruction::IsOp(Invert::Yes));
+        emit!(self, RealInstruction::IsOp(Invert::Yes));
 
         // Stack: [subject, keys_tuple, values_tuple, bool]
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         // Stack: [subject, keys_tuple, values_tuple]
 
         // Unpack values (the original values_tuple)
-        emit!(self, Instruction::UnpackSequence { size });
+        emit!(self, RealInstruction::UnpackSequence { size });
         // Stack after unpack: [subject, keys_tuple, ...unpacked values...]
         pc.on_top += size as usize; // Unpacked size values, tuple replaced by values
         pc.on_top -= 1;
@@ -4918,16 +4924,16 @@ impl Compiler {
             // Stack: [subject, keys_tuple]
 
             // Build rest dict exactly
-            emit!(self, Instruction::BuildMap { size: 0 });
+            emit!(self, RealInstruction::BuildMap { size: 0 });
             // Stack: [subject, keys_tuple, {}]
-            emit!(self, Instruction::Swap { index: 3 });
+            emit!(self, RealInstruction::Swap { index: 3 });
             // Stack: [{}, keys_tuple, subject]
-            emit!(self, Instruction::DictUpdate { index: 2 });
+            emit!(self, RealInstruction::DictUpdate { index: 2 });
             // Stack after DICT_UPDATE: [rest_dict, keys_tuple]
             // DICT_UPDATE consumes source (subject) and leaves dict in place
 
             // Unpack keys and delete from rest_dict
-            emit!(self, Instruction::UnpackSequence { size });
+            emit!(self, RealInstruction::UnpackSequence { size });
             // Stack: [rest_dict, k1, k2, ..., kn] (if size==0, nothing pushed)
 
             // Delete each key from rest_dict (skipped when size==0)
@@ -4937,14 +4943,14 @@ impl Compiler {
                 // Copy rest_dict which is at position (1 + remaining) from TOS
                 emit!(
                     self,
-                    Instruction::Copy {
+                    RealInstruction::Copy {
                         index: 1 + remaining
                     }
                 );
                 // Stack: [rest_dict, k1, ..., kn, rest_dict]
-                emit!(self, Instruction::Swap { index: 2 });
+                emit!(self, RealInstruction::Swap { index: 2 });
                 // Stack: [rest_dict, k1, ..., kn-1, rest_dict, kn]
-                emit!(self, Instruction::DeleteSubscr);
+                emit!(self, RealInstruction::DeleteSubscr);
                 // Stack: [rest_dict, k1, ..., kn-1] (removed kn from rest_dict)
                 remaining -= 1;
             }
@@ -4961,8 +4967,8 @@ impl Compiler {
             // Non-rest pattern: just clean up the stack
 
             // Pop them as we're not using them
-            emit!(self, Instruction::PopTop); // Pop keys_tuple
-            emit!(self, Instruction::PopTop); // Pop subject
+            emit!(self, RealInstruction::PopTop); // Pop keys_tuple
+            emit!(self, RealInstruction::PopTop); // Pop subject
         }
 
         Ok(())
@@ -4994,7 +5000,7 @@ impl Compiler {
             pc.fail_pop.clear();
             pc.on_top = 0;
             // Emit a COPY(1) instruction before compiling the alternative.
-            emit!(self, Instruction::Copy { index: 1_u32 });
+            emit!(self, RealInstruction::Copy { index: 1_u32 });
             self.compile_pattern(alt, pc)?;
 
             let n_stores = pc.stores.len();
@@ -5038,7 +5044,7 @@ impl Compiler {
                 }
             }
             // Emit a jump to the common end label and reset any failure jump targets.
-            emit!(self, Instruction::Jump { target: end });
+            emit!(self, PseudoInstruction::Jump { target: end });
             self.emit_and_reset_fail_pop(pc)?;
         }
 
@@ -5050,7 +5056,7 @@ impl Compiler {
         // In Rust, old_pc is a local clone, so we need not worry about that.
 
         // No alternative matched: pop the subject and fail.
-        emit!(self, Instruction::PopTop);
+        emit!(self, RealInstruction::PopTop);
         self.jump_to_fail_pop(pc, JumpOp::Jump)?;
 
         // Use the label "end".
@@ -5072,7 +5078,7 @@ impl Compiler {
 
         // Old context and control will be dropped automatically.
         // Finally, pop the copy of the subject.
-        emit!(self, Instruction::PopTop);
+        emit!(self, RealInstruction::PopTop);
         Ok(())
     }
 
@@ -5113,29 +5119,29 @@ impl Compiler {
 
         // Keep the subject on top during the sequence and length checks.
         pc.on_top += 1;
-        emit!(self, Instruction::MatchSequence);
+        emit!(self, RealInstruction::MatchSequence);
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
 
         if star.is_none() {
             // No star: len(subject) == size
-            emit!(self, Instruction::GetLen);
+            emit!(self, RealInstruction::GetLen);
             self.emit_load_const(ConstantData::Integer { value: size.into() });
             emit!(
                 self,
-                Instruction::CompareOp {
+                RealInstruction::CompareOp {
                     op: ComparisonOperator::Equal
                 }
             );
             self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         } else if size > 1 {
             // Star exists: len(subject) >= size - 1
-            emit!(self, Instruction::GetLen);
+            emit!(self, RealInstruction::GetLen);
             self.emit_load_const(ConstantData::Integer {
                 value: (size - 1).into(),
             });
             emit!(
                 self,
-                Instruction::CompareOp {
+                RealInstruction::CompareOp {
                     op: ComparisonOperator::GreaterOrEqual
                 }
             );
@@ -5146,7 +5152,7 @@ impl Compiler {
         pc.on_top -= 1;
         if only_wildcard {
             // Patterns like: [] / [_] / [_, _] / [*_] / [_, *_] / [_, _, *_] / etc.
-            emit!(self, Instruction::PopTop);
+            emit!(self, RealInstruction::PopTop);
         } else if star_wildcard {
             self.pattern_helper_sequence_subscr(patterns, star.unwrap(), pc)?;
         } else {
@@ -5164,11 +5170,11 @@ impl Compiler {
         self.compile_expression(&p.value)?;
         emit!(
             self,
-            Instruction::CompareOp {
+            RealInstruction::CompareOp {
                 op: bytecode::ComparisonOperator::Equal
             }
         );
-        // emit!(self, Instruction::ToBool);
+        // emit!(self, RealInstruction::ToBool);
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         Ok(())
     }
@@ -5185,7 +5191,7 @@ impl Compiler {
             Singleton::True => ConstantData::Boolean { value: true },
         });
         // Compare using the "Is" operator.
-        emit!(self, Instruction::IsOp(Invert::No));
+        emit!(self, RealInstruction::IsOp(Invert::No));
         // Jump to the failure label if the comparison is false.
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         Ok(())
@@ -5241,7 +5247,7 @@ impl Compiler {
         for (i, m) in cases.iter().enumerate().take(case_count) {
             // Only copy the subject if not on the last case
             if i != case_count - 1 {
-                emit!(self, Instruction::Copy { index: 1_u32 });
+                emit!(self, RealInstruction::Copy { index: 1_u32 });
             }
 
             pattern_context.stores = Vec::with_capacity(1);
@@ -5260,37 +5266,37 @@ impl Compiler {
                 self.ensure_fail_pop(pattern_context, 0)?;
                 // Compile the guard expression
                 self.compile_expression(guard)?;
-                emit!(self, Instruction::ToBool);
+                emit!(self, RealInstruction::ToBool);
                 emit!(
                     self,
-                    Instruction::PopJumpIfFalse {
+                    RealInstruction::PopJumpIfFalse {
                         target: pattern_context.fail_pop[0]
                     }
                 );
             }
 
             if i != case_count - 1 {
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
             }
 
             self.compile_statements(&m.body)?;
-            emit!(self, Instruction::Jump { target: end });
+            emit!(self, PseudoInstruction::Jump { target: end });
             self.emit_and_reset_fail_pop(pattern_context)?;
         }
 
         if has_default {
             let m = &cases[num_cases - 1];
             if num_cases == 1 {
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::PopTop);
             } else {
-                emit!(self, Instruction::Nop);
+                emit!(self, RealInstruction::Nop);
             }
             if let Some(ref guard) = m.guard {
                 // Compile guard and jump to end if false
                 self.compile_expression(guard)?;
-                emit!(self, Instruction::Copy { index: 1_u32 });
-                emit!(self, Instruction::PopJumpIfFalse { target: end });
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::Copy { index: 1_u32 });
+                emit!(self, RealInstruction::PopJumpIfFalse { target: end });
+                emit!(self, RealInstruction::PopTop);
             }
             self.compile_statements(&m.body)?;
         }
@@ -5308,18 +5314,18 @@ impl Compiler {
     fn compile_addcompare(&mut self, op: &CmpOp) {
         use bytecode::ComparisonOperator::*;
         match op {
-            CmpOp::Eq => emit!(self, Instruction::CompareOp { op: Equal }),
-            CmpOp::NotEq => emit!(self, Instruction::CompareOp { op: NotEqual }),
-            CmpOp::Lt => emit!(self, Instruction::CompareOp { op: Less }),
-            CmpOp::LtE => emit!(self, Instruction::CompareOp { op: LessOrEqual }),
-            CmpOp::Gt => emit!(self, Instruction::CompareOp { op: Greater }),
+            CmpOp::Eq => emit!(self, RealInstruction::CompareOp { op: Equal }),
+            CmpOp::NotEq => emit!(self, RealInstruction::CompareOp { op: NotEqual }),
+            CmpOp::Lt => emit!(self, RealInstruction::CompareOp { op: Less }),
+            CmpOp::LtE => emit!(self, RealInstruction::CompareOp { op: LessOrEqual }),
+            CmpOp::Gt => emit!(self, RealInstruction::CompareOp { op: Greater }),
             CmpOp::GtE => {
-                emit!(self, Instruction::CompareOp { op: GreaterOrEqual })
+                emit!(self, RealInstruction::CompareOp { op: GreaterOrEqual })
             }
-            CmpOp::In => emit!(self, Instruction::ContainsOp(Invert::No)),
-            CmpOp::NotIn => emit!(self, Instruction::ContainsOp(Invert::Yes)),
-            CmpOp::Is => emit!(self, Instruction::IsOp(Invert::No)),
-            CmpOp::IsNot => emit!(self, Instruction::IsOp(Invert::Yes)),
+            CmpOp::In => emit!(self, RealInstruction::ContainsOp(Invert::No)),
+            CmpOp::NotIn => emit!(self, RealInstruction::ContainsOp(Invert::Yes)),
+            CmpOp::Is => emit!(self, RealInstruction::IsOp(Invert::No)),
+            CmpOp::IsNot => emit!(self, RealInstruction::IsOp(Invert::Yes)),
         }
     }
 
@@ -5367,32 +5373,35 @@ impl Compiler {
             self.compile_expression(comparator)?;
 
             // store rhs for the next comparison in chain
-            emit!(self, Instruction::Swap { index: 2 });
-            emit!(self, Instruction::Copy { index: 2 });
+            emit!(self, RealInstruction::Swap { index: 2 });
+            emit!(self, RealInstruction::Copy { index: 2 });
 
             self.compile_addcompare(op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
             /*
-            emit!(self, Instruction::Copy { index: 1 });
-            // emit!(self, Instruction::ToBool); // TODO: Uncomment this
-            emit!(self, Instruction::PopJumpIfFalse { target: cleanup });
-            emit!(self, Instruction::PopTop);
+            emit!(self, RealInstruction::Copy { index: 1 });
+            // emit!(self, RealInstruction::ToBool); // TODO: Uncomment this
+            emit!(self, RealInstruction::PopJumpIfFalse { target: cleanup });
+            emit!(self, RealInstruction::PopTop);
             */
 
-            emit!(self, Instruction::JumpIfFalseOrPop { target: cleanup });
+            emit!(
+                self,
+                PseudoInstruction::JumpIfFalseOrPop { target: cleanup }
+            );
         }
 
         self.compile_expression(last_comparator)?;
         self.compile_addcompare(last_op);
 
         let end = self.new_block();
-        emit!(self, Instruction::Jump { target: end });
+        emit!(self, PseudoInstruction::Jump { target: end });
 
         // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
         self.switch_to_block(cleanup);
-        emit!(self, Instruction::Swap { index: 2 });
-        emit!(self, Instruction::PopTop);
+        emit!(self, RealInstruction::Swap { index: 2 });
+        emit!(self, RealInstruction::PopTop);
 
         self.switch_to_block(end);
         Ok(())
@@ -5415,7 +5424,7 @@ impl Compiler {
                     // *args: *Ts (where Ts is a TypeVarTuple).
                     // Do [annotation_value] = [*Ts].
                     self.compile_expression(value)?;
-                    emit!(self, Instruction::UnpackSequence { size: 1 });
+                    emit!(self, RealInstruction::UnpackSequence { size: 1 });
                     Ok(())
                 }
                 _ => self.compile_expression(annotation),
@@ -5449,14 +5458,14 @@ impl Compiler {
         if let Expr::Name(ExprName { id, .. }) = &target {
             // Store as dict entry in __annotations__ dict:
             let annotations = self.name("__annotations__");
-            emit!(self, Instruction::LoadName(annotations));
+            emit!(self, RealInstruction::LoadName(annotations));
             self.emit_load_const(ConstantData::Str {
                 value: self.mangle(id.as_str()).into_owned().into(),
             });
-            emit!(self, Instruction::StoreSubscr);
+            emit!(self, RealInstruction::StoreSubscr);
         } else {
             // Drop annotation if not assigned to simple identifier.
-            emit!(self, Instruction::PopTop);
+            emit!(self, RealInstruction::PopTop);
         }
 
         Ok(())
@@ -5474,7 +5483,7 @@ impl Compiler {
                 self.check_forbidden_name(attr.as_str(), NameUsage::Store)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                emit!(self, Instruction::StoreAttr { idx });
+                emit!(self, RealInstruction::StoreAttr { idx });
             }
             Expr::List(ExprList { elts, .. }) | Expr::Tuple(ExprTuple { elts, .. }) => {
                 let mut seen_star = false;
@@ -5496,7 +5505,7 @@ impl Compiler {
                                     )
                                 })?;
                             let args = bytecode::UnpackExArgs { before, after };
-                            emit!(self, Instruction::UnpackEx { args });
+                            emit!(self, RealInstruction::UnpackEx { args });
                         }
                     }
                 }
@@ -5504,7 +5513,7 @@ impl Compiler {
                 if !seen_star {
                     emit!(
                         self,
-                        Instruction::UnpackSequence {
+                        RealInstruction::UnpackSequence {
                             size: elts.len().to_u32(),
                         }
                     );
@@ -5559,18 +5568,18 @@ impl Compiler {
                 // But we can't use compile_subscript directly because we need DUP_TOP2
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
-                emit!(self, Instruction::Copy { index: 2_u32 });
-                emit!(self, Instruction::Copy { index: 2_u32 });
-                emit!(self, Instruction::Subscript);
+                emit!(self, RealInstruction::Copy { index: 2_u32 });
+                emit!(self, RealInstruction::Copy { index: 2_u32 });
+                emit!(self, RealInstruction::Subscript);
                 AugAssignKind::Subscript
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
                 let attr = attr.as_str();
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
-                emit!(self, Instruction::Copy { index: 1_u32 });
+                emit!(self, RealInstruction::Copy { index: 1_u32 });
                 let idx = self.name(attr);
-                emit!(self, Instruction::LoadAttr { idx });
+                emit!(self, RealInstruction::LoadAttr { idx });
                 AugAssignKind::Attr { idx }
             }
             _ => {
@@ -5588,14 +5597,14 @@ impl Compiler {
             }
             AugAssignKind::Subscript => {
                 // stack: CONTAINER SLICE RESULT
-                emit!(self, Instruction::Swap { index: 3 });
-                emit!(self, Instruction::Swap { index: 2 });
-                emit!(self, Instruction::StoreSubscr);
+                emit!(self, RealInstruction::Swap { index: 3 });
+                emit!(self, RealInstruction::Swap { index: 2 });
+                emit!(self, RealInstruction::StoreSubscr);
             }
             AugAssignKind::Attr { idx } => {
                 // stack: CONTAINER RESULT
-                emit!(self, Instruction::Swap { index: 2 });
-                emit!(self, Instruction::StoreAttr { idx });
+                emit!(self, RealInstruction::Swap { index: 2 });
+                emit!(self, RealInstruction::StoreAttr { idx });
             }
         }
 
@@ -5620,7 +5629,7 @@ impl Compiler {
         };
 
         let op = if inplace { bin_op.as_inplace() } else { bin_op };
-        emit!(self, Instruction::BinaryOp { op })
+        emit!(self, RealInstruction::BinaryOp { op })
     }
 
     /// Implement boolean short circuit evaluation logic.
@@ -5698,14 +5707,14 @@ impl Compiler {
                 if condition {
                     emit!(
                         self,
-                        Instruction::PopJumpIfTrue {
+                        RealInstruction::PopJumpIfTrue {
                             target: target_block,
                         }
                     );
                 } else {
                     emit!(
                         self,
-                        Instruction::PopJumpIfFalse {
+                        RealInstruction::PopJumpIfFalse {
                             target: target_block,
                         }
                     );
@@ -5725,12 +5734,12 @@ impl Compiler {
         for value in values {
             self.compile_expression(value)?;
 
-            emit!(self, Instruction::Copy { index: 1_u32 });
+            emit!(self, RealInstruction::Copy { index: 1_u32 });
             match op {
                 BoolOp::And => {
                     emit!(
                         self,
-                        Instruction::PopJumpIfFalse {
+                        RealInstruction::PopJumpIfFalse {
                             target: after_block,
                         }
                     );
@@ -5738,14 +5747,14 @@ impl Compiler {
                 BoolOp::Or => {
                     emit!(
                         self,
-                        Instruction::PopJumpIfTrue {
+                        RealInstruction::PopJumpIfTrue {
                             target: after_block,
                         }
                     );
                 }
             }
 
-            emit!(self, Instruction::PopTop);
+            emit!(self, RealInstruction::PopTop);
         }
 
         // If all values did not qualify, take the value of the last value:
@@ -5764,11 +5773,11 @@ impl Compiler {
             self.compile_expression(&item.value)?;
             size += 1;
         }
-        emit!(self, Instruction::BuildMap { size });
+        emit!(self, RealInstruction::BuildMap { size });
 
         for item in unpacked {
             self.compile_expression(&item.value)?;
-            emit!(self, Instruction::DictUpdate { index: 1 });
+            emit!(self, RealInstruction::DictUpdate { index: 1 });
         }
 
         Ok(())
@@ -5795,7 +5804,7 @@ impl Compiler {
 
         // send:
         self.switch_to_block(send_block);
-        emit!(self, Instruction::Send { target: exit_block });
+        emit!(self, RealInstruction::Send { target: exit_block });
 
         // SETUP_FINALLY fail - set up exception handler for YIELD_VALUE
         // Stack at this point: [receiver, yielded_value]
@@ -5811,7 +5820,7 @@ impl Compiler {
         )?;
 
         // YIELD_VALUE with arg=1 (yield-from/await mode - not wrapped for async gen)
-        emit!(self, Instruction::YieldValue { arg: 1 });
+        emit!(self, RealInstruction::YieldValue { arg: 1 });
 
         // POP_BLOCK (implicit - pop fblock before RESUME)
         self.pop_fblock(FBlockType::TryExcept);
@@ -5819,7 +5828,7 @@ impl Compiler {
         // RESUME
         emit!(
             self,
-            Instruction::Resume {
+            RealInstruction::Resume {
                 arg: if is_await {
                     bytecode::ResumeType::AfterAwait as u32
                 } else {
@@ -5829,21 +5838,21 @@ impl Compiler {
         );
 
         // JUMP_NO_INTERRUPT send (regular JUMP in RustPython)
-        emit!(self, Instruction::Jump { target: send_block });
+        emit!(self, PseudoInstruction::Jump { target: send_block });
 
         // fail: CLEANUP_THROW
         // Stack when exception: [receiver, yielded_value, exc]
         // CLEANUP_THROW: [sub_iter, last_sent_val, exc] -> [None, value]
         // After: stack is [None, value], fall through to exit
         self.switch_to_block(fail_block);
-        emit!(self, Instruction::CleanupThrow);
+        emit!(self, RealInstruction::CleanupThrow);
         // Fall through to exit block
 
         // exit: END_SEND
         // Stack: [receiver, value] (from SEND) or [None, value] (from CLEANUP_THROW)
         // END_SEND: [receiver/None, value] -> [value]
         self.switch_to_block(exit_block);
-        emit!(self, Instruction::EndSend);
+        emit!(self, RealInstruction::EndSend);
 
         Ok(())
     }
@@ -5880,16 +5889,16 @@ impl Compiler {
                 match op {
                     UnaryOp::UAdd => emit!(
                         self,
-                        Instruction::CallIntrinsic1 {
+                        RealInstruction::CallIntrinsic1 {
                             func: bytecode::IntrinsicFunction1::UnaryPositive
                         }
                     ),
-                    UnaryOp::USub => emit!(self, Instruction::UnaryNegative),
+                    UnaryOp::USub => emit!(self, RealInstruction::UnaryNegative),
                     UnaryOp::Not => {
-                        emit!(self, Instruction::ToBool);
-                        emit!(self, Instruction::UnaryNot);
+                        emit!(self, RealInstruction::ToBool);
+                        emit!(self, RealInstruction::UnaryNot);
                     }
-                    UnaryOp::Invert => emit!(self, Instruction::UnaryInvert),
+                    UnaryOp::Invert => emit!(self, RealInstruction::UnaryInvert),
                 };
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
@@ -5903,17 +5912,17 @@ impl Compiler {
                         SuperCallType::TwoArg { .. } => {
                             // LoadSuperAttr (pseudo) - will be converted to real LoadSuperAttr
                             // with flags=0b10 (has_class=true, load_method=false) in ir.rs
-                            emit!(self, Instruction::LoadSuperAttr { arg: idx });
+                            emit!(self, RealInstruction::LoadSuperAttr { arg: idx });
                         }
                         SuperCallType::ZeroArg => {
-                            emit!(self, Instruction::LoadZeroSuperAttr { idx });
+                            emit!(self, RealInstruction::LoadZeroSuperAttr { idx });
                         }
                     }
                 } else {
                     // Normal attribute access
                     self.compile_expression(value)?;
                     let idx = self.name(attr.as_str());
-                    emit!(self, Instruction::LoadAttr { idx });
+                    emit!(self, RealInstruction::LoadAttr { idx });
                 }
             }
             Expr::Compare(ExprCompare {
@@ -5958,7 +5967,7 @@ impl Compiler {
                     Some(_) => BuildSliceArgCount::Three,
                     None => BuildSliceArgCount::Two,
                 };
-                emit!(self, Instruction::BuildSlice { argc });
+                emit!(self, RealInstruction::BuildSlice { argc });
             }
             Expr::Yield(ExprYield { value, .. }) => {
                 if !self.ctx.in_func() {
@@ -5970,10 +5979,10 @@ impl Compiler {
                     Option::None => self.emit_load_const(ConstantData::None),
                 };
                 // arg=0: direct yield (wrapped for async generators)
-                emit!(self, Instruction::YieldValue { arg: 0 });
+                emit!(self, RealInstruction::YieldValue { arg: 0 });
                 emit!(
                     self,
-                    Instruction::Resume {
+                    RealInstruction::Resume {
                         arg: bytecode::ResumeType::AfterYield as u32
                     }
                 );
@@ -5983,7 +5992,7 @@ impl Compiler {
                     return Err(self.error(CodegenErrorType::InvalidAwait));
                 }
                 self.compile_expression(value)?;
-                emit!(self, Instruction::GetAwaitable);
+                emit!(self, RealInstruction::GetAwaitable);
                 self.emit_load_const(ConstantData::None);
                 self.compile_yield_from_sequence(true)?;
             }
@@ -5999,7 +6008,7 @@ impl Compiler {
                 }
                 self.mark_generator();
                 self.compile_expression(value)?;
-                emit!(self, Instruction::GetYieldFromIter);
+                emit!(self, RealInstruction::GetYieldFromIter);
                 self.emit_load_const(ConstantData::None);
                 self.compile_yield_from_sequence(false)?;
             }
@@ -6027,7 +6036,7 @@ impl Compiler {
                     for element in &defaults {
                         self.compile_expression(element)?;
                     }
-                    emit!(self, Instruction::BuildTuple { size });
+                    emit!(self, RealInstruction::BuildTuple { size });
                 }
 
                 // Prepare keyword-only defaults
@@ -6049,7 +6058,7 @@ impl Compiler {
                     }
                     emit!(
                         self,
-                        Instruction::BuildMap {
+                        RealInstruction::BuildMap {
                             size: default_kw_count.to_u32(),
                         }
                     );
@@ -6094,7 +6103,7 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<listcomp>",
-                    Some(Instruction::BuildList {
+                    Some(RealInstruction::BuildList {
                         size: OpArgMarker::marker(),
                     }),
                     generators,
@@ -6102,7 +6111,7 @@ impl Compiler {
                         compiler.compile_comprehension_element(elt)?;
                         emit!(
                             compiler,
-                            Instruction::ListAppend {
+                            RealInstruction::ListAppend {
                                 i: generators.len().to_u32(),
                             }
                         );
@@ -6117,7 +6126,7 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<setcomp>",
-                    Some(Instruction::BuildSet {
+                    Some(RealInstruction::BuildSet {
                         size: OpArgMarker::marker(),
                     }),
                     generators,
@@ -6125,7 +6134,7 @@ impl Compiler {
                         compiler.compile_comprehension_element(elt)?;
                         emit!(
                             compiler,
-                            Instruction::SetAdd {
+                            RealInstruction::SetAdd {
                                 i: generators.len().to_u32(),
                             }
                         );
@@ -6143,7 +6152,7 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<dictcomp>",
-                    Some(Instruction::BuildMap {
+                    Some(RealInstruction::BuildMap {
                         size: OpArgMarker::marker(),
                     }),
                     generators,
@@ -6154,7 +6163,7 @@ impl Compiler {
 
                         emit!(
                             compiler,
-                            Instruction::MapAdd {
+                            RealInstruction::MapAdd {
                                 i: generators.len().to_u32(),
                             }
                         );
@@ -6186,14 +6195,14 @@ impl Compiler {
 
                         compiler.mark_generator();
                         // arg=0: direct yield (wrapped for async generators)
-                        emit!(compiler, Instruction::YieldValue { arg: 0 });
+                        emit!(compiler, RealInstruction::YieldValue { arg: 0 });
                         emit!(
                             compiler,
-                            Instruction::Resume {
+                            RealInstruction::Resume {
                                 arg: bytecode::ResumeType::AfterYield as u32
                             }
                         );
-                        emit!(compiler, Instruction::PopTop);
+                        emit!(compiler, RealInstruction::PopTop);
 
                         Ok(())
                     },
@@ -6222,7 +6231,7 @@ impl Compiler {
                 self.compile_expression(body)?;
                 emit!(
                     self,
-                    Instruction::Jump {
+                    PseudoInstruction::Jump {
                         target: after_block,
                     }
                 );
@@ -6242,7 +6251,7 @@ impl Compiler {
                 range: _,
             }) => {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::Copy { index: 1_u32 });
+                emit!(self, RealInstruction::Copy { index: 1_u32 });
                 self.compile_store(target)?;
             }
             Expr::FString(fstring) => {
@@ -6325,12 +6334,12 @@ impl Compiler {
                         sub_size += 1;
                     }
                 }
-                emit!(self, Instruction::BuildMap { size: sub_size });
+                emit!(self, RealInstruction::BuildMap { size: sub_size });
                 size += 1;
             }
         }
         if size > 1 {
-            emit!(self, Instruction::BuildMapForCall { size });
+            emit!(self, RealInstruction::BuildMapForCall { size });
         }
         Ok(())
     }
@@ -6347,10 +6356,10 @@ impl Compiler {
                 let idx = self.name(attr.as_str());
                 match super_type {
                     SuperCallType::TwoArg { .. } => {
-                        emit!(self, Instruction::LoadSuperMethod { idx });
+                        emit!(self, RealInstruction::LoadSuperMethod { idx });
                     }
                     SuperCallType::ZeroArg => {
-                        emit!(self, Instruction::LoadZeroSuperMethod { idx });
+                        emit!(self, RealInstruction::LoadZeroSuperMethod { idx });
                     }
                 }
                 self.compile_call_helper(0, args)?;
@@ -6359,14 +6368,14 @@ impl Compiler {
                 // LOAD_ATTR_METHOD pushes [method, self_or_null] on stack
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                emit!(self, Instruction::LoadAttrMethod { idx });
+                emit!(self, RealInstruction::LoadAttrMethod { idx });
                 self.compile_call_helper(0, args)?;
             }
         } else {
             // Regular call: push func, then NULL for self_or_null slot
             // Stack layout: [func, NULL, args...] - same as method call [func, self, args...]
             self.compile_expression(func)?;
-            emit!(self, Instruction::PushNull);
+            emit!(self, RealInstruction::PushNull);
             self.compile_call_helper(0, args)?;
         }
         Ok(())
@@ -6397,9 +6406,9 @@ impl Compiler {
         if unpack || has_double_star {
             // Create a tuple with positional args:
             if unpack {
-                emit!(self, Instruction::BuildTupleFromTuples { size });
+                emit!(self, RealInstruction::BuildTupleFromTuples { size });
             } else {
-                emit!(self, Instruction::BuildTuple { size });
+                emit!(self, RealInstruction::BuildTuple { size });
             }
 
             // Create an optional map with kw-args:
@@ -6407,7 +6416,7 @@ impl Compiler {
             if has_kwargs {
                 self.compile_keywords(&arguments.keywords)?;
             }
-            emit!(self, Instruction::CallFunctionEx { has_kwargs });
+            emit!(self, RealInstruction::CallFunctionEx { has_kwargs });
         } else if !arguments.keywords.is_empty() {
             // No **kwargs in this branch (has_double_star is false),
             // so all keywords have arg.is_some()
@@ -6435,9 +6444,9 @@ impl Compiler {
             let nargs = positional
                 .checked_add(keyword_count)
                 .expect("too many arguments");
-            emit!(self, Instruction::CallKw { nargs });
+            emit!(self, RealInstruction::CallKw { nargs });
         } else {
-            emit!(self, Instruction::Call { nargs: count });
+            emit!(self, RealInstruction::Call { nargs: count });
         }
 
         Ok(())
@@ -6456,7 +6465,7 @@ impl Compiler {
 
             loop {
                 if iter.peek().is_none_or(|e| matches!(e, Expr::Starred(_))) {
-                    emit!(self, Instruction::BuildTuple { size: run_size });
+                    emit!(self, RealInstruction::BuildTuple { size: run_size });
                     run_size = 0;
                     size += 1;
                 }
@@ -6468,7 +6477,7 @@ impl Compiler {
                         // tuple, since any side-effects during the conversion
                         // should be made visible before evaluating remaining
                         // expressions.
-                        emit!(self, Instruction::BuildTupleFromIter);
+                        emit!(self, RealInstruction::BuildTupleFromIter);
                         size += 1;
                     }
                     Some(element) => {
@@ -6505,7 +6514,7 @@ impl Compiler {
     fn compile_comprehension(
         &mut self,
         name: &str,
-        init_collection: Option<Instruction>,
+        init_collection: Option<RealInstruction>,
         generators: &[Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
         comprehension_type: ComprehensionType,
@@ -6599,23 +6608,23 @@ impl Compiler {
 
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
-                emit!(self, Instruction::LoadFast(arg0));
+                emit!(self, RealInstruction::LoadFast(arg0));
             } else {
                 // Evaluate iterated item:
                 self.compile_expression(&generator.iter)?;
 
                 // Get iterator / turn item into an iterator
                 if generator.is_async {
-                    emit!(self, Instruction::GetAIter);
+                    emit!(self, RealInstruction::GetAIter);
                 } else {
-                    emit!(self, Instruction::GetIter);
+                    emit!(self, RealInstruction::GetIter);
                 }
             }
 
             loop_labels.push((loop_block, after_block, generator.is_async));
             self.switch_to_block(loop_block);
             if generator.is_async {
-                emit!(self, Instruction::GetANext);
+                emit!(self, RealInstruction::GetANext);
 
                 let current_depth = (init_collection.is_some() as u32)
                     + u32::try_from(loop_labels.len()).unwrap()
@@ -6635,7 +6644,7 @@ impl Compiler {
             } else {
                 emit!(
                     self,
-                    Instruction::ForIter {
+                    RealInstruction::ForIter {
                         target: after_block,
                     }
                 );
@@ -6651,12 +6660,12 @@ impl Compiler {
         compile_element(self)?;
 
         for (loop_block, after_block, is_async) in loop_labels.iter().rev().copied() {
-            emit!(self, Instruction::Jump { target: loop_block });
+            emit!(self, PseudoInstruction::Jump { target: loop_block });
 
             self.switch_to_block(after_block);
             if is_async {
-                emit!(self, Instruction::EndAsyncFor);
-                emit!(self, Instruction::PopTop);
+                emit!(self, RealInstruction::EndAsyncFor);
+                emit!(self, RealInstruction::PopTop);
             }
         }
 
@@ -6672,7 +6681,7 @@ impl Compiler {
 
         // Create comprehension function with closure
         self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
-        emit!(self, Instruction::PushNull);
+        emit!(self, RealInstruction::PushNull);
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;
@@ -6680,15 +6689,15 @@ impl Compiler {
         // Get iterator / turn item into an iterator
         // Use is_async from the first generator, not has_an_async_gen which covers ALL generators
         if generators[0].is_async {
-            emit!(self, Instruction::GetAIter);
+            emit!(self, RealInstruction::GetAIter);
         } else {
-            emit!(self, Instruction::GetIter);
+            emit!(self, RealInstruction::GetIter);
         };
 
         // Call just created <listcomp> function:
-        emit!(self, Instruction::Call { nargs: 1 });
+        emit!(self, RealInstruction::Call { nargs: 1 });
         if is_async_list_set_dict_comprehension {
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, RealInstruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         }
@@ -6728,7 +6737,7 @@ impl Compiler {
     /// This generates bytecode inline without creating a new code object
     fn compile_inlined_comprehension(
         &mut self,
-        init_collection: Option<Instruction>,
+        init_collection: Option<RealInstruction>,
         generators: &[Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
         _has_an_async_gen: bool,
@@ -6754,22 +6763,22 @@ impl Compiler {
         self.compile_expression(&generators[0].iter)?;
         // Use is_async from the first generator, not has_an_async_gen which covers ALL generators
         if generators[0].is_async {
-            emit!(self, Instruction::GetAIter);
+            emit!(self, RealInstruction::GetAIter);
         } else {
-            emit!(self, Instruction::GetIter);
+            emit!(self, RealInstruction::GetIter);
         }
 
         // Step 2: Save local variables that will be shadowed by the comprehension
         for name in &pushed_locals {
             let idx = self.varname(name)?;
-            emit!(self, Instruction::LoadFastAndClear(idx));
+            emit!(self, RealInstruction::LoadFastAndClear(idx));
         }
 
         // Step 3: SWAP iterator to TOS (above saved locals)
         if !pushed_locals.is_empty() {
             emit!(
                 self,
-                Instruction::Swap {
+                RealInstruction::Swap {
                     index: u32::try_from(pushed_locals.len() + 1).unwrap()
                 }
             );
@@ -6780,7 +6789,7 @@ impl Compiler {
         if let Some(init_collection) = init_collection {
             self._emit(init_collection, OpArg(0), BlockIdx::NULL);
             // SWAP to get iterator on top
-            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, RealInstruction::Swap { index: 2 });
         }
 
         // Set up exception handler for cleanup on exception
@@ -6814,9 +6823,9 @@ impl Compiler {
                 // For nested loops, compile the iterator expression
                 self.compile_expression(&generator.iter)?;
                 if generator.is_async {
-                    emit!(self, Instruction::GetAIter);
+                    emit!(self, RealInstruction::GetAIter);
                 } else {
-                    emit!(self, Instruction::GetIter);
+                    emit!(self, RealInstruction::GetIter);
                 }
             }
 
@@ -6824,14 +6833,14 @@ impl Compiler {
             self.switch_to_block(loop_block);
 
             if generator.is_async {
-                emit!(self, Instruction::GetANext);
+                emit!(self, RealInstruction::GetANext);
                 self.emit_load_const(ConstantData::None);
                 self.compile_yield_from_sequence(true)?;
                 self.compile_store(&generator.target)?;
             } else {
                 emit!(
                     self,
-                    Instruction::ForIter {
+                    RealInstruction::ForIter {
                         target: after_block,
                     }
                 );
@@ -6849,13 +6858,13 @@ impl Compiler {
 
         // Step 7: Close all loops
         for (loop_block, after_block, is_async) in loop_labels.iter().rev().copied() {
-            emit!(self, Instruction::Jump { target: loop_block });
+            emit!(self, PseudoInstruction::Jump { target: loop_block });
             self.switch_to_block(after_block);
             if is_async {
-                emit!(self, Instruction::EndAsyncFor);
+                emit!(self, RealInstruction::EndAsyncFor);
             }
             // Pop the iterator
-            emit!(self, Instruction::PopTop);
+            emit!(self, RealInstruction::PopTop);
         }
 
         // Step 8: Clean up - restore saved locals
@@ -6863,30 +6872,30 @@ impl Compiler {
             self.pop_fblock(FBlockType::TryExcept);
 
             // Normal path: jump past cleanup
-            emit!(self, Instruction::Jump { target: end_block });
+            emit!(self, PseudoInstruction::Jump { target: end_block });
 
             // Exception cleanup path
             self.switch_to_block(cleanup_block);
             // Stack: [saved_locals..., collection, exception]
             // Swap to get collection out from under exception
-            emit!(self, Instruction::Swap { index: 2 });
-            emit!(self, Instruction::PopTop); // Pop incomplete collection
+            emit!(self, RealInstruction::Swap { index: 2 });
+            emit!(self, RealInstruction::PopTop); // Pop incomplete collection
 
             // Restore locals
             emit!(
                 self,
-                Instruction::Swap {
+                RealInstruction::Swap {
                     index: u32::try_from(pushed_locals.len() + 1).unwrap()
                 }
             );
             for name in pushed_locals.iter().rev() {
                 let idx = self.varname(name)?;
-                emit!(self, Instruction::StoreFast(idx));
+                emit!(self, RealInstruction::StoreFast(idx));
             }
             // Re-raise the exception
             emit!(
                 self,
-                Instruction::RaiseVarargs {
+                RealInstruction::RaiseVarargs {
                     kind: bytecode::RaiseKind::ReraiseFromStack
                 }
             );
@@ -6899,7 +6908,7 @@ impl Compiler {
         if !pushed_locals.is_empty() {
             emit!(
                 self,
-                Instruction::Swap {
+                RealInstruction::Swap {
                     index: u32::try_from(pushed_locals.len() + 1).unwrap()
                 }
             );
@@ -6908,7 +6917,7 @@ impl Compiler {
         // Restore saved locals
         for name in pushed_locals.iter().rev() {
             let idx = self.varname(name)?;
-            emit!(self, Instruction::StoreFast(idx));
+            emit!(self, RealInstruction::StoreFast(idx));
         }
 
         Ok(())
@@ -6952,14 +6961,14 @@ impl Compiler {
         });
     }
 
-    fn emit_no_arg(&mut self, ins: Instruction) {
+    fn emit_no_arg(&mut self, ins: RealInstruction) {
         self._emit(ins, OpArg::null(), BlockIdx::NULL)
     }
 
     fn emit_arg<A: OpArgType, T: EmitArg<A>>(
         &mut self,
         arg: T,
-        f: impl FnOnce(OpArgMarker<A>) -> Instruction,
+        f: impl FnOnce(OpArgMarker<A>) -> RealInstruction,
     ) {
         let (op, arg, target) = arg.emit(f);
         self._emit(op, arg, target)
@@ -6974,22 +6983,22 @@ impl Compiler {
 
     fn emit_load_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| Instruction::LoadConst { idx })
+        self.emit_arg(idx, |idx| RealInstruction::LoadConst { idx })
     }
 
     fn emit_return_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| Instruction::ReturnConst { idx })
+        self.emit_arg(idx, |idx| RealInstruction::ReturnConst { idx })
     }
 
     fn emit_return_value(&mut self) {
         if let Some(inst) = self.current_block().instructions.last_mut()
-            && let Instruction::LoadConst { idx } = inst.instr
+            && let RealInstruction::LoadConst { idx } = inst.instr
         {
-            inst.instr = Instruction::ReturnConst { idx };
+            inst.instr = RealInstruction::ReturnConst { idx };
             return;
         }
-        emit!(self, Instruction::ReturnValue)
+        emit!(self, RealInstruction::ReturnValue)
     }
 
     fn current_code_info(&mut self) -> &mut ir::CodeInfo {
@@ -7102,22 +7111,22 @@ impl Compiler {
             match action {
                 UnwindAction::With { is_async } => {
                     // compiler_call_exit_with_nones
-                    emit!(self, Instruction::PushNull);
+                    emit!(self, RealInstruction::PushNull);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
-                    emit!(self, Instruction::Call { nargs: 3 });
+                    emit!(self, RealInstruction::Call { nargs: 3 });
 
                     if is_async {
-                        emit!(self, Instruction::GetAwaitable);
+                        emit!(self, RealInstruction::GetAwaitable);
                         self.emit_load_const(ConstantData::None);
                         self.compile_yield_from_sequence(true)?;
                     }
 
-                    emit!(self, Instruction::PopTop);
+                    emit!(self, RealInstruction::PopTop);
                 }
                 UnwindAction::HandlerCleanup => {
-                    emit!(self, Instruction::PopExcept);
+                    emit!(self, RealInstruction::PopExcept);
                 }
                 UnwindAction::FinallyTry { body, fblock_idx } => {
                     // compile finally body inline
@@ -7137,26 +7146,26 @@ impl Compiler {
                     // Stack when in FinallyEnd: [..., prev_exc, exc]
                     // Note: No lasti here - it's only pushed for cleanup handler exceptions
                     // We need to pop: exc, prev_exc (via PopExcept)
-                    emit!(self, Instruction::PopTop); // exc
-                    emit!(self, Instruction::PopExcept); // prev_exc is restored
+                    emit!(self, RealInstruction::PopTop); // exc
+                    emit!(self, RealInstruction::PopExcept); // prev_exc is restored
                 }
                 UnwindAction::PopValue => {
                     // Pop the return value - continue/break cancels the pending return
-                    emit!(self, Instruction::PopTop);
+                    emit!(self, RealInstruction::PopTop);
                 }
             }
         }
 
         // For break in a for loop, pop the iterator
         if is_break && is_for_loop {
-            emit!(self, Instruction::PopTop);
+            emit!(self, RealInstruction::PopTop);
         }
 
         // Jump to target
         if is_break {
-            emit!(self, Instruction::Break { target: exit_block });
+            emit!(self, RealInstruction::Break { target: exit_block });
         } else {
-            emit!(self, Instruction::Continue { target: loop_block });
+            emit!(self, RealInstruction::Continue { target: loop_block });
         }
 
         Ok(())
@@ -7307,7 +7316,7 @@ impl Compiler {
             .try_into()
             .expect("BuildString size overflowed");
         if part_count > 1 {
-            emit!(self, Instruction::BuildString { size: part_count });
+            emit!(self, RealInstruction::BuildString { size: part_count });
         }
 
         Ok(())
@@ -7398,7 +7407,7 @@ impl Compiler {
                         ConvertValueOparg::Str
                         | ConvertValueOparg::Repr
                         | ConvertValueOparg::Ascii => {
-                            emit!(self, Instruction::ConvertValue { oparg: conversion })
+                            emit!(self, RealInstruction::ConvertValue { oparg: conversion })
                         }
                     }
 
@@ -7406,10 +7415,10 @@ impl Compiler {
                         Some(format_spec) => {
                             self.compile_fstring_elements(flags, &format_spec.elements)?;
 
-                            emit!(self, Instruction::FormatWithSpec);
+                            emit!(self, RealInstruction::FormatWithSpec);
                         }
                         None => {
-                            emit!(self, Instruction::FormatSimple);
+                            emit!(self, RealInstruction::FormatSimple);
                         }
                     }
                 }
@@ -7424,7 +7433,7 @@ impl Compiler {
         } else if element_count > 1 {
             emit!(
                 self,
-                Instruction::BuildString {
+                RealInstruction::BuildString {
                     size: element_count
                 }
             );
@@ -7437,11 +7446,14 @@ impl Compiler {
 trait EmitArg<Arg: OpArgType> {
     fn emit(
         self,
-        f: impl FnOnce(OpArgMarker<Arg>) -> Instruction,
-    ) -> (Instruction, OpArg, BlockIdx);
+        f: impl FnOnce(OpArgMarker<Arg>) -> RealInstruction,
+    ) -> (RealInstruction, OpArg, BlockIdx);
 }
 impl<T: OpArgType> EmitArg<T> for T {
-    fn emit(self, f: impl FnOnce(OpArgMarker<T>) -> Instruction) -> (Instruction, OpArg, BlockIdx) {
+    fn emit(
+        self,
+        f: impl FnOnce(OpArgMarker<T>) -> RealInstruction,
+    ) -> (RealInstruction, OpArg, BlockIdx) {
         let (marker, arg) = OpArgMarker::new(self);
         (f(marker), arg, BlockIdx::NULL)
     }
@@ -7449,8 +7461,8 @@ impl<T: OpArgType> EmitArg<T> for T {
 impl EmitArg<bytecode::Label> for BlockIdx {
     fn emit(
         self,
-        f: impl FnOnce(OpArgMarker<bytecode::Label>) -> Instruction,
-    ) -> (Instruction, OpArg, BlockIdx) {
+        f: impl FnOnce(OpArgMarker<bytecode::Label>) -> RealInstruction,
+    ) -> (RealInstruction, OpArg, BlockIdx) {
         (f(OpArgMarker::marker()), OpArg::null(), self)
     }
 }

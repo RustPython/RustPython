@@ -5,7 +5,7 @@ use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
         Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
-        InstrDisplayContext, Instruction, Label, OpArg, PyCodeLocationInfoKind,
+        InstrDisplayContext, Instruction, Label, OpArg, PseudoInstruction, PyCodeLocationInfoKind,
         encode_exception_table, encode_load_attr_arg, encode_load_super_attr_arg,
     },
     varint::{write_signed_varint, write_varint},
@@ -197,44 +197,44 @@ impl CodeInfo {
             for info in &mut block.instructions {
                 match info.instr {
                     // LOAD_ATTR_METHOD pseudo → LOAD_ATTR (with method flag=1)
-                    Instruction::LoadAttrMethod { idx } => {
+                    Instruction::Pseudo(PseudoInstruction::LoadAttrMethod { idx }) => {
                         let encoded = encode_load_attr_arg(idx.get(info.arg), true);
                         info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadAttr { idx: Arg::marker() };
+                        info.instr = RealInstruction::LoadAttr { idx: Arg::marker() }.into();
                     }
                     // LOAD_ATTR → encode with method flag=0
-                    Instruction::LoadAttr { idx } => {
+                    Instruction::Real(Instruction::LoadAttr { idx }) => {
                         let encoded = encode_load_attr_arg(idx.get(info.arg), false);
                         info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadAttr { idx: Arg::marker() };
+                        info.instr = RealInstruction::LoadAttr { idx: Arg::marker() }.into();
                     }
                     // POP_BLOCK pseudo → NOP
-                    Instruction::PopBlock => {
-                        info.instr = Instruction::Nop;
+                    Instruction::Pseudo(PseudoInstruction::PopBlock) => {
+                        info.instr = RealInstruction::Nop.into();
                     }
                     // LOAD_SUPER_METHOD pseudo → LOAD_SUPER_ATTR (flags=0b11: method=1, class=1)
-                    Instruction::LoadSuperMethod { idx } => {
+                    Instruction::Pseudo(Instruction::LoadSuperMethod { idx }) => {
                         let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, true);
                         info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() };
+                        info.instr = RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
                     }
                     // LOAD_ZERO_SUPER_ATTR pseudo → LOAD_SUPER_ATTR (flags=0b00: method=0, class=0)
-                    Instruction::LoadZeroSuperAttr { idx } => {
+                    Instruction::Pseudo(PseudoInstruction::LoadZeroSuperAttr { idx }) => {
                         let encoded = encode_load_super_attr_arg(idx.get(info.arg), false, false);
                         info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() };
+                        info.instr = RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
                     }
                     // LOAD_ZERO_SUPER_METHOD pseudo → LOAD_SUPER_ATTR (flags=0b01: method=1, class=0)
-                    Instruction::LoadZeroSuperMethod { idx } => {
+                    Instruction::Pseudo(PseudoInstruction::LoadZeroSuperMethod { idx }) => {
                         let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, false);
                         info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() };
+                        info.instr = RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
                     }
                     // LOAD_SUPER_ATTR → encode with flags=0b10 (method=0, class=1)
-                    Instruction::LoadSuperAttr { arg: idx } => {
+                    Instruction::Real(RealInstruction::LoadSuperAttr { arg: idx }) => {
                         let encoded = encode_load_super_attr_arg(idx.get(info.arg), false, true);
                         info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() };
+                        info.instr = RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
                     }
                     _ => {}
                 }
@@ -277,14 +277,16 @@ impl CodeInfo {
 
                     // Convert JUMP pseudo to real instructions (direction depends on offset)
                     let op = match info.instr {
-                        Instruction::Jump { .. } if target != BlockIdx::NULL => {
+                        Instruction::Pseudo(PseudoInstruction::Jump { .. })
+                            if target != BlockIdx::NULL =>
+                        {
                             let target_offset = block_to_offset[target.idx()].0;
                             if target_offset > current_offset {
-                                Instruction::JumpForward {
+                                RealInstruction::JumpForward {
                                     target: Arg::marker(),
                                 }
                             } else {
-                                Instruction::JumpBackward {
+                                RealInstruction::JumpBackward {
                                     target: Arg::marker(),
                                 }
                             }
@@ -299,7 +301,7 @@ impl CodeInfo {
                     ));
                     instructions.extend(
                         extras
-                            .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))
+                            .map(|byte| CodeUnit::new(RealInstruction::ExtendedArg, byte))
                             .chain([CodeUnit { op, arg: lo_arg }]),
                     );
                     current_offset += info.arg.instr_size() as u32;

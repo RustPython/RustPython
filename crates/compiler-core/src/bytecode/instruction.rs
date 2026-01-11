@@ -244,20 +244,6 @@ pub enum RealInstruction {
     Resume {
         arg: Arg<u32>,
     } = 149,
-    // ===== LOAD_SUPER_* Pseudo Opcodes (136-138) =====
-    // These are converted to LoadSuperAttr during bytecode finalization.
-    // "Zero" variants are for 0-arg super() calls (has_class=false).
-    // Non-"Zero" variants are for 2-arg super(cls, self) calls (has_class=true).
-    /// 2-arg super(cls, self).method() - has_class=true, load_method=true
-    LoadSuperMethod {
-        idx: Arg<NameIdx>,
-    } = 136, // CPython uses pseudo-op 260
-    LoadZeroSuperAttr {
-        idx: Arg<NameIdx>,
-    } = 137, // CPython uses pseudo-op 261
-    LoadZeroSuperMethod {
-        idx: Arg<NameIdx>,
-    } = 138, // CPython uses pseudo-op 262
     // ==================== RustPython-only instructions (119-135) ====================
     // Ideally, we want to be fully aligned with CPython opcodes, but we still have some leftovers.
     // So we assign random IDs to these opcodes.
@@ -344,10 +330,6 @@ impl TryFrom<u8> for RealInstruction {
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
             u8::from(Self::SetExcInfo),
             u8::from(Self::Subscript),
-            // LOAD_SUPER_* pseudo opcodes (136-138)
-            u8::from(Self::LoadSuperMethod { idx: Arg::marker() }),
-            u8::from(Self::LoadZeroSuperAttr { idx: Arg::marker() }),
-            u8::from(Self::LoadZeroSuperMethod { idx: Arg::marker() }),
         ];
 
         if (cpython_start..=cpython_end).contains(&value)
@@ -366,8 +348,7 @@ impl RealInstruction {
     #[inline]
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
-            Self::Jump { target: l }
-            | Self::JumpBackward { target: l }
+            Self::JumpBackward { target: l }
             | Self::JumpBackwardNoInterrupt { target: l }
             | Self::JumpForward { target: l }
             | Self::JumpIfNotExcMatch(l)
@@ -395,8 +376,7 @@ impl RealInstruction {
     pub const fn unconditional_branch(&self) -> bool {
         matches!(
             self,
-            Self::Jump { .. }
-                | Self::JumpForward { .. }
+            Self::JumpForward { .. }
                 | Self::JumpBackward { .. }
                 | Self::JumpBackwardNoInterrupt { .. }
                 | Self::Continue { .. }
@@ -439,13 +419,10 @@ impl RealInstruction {
             Self::DeleteGlobal(_) => 0,
             Self::DeleteDeref(_) => 0,
             Self::LoadFromDictOrDeref(_) => 1,
-            Self::LoadClosure(_) => 1,
             Self::Subscript => -1,
             Self::StoreSubscr => -3,
             Self::DeleteSubscr => -2,
             Self::LoadAttr { .. } => 0,
-            // LoadAttrMethod: pop obj, push method + self_or_null
-            Self::LoadAttrMethod { .. } => 1,
             Self::StoreAttr { .. } => -2,
             Self::DeleteAttr { .. } => -1,
             Self::LoadConst { .. } => 1,
@@ -463,7 +440,6 @@ impl RealInstruction {
             Self::CallIntrinsic2 { .. } => -1, // Takes 2, pushes 1
             Self::Continue { .. } => 0,
             Self::Break { .. } => 0,
-            Self::Jump { .. } => 0,
             Self::PopJumpIfTrue { .. } => -1,
             Self::PopJumpIfFalse { .. } => -1,
             Self::JumpIfTrueOrPop { .. } => {
@@ -597,9 +573,6 @@ impl RealInstruction {
                 if load_method { -3 + 2 } else { -3 + 1 }
             }
             // Pseudo instructions (calculated before conversion)
-            Self::LoadSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
-            Self::LoadZeroSuperAttr { .. } => -3 + 1, // pop 3, push [attr]
-            Self::LoadZeroSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
             Self::Cache => 0,
             Self::BinarySlice => 0,
             Self::BinaryOpInplaceAddUnicode => 0,
@@ -747,7 +720,6 @@ impl RealInstruction {
             Self::ImportFrom { idx } => w!(IMPORT_FROM, name = idx),
             Self::ImportName { idx } => w!(IMPORT_NAME, name = idx),
             Self::IsOp(inv) => w!(IS_OP, ?inv),
-            Self::Jump { target } => w!(JUMP, target),
             Self::JumpBackward { target } => w!(JUMP_BACKWARD, target),
             Self::JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
             Self::JumpForward { target } => w!(JUMP_FORWARD, target),
@@ -769,10 +741,8 @@ impl RealInstruction {
                     write!(f, "{:pad$}({}, {})", "LOAD_ATTR", encoded, attr_name)
                 }
             }
-            Self::LoadAttrMethod { idx } => w!(LOAD_ATTR_METHOD, name = idx),
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
             Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
-            Self::LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
             Self::LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
             Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             Self::LoadFast(idx) => w!(LOAD_FAST, varname = idx),
@@ -789,9 +759,6 @@ impl RealInstruction {
                     "LOAD_SUPER_ATTR", encoded, attr_name, load_method, has_class
                 )
             }
-            Self::LoadSuperMethod { idx } => w!(LOAD_SUPER_METHOD, name = idx),
-            Self::LoadZeroSuperAttr { idx } => w!(LOAD_ZERO_SUPER_ATTR, name = idx),
-            Self::LoadZeroSuperMethod { idx } => w!(LOAD_ZERO_SUPER_METHOD, name = idx),
             Self::MakeFunction => w!(MAKE_FUNCTION),
             Self::MapAdd { i } => w!(MAP_ADD, i),
             Self::MatchClass(arg) => w!(MATCH_CLASS, arg),
@@ -846,17 +813,59 @@ impl RealInstruction {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u16)]
-enum PseudoInstruction {
-    Jump { target: Arg<Label> } = 256,
+pub enum PseudoInstruction {
+    Jump {
+        target: Arg<Label>,
+    } = 256,
+    JumpNoInterrupt {
+        target: Arg<Label>,
+    } = 257, // Placeholder
     LoadClosure(Arg<NameIdx>) = 258,
-    LoadAttrMethod { idx: Arg<NameIdx> } = 259,
-    PopBlock = 263,
+    LoadAttrMethod {
+        idx: Arg<NameIdx>,
+    } = 259,
+    // "Zero" variants are for 0-arg super() calls (has_class=false).
+    // Non-"Zero" variants are for 2-arg super(cls, self) calls (has_class=true).
+    /// 2-arg super(cls, self).method() - has_class=true, load_method=true
+    LoadSuperMethod {
+        idx: Arg<NameIdx>,
+    } = 260,
+    LoadZeroSuperAttr {
+        idx: Arg<NameIdx>,
+    } = 261,
+    LoadZeroSuperMethod {
+        idx: Arg<NameIdx>,
+    } = 262,
+    PopBlock = 263,           // Placeholder
+    SetupCleanup = 264,       // Placeholder
+    SetupFinally = 265,       // Placeholder
+    SetupWith = 266,          // Placeholder
+    StoreFastMaybeNull = 267, // Placeholder
+}
+
+impl InstructionMetadata for PseudoInstruction {
+    pub fn stack_effect(&self, _arg: OpArg, _jump: bool) -> i32 {
+        match self {
+            Self::Jump { .. } => 0,
+            Self::JumpNoInterrupt { .. } => 0,
+            Self::LoadClosure(_) => 1,
+            Self::LoadAttrMethod { .. } => 1, // pop obj, push method + self_or_null
+            Self::LoadSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
+            Self::LoadZeroSuperAttr { .. } => -3 + 1, // pop 3, push [attr]
+            Self::LoadZeroSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
+            Self::PopBlock => 0,
+            Self::SetupCleanup => 0,
+            Self::SetupFinally => 0,
+            Self::SetupWith => 0,
+            Self::StoreFastMaybeNull => 0,
+        }
+    }
 }
 
 const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum Instruction {
+pub enum Instruction {
     Real(RealInstruction),
     Pseudo(PseudoInstruction),
 }
@@ -871,4 +880,8 @@ impl From<PseudoInstruction> for Instruction {
     fn from(value: PseudoInstruction) -> Self {
         Self::Pseudo(value)
     }
+}
+
+pub trait InstructionMetadata {
+    fn stack_effect(&self, arg: OpArg, jump: bool) -> i32;
 }
