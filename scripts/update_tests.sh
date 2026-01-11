@@ -70,29 +70,37 @@ update_libraries() {
 
     for lib in "${libraries[@]}"
     do 
-        cpython_file="$cpython_path/$lib"
-        rpython_file="$rpython_path/$lib"
+        update_library "$lib"
+    done
+}
 
-        filename=${lib##*/}
-        basename=${filename%.py}
+update_library() {
+    lib=$1
+    cpython_file="$cpython_path/$lib"
+    rpython_file="$rpython_path/$lib"
 
-        if files_equal "$cpython_file" "$rpython_file"; then
-            echo "No changes in $lib. Skipping..." 
-            continue
+    filename=${lib##*/}
+    basename=${filename%.py}
+
+    if files_equal "$cpython_file" "$rpython_file"; then
+        echo "No changes in $lib. Skipping..." 
+        continue
+    fi
+
+    if [[ ! -f "$rpython_file" ]]; then
+        echo "Test file $lib missing."
+        if $copy_untracked; then
+            echo "Copying..."
+            cp "$cpython_file" "$rpython_file"
         fi
+    else
+        ./scripts/lib_updater.py --from $cpython_file --to $rpython_file -o $rpython_file
+    fi
 
-        if [[ ! -f "$rpython_file" ]]; then
-            echo "Test file $lib missing."
-            if $copy_untracked; then
-                echo "Copying..."
-                cp "$cpython_file" "$rpython_file"
-            fi
-        else
-            ./scripts/lib_updater.py --from $cpython_file --to $rpython_file -o $rpython_file
-        fi
 
-        if $annotate; then
-            output=$(cargo run --release --features encodings,sqlite -- -m test -j 1 -u all --slowest --fail-env-changed -v $lib 2>&1)
+    output=$(cargo run --release --features encodings,sqlite -- -m test -j 1 -u all --slowest --fail-env-changed -v $lib 2>&1)
+    if $annotate; then
+        while ! grep -q "Tests result: SUCCESS" <<< "$output"; do
             failed_tests=$(echo "$output" | grep '^FAIL: ' | awk '{print $2}')
             errored_tests=$(echo "$output" | grep '^ERROR ' | awk '{print $2}')
             failed_tests=$(echo "$failed_tests" | sort -u)
@@ -101,10 +109,15 @@ update_libraries() {
             do
                 sed -i "s/^\([[:space:]]*\)def $test(/\1@unittest.expectedFailure # TODO: RUSTPYTHON\n\1def $test(/" "$rpython_file"
             done
+
+            if grep -q "\.\.\.$" <<< "$output"; then
+                hanging_test=$(echo "$output" | grep '\.\.\.$' | head -n 1 | awk '{print $1}')
+                sed -i "s/^\([[:space:]]*\)def $hanging_test(/\1@unittest.skip('TODO: RUSTPYTHON')\n\1def $hanging_test(/" "$rpython_file"
+            fi
+
             output=$(cargo run --release --features encodings,sqlite -- -m test -j 1 -u all --slowest --fail-env-changed -v $lib 2>&1)
-            echo "$failed_tests"
-        fi
-    done
+        done
+    fi
 }
 
 
