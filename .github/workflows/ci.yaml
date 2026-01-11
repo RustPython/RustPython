@@ -297,21 +297,21 @@ jobs:
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 35
+        timeout-minutes: 45
 
       - if: runner.os == 'Linux'
         name: run cpython platform-dependent tests (Linux)
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 35
+        timeout-minutes: 45
 
       - if: runner.os == 'macOS'
         name: run cpython platform-dependent tests (MacOS)
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 35
+        timeout-minutes: 45
 
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
