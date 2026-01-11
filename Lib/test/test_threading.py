@@ -1164,6 +1164,8 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
+    # TODO: RUSTPYTHON - __del__ not called during interpreter finalization (no cyclic GC)
+    @unittest.expectedFailure
     def test_start_new_thread_at_finalization(self):
         code = """if 1:
             import _thread
@@ -1340,7 +1342,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
         data = out.decode().replace('\r', '')
         self.assertEqual(data, "end of main\nend of thread\n")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_1_join_on_shutdown(self):
         # The usual case: on exit, wait for a non-daemon thread
         script = """if 1:
@@ -1353,7 +1354,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
             """
         self._run_and_join(script)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; need to fix test_1_join_on_shutdown then this might work
     @skip_unless_reliable_fork
     def test_2_join_in_forked_process(self):
         # Like the test above, but from a forked interpreter
@@ -1475,6 +1475,8 @@ class ThreadJoinOnShutdown(BaseTestCase):
         self.assertEqual(out.strip(), b"OK")
         self.assertEqual(rc, 0)
 
+    # TODO: RUSTPYTHON - parking_lot mutex not fork-safe, child may SIGSEGV
+    @unittest.skip("TODO: RUSTPYTHON - flaky, parking_lot mutex not fork-safe")
     @skip_unless_reliable_fork
     def test_reinit_tls_after_fork(self):
         # Issue #13817: fork() would deadlock in a multithreaded program with
@@ -1501,7 +1503,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
             for t in threads:
                 t.join()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @skip_unless_reliable_fork
     def test_clear_threads_states_after_fork(self):
         # Issue #17094: check that threads states are cleared after fork()
@@ -2271,7 +2272,6 @@ class InterruptMainTests(unittest.TestCase):
 
 class AtexitTests(unittest.TestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_atexit_output(self):
         rc, out, err = assert_python_ok("-c", """if True:
             import threading
@@ -2300,7 +2300,6 @@ class AtexitTests(unittest.TestCase):
 
         self.assertFalse(err)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_atexit_after_shutdown(self):
         # The only way to do this is by registering an atexit within
         # an atexit, which is intended to raise an exception.

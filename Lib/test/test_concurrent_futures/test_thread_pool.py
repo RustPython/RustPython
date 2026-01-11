@@ -66,14 +66,8 @@ class ThreadPoolExecutorTest(ThreadPoolMixin, ExecutorTest, BaseTestCase):
                 with futures.ProcessPoolExecutor(1, mp_context=mp.get_context('fork')) as workers:
                     workers.submit(tuple)
 
-    import sys  # TODO: RUSTPYTHON
-    @unittest.skipIf(
-        'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,
-        'TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason'
-    )
     @support.requires_fork()
     @unittest.skipUnless(hasattr(os, 'register_at_fork'), 'need os.register_at_fork')
-    @unittest.expectedFailure # TODO: RUSTPYTHON AssertionError: DeprecationWarning not triggered
     def test_process_fork_from_a_threadpool(self):
         # bpo-43944: clear concurrent.futures.thread._threads_queues after fork,
         # otherwise child process will try to join parent thread

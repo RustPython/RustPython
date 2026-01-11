@@ -190,7 +190,6 @@ class ProcessPoolExecutorTest(ExecutorTest):
         for i, future in enumerate(futures):
             self.assertEqual(future.result(), mul(i, i))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON AttributeError: module 'threading' has no attribute '_start_joinable_thread'. Did you mean: '_start_new_thread'?
     def test_python_finalization_error(self):
         # gh-109047: Catch RuntimeError on thread creation
         # during Python finalization.
