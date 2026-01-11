@@ -276,7 +276,6 @@ class CMathTests(ComplexesAreIdenticalMixin, unittest.TestCase):
                 self.rAssertAlmostEqual(math.log(v, base), z.real)
                 self.assertEqual(0., z.imag)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_IEEE_754
     def test_specific_values(self):
         # Some tests need to be skipped on ancient OS X versions.
