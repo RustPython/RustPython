@@ -6,6 +6,7 @@ use crate::{
         Arg, BinaryOperator, BorrowedConstant, BuildSliceArgCount, ComparisonOperator, Constant,
         ConvertValueOparg, InstrDisplayContext, IntrinsicFunction1, IntrinsicFunction2, Invert,
         Label, MakeFunctionFlags, NameIdx, OpArg, RaiseKind, UnpackExArgs, decode_load_attr_arg,
+        decode_load_super_attr_arg,
     },
     marshal::MarshalError,
 };
@@ -175,7 +176,7 @@ pub enum Instruction {
     LoadName(Arg<NameIdx>) = 92,
     LoadSuperAttr {
         arg: Arg<u32>,
-    } = 93, // Placeholder
+    } = 93,
     MakeCell(Arg<NameIdx>) = 94, // Placeholder
     MapAdd {
         i: Arg<u32>,
@@ -243,6 +244,20 @@ pub enum Instruction {
     Resume {
         arg: Arg<u32>,
     } = 149,
+    // ===== LOAD_SUPER_* Pseudo Opcodes (136-138) =====
+    // These are converted to LoadSuperAttr during bytecode finalization.
+    // "Zero" variants are for 0-arg super() calls (has_class=false).
+    // Non-"Zero" variants are for 2-arg super(cls, self) calls (has_class=true).
+    /// 2-arg super(cls, self).method() - has_class=true, load_method=true
+    LoadSuperMethod {
+        idx: Arg<NameIdx>,
+    } = 136, // CPython uses pseudo-op 260
+    LoadZeroSuperAttr {
+        idx: Arg<NameIdx>,
+    } = 137, // CPython uses pseudo-op 261
+    LoadZeroSuperMethod {
+        idx: Arg<NameIdx>,
+    } = 138, // CPython uses pseudo-op 262
     // ==================== RustPython-only instructions (119-135) ====================
     // Ideally, we want to be fully aligned with CPython opcodes, but we still have some leftovers.
     // So we assign random IDs to these opcodes.
@@ -338,6 +353,10 @@ impl TryFrom<u8> for Instruction {
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
             u8::from(Self::SetExcInfo),
             u8::from(Self::Subscript),
+            // LOAD_SUPER_* pseudo opcodes (136-138)
+            u8::from(Self::LoadSuperMethod { idx: Arg::marker() }),
+            u8::from(Self::LoadZeroSuperAttr { idx: Arg::marker() }),
+            u8::from(Self::LoadZeroSuperMethod { idx: Arg::marker() }),
         ];
 
         // Pseudo opcodes (252-255)
@@ -588,6 +607,16 @@ impl Instruction {
             Self::UnaryNot => 0,
             Self::GetYieldFromIter => 0,
             Self::PushNull => 1, // Push NULL for call protocol
+            // LoadSuperAttr: pop [super, class, self], push [attr] or [method, self_or_null]
+            // stack_effect depends on load_method flag (bit 0 of oparg)
+            Self::LoadSuperAttr { arg: idx } => {
+                let (_, load_method, _) = decode_load_super_attr_arg(idx.get(arg));
+                if load_method { -3 + 2 } else { -3 + 1 }
+            }
+            // Pseudo instructions (calculated before conversion)
+            Self::LoadSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
+            Self::LoadZeroSuperAttr { .. } => -3 + 1, // pop 3, push [attr]
+            Self::LoadZeroSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
             Self::Cache => 0,
             Self::BinarySlice => 0,
             Self::BinaryOpInplaceAddUnicode => 0,
@@ -611,7 +640,6 @@ impl Instruction {
             Self::LoadFromDictOrGlobals(_) => 0,
             Self::SetUpdate { .. } => 0,
             Self::MakeCell(_) => 0,
-            Self::LoadSuperAttr { .. } => 0,
             Self::StoreFastStoreFast { .. } => 0,
             Self::PopJumpIfNone { .. } => 0,
             Self::PopJumpIfNotNone { .. } => 0,
@@ -768,6 +796,19 @@ impl Instruction {
             Self::LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
             Self::LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
             Self::LoadName(idx) => w!(LOAD_NAME, name = idx),
+            Self::LoadSuperAttr { arg: idx } => {
+                let encoded = idx.get(arg);
+                let (name_idx, load_method, has_class) = decode_load_super_attr_arg(encoded);
+                let attr_name = name(name_idx);
+                write!(
+                    f,
+                    "{:pad$}({}, {}, method={}, class={})",
+                    "LOAD_SUPER_ATTR", encoded, attr_name, load_method, has_class
+                )
+            }
+            Self::LoadSuperMethod { idx } => w!(LOAD_SUPER_METHOD, name = idx),
+            Self::LoadZeroSuperAttr { idx } => w!(LOAD_ZERO_SUPER_ATTR, name = idx),
+            Self::LoadZeroSuperMethod { idx } => w!(LOAD_ZERO_SUPER_METHOD, name = idx),
             Self::MakeFunction => w!(MAKE_FUNCTION),
             Self::MapAdd { i } => w!(MAP_ADD, i),
             Self::MatchClass(arg) => w!(MATCH_CLASS, arg),
