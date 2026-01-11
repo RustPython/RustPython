@@ -20,12 +20,17 @@ Options:
 Example Usage: 
 $0 -c ~/cpython -r .
 $0 -r . --check-skipped
+
+** Notes:
+    * When using the update skip functionality
+        * Updating only looks for files with the format "test_*.py". Everything else (including __init__.py and __main__.py files are ignored)
+        * Care needs to be taken when updating. All tests with the same name will be updated at the same time
 EOF
     exit 1
 }
 
 if [[ $# -eq 0 ]]; then
-    usage
+    usage 
 fi
 
 
@@ -167,9 +172,11 @@ annotate_lib() {
         if grep -q "\.\.\.$" <<< "$output"; then
             crashing_test=$(echo "$output" | grep '\.\.\.$' | head -n 1 | awk '{print $1}')
             if grep -q "Timeout" <<< "$output"; then
-                message=" hanging"
+                hanging=true
+            else
+                hanging=false
             fi
-            add_above_test $rlib_path $crashing_test "@unittest.skip('TODO: RUSTPYTHON;$message')"
+            apply_skip "$rlib_path" "$crashing_test" $hanging
         fi
 
         output=$(rustpython $lib 2>&1)
@@ -179,6 +186,8 @@ annotate_lib() {
             break;
         fi
     done
+
+    unset SKIP_BACKUP
 }
 
 files_equal() {
@@ -207,7 +216,43 @@ remove_skips() {
 
     echo "Removing all skips from $rlib_path"
 
+    backup_skips "$rlib_path"
+
     sed -i -E '/^[[:space:]]*@unittest\.skip.*\(["'\'']TODO\s?:\s?RUSTPYTHON.*["'\'']\)/Id' $rlib_path
+}
+
+apply_skip() {
+    local rlib_path=$1
+    local test_name=$2
+    local hanging=$3
+    message="unknown"
+
+    # Check if the test has a backup skip
+    if [[ -n "${SKIP_BACKUP[$test_name]}" ]]; then
+        message="${SKIP_BACKUP[$test_name]//\'/\"}" 
+        echo "Message is $message"
+    elif $hanging; then
+        message="hanging"
+    fi
+
+    add_above_test "$rlib_path" "$test_name" "@unittest.skip('TODO: RUSTPYTHON; $message')"
+}
+
+backup_skips() {
+    local rlib_path=$1
+    declare -gA SKIP_BACKUP=()  # global associative array
+    readarray -t skips < <(grep -E -n "^[[:space:]]*@unittest\.skip.*TODO\s?:\s?RUSTPYTHON" "$rlib_path" | sort -u)
+
+    for line in "${skips[@]}"; do
+        line_num="${line%%:*}"
+        line_text=$(echo "$line" | grep -oPi "(?<=RUSTPYTHON)\s*[;:]\s*\K(.*)?(?=[\"'])")
+        next_line=$(sed -n "$((line_num + 1))p" "$rlib_path")
+
+        if [[ "$next_line" =~ def[[:space:]]+([a-zA-Z0-9_]+)\( ]]; then
+            test_name="${BASH_REMATCH[1]}"
+            SKIP_BACKUP[$test_name]="$line_text"
+        fi
+    done
 }
 
 if ! $check_skip_flag; then
@@ -220,6 +265,8 @@ if ! $check_skip_flag; then
 else
     echo "Checking Skips"
 
-    readarray -t libraries <<< $(find ${rpython_path} -iname "test_*.py" -type f -printf "%P\n")
+    if [[ ${#libraries[@]} -eq 0 ]]; then
+        readarray -t libraries <<< $(find ${rpython_path} -iname "test_*.py" -type f -printf "%P\n")
+    fi
     check_skips "${libraries[@]}"
 fi
