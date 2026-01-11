@@ -1,11 +1,13 @@
-use alloc::fmt;
-use std::mem;
+use core::{fmt, marker::PhantomData, mem};
 
 use crate::{
     bytecode::{
-        Arg, BinaryOperator, BorrowedConstant, BuildSliceArgCount, ComparisonOperator, Constant,
-        ConvertValueOparg, InstrDisplayContext, IntrinsicFunction1, IntrinsicFunction2, Invert,
-        Label, MakeFunctionFlags, NameIdx, OpArg, RaiseKind, UnpackExArgs, decode_load_attr_arg,
+        BorrowedConstant, Constant, InstrDisplayContext, decode_load_attr_arg,
+        oparg::{
+            BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
+            IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx,
+            OpArg, OpArgByte, OpArgType, RaiseKind, UnpackExArgs,
+        },
     },
     marshal::MarshalError,
 };
@@ -818,5 +820,60 @@ impl Instruction {
             Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
             _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct Arg<T: OpArgType>(PhantomData<T>);
+
+impl<T: OpArgType> Arg<T> {
+    #[inline]
+    pub const fn marker() -> Self {
+        Self(PhantomData)
+    }
+
+    #[inline]
+    pub fn new(arg: T) -> (Self, OpArg) {
+        (Self(PhantomData), OpArg(arg.to_op_arg()))
+    }
+
+    #[inline]
+    pub fn new_single(arg: T) -> (Self, OpArgByte)
+    where
+        T: Into<u8>,
+    {
+        (Self(PhantomData), OpArgByte(arg.into()))
+    }
+
+    #[inline(always)]
+    pub fn get(self, arg: OpArg) -> T {
+        self.try_get(arg).unwrap()
+    }
+
+    #[inline(always)]
+    pub fn try_get(self, arg: OpArg) -> Option<T> {
+        T::from_op_arg(arg.0)
+    }
+
+    /// # Safety
+    /// T::from_op_arg(self) must succeed
+    #[inline(always)]
+    pub unsafe fn get_unchecked(self, arg: OpArg) -> T {
+        // SAFETY: requirements forwarded from caller
+        unsafe { T::from_op_arg(arg.0).unwrap_unchecked() }
+    }
+}
+
+impl<T: OpArgType> PartialEq for Arg<T> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl<T: OpArgType> Eq for Arg<T> {}
+
+impl<T: OpArgType> fmt::Debug for Arg<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Arg<{}>", core::any::type_name::<T>())
     }
 }
