@@ -11,10 +11,14 @@ Options:
   -c/--cpython-path <path>   Path to the CPython source tree (older version)
   -r/--rpython-path <path>   Path to the RustPython source tree (newer version)
   -u/--copy-untracked        Copy untracked tests only
+  -s/--check-skipped         Check existing skipped tests (must be run separate from updating the tests)
+  -t/--timeout               Set a timeout for a test
   -a/--annotate              While copying tests, run them and annotate failures dynamically
   -h/--help                  Show this help message and exit
 
-Example Usage: $0 -c ~/cpython -r .
+Example Usage: 
+$0 -c ~/cpython -r .
+$0 -r . --check-skipped
 EOF
     exit 1
 }
@@ -29,6 +33,8 @@ cpython_path=""
 rpython_path=""
 copy_untracked=false
 annotate=false
+timeout=300
+check_skip_flag=false
 libraries=()
 
 while [[ $# -gt 0 ]]; do
@@ -49,6 +55,14 @@ while [[ $# -gt 0 ]]; do
             usage
             return
             ;;
+        -s|--check-skipped)
+            check_skip_flag=true
+            shift
+            ;;
+        -t|--timeout)
+            timout="$2"
+            shift 2
+            ;;
         -a|--annotate)
             annotate=true
             shift
@@ -63,11 +77,13 @@ done
 cpython_path="$cpython_path/Lib/test"
 rpython_path="$rpython_path/Lib/test"
 
-update_tests() {
-    if [[ ${#libraries[@]} -eq 0 ]]; then
-        libraries=$(find ${cpython_path} -type f -printf "%P\n")
-    fi
+if [[ ${#libraries[@]} -eq 0 ]]; then
+    libraries=$(find ${cpython_path} -type f -printf "%P\n")
+fi
 
+
+update_tests() {
+    libraries=$1
     for lib in "${libraries[@]}"
     do 
         update_test "$lib"
@@ -76,39 +92,63 @@ update_tests() {
 
 update_test() {
     lib=$1
-    cpython_file="$cpython_path/$lib"
-    rpython_file="$rpython_path/$lib"
+    clib_path="$cpython_path/$lib"
+    rlib_path="$rpython_path/$lib"
 
-    filename=${lib##*/}
-    basename=${filename%.py}
-
-    if files_equal "$cpython_file" "$rpython_file"; then
+    if files_equal "$clib_path" "$rlib_path"; then
         echo "No changes in $lib. Skipping..." 
         continue
     fi
 
-    if [[ ! -f "$rpython_file" ]]; then
+    if [[ ! -f "$rlib_path" ]]; then
         echo "Test file $lib missing"
         if $copy_untracked; then
             echo "Copying $lib ..."
-            cp "$cpython_file" "$rpython_file"
+            cp "$clib_path" "$rlib_path"
         fi
     else
         echo "Using lib_updater to update $lib"
-        ./scripts/lib_updater.py --from $cpython_file --to $rpython_file -o $rpython_file
+        ./scripts/lib_updater.py --from $clib_path --to $rlib_path -o $rlib_path
     fi
 
 
-    output=$(rustpython $lib 2>&1)
     if $annotate; then
+        annotate_lib $lib $rlib_path
+    fi
+}
+
+check_skips() {
+    libraries=$1
+    for lib in "${libraries[@]}"
+    do
+        check_skip "$lib"
+    done
+}
+
+check_skip() {
+    lib=$1
+    rlib_path="$rpython_path/$lib"
+
+    remove_skips $rlib_path
+
+    annotate_lib $lib $rlib_path
+}
+
+annotate_lib() {
+        lib=$1
+        rlib_path=$2
+        output=$(rustpython $lib 2>&1)
+
+        echo "Annotating $lib"
+
         while ! grep -q "Tests result: SUCCESS" <<< "$output"; do
             echo "$lib failing, annotating..."
-            failed_tests=$(echo "$output" | grep '^FAIL: ' | awk '{print $2}' | sort -u)
+            readarray -t failed_tests <<< $(echo "$output" | awk '/^(FAIL:|ERROR:)/ {print $2}' | sort -u)
             
             # If the test fails/errors, then expectedFailure it
             for test in "${failed_tests[@]}"
             do
-                sed -i "s/^\([[:space:]]*\)def $test(/\1@unittest.expectedFailure # TODO: RUSTPYTHON\n\1def $test(/" "$rpython_file"
+                add_above_test $rlib_path $test "@unittest.expectedFailure # TODO: RUSTPYTHON" 
             done
 
             # If the test crashes/hangs, then skip it
@@ -117,15 +157,12 @@ update_test() {
                 if grep -q "Timeout" <<< "$output"; then
                     message="; hanging"
                 fi
-                sed -i "s/^\([[:space:]]*\)def $crashing_test(/\1@unittest.skip('TODO: RUSTPYTHON$message')\n\1def $crashing_test(/" "$rpython_file"
+                add_above_test $rlib_path $crashing_test "@unittest.skip('TODO: RUSTPYTHON$message')"
             fi
 
             output=$(rustpython $lib 2>&1)
         done
-    fi
 }
-
-
 
 files_equal() {
     file1=$1
@@ -138,4 +175,22 @@ rustpython() {
     cargo run --release --features encodings,sqlite -- -m test -j 1 -u all --fail-env-changed --timeout 300 -v "$@"
 }
 
-update_tests
+add_above_test() {
+    file=$1
+    test=$2
+    line=$3
+    sed -i "s/^\([[:space:]]*\)def $test(/\1$line\n\1def $test(/" "$file"
+}
+
+remove_skips() {
+    rlib_path=$1
+    sed -i -E '/^[[:space:]]*@unittest\.skip.*\(["'\'']TODO\s?:\s?RUSTPYTHON.*["'\'']\)/Id' $rlib_path
+}
+
+if ! $check_skip_flag; then
+    echo "Updating Tests"
+    update_tests $libraries
+else
+    echo "Checking Skips"
+    check_skips $libraries
+fi
