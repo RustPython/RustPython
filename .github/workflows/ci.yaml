@@ -106,7 +106,6 @@ env:
     test_weakref
     test_yield_from
   ENV_POLLUTING_TESTS_COMMON: >-
-    test_ssl
     test_threading
   ENV_POLLUTING_TESTS_LINUX: >-
     test.test_concurrent_futures.test_thread_pool
