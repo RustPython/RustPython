@@ -762,7 +762,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::ConvertValue { oparg: conversion } => {
                 self.convert_value(conversion.get(arg), vm)
             }
-            bytecode::Instruction::CopyItem { index } => {
+            bytecode::Instruction::Copy { index } => {
                 // CopyItem { index: 1 } copies TOS
                 // CopyItem { index: 2 } copies second from top
                 // This is 1-indexed to match CPython

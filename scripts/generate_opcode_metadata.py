@@ -10,7 +10,9 @@ import re
 import typing
 
 ROOT = pathlib.Path(__file__).parents[1]
-BYTECODE_FILE = ROOT / "crates" / "compiler-core" / "src" / "bytecode.rs"
+BYTECODE_FILE = (
+    ROOT / "crates" / "compiler-core" / "src" / "bytecode" / "instruction.rs"
+)
 OPCODE_METADATA_FILE = ROOT / "Lib" / "_opcode_metadata.py"
 
 
@@ -20,10 +22,7 @@ class Opcode(typing.NamedTuple):
 
     @property
     def cpython_name(self) -> str:
-        if self.rust_name == "CopyItem":
-            return "COPY"
-        name = self.rust_name
-        name = re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", name)
+        name = re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", self.rust_name)
         return re.sub(r"(\D)(\d+)$", r"\1_\2", name).upper()
 
     @classmethod
