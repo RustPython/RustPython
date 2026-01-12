@@ -278,37 +278,29 @@ pub fn compile_expression(
 macro_rules! emit {
     // Real
     ($c:expr, RealInstruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
-        $c.emit_arg($arg, |x| {
-            Instruction::Real(RealInstruction::$op { $arg: x })
-        })
+        $c.emit_arg($arg, |x| RealInstruction::$op { $arg: x })
     };
     ($c:expr, RealInstruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
-        $c.emit_arg($arg_val, |x| {
-            Instruction::Real(RealInstruction::$op { $arg: x })
-        })
+        $c.emit_arg($arg_val, |x| RealInstruction::$op { $arg: x })
     };
     ($c:expr, RealInstruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
         $c.emit_arg($arg_val, RealInstruction::$op)
     };
     ($c:expr, RealInstruction::$op:ident$(,)?) => {
-        $c.emit_no_arg(Instruction::Real(RealInstruction::$op))
+        $c.emit_no_arg(RealInstruction::$op)
     };
     // Pseudo
     ($c:expr, PseudoInstruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
-        $c.emit_arg($arg, |x| {
-            Instruction::Pseudo(PseudoInstruction::$op { $arg: x })
-        })
+        $c.emit_arg($arg, |x| PseudoInstruction::$op { $arg: x })
     };
     ($c:expr, PseudoInstruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
-        $c.emit_arg($arg_val, |x| {
-            Instruction::Pseudo(PseudoInstruction::$op { $arg: x })
-        })
+        $c.emit_arg($arg_val, |x| PseudoInstruction::$op { $arg: x })
     };
     ($c:expr, PseudoInstruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
-        $c.emit_arg($arg_val, Instruction::Pseudo(PseudoInstruction::$op))
+        $c.emit_arg($arg_val, PseudoInstruction::$op)
     };
     ($c:expr, PseudoInstruction::$op:ident$(,)?) => {
-        $c.emit_no_arg(Instruction::Pseudo(PseudoInstruction::$op))
+        $c.emit_no_arg(PseudoInstruction::$op)
     };
 }
 
@@ -6628,7 +6620,7 @@ impl Compiler {
         let return_none = init_collection.is_none();
         // Create empty object of proper type:
         if let Some(init_collection) = init_collection {
-            self._emit(init_collection.into(), OpArg(0), BlockIdx::NULL)
+            self._emit(init_collection, OpArg(0), BlockIdx::NULL)
         }
 
         let mut loop_labels = vec![];
@@ -6975,14 +6967,14 @@ impl Compiler {
     }
 
     // Low level helper functions:
-    fn _emit(&mut self, instr: Instruction, arg: OpArg, target: BlockIdx) {
+    fn _emit<I: Into<Instruction>>(&mut self, instr: I, arg: OpArg, target: BlockIdx) {
         let range = self.current_source_range;
         let source = self.source_file.to_source_code();
         let location = source.source_location(range.start(), PositionEncoding::Utf8);
         let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
         let except_handler = self.current_except_handler();
         self.current_block().instructions.push(ir::InstructionInfo {
-            instr,
+            instr: instr.into(),
             arg,
             target,
             location,
@@ -6991,14 +6983,14 @@ impl Compiler {
         });
     }
 
-    fn emit_no_arg(&mut self, ins: Instruction) {
+    fn emit_no_arg<I: Into<Instruction>>(&mut self, ins: I) {
         self._emit(ins, OpArg::null(), BlockIdx::NULL)
     }
 
-    fn emit_arg<A: OpArgType, T: EmitArg<A>>(
+    fn emit_arg<A: OpArgType, T: EmitArg<A>, I: Into<Instruction>>(
         &mut self,
         arg: T,
-        f: impl FnOnce(OpArgMarker<A>) -> Instruction,
+        f: impl FnOnce(OpArgMarker<A>) -> I,
     ) {
         let (op, arg, target) = arg.emit(f);
         self._emit(op, arg, target)
@@ -7013,12 +7005,12 @@ impl Compiler {
 
     fn emit_load_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| RealInstruction::LoadConst { idx }.into())
+        self.emit_arg(idx, |idx| RealInstruction::LoadConst { idx })
     }
 
     fn emit_return_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| RealInstruction::ReturnConst { idx }.into())
+        self.emit_arg(idx, |idx| RealInstruction::ReturnConst { idx })
     }
 
     fn emit_return_value(&mut self) {
@@ -7474,23 +7466,26 @@ impl Compiler {
 }
 
 trait EmitArg<Arg: OpArgType> {
-    fn emit(
+    fn emit<I: Into<Instruction>>(
         self,
-        f: impl FnOnce(OpArgMarker<Arg>) -> Instruction,
+        f: impl FnOnce(OpArgMarker<Arg>) -> I,
     ) -> (Instruction, OpArg, BlockIdx);
 }
 
 impl<T: OpArgType> EmitArg<T> for T {
-    fn emit(self, f: impl FnOnce(OpArgMarker<T>) -> Instruction) -> (Instruction, OpArg, BlockIdx) {
+    fn emit<I: Into<Instruction>>(
+        self,
+        f: impl FnOnce(OpArgMarker<T>) -> I,
+    ) -> (Instruction, OpArg, BlockIdx) {
         let (marker, arg) = OpArgMarker::new(self);
         (f(marker).into(), arg, BlockIdx::NULL)
     }
 }
 
 impl EmitArg<bytecode::Label> for BlockIdx {
-    fn emit(
+    fn emit<I: Into<Instruction>>(
         self,
-        f: impl FnOnce(OpArgMarker<bytecode::Label>) -> Instruction,
+        f: impl FnOnce(OpArgMarker<bytecode::Label>) -> I,
     ) -> (Instruction, OpArg, BlockIdx) {
         (f(OpArgMarker::marker()).into(), OpArg::null(), self)
     }
