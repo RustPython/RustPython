@@ -82,6 +82,10 @@ pub struct VirtualMachine {
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
     recursion_depth: Cell<usize>,
+    /// Async generator firstiter hook (per-thread, set via sys.set_asyncgen_hooks)
+    pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
+    /// Async generator finalizer hook (per-thread, set via sys.set_asyncgen_hooks)
+    pub async_gen_finalizer: RefCell<Option<PyObjectRef>>,
 }
 
 #[derive(Debug, Default)]
@@ -220,6 +224,8 @@ impl VirtualMachine {
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
+            async_gen_firstiter: RefCell::new(None),
+            async_gen_finalizer: RefCell::new(None),
         };
 
         if vm.state.hash_secret.hash_str("")

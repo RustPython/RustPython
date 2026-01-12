@@ -1229,10 +1229,10 @@ mod sys {
         }
 
         if let Some(finalizer) = args.finalizer.into_option() {
-            crate::vm::thread::ASYNC_GEN_FINALIZER.set(finalizer);
+            *vm.async_gen_finalizer.borrow_mut() = finalizer;
         }
         if let Some(firstiter) = args.firstiter.into_option() {
-            crate::vm::thread::ASYNC_GEN_FIRSTITER.set(firstiter);
+            *vm.async_gen_firstiter.borrow_mut() = firstiter;
         }
 
         Ok(())
@@ -1254,12 +1254,8 @@ mod sys {
     #[pyfunction]
     fn get_asyncgen_hooks(vm: &VirtualMachine) -> AsyncgenHooksData {
         AsyncgenHooksData {
-            firstiter: crate::vm::thread::ASYNC_GEN_FIRSTITER
-                .with_borrow(Clone::clone)
-                .to_pyobject(vm),
-            finalizer: crate::vm::thread::ASYNC_GEN_FINALIZER
-                .with_borrow(Clone::clone)
-                .to_pyobject(vm),
+            firstiter: vm.async_gen_firstiter.borrow().clone().to_pyobject(vm),
+            finalizer: vm.async_gen_finalizer.borrow().clone().to_pyobject(vm),
         }
     }
 

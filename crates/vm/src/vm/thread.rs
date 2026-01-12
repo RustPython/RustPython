@@ -1,6 +1,6 @@
-use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
 #[cfg(feature = "threading")]
 use crate::frame::FrameRef;
+use crate::{AsObject, PyObject, VirtualMachine};
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
@@ -18,8 +18,6 @@ thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
 
     pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
-    pub(crate) static ASYNC_GEN_FINALIZER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
-    pub(crate) static ASYNC_GEN_FIRSTITER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
 
     /// Current thread's frame slot for sys._current_frames()
     #[cfg(feature = "threading")]
@@ -56,7 +54,10 @@ fn init_frame_slot_if_needed(vm: &VirtualMachine) {
         if slot.borrow().is_none() {
             let thread_id = crate::stdlib::thread::get_ident();
             let new_slot = Arc::new(parking_lot::Mutex::new(None));
-            vm.state.thread_frames.lock().insert(thread_id, new_slot.clone());
+            vm.state
+                .thread_frames
+                .lock()
+                .insert(thread_id, new_slot.clone());
             *slot.borrow_mut() = Some(new_slot);
         }
     });
@@ -233,6 +234,8 @@ impl VirtualMachine {
             state: self.state.clone(),
             initialized: self.initialized,
             recursion_depth: Cell::new(0),
+            async_gen_firstiter: RefCell::new(None),
+            async_gen_finalizer: RefCell::new(None),
         };
         ThreadedVirtualMachine { vm }
     }
