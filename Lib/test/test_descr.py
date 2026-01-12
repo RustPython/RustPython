@@ -1834,7 +1834,6 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
         object.__init__(A(3))
         self.assertRaises(TypeError, object.__init__, A(3), 5)
 
-    @unittest.skip('TODO: RUSTPYTHON; This passes, but the `expectedFailure` here is from CPython, so this test is an "UNEXPECTED SUCCESS" (not good)')
     @unittest.expectedFailure
     def test_restored_object_new(self):
         class A(object):
@@ -5193,7 +5192,7 @@ class AAAPTypesLongInitTest(unittest.TestCase):
 
 
 class MiscTests(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON; rustpython panicked at 'dict has non-string keys: [PyObject PyBaseObject]'")
+    @unittest.skip('TODO: RUSTPYTHON; rustpython panicked at "dict has non-string keys: [PyObject PyBaseObject]"')
     def test_type_lookup_mro_reference(self):
         # Issue #14199: _PyType_Lookup() has to keep a strong reference to
         # the type MRO because it may be modified during the lookup, if
@@ -5640,7 +5639,7 @@ class PicklingTests(unittest.TestCase):
                     objcopy2 = deepcopy(objcopy)
                     self._assert_is_copy(obj, objcopy2)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.skip('TODO: RUSTPYTHON; hanging')
     def test_issue24097(self):
         # Slot name is freed inside __getattr__ and is later used.
         class S(str):  # Not interned

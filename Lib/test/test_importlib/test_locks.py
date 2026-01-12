@@ -99,7 +99,7 @@ class DeadlockAvoidanceTests:
         self.assertEqual(len(results), NTHREADS)
         return results
 
-    @unittest.skip("TODO: RUSTPYTHON, sometimes hangs")
+    @unittest.skip("TODO: RUSTPYTHON, flaky test")
     def test_deadlock(self):
         results = self.run_deadlock_avoidance_test(True)
         # At least one of the threads detected a potential deadlock on its

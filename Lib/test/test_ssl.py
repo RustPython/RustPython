@@ -4596,7 +4596,6 @@ class ThreadedTests(unittest.TestCase):
             with client_context.wrap_socket(socket.socket()) as s:
                 s.connect((HOST, server.port))
 
-    @unittest.skip("TODO: rustpython")
     def test_thread_recv_while_main_thread_sends(self):
         # GH-137583: Locking was added to calls to send() and recv() on SSL
         # socket objects. This seemed fine at the surface level because those

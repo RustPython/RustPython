@@ -195,7 +195,7 @@ class FutureTest(unittest.TestCase):
         out = kill_python(p)
         self.assertNotIn(b'SyntaxError: invalid syntax', out)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     # SyntaxError: future feature spam is not defined
     def test_future_dotted_import(self):
         with self.assertRaises(ImportError):

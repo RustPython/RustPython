@@ -547,7 +547,6 @@ class ConnectionTests(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     # @unittest.expectedFailure
-    @unittest.skip("TODO: RUSTPYTHON deadlock")
     def test_connection_reinit(self):
         db = ":memory:"
         cx = sqlite.connect(db)
@@ -587,11 +586,11 @@ class ConnectionTests(unittest.TestCase):
                                    ((v,) for v in range(3)))
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class UninitialisedConnectionTests(unittest.TestCase):
     def setUp(self):
         self.cx = sqlite.Connection.__new__(sqlite.Connection)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_uninit_operations(self):
         funcs = (
             lambda: self.cx.isolation_level,

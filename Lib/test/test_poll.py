@@ -181,7 +181,7 @@ class PollTests(unittest.TestCase):
         self.assertRaises(OverflowError, pollster.poll, INT_MAX + 1)
         self.assertRaises(OverflowError, pollster.poll, UINT_MAX + 1)
 
-    @unittest.skip("TODO: RUSTPYTHON fd reallocation")
+    @unittest.skip('TODO: RUSTPYTHON; fd reallocation')
     @threading_helper.reap_threads
     def test_threaded_poll(self):
         r, w = os.pipe()

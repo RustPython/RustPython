@@ -1846,7 +1846,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
     def test_truncate_on_read_only(self):
         return super().test_truncate_on_read_only()
 
-    @unittest.skip('TODO: RUSTPYTHON; fallible allocation')
     def test_constructor(self):
         return super().test_constructor()
 
@@ -2196,7 +2195,6 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
     def test_error_through_destructor(self):
         return super().test_error_through_destructor()
 
-    @unittest.skip('TODO: RUSTPYTHON; fallible allocation')
     def test_constructor(self):
         return super().test_constructor()
 
@@ -2695,7 +2693,6 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     def test_error_through_destructor(self):
         return super().test_error_through_destructor()
 
-    @unittest.skip('TODO: RUSTPYTHON; fallible allocation')
     def test_constructor(self):
         return super().test_constructor()
 

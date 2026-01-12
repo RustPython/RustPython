@@ -554,7 +554,7 @@ class ClassTests(unittest.TestCase):
         self.assertFalse(hasattr(o, "__call__"))
         self.assertFalse(hasattr(c, "__call__"))
 
-    @unittest.skip("TODO: RUSTPYTHON, segmentation fault")
+    @unittest.skip('TODO: RUSTPYTHON; segmentation fault')
     def testSFBug532646(self):
         # Test for SF bug 532646
 
@@ -611,7 +611,6 @@ class ClassTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             a >= b
 
-    @unittest.skip("TODO: RUSTPYTHON; unstable result")
     def testHashComparisonOfMethods(self):
         # Test comparison and hash of methods
         class A:
@@ -979,7 +978,6 @@ class TestInlineValues(unittest.TestCase):
         self.assertIsInstance(f, Bar)
         self.assertEqual(f.__dict__, {})
 
-    @unittest.skip("TODO: RUSTPYTHON, unexpectedly long runtime")
     def test_store_attr_type_cache(self):
         """Verifies that the type cache doesn't provide a value which  is
         inconsistent from the dict."""

@@ -565,7 +565,6 @@ class StrTest(string_tests.StringLikeTest,
         self.checkraises(TypeError, ' ', 'join', [1, 2, 3])
         self.checkraises(TypeError, ' ', 'join', ['1', '2', 3])
 
-    @unittest.skip('TODO: RUSTPYTHON; oom handling')
     @unittest.skipIf(sys.maxsize > 2**32,
         'needs too much memory on a 64-bit platform')
     def test_join_overflow(self):
@@ -1460,7 +1459,6 @@ class StrTest(string_tests.StringLikeTest,
         self.assertRaises(TypeError, '{a}'.format_map, [])
         self.assertRaises(ZeroDivisionError, '{a}'.format_map, BadMapping())
 
-    @unittest.skip('TODO: RUSTPYTHON; killed for chewing up RAM')
     def test_format_huge_precision(self):
         format_string = ".{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
@@ -2468,7 +2466,6 @@ class StrTest(string_tests.StringLikeTest,
     # This test only affects 32-bit platforms because expandtabs can only take
     # an int as the max value, not a 64-bit C long.  If expandtabs is changed
     # to take a 64-bit long, this test should apply to all platforms.
-    @unittest.skip('TODO: RUSTPYTHON; oom handling')
     @unittest.skipIf(sys.maxsize > (1 << 32) or struct.calcsize('P') != 4,
                      'only applies to 32-bit platforms')
     def test_expandtabs_overflows_gracefully(self):
@@ -2479,7 +2476,7 @@ class StrTest(string_tests.StringLikeTest,
         s = 'abc'
         self.assertIs(s.expandtabs(), s)
 
-    @unittest.skip('TODO: RUSTPYTHON; aborted: memory allocation of 9223372036854775759 bytes failed')
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_raiseMemError(self):
         asciifields = "nnb"
         compactfields = asciifields + "nP"

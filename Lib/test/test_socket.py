@@ -905,8 +905,7 @@ def requireSocket(*args):
 class GeneralModuleTests(unittest.TestCase):
 
     @unittest.skipUnless(_socket is not None, 'need _socket module')
-    # TODO: RUSTPYTHON; gc.is_tracked not implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; gc.is_tracked not implemented
     def test_socket_type(self):
         self.assertTrue(gc.is_tracked(_socket.socket))
         with self.assertRaisesRegex(TypeError, "immutable"):
@@ -969,8 +968,7 @@ class GeneralModuleTests(unittest.TestCase):
         with self.assertRaises(OSError, msg=msg % 'socket.gaierror'):
             raise socket.gaierror
 
-    # TODO: RUSTPYTHON; error message format differs
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; error message format differs
     def testSendtoErrors(self):
         # Testing that sendto doesn't mask failures. See #10169.
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -2394,8 +2392,7 @@ class J1939Test(unittest.TestCase):
         super().__init__(*args, **kwargs)
         self.interface = "vcan0"
 
-    # TODO: RUSTPYTHON - J1939 constants not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON - J1939 constants not fully implemented
     @unittest.skipUnless(hasattr(socket, "CAN_J1939"),
                          'socket.CAN_J1939 required for this test.')
     def testJ1939Constants(self):
@@ -2437,8 +2434,7 @@ class J1939Test(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
             pass
 
-    # TODO: RUSTPYTHON - AF_CAN J1939 address format not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON - AF_CAN J1939 address format not fully implemented
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
@@ -6489,8 +6485,7 @@ class TestSocketSharing(SocketTCPTest):
         s2.close()
         s.close()
 
-    # TODO: RUSTPYTHON; multiprocessing.SemLock not implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; multiprocessing.SemLock not implemented
     def testShare(self):
         # Transfer the listening server socket to another process
         # and service it from there.
@@ -6842,7 +6837,6 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
 
 @unittest.skipUnless(hasattr(os, "sendfile"),
                      'os.sendfile() required for this test.')
-@unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly")
 class SendfileUsingSendfileTest(SendfileUsingSendTest):
     """
     Test the sendfile() implementation of socket.sendfile().
@@ -6867,8 +6861,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
 
     # bpo-31705: On kernel older than 4.5, sendto() failed with ENOKEY,
     # at least on ppc64le architecture
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @support.requires_linux_version(4, 5)
     def test_sha256(self):
         expected = bytes.fromhex("ba7816bf8f01cfea414140de5dae2223b00361a396"
@@ -6887,8 +6880,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 op.send(b'')
                 self.assertEqual(op.recv(512), expected)
 
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON - AF_ALG not fully implemented
     def test_hmac_sha1(self):
         # gh-109396: In FIPS mode, Linux 6.5 requires a key
         # of at least 112 bits. Use a key of 152 bits.
@@ -6904,8 +6896,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
 
     # Although it should work with 3.19 and newer the test blocks on
     # Ubuntu 15.10 with Kernel 4.2.0-19.
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @support.requires_linux_version(4, 3)
     def test_aes_cbc(self):
         key = bytes.fromhex('06a9214036b8a15b512e03d534120006')
@@ -6947,8 +6938,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
             self.assertEqual(len(dec), msglen * multiplier)
             self.assertEqual(dec, msg * multiplier)
 
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @support.requires_linux_version(4, 9)  # see gh-73510
     def test_aead_aes_gcm(self):
         kernel_version = support._get_kernel_version("Linux")
@@ -7018,8 +7008,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 res = op.recv(len(msg) - taglen)
                 self.assertEqual(plain, res[assoclen:])
 
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @support.requires_linux_version(4, 3)  # see test_aes_cbc
     def test_drbg_pr_sha256(self):
         # deterministic random bit generator, prediction resistance, sha256

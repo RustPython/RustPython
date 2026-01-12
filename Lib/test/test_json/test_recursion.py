@@ -68,7 +68,7 @@ class TestRecursion:
             self.fail("didn't raise ValueError on default recursion")
 
     # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON; crashes")
+    @unittest.skip('TODO: RUSTPYTHON; crashes')
     def test_highly_nested_objects_decoding(self):
         # test that loading highly-nested objects doesn't segfault when C
         # accelerations are used. See #12017

@@ -2138,7 +2138,6 @@ class SubclassTest:
         s3 = s1.join([b"abcd"])
         self.assertIs(type(s3), self.basetype)
 
-    @unittest.skip('TODO: RUSTPYTHON; Fails on ByteArraySubclassWithSlotsTest')
     def test_pickle(self):
         a = self.type2test(b"abcd")
         a.x = 10
@@ -2153,7 +2152,6 @@ class SubclassTest:
             self.assertEqual(type(a.z), type(b.z))
             self.assertFalse(hasattr(b, 'y'))
 
-    @unittest.skip('TODO: RUSTPYTHON; Fails on ByteArraySubclassWithSlotsTest')
     def test_copy(self):
         a = self.type2test(b"abcd")
         a.x = 10
