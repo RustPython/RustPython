@@ -11,23 +11,24 @@ This updater is not meant to be used as a standalone updater. Care needs to be t
 Options:
   -c/--cpython-path <path>   Path to the CPython source tree (older version)
   -r/--rpython-path <path>   Path to the RustPython source tree (newer version)
-  -u/--copy-untracked        Copy untracked tests only
   -s/--update-skipped        Update existing skipped tests (must be run separate from updating the tests)
-  -t/--timeout               Set a timeout for a test
   -a/--annotate              While copying tests, run them and annotate failures dynamically
+  -u/--copy-untracked        Copy untracked tests
+  -t/--timeout               Set a timeout for a test
   -j/--jobs                  How many libraries can be processed at a time
   -h/--help                  Show this help message and exit
 
 Example Usage: 
-$0 -c ~/cpython -r .
-$0 -r . --check-skipped
+$0 -c ~/cpython -r - . -t 300   # Updates all non-updated tests with a timeout value of 300 seconds
+$0 -c ~/cpython -r . -u -j 5    # Updates all non-updated tests + copies files not in cpython into rpython, with maximum 5 processes active at a time
+$0 -c ~/cpython -r . -a         # Updates all non-updated tests + annotates with @unittest.expectedFailure/@unittest.skip
+$0 -r . -s                      # For all current tests, check if @unittest.skip can be downgraded to @unittest.expectedFailure
 
 *Notes:
     * When using the update skip functionality
         * Updating only looks for files with the format "test_*.py". Everything else (including __init__.py and __main__.py files are ignored)
 **Known limitations:
     * In multithreaded tests, if the tests are orphaned, then the updater can deadlock, as threads can accumulate and block the semaphore
-    * In multithreaded tests, when annotating, multiple decorators can accumulate on one test
     * The updater does not add skips to classes, only on tests
     * If there are multiple tests with the same name, a decorator will be added to all of them
     * The updater does not retain anything more specific than a general skip (skipIf/Unless will be replaced by a general skip)
@@ -138,8 +139,12 @@ check_skips() {
     local libraries=("$@")
     for lib in "${libraries[@]}"
     do
-        sem
-        check_skip "$lib" &
+        if grep -qiE "@unittest.skip.*\('TODO:\s*RUSTPYTHON.*'\)" "$rpython_path/$lib"; then
+            sem
+            check_skip "$lib" &
+        else
+            echo "Skipping $lib" >&2
+        fi
     done
     wait
 }
@@ -213,7 +218,7 @@ replace_expected_with_skip() {
 already_failed() {
     file=$1
     test_name=$2
-    grep -Pz "\s*@unittest\.expectedFailure # TODO: RUSTPYTHON\n\s*def\s+${test_name}\(" $file
+    grep -qPz "\s*@unittest\.expectedFailure # TODO: RUSTPYTHON\n\s*def\s+${test_name}\(" $file
 }
 
 files_equal() {
