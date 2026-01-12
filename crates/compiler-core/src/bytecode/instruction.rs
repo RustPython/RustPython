@@ -917,3 +917,18 @@ impl<T: OpArgType> fmt::Debug for Arg<T> {
         write!(f, "Arg<{}>", core::any::type_name::<T>())
     }
 }
+
+/// Encode LOAD_SUPER_ATTR oparg: bit 0 = load_method, bit 1 = has_class, bits 2+ = name index.
+#[inline]
+pub const fn encode_load_super_attr_arg(name_idx: u32, load_method: bool, has_class: bool) -> u32 {
+    (name_idx << 2) | ((has_class as u32) << 1) | (load_method as u32)
+}
+
+/// Decode LOAD_SUPER_ATTR oparg: returns (name_idx, load_method, has_class).
+#[inline]
+const fn decode_load_super_attr_arg(oparg: u32) -> (u32, bool, bool) {
+    let load_method = (oparg & 1) == 1;
+    let has_class = (oparg & 2) == 2;
+    let name_idx = oparg >> 2;
+    (name_idx, load_method, has_class)
+}
