@@ -661,6 +661,11 @@ pub mod module {
     }
 
     fn py_os_after_fork_child(vm: &VirtualMachine) {
+        // Mark all other threads as done before running Python callbacks
+        // See _PyThread_AfterFork behavior
+        #[cfg(feature = "threading")]
+        crate::stdlib::thread::after_fork_child(vm);
+
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
         run_at_forkers(after_forkers_child, false, vm);
     }
@@ -670,8 +675,64 @@ pub mod module {
         run_at_forkers(after_forkers_parent, false, vm);
     }
 
+    /// Warn if forking from a multi-threaded process
+    fn warn_if_multi_threaded(name: &str, vm: &VirtualMachine) {
+        // Only check threading if it was already imported
+        // Avoid vm.import() which can execute arbitrary Python code in the fork path
+        let threading = match vm
+            .sys_module
+            .get_attr("modules", vm)
+            .and_then(|m| m.get_item("threading", vm))
+        {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+        let active = threading.get_attr("_active", vm).ok();
+        let limbo = threading.get_attr("_limbo", vm).ok();
+
+        let count_dict = |obj: Option<crate::PyObjectRef>| -> usize {
+            obj.and_then(|o| o.length_opt(vm))
+                .and_then(|r| r.ok())
+                .unwrap_or(0)
+        };
+
+        let num_threads = count_dict(active) + count_dict(limbo);
+        if num_threads > 1 {
+            // Use Python warnings module to ensure filters are applied correctly
+            let Ok(warnings) = vm.import("warnings", 0) else {
+                return;
+            };
+            let Ok(warn_fn) = warnings.get_attr("warn", vm) else {
+                return;
+            };
+
+            let pid = unsafe { libc::getpid() };
+            let msg = format!(
+                "This process (pid={}) is multi-threaded, use of {}() may lead to deadlocks in the child.",
+                pid, name
+            );
+
+            // Call warnings.warn(message, DeprecationWarning, stacklevel=2)
+            // stacklevel=2 to point to the caller of fork()
+            let args = crate::function::FuncArgs::new(
+                vec![
+                    vm.ctx.new_str(msg).into(),
+                    vm.ctx.exceptions.deprecation_warning.as_object().to_owned(),
+                ],
+                crate::function::KwArgs::new(
+                    [("stacklevel".to_owned(), vm.ctx.new_int(2).into())]
+                        .into_iter()
+                        .collect(),
+                ),
+            );
+            let _ = warn_fn.call(args, vm);
+        }
+    }
+
     #[pyfunction]
     fn fork(vm: &VirtualMachine) -> i32 {
+        warn_if_multi_threaded("fork", vm);
+
         let pid: i32;
         py_os_before_fork(vm);
         unsafe {
