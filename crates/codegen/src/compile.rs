@@ -34,16 +34,17 @@ use ruff_python_ast::{
     visitor::{Visitor, walk_expr},
 };
 use ruff_text_size::{Ranged, TextRange};
+use std::collections::HashSet;
+
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
-        ComparisonOperator, ConstantData, ConvertValueOparg, Invert, OpArg, OpArgType,
-        RealInstruction, UnpackExArgs,
+        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, Invert, OpArg, OpArgType,
+        PseudoInstruction, RealInstruction, UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use std::collections::HashSet;
 
 const MAXBLOCKS: usize = 20;
 
@@ -273,18 +274,41 @@ pub fn compile_expression(
     Ok(code)
 }
 
+// TODO: Unify Real and Pseudo arms
 macro_rules! emit {
-    ($c:expr, $inst:ty { $arg:ident$(,)? }$(,)?) => {
-        $c.emit_arg($arg, |x| $inst { $arg: x })
+    // Real
+    ($c:expr, RealInstruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
+        $c.emit_arg($arg, |x| {
+            Instruction::Real(RealInstruction::$op { $arg: x })
+        })
     };
-    ($c:expr, $inst:ty { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
-        $c.emit_arg($arg_val, |x| $inst { $arg: x })
+    ($c:expr, RealInstruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
+        $c.emit_arg($arg_val, |x| {
+            Instruction::Real(RealInstruction::$op { $arg: x })
+        })
     };
-    ($c:expr, $inst:ty( $arg_val:expr $(,)? )$(,)?) => {
-        $c.emit_arg($arg_val, $inst)
+    ($c:expr, RealInstruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
+        $c.emit_arg($arg_val, RealInstruction::$op)
     };
-    ($c:expr, $inst:ty$(,)?) => {
-        $c.emit_no_arg($inst)
+    ($c:expr, RealInstruction::$op:ident$(,)?) => {
+        $c.emit_no_arg(Instruction::Real(RealInstruction::$op))
+    };
+    // Pseudo
+    ($c:expr, PseudoInstruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
+        $c.emit_arg($arg, |x| {
+            Instruction::Pseudo(PseudoInstruction::$op { $arg: x })
+        })
+    };
+    ($c:expr, PseudoInstruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
+        $c.emit_arg($arg_val, |x| {
+            Instruction::Pseudo(PseudoInstruction::$op { $arg: x })
+        })
+    };
+    ($c:expr, PseudoInstruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
+        $c.emit_arg($arg_val, Instruction::Pseudo(PseudoInstruction::$op))
+    };
+    ($c:expr, PseudoInstruction::$op:ident$(,)?) => {
+        $c.emit_no_arg(Instruction::Pseudo(PseudoInstruction::$op))
     };
 }
 
@@ -1181,7 +1205,7 @@ impl Compiler {
                 // Stack when entering: [..., __exit__, return_value (if preserve_tos)]
                 // Need to call __exit__(None, None, None)
 
-                emit!(self, RealInstruction::PopBlock);
+                emit!(self, PseudoInstruction::PopBlock);
 
                 // If preserving return value, swap it below __exit__
                 if preserve_tos {
@@ -2620,7 +2644,7 @@ impl Compiler {
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
-                emit!(self, PseudoInstruction::JumpIfNotExcMatch(next_handler));
+                emit!(self, RealInstruction::JumpIfNotExcMatch(next_handler));
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
@@ -3601,7 +3625,7 @@ impl Compiler {
                     }
                 };
 
-                emit!(self, RealInstruction::LoadClosure(idx.to_u32()));
+                emit!(self, PseudoInstruction::LoadClosure(idx.to_u32()));
             }
 
             // Build tuple of closure variables
@@ -3793,7 +3817,7 @@ impl Compiler {
             .position(|var| *var == "__class__");
 
         if let Some(classcell_idx) = classcell_idx {
-            emit!(self, RealInstruction::LoadClosure(classcell_idx.to_u32()));
+            emit!(self, PseudoInstruction::LoadClosure(classcell_idx.to_u32()));
             emit!(self, RealInstruction::Copy { index: 1_u32 });
             let classcell = self.name("__classcell__");
             emit!(self, RealInstruction::StoreName(classcell));
@@ -5386,10 +5410,7 @@ impl Compiler {
             emit!(self, RealInstruction::PopTop);
             */
 
-            emit!(
-                self,
-                PseudoInstruction::JumpIfFalseOrPop { target: cleanup }
-            );
+            emit!(self, RealInstruction::JumpIfFalseOrPop { target: cleanup });
         }
 
         self.compile_expression(last_comparator)?;
@@ -5915,7 +5936,7 @@ impl Compiler {
                             emit!(self, RealInstruction::LoadSuperAttr { arg: idx });
                         }
                         SuperCallType::ZeroArg => {
-                            emit!(self, RealInstruction::LoadZeroSuperAttr { idx });
+                            emit!(self, PseudoInstruction::LoadZeroSuperAttr { idx });
                         }
                     }
                 } else {
@@ -6103,9 +6124,12 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<listcomp>",
-                    Some(RealInstruction::BuildList {
-                        size: OpArgMarker::marker(),
-                    }),
+                    Some(
+                        RealInstruction::BuildList {
+                            size: OpArgMarker::marker(),
+                        }
+                        .into(),
+                    ),
                     generators,
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
@@ -6126,9 +6150,12 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<setcomp>",
-                    Some(RealInstruction::BuildSet {
-                        size: OpArgMarker::marker(),
-                    }),
+                    Some(
+                        RealInstruction::BuildSet {
+                            size: OpArgMarker::marker(),
+                        }
+                        .into(),
+                    ),
                     generators,
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
@@ -6152,9 +6179,12 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<dictcomp>",
-                    Some(RealInstruction::BuildMap {
-                        size: OpArgMarker::marker(),
-                    }),
+                    Some(
+                        RealInstruction::BuildMap {
+                            size: OpArgMarker::marker(),
+                        }
+                        .into(),
+                    ),
                     generators,
                     &|compiler| {
                         // changed evaluation order for Py38 named expression PEP 572
@@ -6356,10 +6386,10 @@ impl Compiler {
                 let idx = self.name(attr.as_str());
                 match super_type {
                     SuperCallType::TwoArg { .. } => {
-                        emit!(self, RealInstruction::LoadSuperMethod { idx });
+                        emit!(self, PseudoInstruction::LoadSuperMethod { idx });
                     }
                     SuperCallType::ZeroArg => {
-                        emit!(self, RealInstruction::LoadZeroSuperMethod { idx });
+                        emit!(self, PseudoInstruction::LoadZeroSuperMethod { idx });
                     }
                 }
                 self.compile_call_helper(0, args)?;
@@ -6368,7 +6398,7 @@ impl Compiler {
                 // LOAD_ATTR_METHOD pushes [method, self_or_null] on stack
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                emit!(self, RealInstruction::LoadAttrMethod { idx });
+                emit!(self, PseudoInstruction::LoadAttrMethod { idx });
                 self.compile_call_helper(0, args)?;
             }
         } else {
@@ -6514,7 +6544,7 @@ impl Compiler {
     fn compile_comprehension(
         &mut self,
         name: &str,
-        init_collection: Option<RealInstruction>,
+        init_collection: Option<Instruction>,
         generators: &[Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
         comprehension_type: ComprehensionType,
@@ -6598,7 +6628,7 @@ impl Compiler {
         let return_none = init_collection.is_none();
         // Create empty object of proper type:
         if let Some(init_collection) = init_collection {
-            self._emit(init_collection, OpArg(0), BlockIdx::NULL)
+            self._emit(init_collection.into(), OpArg(0), BlockIdx::NULL)
         }
 
         let mut loop_labels = vec![];
@@ -6737,7 +6767,7 @@ impl Compiler {
     /// This generates bytecode inline without creating a new code object
     fn compile_inlined_comprehension(
         &mut self,
-        init_collection: Option<RealInstruction>,
+        init_collection: Option<Instruction>,
         generators: &[Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
         _has_an_async_gen: bool,
@@ -6961,14 +6991,14 @@ impl Compiler {
         });
     }
 
-    fn emit_no_arg(&mut self, ins: RealInstruction) {
+    fn emit_no_arg(&mut self, ins: Instruction) {
         self._emit(ins, OpArg::null(), BlockIdx::NULL)
     }
 
     fn emit_arg<A: OpArgType, T: EmitArg<A>>(
         &mut self,
         arg: T,
-        f: impl FnOnce(OpArgMarker<A>) -> RealInstruction,
+        f: impl FnOnce(OpArgMarker<A>) -> Instruction,
     ) {
         let (op, arg, target) = arg.emit(f);
         self._emit(op, arg, target)
@@ -6983,19 +7013,19 @@ impl Compiler {
 
     fn emit_load_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| RealInstruction::LoadConst { idx })
+        self.emit_arg(idx, |idx| RealInstruction::LoadConst { idx }.into())
     }
 
     fn emit_return_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| RealInstruction::ReturnConst { idx })
+        self.emit_arg(idx, |idx| RealInstruction::ReturnConst { idx }.into())
     }
 
     fn emit_return_value(&mut self) {
         if let Some(inst) = self.current_block().instructions.last_mut()
-            && let RealInstruction::LoadConst { idx } = inst.instr
+            && let Instruction::Real(RealInstruction::LoadConst { idx }) = inst.instr
         {
-            inst.instr = RealInstruction::ReturnConst { idx };
+            inst.instr = RealInstruction::ReturnConst { idx }.into();
             return;
         }
         emit!(self, RealInstruction::ReturnValue)
@@ -7446,24 +7476,23 @@ impl Compiler {
 trait EmitArg<Arg: OpArgType> {
     fn emit(
         self,
-        f: impl FnOnce(OpArgMarker<Arg>) -> RealInstruction,
-    ) -> (RealInstruction, OpArg, BlockIdx);
+        f: impl FnOnce(OpArgMarker<Arg>) -> Instruction,
+    ) -> (Instruction, OpArg, BlockIdx);
 }
+
 impl<T: OpArgType> EmitArg<T> for T {
-    fn emit(
-        self,
-        f: impl FnOnce(OpArgMarker<T>) -> RealInstruction,
-    ) -> (RealInstruction, OpArg, BlockIdx) {
+    fn emit(self, f: impl FnOnce(OpArgMarker<T>) -> Instruction) -> (Instruction, OpArg, BlockIdx) {
         let (marker, arg) = OpArgMarker::new(self);
-        (f(marker), arg, BlockIdx::NULL)
+        (f(marker).into(), arg, BlockIdx::NULL)
     }
 }
+
 impl EmitArg<bytecode::Label> for BlockIdx {
     fn emit(
         self,
-        f: impl FnOnce(OpArgMarker<bytecode::Label>) -> RealInstruction,
-    ) -> (RealInstruction, OpArg, BlockIdx) {
-        (f(OpArgMarker::marker()), OpArg::null(), self)
+        f: impl FnOnce(OpArgMarker<bytecode::Label>) -> Instruction,
+    ) -> (Instruction, OpArg, BlockIdx) {
+        (f(OpArgMarker::marker()).into(), OpArg::null(), self)
     }
 }
 

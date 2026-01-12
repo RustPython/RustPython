@@ -944,6 +944,20 @@ impl InstructionMetadata for Instruction {
     ) -> fmt::Result);
 }
 
+impl Instruction {
+    pub const fn as_real(self) -> Option<RealInstruction> {
+        match self {
+            Self::Real(ins) => Some(ins),
+            _ => None,
+        }
+    }
+
+    pub const fn expect_real(self) -> RealInstruction {
+        self.as_real()
+            .expect("Expected Instruction::Real, found Instruction::Pseudo")
+    }
+}
+
 pub trait InstructionMetadata {
     /// Gets the label stored inside this instruction, if it exists.
     fn label_arg(&self) -> Option<Arg<Label>>;

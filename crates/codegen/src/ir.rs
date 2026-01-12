@@ -1,12 +1,14 @@
 use core::ops;
 
 use crate::{IndexMap, IndexSet, error::InternalError};
+
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
         Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
-        InstrDisplayContext, Instruction, Label, OpArg, PseudoInstruction, PyCodeLocationInfoKind,
-        encode_exception_table, encode_load_attr_arg, encode_load_super_attr_arg,
+        InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg, PseudoInstruction,
+        PyCodeLocationInfoKind, RealInstruction, encode_exception_table, encode_load_attr_arg,
+        encode_load_super_attr_arg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -203,7 +205,7 @@ impl CodeInfo {
                         info.instr = RealInstruction::LoadAttr { idx: Arg::marker() }.into();
                     }
                     // LOAD_ATTR → encode with method flag=0
-                    Instruction::Real(Instruction::LoadAttr { idx }) => {
+                    Instruction::Real(RealInstruction::LoadAttr { idx }) => {
                         let encoded = encode_load_attr_arg(idx.get(info.arg), false);
                         info.arg = OpArg(encoded);
                         info.instr = RealInstruction::LoadAttr { idx: Arg::marker() }.into();
@@ -213,7 +215,7 @@ impl CodeInfo {
                         info.instr = RealInstruction::Nop.into();
                     }
                     // LOAD_SUPER_METHOD pseudo → LOAD_SUPER_ATTR (flags=0b11: method=1, class=1)
-                    Instruction::Pseudo(Instruction::LoadSuperMethod { idx }) => {
+                    Instruction::Pseudo(PseudoInstruction::LoadSuperMethod { idx }) => {
                         let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, true);
                         info.arg = OpArg(encoded);
                         info.instr = RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
@@ -291,7 +293,7 @@ impl CodeInfo {
                                 }
                             }
                         }
-                        other => other,
+                        other => other.expect_real(),
                     };
 
                     let (extras, lo_arg) = info.arg.split();
