@@ -82,6 +82,10 @@ pub struct VirtualMachine {
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
     recursion_depth: Cell<usize>,
+    /// Async generator firstiter hook (per-thread, set via sys.set_asyncgen_hooks)
+    pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
+    /// Async generator finalizer hook (per-thread, set via sys.set_asyncgen_hooks)
+    pub async_gen_finalizer: RefCell<Option<PyObjectRef>>,
 }
 
 #[derive(Debug, Default)]
@@ -107,6 +111,22 @@ pub struct PyGlobalState {
     pub after_forkers_parent: PyMutex<Vec<PyObjectRef>>,
     pub int_max_str_digits: AtomicCell<usize>,
     pub switch_interval: AtomicCell<f64>,
+    /// Global trace function for all threads (set by sys._settraceallthreads)
+    pub global_trace_func: PyMutex<Option<PyObjectRef>>,
+    /// Global profile function for all threads (set by sys._setprofileallthreads)
+    pub global_profile_func: PyMutex<Option<PyObjectRef>>,
+    /// Main thread identifier (pthread_self on Unix)
+    #[cfg(feature = "threading")]
+    pub main_thread_ident: AtomicCell<u64>,
+    /// Registry of all threads' current frames for sys._current_frames()
+    #[cfg(feature = "threading")]
+    pub thread_frames: parking_lot::Mutex<HashMap<u64, stdlib::thread::CurrentFrameSlot>>,
+    /// Registry of all ThreadHandles for fork cleanup
+    #[cfg(feature = "threading")]
+    pub thread_handles: parking_lot::Mutex<Vec<stdlib::thread::HandleEntry>>,
+    /// Registry for non-daemon threads that need to be joined at shutdown
+    #[cfg(feature = "threading")]
+    pub shutdown_handles: parking_lot::Mutex<Vec<stdlib::thread::ShutdownEntry>>,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -191,9 +211,21 @@ impl VirtualMachine {
                 after_forkers_parent: PyMutex::default(),
                 int_max_str_digits,
                 switch_interval: AtomicCell::new(0.005),
+                global_trace_func: PyMutex::default(),
+                global_profile_func: PyMutex::default(),
+                #[cfg(feature = "threading")]
+                main_thread_ident: AtomicCell::new(0),
+                #[cfg(feature = "threading")]
+                thread_frames: parking_lot::Mutex::new(HashMap::new()),
+                #[cfg(feature = "threading")]
+                thread_handles: parking_lot::Mutex::new(Vec::new()),
+                #[cfg(feature = "threading")]
+                shutdown_handles: parking_lot::Mutex::new(Vec::new()),
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
+            async_gen_firstiter: RefCell::new(None),
+            async_gen_finalizer: RefCell::new(None),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -298,6 +330,10 @@ impl VirtualMachine {
         if self.initialized {
             panic!("Double Initialize Error");
         }
+
+        // Initialize main thread ident before any threading operations
+        #[cfg(feature = "threading")]
+        stdlib::thread::init_main_thread_ident(self);
 
         stdlib::builtins::init_module(self, &self.builtins);
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
@@ -604,6 +640,9 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         self.with_recursion("", || {
             self.frames.borrow_mut().push(frame.clone());
+            // Update the current frame slot for sys._current_frames()
+            #[cfg(feature = "threading")]
+            crate::vm::thread::update_current_frame(Some(frame.clone()));
             // Push a new exception context for frame isolation
             // Each frame starts with no active exception (None)
             // This prevents exceptions from leaking between function calls
@@ -613,6 +652,9 @@ impl VirtualMachine {
             self.pop_exception();
             // defer dec frame
             let _popped = self.frames.borrow_mut().pop();
+            // Update the frame slot to the new top frame (or None if empty)
+            #[cfg(feature = "threading")]
+            crate::vm::thread::update_current_frame(self.frames.borrow().last().cloned());
             result
         })
     }

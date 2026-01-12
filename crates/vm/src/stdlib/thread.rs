@@ -1,13 +1,16 @@
 //! Implementation of the _thread module
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
-pub(crate) use _thread::{RawRMutex, make_module};
+pub(crate) use _thread::{
+    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, after_fork_child,
+    get_all_current_frames, get_ident, init_main_thread_ident, make_module,
+};
 
 #[pymodule]
 pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef},
-        convert::ToPyException,
+        frame::FrameRef,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
@@ -19,7 +22,6 @@ pub(crate) mod _thread {
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
     use std::thread;
-    use thread_local::ThreadLocal;
 
     // PYTHREAD_NAME: show current thread name
     pub const PYTHREAD_NAME: Option<&str> = {
@@ -110,7 +112,8 @@ pub(crate) mod _thread {
     }
 
     #[pyattr(name = "LockType")]
-    #[pyclass(module = "thread", name = "lock")]
+    #[pyattr(name = "lock")]
+    #[pyclass(module = "_thread", name = "lock")]
     #[derive(PyPayload)]
     struct Lock {
         mu: RawMutex,
@@ -172,10 +175,10 @@ pub(crate) mod _thread {
     }
 
     impl Constructor for Lock {
-        type Args = FuncArgs;
+        type Args = ();
 
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            Err(vm.new_type_error("cannot create '_thread.lock' instances"))
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self { mu: RawMutex::INIT })
         }
     }
 
@@ -188,7 +191,7 @@ pub(crate) mod _thread {
 
     pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
     #[pyattr]
-    #[pyclass(module = "thread", name = "RLock")]
+    #[pyclass(module = "_thread", name = "RLock")]
     #[derive(PyPayload)]
     struct RLock {
         mu: RawRMutex,
@@ -201,7 +204,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Representable))]
+    #[pyclass(with(Representable), flags(BASETYPE))]
     impl RLock {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -249,9 +252,10 @@ pub(crate) mod _thread {
             }
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
             let new_mut = RawRMutex::INIT;
-
-            let old_mutex: AtomicCell<&RawRMutex> = AtomicCell::new(&self.mu);
-            old_mutex.swap(&new_mut);
+            unsafe {
+                let old_mutex: &AtomicCell<RawRMutex> = core::mem::transmute(&self.mu);
+                old_mutex.swap(new_mut);
+            }
 
             Ok(())
         }
@@ -283,12 +287,28 @@ pub(crate) mod _thread {
         }
     }
 
+    /// Get thread identity - uses pthread_self() on Unix for fork compatibility
     #[pyfunction]
-    fn get_ident() -> u64 {
-        thread_to_id(&thread::current())
+    pub fn get_ident() -> u64 {
+        current_thread_id()
     }
 
-    fn thread_to_id(t: &thread::Thread) -> u64 {
+    /// Get OS-level thread ID (pthread_self on Unix)
+    /// This is important for fork compatibility - the ID must remain stable after fork
+    #[cfg(unix)]
+    fn current_thread_id() -> u64 {
+        // pthread_self() like CPython for fork compatibility
+        unsafe { libc::pthread_self() as u64 }
+    }
+
+    #[cfg(not(unix))]
+    fn current_thread_id() -> u64 {
+        thread_to_rust_id(&thread::current())
+    }
+
+    /// Convert Rust thread to ID (used for non-unix platforms)
+    #[cfg(not(unix))]
+    fn thread_to_rust_id(t: &thread::Thread) -> u64 {
         use core::hash::{Hash, Hasher};
         struct U64Hash {
             v: Option<u64>,
@@ -304,11 +324,23 @@ pub(crate) mod _thread {
                 self.v.expect("should have written a u64")
             }
         }
-        // TODO: use id.as_u64() once it's stable, until then, ThreadId is just a wrapper
-        // around NonZeroU64, so this should work (?)
         let mut h = U64Hash { v: None };
         t.id().hash(&mut h);
         h.finish()
+    }
+
+    /// Get thread ID for a given thread handle (used by start_new_thread)
+    fn thread_to_id(handle: &thread::JoinHandle<()>) -> u64 {
+        #[cfg(unix)]
+        {
+            // On Unix, use pthread ID from the handle
+            use std::os::unix::thread::JoinHandleExt;
+            handle.as_pthread_t() as u64
+        }
+        #[cfg(not(unix))]
+        {
+            thread_to_rust_id(handle.thread())
+        }
     }
 
     #[pyfunction]
@@ -343,9 +375,9 @@ pub(crate) mod _thread {
             )
             .map(|handle| {
                 vm.state.thread_count.fetch_add(1);
-                thread_to_id(handle.thread())
+                thread_to_id(&handle)
             })
-            .map_err(|err| err.to_pyexception(vm))
+            .map_err(|err| vm.new_runtime_error(format!("can't start new thread: {err}")))
     }
 
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
@@ -365,7 +397,22 @@ pub(crate) mod _thread {
                 unsafe { lock.mu.unlock() };
             }
         }
+        // Clean up thread-local storage while VM context is still active
+        // This ensures __del__ methods are called properly
+        cleanup_thread_local_data();
+        // Clean up frame tracking
+        crate::vm::thread::cleanup_current_thread_frames(vm);
         vm.state.thread_count.fetch_sub(1);
+    }
+
+    /// Clean up thread-local data for the current thread.
+    /// This triggers __del__ on objects stored in thread-local variables.
+    fn cleanup_thread_local_data() {
+        // Take all guards - this will trigger LocalGuard::drop for each,
+        // which removes the thread's dict from each Local instance
+        LOCAL_GUARDS.with(|guards| {
+            guards.borrow_mut().clear();
+        });
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -398,6 +445,107 @@ pub(crate) mod _thread {
     #[pyfunction]
     fn _count(vm: &VirtualMachine) -> usize {
         vm.state.thread_count.load()
+    }
+
+    #[pyfunction]
+    fn daemon_threads_allowed() -> bool {
+        // RustPython always allows daemon threads
+        true
+    }
+
+    // Registry for non-daemon threads that need to be joined at shutdown
+    pub type ShutdownEntry = (
+        std::sync::Weak<parking_lot::Mutex<ThreadHandleInner>>,
+        std::sync::Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+    );
+
+    #[pyfunction]
+    fn _shutdown(vm: &VirtualMachine) {
+        // Wait for all non-daemon threads to finish
+        let current_ident = get_ident();
+
+        loop {
+            // Find a thread that's not finished and not the current thread
+            let handle_to_join = {
+                let mut handles = vm.state.shutdown_handles.lock();
+                // Clean up finished entries
+                handles.retain(|(inner_weak, _): &ShutdownEntry| {
+                    inner_weak.upgrade().map_or(false, |inner| {
+                        let guard = inner.lock();
+                        guard.state != ThreadHandleState::Done && guard.ident != current_ident
+                    })
+                });
+
+                // Find first unfinished handle
+                handles
+                    .iter()
+                    .find_map(|(inner_weak, done_event_weak): &ShutdownEntry| {
+                        let inner = inner_weak.upgrade()?;
+                        let done_event = done_event_weak.upgrade()?;
+                        let guard = inner.lock();
+                        if guard.state != ThreadHandleState::Done && guard.ident != current_ident {
+                            Some((inner.clone(), done_event.clone()))
+                        } else {
+                            None
+                        }
+                    })
+            };
+
+            match handle_to_join {
+                Some((_, done_event)) => {
+                    // Wait for this thread to finish (infinite timeout)
+                    // Only check done flag to avoid lock ordering issues
+                    // (done_event lock vs inner lock)
+                    let (lock, cvar) = &*done_event;
+                    let mut done = lock.lock();
+                    while !*done {
+                        cvar.wait(&mut done);
+                    }
+                }
+                None => break, // No more threads to wait on
+            }
+        }
+    }
+
+    /// Add a non-daemon thread handle to the shutdown registry
+    fn add_to_shutdown_handles(
+        vm: &VirtualMachine,
+        inner: &std::sync::Arc<parking_lot::Mutex<ThreadHandleInner>>,
+        done_event: &std::sync::Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+    ) {
+        let mut handles = vm.state.shutdown_handles.lock();
+        handles.push((
+            std::sync::Arc::downgrade(inner),
+            std::sync::Arc::downgrade(done_event),
+        ));
+    }
+
+    #[pyfunction]
+    fn _make_thread_handle(ident: u64, vm: &VirtualMachine) -> PyRef<ThreadHandle> {
+        let handle = ThreadHandle::new(vm);
+        {
+            let mut inner = handle.inner.lock();
+            inner.ident = ident;
+            inner.state = ThreadHandleState::Running;
+        }
+        handle.into_ref(&vm.ctx)
+    }
+
+    #[pyfunction]
+    fn _get_main_thread_ident(vm: &VirtualMachine) -> u64 {
+        vm.state.main_thread_ident.load()
+    }
+
+    #[pyfunction]
+    fn _is_main_interpreter() -> bool {
+        // RustPython only has one interpreter
+        true
+    }
+
+    /// Initialize the main thread ident. Should be called once at interpreter startup.
+    pub fn init_main_thread_ident(vm: &VirtualMachine) {
+        let ident = get_ident();
+        vm.state.main_thread_ident.store(ident);
     }
 
     /// ExceptHookArgs - simple class to hold exception hook arguments
@@ -532,23 +680,92 @@ pub(crate) mod _thread {
         Ok(())
     }
 
+    // Thread-local storage for cleanup guards
+    // When a thread terminates, the guard is dropped, which triggers cleanup
+    thread_local! {
+        static LOCAL_GUARDS: std::cell::RefCell<Vec<LocalGuard>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    // Guard that removes thread-local data when dropped
+    struct LocalGuard {
+        local: std::sync::Weak<LocalData>,
+        thread_id: std::thread::ThreadId,
+    }
+
+    impl Drop for LocalGuard {
+        fn drop(&mut self) {
+            if let Some(local_data) = self.local.upgrade() {
+                // Remove from map while holding the lock, but drop the value
+                // outside the lock to prevent deadlock if __del__ accesses _local
+                let removed = local_data.data.lock().remove(&self.thread_id);
+                drop(removed);
+            }
+        }
+    }
+
+    // Shared data structure for Local
+    struct LocalData {
+        data: parking_lot::Mutex<std::collections::HashMap<std::thread::ThreadId, PyDictRef>>,
+    }
+
+    impl std::fmt::Debug for LocalData {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("LocalData").finish_non_exhaustive()
+        }
+    }
+
     #[pyattr]
-    #[pyclass(module = "thread", name = "_local")]
+    #[pyclass(module = "_thread", name = "_local")]
     #[derive(Debug, PyPayload)]
     struct Local {
-        data: ThreadLocal<PyDictRef>,
+        inner: std::sync::Arc<LocalData>,
     }
 
     #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
         fn l_dict(&self, vm: &VirtualMachine) -> PyDictRef {
-            self.data.get_or(|| vm.ctx.new_dict()).clone()
+            let thread_id = std::thread::current().id();
+
+            // Fast path: check if dict exists under lock
+            if let Some(dict) = self.inner.data.lock().get(&thread_id).cloned() {
+                return dict;
+            }
+
+            // Slow path: allocate dict outside lock to reduce lock hold time
+            let new_dict = vm.ctx.new_dict();
+
+            // Insert with double-check to handle races
+            let mut data = self.inner.data.lock();
+            use std::collections::hash_map::Entry;
+            let (dict, need_guard) = match data.entry(thread_id) {
+                Entry::Occupied(e) => (e.get().clone(), false),
+                Entry::Vacant(e) => {
+                    e.insert(new_dict.clone());
+                    (new_dict, true)
+                }
+            };
+            drop(data); // Release lock before TLS access
+
+            // Register cleanup guard only if we inserted a new entry
+            if need_guard {
+                let guard = LocalGuard {
+                    local: std::sync::Arc::downgrade(&self.inner),
+                    thread_id,
+                };
+                LOCAL_GUARDS.with(|guards| {
+                    guards.borrow_mut().push(guard);
+                });
+            }
+
+            dict
         }
 
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self {
-                data: ThreadLocal::new(),
+                inner: std::sync::Arc::new(LocalData {
+                    data: parking_lot::Mutex::new(std::collections::HashMap::new()),
+                }),
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
@@ -596,5 +813,355 @@ pub(crate) mod _thread {
                 Ok(())
             }
         }
+    }
+
+    // Registry of all ThreadHandles for fork cleanup
+    // Stores weak references so handles can be garbage collected normally
+    pub type HandleEntry = (
+        std::sync::Weak<parking_lot::Mutex<ThreadHandleInner>>,
+        std::sync::Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+    );
+
+    // Re-export type from vm::thread for PyGlobalState
+    pub use crate::vm::thread::CurrentFrameSlot;
+
+    /// Get all threads' current frames. Used by sys._current_frames().
+    pub fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
+        let registry = vm.state.thread_frames.lock();
+        registry
+            .iter()
+            .filter_map(|(id, slot)| slot.lock().clone().map(|f| (*id, f)))
+            .collect()
+    }
+
+    /// Called after fork() in child process to mark all other threads as done.
+    /// This prevents join() from hanging on threads that don't exist in the child.
+    pub fn after_fork_child(vm: &VirtualMachine) {
+        let current_ident = get_ident();
+
+        // Update main thread ident - after fork, the current thread becomes the main thread
+        vm.state.main_thread_ident.store(current_ident);
+
+        // Reinitialize frame slot for current thread
+        crate::vm::thread::reinit_frame_slot_after_fork(vm);
+
+        // Clean up thread handles if we can acquire the lock.
+        // Use try_lock because the mutex might have been held during fork.
+        // If we can't acquire it, just skip - the child process will work
+        // correctly with new handles it creates.
+        if let Some(mut handles) = vm.state.thread_handles.try_lock() {
+            // Clean up dead weak refs and mark non-current threads as done
+            handles.retain(|(inner_weak, done_event_weak): &HandleEntry| {
+                let Some(inner) = inner_weak.upgrade() else {
+                    return false; // Remove dead entries
+                };
+                let Some(done_event) = done_event_weak.upgrade() else {
+                    return false;
+                };
+
+                // Try to lock the inner state - skip if we can't
+                let Some(mut inner_guard) = inner.try_lock() else {
+                    return false;
+                };
+
+                // Skip current thread and not-started threads
+                if inner_guard.ident == current_ident {
+                    return true;
+                }
+                if inner_guard.state == ThreadHandleState::NotStarted {
+                    return true;
+                }
+
+                // Mark as done and notify waiters
+                inner_guard.state = ThreadHandleState::Done;
+                inner_guard.join_handle = None; // Can't join OS thread from child
+                drop(inner_guard);
+
+                // Try to notify waiters - skip if we can't acquire the lock
+                let (lock, cvar) = &*done_event;
+                if let Some(mut done) = lock.try_lock() {
+                    *done = true;
+                    cvar.notify_all();
+                }
+
+                true
+            });
+        }
+    }
+
+    // Thread handle state enum
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ThreadHandleState {
+        NotStarted,
+        Starting,
+        Running,
+        Done,
+    }
+
+    // Internal shared state for thread handle
+    pub struct ThreadHandleInner {
+        pub state: ThreadHandleState,
+        pub ident: u64,
+        pub join_handle: Option<thread::JoinHandle<()>>,
+        pub joining: bool, // True if a thread is currently joining
+        pub joined: bool,  // Track if join has completed
+    }
+
+    impl fmt::Debug for ThreadHandleInner {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("ThreadHandleInner")
+                .field("state", &self.state)
+                .field("ident", &self.ident)
+                .field("join_handle", &self.join_handle.is_some())
+                .field("joining", &self.joining)
+                .field("joined", &self.joined)
+                .finish()
+        }
+    }
+
+    /// _ThreadHandle - handle for joinable threads
+    #[pyattr]
+    #[pyclass(module = "_thread", name = "_ThreadHandle")]
+    #[derive(Debug, PyPayload)]
+    struct ThreadHandle {
+        inner: std::sync::Arc<parking_lot::Mutex<ThreadHandleInner>>,
+        // Event to signal thread completion (for timed join support)
+        done_event: std::sync::Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+    }
+
+    #[pyclass]
+    impl ThreadHandle {
+        fn new(vm: &VirtualMachine) -> Self {
+            let inner = std::sync::Arc::new(parking_lot::Mutex::new(ThreadHandleInner {
+                state: ThreadHandleState::NotStarted,
+                ident: 0,
+                join_handle: None,
+                joining: false,
+                joined: false,
+            }));
+            let done_event =
+                std::sync::Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+
+            // Register in global registry for fork cleanup
+            vm.state.thread_handles.lock().push((
+                std::sync::Arc::downgrade(&inner),
+                std::sync::Arc::downgrade(&done_event),
+            ));
+
+            Self { inner, done_event }
+        }
+
+        #[pygetset]
+        fn ident(&self) -> u64 {
+            self.inner.lock().ident
+        }
+
+        #[pymethod]
+        fn is_done(&self) -> bool {
+            self.inner.lock().state == ThreadHandleState::Done
+        }
+
+        #[pymethod]
+        fn _set_done(&self) {
+            self.inner.lock().state = ThreadHandleState::Done;
+            // Signal waiting threads that this thread is done
+            let (lock, cvar) = &*self.done_event;
+            *lock.lock() = true;
+            cvar.notify_all();
+        }
+
+        #[pymethod]
+        fn join(
+            &self,
+            timeout: OptionalArg<Option<Either<f64, i64>>>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            // Convert timeout to Duration (None or negative = infinite wait)
+            let timeout_duration = match timeout.flatten() {
+                Some(Either::A(t)) if t >= 0.0 => Some(Duration::from_secs_f64(t)),
+                Some(Either::B(t)) if t >= 0 => Some(Duration::from_secs(t as u64)),
+                _ => None,
+            };
+
+            // Check for self-join first
+            {
+                let inner = self.inner.lock();
+                let current_ident = get_ident();
+                if inner.ident == current_ident && inner.state == ThreadHandleState::Running {
+                    return Err(vm.new_runtime_error("cannot join current thread".to_owned()));
+                }
+            }
+
+            // Wait for thread completion using Condvar (supports timeout)
+            // Loop to handle spurious wakeups
+            let (lock, cvar) = &*self.done_event;
+            let mut done = lock.lock();
+
+            while !*done {
+                if let Some(timeout) = timeout_duration {
+                    let result = cvar.wait_for(&mut done, timeout);
+                    if result.timed_out() && !*done {
+                        // Timeout occurred and done is still false
+                        return Ok(());
+                    }
+                } else {
+                    // Infinite wait
+                    cvar.wait(&mut done);
+                }
+            }
+            drop(done);
+
+            // Thread is done, now perform cleanup
+            let join_handle = {
+                let mut inner = self.inner.lock();
+
+                // If already joined, return immediately (idempotent)
+                if inner.joined {
+                    return Ok(());
+                }
+
+                // If another thread is already joining, wait for them to finish
+                if inner.joining {
+                    drop(inner);
+                    // Wait on done_event
+                    let (lock, cvar) = &*self.done_event;
+                    let mut done = lock.lock();
+                    while !*done {
+                        cvar.wait(&mut done);
+                    }
+                    return Ok(());
+                }
+
+                // Mark that we're joining
+                inner.joining = true;
+
+                // Take the join handle if available
+                inner.join_handle.take()
+            };
+
+            // Perform the actual join outside the lock
+            if let Some(handle) = join_handle {
+                // Ignore the result - panics in spawned threads are already handled
+                let _ = handle.join();
+            }
+
+            // Mark as joined and clear joining flag
+            {
+                let mut inner = self.inner.lock();
+                inner.joined = true;
+                inner.joining = false;
+            }
+
+            Ok(())
+        }
+
+        #[pyslot]
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            ThreadHandle::new(vm)
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct StartJoinableThreadArgs {
+        #[pyarg(positional)]
+        function: ArgCallable,
+        #[pyarg(any, optional)]
+        handle: OptionalArg<PyRef<ThreadHandle>>,
+        #[pyarg(any, default = true)]
+        daemon: bool,
+    }
+
+    #[pyfunction]
+    fn start_joinable_thread(
+        args: StartJoinableThreadArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<ThreadHandle>> {
+        let handle = match args.handle {
+            OptionalArg::Present(h) => h,
+            OptionalArg::Missing => ThreadHandle::new(vm).into_ref(&vm.ctx),
+        };
+
+        // Mark as starting
+        handle.inner.lock().state = ThreadHandleState::Starting;
+
+        // Add non-daemon threads to shutdown registry so _shutdown() will wait for them
+        if !args.daemon {
+            add_to_shutdown_handles(vm, &handle.inner, &handle.done_event);
+        }
+
+        let func = args.function;
+        let handle_clone = handle.clone();
+        let inner_clone = handle.inner.clone();
+        let done_event_clone = handle.done_event.clone();
+
+        let mut thread_builder = thread::Builder::new();
+        let stacksize = vm.state.stacksize.load();
+        if stacksize != 0 {
+            thread_builder = thread_builder.stack_size(stacksize);
+        }
+
+        let join_handle = thread_builder
+            .spawn(vm.new_thread().make_spawn_func(move |vm| {
+                // Set ident and mark as running
+                {
+                    let mut inner = inner_clone.lock();
+                    inner.ident = get_ident();
+                    inner.state = ThreadHandleState::Running;
+                }
+
+                // Ensure cleanup happens even if the function panics
+                let inner_for_cleanup = inner_clone.clone();
+                let done_event_for_cleanup = done_event_clone.clone();
+                let vm_state = vm.state.clone();
+                scopeguard::defer! {
+                    // Mark as done
+                    inner_for_cleanup.lock().state = ThreadHandleState::Done;
+
+                    // Signal waiting threads that this thread is done
+                    {
+                        let (lock, cvar) = &*done_event_for_cleanup;
+                        *lock.lock() = true;
+                        cvar.notify_all();
+                    }
+
+                    // Handle sentinels
+                    for lock in SENTINELS.take() {
+                        if lock.mu.is_locked() {
+                            unsafe { lock.mu.unlock() };
+                        }
+                    }
+
+                    // Clean up thread-local data while VM context is still active
+                    cleanup_thread_local_data();
+
+                    // Clean up frame tracking
+                    crate::vm::thread::cleanup_current_thread_frames(vm);
+
+                    vm_state.thread_count.fetch_sub(1);
+                }
+
+                // Run the function
+                match func.invoke((), vm) {
+                    Ok(_) => {}
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
+                    Err(exc) => {
+                        vm.run_unraisable(
+                            exc,
+                            Some("Exception ignored in thread started by".to_owned()),
+                            func.into(),
+                        );
+                    }
+                }
+            }))
+            .map_err(|err| vm.new_runtime_error(format!("can't start new thread: {err}")))?;
+
+        vm.state.thread_count.fetch_add(1);
+
+        // Store the join handle
+        handle.inner.lock().join_handle = Some(join_handle);
+
+        Ok(handle_clone)
     }
 }

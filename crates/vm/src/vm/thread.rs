@@ -1,17 +1,27 @@
-use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
+#[cfg(feature = "threading")]
+use crate::frame::FrameRef;
+use crate::{AsObject, PyObject, VirtualMachine};
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
 };
 use itertools::Itertools;
+#[cfg(feature = "threading")]
+use std::sync::Arc;
 use std::thread_local;
+
+/// Type for current frame slot - shared between threads for sys._current_frames()
+#[cfg(feature = "threading")]
+pub type CurrentFrameSlot = Arc<parking_lot::Mutex<Option<FrameRef>>>;
 
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
 
     pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
-    pub(crate) static ASYNC_GEN_FINALIZER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
-    pub(crate) static ASYNC_GEN_FIRSTITER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
+
+    /// Current thread's frame slot for sys._current_frames()
+    #[cfg(feature = "threading")]
+    static CURRENT_FRAME_SLOT: RefCell<Option<CurrentFrameSlot>> = const { RefCell::new(None) };
 }
 
 scoped_tls::scoped_thread_local!(static VM_CURRENT: VirtualMachine);
@@ -26,9 +36,72 @@ pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     VM_STACK.with(|vms| {
         vms.borrow_mut().push(vm.into());
+
+        // Initialize frame slot for this thread if not already done
+        #[cfg(feature = "threading")]
+        init_frame_slot_if_needed(vm);
+
         scopeguard::defer! { vms.borrow_mut().pop(); }
         VM_CURRENT.set(vm, f)
     })
+}
+
+/// Initialize frame slot for current thread if not already initialized.
+/// Called automatically by enter_vm().
+#[cfg(feature = "threading")]
+fn init_frame_slot_if_needed(vm: &VirtualMachine) {
+    CURRENT_FRAME_SLOT.with(|slot| {
+        if slot.borrow().is_none() {
+            let thread_id = crate::stdlib::thread::get_ident();
+            let new_slot = Arc::new(parking_lot::Mutex::new(None));
+            vm.state
+                .thread_frames
+                .lock()
+                .insert(thread_id, new_slot.clone());
+            *slot.borrow_mut() = Some(new_slot);
+        }
+    });
+}
+
+/// Update the current thread's frame. Called when frames are pushed/popped.
+/// This is a hot path - uses only thread-local storage, no locks.
+#[cfg(feature = "threading")]
+pub fn update_current_frame(frame: Option<FrameRef>) {
+    CURRENT_FRAME_SLOT.with(|slot| {
+        if let Some(s) = slot.borrow().as_ref() {
+            *s.lock() = frame;
+        }
+    });
+}
+
+/// Cleanup frame tracking for the current thread. Called at thread exit.
+#[cfg(feature = "threading")]
+pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
+    let thread_id = crate::stdlib::thread::get_ident();
+    vm.state.thread_frames.lock().remove(&thread_id);
+    CURRENT_FRAME_SLOT.with(|s| {
+        *s.borrow_mut() = None;
+    });
+}
+
+/// Reinitialize frame slot after fork. Called in child process.
+/// Creates a fresh slot and registers it for the current thread.
+#[cfg(feature = "threading")]
+pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
+    let current_ident = crate::stdlib::thread::get_ident();
+    let new_slot = Arc::new(parking_lot::Mutex::new(None));
+
+    // Try to update the global registry. If we can't get the lock
+    // (parent thread might have been holding it during fork), skip.
+    if let Some(mut registry) = vm.state.thread_frames.try_lock() {
+        registry.clear();
+        registry.insert(current_ident, new_slot.clone());
+    }
+
+    // Always update thread-local to point to the new slot
+    CURRENT_FRAME_SLOT.with(|s| {
+        *s.borrow_mut() = Some(new_slot);
+    });
 }
 
 pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
@@ -139,6 +212,10 @@ impl VirtualMachine {
     /// specific guaranteed behavior.
     #[cfg(feature = "threading")]
     pub fn new_thread(&self) -> ThreadedVirtualMachine {
+        let global_trace = self.state.global_trace_func.lock().clone();
+        let global_profile = self.state.global_profile_func.lock().clone();
+        let use_tracing = global_trace.is_some() || global_profile.is_some();
+
         let vm = Self {
             builtins: self.builtins.clone(),
             sys_module: self.sys_module.clone(),
@@ -147,9 +224,9 @@ impl VirtualMachine {
             wasm_id: self.wasm_id.clone(),
             exceptions: RefCell::default(),
             import_func: self.import_func.clone(),
-            profile_func: RefCell::new(self.ctx.none()),
-            trace_func: RefCell::new(self.ctx.none()),
-            use_tracing: Cell::new(false),
+            profile_func: RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none())),
+            trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
+            use_tracing: Cell::new(use_tracing),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: None,
             signal_rx: None,
@@ -157,6 +234,8 @@ impl VirtualMachine {
             state: self.state.clone(),
             initialized: self.initialized,
             recursion_depth: Cell::new(0),
+            async_gen_firstiter: RefCell::new(None),
+            async_gen_finalizer: RefCell::new(None),
         };
         ThreadedVirtualMachine { vm }
     }

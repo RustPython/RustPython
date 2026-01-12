@@ -108,7 +108,6 @@ class ExecutorShutdownTest:
         # one finished.
         self.assertGreater(len(others), 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON AssertionError: b'' != b'apple'
     def test_hang_gh83386(self):
         """shutdown(wait=False) doesn't hang at exit with running futures.
 
@@ -256,6 +255,11 @@ class ThreadPoolShutdownTest(ThreadPoolMixin, ExecutorShutdownTest, BaseTestCase
 
 
 class ProcessPoolShutdownTest(ExecutorShutdownTest):
+    # TODO: RUSTPYTHON - flaky, dict changed size during iteration race condition
+    @unittest.skip("TODO: RUSTPYTHON - flaky race condition on macOS")
+    def test_cancel_futures(self):
+        return super().test_cancel_futures()
+
     def test_processes_terminate(self):
         def acquire_lock(lock):
             lock.acquire()

@@ -34,41 +34,76 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Run cargo fmt
-        run: |
-          echo "Running cargo fmt --all on PR #${{ github.event.pull_request.number }}"
-          cargo fmt --all
-
-      - name: Install ruff
-        uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
-        with:
-          version: "0.14.9"
-          args: "--version"
-
-      - run: ruff format
-      - run: ruff check --select I --fix
-      - run: python scripts/generate_opcode_metadata.py
-
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "" > /tmp/committed_commands.txt
+
+      - name: Run cargo fmt
+        run: |
+          echo "Running cargo fmt --all on PR #${{ github.event.pull_request.number }}"
+          cargo fmt --all
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -u
+            git commit -m "Auto-format: cargo fmt --all"
+            echo "- \`cargo fmt --all\`" >> /tmp/committed_commands.txt
+          fi
+
+      - name: Install ruff
+        uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
+        with:
+          version: "0.14.11"
+          args: "--version"
+
+      - name: Run ruff format
+        run: |
+          ruff format
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -u
+            git commit -m "Auto-format: ruff format"
+            echo "- \`ruff format\`" >> /tmp/committed_commands.txt
+          fi
+
+      - name: Run ruff check import sorting
+        run: |
+          ruff check --select I --fix
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -u
+            git commit -m "Auto-format: ruff check --select I --fix"
+            echo "- \`ruff check --select I --fix\`" >> /tmp/committed_commands.txt
+          fi
+
+      - name: Run generate_opcode_metadata.py
+        run: |
+          python scripts/generate_opcode_metadata.py
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -u
+            git commit -m "Auto-generate: generate_opcode_metadata.py"
+            echo "- \`python scripts/generate_opcode_metadata.py\`" >> /tmp/committed_commands.txt
+          fi
 
       - name: Check for changes
         id: check-changes
         run: |
-          if [ -n "$(git status --porcelain)" ]; then
+          if [ "$(git rev-parse HEAD)" != "${{ github.event.pull_request.head.sha }}" ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
           else
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Commit and push formatting changes
+      - name: Push formatting changes
         if: steps.check-changes.outputs.has_changes == 'true'
         run: |
-          git add -u
-          git commit -m "Auto-format: cargo fmt --all"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
+      - name: Read committed commands
+        id: committed-commands
+        if: steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          echo "list<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/committed_commands.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Comment on PR
         if: steps.check-changes.outputs.has_changes == 'true'
@@ -78,7 +113,8 @@ jobs:
           message: |
             **Code has been automatically formatted**
 
-            The code in this PR has been formatted using `cargo fmt --all`.
+            The code in this PR has been formatted using:
+            ${{ steps.committed-commands.outputs.list }}
             Please pull the latest changes before pushing again:
             ```bash
             git pull origin ${{ github.event.pull_request.head.ref }}

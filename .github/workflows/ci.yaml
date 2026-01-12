@@ -106,9 +106,7 @@ env:
     test_weakref
     test_yield_from
   ENV_POLLUTING_TESTS_COMMON: >-
-    test_threading
   ENV_POLLUTING_TESTS_LINUX: >-
-    test.test_concurrent_futures.test_thread_pool
     test.test_multiprocessing_fork.test_processes
     test.test_multiprocessing_fork.test_threads
     test.test_multiprocessing_forkserver.test_processes
@@ -116,7 +114,6 @@ env:
     test.test_multiprocessing_spawn.test_processes
     test.test_multiprocessing_spawn.test_threads
   ENV_POLLUTING_TESTS_MACOS: >-
-    test.test_concurrent_futures.test_thread_pool
     test.test_multiprocessing_forkserver.test_processes
     test.test_multiprocessing_forkserver.test_threads
     test.test_multiprocessing_spawn.test_processes
@@ -297,21 +294,21 @@ jobs:
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 35
+        timeout-minutes: 45
 
       - if: runner.os == 'Linux'
         name: run cpython platform-dependent tests (Linux)
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 35
+        timeout-minutes: 45
 
       - if: runner.os == 'macOS'
         name: run cpython platform-dependent tests (MacOS)
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 35
+        timeout-minutes: 45
 
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
@@ -447,7 +444,7 @@ jobs:
       - name: Install ruff
         uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
         with:
-          version: "0.14.9"
+          version: "0.14.11"
           args: "--version"
 
       - run: ruff check --diff

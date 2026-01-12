@@ -57,14 +57,14 @@ impl PyAsyncGen {
 
         zelf.ag_hooks_inited.store(true);
 
-        // Get and store finalizer from thread-local storage
-        let finalizer = crate::vm::thread::ASYNC_GEN_FINALIZER.with_borrow(|f| f.as_ref().cloned());
+        // Get and store finalizer from VM
+        let finalizer = vm.async_gen_finalizer.borrow().clone();
         if let Some(finalizer) = finalizer {
             *zelf.ag_finalizer.lock() = Some(finalizer);
         }
 
         // Call firstiter hook
-        let firstiter = crate::vm::thread::ASYNC_GEN_FIRSTITER.with_borrow(|f| f.as_ref().cloned());
+        let firstiter = vm.async_gen_firstiter.borrow().clone();
         if let Some(firstiter) = firstiter {
             let obj: PyObjectRef = zelf.to_owned().into();
             firstiter.call((obj,), vm)?;

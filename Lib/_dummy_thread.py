@@ -11,14 +11,34 @@ Suggested usage is::
         import _dummy_thread as _thread
 
 """
+
 # Exports only things specified by thread documentation;
 # skipping obsolete synonyms allocate(), start_new(), exit_thread().
-__all__ = ['error', 'start_new_thread', 'exit', 'get_ident', 'allocate_lock',
-           'interrupt_main', 'LockType', 'RLock',
-           '_count']
+__all__ = [
+    "error",
+    "start_new_thread",
+    "exit",
+    "get_ident",
+    "allocate_lock",
+    "interrupt_main",
+    "LockType",
+    "RLock",
+    "_count",
+    "start_joinable_thread",
+    "daemon_threads_allowed",
+    "_shutdown",
+    "_make_thread_handle",
+    "_ThreadHandle",
+    "_get_main_thread_ident",
+    "_is_main_interpreter",
+    "_local",
+]
 
 # A dummy value
 TIMEOUT_MAX = 2**31
+
+# Main thread ident for dummy implementation
+_MAIN_THREAD_IDENT = -1
 
 # NOTE: this module can be imported early in the extension building process,
 # and so top level imports of other modules should be avoided.  Instead, all
@@ -26,6 +46,7 @@ TIMEOUT_MAX = 2**31
 # are disabled, the import lock should not be an issue anyway (??).
 
 error = RuntimeError
+
 
 def start_new_thread(function, args, kwargs={}):
     """Dummy implementation of _thread.start_new_thread().
@@ -52,6 +73,7 @@ def start_new_thread(function, args, kwargs={}):
         pass
     except:
         import traceback
+
         traceback.print_exc()
     _main = True
     global _interrupt
@@ -59,9 +81,57 @@ def start_new_thread(function, args, kwargs={}):
         _interrupt = False
         raise KeyboardInterrupt
 
+
+def start_joinable_thread(function, handle=None, daemon=True):
+    """Dummy implementation of _thread.start_joinable_thread().
+
+    In dummy thread, we just run the function synchronously.
+    """
+    if handle is None:
+        handle = _ThreadHandle()
+    try:
+        function()
+    except SystemExit:
+        pass
+    except:
+        import traceback
+
+        traceback.print_exc()
+    handle._set_done()
+    return handle
+
+
+def daemon_threads_allowed():
+    """Dummy implementation of _thread.daemon_threads_allowed()."""
+    return True
+
+
+def _shutdown():
+    """Dummy implementation of _thread._shutdown()."""
+    pass
+
+
+def _make_thread_handle(ident):
+    """Dummy implementation of _thread._make_thread_handle()."""
+    handle = _ThreadHandle()
+    handle._ident = ident
+    return handle
+
+
+def _get_main_thread_ident():
+    """Dummy implementation of _thread._get_main_thread_ident()."""
+    return _MAIN_THREAD_IDENT
+
+
+def _is_main_interpreter():
+    """Dummy implementation of _thread._is_main_interpreter()."""
+    return True
+
+
 def exit():
     """Dummy implementation of _thread.exit()."""
     raise SystemExit
+
 
 def get_ident():
     """Dummy implementation of _thread.get_ident().
@@ -70,11 +140,13 @@ def get_ident():
     available, it is safe to assume that the current process is the
     only thread.  Thus a constant can be safely returned.
     """
-    return -1
+    return _MAIN_THREAD_IDENT
+
 
 def allocate_lock():
     """Dummy implementation of _thread.allocate_lock()."""
     return LockType()
+
 
 def stack_size(size=None):
     """Dummy implementation of _thread.stack_size()."""
@@ -82,13 +154,16 @@ def stack_size(size=None):
         raise error("setting thread stack size not supported")
     return 0
 
+
 def _set_sentinel():
     """Dummy implementation of _thread._set_sentinel()."""
     return LockType()
 
+
 def _count():
     """Dummy implementation of _thread._count()."""
     return 0
+
 
 class LockType(object):
     """Class implementing dummy implementation of _thread.LockType.
@@ -125,6 +200,7 @@ class LockType(object):
             else:
                 if timeout > 0:
                     import time
+
                     time.sleep(timeout)
                 return False
 
@@ -153,13 +229,40 @@ class LockType(object):
             "locked" if self.locked_status else "unlocked",
             self.__class__.__module__,
             self.__class__.__qualname__,
-            hex(id(self))
+            hex(id(self)),
         )
+
+
+class _ThreadHandle:
+    """Dummy implementation of _thread._ThreadHandle."""
+
+    def __init__(self):
+        self._ident = _MAIN_THREAD_IDENT
+        self._done = False
+
+    @property
+    def ident(self):
+        return self._ident
+
+    def _set_done(self):
+        self._done = True
+
+    def is_done(self):
+        return self._done
+
+    def join(self, timeout=None):
+        # In dummy thread, thread is always done
+        return
+
+    def __repr__(self):
+        return f"<_ThreadHandle ident={self._ident}>"
+
 
 # Used to signal that interrupt_main was called in a "thread"
 _interrupt = False
 # True when not executing in a "thread"
 _main = True
+
 
 def interrupt_main():
     """Set _interrupt flag to True to have start_new_thread raise
@@ -169,6 +272,7 @@ def interrupt_main():
     else:
         global _interrupt
         _interrupt = True
+
 
 class RLock:
     def __init__(self):
@@ -190,7 +294,7 @@ class RLock:
         return True
 
     def locked(self):
-        return self.locked_status != 0
+        return self.locked_count != 0
 
     def __repr__(self):
         return "<%s %s.%s object owner=%s count=%s at %s>" % (
@@ -199,5 +303,36 @@ class RLock:
             self.__class__.__qualname__,
             get_ident() if self.locked_count else 0,
             self.locked_count,
-            hex(id(self))
+            hex(id(self)),
         )
+
+
+class _local:
+    """Dummy implementation of _thread._local (thread-local storage)."""
+
+    def __init__(self):
+        object.__setattr__(self, "_local__impl", {})
+
+    def __getattribute__(self, name):
+        if name.startswith("_local__"):
+            return object.__getattribute__(self, name)
+        impl = object.__getattribute__(self, "_local__impl")
+        try:
+            return impl[name]
+        except KeyError:
+            raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        if name.startswith("_local__"):
+            return object.__setattr__(self, name, value)
+        impl = object.__getattribute__(self, "_local__impl")
+        impl[name] = value
+
+    def __delattr__(self, name):
+        if name.startswith("_local__"):
+            return object.__delattr__(self, name)
+        impl = object.__getattribute__(self, "_local__impl")
+        try:
+            del impl[name]
+        except KeyError:
+            raise AttributeError(name)

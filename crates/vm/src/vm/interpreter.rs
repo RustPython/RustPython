@@ -110,9 +110,10 @@ impl Interpreter {
 
     /// Finalize vm and turns an exception to exit code.
     ///
-    /// Finalization steps including 4 steps:
+    /// Finalization steps including 5 steps:
     /// 1. Flush stdout and stderr.
     /// 1. Handle exit exception and turn it to exit code.
+    /// 1. Wait for non-daemon threads (threading._shutdown).
     /// 1. Run atexit exit functions.
     /// 1. Mark vm as finalized.
     ///
@@ -128,6 +129,9 @@ impl Interpreter {
                 0
             };
 
+            // Wait for non-daemon threads (wait_for_thread_shutdown)
+            wait_for_thread_shutdown(vm);
+
             atexit::_run_exitfuncs(vm);
 
             vm.state.finalizing.store(true, Ordering::Release);
@@ -136,6 +140,35 @@ impl Interpreter {
 
             exit_code
         })
+    }
+}
+
+/// Wait until threading._shutdown completes, provided
+/// the threading module was imported in the first place.
+/// The shutdown routine will wait until all non-daemon
+/// "threading" threads have completed.
+fn wait_for_thread_shutdown(vm: &VirtualMachine) {
+    // Try to get the threading module if it was already imported
+    // Use sys.modules.get("threading") like PyImport_GetModule
+    let threading = match (|| -> PyResult<_> {
+        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        let threading = sys_modules.get_item("threading", vm)?;
+        Ok(threading)
+    })() {
+        Ok(module) => module,
+        Err(_) => {
+            // threading not imported, nothing to do
+            return;
+        }
+    };
+
+    // Call threading._shutdown()
+    if let Err(e) = vm.call_method(&threading, "_shutdown", ()) {
+        vm.run_unraisable(
+            e,
+            Some("Exception ignored on threading shutdown".to_owned()),
+            threading,
+        );
     }
 }
 
