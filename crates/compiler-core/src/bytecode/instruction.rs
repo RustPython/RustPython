@@ -343,10 +343,9 @@ impl TryFrom<u8> for RealInstruction {
     }
 }
 
-impl RealInstruction {
-    /// Gets the label stored inside this instruction, if it exists
+impl InstructionMetadata for RealInstruction {
     #[inline]
-    pub const fn label_arg(&self) -> Option<Arg<Label>> {
+    fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Self::JumpBackward { target: l }
             | Self::JumpBackwardNoInterrupt { target: l }
@@ -364,16 +363,7 @@ impl RealInstruction {
         }
     }
 
-    /// Whether this is an unconditional branching
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction};
-    /// let jump_inst = RealInstruction::Jump { target: Arg::marker() };
-    /// assert!(jump_inst.unconditional_branch())
-    /// ```
-    pub const fn unconditional_branch(&self) -> bool {
+    fn unconditional_branch(&self) -> bool {
         matches!(
             self,
             Self::JumpForward { .. }
@@ -388,18 +378,7 @@ impl RealInstruction {
         )
     }
 
-    /// What effect this instruction has on the stack
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, Label};
-    /// let (target, jump_arg) = Arg::new(Label(0xF));
-    /// let jump_instruction = RealInstruction::Jump { target };
-    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
-    /// ```
-    ///
-    pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
+    fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             Self::Nop => 0,
             Self::ImportName { .. } => -1,
@@ -602,22 +581,8 @@ impl RealInstruction {
         }
     }
 
-    pub fn display<'a>(
-        &'a self,
-        arg: OpArg,
-        ctx: &'a impl InstrDisplayContext,
-    ) -> impl fmt::Display + 'a {
-        struct FmtFn<F>(F);
-        impl<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for FmtFn<F> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                (self.0)(f)
-            }
-        }
-        FmtFn(move |f: &mut fmt::Formatter<'_>| self.fmt_dis(arg, f, ctx, false, 0, 0))
-    }
-
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn fmt_dis(
+    fn fmt_dis(
         &self,
         arg: OpArg,
         f: &mut fmt::Formatter<'_>,
@@ -836,15 +801,52 @@ pub enum PseudoInstruction {
     LoadZeroSuperMethod {
         idx: Arg<NameIdx>,
     } = 262,
-    PopBlock = 263,           // Placeholder
+    PopBlock = 263,
     SetupCleanup = 264,       // Placeholder
     SetupFinally = 265,       // Placeholder
     SetupWith = 266,          // Placeholder
     StoreFastMaybeNull = 267, // Placeholder
 }
 
+impl From<PseudoInstruction> for u16 {
+    #[inline]
+    fn from(ins: PseudoInstruction) -> Self {
+        // SAFETY: there's no padding bits
+        unsafe { core::mem::transmute::<PseudoInstruction, Self>(ins) }
+    }
+}
+
+impl TryFrom<u16> for PseudoInstruction {
+    type Error = MarshalError;
+
+    #[inline]
+    fn try_from(value: u16) -> Result<Self, MarshalError> {
+        let start = u16::from(Self::Jump {
+            target: Arg::marker(),
+        });
+        let end = u16::from(Self::StoreFastMaybeNull);
+
+        if (start..=end).contains(&value) {
+            Ok(unsafe { core::mem::transmute::<u16, Self>(value) })
+        } else {
+            Err(Self::Error::InvalidBytecode)
+        }
+    }
+}
+
 impl InstructionMetadata for PseudoInstruction {
-    pub fn stack_effect(&self, _arg: OpArg, _jump: bool) -> i32 {
+    fn label_arg(&self) -> Option<Arg<Label>> {
+        match self {
+            Self::Jump { target: l } => Some(*l),
+            _ => None,
+        }
+    }
+
+    fn unconditional_branch(&self) -> bool {
+        matches!(self, Self::Jump { .. },)
+    }
+
+    fn stack_effect(&self, _arg: OpArg, _jump: bool) -> i32 {
         match self {
             Self::Jump { .. } => 0,
             Self::JumpNoInterrupt { .. } => 0,
@@ -859,6 +861,18 @@ impl InstructionMetadata for PseudoInstruction {
             Self::SetupWith => 0,
             Self::StoreFastMaybeNull => 0,
         }
+    }
+
+    fn fmt_dis(
+        &self,
+        _arg: OpArg,
+        _f: &mut fmt::Formatter<'_>,
+        _ctx: &impl InstrDisplayContext,
+        _expand_code_objects: bool,
+        _pad: usize,
+        _level: usize,
+    ) -> fmt::Result {
+        unimplemented!()
     }
 }
 
@@ -882,6 +896,103 @@ impl From<PseudoInstruction> for Instruction {
     }
 }
 
+impl TryFrom<u8> for Instruction {
+    type Error = MarshalError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(RealInstruction::try_from(value)?.into())
+    }
+}
+
+impl TryFrom<u16> for Instruction {
+    type Error = MarshalError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match u8::try_from(value) {
+            Ok(v) => v.try_into(),
+            Err(_) => Ok(PseudoInstruction::try_from(value)?.into()),
+        }
+    }
+}
+
+macro_rules! inst_either {
+    (fn $name:ident ( &self $(, $arg:ident : $argty:ty )* ) -> $ret:ty ) => {
+        fn $name(&self $(, $arg : $argty )* ) -> $ret {
+            match self {
+                Self::Real(op) => op.$name($($arg),*),
+                Self::Pseudo(op) => op.$name($($arg),*),
+            }
+        }
+    };
+}
+
+impl InstructionMetadata for Instruction {
+    inst_either!(fn label_arg(&self) -> Option<Arg<Label>>);
+
+    inst_either!(fn unconditional_branch(&self) -> bool);
+
+    inst_either!(fn stack_effect(&self, arg: OpArg, jump: bool) -> i32);
+
+    inst_either!(fn fmt_dis(
+        &self,
+        arg: OpArg,
+        f: &mut fmt::Formatter<'_>,
+        ctx: &impl InstrDisplayContext,
+        expand_code_objects: bool,
+        pad: usize,
+        level: usize
+    ) -> fmt::Result);
+}
+
 pub trait InstructionMetadata {
+    /// Gets the label stored inside this instruction, if it exists.
+    fn label_arg(&self) -> Option<Arg<Label>>;
+
+    /// Whether this is an unconditional branching.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction};
+    /// let jump_inst = RealInstruction::Jump { target: Arg::marker() };
+    /// assert!(jump_inst.unconditional_branch())
+    /// ```
+    fn unconditional_branch(&self) -> bool;
+
+    /// What effect this instruction has on the stack
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, Label};
+    /// let (target, jump_arg) = Arg::new(Label(0xF));
+    /// let jump_instruction = RealInstruction::Jump { target };
+    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
+    /// ```
     fn stack_effect(&self, arg: OpArg, jump: bool) -> i32;
+
+    #[allow(clippy::too_many_arguments)]
+    fn fmt_dis(
+        &self,
+        arg: OpArg,
+        f: &mut fmt::Formatter<'_>,
+        ctx: &impl InstrDisplayContext,
+        expand_code_objects: bool,
+        pad: usize,
+        level: usize,
+    ) -> fmt::Result;
+
+    fn display<'a>(
+        &'a self,
+        arg: OpArg,
+        ctx: &'a impl InstrDisplayContext,
+    ) -> impl fmt::Display + 'a {
+        struct FmtFn<F>(F);
+        impl<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for FmtFn<F> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                (self.0)(f)
+            }
+        }
+        FmtFn(move |f: &mut fmt::Formatter<'_>| self.fmt_dis(arg, f, ctx, false, 0, 0))
+    }
 }

@@ -14,7 +14,9 @@ use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
-pub use crate::bytecode::instruction::{Instruction, PseudoInstruction, RealInstruction};
+pub use crate::bytecode::instruction::{
+    Instruction, InstructionMetadata, PseudoInstruction, RealInstruction,
+};
 
 mod instruction;
 
