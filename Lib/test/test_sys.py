@@ -920,7 +920,7 @@ class SysModuleTest(unittest.TestCase):
     def test_clear_type_cache(self):
         sys._clear_type_cache()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; cp424 encoding not supported, causes panic")
     @force_not_colorized
     @support.requires_subprocess()
     def test_ioencoding(self):

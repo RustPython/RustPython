@@ -6,7 +6,7 @@ use rustpython_compiler_core::{
     bytecode::{
         Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
         InstrDisplayContext, Instruction, Label, OpArg, PyCodeLocationInfoKind,
-        encode_exception_table, encode_load_attr_arg,
+        encode_exception_table, encode_load_attr_arg, encode_load_super_attr_arg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -211,6 +211,30 @@ impl CodeInfo {
                     // POP_BLOCK pseudo → NOP
                     Instruction::PopBlock => {
                         info.instr = Instruction::Nop;
+                    }
+                    // LOAD_SUPER_METHOD pseudo → LOAD_SUPER_ATTR (flags=0b11: method=1, class=1)
+                    Instruction::LoadSuperMethod { idx } => {
+                        let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, true);
+                        info.arg = OpArg(encoded);
+                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() };
+                    }
+                    // LOAD_ZERO_SUPER_ATTR pseudo → LOAD_SUPER_ATTR (flags=0b00: method=0, class=0)
+                    Instruction::LoadZeroSuperAttr { idx } => {
+                        let encoded = encode_load_super_attr_arg(idx.get(info.arg), false, false);
+                        info.arg = OpArg(encoded);
+                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() };
+                    }
+                    // LOAD_ZERO_SUPER_METHOD pseudo → LOAD_SUPER_ATTR (flags=0b01: method=1, class=0)
+                    Instruction::LoadZeroSuperMethod { idx } => {
+                        let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, false);
+                        info.arg = OpArg(encoded);
+                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() };
+                    }
+                    // LOAD_SUPER_ATTR → encode with flags=0b10 (method=0, class=1)
+                    Instruction::LoadSuperAttr { arg: idx } => {
+                        let encoded = encode_load_super_attr_arg(idx.get(info.arg), false, true);
+                        info.arg = OpArg(encoded);
+                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() };
                     }
                     _ => {}
                 }

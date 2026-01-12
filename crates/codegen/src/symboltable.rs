@@ -21,6 +21,7 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
+use std::collections::HashSet;
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
@@ -244,30 +245,29 @@ impl core::fmt::Debug for SymbolTable {
 */
 fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
     let mut analyzer = SymbolTableAnalyzer::default();
-    analyzer.analyze_symbol_table(symbol_table)
+    // Discard the newfree set at the top level - it's only needed for propagation
+    let _newfree = analyzer.analyze_symbol_table(symbol_table)?;
+    Ok(())
 }
 
 /* Drop __class__ and __classdict__ from free variables in class scope
    and set the appropriate flags. Equivalent to CPython's drop_class_free().
    See: https://github.com/python/cpython/blob/main/Python/symtable.c#L884
+
+   This function removes __class__ and __classdict__ from the
+   `newfree` set (which contains free variables collected from all child scopes)
+   and sets the corresponding flags on the class's symbol table entry.
 */
-fn drop_class_free(symbol_table: &mut SymbolTable) {
-    // Check if __class__ is used as a free variable
-    if let Some(class_symbol) = symbol_table.symbols.get("__class__")
-        && class_symbol.scope == SymbolScope::Free
-    {
+fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut HashSet<String>) {
+    // Check if __class__ is in the free variables collected from children
+    // If found, it means a child scope (method) references __class__
+    if newfree.remove("__class__") {
         symbol_table.needs_class_closure = true;
-        // Note: In CPython, the symbol is removed from the free set,
-        // but in RustPython we handle this differently during code generation
     }
 
-    // Check if __classdict__ is used as a free variable
-    if let Some(classdict_symbol) = symbol_table.symbols.get("__classdict__")
-        && classdict_symbol.scope == SymbolScope::Free
-    {
+    // Check if __classdict__ is in the free variables collected from children
+    if newfree.remove("__classdict__") {
         symbol_table.needs_classdict = true;
-        // Note: In CPython, the symbol is removed from the free set,
-        // but in RustPython we handle this differently during code generation
     }
 }
 
@@ -337,16 +337,26 @@ struct SymbolTableAnalyzer {
 }
 
 impl SymbolTableAnalyzer {
-    fn analyze_symbol_table(&mut self, symbol_table: &mut SymbolTable) -> SymbolTableResult {
+    /// Analyze a symbol table and return the set of free variables.
+    /// See symtable.c analyze_block().
+    fn analyze_symbol_table(
+        &mut self,
+        symbol_table: &mut SymbolTable,
+    ) -> SymbolTableResult<HashSet<String>> {
         let symbols = core::mem::take(&mut symbol_table.symbols);
         let sub_tables = &mut *symbol_table.sub_tables;
+
+        // Collect free variables from all child scopes
+        let mut newfree = HashSet::new();
 
         let mut info = (symbols, symbol_table.typ);
         self.tables.with_append(&mut info, |list| {
             let inner_scope = unsafe { &mut *(list as *mut _ as *mut Self) };
-            // Analyze sub scopes:
+            // Analyze sub scopes and collect their free variables
             for sub_table in sub_tables.iter_mut() {
-                inner_scope.analyze_symbol_table(sub_table)?;
+                let child_free = inner_scope.analyze_symbol_table(sub_table)?;
+                // Propagate child's free variables to this scope
+                newfree.extend(child_free);
             }
             Ok(())
         })?;
@@ -384,17 +394,25 @@ impl SymbolTableAnalyzer {
             }
         }
 
-        // Analyze symbols:
+        // Analyze symbols in current scope
         for symbol in symbol_table.symbols.values_mut() {
             self.analyze_symbol(symbol, symbol_table.typ, sub_tables)?;
+
+            // Collect free variables from this scope
+            // These will be propagated to the parent scope
+            if symbol.scope == SymbolScope::Free || symbol.flags.contains(SymbolFlags::FREE_CLASS) {
+                newfree.insert(symbol.name.clone());
+            }
         }
 
-        // Handle class-specific implicit cells (like CPython)
+        // Handle class-specific implicit cells
+        // This removes __class__ and __classdict__ from newfree if present
+        // and sets the corresponding flags on the symbol table
         if symbol_table.typ == CompilerScope::Class {
-            drop_class_free(symbol_table);
+            drop_class_free(symbol_table, &mut newfree);
         }
 
-        Ok(())
+        Ok(newfree)
     }
 
     fn analyze_symbol(
@@ -475,6 +493,14 @@ impl SymbolTableAnalyzer {
             {
                 continue;
             }
+
+            // __class__ is implicitly declared in class scope
+            // This handles the case where super() is called in a nested class method
+            if name == "__class__" && matches!(typ, CompilerScope::Class) {
+                decl_depth = Some(i);
+                break;
+            }
+
             if let Some(sym) = symbols.get(name) {
                 match sym.scope {
                     SymbolScope::GlobalExplicit => return Some(SymbolScope::GlobalExplicit),

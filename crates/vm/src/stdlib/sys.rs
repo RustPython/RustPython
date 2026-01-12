@@ -815,6 +815,32 @@ mod sys {
         }
     }
 
+    /// Return a dictionary mapping each thread's identifier to the topmost stack frame
+    /// currently active in that thread at the time the function is called.
+    #[cfg(feature = "threading")]
+    #[pyfunction]
+    fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        use crate::AsObject;
+        use crate::stdlib::thread::get_all_current_frames;
+
+        let frames = get_all_current_frames(vm);
+        let dict = vm.ctx.new_dict();
+
+        for (thread_id, frame) in frames {
+            let key = vm.ctx.new_int(thread_id);
+            dict.set_item(key.as_object(), frame.into(), vm)?;
+        }
+
+        Ok(dict)
+    }
+
+    /// Stub for non-threading builds - returns empty dict
+    #[cfg(not(feature = "threading"))]
+    #[pyfunction]
+    fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        Ok(vm.ctx.new_dict())
+    }
+
     #[pyfunction]
     fn gettrace(vm: &VirtualMachine) -> PyObjectRef {
         vm.trace_func.borrow().clone()
@@ -1107,6 +1133,22 @@ mod sys {
         update_use_tracing(vm);
     }
 
+    #[pyfunction]
+    fn _settraceallthreads(tracefunc: PyObjectRef, vm: &VirtualMachine) {
+        let func = (!vm.is_none(&tracefunc)).then(|| tracefunc.clone());
+        *vm.state.global_trace_func.lock() = func;
+        vm.trace_func.replace(tracefunc);
+        update_use_tracing(vm);
+    }
+
+    #[pyfunction]
+    fn _setprofileallthreads(profilefunc: PyObjectRef, vm: &VirtualMachine) {
+        let func = (!vm.is_none(&profilefunc)).then(|| profilefunc.clone());
+        *vm.state.global_profile_func.lock() = func;
+        vm.profile_func.replace(profilefunc);
+        update_use_tracing(vm);
+    }
+
     #[cfg(feature = "threading")]
     #[pyattr]
     fn thread_info(vm: &VirtualMachine) -> PyTupleRef {
@@ -1187,10 +1229,10 @@ mod sys {
         }
 
         if let Some(finalizer) = args.finalizer.into_option() {
-            crate::vm::thread::ASYNC_GEN_FINALIZER.set(finalizer);
+            *vm.async_gen_finalizer.borrow_mut() = finalizer;
         }
         if let Some(firstiter) = args.firstiter.into_option() {
-            crate::vm::thread::ASYNC_GEN_FIRSTITER.set(firstiter);
+            *vm.async_gen_firstiter.borrow_mut() = firstiter;
         }
 
         Ok(())
@@ -1212,12 +1254,8 @@ mod sys {
     #[pyfunction]
     fn get_asyncgen_hooks(vm: &VirtualMachine) -> AsyncgenHooksData {
         AsyncgenHooksData {
-            firstiter: crate::vm::thread::ASYNC_GEN_FIRSTITER
-                .with_borrow(Clone::clone)
-                .to_pyobject(vm),
-            finalizer: crate::vm::thread::ASYNC_GEN_FINALIZER
-                .with_borrow(Clone::clone)
-                .to_pyobject(vm),
+            firstiter: vm.async_gen_firstiter.borrow().clone().to_pyobject(vm),
+            finalizer: vm.async_gen_finalizer.borrow().clone().to_pyobject(vm),
         }
     }
 
