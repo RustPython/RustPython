@@ -926,7 +926,7 @@ pub const fn encode_load_super_attr_arg(name_idx: u32, load_method: bool, has_cl
 
 /// Decode LOAD_SUPER_ATTR oparg: returns (name_idx, load_method, has_class).
 #[inline]
-const fn decode_load_super_attr_arg(oparg: u32) -> (u32, bool, bool) {
+pub const fn decode_load_super_attr_arg(oparg: u32) -> (u32, bool, bool) {
     let load_method = (oparg & 1) == 1;
     let has_class = (oparg & 2) == 2;
     let name_idx = oparg >> 2;

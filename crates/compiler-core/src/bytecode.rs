@@ -15,7 +15,7 @@ use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
-    instruction::{Arg, Instruction, encode_load_super_attr_arg},
+    instruction::{Arg, Instruction, decode_load_super_attr_arg, encode_load_super_attr_arg},
     oparg::{
         BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
         IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx, OpArg,
