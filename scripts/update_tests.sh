@@ -6,12 +6,13 @@ Usage: $0 [OPTIONS]
 
 Copy tests from CPython to RustPython.
 Optionally copy untracked tests, and dynamic annotation of failures.
+This updater is not meant to be used as a standalone updater. Care needs to be taken to review everything done
 
 Options:
   -c/--cpython-path <path>   Path to the CPython source tree (older version)
   -r/--rpython-path <path>   Path to the RustPython source tree (newer version)
   -u/--copy-untracked        Copy untracked tests only
-  -s/--check-skipped         Check existing skipped tests (must be run separate from updating the tests)
+  -s/--update-skipped        Update existing skipped tests (must be run separate from updating the tests)
   -t/--timeout               Set a timeout for a test
   -a/--annotate              While copying tests, run them and annotate failures dynamically
   -j/--jobs                  How many libraries can be processed at a time
@@ -21,10 +22,17 @@ Example Usage:
 $0 -c ~/cpython -r .
 $0 -r . --check-skipped
 
-** Notes:
+*Notes:
     * When using the update skip functionality
         * Updating only looks for files with the format "test_*.py". Everything else (including __init__.py and __main__.py files are ignored)
-        * Care needs to be taken when updating. All tests with the same name will be updated at the same time
+**Known limitations:
+    * In multithreaded tests, if the tests are orphaned, then the updater can deadlock, as threads can accumulate and block the semaphore
+    * In multithreaded tests, when annotating, multiple decorators can accumulate on one test
+    * The updater does not add skips to classes, only on tests
+    * If there are multiple tests with the same name, a decorator will be added to all of them
+    * The updater does not retain anything more specific than a general skip (skipIf/Unless will be replaced by a general skip)
+    * Currently, the updater does not take unexpected successes into account
+
 EOF
     exit 1
 }
@@ -40,8 +48,9 @@ copy_untracked=false
 annotate=false
 timeout=300
 check_skip_flag=false
-num_jobs=5
+num_jobs=20
 libraries=()
+ignored_libraries=("multiprocessing" "concurrent")
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -61,7 +70,7 @@ while [[ $# -gt 0 ]]; do
             usage
             exit 1
             ;;
-        -s|--check-skipped)
+        -s|--update-skipped)
             check_skip_flag=true
             shift
             ;;
@@ -159,13 +168,17 @@ annotate_lib() {
     local attempts=0
     while ! grep -q "Tests result: SUCCESS" <<< "$output"; do
         ((attempts++))
-        echo "$lib failing, annotating..."
+        # echo "$lib failing, annotating..."
         readarray -t failed_tests <<< "$(echo "$output" | awk '/^(FAIL:|ERROR:)/ {print $2}' | sort -u)"
         
         # If the test fails/errors, then expectedFailure it
         for test in "${failed_tests[@]}"
         do
-            add_above_test $rlib_path $test "@unittest.expectedFailure # TODO: RUSTPYTHON" 
+            if already_failed $rlib_path $test; then
+                replace_expected_with_skip $rlib_path $test
+            else
+                add_above_test $rlib_path $test "@unittest.expectedFailure # TODO: RUSTPYTHON" 
+            fi
         done
 
         # If the test crashes/hangs, then skip it
@@ -183,11 +196,24 @@ annotate_lib() {
 
         if [[ attempts -gt 10 ]]; then 
             echo "Issue annotating $lib" >&2
-            break;
+            return;
         fi
     done
+    echo "Successfully updated $lib"
 
     unset SKIP_BACKUP
+}
+
+replace_expected_with_skip() {
+    file=$1
+    test_name=$2
+    sed -E "/^\s*@unittest\.expectedFailure\s+# TODO: RUSTPYTHON/ { N; /\n\s*def $test_name/ { s/^(\s*)@unittest\.expectedFailure\s+# TODO: RUSTPYTHON/\1@unittest.skip\('TODO: RUSTPYTHON'\)/ } }" -i $file
+}
+
+already_failed() {
+    file=$1
+    test_name=$2
+    grep -Pz "\s*@unittest\.expectedFailure # TODO: RUSTPYTHON\n\s*def\s+${test_name}\(" $file
 }
 
 files_equal() {
@@ -230,7 +256,6 @@ apply_skip() {
     # Check if the test has a backup skip
     if [[ -n "${SKIP_BACKUP[$test_name]}" ]]; then
         message="${SKIP_BACKUP[$test_name]//\'/\"}" 
-        echo "Message is $message"
     elif $hanging; then
         message="hanging"
     fi
@@ -259,14 +284,14 @@ if ! $check_skip_flag; then
     echo "Updating Tests"
 
     if [[ ${#libraries[@]} -eq 0 ]]; then
-        readarray -t libraries <<< $(find ${cpython_path} -type f -printf "%P\n")
+        readarray -t libraries <<< $(find ${cpython_path} -type f -printf "%P\n" | grep -vE "$(IFS=\|; echo "${ignored_libraries[*]}")")
     fi
     update_tests "${libraries[@]}"
 else
     echo "Checking Skips"
 
     if [[ ${#libraries[@]} -eq 0 ]]; then
-        readarray -t libraries <<< $(find ${rpython_path} -iname "test_*.py" -type f -printf "%P\n")
+        readarray -t libraries <<< $(find ${rpython_path} -iname "test_*.py" -type f -printf "%P\n" | grep -vE "$(IFS=\|; echo "${ignored_libraries[*]}")")
     fi
     check_skips "${libraries[@]}"
 fi
