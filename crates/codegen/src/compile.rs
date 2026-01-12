@@ -3617,7 +3617,7 @@ impl Compiler {
                     }
                 };
 
-                emit!(self, PseudoInstruction::LoadClosure(idx.to_u32()));
+                emit!(self, RealInstruction::LoadClosure(idx.to_u32()));
             }
 
             // Build tuple of closure variables
@@ -3809,7 +3809,7 @@ impl Compiler {
             .position(|var| *var == "__class__");
 
         if let Some(classcell_idx) = classcell_idx {
-            emit!(self, PseudoInstruction::LoadClosure(classcell_idx.to_u32()));
+            emit!(self, RealInstruction::LoadClosure(classcell_idx.to_u32()));
             emit!(self, RealInstruction::Copy { index: 1_u32 });
             let classcell = self.name("__classcell__");
             emit!(self, RealInstruction::StoreName(classcell));

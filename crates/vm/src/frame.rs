@@ -7,7 +7,7 @@ use crate::{
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
     },
-    bytecode,
+    bytecode::{self, RealInstruction},
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
@@ -24,6 +24,7 @@ use core::iter::zip;
 use core::sync::atomic;
 use indexmap::IndexMap;
 use itertools::Itertools;
+
 use rustpython_common::{boxvec::BoxVec, lock::PyMutex, wtf8::Wtf8Buf};
 use rustpython_compiler_core::SourceLocation;
 
@@ -391,11 +392,11 @@ impl ExecutingFrame<'_> {
                     // Instruction::Reraise are reraise operations that should not add
                     // new traceback entries
                     let is_reraise = match op {
-                        bytecode::Instruction::RaiseVarargs { kind } => matches!(
+                        RealInstruction::RaiseVarargs { kind } => matches!(
                             kind.get(arg),
                             bytecode::RaiseKind::BareRaise | bytecode::RaiseKind::ReraiseFromStack
                         ),
-                        bytecode::Instruction::Reraise { .. } => true,
+                        RealInstruction::Reraise { .. } => true,
                         _ => false,
                     };
 
@@ -439,13 +440,13 @@ impl ExecutingFrame<'_> {
         let lasti = self.lasti() as usize;
         if let Some(unit) = self.code.instructions.get(lasti) {
             match &unit.op {
-                bytecode::Instruction::Send { .. } => return Some(self.top_value()),
-                bytecode::Instruction::Resume { .. } => {
+                RealInstruction::Send { .. } => return Some(self.top_value()),
+                RealInstruction::Resume { .. } => {
                     // Check if previous instruction was YIELD_VALUE with arg >= 1
                     // This indicates yield-from/await context
                     if lasti > 0
                         && let Some(prev_unit) = self.code.instructions.get(lasti - 1)
-                        && let bytecode::Instruction::YieldValue { .. } = &prev_unit.op
+                        && let RealInstruction::YieldValue { .. } = &prev_unit.op
                     {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
                         // OpArgByte.0 is the raw byte value
@@ -550,7 +551,7 @@ impl ExecutingFrame<'_> {
     #[inline(always)]
     fn execute_instruction(
         &mut self,
-        instruction: bytecode::Instruction,
+        instruction: RealInstruction,
         arg: bytecode::OpArg,
         extend_arg: &mut bool,
         vm: &VirtualMachine,
@@ -584,7 +585,7 @@ impl ExecutingFrame<'_> {
         }
 
         match instruction {
-            bytecode::Instruction::BeforeAsyncWith => {
+            RealInstruction::BeforeAsyncWith => {
                 let mgr = self.pop_value();
                 let error_string = || -> String {
                     format!(
@@ -609,8 +610,8 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            bytecode::Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
-            bytecode::Instruction::BinarySubscr => {
+            RealInstruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
+            RealInstruction::BinarySubscr => {
                 let key = self.pop_value();
                 let container = self.pop_value();
                 let result = container.get_item(key.as_object(), vm)?;
@@ -618,30 +619,30 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
 
-            bytecode::Instruction::Break { target } => self.unwind_blocks(
+            RealInstruction::Break { target } => self.unwind_blocks(
                 vm,
                 UnwindReason::Break {
                     target: target.get(arg),
                 },
             ),
-            bytecode::Instruction::BuildListFromTuples { size } => {
+            RealInstruction::BuildListFromTuples { size } => {
                 // SAFETY: compiler guarantees `size` tuples are on the stack
                 let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildList { size } => {
+            RealInstruction::BuildList { size } => {
                 let elements = self.pop_multiple(size.get(arg) as usize).collect();
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildMapForCall { size } => {
+            RealInstruction::BuildMapForCall { size } => {
                 self.execute_build_map_for_call(vm, size.get(arg))
             }
-            bytecode::Instruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
-            bytecode::Instruction::BuildSetFromTuples { size } => {
+            RealInstruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
+            RealInstruction::BuildSetFromTuples { size } => {
                 let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
                     // SAFETY: trust compiler
@@ -653,7 +654,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(set.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildSet { size } => {
+            RealInstruction::BuildSet { size } => {
                 let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
                     set.add(element, vm)?;
@@ -661,11 +662,9 @@ impl ExecutingFrame<'_> {
                 self.push_value(set.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildSlice { argc } => {
-                self.execute_build_slice(vm, argc.get(arg))
-            }
+            RealInstruction::BuildSlice { argc } => self.execute_build_slice(vm, argc.get(arg)),
             /*
-             bytecode::Instruction::ToBool => {
+             RealInstruction::ToBool => {
                  dbg!("Shouldn't be called outside of match statements for now")
                  let value = self.pop_value();
                  // call __bool__
@@ -674,7 +673,7 @@ impl ExecutingFrame<'_> {
                  Ok(None)
             }
             */
-            bytecode::Instruction::BuildString { size } => {
+            RealInstruction::BuildString { size } => {
                 let s: Wtf8Buf = self
                     .pop_multiple(size.get(arg) as usize)
                     .map(|pyobj| pyobj.downcast::<PyStr>().unwrap())
@@ -682,7 +681,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_str(s).into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildTupleFromIter => {
+            RealInstruction::BuildTupleFromIter => {
                 if !self.top_value().class().is(vm.ctx.types.tuple_type) {
                     let elements: Vec<_> = self.pop_value().try_to_value(vm)?;
                     let list_obj = vm.ctx.new_tuple(elements);
@@ -690,48 +689,48 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::BuildTupleFromTuples { size } => {
+            RealInstruction::BuildTupleFromTuples { size } => {
                 // SAFETY: compiler guarantees `size` tuples are on the stack
                 let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildTuple { size } => {
+            RealInstruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(size.get(arg) as usize).collect();
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::Call { nargs } => {
+            RealInstruction::Call { nargs } => {
                 // Stack: [callable, self_or_null, arg1, ..., argN]
                 let args = self.collect_positional_args(nargs.get(arg));
                 self.execute_call(args, vm)
             }
-            bytecode::Instruction::CallKw { nargs } => {
+            RealInstruction::CallKw { nargs } => {
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 let args = self.collect_keyword_args(nargs.get(arg));
                 self.execute_call(args, vm)
             }
-            bytecode::Instruction::CallFunctionEx { has_kwargs } => {
+            RealInstruction::CallFunctionEx { has_kwargs } => {
                 // Stack: [callable, self_or_null, args_tuple, (kwargs_dict)?]
                 let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
                 self.execute_call(args, vm)
             }
-            bytecode::Instruction::CallIntrinsic1 { func } => {
+            RealInstruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
                 let result = self.call_intrinsic_1(func.get(arg), value, vm)?;
                 self.push_value(result);
                 Ok(None)
             }
-            bytecode::Instruction::CallIntrinsic2 { func } => {
+            RealInstruction::CallIntrinsic2 { func } => {
                 let value2 = self.pop_value();
                 let value1 = self.pop_value();
                 let result = self.call_intrinsic_2(func.get(arg), value1, value2, vm)?;
                 self.push_value(result);
                 Ok(None)
             }
-            bytecode::Instruction::CheckEgMatch => {
+            RealInstruction::CheckEgMatch => {
                 let match_type = self.pop_value();
                 let exc_value = self.pop_value();
                 let (rest, matched) =
@@ -740,8 +739,8 @@ impl ExecutingFrame<'_> {
                 self.push_value(matched);
                 Ok(None)
             }
-            bytecode::Instruction::CompareOp { op } => self.execute_compare(vm, op.get(arg)),
-            bytecode::Instruction::ContainsOp(invert) => {
+            RealInstruction::CompareOp { op } => self.execute_compare(vm, op.get(arg)),
+            RealInstruction::ContainsOp(invert) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
 
@@ -752,17 +751,17 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
             }
-            bytecode::Instruction::Continue { target } => self.unwind_blocks(
+            RealInstruction::Continue { target } => self.unwind_blocks(
                 vm,
                 UnwindReason::Continue {
                     target: target.get(arg),
                 },
             ),
 
-            bytecode::Instruction::ConvertValue { oparg: conversion } => {
+            RealInstruction::ConvertValue { oparg: conversion } => {
                 self.convert_value(conversion.get(arg), vm)
             }
-            bytecode::Instruction::Copy { index } => {
+            RealInstruction::Copy { index } => {
                 // CopyItem { index: 1 } copies TOS
                 // CopyItem { index: 2 } copies second from top
                 // This is 1-indexed to match CPython
@@ -778,12 +777,12 @@ impl ExecutingFrame<'_> {
                 self.push_value_opt(value);
                 Ok(None)
             }
-            bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
-            bytecode::Instruction::DeleteDeref(i) => {
+            RealInstruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
+            RealInstruction::DeleteDeref(i) => {
                 self.cells_frees[i.get(arg) as usize].set(None);
                 Ok(None)
             }
-            bytecode::Instruction::DeleteFast(idx) => {
+            RealInstruction::DeleteFast(idx) => {
                 let mut fastlocals = self.fastlocals.lock();
                 let idx = idx.get(arg) as usize;
                 if fastlocals[idx].is_none() {
@@ -798,7 +797,7 @@ impl ExecutingFrame<'_> {
                 fastlocals[idx] = None;
                 Ok(None)
             }
-            bytecode::Instruction::DeleteGlobal(idx) => {
+            RealInstruction::DeleteGlobal(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 match self.globals.del_item(name, vm) {
                     Ok(()) => {}
@@ -809,7 +808,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::DeleteName(idx) => {
+            RealInstruction::DeleteName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let res = self.locals.mapping().ass_subscript(name, None, vm);
 
@@ -822,8 +821,8 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::DeleteSubscr => self.execute_delete_subscript(vm),
-            bytecode::Instruction::DictUpdate { index } => {
+            RealInstruction::DeleteSubscr => self.execute_delete_subscript(vm),
+            RealInstruction::DictUpdate { index } => {
                 // Stack before: [..., dict, ..., source]  (source at TOS)
                 // Stack after:  [..., dict, ...]  (source consumed)
                 // The dict to update is at position TOS-i (before popping source)
@@ -859,7 +858,7 @@ impl ExecutingFrame<'_> {
                 dict.merge_object(source, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::EndAsyncFor => {
+            RealInstruction::EndAsyncFor => {
                 // END_ASYNC_FOR pops (awaitable, exc) from stack
                 // Stack: [awaitable, exc] -> []
                 // exception_unwind pushes exception to stack before jumping to handler
@@ -879,19 +878,19 @@ impl ExecutingFrame<'_> {
                     Err(exc)
                 }
             }
-            bytecode::Instruction::ExtendedArg => {
+            RealInstruction::ExtendedArg => {
                 *extend_arg = true;
                 Ok(None)
             }
-            bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
-            bytecode::Instruction::FormatSimple => {
+            RealInstruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
+            RealInstruction::FormatSimple => {
                 let value = self.pop_value();
                 let formatted = vm.format(&value, vm.ctx.new_str(""))?;
                 self.push_value(formatted.into());
 
                 Ok(None)
             }
-            bytecode::Instruction::FormatWithSpec => {
+            RealInstruction::FormatWithSpec => {
                 let spec = self.pop_value();
                 let value = self.pop_value();
                 let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
@@ -899,13 +898,13 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            bytecode::Instruction::GetAIter => {
+            RealInstruction::GetAIter => {
                 let aiterable = self.pop_value();
                 let aiter = vm.call_special_method(&aiterable, identifier!(vm, __aiter__), ())?;
                 self.push_value(aiter);
                 Ok(None)
             }
-            bytecode::Instruction::GetANext => {
+            RealInstruction::GetANext => {
                 #[cfg(debug_assertions)] // remove when GetANext is fully implemented
                 let orig_stack_len = self.state.stack.len();
 
@@ -950,7 +949,7 @@ impl ExecutingFrame<'_> {
                 debug_assert_eq!(orig_stack_len + 1, self.state.stack.len());
                 Ok(None)
             }
-            bytecode::Instruction::GetAwaitable => {
+            RealInstruction::GetAwaitable => {
                 use crate::protocol::PyIter;
 
                 let awaited_obj = self.pop_value();
@@ -986,13 +985,13 @@ impl ExecutingFrame<'_> {
                 self.push_value(awaitable);
                 Ok(None)
             }
-            bytecode::Instruction::GetIter => {
+            RealInstruction::GetIter => {
                 let iterated_obj = self.pop_value();
                 let iter_obj = iterated_obj.get_iter(vm)?;
                 self.push_value(iter_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::GetYieldFromIter => {
+            RealInstruction::GetYieldFromIter => {
                 // GET_YIELD_FROM_ITER: prepare iterator for yield from
                 // If iterable is a coroutine, ensure we're in a coroutine context
                 // If iterable is a generator, use it directly
@@ -1017,23 +1016,23 @@ impl ExecutingFrame<'_> {
                 self.push_value(iter);
                 Ok(None)
             }
-            bytecode::Instruction::GetLen => {
+            RealInstruction::GetLen => {
                 // STACK.append(len(STACK[-1]))
                 let obj = self.top_value();
                 let len = obj.length(vm)?;
                 self.push_value(vm.ctx.new_int(len).into());
                 Ok(None)
             }
-            bytecode::Instruction::ImportFrom { idx } => {
+            RealInstruction::ImportFrom { idx } => {
                 let obj = self.import_from(vm, idx.get(arg))?;
                 self.push_value(obj);
                 Ok(None)
             }
-            bytecode::Instruction::ImportName { idx } => {
+            RealInstruction::ImportName { idx } => {
                 self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
                 Ok(None)
             }
-            bytecode::Instruction::IsOp(invert) => {
+            RealInstruction::IsOp(invert) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
                 let res = a.is(&b);
@@ -1045,10 +1044,10 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
             }
-            bytecode::Instruction::JumpIfFalseOrPop { target } => {
+            RealInstruction::JumpIfFalseOrPop { target } => {
                 self.jump_if_or_pop(vm, target.get(arg), false)
             }
-            bytecode::Instruction::JumpIfNotExcMatch(target) => {
+            RealInstruction::JumpIfNotExcMatch(target) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
                 if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
@@ -1071,26 +1070,22 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 self.pop_jump_if(vm, target.get(arg), false)
             }
-            bytecode::Instruction::JumpIfTrueOrPop { target } => {
+            RealInstruction::JumpIfTrueOrPop { target } => {
                 self.jump_if_or_pop(vm, target.get(arg), true)
             }
-            bytecode::Instruction::Jump { target } => {
+            RealInstruction::JumpForward { target } => {
                 self.jump(target.get(arg));
                 Ok(None)
             }
-            bytecode::Instruction::JumpForward { target } => {
+            RealInstruction::JumpBackward { target } => {
                 self.jump(target.get(arg));
                 Ok(None)
             }
-            bytecode::Instruction::JumpBackward { target } => {
+            RealInstruction::JumpBackwardNoInterrupt { target } => {
                 self.jump(target.get(arg));
                 Ok(None)
             }
-            bytecode::Instruction::JumpBackwardNoInterrupt { target } => {
-                self.jump(target.get(arg));
-                Ok(None)
-            }
-            bytecode::Instruction::ListAppend { i } => {
+            RealInstruction::ListAppend { i } => {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
                 let list: &Py<PyList> = unsafe {
@@ -1100,23 +1095,13 @@ impl ExecutingFrame<'_> {
                 list.append(item);
                 Ok(None)
             }
-            bytecode::Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
-            bytecode::Instruction::LoadAttrMethod { .. } => {
-                unreachable!("LoadAttrMethod is converted to LoadAttr during compilation")
-            }
-            bytecode::Instruction::LoadSuperAttr { arg: idx } => {
-                self.load_super_attr(vm, idx.get(arg))
-            }
-            bytecode::Instruction::LoadSuperMethod { .. }
-            | bytecode::Instruction::LoadZeroSuperAttr { .. }
-            | bytecode::Instruction::LoadZeroSuperMethod { .. } => {
-                unreachable!("LOAD_SUPER_* pseudo instructions are converted during compilation")
-            }
-            bytecode::Instruction::LoadBuildClass => {
+            RealInstruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
+            RealInstruction::LoadSuperAttr { arg: idx } => self.load_super_attr(vm, idx.get(arg)),
+            RealInstruction::LoadBuildClass => {
                 self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
                 Ok(None)
             }
-            bytecode::Instruction::LoadFromDictOrDeref(i) => {
+            RealInstruction::LoadFromDictOrDeref(i) => {
                 let i = i.get(arg) as usize;
                 let name = if i < self.code.cellvars.len() {
                     self.code.cellvars[i]
@@ -1132,16 +1117,16 @@ impl ExecutingFrame<'_> {
                 });
                 Ok(None)
             }
-            bytecode::Instruction::LoadClosure(i) => {
+            RealInstruction::LoadClosure(i) => {
                 let value = self.cells_frees[i.get(arg) as usize].clone();
                 self.push_value(value.into());
                 Ok(None)
             }
-            bytecode::Instruction::LoadConst { idx } => {
+            RealInstruction::LoadConst { idx } => {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
                 Ok(None)
             }
-            bytecode::Instruction::LoadDeref(i) => {
+            RealInstruction::LoadDeref(i) => {
                 let i = i.get(arg) as usize;
                 let x = self.cells_frees[i]
                     .get()
@@ -1149,7 +1134,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            bytecode::Instruction::LoadFast(idx) => {
+            RealInstruction::LoadFast(idx) => {
                 #[cold]
                 fn reference_error(
                     varname: &'static PyStrInterned,
@@ -1167,7 +1152,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            bytecode::Instruction::LoadFastAndClear(idx) => {
+            RealInstruction::LoadFastAndClear(idx) => {
                 // Load value and clear the slot (for inlined comprehensions)
                 // If slot is empty, push None (not an error - variable may not exist yet)
                 let idx = idx.get(arg) as usize;
@@ -1177,13 +1162,13 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            bytecode::Instruction::LoadGlobal(idx) => {
+            RealInstruction::LoadGlobal(idx) => {
                 let name = &self.code.names[idx.get(arg) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
                 Ok(None)
             }
-            bytecode::Instruction::LoadName(idx) => {
+            RealInstruction::LoadName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let result = self.locals.mapping().subscript(name, vm);
                 match result {
@@ -1195,8 +1180,8 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
-            bytecode::Instruction::MapAdd { i } => {
+            RealInstruction::MakeFunction => self.execute_make_function(vm),
+            RealInstruction::MapAdd { i } => {
                 let value = self.pop_value();
                 let key = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
@@ -1207,7 +1192,7 @@ impl ExecutingFrame<'_> {
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::MatchClass(nargs) => {
+            RealInstruction::MatchClass(nargs) => {
                 // STACK[-1] is a tuple of keyword attribute names, STACK[-2] is the class being matched against, and STACK[-3] is the match subject.
                 // nargs is the number of positional sub-patterns.
                 let kwd_attrs = self.pop_value();
@@ -1328,7 +1313,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::MatchKeys => {
+            RealInstruction::MatchKeys => {
                 // MATCH_KEYS doesn't pop subject and keys, only reads them
                 let keys_tuple = self.top_value(); // stack[-1]
                 let subject = self.nth_value(1); // stack[-2]
@@ -1394,7 +1379,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::MatchMapping => {
+            RealInstruction::MatchMapping => {
                 // Pop and push back the subject to keep it on stack
                 let subject = self.pop_value();
 
@@ -1405,7 +1390,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(is_mapping).into());
                 Ok(None)
             }
-            bytecode::Instruction::MatchSequence => {
+            RealInstruction::MatchSequence => {
                 // Pop and push back the subject to keep it on stack
                 let subject = self.pop_value();
 
@@ -1416,11 +1401,8 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(is_sequence).into());
                 Ok(None)
             }
-            bytecode::Instruction::Nop => Ok(None),
-            bytecode::Instruction::PopBlock => {
-                unreachable!("PopBlock is converted to Nop during compilation")
-            }
-            bytecode::Instruction::PopExcept => {
+            RealInstruction::Nop => Ok(None),
+            RealInstruction::PopExcept => {
                 // Pop prev_exc from value stack and restore it
                 let prev_exc = self.pop_value();
                 if vm.is_none(&prev_exc) {
@@ -1438,24 +1420,24 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            bytecode::Instruction::PopJumpIfFalse { target } => {
+            RealInstruction::PopJumpIfFalse { target } => {
                 self.pop_jump_if(vm, target.get(arg), false)
             }
-            bytecode::Instruction::PopJumpIfTrue { target } => {
+            RealInstruction::PopJumpIfTrue { target } => {
                 self.pop_jump_if(vm, target.get(arg), true)
             }
-            bytecode::Instruction::PopTop => {
+            RealInstruction::PopTop => {
                 // Pop value from stack and ignore.
                 self.pop_value();
                 Ok(None)
             }
-            bytecode::Instruction::PushNull => {
+            RealInstruction::PushNull => {
                 // Push NULL for self_or_null slot in call protocol
                 self.push_null();
                 Ok(None)
             }
-            bytecode::Instruction::RaiseVarargs { kind } => self.execute_raise(vm, kind.get(arg)),
-            bytecode::Instruction::Resume { arg: resume_arg } => {
+            RealInstruction::RaiseVarargs { kind } => self.execute_raise(vm, kind.get(arg)),
+            RealInstruction::Resume { arg: resume_arg } => {
                 // Resume execution after yield, await, or at function start
                 // In CPython, this checks instrumentation and eval breaker
                 // For now, we just check for signals/interrupts
@@ -1467,15 +1449,15 @@ impl ExecutingFrame<'_> {
                 // }
                 Ok(None)
             }
-            bytecode::Instruction::ReturnConst { idx } => {
+            RealInstruction::ReturnConst { idx } => {
                 let value = self.code.constants[idx.get(arg) as usize].clone().into();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
-            bytecode::Instruction::ReturnValue => {
+            RealInstruction::ReturnValue => {
                 let value = self.pop_value();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
-            bytecode::Instruction::SetAdd { i } => {
+            RealInstruction::SetAdd { i } => {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
                 let set: &Py<PySet> = unsafe {
@@ -1485,7 +1467,7 @@ impl ExecutingFrame<'_> {
                 set.add(item, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::SetExcInfo => {
+            RealInstruction::SetExcInfo => {
                 // Set the current exception to TOS (for except* handlers)
                 // This updates sys.exc_info() so bare 'raise' will reraise the matched exception
                 let exc = self.top_value();
@@ -1494,7 +1476,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::PushExcInfo => {
+            RealInstruction::PushExcInfo => {
                 // Stack: [exc] -> [prev_exc, exc]
                 let exc = self.pop_value();
                 let prev_exc = vm
@@ -1511,7 +1493,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(exc);
                 Ok(None)
             }
-            bytecode::Instruction::CheckExcMatch => {
+            RealInstruction::CheckExcMatch => {
                 // Stack: [exc, type] -> [exc, bool]
                 let exc_type = self.pop_value();
                 let exc = self.top_value();
@@ -1521,7 +1503,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(result).into());
                 Ok(None)
             }
-            bytecode::Instruction::Reraise { depth } => {
+            RealInstruction::Reraise { depth } => {
                 // inst(RERAISE, (values[oparg], exc -- values[oparg]))
                 //
                 // Stack layout: [values..., exc] where len(values) == oparg
@@ -1548,11 +1530,11 @@ impl ExecutingFrame<'_> {
                     Err(exc)
                 }
             }
-            bytecode::Instruction::SetFunctionAttribute { attr } => {
+            RealInstruction::SetFunctionAttribute { attr } => {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
-            bytecode::Instruction::SetupAnnotations => self.setup_annotations(vm),
-            bytecode::Instruction::BeforeWith => {
+            RealInstruction::SetupAnnotations => self.setup_annotations(vm),
+            RealInstruction::BeforeWith => {
                 // TOS: context_manager
                 // Result: [..., __exit__, __enter__ result]
                 let context_manager = self.pop_value();
@@ -1581,18 +1563,18 @@ impl ExecutingFrame<'_> {
                 self.push_value(enter_res);
                 Ok(None)
             }
-            bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
-            bytecode::Instruction::StoreDeref(i) => {
+            RealInstruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
+            RealInstruction::StoreDeref(i) => {
                 let value = self.pop_value();
                 self.cells_frees[i.get(arg) as usize].set(Some(value));
                 Ok(None)
             }
-            bytecode::Instruction::StoreFast(idx) => {
+            RealInstruction::StoreFast(idx) => {
                 let value = self.pop_value();
                 self.fastlocals.lock()[idx.get(arg) as usize] = Some(value);
                 Ok(None)
             }
-            bytecode::Instruction::StoreFastLoadFast {
+            RealInstruction::StoreFastLoadFast {
                 store_idx,
                 load_idx,
             } => {
@@ -1607,21 +1589,21 @@ impl ExecutingFrame<'_> {
                 self.push_value(load_value);
                 Ok(None)
             }
-            bytecode::Instruction::StoreGlobal(idx) => {
+            RealInstruction::StoreGlobal(idx) => {
                 let value = self.pop_value();
                 self.globals
                     .set_item(self.code.names[idx.get(arg) as usize], value, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::StoreName(idx) => {
+            RealInstruction::StoreName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let value = self.pop_value();
                 self.locals.mapping().ass_subscript(name, Some(value), vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::StoreSubscr => self.execute_store_subscript(vm),
-            bytecode::Instruction::Subscript => self.execute_subscript(vm),
-            bytecode::Instruction::Swap { index } => {
+            RealInstruction::StoreSubscr => self.execute_store_subscript(vm),
+            RealInstruction::Subscript => self.execute_subscript(vm),
+            RealInstruction::Swap { index } => {
                 let len = self.state.stack.len();
                 debug_assert!(len > 0, "stack underflow in SWAP");
                 let i = len - 1; // TOS index
@@ -1638,20 +1620,18 @@ impl ExecutingFrame<'_> {
                 self.state.stack.swap(i, j);
                 Ok(None)
             }
-            bytecode::Instruction::ToBool => {
+            RealInstruction::ToBool => {
                 let obj = self.pop_value();
                 let bool_val = obj.try_to_bool(vm)?;
                 self.push_value(vm.ctx.new_bool(bool_val).into());
                 Ok(None)
             }
-            bytecode::Instruction::UnpackEx { args } => {
+            RealInstruction::UnpackEx { args } => {
                 let args = args.get(arg);
                 self.execute_unpack_ex(vm, args.before, args.after)
             }
-            bytecode::Instruction::UnpackSequence { size } => {
-                self.unpack_sequence(size.get(arg), vm)
-            }
-            bytecode::Instruction::WithExceptStart => {
+            RealInstruction::UnpackSequence { size } => self.unpack_sequence(size.get(arg), vm),
+            RealInstruction::WithExceptStart => {
                 // Stack: [..., __exit__, lasti, prev_exc, exc]
                 // Call __exit__(type, value, tb) and push result
                 // __exit__ is at TOS-3 (below lasti, prev_exc, and exc)
@@ -1674,7 +1654,7 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            bytecode::Instruction::YieldValue { arg: oparg } => {
+            RealInstruction::YieldValue { arg: oparg } => {
                 let value = self.pop_value();
                 // arg=0: direct yield (wrapped for async generators)
                 // arg=1: yield from await/yield-from (NOT wrapped)
@@ -1686,7 +1666,7 @@ impl ExecutingFrame<'_> {
                 };
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            bytecode::Instruction::Send { target } => {
+            RealInstruction::Send { target } => {
                 // Stack: (receiver, value) -> (receiver, retval)
                 // On StopIteration: replace value with stop value and jump to target
                 let exit_label = target.get(arg);
@@ -1710,7 +1690,7 @@ impl ExecutingFrame<'_> {
                     }
                 }
             }
-            bytecode::Instruction::EndSend => {
+            RealInstruction::EndSend => {
                 // Stack: (receiver, value) -> (value)
                 // Pops receiver, leaves value
                 let value = self.pop_value();
@@ -1718,7 +1698,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(value);
                 Ok(None)
             }
-            bytecode::Instruction::CleanupThrow => {
+            RealInstruction::CleanupThrow => {
                 // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) OR re-raise
                 // If StopIteration: pop all 3, extract value, push (None, value)
                 // Otherwise: pop all 3, return Err(exc) for unwind_blocks to handle
@@ -1756,19 +1736,19 @@ impl ExecutingFrame<'_> {
                     .map_err(|_| vm.new_type_error("exception expected".to_owned()))?;
                 Err(exc)
             }
-            bytecode::Instruction::UnaryInvert => {
+            RealInstruction::UnaryInvert => {
                 let a = self.pop_value();
                 let value = vm._invert(&a)?;
                 self.push_value(value);
                 Ok(None)
             }
-            bytecode::Instruction::UnaryNegative => {
+            RealInstruction::UnaryNegative => {
                 let a = self.pop_value();
                 let value = vm._neg(&a)?;
                 self.push_value(value);
                 Ok(None)
             }
-            bytecode::Instruction::UnaryNot => {
+            RealInstruction::UnaryNot => {
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 self.push_value(vm.ctx.new_bool(!value).into());

@@ -275,6 +275,7 @@ pub enum RealInstruction {
     JumpIfNotExcMatch(Arg<Label>) = 131,
     SetExcInfo = 134,
     Subscript = 135,
+    LoadClosure(Arg<NameIdx>) = 253, // TODO: Move to pseudos
 }
 
 const _: () = assert!(mem::size_of::<RealInstruction>() == 1);
@@ -578,6 +579,7 @@ impl InstructionMetadata for RealInstruction {
             Self::StoreFastStoreFast { .. } => 0,
             Self::PopJumpIfNone { .. } => 0,
             Self::PopJumpIfNotNone { .. } => 0,
+            Self::LoadClosure(_) => 1,
         }
     }
 
@@ -771,6 +773,7 @@ impl InstructionMetadata for RealInstruction {
             Self::UnaryNot => w!(UNARY_NOT),
             Self::YieldValue { arg } => w!(YIELD_VALUE, arg),
             Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
+            Self::LoadClosure(_) => w!(LOAD_CLOSURE),
             _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
     }
@@ -785,7 +788,7 @@ pub enum PseudoInstruction {
     JumpNoInterrupt {
         target: Arg<Label>,
     } = 257, // Placeholder
-    LoadClosure(Arg<NameIdx>) = 258,
+    Reserved258 = 258,
     LoadAttrMethod {
         idx: Arg<NameIdx>,
     } = 259,
@@ -850,7 +853,6 @@ impl InstructionMetadata for PseudoInstruction {
         match self {
             Self::Jump { .. } => 0,
             Self::JumpNoInterrupt { .. } => 0,
-            Self::LoadClosure(_) => 1,
             Self::LoadAttrMethod { .. } => 1, // pop obj, push method + self_or_null
             Self::LoadSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
             Self::LoadZeroSuperAttr { .. } => -3 + 1, // pop 3, push [attr]
@@ -860,6 +862,7 @@ impl InstructionMetadata for PseudoInstruction {
             Self::SetupFinally => 0,
             Self::SetupWith => 0,
             Self::StoreFastMaybeNull => 0,
+            Self::Reserved258 => 0,
         }
     }
 
