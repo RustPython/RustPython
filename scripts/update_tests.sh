@@ -19,7 +19,7 @@ Options:
   -h/--help                  Show this help message and exit
 
 Example Usage: 
-$0 -c ~/cpython -r - . -t 300   # Updates all non-updated tests with a timeout value of 300 seconds
+$0 -c ~/cpython -r . -t 300   # Updates all non-updated tests with a timeout value of 300 seconds
 $0 -c ~/cpython -r . -u -j 5    # Updates all non-updated tests + copies files not in cpython into rpython, with maximum 5 processes active at a time
 $0 -c ~/cpython -r . -a         # Updates all non-updated tests + annotates with @unittest.expectedFailure/@unittest.skip
 $0 -r . -s                      # For all current tests, check if @unittest.skip can be downgraded to @unittest.expectedFailure
@@ -56,11 +56,11 @@ ignored_libraries=("multiprocessing" "concurrent")
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -c|--cpython-path)
-            cpython_path="$2"
+            cpython_path="$2/Lib/test"
             shift 2
             ;;
         -r|--rpython-path)
-            rpython_path="$2"
+            rpython_path="$2/Lib/test"
             shift 2
             ;;
         -u|--copy-untracked)
@@ -93,10 +93,13 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+# -------------------------------------- Constants ------------------------------------- #
+RUSTPYTHON_POSSIBLE_SKIP_RE="@unittest.skip.*\([\"']TODO:\s*RUSTPYTHON.*[\"']\)"
+RUSTPYTHON_CANONICAL_SKIP_RE="@unittest.skip\('TODO: RUSTPYTHON; .*'\)"
+RUSTPYTHON_CANONICAL_EX_FAILURE="@unittest.expectedFailure # TODO: RUSTPYTHON"
+RUSTPYTHON_CANONICAL_EX_FAILURE_RE="\s@unittest\.expectedFailure # TODO: RUSTPYTHON.*"
 
-cpython_path="$cpython_path/Lib/test"
-rpython_path="$rpython_path/Lib/test"
-
+# --------------------------------- Updating functions --------------------------------- #
 
 update_tests() {
     local libraries=("$@")
@@ -135,11 +138,13 @@ update_test() {
     fi
 }
 
+# --------------------------------- Downgrade Skips functions --------------------------------- #
+
 check_skips() {
     local libraries=("$@")
     for lib in "${libraries[@]}"
     do
-        if grep -qiE "@unittest.skip.*\('TODO:\s*RUSTPYTHON.*'\)" "$rpython_path/$lib"; then
+        if grep -qiE "$RUSTPYTHON_POSSIBLE_SKIP_RE" "$rpython_path/$lib"; then
             sem
             check_skip "$lib" &
         else
@@ -156,100 +161,6 @@ check_skip() {
     remove_skips $rlib_path
 
     annotate_lib $lib $rlib_path
-}
-
-annotate_lib() {
-    local lib=${1//\//.}
-    local rlib_path=$2
-    local output=$(rustpython $lib 2>&1)
-
-    if grep -q "NO TESTS RAN" <<< "$output"; then
-        echo "No tests ran in $lib. skipping annotation"
-        return
-    fi
-    
-    echo "Annotating $lib"
-
-    local attempts=0
-    while ! grep -q "Tests result: SUCCESS" <<< "$output"; do
-        ((attempts++))
-        # echo "$lib failing, annotating..."
-        readarray -t failed_tests <<< "$(echo "$output" | awk '/^(FAIL:|ERROR:)/ {print $2}' | sort -u)"
-        
-        # If the test fails/errors, then expectedFailure it
-        for test in "${failed_tests[@]}"
-        do
-            if already_failed $rlib_path $test; then
-                replace_expected_with_skip $rlib_path $test
-            else
-                add_above_test $rlib_path $test "@unittest.expectedFailure # TODO: RUSTPYTHON" 
-            fi
-        done
-
-        # If the test crashes/hangs, then skip it
-        if grep -q "\.\.\.$" <<< "$output"; then
-            crashing_test=$(echo "$output" | grep '\.\.\.$' | head -n 1 | awk '{print $1}')
-            if grep -q "Timeout" <<< "$output"; then
-                hanging=true
-            else
-                hanging=false
-            fi
-            apply_skip "$rlib_path" "$crashing_test" $hanging
-        fi
-
-        output=$(rustpython $lib 2>&1)
-
-        if [[ attempts -gt 10 ]]; then 
-            echo "Issue annotating $lib" >&2
-            return;
-        fi
-    done
-    echo "Successfully updated $lib"
-
-    unset SKIP_BACKUP
-}
-
-replace_expected_with_skip() {
-    file=$1
-    test_name=$2
-    sed -E "/^\s*@unittest\.expectedFailure\s+# TODO: RUSTPYTHON/ { N; /\n\s*def $test_name/ { s/^(\s*)@unittest\.expectedFailure\s+# TODO: RUSTPYTHON/\1@unittest.skip\('TODO: RUSTPYTHON'\)/ } }" -i $file
-}
-
-already_failed() {
-    file=$1
-    test_name=$2
-    grep -qPz "\s*@unittest\.expectedFailure # TODO: RUSTPYTHON\n\s*def\s+${test_name}\(" $file
-}
-
-files_equal() {
-    cmp --silent "$1" "$2"
-}
-
-rustpython() {
-    cargo run --release --features encodings,sqlite -- -m test -j 1 -u all --fail-env-changed --timeout "$timeout" -v "$@"
-}
-
-sem() {
-    while (( $(jobs -rp | wc -l) >= $num_jobs )); do
-        sleep 0.1  # brief pause before checking again
-    done
-}
-
-add_above_test() {
-    local file=$1
-    local test=$2
-    local line=$3
-    sed -i "s/^\([[:space:]]*\)def $test(/\1$line\n\1def $test(/" "$file"
-}
-
-remove_skips() {
-    local rlib_path=$1
-
-    echo "Removing all skips from $rlib_path"
-
-    backup_skips "$rlib_path"
-
-    sed -i -E '/^[[:space:]]*@unittest\.skip.*\(["'\'']TODO\s?:\s?RUSTPYTHON.*["'\'']\)/Id' $rlib_path
 }
 
 apply_skip() {
@@ -285,18 +196,124 @@ backup_skips() {
     done
 }
 
-if ! $check_skip_flag; then
-    echo "Updating Tests"
+# --------------------------------- General functions --------------------------------- #
 
-    if [[ ${#libraries[@]} -eq 0 ]]; then
-        readarray -t libraries <<< $(find ${cpython_path} -type f -printf "%P\n" | grep -vE "$(IFS=\|; echo "${ignored_libraries[*]}")")
-    fi
-    update_tests "${libraries[@]}"
-else
-    echo "Checking Skips"
+annotate_lib() {
+    local lib=${1//\//.}
+    local rlib_path=$2
+    local output=$(rustpython $lib 2>&1)
 
-    if [[ ${#libraries[@]} -eq 0 ]]; then
-        readarray -t libraries <<< $(find ${rpython_path} -iname "test_*.py" -type f -printf "%P\n" | grep -vE "$(IFS=\|; echo "${ignored_libraries[*]}")")
+    if grep -q "NO TESTS RAN" <<< "$output"; then
+        echo "No tests ran in $lib. skipping annotation"
+        return
     fi
-    check_skips "${libraries[@]}"
-fi
+    
+    echo "Annotating $lib"
+
+    local attempts=0
+    while ! grep -q "Tests result: SUCCESS" <<< "$output"; do
+        ((attempts++))
+        # echo "$lib failing, annotating..."
+        readarray -t failed_tests <<< "$(echo "$output" | awk '/^(FAIL:|ERROR:)/ {print $2}' | sort -u)"
+        
+        # If the test fails/errors, then expectedFailure it
+        for test in "${failed_tests[@]}"
+        do
+            if already_failed $rlib_path $test; then
+                replace_expected_with_skip $rlib_path $test
+            else
+                add_above_test $rlib_path $test "$RUSTPYTHON_CANONICAL_EX_FAILURE" 
+            fi
+        done
+
+        # If the test crashes/hangs, then skip it
+        if grep -q "\.\.\.$" <<< "$output"; then
+            crashing_test=$(echo "$output" | grep '\.\.\.$' | head -n 1 | awk '{print $1}')
+            if grep -q "Timeout" <<< "$output"; then
+                hanging=true
+            else
+                hanging=false
+            fi
+            apply_skip "$rlib_path" "$crashing_test" $hanging
+        fi
+
+        output=$(rustpython $lib 2>&1)
+
+        if [[ $attempts -gt 15 ]]; then 
+            echo "Issue annotating $lib" >&2
+            return;
+        fi
+    done
+    echo "Successfully updated $lib"
+
+    unset SKIP_BACKUP
+}
+
+sem() {
+    while (( $(jobs -rp | wc -l) >= $num_jobs )); do
+        sleep 0.1  # brief pause before checking again
+    done
+}
+
+add_above_test() {
+    local file=$1
+    local test=$2
+    local line=$3
+    sed -i "s/^\([[:space:]]*\)def $test(/\1$line\n\1def $test(/" "$file"
+}
+
+# --------------------------------- Utility functions --------------------------------- #
+
+rustpython() {
+    cargo run --release --features encodings,sqlite -- -m test -j 1 -u all --fail-env-changed --timeout "$timeout" -v "$@"
+}
+
+replace_expected_with_skip() {
+    file=$1
+    test_name=$2
+    sed -E "/$RUSTPYTHON_CANONICAL_EX_FAILURE_RE/ { N; /\n\s*def $test_name/ { s/^(\s*)@unittest\.expectedFailure\s+# TODO: RUSTPYTHON/\1@unittest.skip\('TODO: RUSTPYTHON'\)/ } }" -i $file
+}
+
+already_failed() {
+    file=$1
+    test_name=$2
+    grep -qPz "$RUSTPYTHON_CANONICAL_EX_FAILURE_RE\n\s*def\s+${test_name}\(" $file
+}
+
+files_equal() {
+    cmp --silent "$1" "$2"
+}
+
+
+remove_skips() {
+    local rlib_path=$1
+
+    echo "Removing all skips from $rlib_path"
+
+    backup_skips "$rlib_path"
+
+    sed -i -E '/^[[:space:]]*@unittest\.skip.*\(["'\'']TODO\s?:\s?RUSTPYTHON.*["'\'']\)/Id' $rlib_path
+}
+
+main() {
+    if ! $check_skip_flag; then
+        echo "Updating Tests"
+
+        # If libraries are not specified, then update all tests
+        if [[ "${#libraries[@]}" -eq 0 ]]; then
+            readarray -t libraries <<< $(find ${cpython_path} -type f -printf "%P\n" | grep -vE "$(IFS=\|; echo "${ignored_libraries[*]}")")
+        fi
+        update_tests "${libraries[@]}"
+    else
+        echo "Checking Skips"
+
+        # If libraries are not specified, then check all tests
+        if [[ ${#libraries[@]} -eq 0 ]]; then
+            readarray -t libraries <<< $(find ${rpython_path} -iname "test_*.py" -type f -printf "%P\n" | grep -vE "$(IFS=\|; echo "${ignored_libraries[*]}")")
+        fi
+        check_skips "${libraries[@]}"
+    fi
+}
+
+
+main
