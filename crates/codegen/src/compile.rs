@@ -274,33 +274,25 @@ pub fn compile_expression(
     Ok(code)
 }
 
-// TODO: Unify Real and Pseudo arms
 macro_rules! emit {
-    // Real
-    ($c:expr, RealInstruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
-        $c.emit_arg($arg, |x| RealInstruction::$op { $arg: x })
+    // Struct variant with single identifier (e.g., Foo::A { arg })
+    ($c:expr, $enum:ident :: $op:ident { $arg:ident $(,)? } $(,)?) => {
+        $c.emit_arg($arg, |x| $enum::$op { $arg: x })
     };
-    ($c:expr, RealInstruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
-        $c.emit_arg($arg_val, |x| RealInstruction::$op { $arg: x })
+
+    // Struct variant with explicit value (e.g., Foo::A { arg: 42 })
+    ($c:expr, $enum:ident :: $op:ident { $arg:ident : $arg_val:expr $(,)? } $(,)?) => {
+        $c.emit_arg($arg_val, |x| $enum::$op { $arg: x })
     };
-    ($c:expr, RealInstruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
-        $c.emit_arg($arg_val, RealInstruction::$op)
+
+    // Tuple variant (e.g., Foo::B(42))
+    ($c:expr, $enum:ident :: $op:ident($arg_val:expr $(,)? ) $(,)?) => {
+        $c.emit_arg($arg_val, $enum::$op)
     };
-    ($c:expr, RealInstruction::$op:ident$(,)?) => {
-        $c.emit_no_arg(RealInstruction::$op)
-    };
-    // Pseudo
-    ($c:expr, PseudoInstruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
-        $c.emit_arg($arg, |x| PseudoInstruction::$op { $arg: x })
-    };
-    ($c:expr, PseudoInstruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
-        $c.emit_arg($arg_val, |x| PseudoInstruction::$op { $arg: x })
-    };
-    ($c:expr, PseudoInstruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
-        $c.emit_arg($arg_val, PseudoInstruction::$op)
-    };
-    ($c:expr, PseudoInstruction::$op:ident$(,)?) => {
-        $c.emit_no_arg(PseudoInstruction::$op)
+
+    // No-arg variant (e.g., Foo::C)
+    ($c:expr, $enum:ident :: $op:ident $(,)?) => {
+        $c.emit_no_arg($enum::$op)
     };
 }
 
