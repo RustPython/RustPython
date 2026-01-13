@@ -340,11 +340,14 @@ if __name__ == "__main__":
 
     # Quick upgrade: auto-fill --from, --to, -o from path
     if args.quick_upgrade is not None:
-        path_str = str(args.quick_upgrade)
+        # Normalize path separators to forward slashes for cross-platform support
+        path_str = str(args.quick_upgrade).replace("\\", "/")
         lib_marker = "/Lib/"
 
         if lib_marker not in path_str:
-            parser.error(f"--quick-upgrade path must contain '/Lib/' (got: {path_str})")
+            parser.error(
+                f"--quick-upgrade path must contain '/Lib/' or '\\Lib\\' (got: {args.quick_upgrade})"
+            )
 
         idx = path_str.index(lib_marker)
         lib_path = pathlib.Path(path_str[idx + 1 :])
