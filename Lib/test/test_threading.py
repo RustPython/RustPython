@@ -319,7 +319,7 @@ class ThreadTests(BaseTestCase):
 
     # PyThreadState_SetAsyncExc() is a CPython-only gimmick, not (currently)
     # exposed at the Python level.  This test relies on ctypes to get at it.
-    @unittest.expectedFailure # TODO: RUSTPYTHON; expects @cpython_only
+    @cpython_only
     def test_PyThreadState_SetAsyncExc(self):
         ctypes = import_module("ctypes")
 

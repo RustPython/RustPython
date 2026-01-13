@@ -545,8 +545,6 @@ class ConnectionTests(unittest.TestCase):
                     cx.isolation_level = level
                     self.assertEqual(cx.isolation_level, level)
 
-    # TODO: RUSTPYTHON
-    # @unittest.expectedFailure
     def test_connection_reinit(self):
         db = ":memory:"
         cx = sqlite.connect(db)
