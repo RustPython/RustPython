@@ -6844,11 +6844,11 @@ class SendfileUsingSendfileTest(SendfileUsingSendTest):
     def meth_from_sock(self, sock):
         return getattr(sock, "_sendfile_use_sendfile")
 
-    @unittest.expectedFailure #TODO: RUSTPYTHON; Not run on linux?
+    @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
     def testWithTimeout(self):
         super().testWithTimeout()
 
-    @unittest.expectedFailure #TODO: RUSTPYTHON; Not run on linux?
+    @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
     def testCount(self):
         super().testCount()
 

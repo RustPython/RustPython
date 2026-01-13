@@ -255,7 +255,7 @@ class ThreadedImportTests(unittest.TestCase):
                           'partial', 'cfimport.py')
         script_helper.assert_python_ok(fn)
 
-    @unittest.expectedFailureIfWindows # TODO: RUSTPYTHON; AttributeError: module '_winapi' has no attribute 'NMPWAIT_WAIT_FOREVER - Not run on linux?
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; AttributeError: module "_winapi" has no attribute "NMPWAIT_WAIT_FOREVER"')
     def test_multiprocessing_pool_circular_import(self):
         # Regression test for bpo-41567
         fn = os.path.join(os.path.dirname(__file__),
