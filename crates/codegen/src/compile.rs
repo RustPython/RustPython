@@ -3384,6 +3384,94 @@ impl Compiler {
         Ok(num_annotations)
     }
 
+    /// Compile function annotations as a closure (PEP 649)
+    /// Returns true if an __annotate__ closure was created
+    /// NOTE: This requires symbol table support for annotation scopes.
+    /// Currently unused - kept for future implementation reference.
+    #[allow(dead_code, clippy::cast_possible_truncation)]
+    fn compile_annotations_closure(
+        &mut self,
+        func_name: &str,
+        parameters: &Parameters,
+        returns: Option<&Expr>,
+    ) -> CompileResult<bool> {
+        // Count annotations first
+        let parameters_iter = core::iter::empty()
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .chain(&parameters.kwonlyargs)
+            .map(|x| &x.parameter)
+            .chain(parameters.vararg.as_deref())
+            .chain(parameters.kwarg.as_deref());
+
+        let num_annotations: u32 = parameters_iter.filter(|p| p.annotation.is_some()).count()
+            as u32
+            + if returns.is_some() { 1 } else { 0 };
+
+        if num_annotations == 0 {
+            return Ok(false);
+        }
+
+        // Create a new scope for the __annotate__ function
+        let annotate_name = format!("<annotate of {func_name}>");
+        self.push_output(
+            bytecode::CodeFlags::OPTIMIZED | bytecode::CodeFlags::NEWLOCALS,
+            0, // posonlyarg_count
+            1, // arg_count (format parameter)
+            0, // kwonlyarg_count
+            annotate_name,
+        )?;
+
+        // Add 'format' parameter to varnames
+        self.current_code_info()
+            .metadata
+            .varnames
+            .insert("format".to_owned());
+
+        // Compile annotations inside the new scope
+        let parameters_iter = core::iter::empty()
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .chain(&parameters.kwonlyargs)
+            .map(|x| &x.parameter)
+            .chain(parameters.vararg.as_deref())
+            .chain(parameters.kwarg.as_deref());
+
+        for param in parameters_iter {
+            if let Some(annotation) = &param.annotation {
+                self.emit_load_const(ConstantData::Str {
+                    value: self.mangle(param.name.as_str()).into_owned().into(),
+                });
+                self.compile_annotation(annotation)?;
+            }
+        }
+
+        // Handle return annotation
+        if let Some(annotation) = returns {
+            self.emit_load_const(ConstantData::Str {
+                value: "return".into(),
+            });
+            self.compile_annotation(annotation)?;
+        }
+
+        // Build the map and return it
+        emit!(
+            self,
+            Instruction::BuildMap {
+                size: num_annotations,
+            }
+        );
+        emit!(self, Instruction::ReturnValue);
+
+        // Exit the scope and get the code object
+        let annotate_code = self.exit_scope();
+
+        // Make a closure from the code object
+        self.make_closure(annotate_code, bytecode::MakeFunctionFlags::empty())?;
+
+        Ok(true)
+    }
+
     // = compiler_function
     #[allow(clippy::too_many_arguments)]
     fn compile_function_def(
@@ -3449,6 +3537,9 @@ impl Compiler {
         }
 
         // Compile annotations
+        // TODO: Full PEP 649 deferred annotation compilation requires symbol table changes.
+        // Currently using immediate evaluation (like PEP 563 without string conversion).
+        // The __annotate__ infrastructure is in place in function.rs, module.rs, type.rs.
         let mut annotations_flag = bytecode::MakeFunctionFlags::empty();
         let num_annotations = self.visit_annotations(parameters, returns)?;
         if num_annotations > 0 {

@@ -401,6 +401,12 @@ impl PyFunction {
                 ))
             })?;
             *self.type_params.lock() = type_params;
+        } else if attr == bytecode::MakeFunctionFlags::ANNOTATE {
+            // PEP 649: Store the __annotate__ function closure
+            if !attr_value.is_callable() {
+                return Err(vm.new_type_error("__annotate__ must be callable".to_owned()));
+            }
+            *self.annotate.lock() = Some(attr_value);
         } else {
             unreachable!("This is a compiler bug");
         }
@@ -588,36 +594,50 @@ impl PyFunction {
 
     #[pygetset]
     fn __annotations__(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        let mut annotations = self.annotations.lock();
-        let annotate = self.annotate.lock();
-
-        if annotations.is_none() {
-            // If we have a callable __annotate__, call it to get annotations
-            if let Some(ref annotate_fn) = *annotate {
-                if annotate_fn.is_callable() {
-                    // Call __annotate__(1) where 1 = Format.VALUE
-                    let one = vm.ctx.new_int(1);
-                    let ann_dict = annotate_fn.call((one,), vm)?;
-                    let ann_dict =
-                        ann_dict
-                            .downcast::<crate::builtins::PyDict>()
-                            .map_err(|obj| {
-                                vm.new_type_error(format!(
-                                    "__annotate__ returned non-dict of type '{}'",
-                                    obj.class().name()
-                                ))
-                            })?;
-                    *annotations = Some(ann_dict.clone());
-                    return Ok(ann_dict);
-                }
+        // First check if we have cached annotations
+        {
+            let annotations = self.annotations.lock();
+            if let Some(ref ann) = *annotations {
+                return Ok(ann.clone());
             }
-            // No __annotate__ or not callable, create empty dict
-            let new_dict = vm.ctx.new_dict();
-            *annotations = Some(new_dict.clone());
-            return Ok(new_dict);
         }
 
-        Ok(annotations.clone().unwrap())
+        // Check for callable __annotate__ and clone it before calling
+        let annotate_fn = {
+            let annotate = self.annotate.lock();
+            if let Some(ref func) = *annotate {
+                if func.is_callable() {
+                    Some(func.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        // Release locks before calling __annotate__ to avoid deadlock
+        if let Some(annotate_fn) = annotate_fn {
+            let one = vm.ctx.new_int(1);
+            let ann_dict = annotate_fn.call((one,), vm)?;
+            let ann_dict = ann_dict
+                .downcast::<crate::builtins::PyDict>()
+                .map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "__annotate__ returned non-dict of type '{}'",
+                        obj.class().name()
+                    ))
+                })?;
+
+            // Cache the result
+            *self.annotations.lock() = Some(ann_dict.clone());
+            return Ok(ann_dict);
+        }
+
+        // No __annotate__ or not callable, create empty dict
+        let new_dict = vm.ctx.new_dict();
+        *self.annotations.lock() = Some(new_dict.clone());
+        Ok(new_dict)
     }
 
     #[pygetset(setter)]

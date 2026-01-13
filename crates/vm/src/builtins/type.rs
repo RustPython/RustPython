@@ -899,10 +899,8 @@ impl PyType {
 
         let mut attrs = self.attributes.write();
         attrs.insert(identifier!(vm, __annotate_func__), value.clone());
-        // Clear cached annotations if value is not None
-        if !vm.is_none(&value) {
-            attrs.swap_remove(identifier!(vm, __annotations_cache__));
-        }
+        // Always clear cached annotations when __annotate__ is updated
+        attrs.swap_remove(identifier!(vm, __annotations_cache__));
 
         Ok(())
     }
