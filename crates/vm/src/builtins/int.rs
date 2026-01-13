@@ -12,7 +12,8 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
+        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
+        PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -381,10 +382,10 @@ impl PyInt {
     #[pymethod]
     fn __round__(
         zelf: PyRef<Self>,
-        ndigits: OptionalArg<PyIntRef>,
+        ndigits: OptionalOption<PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        if let OptionalArg::Present(ndigits) = ndigits {
+        if let Some(ndigits) = ndigits.flatten() {
             let ndigits = ndigits.as_bigint();
             // round(12345, -2) == 12300
             // If precision >= 0, then any integer is already rounded correctly
