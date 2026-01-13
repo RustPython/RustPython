@@ -497,7 +497,7 @@ class RecursiveUseOfCursors(unittest.TestCase):
             self.assertRaisesRegex(sqlite.ProgrammingError, self.msg,
                                    self.cur.fetchall)
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs; Not run on linux?")
+    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_recursive_cursor_close(self):
         conv = lambda x: self.cur.close()
         with patch.dict(sqlite.converters, {"CLOSE": conv}):

@@ -132,7 +132,7 @@ class TestBase(unittest.TestCase):
 
 class TestBugs(unittest.TestCase):
 
-    @unittest.skip("TODO: RUSTPYTHON; figure out how to detect sort mutation that doesn't change list length; Only run on linux?")
+    @unittest.skip("TODO: RUSTPYTHON; figure out how to detect sort mutation that doesn't change list length")
     def test_bug453523(self):
         # bug 453523 -- list.sort() crasher.
         # If this fails, the most likely outcome is a core dump.
