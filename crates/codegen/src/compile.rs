@@ -29,7 +29,7 @@ use ruff_python_ast::{
     InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
     Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
     PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
-    Stmt, StmtExpr, TString, TypeParam, TypeParamParamSpec, TypeParamTypeVar,
+    Stmt, StmtAnnAssign, StmtExpr, TString, TypeParam, TypeParamParamSpec, TypeParamTypeVar,
     TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
     visitor::{Visitor, walk_expr},
 };
@@ -676,6 +676,62 @@ impl Compiler {
         Ok(self.current_symbol_table())
     }
 
+    /// Push the annotation symbol table from the next sub_table's annotation_block
+    /// The annotation_block is stored in the function's scope, which is the next sub_table
+    /// Returns true if annotation_block exists, false otherwise
+    fn push_annotation_symbol_table(&mut self) -> bool {
+        let current_table = self
+            .symbol_table_stack
+            .last_mut()
+            .expect("no current symbol table");
+
+        // The annotation_block is in the next sub_table (function scope)
+        let next_idx = current_table.next_sub_table;
+        if next_idx >= current_table.sub_tables.len() {
+            return false;
+        }
+
+        let next_table = &mut current_table.sub_tables[next_idx];
+        if let Some(annotation_block) = next_table.annotation_block.take() {
+            self.symbol_table_stack.push(*annotation_block);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Push the annotation symbol table for module/class level annotations
+    /// This takes annotation_block from the current symbol table (not sub_tables)
+    fn push_current_annotation_symbol_table(&mut self) -> bool {
+        let current_table = self
+            .symbol_table_stack
+            .last_mut()
+            .expect("no current symbol table");
+
+        // For modules/classes, annotation_block is directly in the current table
+        if let Some(annotation_block) = current_table.annotation_block.take() {
+            self.symbol_table_stack.push(*annotation_block);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Pop the annotation symbol table and restore it to the function scope's annotation_block
+    fn pop_annotation_symbol_table(&mut self) {
+        let annotation_table = self.symbol_table_stack.pop().expect("compiler bug");
+        let current_table = self
+            .symbol_table_stack
+            .last_mut()
+            .expect("no current symbol table");
+
+        // Restore to the next sub_table (function scope) where it came from
+        let next_idx = current_table.next_sub_table;
+        if next_idx < current_table.sub_tables.len() {
+            current_table.sub_tables[next_idx].annotation_block = Some(Box::new(annotation_table));
+        }
+    }
+
     /// Pop the current symbol table off the stack
     fn pop_symbol_table(&mut self) -> SymbolTable {
         self.symbol_table_stack.pop().expect("compiler bug")
@@ -933,6 +989,12 @@ impl Compiler {
                 0,
                 0,
             ),
+            CompilerScope::Annotation => (
+                bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
+                0,
+                1, // annotation scope takes one argument (format)
+                0,
+            ),
         };
 
         // Get private name from parent scope
@@ -1058,6 +1120,43 @@ impl Compiler {
         let stack_top = compiler_unwrap_option(self, pop);
         // No parent scope stack to maintain
         unwrap_internal(self, stack_top.finalize_code(&self.opts))
+    }
+
+    /// Exit annotation scope - similar to exit_scope but restores annotation_block to parent
+    fn exit_annotation_scope(&mut self) -> CodeObject {
+        self.pop_annotation_symbol_table();
+
+        let pop = self.code_stack.pop();
+        let stack_top = compiler_unwrap_option(self, pop);
+        unwrap_internal(self, stack_top.finalize_code(&self.opts))
+    }
+
+    /// Enter annotation scope using the symbol table's annotation_block
+    /// Returns false if no annotation_block exists
+    fn enter_annotation_scope(&mut self, func_name: &str) -> CompileResult<bool> {
+        if !self.push_annotation_symbol_table() {
+            return Ok(false);
+        }
+
+        let key = self.symbol_table_stack.len() - 1;
+        let lineno = self.get_source_line_number().get();
+        let annotate_name = format!("<annotate of {func_name}>");
+
+        self.enter_scope(
+            &annotate_name,
+            CompilerScope::Annotation,
+            key,
+            lineno.to_u32(),
+        )?;
+
+        // Override arg_count since enter_scope sets it to 1 but we need the varnames
+        // setup to be correct too
+        self.current_code_info()
+            .metadata
+            .varnames
+            .insert("format".to_owned());
+
+        Ok(true)
     }
 
     /// Push a new fblock
@@ -1506,8 +1605,9 @@ impl Compiler {
             emit!(self, Instruction::StoreGlobal(doc))
         }
 
+        // PEP 649: Generate __annotate__ function instead of SetupAnnotations
         if Self::find_ann(statements) {
-            emit!(self, Instruction::SetupAnnotations);
+            self.compile_module_annotate(statements)?;
         }
 
         self.compile_statements(statements)?;
@@ -1526,8 +1626,9 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
 
+        // PEP 649: Generate __annotate__ function instead of SetupAnnotations
         if Self::find_ann(body) {
-            emit!(self, Instruction::SetupAnnotations);
+            self.compile_module_annotate(body)?;
         }
 
         if let Some((last, body)) = body.split_last() {
@@ -1666,16 +1767,17 @@ impl Compiler {
         // Determine the operation type based on symbol scope
         let is_function_like = self.ctx.in_func();
 
-        // Look up the symbol, handling TypeParams scope specially
-        let (symbol_scope, _is_typeparams) = {
+        // Look up the symbol, handling TypeParams and Annotation scopes specially
+        let (symbol_scope, _is_special_scope) = {
             let current_table = self.current_symbol_table();
             let is_typeparams = current_table.typ == CompilerScope::TypeParams;
+            let is_annotation = current_table.typ == CompilerScope::Annotation;
 
             // First try to find in current table
             let symbol = current_table.lookup(name.as_ref());
 
-            // If not found and we're in TypeParams scope, try parent scope
-            let symbol = if symbol.is_none() && is_typeparams {
+            // If not found and we're in TypeParams or Annotation scope, try parent scope
+            let symbol = if symbol.is_none() && (is_typeparams || is_annotation) {
                 self.symbol_table_stack
                     .get(self.symbol_table_stack.len() - 2) // Try to get parent index
                     .expect("Symbol has no parent! This is a compiler bug.")
@@ -1684,7 +1786,7 @@ impl Compiler {
                 symbol
             };
 
-            (symbol.map(|s| s.scope), is_typeparams)
+            (symbol.map(|s| s.scope), is_typeparams || is_annotation)
         };
 
         let actual_scope = symbol_scope.ok_or_else(|| {
@@ -3344,58 +3446,21 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compile function annotations
-    // = compiler_visit_annotations
-    fn visit_annotations(
-        &mut self,
-        parameters: &Parameters,
-        returns: Option<&Expr>,
-    ) -> CompileResult<u32> {
-        let mut num_annotations = 0;
-
-        // Handle parameter annotations
-        let parameters_iter = core::iter::empty()
-            .chain(&parameters.posonlyargs)
-            .chain(&parameters.args)
-            .chain(&parameters.kwonlyargs)
-            .map(|x| &x.parameter)
-            .chain(parameters.vararg.as_deref())
-            .chain(parameters.kwarg.as_deref());
-
-        for param in parameters_iter {
-            if let Some(annotation) = &param.annotation {
-                self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(param.name.as_str()).into_owned().into(),
-                });
-                self.compile_annotation(annotation)?;
-                num_annotations += 1;
-            }
-        }
-
-        // Handle return annotation last
-        if let Some(annotation) = returns {
-            self.emit_load_const(ConstantData::Str {
-                value: "return".into(),
-            });
-            self.compile_annotation(annotation)?;
-            num_annotations += 1;
-        }
-
-        Ok(num_annotations)
-    }
-
     /// Compile function annotations as a closure (PEP 649)
     /// Returns true if an __annotate__ closure was created
-    /// NOTE: This requires symbol table support for annotation scopes.
-    /// Currently unused - kept for future implementation reference.
-    #[allow(dead_code, clippy::cast_possible_truncation)]
+    /// Uses symbol table's annotation_block for proper scoping.
     fn compile_annotations_closure(
         &mut self,
         func_name: &str,
         parameters: &Parameters,
         returns: Option<&Expr>,
     ) -> CompileResult<bool> {
-        // Count annotations first
+        // Try to enter annotation scope - returns false if no annotation_block exists
+        if !self.enter_annotation_scope(func_name)? {
+            return Ok(false);
+        }
+
+        // Count annotations
         let parameters_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
@@ -3404,31 +3469,12 @@ impl Compiler {
             .chain(parameters.vararg.as_deref())
             .chain(parameters.kwarg.as_deref());
 
-        let num_annotations: u32 = parameters_iter.filter(|p| p.annotation.is_some()).count()
-            as u32
-            + if returns.is_some() { 1 } else { 0 };
+        let num_annotations: u32 =
+            u32::try_from(parameters_iter.filter(|p| p.annotation.is_some()).count())
+                .expect("too many annotations")
+                + if returns.is_some() { 1 } else { 0 };
 
-        if num_annotations == 0 {
-            return Ok(false);
-        }
-
-        // Create a new scope for the __annotate__ function
-        let annotate_name = format!("<annotate of {func_name}>");
-        self.push_output(
-            bytecode::CodeFlags::OPTIMIZED | bytecode::CodeFlags::NEWLOCALS,
-            0, // posonlyarg_count
-            1, // arg_count (format parameter)
-            0, // kwonlyarg_count
-            annotate_name,
-        )?;
-
-        // Add 'format' parameter to varnames
-        self.current_code_info()
-            .metadata
-            .varnames
-            .insert("format".to_owned());
-
-        // Compile annotations inside the new scope
+        // Compile annotations inside the annotation scope
         let parameters_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
@@ -3463,11 +3509,103 @@ impl Compiler {
         );
         emit!(self, Instruction::ReturnValue);
 
-        // Exit the scope and get the code object
-        let annotate_code = self.exit_scope();
+        // Exit the annotation scope and get the code object
+        let annotate_code = self.exit_annotation_scope();
 
         // Make a closure from the code object
         self.make_closure(annotate_code, bytecode::MakeFunctionFlags::empty())?;
+
+        Ok(true)
+    }
+
+    /// Collect simple (non-conditional) annotations from module body
+    /// Returns list of (name, annotation_expr) pairs
+    fn collect_simple_annotations(body: &[Stmt]) -> Vec<(&str, &Expr)> {
+        let mut annotations = Vec::new();
+        for stmt in body {
+            if let Stmt::AnnAssign(StmtAnnAssign {
+                target,
+                annotation,
+                simple,
+                ..
+            }) = stmt
+                && *simple
+                && let Expr::Name(ExprName { id, .. }) = target.as_ref()
+            {
+                annotations.push((id.as_str(), annotation.as_ref()));
+            }
+        }
+        annotations
+    }
+
+    /// Compile module-level __annotate__ function (PEP 649)
+    /// Returns true if __annotate__ was created and stored
+    fn compile_module_annotate(&mut self, body: &[Stmt]) -> CompileResult<bool> {
+        // Collect simple annotations from module body first
+        let annotations = Self::collect_simple_annotations(body);
+        let num_annotations = u32::try_from(annotations.len()).expect("too many annotations");
+
+        if num_annotations == 0 {
+            return Ok(false);
+        }
+
+        // Try to push annotation symbol table from current scope
+        if !self.push_current_annotation_symbol_table() {
+            return Ok(false);
+        }
+
+        // Enter annotation scope for code generation
+        let key = self.symbol_table_stack.len() - 1;
+        let lineno = self.get_source_line_number().get();
+        self.enter_scope(
+            "<annotate of module>",
+            CompilerScope::Annotation,
+            key,
+            lineno.to_u32(),
+        )?;
+
+        // Add 'format' parameter to varnames
+        self.current_code_info()
+            .metadata
+            .varnames
+            .insert("format".to_owned());
+
+        // Compile annotations inside the annotation scope
+        for (name, annotation) in annotations {
+            self.emit_load_const(ConstantData::Str {
+                value: self.mangle(name).into_owned().into(),
+            });
+            self.compile_annotation(annotation)?;
+        }
+
+        // Build the map and return it
+        emit!(
+            self,
+            Instruction::BuildMap {
+                size: num_annotations,
+            }
+        );
+        emit!(self, Instruction::ReturnValue);
+
+        // Exit annotation scope - pop symbol table, restore to parent's annotation_block, and get code
+        let annotation_table = self.pop_symbol_table();
+        // Restore annotation_block to module's symbol table
+        self.symbol_table_stack
+            .last_mut()
+            .expect("no module symbol table")
+            .annotation_block = Some(Box::new(annotation_table));
+        // Exit code scope
+        let pop = self.code_stack.pop();
+        let annotate_code = unwrap_internal(
+            self,
+            compiler_unwrap_option(self, pop).finalize_code(&self.opts),
+        );
+
+        // Make a closure from the code object
+        self.make_closure(annotate_code, bytecode::MakeFunctionFlags::empty())?;
+
+        // Store as __annotate__
+        self.store_name("__annotate__")?;
 
         Ok(true)
     }
@@ -3536,21 +3674,12 @@ impl Compiler {
             }
         }
 
-        // Compile annotations
-        // TODO: Full PEP 649 deferred annotation compilation requires symbol table changes.
-        // Currently using immediate evaluation (like PEP 563 without string conversion).
-        // The __annotate__ infrastructure is in place in function.rs, module.rs, type.rs.
-        let mut annotations_flag = bytecode::MakeFunctionFlags::empty();
-        let num_annotations = self.visit_annotations(parameters, returns)?;
-        if num_annotations > 0 {
-            annotations_flag = bytecode::MakeFunctionFlags::ANNOTATIONS;
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    size: num_annotations,
-                }
-            );
-        }
+        // Compile annotations as closure (PEP 649)
+        let annotations_flag = if self.compile_annotations_closure(name, parameters, returns)? {
+            bytecode::MakeFunctionFlags::ANNOTATE
+        } else {
+            bytecode::MakeFunctionFlags::empty()
+        };
 
         // Compile function body
         let final_funcflags = funcflags | annotations_flag;
@@ -3759,6 +3888,16 @@ impl Compiler {
             );
         }
 
+        // Set __annotate__ closure if present (PEP 649)
+        if flags.contains(bytecode::MakeFunctionFlags::ANNOTATE) {
+            emit!(
+                self,
+                Instruction::SetFunctionAttribute {
+                    attr: bytecode::MakeFunctionFlags::ANNOTATE
+                }
+            );
+        }
+
         // Set kwdefaults if present
         if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
             emit!(
@@ -3889,9 +4028,9 @@ impl Compiler {
             emit!(self, Instruction::StoreName(dunder_type_params));
         }
 
-        // Setup annotations if needed
+        // PEP 649: Generate __annotate__ function for class annotations
         if Self::find_ann(body) {
-            emit!(self, Instruction::SetupAnnotations);
+            self.compile_module_annotate(body)?;
         }
 
         // 3. Compile the class body
@@ -5553,26 +5692,11 @@ impl Compiler {
             self.compile_store(target)?;
         }
 
-        // Annotations are only evaluated in a module or class.
-        if self.ctx.in_func() {
-            return Ok(());
-        }
-
-        // Compile annotation:
-        self.compile_annotation(annotation)?;
-
-        if let Expr::Name(ExprName { id, .. }) = &target {
-            // Store as dict entry in __annotations__ dict:
-            let annotations = self.name("__annotations__");
-            emit!(self, Instruction::LoadName(annotations));
-            self.emit_load_const(ConstantData::Str {
-                value: self.mangle(id.as_str()).into_owned().into(),
-            });
-            emit!(self, Instruction::StoreSubscr);
-        } else {
-            // Drop annotation if not assigned to simple identifier.
-            emit!(self, Instruction::PopTop);
-        }
+        // PEP 649: Annotations in module/class scope are handled by __annotate__
+        // function, so we don't compile them here. Only in function scope do we
+        // evaluate annotations (though they're also ignored at runtime).
+        // In function scope, annotations are not evaluated at all.
+        let _ = annotation; // Mark as intentionally unused
 
         Ok(())
     }

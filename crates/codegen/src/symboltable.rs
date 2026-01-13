@@ -63,6 +63,10 @@ pub struct SymbolTable {
     /// Whether this comprehension scope should be inlined (PEP 709)
     /// True for list/set/dict comprehensions in non-generator expressions
     pub comp_inlined: bool,
+
+    /// PEP 649: Reference to annotation scope for this block
+    /// Annotations are compiled as a separate `__annotate__` function
+    pub annotation_block: Option<Box<SymbolTable>>,
 }
 
 impl SymbolTable {
@@ -80,6 +84,7 @@ impl SymbolTable {
             needs_classdict: false,
             can_see_class_scope: false,
             comp_inlined: false,
+            annotation_block: None,
         }
     }
 
@@ -109,6 +114,8 @@ pub enum CompilerScope {
     Lambda,
     Comprehension,
     TypeParams,
+    /// PEP 649: Annotation scope for deferred evaluation
+    Annotation,
 }
 
 impl fmt::Display for CompilerScope {
@@ -121,9 +128,8 @@ impl fmt::Display for CompilerScope {
             Self::Lambda => write!(f, "lambda"),
             Self::Comprehension => write!(f, "comprehension"),
             Self::TypeParams => write!(f, "type parameter"),
+            Self::Annotation => write!(f, "annotation"),
             // TODO missing types from the C implementation
-            // if self._table.type == _symtable.TYPE_ANNOTATION:
-            //     return "annotation"
             // if self._table.type == _symtable.TYPE_TYPE_VAR_BOUND:
             //     return "TypeVar bound"
             // if self._table.type == _symtable.TYPE_TYPE_ALIAS:
@@ -349,6 +355,8 @@ impl SymbolTableAnalyzer {
         // Collect free variables from all child scopes
         let mut newfree = HashSet::new();
 
+        let annotation_block = &mut symbol_table.annotation_block;
+
         let mut info = (symbols, symbol_table.typ);
         self.tables.with_append(&mut info, |list| {
             let inner_scope = unsafe { &mut *(list as *mut _ as *mut Self) };
@@ -356,6 +364,12 @@ impl SymbolTableAnalyzer {
             for sub_table in sub_tables.iter_mut() {
                 let child_free = inner_scope.analyze_symbol_table(sub_table)?;
                 // Propagate child's free variables to this scope
+                newfree.extend(child_free);
+            }
+            // PEP 649: Analyze annotation block if present
+            if let Some(annotation_table) = annotation_block {
+                let child_free = inner_scope.analyze_symbol_table(annotation_table)?;
+                // Propagate annotation's free variables to this scope
                 newfree.extend(child_free);
             }
             Ok(())
@@ -657,6 +671,13 @@ impl SymbolTableAnalyzer {
                     location: None,
                 });
             }
+            CompilerScope::Annotation => {
+                // Named expression is not allowed in annotation scope
+                return Err(SymbolTableError {
+                    error: "named expression cannot be used within an annotation".to_string(),
+                    location: None,
+                });
+            }
         }
         Ok(())
     }
@@ -782,6 +803,43 @@ impl SymbolTableBuilder {
         self.tables.last_mut().unwrap().sub_tables.push(table);
     }
 
+    /// Enter annotation scope (PEP 649)
+    /// Creates or reuses the annotation block for the current scope
+    fn enter_annotation_scope(&mut self, line_number: u32) {
+        let current = self.tables.last_mut().unwrap();
+        let can_see_class_scope = current.typ == CompilerScope::Class;
+
+        // Create annotation block if not exists
+        if current.annotation_block.is_none() {
+            let mut annotation_table = SymbolTable::new(
+                "__annotate__".to_owned(),
+                CompilerScope::Annotation,
+                line_number,
+                true, // is_nested
+            );
+            // Annotation scope in class can see class scope
+            annotation_table.can_see_class_scope = can_see_class_scope;
+            // Add 'format' parameter
+            annotation_table.varnames.push("format".to_owned());
+            current.annotation_block = Some(Box::new(annotation_table));
+        }
+
+        // Take the annotation block and push to stack for processing
+        let annotation_table = current.annotation_block.take().unwrap();
+        self.tables.push(*annotation_table);
+        self.current_varnames.clear();
+    }
+
+    /// Leave annotation scope (PEP 649)
+    /// Stores the annotation block back to parent instead of sub_tables
+    fn leave_annotation_scope(&mut self) {
+        let mut table = self.tables.pop().unwrap();
+        // Save the collected varnames to the symbol table
+        table.varnames = core::mem::take(&mut self.current_varnames);
+        // Store back to parent's annotation_block (not sub_tables)
+        self.tables.last_mut().unwrap().annotation_block = Some(Box::new(table));
+    }
+
     fn line_index_start(&self, range: TextRange) -> u32 {
         self.source_file
             .to_source_code()
@@ -831,12 +889,28 @@ impl SymbolTableBuilder {
 
     fn scan_annotation(&mut self, annotation: &Expr) -> SymbolTableResult {
         if self.future_annotations {
+            // PEP 563: annotations are stringified
             Ok(())
         } else {
+            // PEP 649: annotations are deferred in a separate scope
+            let line_number = self.line_index_start(annotation.range());
+            self.enter_annotation_scope(line_number);
+
             let was_in_annotation = self.in_annotation;
             self.in_annotation = true;
             let result = self.scan_expression(annotation, ExpressionContext::Load);
             self.in_annotation = was_in_annotation;
+
+            self.leave_annotation_scope();
+
+            // Also scan in parent scope for immediate evaluation compatibility
+            // This ensures symbols like builtins are available in the module scope
+            // TODO: Remove this once full PEP 649 deferred compilation is implemented
+            let was_in_annotation = self.in_annotation;
+            self.in_annotation = true;
+            let _ = self.scan_expression(annotation, ExpressionContext::Load);
+            self.in_annotation = was_in_annotation;
+
             result
         }
     }
@@ -873,9 +947,26 @@ impl SymbolTableBuilder {
             }) => {
                 self.scan_decorators(decorator_list, ExpressionContext::Load)?;
                 self.register_ident(name, SymbolUsage::Assigned)?;
-                if let Some(expression) = returns {
+
+                // When in class scope, save the class's annotation_block before scanning
+                // function annotations, so method annotations don't interfere with class annotations
+                let parent_is_class = self
+                    .tables
+                    .last()
+                    .map(|t| t.typ == CompilerScope::Class)
+                    .unwrap_or(false);
+                let saved_annotation_block = if parent_is_class {
+                    self.tables.last_mut().unwrap().annotation_block.take()
+                } else {
+                    None
+                };
+
+                let has_return_annotation = if let Some(expression) = returns {
                     self.scan_annotation(expression)?;
-                }
+                    true
+                } else {
+                    false
+                };
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
                         &format!("<generic parameters of {}>", name.as_str()),
@@ -887,11 +978,17 @@ impl SymbolTableBuilder {
                     name.as_str(),
                     parameters,
                     self.line_index_start(*range),
+                    has_return_annotation,
                 )?;
                 self.scan_statements(body)?;
                 self.leave_scope();
                 if type_params.is_some() {
                     self.leave_scope();
+                }
+
+                // Restore class's annotation_block after processing the function
+                if let Some(block) = saved_annotation_block {
+                    self.tables.last_mut().unwrap().annotation_block = Some(block);
                 }
             }
             Stmt::ClassDef(StmtClassDef {
@@ -1037,6 +1134,14 @@ impl SymbolTableBuilder {
                 match &**target {
                     Expr::Name(ast::ExprName { id, .. }) if *simple => {
                         self.register_name(id.as_str(), SymbolUsage::AnnotationAssigned, *range)?;
+                        // PEP 649: Register __annotate__ in module/class scope for deferred annotations
+                        let current_scope = self.tables.last().map(|t| t.typ);
+                        if matches!(
+                            current_scope,
+                            Some(CompilerScope::Module) | Some(CompilerScope::Class)
+                        ) {
+                            self.register_name("__annotate__", SymbolUsage::Assigned, *range)?;
+                        }
                     }
                     _ => {
                         self.scan_expression(target, ExpressionContext::Store)?;
@@ -1412,6 +1517,7 @@ impl SymbolTableBuilder {
                         "lambda",
                         parameters,
                         self.line_index_start(expression.range()),
+                        false, // lambdas have no return annotation
                     )?;
                 } else {
                     self.enter_scope(
@@ -1774,6 +1880,7 @@ impl SymbolTableBuilder {
         name: &str,
         parameters: &Parameters,
         line_number: u32,
+        has_return_annotation: bool,
     ) -> SymbolTableResult {
         // Evaluate eventual default parameters:
         for default in parameters
@@ -1811,7 +1918,39 @@ impl SymbolTableBuilder {
             self.scan_annotation(annotation)?;
         }
 
+        // Check if this function has any annotations (parameter or return)
+        let has_param_annotations = parameters
+            .posonlyargs
+            .iter()
+            .chain(parameters.args.iter())
+            .chain(parameters.kwonlyargs.iter())
+            .any(|p| p.parameter.annotation.is_some())
+            || parameters
+                .vararg
+                .as_ref()
+                .is_some_and(|p| p.annotation.is_some())
+            || parameters
+                .kwarg
+                .as_ref()
+                .is_some_and(|p| p.annotation.is_some());
+
+        let has_any_annotations = has_param_annotations || has_return_annotation;
+
+        // Take annotation_block if this function has any annotations.
+        // When in class scope, the class's annotation_block was saved before scanning
+        // function annotations, so the current annotation_block belongs to this function.
+        let annotation_block = if has_any_annotations {
+            self.tables.last_mut().unwrap().annotation_block.take()
+        } else {
+            None
+        };
+
         self.enter_scope(name, CompilerScope::Function, line_number);
+
+        // Move annotation_block to function scope only if we have one
+        if let Some(block) = annotation_block {
+            self.tables.last_mut().unwrap().annotation_block = Some(block);
+        }
 
         // Fill scope with parameter names:
         self.scan_parameters(&parameters.posonlyargs)?;

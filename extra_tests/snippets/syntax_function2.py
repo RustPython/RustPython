@@ -80,6 +80,7 @@ f6()
 
 
 def f7():
+    # PEP 649: annotations are deferred, so void is not evaluated at definition time
     try:
         def t() -> void: # noqa: F821
             pass
@@ -87,7 +88,7 @@ def f7():
         return True
     return False
 
-assert f7()
+assert not f7()  # PEP 649: no NameError because annotation is deferred
 
 
 def f8() -> int:

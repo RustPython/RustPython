@@ -223,34 +223,30 @@ impl PyModule {
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let dict = zelf.dict();
 
-        // Check if __annotations__ is already in dict
+        // Check if __annotations__ is already in dict (explicitly set)
         if let Some(annotations) = dict.get_item_opt(identifier!(vm, __annotations__), vm)? {
             return Ok(annotations);
         }
 
-        // Get __annotate__ and call it if callable
-        let annotations =
-            if let Some(annotate) = dict.get_item_opt(identifier!(vm, __annotate__), vm)? {
-                if annotate.is_callable() {
-                    // Call __annotate__(1) where 1 is FORMAT_VALUE
-                    let result = annotate.call((1i32,), vm)?;
-                    if !result.class().is(vm.ctx.types.dict_type) {
-                        return Err(vm.new_type_error(format!(
-                            "__annotate__ returned non-dict of type '{}'",
-                            result.class().name()
-                        )));
-                    }
-                    result
-                } else {
-                    vm.ctx.new_dict().into()
+        // PEP 649: Get __annotate__ and call it if callable
+        // Don't cache the result to dict - __annotations__ should only appear
+        // in __dict__ if explicitly set
+        if let Some(annotate) = dict.get_item_opt(identifier!(vm, __annotate__), vm)? {
+            if annotate.is_callable() {
+                // Call __annotate__(1) where 1 is FORMAT_VALUE
+                let result = annotate.call((1i32,), vm)?;
+                if !result.class().is(vm.ctx.types.dict_type) {
+                    return Err(vm.new_type_error(format!(
+                        "__annotate__ returned non-dict of type '{}'",
+                        result.class().name()
+                    )));
                 }
-            } else {
-                vm.ctx.new_dict().into()
-            };
+                return Ok(result);
+            }
+        }
 
-        // Cache the result (TODO: check if module is initializing)
-        dict.set_item(identifier!(vm, __annotations__), annotations.clone(), vm)?;
-        Ok(annotations)
+        // No __annotate__ or not callable - return empty dict
+        Ok(vm.ctx.new_dict().into())
     }
 
     #[pygetset(setter)]

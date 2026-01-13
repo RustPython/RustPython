@@ -65,10 +65,8 @@ impl VirtualMachine {
     pub fn new_scope_with_main(&self) -> PyResult<Scope> {
         let scope = self.new_scope_with_builtins();
         let main_module = self.new_module("__main__", scope.globals.clone(), None);
-        main_module
-            .dict()
-            .set_item("__annotations__", self.ctx.new_dict().into(), self)
-            .expect("Failed to initialize __main__.__annotations__");
+        // PEP 649: Don't automatically initialize __annotations__
+        // It will be lazily created by the descriptor when accessed
 
         self.sys_module.get_attr("modules", self)?.set_item(
             "__main__",

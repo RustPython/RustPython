@@ -59,7 +59,18 @@ b: bool = False
 assert a == 1337
 assert b == False
 
-assert __annotations__['a'] == bool
+# PEP 649: In Python 3.14, __annotations__ is not automatically defined at module level
+# Accessing it raises NameError
+from testutils import assert_raises
+
+with assert_raises(NameError):
+    __annotations__
+
+# Use __annotate__ to get annotations (PEP 649)
+assert callable(__annotate__)
+annotations = __annotate__(1)  # 1 = FORMAT_VALUE
+assert annotations['a'] == bool
+assert annotations['b'] == bool
 
 n = 0
 
