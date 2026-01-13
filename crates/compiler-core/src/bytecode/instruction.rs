@@ -923,8 +923,8 @@ impl TryFrom<u16> for Instruction {
 }
 
 macro_rules! inst_either {
-    (fn $name:ident ( &self $(, $arg:ident : $argty:ty )* ) -> $ret:ty ) => {
-        fn $name(&self $(, $arg : $argty )* ) -> $ret {
+    (fn $name:ident ( &self $(, $arg:ident : $arg_ty:ty )* ) -> $ret:ty ) => {
+        fn $name(&self $(, $arg : $arg_ty )* ) -> $ret {
             match self {
                 Self::Real(op) => op.$name($($arg),*),
                 Self::Pseudo(op) => op.$name($($arg),*),
