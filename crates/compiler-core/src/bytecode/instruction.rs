@@ -1,12 +1,13 @@
-use alloc::fmt;
-use std::mem;
+use core::{fmt, marker::PhantomData, mem};
 
 use crate::{
     bytecode::{
-        Arg, BinaryOperator, BorrowedConstant, BuildSliceArgCount, ComparisonOperator, Constant,
-        ConvertValueOparg, InstrDisplayContext, IntrinsicFunction1, IntrinsicFunction2, Invert,
-        Label, MakeFunctionFlags, NameIdx, OpArg, RaiseKind, UnpackExArgs, decode_load_attr_arg,
-        decode_load_super_attr_arg,
+        BorrowedConstant, Constant, InstrDisplayContext, decode_load_attr_arg,
+        oparg::{
+            BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
+            IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx,
+            OpArg, OpArgByte, OpArgType, RaiseKind, UnpackExArgs,
+        },
     },
     marshal::MarshalError,
 };
@@ -860,4 +861,74 @@ impl Instruction {
             _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
     }
+}
+
+#[derive(Copy, Clone)]
+pub struct Arg<T: OpArgType>(PhantomData<T>);
+
+impl<T: OpArgType> Arg<T> {
+    #[inline]
+    pub const fn marker() -> Self {
+        Self(PhantomData)
+    }
+
+    #[inline]
+    pub fn new(arg: T) -> (Self, OpArg) {
+        (Self(PhantomData), OpArg(arg.to_op_arg()))
+    }
+
+    #[inline]
+    pub fn new_single(arg: T) -> (Self, OpArgByte)
+    where
+        T: Into<u8>,
+    {
+        (Self(PhantomData), OpArgByte(arg.into()))
+    }
+
+    #[inline(always)]
+    pub fn get(self, arg: OpArg) -> T {
+        self.try_get(arg).unwrap()
+    }
+
+    #[inline(always)]
+    pub fn try_get(self, arg: OpArg) -> Option<T> {
+        T::from_op_arg(arg.0)
+    }
+
+    /// # Safety
+    /// T::from_op_arg(self) must succeed
+    #[inline(always)]
+    pub unsafe fn get_unchecked(self, arg: OpArg) -> T {
+        // SAFETY: requirements forwarded from caller
+        unsafe { T::from_op_arg(arg.0).unwrap_unchecked() }
+    }
+}
+
+impl<T: OpArgType> PartialEq for Arg<T> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl<T: OpArgType> Eq for Arg<T> {}
+
+impl<T: OpArgType> fmt::Debug for Arg<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Arg<{}>", core::any::type_name::<T>())
+    }
+}
+
+/// Encode LOAD_SUPER_ATTR oparg: bit 0 = load_method, bit 1 = has_class, bits 2+ = name index.
+#[inline]
+pub const fn encode_load_super_attr_arg(name_idx: u32, load_method: bool, has_class: bool) -> u32 {
+    (name_idx << 2) | ((has_class as u32) << 1) | (load_method as u32)
+}
+
+/// Decode LOAD_SUPER_ATTR oparg: returns (name_idx, load_method, has_class).
+#[inline]
+pub const fn decode_load_super_attr_arg(oparg: u32) -> (u32, bool, bool) {
+    let load_method = (oparg & 1) == 1;
+    let has_class = (oparg & 2) == 2;
+    let name_idx = oparg >> 2;
+    (name_idx, load_method, has_class)
 }
