@@ -276,7 +276,6 @@ class CMathTests(ComplexesAreIdenticalMixin, unittest.TestCase):
                 self.rAssertAlmostEqual(math.log(v, base), z.real)
                 self.assertEqual(0., z.imag)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_IEEE_754
     def test_specific_values(self):
         # Some tests need to be skipped on ancient OS X versions.
@@ -530,13 +529,11 @@ class CMathTests(ComplexesAreIdenticalMixin, unittest.TestCase):
     # log1p function; If that system function doesn't respect the sign
     # of zero, then atan and atanh will also have difficulties with
     # the sign of complex zeros.
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_IEEE_754
     def testAtanSign(self):
         for z in complex_zeros:
             self.assertComplexesAreIdentical(cmath.atan(z), z)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_IEEE_754
     def testAtanhSign(self):
         for z in complex_zeros:
@@ -583,7 +580,6 @@ class IsCloseTests(test_math.IsCloseTests):
         self.assertIsClose(0.001-0.001j, 0.001+0.001j, abs_tol=2e-03)
         self.assertIsNotClose(0.001-0.001j, 0.001+0.001j, abs_tol=1e-03)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_complex_special(self):
         self.assertIsNotClose(INF, INF*1j)
         self.assertIsNotClose(INF*1j, INF)
