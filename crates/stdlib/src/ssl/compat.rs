@@ -1237,8 +1237,7 @@ fn handle_handshake_complete(
         }
     } else if conn.wants_write() {
         // Send all pending data (e.g., TLS 1.3 NewSessionTicket) to socket
-        // Best-effort: WantWrite means socket buffer full, pending data will be
-        // sent in subsequent read/write calls. Don't fail handshake for this.
+        // Must drain ALL rustls buffer - don't break on WantWrite
         while conn.wants_write() {
             let tls_data = ssl_write_tls_records(conn)?;
             if tls_data.is_empty() {
@@ -1246,7 +1245,13 @@ fn handle_handshake_complete(
             }
             match send_all_bytes(socket, tls_data, vm, None) {
                 Ok(()) => {}
-                Err(SslError::WantWrite) => break,
+                Err(SslError::WantWrite) => {
+                    // Socket buffer full, data saved to pending_tls_output
+                    // Flush pending and continue draining rustls buffer
+                    socket
+                        .blocking_flush_all_pending(vm)
+                        .map_err(SslError::Py)?;
+                }
                 Err(e) => return Err(e),
             }
         }
@@ -1256,6 +1261,7 @@ fn handle_handshake_complete(
     // TLS 1.3 Finished must reach server before handshake is considered complete
     // Without this, server may not process application data
     if !socket.is_bio_mode() {
+        // Flush pending_tls_output to ensure all TLS data reaches the server
         socket
             .blocking_flush_all_pending(vm)
             .map_err(SslError::Py)?;
