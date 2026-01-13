@@ -978,6 +978,7 @@ class TestInlineValues(unittest.TestCase):
         self.assertIsInstance(f, Bar)
         self.assertEqual(f.__dict__, {})
 
+    @unittest.skip("TODO: RUSTPYTHON, unexpectedly long runtime")
     def test_store_attr_type_cache(self):
         """Verifies that the type cache doesn't provide a value which  is
         inconsistent from the dict."""

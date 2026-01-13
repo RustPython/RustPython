@@ -1834,7 +1834,8 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
         object.__init__(A(3))
         self.assertRaises(TypeError, object.__init__, A(3), 5)
 
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test actually fails. Not run on linux?
+    # @unittest.expectedFailure
     def test_restored_object_new(self):
         class A(object):
             def __new__(cls, *args, **kwargs):
