@@ -553,6 +553,22 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
+    pub fn values(&self) -> Vec<T> {
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| v.value.clone()))
+            .collect()
+    }
+
+    pub fn items(&self) -> Vec<(PyObjectRef, T)> {
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| (v.key.clone(), v.value.clone())))
+            .collect()
+    }
+
     pub fn try_fold_keys<Acc, Fold>(&self, init: Acc, f: Fold) -> PyResult<Acc>
     where
         Fold: FnMut(Acc, &PyObject) -> PyResult<Acc>,
