@@ -300,6 +300,9 @@ impl TryFrom<u8> for RealInstruction {
         // Resume has a non-contiguous opcode (149)
         let resume_id = u8::from(Self::Resume { arg: Arg::marker() });
 
+        // TODO: Remove this; This instruction needs to be pseudo
+        let load_closure = u8::from(Self::LoadClosure(Arg::marker()));
+
         // RustPython-only opcodes (explicit list to avoid gaps like 125-127)
         let custom_ops: &[u8] = &[
             u8::from(Self::Break {
@@ -335,6 +338,7 @@ impl TryFrom<u8> for RealInstruction {
 
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
+            || value == load_closure
             || custom_ops.contains(&value)
         {
             Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
