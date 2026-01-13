@@ -115,7 +115,7 @@ env:
     test.test_multiprocessing_spawn.test_processes
   ENV_POLLUTING_TESTS_WINDOWS: >-
   # Python version targeted by the CI.
-  PYTHON_VERSION: "3.13.1"
+  PYTHON_VERSION: "3.14.2"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
 

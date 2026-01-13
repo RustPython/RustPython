@@ -114,12 +114,12 @@ mod tests {
         let cfg_path = temp_dir.join("test_pyvenv.cfg");
 
         let mut file = fs::File::create(&cfg_path).unwrap();
-        writeln!(file, "home = C:\\Python313").unwrap();
+        writeln!(file, "home = C:\\Python314").unwrap();
         writeln!(file, "include-system-site-packages = false").unwrap();
-        writeln!(file, "version = 3.13.0").unwrap();
+        writeln!(file, "version = 3.14.0").unwrap();
 
         let home = read_home(&cfg_path).unwrap();
-        assert_eq!(home, "C:\\Python313");
+        assert_eq!(home, "C:\\Python314");
 
         fs::remove_file(&cfg_path).unwrap();
     }
