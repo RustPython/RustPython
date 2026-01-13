@@ -975,7 +975,7 @@ pub trait InstructionMetadata {
     ///
     /// ```
     /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction};
-    /// let jump_inst = RealInstruction::Jump { target: Arg::marker() };
+    /// let jump_inst = RealInstruction::JumpForward { target: Arg::marker() };
     /// assert!(jump_inst.unconditional_branch())
     /// ```
     fn unconditional_branch(&self) -> bool;
@@ -987,7 +987,7 @@ pub trait InstructionMetadata {
     /// ```
     /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, Label};
     /// let (target, jump_arg) = Arg::new(Label(0xF));
-    /// let jump_instruction = RealInstruction::Jump { target };
+    /// let jump_instruction = RealInstruction::JumpForward { target };
     /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
     /// ```
     fn stack_effect(&self, arg: OpArg, jump: bool) -> i32;
