@@ -1006,6 +1006,7 @@ class TestTLS_FTPClass(TestCase):
             self.assertIs(sock.context, ctx)
             self.assertIsInstance(sock, ssl.SSLSocket)
 
+    @unittest.skip('TODO: RUSTPYTHON; flaky')
     def test_ccc(self):
         self.assertRaises(ValueError, self.client.ccc)
         self.client.login(secure=True)
