@@ -20,7 +20,11 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
         PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
-        PyStrRef, PyTypeRef, code::PyCode, pystr::AsPyStr, tuple::PyTuple,
+        PyStrRef, PyTypeRef,
+        code::PyCode,
+        dict::{PyDictItems, PyDictKeys, PyDictValues},
+        pystr::AsPyStr,
+        tuple::PyTuple,
     },
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
@@ -808,6 +812,29 @@ impl VirtualMachine {
         } else if cls.is(self.ctx.types.list_type) {
             list_borrow = value.downcast_ref::<PyList>().unwrap().borrow_vec();
             &list_borrow
+        } else if cls.is(self.ctx.types.dict_keys_type) {
+            // Atomic snapshot of dict keys - prevents race condition during iteration
+            let keys = value.downcast_ref::<PyDictKeys>().unwrap().dict.keys_vec();
+            return keys.into_iter().map(func).collect();
+        } else if cls.is(self.ctx.types.dict_values_type) {
+            // Atomic snapshot of dict values - prevents race condition during iteration
+            let values = value
+                .downcast_ref::<PyDictValues>()
+                .unwrap()
+                .dict
+                .values_vec();
+            return values.into_iter().map(func).collect();
+        } else if cls.is(self.ctx.types.dict_items_type) {
+            // Atomic snapshot of dict items - prevents race condition during iteration
+            let items = value
+                .downcast_ref::<PyDictItems>()
+                .unwrap()
+                .dict
+                .items_vec();
+            return items
+                .into_iter()
+                .map(|(k, v)| func(self.ctx.new_tuple(vec![k, v]).into()))
+                .collect();
         } else {
             return self.map_py_iter(value, func);
         };
