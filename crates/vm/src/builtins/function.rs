@@ -77,6 +77,17 @@ impl PyFunction {
             builtins
         };
 
+        // Get docstring from co_consts[0] if HAS_DOCSTRING flag is set
+        let doc = if code.code.flags.contains(bytecode::CodeFlags::HAS_DOCSTRING) {
+            code.code
+                .constants
+                .first()
+                .map(|c| c.as_object().to_owned())
+                .unwrap_or_else(|| vm.ctx.none())
+        } else {
+            vm.ctx.none()
+        };
+
         let qualname = vm.ctx.new_str(code.qualname.as_str());
         let func = Self {
             code: PyMutex::new(code.clone()),
@@ -89,7 +100,7 @@ impl PyFunction {
             type_params: PyMutex::new(vm.ctx.empty_tuple.clone()),
             annotations: PyMutex::new(vm.ctx.new_dict()),
             module: PyMutex::new(module),
-            doc: PyMutex::new(vm.ctx.none()),
+            doc: PyMutex::new(doc),
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
         };

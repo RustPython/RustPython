@@ -152,7 +152,7 @@ pub struct ReplaceArgs {
     #[pyarg(named, optional)]
     co_names: OptionalArg<Vec<PyObjectRef>>,
     #[pyarg(named, optional)]
-    co_flags: OptionalArg<u16>,
+    co_flags: OptionalArg<u32>,
     #[pyarg(named, optional)]
     co_varnames: OptionalArg<Vec<PyObjectRef>>,
     #[pyarg(named, optional)]
@@ -411,7 +411,7 @@ pub struct PyCodeNewArgs {
     kwonlyargcount: u32,
     nlocals: u32,
     stacksize: u32,
-    flags: u16,
+    flags: u32,
     co_code: PyBytesRef,
     consts: PyTupleRef,
     names: PyTupleRef,
@@ -628,7 +628,7 @@ impl PyCode {
     }
 
     #[pygetset]
-    const fn co_flags(&self) -> u16 {
+    const fn co_flags(&self) -> u32 {
         self.code.flags.bits()
     }
 

@@ -3306,12 +3306,19 @@ impl Compiler {
         // Set qualname
         self.set_qualname();
 
-        // Handle docstring
+        // Handle docstring - store in co_consts[0] if present
         let (doc_str, body) = split_doc(body, &self.opts);
-        self.current_code_info()
-            .metadata
-            .consts
-            .insert_full(ConstantData::None);
+        if let Some(doc) = &doc_str {
+            // Docstring present: store in co_consts[0] and set HAS_DOCSTRING flag
+            self.current_code_info()
+                .metadata
+                .consts
+                .insert_full(ConstantData::Str {
+                    value: doc.to_string().into(),
+                });
+            self.current_code_info().flags |= bytecode::CodeFlags::HAS_DOCSTRING;
+        }
+        // If no docstring, don't add None to co_consts
 
         // Compile body statements
         self.compile_statements(body)?;
@@ -3331,16 +3338,8 @@ impl Compiler {
         // Create function object with closure
         self.make_closure(code, funcflags)?;
 
-        // Handle docstring if present
-        if let Some(doc) = doc_str {
-            emit!(self, Instruction::Copy { index: 1_u32 });
-            self.emit_load_const(ConstantData::Str {
-                value: doc.to_string().into(),
-            });
-            emit!(self, Instruction::Swap { index: 2 });
-            let doc_attr = self.name("__doc__");
-            emit!(self, Instruction::StoreAttr { idx: doc_attr });
-        }
+        // Note: docstring is now retrieved from co_consts[0] by the VM
+        // when HAS_DOCSTRING flag is set, so no runtime __doc__ assignment needed
 
         Ok(())
     }
@@ -6100,10 +6099,7 @@ impl Compiler {
                     in_async_scope: false,
                 };
 
-                self.current_code_info()
-                    .metadata
-                    .consts
-                    .insert_full(ConstantData::None);
+                // Lambda cannot have docstrings, so no None is added to co_consts
 
                 self.compile_expression(body)?;
                 self.emit_return_value();
