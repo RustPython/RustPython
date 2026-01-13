@@ -1086,15 +1086,16 @@ fn syntax_error_set_msg(
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
-    exc.args.read().first().map(|code| {
-        match_class!(match code {
-            ref tup @ PyTuple => match tup.as_slice() {
-                [x] => x.clone(),
-                _ => code.clone(),
-            },
-            other => other.clone(),
-        })
-    })
+    // SystemExit.code based on args length:
+    // - size == 0: code is None
+    // - size == 1: code is args[0]
+    // - size > 1: code is args (the whole tuple)
+    let args = exc.args.read();
+    match args.len() {
+        0 => None,
+        1 => Some(args.first().unwrap().clone()),
+        _ => Some(args.as_object().to_owned()),
+    }
 }
 
 #[cfg(feature = "serde")]
@@ -1255,7 +1256,7 @@ pub(super) mod types {
         },
         convert::ToPyObject,
         convert::ToPyResult,
-        function::{ArgBytesLike, FuncArgs},
+        function::{ArgBytesLike, FuncArgs, KwArgs},
         types::{Constructor, Initializer},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -1393,10 +1394,28 @@ pub(super) mod types {
         pub(super) args: PyRwLock<PyTupleRef>,
     }
 
-    #[pyexception(name, base = PyBaseException, ctx = "system_exit", impl)]
+    #[pyexception(name, base = PyBaseException, ctx = "system_exit")]
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PySystemExit(PyBaseException);
+
+    // SystemExit_init: has its own __init__ that sets the code attribute
+    #[pyexception(with(Initializer))]
+    impl PySystemExit {}
+
+    impl Initializer for PySystemExit {
+        type Args = FuncArgs;
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            // Call BaseException_init first (handles args)
+            PyBaseException::slot_init(zelf, args, vm)
+            // Note: code is computed dynamically via system_exit_code getter
+            // so we don't need to set it here explicitly
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
+    }
 
     #[pyexception(name, base = PyBaseException, ctx = "generator_exit", impl)]
     #[derive(Debug)]
@@ -1474,16 +1493,25 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.set_attr(
-                "name",
-                vm.unwrap_or_none(args.kwargs.get("name").cloned()),
-                vm,
-            )?;
-            zelf.set_attr(
-                "obj",
-                vm.unwrap_or_none(args.kwargs.get("obj").cloned()),
-                vm,
-            )?;
+            // Only 'name' and 'obj' kwargs are allowed
+            let mut kwargs = args.kwargs.clone();
+            let name = kwargs.swap_remove("name");
+            let obj = kwargs.swap_remove("obj");
+
+            // Reject unknown kwargs
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(vm.new_type_error(format!(
+                    "AttributeError() got an unexpected keyword argument '{invalid_key}'"
+                )));
+            }
+
+            // Pass args without kwargs to BaseException_init
+            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
+
+            // Set attributes
+            zelf.set_attr("name", vm.unwrap_or_none(name), vm)?;
+            zelf.set_attr("obj", vm.unwrap_or_none(obj), vm)?;
             Ok(())
         }
 
@@ -1529,9 +1557,11 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            // Only 'name', 'path', 'name_from' kwargs are allowed
             let mut kwargs = args.kwargs.clone();
             let name = kwargs.swap_remove("name");
             let path = kwargs.swap_remove("path");
+            let name_from = kwargs.swap_remove("name_from");
 
             // Check for any remaining invalid keyword arguments
             if let Some(invalid_key) = kwargs.keys().next() {
@@ -1543,6 +1573,7 @@ pub(super) mod types {
             let dict = zelf.dict().unwrap();
             dict.set_item("name", vm.unwrap_or_none(name), vm)?;
             dict.set_item("path", vm.unwrap_or_none(path), vm)?;
+            dict.set_item("name_from", vm.unwrap_or_none(name_from), vm)?;
             PyBaseException::slot_init(zelf, args, vm)
         }
 
@@ -1592,10 +1623,44 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyMemoryError(PyException);
 
-    #[pyexception(name, base = PyException, ctx = "name_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "name_error")]
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyNameError(PyException);
+
+    // NameError_init: handles the .name. kwarg
+    #[pyexception(with(Initializer))]
+    impl PyNameError {}
+
+    impl Initializer for PyNameError {
+        type Args = FuncArgs;
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            // Only 'name' kwarg is allowed
+            let mut kwargs = args.kwargs.clone();
+            let name = kwargs.swap_remove("name");
+
+            // Reject unknown kwargs
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(vm.new_type_error(format!(
+                    "NameError() got an unexpected keyword argument '{invalid_key}'"
+                )));
+            }
+
+            // Pass args without kwargs to BaseException_init
+            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
+
+            // Set name attribute if provided
+            if let Some(name) = name {
+                zelf.set_attr("name", name, vm)?;
+            }
+            Ok(())
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
+    }
 
     #[pyexception(name, base = PyNameError, ctx = "unbound_local_error", impl)]
     #[derive(Debug)]
@@ -2232,30 +2297,16 @@ pub(super) mod types {
         }
     }
 
+    // MiddlingExtendsException: inherits __init__ from SyntaxError via MRO
     #[pyexception(
         name = "_IncompleteInputError",
         base = PySyntaxError,
-        ctx = "incomplete_input_error"
+        ctx = "incomplete_input_error",
+        impl
     )]
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyIncompleteInputError(PySyntaxError);
-
-    #[pyexception(with(Initializer))]
-    impl PyIncompleteInputError {}
-
-    impl Initializer for PyIncompleteInputError {
-        type Args = FuncArgs;
-
-        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.set_attr("name", vm.ctx.new_str("SyntaxError"), vm)?;
-            PySyntaxError::slot_init(zelf, args, vm)
-        }
-
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
-            unreachable!("slot_init is defined")
-        }
-    }
 
     #[pyexception(name, base = PySyntaxError, ctx = "indentation_error", impl)]
     #[derive(Debug)]
