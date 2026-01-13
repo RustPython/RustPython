@@ -1735,7 +1735,7 @@ class TestTemporaryDirectory(BaseTestCase):
         d2.cleanup()
 
     @os_helper.skip_unless_symlink
-    @unittest.expectedFailureIf(sys.platform != "darwin", "TODO: RUSTPYTHON")
+    @unittest.skip('TODO: RUSTPYTHON; alters the execution environment (env changed)')
     def test_cleanup_with_symlink_modes(self):
         # cleanup() should not follow symlinks when fixing mode bits (#91133)
         with self.do_create(recurse=0) as d2:

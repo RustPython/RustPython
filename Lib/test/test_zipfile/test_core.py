@@ -3570,7 +3570,6 @@ class EncodedMetadataTests(unittest.TestCase):
             self.assertIn(name, listing)
 
     @unittest.skip('TODO: RUSTPYTHON; shift_jis encoding unsupported')
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cli_with_metadata_encoding_extract(self):
         os.mkdir(TESTFN2)
         self.addCleanup(rmtree, TESTFN2)

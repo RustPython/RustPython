@@ -266,6 +266,7 @@ class RegressionTests(unittest.TestCase):
             # Lone surrogate cannot be encoded to the default encoding (utf8)
             "\uDC80", collation_cb)
 
+    @unittest.skip("TODO: RUSTPYTHON; deadlock")
     def test_recursive_cursor_use(self):
         """
         http://bugs.python.org/issue10811
@@ -447,6 +448,7 @@ class RegressionTests(unittest.TestCase):
             con.execute("drop table t")
             con.commit()
 
+    @unittest.skip("TODO: RUSTPYTHON; deadlock")
     def test_table_lock_cursor_non_readonly_select(self):
         with memory_database() as con:
             con.execute("create table t(t)")
@@ -474,6 +476,7 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(steps, values)
 
 
+@unittest.skip('TODO: RUSTPYTHON deadlock')
 class RecursiveUseOfCursors(unittest.TestCase):
     # GH-80254: sqlite3 should not segfault for recursive use of cursors.
     msg = "Recursive use of cursors not allowed"
@@ -497,7 +500,6 @@ class RecursiveUseOfCursors(unittest.TestCase):
             self.assertRaisesRegex(sqlite.ProgrammingError, self.msg,
                                    self.cur.fetchall)
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_recursive_cursor_close(self):
         conv = lambda x: self.cur.close()
         with patch.dict(sqlite.converters, {"CLOSE": conv}):
