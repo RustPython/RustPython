@@ -594,10 +594,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 }
             }
             RealInstruction::Nop => Ok(()),
-            RealInstruction::PopBlock => {
-                // TODO: block support
-                Ok(())
-            }
             RealInstruction::PopJumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
