@@ -2450,11 +2450,12 @@ dependencies = [
 
 [[package]]
 name = "pymath"
-version = "0.0.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b66ab66a8610ce209d8b36cd0fecc3a15c494f715e0cb26f0586057f293abc9"
+checksum = "1be7ce3567be81399a6c32cb4724f8e9073596dc9c1d0412e7e5e5e2277ade70"
 dependencies = [
  "libc",
+ "num-complex",
 ]
 
 [[package]]
