@@ -1843,12 +1843,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
     def test_error_through_destructor(self):
         return super().test_error_through_destructor()
 
-    def test_truncate_on_read_only(self):
-        return super().test_truncate_on_read_only()
-
-    def test_constructor(self):
-        return super().test_constructor()
-
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickling_subclass(self):
         return super().test_pickling_subclass()
@@ -2194,9 +2188,6 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_through_destructor(self):
         return super().test_error_through_destructor()
-
-    def test_constructor(self):
-        return super().test_constructor()
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickling_subclass(self):
@@ -2692,9 +2683,6 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_through_destructor(self):
         return super().test_error_through_destructor()
-
-    def test_constructor(self):
-        return super().test_constructor()
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickling_subclass(self):
@@ -4219,15 +4207,9 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         self.assertEqual([b"abcdef", b"middle", b"g"*chunk_size],
                          buf._write_stack)
 
-    def test_basic_io(self):
-        return super().test_basic_io()
-
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_constructor(self):
         return super().test_constructor()
-
-    def test_detach(self):
-        return super().test_detach()
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_newlines(self):
@@ -4284,9 +4266,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_repr(self):
         return super().test_repr()
-
-    def test_uninitialized(self):
-        return super().test_uninitialized()
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_recursive_repr(self):
