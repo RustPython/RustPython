@@ -9,7 +9,7 @@ on:
 name: Periodic checks/tasks
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,ssl,jit
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,ssl-rustls,jit
   PYTHON_VERSION: "3.13.1"
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: sudo apt-get update && sudo apt-get -y install lcov
       - name: Run cargo-llvm-cov with Rust tests.
-        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --verbose --no-default-features --features stdlib,importlib,encodings,ssl,jit
+        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --verbose --no-default-features --features stdlib,importlib,encodings,ssl-rustls,jit
       - name: Run cargo-llvm-cov with Python snippets.
         run: python scripts/cargo-llvm-cov.py
         continue-on-error: true
