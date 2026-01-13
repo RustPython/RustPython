@@ -1,6 +1,5 @@
-// TODO: Keep track of rust-num/num-complex/issues/2. A common trait could help with duplication
-//       that exists between cmath and math.
 pub(crate) use cmath::make_module;
+
 #[pymodule]
 mod cmath {
     use crate::vm::{
@@ -9,137 +8,141 @@ mod cmath {
     };
     use num_complex::Complex64;
 
+    use crate::math::pymath_exception;
+
     // Constants
-    #[pyattr]
-    use core::f64::consts::{E as e, PI as pi, TAU as tau};
+    #[pyattr(name = "e")]
+    const E: f64 = pymath::cmath::E;
+    #[pyattr(name = "pi")]
+    const PI: f64 = pymath::cmath::PI;
+    #[pyattr(name = "tau")]
+    const TAU: f64 = pymath::cmath::TAU;
     #[pyattr(name = "inf")]
-    const INF: f64 = f64::INFINITY;
+    const INF: f64 = pymath::cmath::INF;
     #[pyattr(name = "nan")]
-    const NAN: f64 = f64::NAN;
+    const NAN: f64 = pymath::cmath::NAN;
     #[pyattr(name = "infj")]
-    const INFJ: Complex64 = Complex64::new(0., f64::INFINITY);
+    const INFJ: Complex64 = pymath::cmath::INFJ;
     #[pyattr(name = "nanj")]
-    const NANJ: Complex64 = Complex64::new(0., f64::NAN);
+    const NANJ: Complex64 = pymath::cmath::NANJ;
 
     #[pyfunction]
-    fn phase(z: ArgIntoComplex) -> f64 {
-        z.into_complex().arg()
+    fn phase(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<f64> {
+        pymath::cmath::phase(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn polar(x: ArgIntoComplex) -> (f64, f64) {
-        x.into_complex().to_polar()
+    fn polar(x: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
+        pymath::cmath::polar(x.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn rect(r: ArgIntoFloat, phi: ArgIntoFloat) -> Complex64 {
-        Complex64::from_polar(r.into_float(), phi.into_float())
+    fn rect(r: ArgIntoFloat, phi: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::rect(r.into_float(), phi.into_float())
+            .map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
     fn isinf(z: ArgIntoComplex) -> bool {
-        let Complex64 { re, im } = z.into_complex();
-        re.is_infinite() || im.is_infinite()
+        pymath::cmath::isinf(z.into_complex())
     }
 
     #[pyfunction]
     fn isfinite(z: ArgIntoComplex) -> bool {
-        z.into_complex().is_finite()
+        pymath::cmath::isfinite(z.into_complex())
     }
 
     #[pyfunction]
     fn isnan(z: ArgIntoComplex) -> bool {
-        z.into_complex().is_nan()
+        pymath::cmath::isnan(z.into_complex())
     }
 
     #[pyfunction]
     fn exp(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
-        let z = z.into_complex();
-        result_or_overflow(z, z.exp(), vm)
+        pymath::cmath::exp(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn sqrt(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().sqrt()
+    fn sqrt(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::sqrt(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn sin(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().sin()
+    fn sin(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::sin(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn asin(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().asin()
+    fn asin(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::asin(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn cos(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().cos()
+    fn cos(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::cos(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn acos(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().acos()
+    fn acos(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::acos(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn log(z: ArgIntoComplex, base: OptionalArg<ArgIntoComplex>) -> Complex64 {
-        // TODO: Complex64.log with a negative base yields wrong results.
-        //       Issue is with num_complex::Complex64 implementation of log
-        //       which returns NaN when base is negative.
-        //       log10(z) / log10(base) yields correct results but division
-        //       doesn't handle pos/neg zero nicely. (i.e log(1, 0.5))
-        z.into_complex().log(
-            base.into_option()
-                .map(|base| base.into_complex().re)
-                .unwrap_or(core::f64::consts::E),
+    fn log(
+        z: ArgIntoComplex,
+        base: OptionalArg<ArgIntoComplex>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Complex64> {
+        pymath::cmath::log(
+            z.into_complex(),
+            base.into_option().map(|b| b.into_complex()),
         )
+        .map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn log10(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().log(10.0)
+    fn log10(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::log10(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn acosh(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().acosh()
+    fn acosh(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::acosh(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn atan(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().atan()
+    fn atan(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::atan(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn atanh(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().atanh()
+    fn atanh(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::atanh(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn tan(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().tan()
+    fn tan(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::tan(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn tanh(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().tanh()
+    fn tanh(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::tanh(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn sinh(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().sinh()
+    fn sinh(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::sinh(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn cosh(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().cosh()
+    fn cosh(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::cosh(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
-    fn asinh(z: ArgIntoComplex) -> Complex64 {
-        z.into_complex().asinh()
+    fn asinh(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        pymath::cmath::asinh(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[derive(FromArgs)]
@@ -158,52 +161,10 @@ mod cmath {
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let a = args.a.into_complex();
         let b = args.b.into_complex();
-        let rel_tol = args.rel_tol.map_or(1e-09, |v| v.into_float());
-        let abs_tol = args.abs_tol.map_or(0.0, |v| v.into_float());
+        let rel_tol = args.rel_tol.into_option().map(|v| v.into_float());
+        let abs_tol = args.abs_tol.into_option().map(|v| v.into_float());
 
-        if rel_tol < 0.0 || abs_tol < 0.0 {
-            return Err(vm.new_value_error("tolerances must be non-negative"));
-        }
-
-        if a == b {
-            /* short circuit exact equality -- needed to catch two infinities of
-            the same sign. And perhaps speeds things up a bit sometimes.
-            */
-            return Ok(true);
-        }
-
-        /* This catches the case of two infinities of opposite sign, or
-        one infinity and one finite number. Two infinities of opposite
-        sign would otherwise have an infinite relative tolerance.
-        Two infinities of the same sign are caught by the equality check
-        above.
-        */
-        if a.is_infinite() || b.is_infinite() {
-            return Ok(false);
-        }
-
-        let diff = c_abs(b - a);
-
-        Ok(diff <= (rel_tol * c_abs(b)) || (diff <= (rel_tol * c_abs(a))) || diff <= abs_tol)
-    }
-
-    #[inline]
-    fn c_abs(Complex64 { re, im }: Complex64) -> f64 {
-        re.hypot(im)
-    }
-
-    #[inline]
-    fn result_or_overflow(
-        value: Complex64,
-        result: Complex64,
-        vm: &VirtualMachine,
-    ) -> PyResult<Complex64> {
-        if !result.is_finite() && value.is_finite() {
-            // CPython doesn't return `inf` when called with finite
-            // values, it raises OverflowError instead.
-            Err(vm.new_overflow_error("math range error"))
-        } else {
-            Ok(result)
-        }
+        pymath::cmath::isclose(a, b, rel_tol, abs_tol)
+            .map_err(|_| vm.new_value_error("tolerances must be non-negative"))
     }
 }

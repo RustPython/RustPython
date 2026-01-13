@@ -116,6 +116,7 @@ members = [
     ".",
     "crates/*",
 ]
+exclude = ["pymath"]
 
 [workspace.package]
 version = "0.4.0"
@@ -184,7 +185,7 @@ once_cell = "1.20.3"
 parking_lot = "0.12.3"
 paste = "1.0.15"
 proc-macro2 = "1.0.105"
-pymath = "0.0.2"
+pymath = { version = "0.1.5", features = ["mul_add", "malachite-bigint", "complex"] }
 quote = "1.0.43"
 radium = "1.1.1"
 rand = "0.9"

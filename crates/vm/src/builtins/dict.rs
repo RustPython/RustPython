@@ -62,6 +62,24 @@ impl PyDict {
         &self.entries
     }
 
+    /// Returns all keys as a Vec, atomically under a single read lock.
+    /// Thread-safe: prevents "dictionary changed size during iteration" errors.
+    pub fn keys_vec(&self) -> Vec<PyObjectRef> {
+        self.entries.keys()
+    }
+
+    /// Returns all values as a Vec, atomically under a single read lock.
+    /// Thread-safe: prevents "dictionary changed size during iteration" errors.
+    pub fn values_vec(&self) -> Vec<PyObjectRef> {
+        self.entries.values()
+    }
+
+    /// Returns all items as a Vec, atomically under a single read lock.
+    /// Thread-safe: prevents "dictionary changed size during iteration" errors.
+    pub fn items_vec(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
+        self.entries.items()
+    }
+
     // Used in update and ior.
     pub(crate) fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let casted: Result<PyRefExact<Self>, _> = other.downcast_exact(vm);
