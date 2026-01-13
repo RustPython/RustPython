@@ -141,7 +141,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6.1.0
         with:
-          python-version: 3.9
+          python-version: ${{ env.PYTHON_VERSION }}
       - run: cargo install cargo-criterion
       - name: build benchmarks
         run: cargo build --release --benches
