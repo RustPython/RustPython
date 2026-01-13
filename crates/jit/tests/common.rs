@@ -1,6 +1,6 @@
 use core::ops::ControlFlow;
 use rustpython_compiler_core::bytecode::{
-    CodeObject, ConstantData, OpArg, OpArgState, ReallInstruction,
+    CodeObject, ConstantData, OpArg, OpArgState, RealInstruction,
 };
 use rustpython_jit::{CompiledCode, JitType};
 use std::collections::HashMap;
@@ -86,30 +86,30 @@ impl StackMachine {
 
     fn process_instruction(
         &mut self,
-        instruction: ReallInstruction,
+        instruction: RealInstruction,
         arg: OpArg,
         constants: &[ConstantData],
         names: &[String],
     ) -> ControlFlow<()> {
         match instruction {
-            ReallInstruction::LoadConst { idx } => {
+            RealInstruction::LoadConst { idx } => {
                 let idx = idx.get(arg);
                 self.stack.push(constants[idx as usize].clone().into())
             }
-            ReallInstruction::LoadName(idx) => self
+            RealInstruction::LoadName(idx) => self
                 .stack
                 .push(StackValue::String(names[idx.get(arg) as usize].clone())),
-            ReallInstruction::StoreName(idx) => {
+            RealInstruction::StoreName(idx) => {
                 let idx = idx.get(arg);
                 self.locals
                     .insert(names[idx as usize].clone(), self.stack.pop().unwrap());
             }
-            ReallInstruction::StoreAttr { .. } => {
+            RealInstruction::StoreAttr { .. } => {
                 // Do nothing except throw away the stack values
                 self.stack.pop().unwrap();
                 self.stack.pop().unwrap();
             }
-            ReallInstruction::BuildMap { size, .. } => {
+            RealInstruction::BuildMap { size, .. } => {
                 let mut map = HashMap::new();
                 for _ in 0..size.get(arg) {
                     let value = self.stack.pop().unwrap();
@@ -122,7 +122,7 @@ impl StackMachine {
                 }
                 self.stack.push(StackValue::Map(map));
             }
-            ReallInstruction::MakeFunction => {
+            RealInstruction::MakeFunction => {
                 let code = if let Some(StackValue::Code(code)) = self.stack.pop() {
                     code
                 } else {
@@ -134,7 +134,7 @@ impl StackMachine {
                     annotations: HashMap::new(), // empty annotations, will be set later if needed
                 }));
             }
-            ReallInstruction::SetFunctionAttribute { attr } => {
+            RealInstruction::SetFunctionAttribute { attr } => {
                 // Stack: [..., attr_value, func] -> [..., func]
                 let func = if let Some(StackValue::Function(func)) = self.stack.pop() {
                     func
@@ -164,13 +164,13 @@ impl StackMachine {
                     self.stack.push(StackValue::Function(func));
                 }
             }
-            ReallInstruction::ReturnConst { idx } => {
+            RealInstruction::ReturnConst { idx } => {
                 let idx = idx.get(arg);
                 self.stack.push(constants[idx as usize].clone().into());
                 return ControlFlow::Break(());
             }
-            ReallInstruction::ReturnValue => return ControlFlow::Break(()),
-            ReallInstruction::ExtendedArg => {}
+            RealInstruction::ReturnValue => return ControlFlow::Break(()),
+            RealInstruction::ExtendedArg => {}
             _ => unimplemented!(
                 "instruction {:?} isn't yet supported in py_function!",
                 instruction
