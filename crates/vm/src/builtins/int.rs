@@ -287,6 +287,13 @@ impl PyInt {
     where
         I: PrimInt + TryFrom<&'a BigInt>,
     {
+        // TODO: Python 3.14+: ValueError for negative int to unsigned type
+        // See stdlib_socket.py socket.htonl(-1)
+        //
+        // if I::min_value() == I::zero() && self.as_bigint().sign() == Sign::Minus {
+        //     return Err(vm.new_value_error("Cannot convert negative int".to_owned()));
+        // }
+
         I::try_from(self.as_bigint()).map_err(|_| {
             vm.new_overflow_error(format!(
                 "Python int too large to convert to Rust {}",
