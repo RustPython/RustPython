@@ -423,12 +423,13 @@ impl PyBytesInner {
 
     pub fn fromhex(bytes: &[u8], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let mut iter = bytes.iter().enumerate();
-        let mut bytes: Vec<u8> = Vec::with_capacity(bytes.len() / 2);
-        let i = loop {
+        let mut result: Vec<u8> = Vec::with_capacity(bytes.len() / 2);
+        // None means odd number of hex digits, Some(i) means invalid char at position i
+        let invalid_char: Option<usize> = loop {
             let (i, &b) = match iter.next() {
                 Some(val) => val,
                 None => {
-                    return Ok(bytes);
+                    return Ok(result);
                 }
             };
 
@@ -440,27 +441,49 @@ impl PyBytesInner {
                 b'0'..=b'9' => b - b'0',
                 b'a'..=b'f' => 10 + b - b'a',
                 b'A'..=b'F' => 10 + b - b'A',
-                _ => break i,
+                _ => break Some(i),
             };
 
             let (i, b) = match iter.next() {
                 Some(val) => val,
-                None => break i + 1,
+                None => break None, // odd number of hex digits
             };
 
             let bot = match b {
                 b'0'..=b'9' => b - b'0',
                 b'a'..=b'f' => 10 + b - b'a',
                 b'A'..=b'F' => 10 + b - b'A',
-                _ => break i,
+                _ => break Some(i),
             };
 
-            bytes.push((top << 4) + bot);
+            result.push((top << 4) + bot);
         };
 
-        Err(vm.new_value_error(format!(
-            "non-hexadecimal number found in fromhex() arg at position {i}"
-        )))
+        match invalid_char {
+            None => Err(vm.new_value_error(
+                "fromhex() arg must contain an even number of hexadecimal digits".to_owned(),
+            )),
+            Some(i) => Err(vm.new_value_error(format!(
+                "non-hexadecimal number found in fromhex() arg at position {i}"
+            ))),
+        }
+    }
+
+    /// Parse hex string from str or bytes-like object
+    pub fn fromhex_object(string: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        if let Some(s) = string.downcast_ref::<PyStr>() {
+            Self::fromhex(s.as_bytes(), vm)
+        } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &string) {
+            let borrowed = buffer.as_contiguous().ok_or_else(|| {
+                vm.new_buffer_error("fromhex() requires a contiguous buffer".to_owned())
+            })?;
+            Self::fromhex(&borrowed, vm)
+        } else {
+            Err(vm.new_type_error(format!(
+                "fromhex() argument must be str or bytes-like, not {}",
+                string.class().name()
+            )))
+        }
     }
 
     #[inline]
