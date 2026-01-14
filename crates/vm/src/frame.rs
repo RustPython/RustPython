@@ -342,7 +342,7 @@ impl ExecutingFrame<'_> {
                 Ok(Some(value)) => {
                     break Ok(value);
                 }
-                // AnyInstruction raised an exception
+                // Instruction raised an exception
                 Err(exception) => {
                     #[cold]
                     fn handle_exception(
