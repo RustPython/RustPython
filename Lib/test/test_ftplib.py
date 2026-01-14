@@ -919,9 +919,10 @@ class TestTLS_FTPClassMixin(TestFTPClass):
         self.client.auth()
         self.client.prot_p()
 
+
 @skipUnless(ssl, "SSL not available")
-@requires_subprocess()
 @unittest.skip("TODO: RUSTPYTHON; SSL + asyncore has problem")
+@requires_subprocess()
 class TestTLS_FTPClass(TestCase):
     """Specific TLS_FTP class tests."""
 
