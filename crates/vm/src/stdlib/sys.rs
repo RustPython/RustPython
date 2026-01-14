@@ -1301,6 +1301,8 @@ mod sys {
         safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
         warn_default_encoding: u8,
+        /// -X thread_inherit_context, whether new threads inherit context from parent
+        thread_inherit_context: bool,
     }
 
     impl FlagsData {
@@ -1324,6 +1326,7 @@ mod sys {
                 int_max_str_digits: settings.int_max_str_digits,
                 safe_path: settings.safe_path,
                 warn_default_encoding: settings.warn_default_encoding as u8,
+                thread_inherit_context: settings.thread_inherit_context,
             }
         }
     }

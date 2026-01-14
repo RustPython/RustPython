@@ -88,6 +88,9 @@ pub struct Settings {
     /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
     pub warn_default_encoding: bool,
 
+    /// -X thread_inherit_context, whether new threads inherit context from parent
+    pub thread_inherit_context: bool,
+
     /// -i
     pub inspect: bool,
 
@@ -190,6 +193,7 @@ impl Default for Settings {
             isolated: false,
             dev_mode: false,
             warn_default_encoding: false,
+            thread_inherit_context: false,
             warnoptions: vec![],
             path_list: vec![],
             argv: vec![],
