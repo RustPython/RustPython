@@ -5,6 +5,9 @@ on:
   push:
     paths:
       - .github/workflows/cron-ci.yaml
+  pull_request:
+    paths:
+      - .github/workflows/cron-ci.yaml
 
 name: Periodic checks/tasks
 
@@ -39,6 +42,7 @@ jobs:
       - name: Prepare code coverage data
         run: cargo llvm-cov report --lcov --output-path='codecov.lcov'
       - name: Upload to Codecov
+        if: ${{ github.event_name != 'pull_request' }}
         uses: codecov/codecov-action@v5
         with:
           file: ./codecov.lcov
@@ -58,6 +62,7 @@ jobs:
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
       - name: upload tests data to the website
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -94,6 +99,7 @@ jobs:
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
       - name: Upload data to the website
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -162,6 +168,7 @@ jobs:
           mv reports/* .
           rmdir reports
       - name: upload benchmark data to the website
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
         run: |
