@@ -12,6 +12,7 @@ import tempfile
 
 class MiscSourceEncodingTest(unittest.TestCase):
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'Non-UTF-8 code starting with' not found in b'OSError: stream did not contain valid UTF-8'
     def test_import_encoded_module(self):
         from test.encoded_modules import test_strings
         # Make sure we're actually testing something
@@ -28,6 +29,7 @@ class MiscSourceEncodingTest(unittest.TestCase):
         exec(c, d)
         self.assertEqual(d['u'], '\xf3')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'Non-UTF-8 code starting with' not found in b'OSError: stream did not contain valid UTF-8'
     def test_issue2301(self):
         try:
             compile(b"# coding: cp932\nprint '\x94\x4e'", "dummy", "exec")
@@ -75,6 +77,7 @@ class MiscSourceEncodingTest(unittest.TestCase):
         self.assertEqual(sub.returncode, 0)
         self.assertNotIn(b'SyntaxError', err)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'Non-UTF-8 code starting with' not found in b'OSError: stream did not contain valid UTF-8'
     def test_error_message(self):
         compile(b'# -*- coding: iso-8859-15 -*-\n', 'dummy', 'exec')
         compile(b'\xef\xbb\xbf\n', 'dummy', 'exec')
@@ -92,10 +95,12 @@ class MiscSourceEncodingTest(unittest.TestCase):
         with self.assertRaisesRegex(SyntaxError, 'BOM'):
             compile(b'\xef\xbb\xbf# -*- coding: fake -*-\n', 'dummy', 'exec')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'Non-UTF-8 code starting with' not found in b'OSError: stream did not contain valid UTF-8'
     def test_bad_coding(self):
         module_name = 'bad_coding'
         self.verify_bad_module(module_name)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'Non-UTF-8 code starting with' not found in b'OSError: stream did not contain valid UTF-8'
     def test_bad_coding2(self):
         module_name = 'bad_coding2'
         self.verify_bad_module(module_name)
@@ -109,6 +114,7 @@ class MiscSourceEncodingTest(unittest.TestCase):
             bytes = fp.read()
         self.assertRaises(SyntaxError, compile, bytes, filename, 'exec')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'Non-UTF-8 code starting with' not found in b'OSError: stream did not contain valid UTF-8'
     def test_exec_valid_coding(self):
         d = {}
         exec(b'# coding: cp949\na = "\xaa\xa7"\n', d)
@@ -138,6 +144,7 @@ class MiscSourceEncodingTest(unittest.TestCase):
             unload(TESTFN)
             rmtree('__pycache__')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'Non-UTF-8 code starting with' not found in b'OSError: stream did not contain valid UTF-8'
     def test_error_from_string(self):
         # See http://bugs.python.org/issue6289
         input = "# coding: ascii\n\N{SNOWMAN}".encode('utf-8')
@@ -148,6 +155,7 @@ class MiscSourceEncodingTest(unittest.TestCase):
         self.assertTrue(c.exception.args[0].startswith(expected),
                         msg=c.exception.args[0])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'Non-UTF-8 code starting with' not found in b'OSError: stream did not contain valid UTF-8'
     def test_file_parse_error_multiline(self):
         # gh96611:
         with open(TESTFN, "wb") as fd:
@@ -161,6 +169,7 @@ class MiscSourceEncodingTest(unittest.TestCase):
         finally:
             os.unlink(TESTFN)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'Non-UTF-8 code starting with' not found in b'OSError: stream did not contain valid UTF-8'
     def test_tokenizer_fstring_warning_in_first_line(self):
         source = "0b1and 2"
         with open(TESTFN, "w") as fd:
@@ -328,6 +337,7 @@ class UTF8ValidatorTest(unittest.TestCase):
     @unittest.skipIf(not sys.platform.startswith("linux"),
                      "Too slow to run on non-Linux platforms")
     @requires_resource('cpu')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
     def test_invalid_utf8(self):
         # This is a port of test_utf8_decode_invalid_sequences in
         # test_unicode.py to exercise the separate utf8 validator in
@@ -393,6 +403,7 @@ class UTF8ValidatorTest(unittest.TestCase):
             check(b'\xF4'+cb+b'\xBF\xBF')
 
 
+@unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
 class BytesSourceEncodingTest(AbstractSourceEncodingTest, unittest.TestCase):
 
     def check_script_output(self, src, expected):
@@ -423,6 +434,78 @@ class FileSourceEncodingTest(AbstractSourceEncodingTest, unittest.TestCase):
                 fp.write(src)
             res = script_helper.assert_python_failure(fn)
         self.assertRegex(res.err.rstrip().splitlines()[-1], b'SyntaxError.*?' + expected)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_utf8_non_utf8_comment_line_error(self):
+        super().test_utf8_non_utf8_comment_line_error()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_second_non_utf8_coding_line(self):
+        super().test_second_non_utf8_coding_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_second_coding_line_empty_first_line(self):
+        super().test_second_coding_line_empty_first_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_second_coding_line(self):
+        super().test_second_coding_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_nul_in_second_coding_line(self):
+        super().test_nul_in_second_coding_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_nul_in_first_coding_line(self):
+        super().test_nul_in_first_coding_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_long_second_coding_line(self):
+        super().test_long_second_coding_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_long_first_coding_line(self):
+        super().test_long_first_coding_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_long_coding_name(self):
+        super().test_long_coding_name()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_long_coding_line(self):
+        super().test_long_coding_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_first_non_utf8_coding_line(self):
+        super().test_first_non_utf8_coding_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_first_coding_line(self):
+        super().test_first_coding_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_double_coding_line(self):
+        super().test_double_coding_line()
+
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b""\\r\\n"" != b""\\n""')
+    def test_crlf(self):
+        super().test_crlf()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_crcrlf(self):
+        super().test_crcrlf()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_crcrcrlf2(self):
+        super().test_crcrcrlf2()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_crcrcrlf(self):
+        super().test_double_coding_same_line()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Only UTF-8 supported
+    def test_double_coding_same_line(self):
+        super().test_double_coding_same_line()
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ class MyObj:
 
 @threading_helper.requires_working_threading()
 class TestGC(TestCase):
+    @unittest.skip("TODO: RUSTPYTHON; o = gc.get_objects() - Not ImplementedError")
     def test_get_objects(self):
         event = threading.Event()
 
@@ -34,6 +35,7 @@ class TestGC(TestCase):
         with threading_helper.start_threads(gcs + mutators):
             pass
 
+    @unittest.skip("TODO: RUSTPYTHON; o = gc.get_referrers() - Not ImplementedError")
     def test_get_referrers(self):
         event = threading.Event()
 

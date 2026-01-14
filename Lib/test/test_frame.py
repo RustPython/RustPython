@@ -43,6 +43,7 @@ class ClearTest(unittest.TestCase):
             tb.tb_frame.clear()
             tb = tb.tb_next
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None is not <__main__.ClearTest.test_clear_locals.<locals>.C object at 0x56044c5f5d10>
     def test_clear_locals(self):
         class C:
             pass
@@ -58,6 +59,7 @@ class ClearTest(unittest.TestCase):
         # The reference was released by .clear()
         self.assertIs(None, wr())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: <__main__.ClearTest.test_clear_locals_after_f_locals_access.<locals>.C object at 0x55813425b0f0> is not None
     def test_clear_locals_after_f_locals_access(self):
         # see gh-113939
         class C:
@@ -92,6 +94,7 @@ class ClearTest(unittest.TestCase):
         self.assertIsNot(f.f_builtins, None)
         self.assertIsNot(f.f_globals, None)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
     def test_clear_generator(self):
         endly = False
         def g():
@@ -110,6 +113,7 @@ class ClearTest(unittest.TestCase):
             gen.gi_frame.clear()
         self.assertFalse(endly)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
     def test_clear_executing(self):
         # Attempting to clear an executing frame is forbidden.
         try:
@@ -121,6 +125,7 @@ class ClearTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             f.f_back.clear()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
     def test_clear_executing_generator(self):
         # Attempting to clear an executing generator frame is forbidden.
         endly = False
@@ -201,6 +206,7 @@ class FrameAttrsTest(unittest.TestCase):
                 tb = tb.tb_next
         return frames
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: {'y': 6, 'inner': <function FrameAttrsTest[65 chars]': 5} != {}\n+ {}\n- {'inner': <function FrameAttrsTest.make_frames.<locals>.outer.<locals>.inner at 0x56398a5d31b0>,\n-  'x': 5,\n-  'y': 6}
     def test_clear_locals(self):
         # Test f_locals after clear() (issue #21897)
         f, outer, inner = self.make_frames()
@@ -209,6 +215,7 @@ class FrameAttrsTest(unittest.TestCase):
         self.assertEqual(outer.f_locals, {})
         self.assertEqual(inner.f_locals, {})
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: {'y': 6, 'inner': <function FrameAttrsTest[65 chars]': 5} != {}\n+ {}\n- {'inner': <function FrameAttrsTest.make_frames.<locals>.outer.<locals>.inner at 0x56398a5d31b0>,\n-  'x': 5,\n-  'y': 6}
     def test_locals_clear_locals(self):
         # Test f_locals before and after clear() (to exercise caching)
         f, outer, inner = self.make_frames()
@@ -230,6 +237,7 @@ class ReprTest(unittest.TestCase):
     Tests for repr(frame).
     """
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: Regex didn't match: "^<frame at 0x[0-9a-fA-F]+, file 'Lib/test/test_frame\\.py', line 264, code test_repr>$" not found in '<frame object at 0x557cc434b540>'
     def test_repr(self):
         def outer():
             x = 5
@@ -265,6 +273,7 @@ class ReprTest(unittest.TestCase):
                          % (file_repr, offset + 5))
 
 class TestFrameLocals(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertEqual(x, 2)\nAssertionError: 1 != 2
     def test_scope(self):
         class A:
             x = 1
@@ -282,6 +291,7 @@ class TestFrameLocals(unittest.TestCase):
             self.assertEqual(locals()['y'], 2)
         f()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertEqual(x, 2)\nAssertionError: 1 != 2
     def test_closure(self):
         x = 1
         y = 2
@@ -304,6 +314,7 @@ class TestFrameLocals(unittest.TestCase):
         lst = [locals() for k in [0]]
         self.assertEqual(lst[0]['k'], 0)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertEqual(len(d), 4)\nAssertionError: 3 != 4
     def test_as_dict(self):
         x = 1
         y = 2
@@ -361,6 +372,7 @@ class TestFrameLocals(unittest.TestCase):
         d[1] = 2
         self.assertEqual(d[1], 2)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; UnboundLocalError: local variable 'b' referenced before assignment
     def test_write_with_hidden(self):
         def f():
             f_locals = [sys._getframe().f_locals for b in [0]][0]
@@ -372,6 +384,7 @@ class TestFrameLocals(unittest.TestCase):
             c = 0
         f()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: <object object at 0x557877ddc800> != 'a.b.c'
     def test_local_objects(self):
         o = object()
         k = '.'.join(['a', 'b', 'c'])
@@ -402,6 +415,7 @@ class TestFrameLocals(unittest.TestCase):
         frame = sys._getframe()
         self.assertEqual(repr(frame.f_locals), repr(dict(frame.f_locals)))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; del d['x']\nAssertionError: ValueError not raised
     def test_delete(self):
         x = 1
         d = sys._getframe().f_locals
@@ -445,6 +459,7 @@ class TestFrameLocals(unittest.TestCase):
         proxy = sys._getframe().f_locals
         support.check_sizeof(self, proxy, support.calcobjsize("P"))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; copy.copy(d)\nAssertionError: TypeError not raised
     def test_unsupport(self):
         x = 1
         d = sys._getframe().f_locals
@@ -479,6 +494,7 @@ class TestFrameLocals(unittest.TestCase):
 
         return StringSubclass('x'), ImpostorX(), 'x'
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: dict_keys(['obj', 'x']) != ['obj', 'x', 'proxy']
     def test_proxy_key_stringlikes_overwrite(self):
         def f(obj):
             x = 1
@@ -501,6 +517,7 @@ class TestFrameLocals(unittest.TestCase):
                 self.assertEqual(keys_snapshot,  expected_keys)
                 self.assertEqual(proxy_snapshot, expected_dict)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; UnboundLocalError: local variable 'x' referenced before assignment
     def test_proxy_key_stringlikes_ftrst_write(self):
         def f(obj):
             proxy = sys._getframe().f_locals
@@ -528,6 +545,7 @@ class TestFrameLocals(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     proxy[obj] = 0
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 'dict' != 'FrameLocalsProxy'
     def test_constructor(self):
         FrameLocalsProxy = type([sys._getframe().f_locals
                                  for x in range(1)][0])
@@ -614,6 +632,7 @@ class FrameLocalsProxyMappingTests(mapping_tests.TestHashMappingProtocol):
 
 
 class TestFrameCApi(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: dlsym failed
     def test_basic(self):
         x = 1
         ctypes = import_helper.import_module('ctypes')
@@ -648,6 +667,7 @@ class TestFrameCApi(unittest.TestCase):
 
 class TestIncompleteFrameAreInvisible(unittest.TestCase):
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: Process return code is 1
     def test_issue95818(self):
         # See GH-95818 for details
         code = textwrap.dedent(f"""
@@ -711,6 +731,7 @@ class TestIncompleteFrameAreInvisible(unittest.TestCase):
             )
             sneaky_frame_object = sneaky_frame_object.f_back
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertIs(catcher.unraisable.exc_type, TypeError)\nAttributeError: 'NoneType' object has no attribute 'exc_type'
     def test_entry_frames_are_invisible_during_teardown(self):
         class C:
             """A weakref'able class."""

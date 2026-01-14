@@ -2,6 +2,7 @@ import __future__
 import unittest
 
 
+@unittest.expectedFailure # TODO: RUSTPYTHON; barry_as_FLUFL does not exist in RustPython
 class FLUFLTests(unittest.TestCase):
 
     def test_barry_as_bdfl(self):

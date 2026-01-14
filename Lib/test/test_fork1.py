@@ -19,6 +19,7 @@ if not support.has_fork_support:
 
 
 class ForkTest(ForkWait):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: process 846604 exited with code 1, but exit code 42 is expected
     def test_threaded_import_lock_fork(self):
         """Check fork() in main thread works while a subthread is doing an import"""
         import_started = threading.Event()

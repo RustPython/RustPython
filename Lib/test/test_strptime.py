@@ -82,6 +82,7 @@ class LocaleTime_Tests(unittest.TestCase):
     @unittest.skipIf(
         support.is_emscripten, "musl libc issue on Emscripten, bpo-46390"
     )
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None is not true : Matching failed on '%Z' using '(?P<Z>utc|gmt|est|edt)' regex
     def test_timezone(self):
         # Make sure timezone is correct
         timezone = time.strftime("%Z", self.time_tuple).lower()
@@ -91,6 +92,7 @@ class LocaleTime_Tests(unittest.TestCase):
                             "timezone %s not found in %s" %
                             (timezone, self.LT_ins.timezone))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None is not true : Matching failed on '%Z' using '(?P<Z>utc|gmt|est|edt)' regex
     def test_date_time(self):
         # Check that LC_date_time, LC_date, and LC_time are correct
         # the magic date is used so as to not have issues with %c when day of
@@ -149,6 +151,7 @@ class TimeRETests(unittest.TestCase):
                       pattern_string)
 
     @skip_if_buggy_ucrt_strfptime
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None is not true : Matching failed on '%Z' using '(?P<Z>utc|gmt|est|edt)' regex
     def test_compile(self):
         # Check that compiled regex is correct
         found = self.time_re.compile(r"%A").match(self.locale_time.f_weekday[6])
@@ -445,6 +448,7 @@ class StrptimeTests(unittest.TestCase):
     @unittest.skipIf(
         support.is_emscripten, "musl libc issue on Emscripten, bpo-46390"
     )
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None is not true : Matching failed on '%Z' using '(?P<Z>utc|gmt|est|edt)' regex
     def test_timezone(self):
         # Test timezone directives.
         # When gmtime() is used with %Z, entire result of strftime() is empty.
@@ -502,6 +506,7 @@ class StrptimeTests(unittest.TestCase):
                       'csb_PL', 'br_FR', 'gez_ET', 'brx_IN',
                       'my_MM', 'or_IN', 'shn_MM', 'az_IR',
                       'byn_ER', 'wal_ET', 'lzh_TW')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; ValueError: time data 'Tue Jan 13 17:46:01 2026' does not match format '%c'
     def test_date_time_locale(self):
         # Test %c directive
         loc = locale.getlocale(locale.LC_TIME)[0]
@@ -563,6 +568,7 @@ class StrptimeTests(unittest.TestCase):
     )
     @run_with_locales('LC_TIME', 'en_US', 'fr_FR', 'de_DE', 'ja_JP',
                       'eu_ES', 'ar_AE', 'my_MM', 'shn_MM', 'lzh_TW')
+    @unittest.expectedFailureIf(sys.platform != 'linux', 'TODO: RUSTPYTHON;  AssertionError: Tuples differ: (2000, 1, 1) != (1900, 1, 1)')
     def test_date_locale2(self):
         # Test %x directive
         loc = locale.getlocale(locale.LC_TIME)[0]
@@ -672,6 +678,7 @@ class CalculationTests(unittest.TestCase):
         self.time_tuple = time.gmtime()
 
     @skip_if_buggy_ucrt_strfptime
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None is not true : Matching failed on '%Z' using '(?P<Z>utc|gmt|est|edt)' regex
     def test_julian_calculation(self):
         # Make sure that when Julian is missing that it is calculated
         format_string = "%Y %m %d %H %M %S %w %Z"
@@ -682,6 +689,7 @@ class CalculationTests(unittest.TestCase):
                          (result.tm_yday, self.time_tuple.tm_yday))
 
     @skip_if_buggy_ucrt_strfptime
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None is not true : Matching failed on '%Z' using '(?P<Z>utc|gmt|est|edt)' regex
     def test_gregorian_calculation(self):
         # Test that Gregorian date can be calculated from Julian day
         format_string = "%Y %H %M %S %w %j %Z"
@@ -697,6 +705,7 @@ class CalculationTests(unittest.TestCase):
                           self.time_tuple.tm_mday))
 
     @skip_if_buggy_ucrt_strfptime
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None is not true : Matching failed on '%Z' using '(?P<Z>utc|gmt|est|edt)' regex
     def test_day_of_week_calculation(self):
         # Test that the day of the week is calculated as needed
         format_string = "%Y %m %d %H %S %j %Z"

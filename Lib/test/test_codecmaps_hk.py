@@ -6,6 +6,7 @@
 from test import multibytecodec_support
 import unittest
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: big5hkscs")
 class TestBig5HKSCSMap(multibytecodec_support.TestBase_Mapping,
                        unittest.TestCase):
     encoding = 'big5hkscs'

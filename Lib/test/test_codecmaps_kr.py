@@ -6,12 +6,14 @@
 from test import multibytecodec_support
 import unittest
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: cp949")
 class TestCP949Map(multibytecodec_support.TestBase_Mapping,
                    unittest.TestCase):
     encoding = 'cp949'
     mapfileurl = 'http://www.pythontest.net/unicode/CP949.TXT'
 
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: euc_kr")
 class TestEUCKRMap(multibytecodec_support.TestBase_Mapping,
                    unittest.TestCase):
     encoding = 'euc_kr'
@@ -22,6 +24,7 @@ class TestEUCKRMap(multibytecodec_support.TestBase_Mapping,
     pass_dectest = [(b'\xa4\xd4', '\u3164')]
 
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: johab")
 class TestJOHABMap(multibytecodec_support.TestBase_Mapping,
                    unittest.TestCase):
     encoding = 'johab'

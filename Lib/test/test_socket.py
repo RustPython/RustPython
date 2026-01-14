@@ -2367,12 +2367,14 @@ class ISOTPTest(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             pass
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testTooLongInterfaceName(self):
         # most systems limit IFNAMSIZ to 16, take 1024 to be sure
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             with self.assertRaisesRegex(OSError, 'interface name too long'):
                 s.bind(('x' * 1024, 1, 2))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:

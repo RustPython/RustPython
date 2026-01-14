@@ -362,6 +362,7 @@ a = A(destroyed)"""
         with self.assertRaises(AttributeError):
             del foo.__annotations__
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertTrue("__annotations__" in ann_module4.__dict__) - AssertionError: False is not true
     def test_annotations_are_created_correctly(self):
         ann_module4 = import_helper.import_fresh_module(
             'test.typinganndata.ann_module4',

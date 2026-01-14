@@ -10,6 +10,7 @@ COMMON_CODEC_TESTS = (
         (b'ab\x1B$def', 'replace', 'ab\uFFFD'),
     )
 
+@unittest.skip('TODO: RUSTPYTHON; LookupError: unknown encoding: iso2022_jp')
 class Test_ISO2022_JP(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'iso2022_jp'
     tstring = multibytecodec_support.load_teststring('iso2022_jp')
@@ -17,6 +18,7 @@ class Test_ISO2022_JP(multibytecodec_support.TestBase, unittest.TestCase):
         (b'ab\x1BNdef', 'replace', 'ab\x1BNdef'),
     )
 
+@unittest.skip('TODO: RUSTPYTHON; LookupError: unknown encoding: iso2022_jp_2')
 class Test_ISO2022_JP2(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'iso2022_jp_2'
     tstring = multibytecodec_support.load_teststring('iso2022_jp')
@@ -24,6 +26,7 @@ class Test_ISO2022_JP2(multibytecodec_support.TestBase, unittest.TestCase):
         (b'ab\x1BNdef', 'replace', 'abdef'),
     )
 
+@unittest.skip('TODO: RUSTPYTHON; LookupError: unknown encoding: iso2022_jp_3')
 class Test_ISO2022_JP3(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'iso2022_jp_3'
     tstring = multibytecodec_support.load_teststring('iso2022_jp')
@@ -47,6 +50,7 @@ class Test_ISO2022_JP3(multibytecodec_support.TestBase, unittest.TestCase):
         b'\x1B$(O\x29\x28\x1B(B&real;\x1B$(O\x29\x32\x1B(B = &lang;&#4660;&rang;'
     )
 
+@unittest.skip('TODO: RUSTPYTHON; LookupError: unknown encoding: iso2022_jp_2004')
 class Test_ISO2022_JP2004(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'iso2022_jp_2004'
     tstring = multibytecodec_support.load_teststring('iso2022_jp')
@@ -70,6 +74,7 @@ class Test_ISO2022_JP2004(multibytecodec_support.TestBase, unittest.TestCase):
         b'\x1B$(Q\x29\x28\x1B(B&real;\x1B$(Q\x29\x32\x1B(B = &lang;&#4660;&rang;'
     )
 
+@unittest.skip('TODO: RUSTPYTHON; LookupError: unknown encoding: iso2022_kr')
 class Test_ISO2022_KR(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'iso2022_kr'
     tstring = multibytecodec_support.load_teststring('iso2022_kr')

@@ -13,6 +13,7 @@ class TestPEP479(unittest.TestCase):
                                     "generator raised StopIteration"):
             next(g())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: <class 'NoneType'> is not <class 'StopIteration'>
     def test_stopiteration_wrapping_context(self):
         def f():
             raise StopIteration

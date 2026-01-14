@@ -6,6 +6,7 @@
 from test import multibytecodec_support
 import unittest
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: cp932")
 class TestCP932Map(multibytecodec_support.TestBase_Mapping,
                    unittest.TestCase):
     encoding = 'cp932'
@@ -21,6 +22,7 @@ class TestCP932Map(multibytecodec_support.TestBase_Mapping,
         supmaps.append((bytes([i]), chr(i+0xfec0)))
 
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp")
 class TestEUCJPCOMPATMap(multibytecodec_support.TestBase_Mapping,
                          unittest.TestCase):
     encoding = 'euc_jp'
@@ -28,6 +30,7 @@ class TestEUCJPCOMPATMap(multibytecodec_support.TestBase_Mapping,
     mapfileurl = 'http://www.pythontest.net/unicode/EUC-JP.TXT'
 
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis")
 class TestSJISCOMPATMap(multibytecodec_support.TestBase_Mapping,
                         unittest.TestCase):
     encoding = 'shift_jis'
@@ -42,6 +45,7 @@ class TestSJISCOMPATMap(multibytecodec_support.TestBase_Mapping,
         (b'\x81_', '\\'),
     ]
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213")
 class TestEUCJISX0213Map(multibytecodec_support.TestBase_Mapping,
                          unittest.TestCase):
     encoding = 'euc_jisx0213'
@@ -49,6 +53,7 @@ class TestEUCJISX0213Map(multibytecodec_support.TestBase_Mapping,
     mapfileurl = 'http://www.pythontest.net/unicode/EUC-JISX0213.TXT'
 
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213")
 class TestSJISX0213Map(multibytecodec_support.TestBase_Mapping,
                        unittest.TestCase):
     encoding = 'shift_jisx0213'

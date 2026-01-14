@@ -26,6 +26,7 @@ class TestFunctions(unittest.TestCase):
             callable(*args)
         self.assertEqual(cm.exception.args[0], errno)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; termios.tcsetattr(self.stream, termios.TCSANOW, attrs)\nTypeError: Expected type 'int' but 'FileIO' found.
     def test_tcgetattr(self):
         attrs = termios.tcgetattr(self.fd)
         self.assertIsInstance(attrs, list)
@@ -44,6 +45,7 @@ class TestFunctions(unittest.TestCase):
                 self.assertEqual(len(x), 1)
         self.assertEqual(termios.tcgetattr(self.stream), attrs)
 
+    @unittest.skip("TODO: RUSTPYTHON; Segmentation Fault")
     def test_tcgetattr_errors(self):
         self.assertRaisesTermiosError(errno.ENOTTY, termios.tcgetattr, self.bad_fd)
         self.assertRaises(ValueError, termios.tcgetattr, -1)
@@ -51,6 +53,7 @@ class TestFunctions(unittest.TestCase):
         self.assertRaises(TypeError, termios.tcgetattr, object())
         self.assertRaises(TypeError, termios.tcgetattr)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; termios.tcsetattr(self.stream, termios.TCSANOW, attrs)\nTypeError: Expected type 'int' but 'FileIO' found.
     def test_tcsetattr(self):
         attrs = termios.tcgetattr(self.fd)
         termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
@@ -58,6 +61,7 @@ class TestFunctions(unittest.TestCase):
         termios.tcsetattr(self.fd, termios.TCSAFLUSH, attrs)
         termios.tcsetattr(self.stream, termios.TCSANOW, attrs)
 
+    @unittest.skip("TODO: RUSTPYTHON; Segmentation Fault")
     def test_tcsetattr_errors(self):
         attrs = termios.tcgetattr(self.fd)
         self.assertRaises(TypeError, termios.tcsetattr, self.fd, termios.TCSANOW, tuple(attrs))
@@ -93,6 +97,7 @@ class TestFunctions(unittest.TestCase):
         self.assertRaises(TypeError, termios.tcsetattr, object(), termios.TCSANOW, attrs)
         self.assertRaises(TypeError, termios.tcsetattr, self.fd, termios.TCSANOW)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; termios.tcsetattr(self.stream, termios.TCSANOW, attrs)\nTypeError: Expected type 'int' but 'FileIO' found.
     def test_tcsendbreak(self):
         try:
             termios.tcsendbreak(self.fd, 1)
@@ -103,6 +108,7 @@ class TestFunctions(unittest.TestCase):
             raise
         termios.tcsendbreak(self.stream, 1)
 
+    @unittest.skip("TODO: RUSTPYTHON; Segmentation Fault")
     def test_tcsendbreak_errors(self):
         self.assertRaises(OverflowError, termios.tcsendbreak, self.fd, 2**1000)
         self.assertRaises(TypeError, termios.tcsendbreak, self.fd, 0.0)
@@ -113,10 +119,12 @@ class TestFunctions(unittest.TestCase):
         self.assertRaises(TypeError, termios.tcsendbreak, object(), 0)
         self.assertRaises(TypeError, termios.tcsendbreak, self.fd)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; termios.tcsetattr(self.stream, termios.TCSANOW, attrs)\nTypeError: Expected type 'int' but 'FileIO' found.
     def test_tcdrain(self):
         termios.tcdrain(self.fd)
         termios.tcdrain(self.stream)
 
+    @unittest.skip("TODO: RUSTPYTHON; Segmentation Fault")
     def test_tcdrain_errors(self):
         self.assertRaisesTermiosError(errno.ENOTTY, termios.tcdrain, self.bad_fd)
         self.assertRaises(ValueError, termios.tcdrain, -1)
@@ -129,6 +137,7 @@ class TestFunctions(unittest.TestCase):
         termios.tcflush(self.fd, termios.TCOFLUSH)
         termios.tcflush(self.fd, termios.TCIOFLUSH)
 
+    @unittest.skip("TODO: RUSTPYTHON; Segmentation Fault")
     def test_tcflush_errors(self):
         self.assertRaisesTermiosError(errno.EINVAL, termios.tcflush, self.fd, -1)
         self.assertRaises(OverflowError, termios.tcflush, self.fd, 2**1000)
@@ -170,6 +179,7 @@ class TestFunctions(unittest.TestCase):
         termios.tcflow(self.fd, termios.TCIOFF)
         termios.tcflow(self.fd, termios.TCION)
 
+    @unittest.skip("TODO: RUSTPYTHON; Segmentation Fault")
     def test_tcflow_errors(self):
         self.assertRaisesTermiosError(errno.EINVAL, termios.tcflow, self.fd, -1)
         self.assertRaises(OverflowError, termios.tcflow, self.fd, 2**1000)
@@ -208,6 +218,7 @@ class TestFunctions(unittest.TestCase):
                             'output was not resumed')
             self.assertEqual(os.read(rfd, 1024), b'def')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcgetwinsize(self):
         size = termios.tcgetwinsize(self.fd)
         self.assertIsInstance(size, tuple)
@@ -216,6 +227,7 @@ class TestFunctions(unittest.TestCase):
         self.assertIsInstance(size[1], int)
         self.assertEqual(termios.tcgetwinsize(self.stream), size)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcgetwinsize_errors(self):
         self.assertRaisesTermiosError(errno.ENOTTY, termios.tcgetwinsize, self.bad_fd)
         self.assertRaises(ValueError, termios.tcgetwinsize, -1)
@@ -223,12 +235,14 @@ class TestFunctions(unittest.TestCase):
         self.assertRaises(TypeError, termios.tcgetwinsize, object())
         self.assertRaises(TypeError, termios.tcgetwinsize)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcsetwinsize(self):
         size = termios.tcgetwinsize(self.fd)
         termios.tcsetwinsize(self.fd, size)
         termios.tcsetwinsize(self.fd, list(size))
         termios.tcsetwinsize(self.stream, size)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcsetwinsize_errors(self):
         size = termios.tcgetwinsize(self.fd)
         self.assertRaises(TypeError, termios.tcsetwinsize, self.fd, size[:-1])
@@ -267,6 +281,7 @@ class TestModule(unittest.TestCase):
         self.assertLess(termios.VTIME, termios.NCCS)
         self.assertLess(termios.VMIN, termios.NCCS)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertFalse(issubclass(termios.error, OSError))\nAssertionError: True is not false
     def test_exception(self):
         self.assertTrue(issubclass(termios.error, Exception))
         self.assertFalse(issubclass(termios.error, OSError))

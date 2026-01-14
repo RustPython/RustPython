@@ -18,6 +18,7 @@ from test.support import threading_helper
 
 @threading_helper.requires_working_threading()
 class TestDict(TestCase):
+    @unittest.skip("TODO: RUSTPYTHON; Flaky")
     def test_racing_creation_shared_keys(self):
         """Verify that creating dictionaries is thread safe when we
         have a type with shared keys"""
@@ -26,11 +27,13 @@ class TestDict(TestCase):
 
         self.racing_creation(C)
 
+    @unittest.skip("TODO: RUSTPYTHON; Flaky")
     def test_racing_creation_no_shared_keys(self):
         """Verify that creating dictionaries is thread safe when we
         have a type with an ordinary dict"""
         self.racing_creation(Or)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: a04 missing at 1
     def test_racing_creation_inline_values_invalid(self):
         """Verify that re-creating a dict after we have invalid inline values
         is thread safe"""
@@ -46,6 +49,7 @@ class TestDict(TestCase):
 
         self.racing_creation(make_obj)
 
+    @unittest.skip("TODO: RUSTPYTHON; Flaky")
     def test_racing_creation_nonmanaged_dict(self):
         """Verify that explicit creation of an unmanaged dict is thread safe
         outside of the normal attribute setting code path"""

@@ -161,6 +161,7 @@ class _LocaleTests(unittest.TestCase):
         support.is_emscripten or support.is_wasi,
         "musl libc issue on Emscripten, bpo-46390"
     )
+    @unittest.skipIf(sys.platform != 'linux', 'TODO: RUSTPYTHON; Crashes - localeconv always return decodable string: Utf8Error { valid_up_to: 0, error_len: Some(1) }')
     def test_lc_numeric_localeconv(self):
         # Test localeconv against known values
         tested = False
@@ -179,6 +180,7 @@ class _LocaleTests(unittest.TestCase):
             self.skipTest('no suitable locales')
 
     @unittest.skipUnless(nl_langinfo, "nl_langinfo is not available")
+    @unittest.skipIf(sys.platform != 'linux', 'TODO: RUSTPYTHON; Crashes - localeconv always return decodable string: Utf8Error { valid_up_to: 0, error_len: Some(1) }')
     def test_lc_numeric_basic(self):
         # Test nl_langinfo against localeconv
         tested = False
@@ -279,6 +281,7 @@ class _LocaleTests(unittest.TestCase):
         if not tested:
             self.skipTest('no suitable locales')
 
+    @unittest.skipIf(sys.platform != 'linux', 'TODO: RUSTPYTHON; Crashes - localeconv always return decodable string: Utf8Error { valid_up_to: 0, error_len: Some(1) }')
     def test_float_parsing(self):
         # Bug #1391872: Test whether float parsing is okay on European
         # locales.

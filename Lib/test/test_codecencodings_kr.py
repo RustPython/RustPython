@@ -6,6 +6,7 @@
 from test import multibytecodec_support
 import unittest
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: cp949")
 class Test_CP949(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'cp949'
     tstring = multibytecodec_support.load_teststring('cp949')
@@ -18,6 +19,7 @@ class Test_CP949(multibytecodec_support.TestBase, unittest.TestCase):
         (b"abc\x80\x80\xc1\xc4", "ignore",  "abc\uc894"),
     )
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: euc_kr")
 class Test_EUCKR(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'euc_kr'
     tstring = multibytecodec_support.load_teststring('euc_kr')
@@ -49,6 +51,7 @@ class Test_EUCKR(multibytecodec_support.TestBase, unittest.TestCase):
         (b"\xc1\xc4", "strict", "\uc894"),
     )
 
+@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: johab")
 class Test_JOHAB(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'johab'
     tstring = multibytecodec_support.load_teststring('johab')

@@ -563,6 +563,7 @@ class CoroutineTest(unittest.TestCase):
         self.assertRegex(repr(coro), '^<coroutine object.* at 0x.*>$')
         coro.close()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_func_4(self):
         async def foo():
             raise StopIteration
@@ -592,6 +593,7 @@ class CoroutineTest(unittest.TestCase):
 
         coro.close()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_func_5(self):
         @types.coroutine
         def bar():
@@ -647,6 +649,7 @@ class CoroutineTest(unittest.TestCase):
 
         coro.close()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_func_8(self):
         @types.coroutine
         def bar():
@@ -659,6 +662,7 @@ class CoroutineTest(unittest.TestCase):
         self.assertEqual(run_async(bar()), ([], 'spam'))
         coro.close()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_func_9(self):
         async def foo():
             pass
@@ -769,6 +773,7 @@ class CoroutineTest(unittest.TestCase):
                                     "coroutine ignored GeneratorExit"):
             c.close()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_func_15(self):
         # See http://bugs.python.org/issue25887 for details
 
@@ -786,6 +791,7 @@ class CoroutineTest(unittest.TestCase):
                                     'cannot reuse already awaited coroutine'):
             reader(spammer_coro).send(None)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_func_16(self):
         # See http://bugs.python.org/issue25887 for details
 
@@ -817,6 +823,7 @@ class CoroutineTest(unittest.TestCase):
                                     'cannot reuse already awaited coroutine'):
             reader.throw(Exception('wat'))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_func_17(self):
         # See http://bugs.python.org/issue25887 for details
 
@@ -925,6 +932,7 @@ class CoroutineTest(unittest.TestCase):
         self.assertIsInstance(result[1], StopIteration)
         self.assertEqual(result[1].value, 10)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_cr_await(self):
         @types.coroutine
         def a():
@@ -955,6 +963,7 @@ class CoroutineTest(unittest.TestCase):
         self.assertEqual(inspect.getcoroutinestate(coro_b), inspect.CORO_CLOSED)
         self.assertIsNone(coro_b.cr_await)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_corotype_1(self):
         ct = types.CoroutineType
         if not support.MISSING_C_DOCSTRINGS:
@@ -1093,6 +1102,7 @@ class CoroutineTest(unittest.TestCase):
 
         self.assertEqual(run_async(foo2()), ([], ('spam', 'ham')))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_await_12(self):
         async def coro():
             return 'spam'
@@ -1297,6 +1307,7 @@ class CoroutineTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             run_async(func())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_with_6(self):
         class CM:
             def __aenter__(self):
@@ -1316,6 +1327,7 @@ class CoroutineTest(unittest.TestCase):
             # it's important that __aexit__ wasn't called
             run_async(foo())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_with_7(self):
         class CM:
             async def __aenter__(self):
@@ -1342,6 +1354,7 @@ class CoroutineTest(unittest.TestCase):
             self.fail('invalid asynchronous context manager did not fail')
 
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_with_8(self):
         CNT = 0
 
@@ -1585,6 +1598,7 @@ class CoroutineTest(unittest.TestCase):
         self.assertEqual(buffer, [i for i in range(1, 21)] +
                                  ['what?', 'end'])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_for_2(self):
         tup = (1, 2, 3)
         refs_before = sys.getrefcount(tup)
@@ -1600,6 +1614,7 @@ class CoroutineTest(unittest.TestCase):
 
         self.assertEqual(sys.getrefcount(tup), refs_before)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_for_3(self):
         class I:
             def __aiter__(self):
@@ -1620,6 +1635,7 @@ class CoroutineTest(unittest.TestCase):
 
         self.assertEqual(sys.getrefcount(aiter), refs_before)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_for_4(self):
         class I:
             def __aiter__(self):
@@ -1767,6 +1783,7 @@ class CoroutineTest(unittest.TestCase):
                 run_async(foo())
         self.assertEqual(CNT, 0)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_for_11(self):
         class F:
             def __aiter__(self):
@@ -2042,6 +2059,7 @@ class CoroutineTest(unittest.TestCase):
             run_async(f()),
             ([], {1: 1, 2: 2, 3: 3}))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_nested_comp(self):
         async def run_list_inside_list():
             return [[i + j async for i in asynciter([1, 2])] for j in [10, 20]]
@@ -2124,6 +2142,7 @@ class CoroutineTest(unittest.TestCase):
         finally:
             aw.close()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_fatal_coro_warning(self):
         # Issue 27811
         async def func(): pass
@@ -2139,6 +2158,7 @@ class CoroutineTest(unittest.TestCase):
             self.assertIn("was never awaited", str(cm.unraisable.exc_value))
             self.assertEqual(repr(cm.unraisable.object), coro_repr)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_for_assign_raising_stop_async_iteration(self):
         class BadTarget:
             def __setitem__(self, key, value):
@@ -2172,6 +2192,7 @@ class CoroutineTest(unittest.TestCase):
             return 'end'
         self.assertEqual(run_async(run_gen()), ([], 'end'))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_for_assign_raising_stop_async_iteration_2(self):
         class BadIterable:
             def __iter__(self):
@@ -2204,6 +2225,7 @@ class CoroutineTest(unittest.TestCase):
             return 'end'
         self.assertEqual(run_async(run_gen()), ([], 'end'))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_bpo_45813_1(self):
         'This would crash the interpreter in 3.11a2'
         async def f():
@@ -2212,6 +2234,7 @@ class CoroutineTest(unittest.TestCase):
             frame = f().cr_frame
         frame.clear()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_bpo_45813_2(self):
         'This would crash the interpreter in 3.11a2'
         async def f():
@@ -2221,6 +2244,7 @@ class CoroutineTest(unittest.TestCase):
             gen.cr_frame.clear()
         gen.close()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_cr_frame_after_close(self):
         async def f():
             pass
@@ -2304,6 +2328,7 @@ class OriginTrackingTest(unittest.TestCase):
         info = inspect.getframeinfo(inspect.currentframe().f_back)
         return (info.filename, info.lineno)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_origin_tracking(self):
         orig_depth = sys.get_coroutine_origin_tracking_depth()
         try:
@@ -2350,6 +2375,7 @@ class OriginTrackingTest(unittest.TestCase):
         finally:
             sys.set_coroutine_origin_tracking_depth(orig_depth)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_origin_tracking_warning(self):
         async def corofn():
             pass
@@ -2392,6 +2418,7 @@ class OriginTrackingTest(unittest.TestCase):
         finally:
             sys.set_coroutine_origin_tracking_depth(orig_depth)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_unawaited_warning_when_module_broken(self):
         # Make sure we don't blow up too bad if
         # warnings._warn_unawaited_coroutine is broken somehow (e.g. because

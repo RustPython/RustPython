@@ -93,6 +93,7 @@ class ZipSupportTests(unittest.TestCase):
             finally:
                 del sys.modules["zip_pkg"]
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'test_zipped_doctest' has no attribute 'test_debug'
     def test_doctest_issue4197(self):
         # To avoid having to keep two copies of the doctest module's
         # unit tests in sync, this test works by taking the source of
@@ -184,6 +185,7 @@ class ZipSupportTests(unittest.TestCase):
             finally:
                 del sys.modules["test_zipped_doctest"]
 
+    @unittest.skip("TODO: RUSTPYTHON; Crashes")
     def test_doctest_main_issue4197(self):
         test_src = textwrap.dedent("""\
                     class Test:
@@ -213,6 +215,7 @@ class ZipSupportTests(unittest.TestCase):
                 print (ascii(out))
             self.assertIn(expected.encode('utf-8'), out)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'/tmp/tmp9wflv3j5/script.py' not found in b'--Return--\n> ...
     def test_pdb_issue4201(self):
         test_src = textwrap.dedent("""\
                     def f():

@@ -4,6 +4,7 @@ from test.support import run_code
 
 class TypeAnnotationTests(unittest.TestCase):
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: can't delete attribute
     def test_lazy_create_annotations(self):
         # type objects lazy create their __annotations__ dict on demand.
         # the annotations dict is stored in type.__dict__.
@@ -17,6 +18,7 @@ class TypeAnnotationTests(unittest.TestCase):
             self.assertEqual(foo.__dict__['__annotations__'], d)
             del foo.__annotations__
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: can't delete attribute
     def test_setting_annotations(self):
         foo = type("Foo", (), {})
         for i in range(3):
@@ -28,6 +30,7 @@ class TypeAnnotationTests(unittest.TestCase):
             self.assertEqual(foo.__dict__['__annotations__'], d)
             del foo.__annotations__
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: can't delete attribute
     def test_annotations_getset_raises(self):
         # builtin types don't have __annotations__ (yet!)
         with self.assertRaises(AttributeError):
@@ -44,6 +47,7 @@ class TypeAnnotationTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             del foo.__annotations__
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: can't delete attribute
     def test_annotations_are_created_correctly(self):
         class C:
             a:int=3
@@ -119,9 +123,11 @@ class TestSetupAnnotations(unittest.TestCase):
                     annotations = ns["__annotations__"]
                 self.assertEqual(annotations, {"x": int})
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; KeyError: '__annotations__'
     def test_top_level(self):
         self.check("x: int = 1")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; KeyError: '__annotations__'
     def test_blocks(self):
         self.check("if True:\n    x: int = 1")
         self.check("""
@@ -146,6 +152,7 @@ class TestSetupAnnotations(unittest.TestCase):
                 x: int = 1
         """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; ZeroDivisionError: division by zero\nDuring handling of the above exception, another exception occurred: NameError: name '__annotations__' is not defined
     def test_try(self):
         self.check("""
             try:
@@ -176,6 +183,7 @@ class TestSetupAnnotations(unittest.TestCase):
                 x: int = 1
         """)
 
+    @unittest.skip("TODO: RUSTPYTHON; Segmentation fault")
     def test_try_star(self):
         self.check("""
             try:
@@ -206,6 +214,7 @@ class TestSetupAnnotations(unittest.TestCase):
                 x: int = 1
         """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; exec(textwrap.dedent(code), ns)\nNameError: name '__annotations__' is not defined
     def test_match(self):
         self.check("""
             match 0:

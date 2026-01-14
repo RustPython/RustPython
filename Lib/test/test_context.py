@@ -9,6 +9,7 @@ import unittest
 import weakref
 from test import support
 from test.support import threading_helper
+import sys # TODO: RUSTPYTHON; Needed for skip
 
 try:
     from _testinternalcapi import hamt

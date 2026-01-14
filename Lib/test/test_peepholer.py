@@ -69,7 +69,7 @@ class TestTranforms(BytecodeTestCase):
         # aren't very many tests of lnotab), if peepholer wasn't scheduled
         # to be replaced anyway.
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: POP_JUMP_IF_TRUE not found in bytecode
     def test_unot(self):
         # UNARY_NOT POP_JUMP_IF_FALSE  -->  POP_JUMP_IF_TRUE'
         def unot(x):
@@ -80,7 +80,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(unot, 'POP_JUMP_IF_TRUE')
         self.check_lnotab(unot)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: (CONTAINS_OP,0) not found in bytecode
     def test_elim_inversion_of_is_or_in(self):
         for line, cmp_op, invert in (
             ('not a is b', 'IS_OP', 1,),
@@ -120,7 +120,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(f, 'RETURN_CONST', None)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: LOAD_CONST occurs in bytecode
     def test_while_one(self):
         # Skip over:  LOAD_CONST trueconst  POP_JUMP_IF_FALSE xx
         def f():
@@ -133,7 +133,7 @@ class TestTranforms(BytecodeTestCase):
             self.assertInBytecode(f, elem)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: SWAP occurs in bytecode
     def test_pack_unpack(self):
         for line, elem in (
             ('a, = a,', 'RETURN_CONST',),
@@ -147,7 +147,7 @@ class TestTranforms(BytecodeTestCase):
                 self.assertNotInBytecode(code, 'UNPACK_SEQUENCE')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: (LOAD_CONST,(1, 2, 3)) not found in bytecode
     def test_folding_of_tuples_of_constants(self):
         for line, elem in (
             ('a = 1,2,3', (1, 2, 3)),
@@ -189,7 +189,7 @@ class TestTranforms(BytecodeTestCase):
             ],)
         self.check_lnotab(crater)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: (LOAD_CONST,((1, 2), 3, 4)) not found in bytecode
     def test_folding_of_lists_of_constants(self):
         for line, elem in (
             # in/not in constants with BUILD_LIST should be folded to a tuple:
@@ -204,7 +204,7 @@ class TestTranforms(BytecodeTestCase):
                 self.assertNotInBytecode(code, 'BUILD_LIST')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: BUILD_SET occurs in bytecode
     def test_folding_of_sets_of_constants(self):
         for line, elem in (
             # in/not in constants with BUILD_SET should be folded to a frozenset:
@@ -235,8 +235,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertTrue(g(4))
         self.check_lnotab(g)
 
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: (LOAD_CONST,15) not found in bytecode
     def test_folding_of_binops_on_constants(self):
         for line, elem in (
             ('a = 2+3+4', 9),                   # chained fold
@@ -282,7 +281,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertNotIn(2**1000, code.co_consts)
         self.check_lnotab(code)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: (LOAD_CONST,'f') not found in bytecode
     def test_binary_subscr_on_unicode(self):
         # valid code get optimized
         code = compile('"foo"[0]', '', 'single')
@@ -306,7 +305,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(code, 'BINARY_SUBSCR')
         self.check_lnotab(code)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: (LOAD_CONST,1) not found in bytecode
     def test_folding_of_unaryops_on_constants(self):
         for line, elem in (
             ('-0.5', -0.5),                     # unary negative
@@ -352,7 +351,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(len(returns), 1)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; tgt = targets[instr.argval]\nKeyError: 18
     def test_elim_jump_to_return(self):
         # JUMP_FORWARD to RETURN -->  RETURN
         def f(cond, true_value, false_value):
@@ -367,7 +366,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(len(returns), 2)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; tgt = targets[instr.argval]\nKeyError: 38
     def test_elim_jump_to_uncond_jump(self):
         # POP_JUMP_IF_FALSE to JUMP_FORWARD --> POP_JUMP_IF_FALSE to non-jump
         def f():
@@ -381,7 +380,7 @@ class TestTranforms(BytecodeTestCase):
         self.check_jump_targets(f)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; tgt = targets[instr.argval]\nKeyError: 32
     def test_elim_jump_to_uncond_jump2(self):
         # POP_JUMP_IF_FALSE to JUMP_BACKWARD --> POP_JUMP_IF_FALSE to non-jump
         def f():
@@ -393,7 +392,7 @@ class TestTranforms(BytecodeTestCase):
         self.check_jump_targets(f)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; tgt = targets[instr.argval]\nKeyError: 22
     def test_elim_jump_to_uncond_jump3(self):
         # Intentionally use two-line expressions to test issue37213.
         # POP_JUMP_IF_FALSE to POP_JUMP_IF_FALSE --> POP_JUMP_IF_FALSE to non-jump
@@ -427,7 +426,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(count_instr_recursively(f, 'POP_JUMP_IF_FALSE'), 1)
         self.assertEqual(count_instr_recursively(f, 'POP_JUMP_IF_TRUE'), 1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; tgt = targets[instr.argval]\nKeyError: 6
     def test_elim_jump_to_uncond_jump4(self):
         def f():
             for i in range(5):
@@ -435,7 +434,7 @@ class TestTranforms(BytecodeTestCase):
                     print(i)
         self.check_jump_targets(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: JUMP_BACKWARD occurs in bytecode
     def test_elim_jump_after_return1(self):
         # Eliminate dead code: jumps immediately after returns can't be reached
         def f(cond1, cond2):
@@ -462,7 +461,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertNotInBytecode(f, 'BINARY_OP')
         self.check_lnotab(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertFalse(instr.opname.startswith('BINARY_'))\nAssertionError: True is not false
     def test_constant_folding(self):
         # Issue #11244: aggressive constant folding.
         exprs = [
@@ -527,7 +526,7 @@ class TestTranforms(BytecodeTestCase):
             return 6
         self.check_lnotab(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertEqual(count_instr_recursively(listcomp, 'FOR_ITER'), 1)\nAssertionError: 2 != 1
     def test_assignment_idiom_in_comprehensions(self):
         def listcomp():
             return [y for x in a for y in [f(x)]]
@@ -587,7 +586,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(format('x = %s!', '%% %s'), 'x = %% %s!')
         self.assertEqual(format('x = %s, y = %d', 12, 34), 'x = 12, y = 34')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; eval("'%s%z' % (x,)", {'x': 1234})\nValueError: unsupported format character 'z' (0x7a) at index 3
     def test_format_errors(self):
         with self.assertRaisesRegex(TypeError,
                     'not enough arguments for format string'):
@@ -635,7 +634,7 @@ class TestTranforms(BytecodeTestCase):
             c, b, a = a, b, c
         self.assertNotInBytecode(f, "SWAP")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: SWAP occurs in bytecode
     def test_static_swaps_match_mapping(self):
         for a, b, c in product("_a", "_b", "_c"):
             pattern = f"{{'a': {a}, 'b': {b}, 'c': {c}}}"
@@ -643,7 +642,7 @@ class TestTranforms(BytecodeTestCase):
                 code = compile_pattern_with_fast_locals(pattern)
                 self.assertNotInBytecode(code, "SWAP")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: SWAP occurs in bytecode
     def test_static_swaps_match_class(self):
         forms = [
             "C({}, {}, {})",
@@ -658,7 +657,7 @@ class TestTranforms(BytecodeTestCase):
                     code = compile_pattern_with_fast_locals(pattern)
                     self.assertNotInBytecode(code, "SWAP")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: SWAP occurs in bytecode
     def test_static_swaps_match_sequence(self):
         swaps = {"*_, b, c", "a, *_, c", "a, b, *_"}
         forms = ["{}, {}, {}", "{}, {}, *{}", "{}, *{}, {}", "*{}, {}, {}"]
@@ -707,14 +706,14 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.addCleanup(sys.settrace, sys.gettrace())
         sys.settrace(None)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: LOAD_FAST_LOAD_FAST not found in bytecode
     def test_load_fast_known_simple(self):
         def f():
             x = 1
             y = x + x
         self.assertInBytecode(f, 'LOAD_FAST_LOAD_FAST')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: LOAD_FAST_CHECK not found in bytecode
     def test_load_fast_unknown_simple(self):
         def f():
             if condition():
@@ -723,7 +722,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: LOAD_FAST_CHECK not found in bytecode
     def test_load_fast_unknown_because_del(self):
         def f():
             x = 1
@@ -732,7 +731,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: LOAD_FAST_CHECK not found in bytecode
     def test_load_fast_known_because_parameter(self):
         def f1(x):
             print(x)
@@ -759,7 +758,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f5, 'LOAD_FAST')
         self.assertNotInBytecode(f5, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: LOAD_FAST_CHECK not found in bytecode
     def test_load_fast_known_because_already_loaded(self):
         def f():
             if condition():
@@ -769,7 +768,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: LOAD_FAST_CHECK not found in bytecode
     def test_load_fast_known_multiple_branches(self):
         def f():
             if condition():
@@ -780,7 +779,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST')
         self.assertNotInBytecode(f, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: LOAD_FAST_CHECK not found in bytecode
     def test_load_fast_unknown_after_error(self):
         def f():
             try:
@@ -792,7 +791,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         # Assert that it doesn't occur in the LOAD_FAST_CHECK branch.
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: LOAD_FAST_CHECK not found in bytecode
     def test_load_fast_unknown_after_error_2(self):
         def f():
             try:
@@ -803,7 +802,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: (LOAD_FAST_LOAD_FAST,('a00', 'a01')) not found in bytecode
     def test_load_fast_too_many_locals(self):
         # When there get to be too many locals to analyze completely,
         # later locals are all converted to LOAD_FAST_CHECK, except
@@ -878,7 +877,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertNotInBytecode(f, "LOAD_FAST_CHECK")
         self.assertEqual(f.__code__.co_code, co_code)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_setting_lineno_one_undefined(self):
         code = textwrap.dedent("""\
             def f():
@@ -913,7 +912,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertNotInBytecode(f, "LOAD_FAST_CHECK")
         self.assertEqual(f.__code__.co_code, co_code)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_setting_lineno_two_undefined(self):
         code = textwrap.dedent("""\
             def f():

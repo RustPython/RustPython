@@ -12,6 +12,7 @@ import pickle
 import re
 import shutil
 import struct
+import sys # TODO: RUSTPYTHON; only here for a test
 import tempfile
 import unittest
 from datetime import date, datetime, time, timedelta, timezone
@@ -1793,6 +1794,7 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
 
         self.assertSequenceEqual(self.module.TZPATH, (f"{DRIVE}/a/b/c",))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'FakePath' found.
     def test_reset_tzpath_relative_paths(self):
         bad_values = [
             ("path/to/somewhere",),
@@ -1808,6 +1810,7 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
                 with self.assertRaises(ValueError):
                     self.module.reset_tzpath(to=input_paths)
 
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: TypeError not raised')
     def test_tzpath_type_error(self):
         bad_values = [
             "/etc/zoneinfo:/usr/share/zoneinfo",
@@ -1823,6 +1826,7 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
                 with self.assertRaises(TypeError):
                     self.module.reset_tzpath(bad_value)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: Sequences differ: ('/usr/share/zoneinfo',) != (<FakePath '/usr/share/zoneinfo'>,)
     def test_tzpath_attribute(self):
         tzpath_0 = [f"{DRIVE}/one", f"{DRIVE}/two"]
         tzpath_1 = [f"{DRIVE}/three"]
