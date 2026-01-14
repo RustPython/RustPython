@@ -3160,6 +3160,7 @@ dependencies = [
  "digest",
  "dns-lookup",
  "dyn-clone",
+ "flame",
  "flate2",
  "foreign-types-shared",
  "gethostname",

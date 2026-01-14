@@ -74,6 +74,7 @@ mod _json {
             scan_once: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyIterReturn> {
+            flame_guard!("JsonScanner::parse");
             let c = match s.chars().next() {
                 Some(c) => c,
                 None => {
@@ -153,6 +154,7 @@ mod _json {
         }
 
         fn parse_number(&self, s: &str, vm: &VirtualMachine) -> Option<(PyResult, usize)> {
+            flame_guard!("JsonScanner::parse_number");
             let mut has_neg = false;
             let mut has_decimal = false;
             let mut has_exponent = false;
@@ -213,6 +215,7 @@ mod _json {
     }
 
     fn encode_string(s: &str, ascii_only: bool) -> String {
+        flame_guard!("_json::encode_string");
         let mut buf = Vec::<u8>::with_capacity(s.len() + 2);
         machinery::write_json_string(s, ascii_only, &mut buf)
             // SAFETY: writing to a vec can't fail
@@ -253,6 +256,7 @@ mod _json {
         strict: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult<(Wtf8Buf, usize)> {
+        flame_guard!("_json::scanstring");
         machinery::scanstring(s.as_wtf8(), end, strict.unwrap_or(true))
             .map_err(|e| py_decode_error(e, s, vm))
     }

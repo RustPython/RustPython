@@ -8,6 +8,9 @@
 extern crate rustpython_derive;
 extern crate alloc;
 
+#[macro_use]
+pub(crate) mod macros;
+
 pub mod array;
 mod binascii;
 mod bisect;
