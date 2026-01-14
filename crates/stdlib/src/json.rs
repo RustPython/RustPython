@@ -506,8 +506,14 @@ mod _json {
                         return Ok((vm.ctx.new_bool(false).into(), idx + 5));
                     }
                 }
+                Some(c) if c.is_ascii_digit() => {
+                    // Number starting with digit - parse directly in Rust
+                    if let Some((result, len)) = self.parse_number(remaining, vm) {
+                        return Ok((result?, idx + len));
+                    }
+                }
                 _ => {
-                    // For other cases (numbers, NaN, Infinity, etc.)
+                    // For other cases (NaN, Infinity, -Infinity, negative numbers, etc.)
                     // fall through to call scan_once
                 }
             }
