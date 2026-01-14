@@ -6597,7 +6597,8 @@ class BaseMixin(object):
             support.print_warning(f'Dangling processes: {processes}')
         processes = None
 
-        threads = set(threading._dangling) - set(cls.dangling[1])
+        # TODO: RUSTPYTHON: Filter out stopped threads since gc.collect() is a no-op
+        threads = {t for t in threading._dangling if t.is_alive()} - {t for t in cls.dangling[1] if t.is_alive()}
         if threads:
             test.support.environment_altered = True
             support.print_warning(f'Dangling threads: {threads}')
@@ -6794,7 +6795,8 @@ def install_tests_in_module_dict(remote_globs, start_method,
             support.print_warning(f'Dangling processes: {processes}')
         processes = None
 
-        threads = set(threading._dangling) - set(dangling[1])
+        # TODO: RUSTPYTHON: Filter out stopped threads since gc.collect() is a no-op
+        threads = {t for t in threading._dangling if t.is_alive()} - {t for t in dangling[1] if t.is_alive()}
         if threads:
             need_sleep = True
             test.support.environment_altered = True
