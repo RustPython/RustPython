@@ -2,7 +2,7 @@ import os
 import unittest
 
 from custom_text_test_runner import CustomTextTestRunner as Runner
-from test.libregrtest.runtest import findtests
+from test.libregrtest.findtests import findtests
 
 testnames = findtests()
 # idk why this fixes the hanging, if it does
