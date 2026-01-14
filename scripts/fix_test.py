@@ -150,11 +150,14 @@ if __name__ == "__main__":
 
     # Handle --quick-import: extract Lib/... path and copy if needed
     if args.quick_import is not None:
-        src_str = str(args.quick_import)
+        # Normalize path separators to forward slashes for cross-platform support
+        src_str = str(args.quick_import).replace("\\", "/")
         lib_marker = "/Lib/"
 
         if lib_marker not in src_str:
-            print(f"Error: --quick-import path must contain '/Lib/' (got: {src_str})")
+            print(
+                f"Error: --quick-import path must contain '/Lib/' or '\\Lib\\' (got: {args.quick_import})"
+            )
             sys.exit(1)
 
         idx = src_str.index(lib_marker)
