@@ -512,8 +512,32 @@ mod _json {
                         return Ok((result?, idx + len));
                     }
                 }
+                Some('N') => {
+                    // NaN - parse directly in Rust
+                    if remaining.starts_with("NaN") {
+                        let result = self.parse_constant.call(("NaN",), vm)?;
+                        return Ok((result, idx + 3));
+                    }
+                }
+                Some('I') => {
+                    // Infinity - parse directly in Rust
+                    if remaining.starts_with("Infinity") {
+                        let result = self.parse_constant.call(("Infinity",), vm)?;
+                        return Ok((result, idx + 8));
+                    }
+                }
+                Some('-') => {
+                    // -Infinity or negative number
+                    if remaining.starts_with("-Infinity") {
+                        let result = self.parse_constant.call(("-Infinity",), vm)?;
+                        return Ok((result, idx + 9));
+                    }
+                    // Try parsing as negative number
+                    if let Some((result, len)) = self.parse_number(remaining, vm) {
+                        return Ok((result?, idx + len));
+                    }
+                }
                 _ => {
-                    // For other cases (NaN, Infinity, -Infinity, negative numbers, etc.)
                     // fall through to call scan_once
                 }
             }
