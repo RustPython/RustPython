@@ -369,6 +369,15 @@ impl InstructionMetadata for RealInstruction {
         }
     }
 
+    /// Whether this is an unconditional branching.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, InstructionMetadata};
+    /// let jump_inst = RealInstruction::JumpForward { target: Arg::marker() };
+    /// assert!(jump_inst.unconditional_branch())
+    /// ```
     fn unconditional_branch(&self) -> bool {
         matches!(
             self,
@@ -384,6 +393,16 @@ impl InstructionMetadata for RealInstruction {
         )
     }
 
+    /// What effect this instruction has on the stack.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, Label, InstructionMetadata};
+    /// let (target, jump_arg) = Arg::new(Label(0xF));
+    /// let jump_instruction = RealInstruction::JumpForward { target };
+    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
+    /// ```
     fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             Self::Nop => 0,
@@ -970,27 +989,8 @@ pub trait InstructionMetadata {
     /// Gets the label stored inside this instruction, if it exists.
     fn label_arg(&self) -> Option<Arg<Label>>;
 
-    /// Whether this is an unconditional branching.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, InstructionMetadata};
-    /// let jump_inst = RealInstruction::JumpForward { target: Arg::marker() };
-    /// assert!(jump_inst.unconditional_branch())
-    /// ```
     fn unconditional_branch(&self) -> bool;
 
-    /// What effect this instruction has on the stack
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, Label, InstructionMetadata};
-    /// let (target, jump_arg) = Arg::new(Label(0xF));
-    /// let jump_instruction = RealInstruction::JumpForward { target };
-    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
-    /// ```
     fn stack_effect(&self, arg: OpArg, jump: bool) -> i32;
 
     #[allow(clippy::too_many_arguments)]
