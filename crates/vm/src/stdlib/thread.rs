@@ -306,6 +306,8 @@ pub(crate) mod _thread {
             use std::ffi::CString;
             if let Ok(c_name) = CString::new(name.as_str()) {
                 // pthread_setname_np on Linux has a 16-byte limit including null terminator
+                // TODO: Potential UTF-8 boundary issue when truncating thread name on Linux.
+                // https://github.com/RustPython/RustPython/pull/6726/changes#r2689379171
                 let truncated = if c_name.as_bytes().len() > 15 {
                     CString::new(&c_name.as_bytes()[..15]).unwrap_or(c_name)
                 } else {
