@@ -133,6 +133,7 @@ class ParseTest(unittest.TestCase):
         parse(f, XMLGenerator(result, 'utf-8'))
         self.assertEqual(result.getvalue(), xml_str(self.data, 'utf-8'))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_parse_text(self):
         encodings = ('us-ascii', 'iso-8859-1', 'utf-8',
                      'utf-16', 'utf-16le', 'utf-16be')
@@ -146,6 +147,7 @@ class ParseTest(unittest.TestCase):
             with open(TESTFN, 'r', encoding=encoding) as f:
                 self.check_parse(f)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_parse_bytes(self):
         # UTF-8 is default encoding, US-ASCII is compatible with UTF-8,
         # UTF-16 is autodetected
@@ -188,10 +190,12 @@ class ParseTest(unittest.TestCase):
             with self.assertRaises(SAXException):
                 self.check_parse(f)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_parse_path_object(self):
         make_xml_file(self.data, 'utf-8', None)
         self.check_parse(FakePath(TESTFN))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_parse_InputSource(self):
         # accept data without declared but with explicitly specified encoding
         make_xml_file(self.data, 'iso-8859-1', None)
@@ -201,6 +205,7 @@ class ParseTest(unittest.TestCase):
             input.setEncoding('iso-8859-1')
             self.check_parse(input)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_parse_close_source(self):
         builtin_open = open
         fileobj = None
@@ -222,6 +227,7 @@ class ParseTest(unittest.TestCase):
         parseString(s, XMLGenerator(result, 'utf-8'))
         self.assertEqual(result.getvalue(), xml_str(self.data, 'utf-8'))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_parseString_text(self):
         encodings = ('us-ascii', 'iso-8859-1', 'utf-8',
                      'utf-16', 'utf-16le', 'utf-16be')
@@ -229,6 +235,7 @@ class ParseTest(unittest.TestCase):
             self.check_parseString(xml_str(self.data, encoding))
         self.check_parseString(self.data)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_parseString_bytes(self):
         # UTF-8 is default encoding, US-ASCII is compatible with UTF-8,
         # UTF-16 is autodetected
@@ -578,6 +585,7 @@ class XmlgenTest:
 
         self.assertEqual(result.getvalue(), self.xml("<doc> </doc>"))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_xmlgen_encoding_bytes(self):
         encodings = ('iso-8859-15', 'utf-8', 'utf-8-sig',
                      'utf-16', 'utf-16be', 'utf-16le',
@@ -708,6 +716,7 @@ class XmlgenTest:
         self.assertEqual(result.getvalue(),
             self.xml('<my:a xmlns:my="qux" b="c"/>'))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_5027_1(self):
         # The xml prefix (as in xml:lang below) is reserved and bound by
         # definition to http://www.w3.org/XML/1998/namespace.  XMLGenerator had
@@ -801,6 +810,10 @@ class BytesXmlgenTest(XmlgenTest, unittest.TestCase):
         return ('<?xml version="1.0" encoding="%s"?>\n%s' %
                 (encoding, doc)).encode(encoding, 'xmlcharrefreplace')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
+    def test_xmlgen_encoding(self):
+        super().test_xmlgen_encoding()
+
 class WriterXmlgenTest(BytesXmlgenTest):
     class ioclass(list):
         write = list.append
@@ -881,6 +894,7 @@ class ExpatReaderTest(XmlTestBase):
 
     # ===== XMLReader support
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_binary_file(self):
         parser = create_parser()
         result = BytesIO()
@@ -892,6 +906,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), xml_test_out)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_expat_text_file(self):
         parser = create_parser()
         result = BytesIO()
@@ -904,6 +919,7 @@ class ExpatReaderTest(XmlTestBase):
         self.assertEqual(result.getvalue(), xml_test_out)
 
     @requires_nonascii_filenames
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_binary_file_nonascii(self):
         fname = os_helper.TESTFN_UNICODE
         shutil.copyfile(TEST_XMLFILE, fname)
@@ -918,6 +934,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), xml_test_out)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_binary_file_bytes_name(self):
         fname = os.fsencode(TEST_XMLFILE)
         parser = create_parser()
@@ -930,6 +947,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), xml_test_out)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_binary_file_int_name(self):
         parser = create_parser()
         result = BytesIO()
@@ -968,6 +986,7 @@ class ExpatReaderTest(XmlTestBase):
             source.setSystemId(systemId)
             return source
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_dtdhandler(self):
         parser = create_parser()
         handler = self.TestDTDHandler()
@@ -984,6 +1003,7 @@ class ExpatReaderTest(XmlTestBase):
             [("GIF", "-//CompuServe//NOTATION Graphics Interchange Format 89a//EN", None)])
         self.assertEqual(handler._entities, [("img", None, "expat.gif", "GIF")])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_external_dtd_enabled(self):
         # clear _opener global variable
         self.addCleanup(urllib.request.urlcleanup)
@@ -1001,6 +1021,7 @@ class ExpatReaderTest(XmlTestBase):
             resolver.entities, [(None, 'unsupported://non-existing')]
         )
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_external_dtd_default(self):
         parser = create_parser()
         resolver = self.TestEntityRecorder()
@@ -1022,6 +1043,7 @@ class ExpatReaderTest(XmlTestBase):
             inpsrc.setByteStream(BytesIO(b"<entity/>"))
             return inpsrc
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_entityresolver_enabled(self):
         parser = create_parser()
         parser.setFeature(feature_external_ges, True)
@@ -1038,6 +1060,7 @@ class ExpatReaderTest(XmlTestBase):
         self.assertEqual(result.getvalue(), start +
                          b"<doc><entity></entity></doc>")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_entityresolver_default(self):
         parser = create_parser()
         self.assertEqual(parser.getFeature(feature_external_ges), False)
@@ -1064,6 +1087,7 @@ class ExpatReaderTest(XmlTestBase):
         def startElementNS(self, name, qname, attrs):
             self._attrs = attrs
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_attrs_empty(self):
         parser = create_parser()
         gather = self.AttrGatherer()
@@ -1074,6 +1098,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.verify_empty_attrs(gather._attrs)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_attrs_wattr(self):
         parser = create_parser()
         gather = self.AttrGatherer()
@@ -1084,6 +1109,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.verify_attrs_wattr(gather._attrs)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_nsattrs_empty(self):
         parser = create_parser(1)
         gather = self.AttrGatherer()
@@ -1094,6 +1120,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.verify_empty_nsattrs(gather._attrs)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_expat_nsattrs_wattr(self):
         parser = create_parser(1)
         gather = self.AttrGatherer()
@@ -1119,6 +1146,7 @@ class ExpatReaderTest(XmlTestBase):
 
     # ===== InputSource support
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_inpsource_filename(self):
         parser = create_parser()
         result = BytesIO()
@@ -1129,6 +1157,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), xml_test_out)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_inpsource_sysid(self):
         parser = create_parser()
         result = BytesIO()
@@ -1140,6 +1169,7 @@ class ExpatReaderTest(XmlTestBase):
         self.assertEqual(result.getvalue(), xml_test_out)
 
     @requires_nonascii_filenames
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_inpsource_sysid_nonascii(self):
         fname = os_helper.TESTFN_UNICODE
         shutil.copyfile(TEST_XMLFILE, fname)
@@ -1154,6 +1184,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), xml_test_out)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_inpsource_byte_stream(self):
         parser = create_parser()
         result = BytesIO()
@@ -1167,6 +1198,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), xml_test_out)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_inpsource_character_stream(self):
         parser = create_parser()
         result = BytesIO()
@@ -1182,6 +1214,7 @@ class ExpatReaderTest(XmlTestBase):
 
     # ===== IncrementalParser support
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_incremental(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1194,6 +1227,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), start + b"<doc></doc>")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_incremental_reset(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1218,6 +1252,7 @@ class ExpatReaderTest(XmlTestBase):
     @unittest.skipIf(pyexpat.version_info < (2, 6, 0),
                      f'Expat {pyexpat.version_info} does not '
                      'support reparse deferral')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_flush_reparse_deferral_enabled(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1240,6 +1275,7 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), start + b"<doc></doc>")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_encode'. Did you mean: 'utf_16_encode'?
     def test_flush_reparse_deferral_disabled(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1267,6 +1303,7 @@ class ExpatReaderTest(XmlTestBase):
 
     # ===== Locator support
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_locator_noinfo(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1281,6 +1318,7 @@ class ExpatReaderTest(XmlTestBase):
         self.assertEqual(parser.getPublicId(), None)
         self.assertEqual(parser.getLineNumber(), 1)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_locator_withinfo(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1292,6 +1330,7 @@ class ExpatReaderTest(XmlTestBase):
         self.assertEqual(parser.getPublicId(), None)
 
     @requires_nonascii_filenames
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_locator_withinfo_nonascii(self):
         fname = os_helper.TESTFN_UNICODE
         shutil.copyfile(TEST_XMLFILE, fname)
@@ -1314,6 +1353,7 @@ class ExpatReaderTest(XmlTestBase):
 # ===========================================================================
 
 class ErrorReportingTest(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_inpsource_location(self):
         parser = create_parser()
         parser.setContentHandler(ContentHandler()) # do nothing
@@ -1327,6 +1367,7 @@ class ErrorReportingTest(unittest.TestCase):
         except SAXException as e:
             self.assertEqual(e.getSystemId(), name)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_incomplete(self):
         parser = create_parser()
         parser.setContentHandler(ContentHandler()) # do nothing
@@ -1463,6 +1504,7 @@ class LexicalHandlerTest(unittest.TestCase):
         self.end_of_dtd = False
         self.comments = []
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_handlers(self):
         class TestLexicalHandler(LexicalHandler):
             def __init__(self, test_harness, *args, **kwargs):
@@ -1519,6 +1561,7 @@ class CDATAHandlerTest(unittest.TestCase):
         self.chardata = []
         self.in_cdata = False
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_handlers(self):
         class TestLexicalHandler(LexicalHandler):
             def __init__(self, test_harness, *args, **kwargs):

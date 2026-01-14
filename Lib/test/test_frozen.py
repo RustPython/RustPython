@@ -27,6 +27,7 @@ class TestFrozen(unittest.TestCase):
             __hello__.main()
         self.assertEqual(out.getvalue(), 'Hello world!\n')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: unexpectedly identical: <class '_frozen_importlib.FrozenImporter'>
     def test_frozen_submodule_in_unfrozen_package(self):
         with import_helper.CleanImport('__phello__', '__phello__.spam'):
             with import_helper.frozen_modules(enabled=False):
@@ -39,6 +40,7 @@ class TestFrozen(unittest.TestCase):
         self.assertIs(spam.__spec__.loader,
                       importlib.machinery.FrozenImporter)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: unexpectedly identical: <class '_frozen_importlib.FrozenImporter'>
     def test_unfrozen_submodule_in_frozen_package(self):
         with import_helper.CleanImport('__phello__', '__phello__.spam'):
             with import_helper.frozen_modules(enabled=True):

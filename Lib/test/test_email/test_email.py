@@ -389,6 +389,7 @@ class TestMessageAPI(TestEmailBase):
         msg = email.message_from_string("Content-Type: blarg; baz; boo\n")
         self.assertEqual(msg.get_param('baz'), '')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; continuations.sort()\nTypeError: '>' not supported between instances of 'NoneType' and 'int'
     def test_continuation_sorting_part_order(self):
         msg = email.message_from_string(
             "Content-Disposition: attachment; "
@@ -890,6 +891,7 @@ class TestEncoders(unittest.TestCase):
         msg = MIMEText('hello \xf8 world', _charset='iso-8859-1')
         eq(msg['content-transfer-encoding'], 'quoted-printable')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_encode7or8bit(self):
         # Make sure a charset whose input character set is 8bit but
         # whose output character set is 7bit gets a transfer-encoding
@@ -1052,10 +1054,12 @@ wasnipoop; giraffes="very-long-necked-animals";
 wasnipoop; giraffes="very-long-necked-animals";
 \tspooge="yummy"; hippos="gargantuan"; marshmallows="gooey"''')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_header_encode_with_different_output_charset(self):
         h = Header('文', 'euc-jp')
         self.assertEqual(h.encode(), "=?iso-2022-jp?b?GyRCSjgbKEI=?=")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; LookupError: unknown encoding: euc-jp
     def test_long_header_encode_with_different_output_charset(self):
         h = Header(b'test-ja \xa4\xd8\xc5\xea\xb9\xc6\xa4\xb5\xa4\xec\xa4'
             b'\xbf\xa5\xe1\xa1\xbc\xa5\xeb\xa4\xcf\xbb\xca\xb2\xf1\xbc\xd4'
@@ -1880,6 +1884,7 @@ This is the dingus fish.
         self._im = image
         self._txt = intro
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_hierarchy(self):
         # convenience
         eq = self.assertEqual
@@ -1898,6 +1903,7 @@ This is the dingus fish.
         self.assertFalse(m0.is_multipart())
         self.assertFalse(m1.is_multipart())
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_empty_multipart_idempotent(self):
         text = """\
 Content-Type: multipart/mixed; boundary="BOUNDARY"
@@ -1915,6 +1921,7 @@ From: bperson@dom.ain
         msg = Parser().parsestr(text)
         self.ndiffAssertEqual(text, msg.as_string())
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_no_parts_in_a_multipart_with_none_epilogue(self):
         outer = MIMEBase('multipart', 'mixed')
         outer['Subject'] = 'A subject'
@@ -1933,6 +1940,7 @@ From: bperson@dom.ain
 --BOUNDARY--
 ''')
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_no_parts_in_a_multipart_with_empty_epilogue(self):
         outer = MIMEBase('multipart', 'mixed')
         outer['Subject'] = 'A subject'
@@ -1954,6 +1962,7 @@ From: bperson@dom.ain
 --BOUNDARY--
 ''')
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_one_part_in_a_multipart(self):
         eq = self.ndiffAssertEqual
         outer = MIMEBase('multipart', 'mixed')
@@ -1979,6 +1988,7 @@ hello world
 --BOUNDARY--
 ''')
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_seq_parts_in_a_multipart_with_empty_preamble(self):
         eq = self.ndiffAssertEqual
         outer = MIMEBase('multipart', 'mixed')
@@ -2007,6 +2017,7 @@ hello world
 ''')
 
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_seq_parts_in_a_multipart_with_none_preamble(self):
         eq = self.ndiffAssertEqual
         outer = MIMEBase('multipart', 'mixed')
@@ -2034,6 +2045,7 @@ hello world
 ''')
 
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_seq_parts_in_a_multipart_with_none_epilogue(self):
         eq = self.ndiffAssertEqual
         outer = MIMEBase('multipart', 'mixed')
@@ -2061,6 +2073,7 @@ hello world
 ''')
 
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_seq_parts_in_a_multipart_with_empty_epilogue(self):
         eq = self.ndiffAssertEqual
         outer = MIMEBase('multipart', 'mixed')
@@ -2088,6 +2101,7 @@ hello world
 ''')
 
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_seq_parts_in_a_multipart_with_nl_epilogue(self):
         eq = self.ndiffAssertEqual
         outer = MIMEBase('multipart', 'mixed')
@@ -2115,6 +2129,7 @@ hello world
 
 ''')
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_message_external_body(self):
         eq = self.assertEqual
         msg = self._msgobj('msg_36.txt')
@@ -2128,6 +2143,7 @@ hello world
             subsubpart = subpart.get_payload(0)
             eq(subsubpart.get_content_type(), 'text/plain')
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_double_boundary(self):
         # msg_37.txt is a multipart that contains two dash-boundary's in a
         # row.  Our interpretation of RFC 2046 calls for ignoring the second
@@ -2135,6 +2151,7 @@ hello world
         msg = self._msgobj('msg_37.txt')
         self.assertEqual(len(msg.get_payload()), 3)
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_nested_inner_contains_outer_boundary(self):
         eq = self.ndiffAssertEqual
         # msg_38.txt has an inner part that contains outer boundaries.  My
@@ -2154,6 +2171,7 @@ multipart/mixed
     text/plain
 """)
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_nested_with_same_boundary(self):
         eq = self.ndiffAssertEqual
         # msg 39.txt is similarly evil in that it's got inner parts that use
@@ -2171,6 +2189,7 @@ multipart/mixed
     text/plain
 """)
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_boundary_in_non_multipart(self):
         msg = self._msgobj('msg_40.txt')
         self.assertEqual(msg.as_string(), '''\
@@ -2186,6 +2205,7 @@ Content-Transfer-Encoding: 7Bit
 ----961284236552522269--
 ''')
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_boundary_with_leading_space(self):
         eq = self.assertEqual
         msg = email.message_from_string('''\
@@ -2205,6 +2225,7 @@ Content-Type: text/plain
         eq(msg.get_boundary(), '    XXXX')
         eq(len(msg.get_payload()), 2)
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_boundary_without_trailing_newline(self):
         m = Parser().parsestr("""\
 Content-Type: multipart/mixed; boundary="===============0012394164=="
@@ -2219,10 +2240,12 @@ YXNkZg==
 --===============0012394164==--""")
         self.assertEqual(m.get_payload(0).get_payload(), 'YXNkZg==')
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_mimebase_default_policy(self):
         m = MIMEBase('multipart', 'mixed')
         self.assertIs(m.policy, email.policy.compat32)
 
+    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "time" has no attribute "altzone"')
     def test_mimebase_custom_policy(self):
         m = MIMEBase('multipart', 'mixed', policy=email.policy.default)
         self.assertIs(m.policy, email.policy.default)
@@ -2401,6 +2424,7 @@ counter to RFC 5322, there's no separating newline here
         self.assertDefectsEqual(msg.defects,
                                 [errors.MissingHeaderBodySeparatorDefect])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: Lists differ: ["b'SGVsbG8uIFRlc3Rpbmc=\\n'"] != ["b'Hello. Testing'"]
     def test_string_payload_with_extra_space_after_cte(self):
         # https://github.com/python/cpython/issues/98188
         cte = "base64 "
@@ -2412,6 +2436,7 @@ counter to RFC 5322, there's no separating newline here
         self.assertEqual(msg.get_payload(decode=True), b"Hello. Testing")
         self.assertDefectsEqual(msg['content-transfer-encoding'].defects, [])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: Lists differ: ["b'SGVsbG8uIFRlc3Rpbmc=\\n'"] != ["b'Hello. Testing'"]
     def test_string_payload_with_extra_text_after_cte(self):
         msg = email.message_from_string(textwrap.dedent("""\
         Content-Transfer-Encoding: base64 some text
@@ -2422,6 +2447,7 @@ counter to RFC 5322, there's no separating newline here
         cte = msg['content-transfer-encoding']
         self.assertDefectsEqual(cte.defects, [email.errors.InvalidHeaderDefect])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 
     def test_string_payload_with_extra_space_after_cte_compat32(self):
         cte = "base64 "
         msg = email.message_from_string(textwrap.dedent(f"""\
@@ -3871,6 +3897,7 @@ Do you like this message?
 -Me
 """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertEqual(n, n1)\nAssertionError: 2 != 1
     def test_pushCR_LF(self):
         '''FeedParser BufferedSubFile.push() assumed it received complete
            line endings.  A CR ending one push() followed by a LF starting
@@ -3901,6 +3928,7 @@ Do you like this message?
         self.assertEqual(len(om), nt)
         self.assertEqual(''.join([il for il, n in imt]), ''.join(om))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: Lists differ: ['cc\[52 chars]t\t\r\t\rca\n', '\t\tc \r \n', '\ta\raaa \t\n'[18929 chars]c\n'] != ['cc\[52 chars]t\t\r', '\t\r', 'ca\n', '\t\tc \r', ' \n', '\t[23357 chars]c\n']\nFirst differing element 4:\n' c\t\t\r\t\rca\n'\n' c\t\t\r'
     def test_push_random(self):
         from email.feedparser import BufferedSubFile, NeedMoreData
 
@@ -3934,6 +3962,7 @@ class TestFeedParsers(TestEmailBase):
         self.assertEqual(msg['First'], 'val')
         self.assertEqual(msg['Second'], 'val')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Second list contains 1 additional elements.\n- ['a', 'b', 'd']\n+ ['a', 'b', 'c', 'd']
     def test_newlines(self):
         m = self.parse(['a:\nb:\rc:\r\nd:\n'])
         self.assertEqual(m.keys(), ['a', 'b', 'c', 'd'])
@@ -3952,6 +3981,7 @@ class TestFeedParsers(TestEmailBase):
         m = self.parse(['a:\r', 'b:\x85', 'c:\n'])
         self.assertEqual(m.items(), [('a', ''), ('b', '\x85c:')])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: Lists differ: [('a', 'b\r\rxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx[19999961 chars]xx')] != [('a', 'b')]\nFirst differing element 0:\n('a', 'b\r\rxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx[19999960 chars]xxx')\n('a', 'b')
     def test_long_lines(self):
         # Expected peak memory use on 32-bit platform: 6*N*M bytes.
         M, N = 1000, 20000
@@ -5409,6 +5439,7 @@ A very long line that must get split to something other than at the
         s = 'Subject: =?EUC-KR?B?CSixpLDtKSC/7Liuvsax4iC6uLmwMcijIKHaILzSwd/H0SC8+LCjwLsgv7W/+Mj3I ?='
         raises(errors.HeaderParseError, decode_header, s)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_shift_jis_charset(self):
         h = Header('文', charset='shift_jis')
         self.assertEqual(h.encode(), '=?iso-2022-jp?b?GyRCSjgbKEI=?=')

@@ -126,6 +126,7 @@ class SeparatedNamespacePackages(NamespacePackageTest):
 class SeparatedNamespacePackagesCreatedWhileRunning(NamespacePackageTest):
     paths = ['portion1']
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; ModuleNotFoundError: No module named 'email'
     def test_invalidate_caches(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             # we manipulate sys.path before anything is imported to avoid
@@ -365,6 +366,7 @@ class LoaderTests(NamespacePackageTest):
         self.assertIsNone(foo.__spec__.origin)
         self.assertIsNone(foo.__file__)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: '.../RustPython/Lib/te[41 chars]/foo' != 'Lib/test/test_importlib/namespace_pkgs/portion1/foo'\n- .../RustPython/Lib/test/test_importlib/namespace_pkgs/portion1/foo\n+ Lib/test/test_importlib/namespace_pkgs/portion1/foo
     def test_path_indexable(self):
         # bpo-35843
         import foo

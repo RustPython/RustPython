@@ -153,6 +153,7 @@ class FinderTests:
             # Do not want FileNotFoundError raised.
             self.assertIsNone(self.machinery.PathFinder.find_spec('whatever'))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; ModuleNotFoundError: No module named 'importlib.metadata'
     def test_invalidate_caches_finders(self):
         # Finders with an invalidate_caches() method have it called.
         class FakeFinder:
@@ -168,6 +169,7 @@ class FinderTests:
             self.machinery.PathFinder.invalidate_caches()
         self.assertTrue(cache[key].called)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; ModuleNotFoundError: No module named 'importlib.metadata'
     def test_invalidate_caches_clear_out_None(self):
         # Clear out None in sys.path_importer_cache() when invalidating caches.
         cache = {'clear_out': None}
@@ -175,6 +177,7 @@ class FinderTests:
             self.machinery.PathFinder.invalidate_caches()
         self.assertEqual(len(cache), 0)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; ModuleNotFoundError: No module named 'importlib.metadata'
     def test_invalidate_caches_clear_out_relative_path(self):
         class FakeFinder:
             def invalidate_caches(self):

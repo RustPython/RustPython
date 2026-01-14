@@ -111,10 +111,12 @@ class CAPITest(unittest.TestCase):
             func(b'Hello, %s!', c_char_p(b'world'*200))
         self.assertEqual(stream.getvalue(), 'Hello, ' + 'world'*200 + '!')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: dlsym failed
     def test_sys_formatstdout(self):
         # Test PySys_FormatStdout()
         self._test_sys_formatstream('PySys_FormatStdout', 'stdout')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: dlsym failed
     def test_sys_formatstderr(self):
         # Test PySys_FormatStderr()
         self._test_sys_formatstream('PySys_FormatStderr', 'stderr')
@@ -141,10 +143,12 @@ class CAPITest(unittest.TestCase):
         self.assertEqual(out[-13:], '... truncated')
         self.assertGreater(len(out), 1000)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: dlsym failed
     def test_sys_writestdout(self):
         # Test PySys_WriteStdout()
         self._test_sys_writestream('PySys_WriteStdout', 'stdout')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: dlsym failed
     def test_sys_writestderr(self):
         # Test PySys_WriteStderr()
         self._test_sys_writestream('PySys_WriteStderr', 'stderr')

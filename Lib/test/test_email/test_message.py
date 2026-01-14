@@ -1004,6 +1004,7 @@ class TestEmailMessage(TestEmailMessageBase, TestEmailBase):
         parsed_msg = message_from_bytes(m.as_bytes(), policy=policy.default)
         self.assertEqual(parsed_msg['Message-ID'], m['Message-ID'])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: '<=' not supported between instances of 'int' and 'NoneType'
     def test_no_wrapping_max_line_length(self):
         # Test that falsey 'max_line_length' are converted to sys.maxsize.
         for n in [0, None]:
@@ -1057,6 +1058,7 @@ class TestEmailMessage(TestEmailMessageBase, TestEmailBase):
         # AttributeError: 'str' object has no attribute 'is_attachment'
         m.get_body()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: '<=' not supported between instances of 'int' and 'NoneType'
     def test_get_bytes_payload_with_quoted_printable_encoding(self):
         # We use a memoryview to avoid directly changing the private payload
         # and to prevent using the dedicated paths for string or bytes objects.

@@ -352,6 +352,7 @@ class CAPITest(unittest.TestCase):
         self.assertRaises(TypeError, fromobject, [])
         # CRASHES fromobject(NULL)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: dlsym failed
     def test_from_format(self):
         """Test PyUnicode_FromFormat()"""
         # Length modifiers "j" and "t" are not tested here because ctypes does

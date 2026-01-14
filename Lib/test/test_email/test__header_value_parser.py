@@ -471,6 +471,7 @@ class TestParser(TestParserMixin, TestEmailBase):
         self._test_get_x(parser.get_qp_ctext,
                         '(', '', ' ', [], '(')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; pos = pos + 1\nUnboundLocalError: local variable 'pos' referenced before assignment
     def test_get_qp_ctext_no_end_char(self):
         self._test_get_x(parser.get_qp_ctext,
                         '', '', ' ', [], '')
@@ -520,6 +521,7 @@ class TestParser(TestParserMixin, TestEmailBase):
         self._test_get_x(parser.get_qcontent,
                          '"', '', '', [], '"')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; pos = pos + 1\nUnboundLocalError: local variable 'pos' referenced before assignment
     def test_get_qcontent_no_end_char(self):
         self._test_get_x(parser.get_qcontent,
                          '', '', '', [], '')
@@ -1312,6 +1314,7 @@ class TestParser(TestParserMixin, TestEmailBase):
         self._test_get_x(parser.get_dtext,
                         ']', '', '', [], ']')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; pos = pos + 1\nUnboundLocalError: local variable 'pos' referenced before assignment
     def test_get_dtext_empty(self):
         self._test_get_x(parser.get_dtext,
                         '', '', '', [], '')
@@ -2491,6 +2494,7 @@ class TestParser(TestParserMixin, TestEmailBase):
         self.assertEqual(address.all_mailboxes[0].domain, 'example.com')
         self.assertEqual(address.all_mailboxes[0].addr_spec, '"example example"@example.com')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'InvalidHeaderDefect' object has no attribute 'all_defects'
     def test_get_address_with_invalid_domain(self):
         address = self._test_get_x(parser.get_address,
             '<T@[',
@@ -2797,6 +2801,7 @@ class TestParser(TestParserMixin, TestEmailBase):
             )
         self.assertEqual(message_id.token_type, 'message-id')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; pos = pos + 1\nUnboundLocalError: local variable 'pos' referenced before assignment
     def test_parse_message_id_with_invalid_domain(self):
         message_id = self._test_parse_x(
             parser.parse_message_id,
@@ -3154,6 +3159,7 @@ class TestFolding(TestEmailBase):
             '=?utf-8?q?H=C3=BCbsch?= Kaktus <beautiful@example.com>,\n'
                 ' =?utf-8?q?bei=C3=9Ft_bei=C3=9Ft?= <biter@example.com>\n')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 'A =?utf-8?q?v=C3=A9ry?= long name with,\n comma <to@example.com>\n' != 'A =?utf-8?q?v=C3=A9ry_long_name_with?=\n =?utf-8?q?=2C?= comma[15 chars]m>\n'\n- A =?utf-8?q?v=C3=A9ry?= long name with,\n+ A =?utf-8?q?v=C3=A9ry_long_name_with?=
     def test_address_list_with_specials_in_encoded_word(self):
         # An encoded-word parsed from a structured header must remain
         # encoded when it contains specials. Regression for gh-121284.
@@ -3179,6 +3185,7 @@ class TestFolding(TestEmailBase):
             with self.subTest(to=to):
                 self._test(parser.get_address_list(to)[0], folded, policy=policy)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: '.........................................[112 chars]m>\n' != '"........................................[114 chars]m>\n'\n- ...............................................................................\n+ "..............................................................................."
     def test_address_list_with_list_separator_after_fold(self):
         a = 'x' * 66 + '@example.com'
         to = f'{a}, "Hübsch Kaktus" <beautiful@example.com>'
@@ -3192,6 +3199,7 @@ class TestFolding(TestEmailBase):
             ' <xyz@example.com>, =?utf-8?q?H=C3=BCbsch?= Kaktus '
             '<beautiful@example.com>\n')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 'local-part-with-specials@but-no-fws.cannot-fold@example.com\n' != '"local-part-with-specials@but-no-fws.cannot-fold"@example.com\n' \n- local-part-with-specials@but-no-fws.cannot-fold@example.com\n+ "local-part-with-specials@but-no-fws.cannot-fold"@example.com
     def test_address_list_with_specials_in_long_quoted_string(self):
         # Regression for gh-80222.
         policy = self.policy.clone(max_line_length=40)

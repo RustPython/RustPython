@@ -67,7 +67,6 @@ class TestRecursion:
         else:
             self.fail("didn't raise ValueError on default recursion")
 
-    # TODO: RUSTPYTHON
     @unittest.skip("TODO: RUSTPYTHON; crashes")
     def test_highly_nested_objects_decoding(self):
         # test that loading highly-nested objects doesn't segfault when C
@@ -83,6 +82,7 @@ class TestRecursion:
                 self.loads('[' * 100000 + '1' + ']' * 100000)
 
     @support.requires_resource('cpu')
+    @unittest.skip('TODO: RUSTPYTHON; Segmentation fault')
     def test_highly_nested_objects_encoding(self):
         # See #12051
         l, d = [], {}

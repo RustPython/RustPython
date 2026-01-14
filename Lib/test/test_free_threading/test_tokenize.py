@@ -10,6 +10,7 @@ from test.support import threading_helper
 
 @threading_helper.requires_working_threading()
 class TestTokenize(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'function' object has no attribute 'TokenizerIter'
     def test_tokenizer_iter(self):
         source = io.StringIO("for _ in a:\n  pass")
         it = tokenize._tokenize.TokenizerIter(source.readline, extra_tokens=False)

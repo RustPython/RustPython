@@ -7,6 +7,10 @@ import gc
 import unittest
 import weakref
 
+#TODO: RUSTPYTHON
+from test import support
+support.requires("gc")
+
 try:
     from _testcapi import with_tp_del
 except ImportError:

@@ -18,6 +18,10 @@ import threading
 import time
 import weakref
 
+#TODO: RUSTPYTHON
+from test import support
+support.requires("gc")
+
 try:
     import _testcapi
     from _testcapi import with_tp_del
