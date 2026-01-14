@@ -719,6 +719,7 @@ impl InstructionMetadata for Instruction {
             }
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
             Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
+            Self::LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
             Self::LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
             Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             Self::LoadFast(idx) => w!(LOAD_FAST, varname = idx),
@@ -782,7 +783,6 @@ impl InstructionMetadata for Instruction {
             Self::UnaryNot => w!(UNARY_NOT),
             Self::YieldValue { arg } => w!(YIELD_VALUE, arg),
             Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
-            Self::LoadClosure(_) => w!(LOAD_CLOSURE),
             _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
     }
