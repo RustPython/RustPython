@@ -887,7 +887,6 @@ impl InstructionMetadata for PseudoInstruction {
 }
 
 #[derive(Clone, Copy, Debug)]
-#[repr(u16)]
 pub enum Instruction {
     Real(RealInstruction),
     Pseudo(PseudoInstruction),
