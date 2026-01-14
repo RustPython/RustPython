@@ -7,7 +7,7 @@ mod _json {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyStrRef, PyType},
-        convert::{ToPyObject, ToPyResult},
+        convert::ToPyResult,
         function::{IntoFuncArgs, OptionalArg},
         protocol::PyIterReturn,
         types::{Callable, Constructor},
@@ -18,40 +18,25 @@ mod _json {
     use std::collections::HashMap;
 
     /// Skip JSON whitespace characters (space, tab, newline, carriage return).
-    /// Works with a character iterator and returns the number of characters skipped.
+    /// Works with a byte slice and returns the number of bytes skipped.
+    /// Since all JSON whitespace chars are ASCII, bytes == chars.
     #[inline]
-    fn skip_whitespace_chars<I>(chars: &mut std::iter::Peekable<I>) -> usize
-    where
-        I: Iterator<Item = char>,
-    {
-        flame_guard!("_json::skip_whitespace_chars");
+    fn skip_whitespace(bytes: &[u8]) -> usize {
+        flame_guard!("_json::skip_whitespace");
         let mut count = 0;
-        while let Some(&c) = chars.peek() {
-            match c {
-                ' ' | '\t' | '\n' | '\r' => {
-                    chars.next();
-                    count += 1;
-                }
+        for &b in bytes {
+            match b {
+                b' ' | b'\t' | b'\n' | b'\r' => count += 1,
                 _ => break,
             }
         }
         count
     }
 
-    /// Check if a character iterator starts with a given pattern.
-    /// This avoids byte/char index mismatch issues with non-ASCII strings.
+    /// Check if a byte slice starts with a given ASCII pattern.
     #[inline]
-    fn starts_with_chars<I>(mut chars: I, pattern: &str) -> bool
-    where
-        I: Iterator<Item = char>,
-    {
-        for expected in pattern.chars() {
-            match chars.next() {
-                Some(c) if c == expected => continue,
-                _ => return false,
-            }
-        }
-        true
+    fn starts_with_bytes(bytes: &[u8], pattern: &[u8]) -> bool {
+        bytes.len() >= pattern.len() && &bytes[..pattern.len()] == pattern
     }
 
     #[pyattr(name = "make_scanner")]
@@ -106,49 +91,64 @@ mod _json {
     impl JsonScanner {
         fn parse(
             &self,
-            s: &str,
             pystr: PyStrRef,
-            idx: usize,
+            char_idx: usize,
+            byte_idx: usize,
             scan_once: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyIterReturn> {
             flame_guard!("JsonScanner::parse");
-            let c = match s.chars().next() {
-                Some(c) => c,
+            let bytes = pystr.as_str().as_bytes();
+            let wtf8 = pystr.as_wtf8();
+
+            let first_byte = match bytes.get(byte_idx) {
+                Some(&b) => b,
                 None => {
                     return Ok(PyIterReturn::StopIteration(Some(
-                        vm.ctx.new_int(idx).into(),
+                        vm.ctx.new_int(char_idx).into(),
                     )));
                 }
             };
-            let next_idx = idx + c.len_utf8();
-            match c {
-                '"' => {
-                    return scanstring(pystr, next_idx, OptionalArg::Present(self.strict), vm)
-                        .map(|x| PyIterReturn::Return(x.to_pyobject(vm)));
+
+            match first_byte {
+                b'"' => {
+                    // Parse string - pass slice starting after the quote
+                    let (wtf8_result, chars_consumed, _bytes_consumed) =
+                        machinery::scanstring(&wtf8[byte_idx + 1..], char_idx + 1, self.strict)
+                            .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
+                    let end_char_idx = char_idx + 1 + chars_consumed;
+                    return Ok(PyIterReturn::Return(
+                        vm.new_tuple((wtf8_result, end_char_idx)).into(),
+                    ));
                 }
-                '{' => {
+                b'{' => {
                     // Parse object in Rust
                     let mut memo = HashMap::new();
                     return self
-                        .parse_object(pystr, next_idx, &scan_once, &mut memo, vm)
-                        .map(|(obj, end)| PyIterReturn::Return(vm.new_tuple((obj, end)).into()));
+                        .parse_object(pystr, char_idx + 1, byte_idx + 1, &scan_once, &mut memo, vm)
+                        .map(|(obj, end_char, _end_byte)| {
+                            PyIterReturn::Return(vm.new_tuple((obj, end_char)).into())
+                        });
                 }
-                '[' => {
+                b'[' => {
                     // Parse array in Rust
                     let mut memo = HashMap::new();
                     return self
-                        .parse_array(pystr, next_idx, &scan_once, &mut memo, vm)
-                        .map(|(obj, end)| PyIterReturn::Return(vm.new_tuple((obj, end)).into()));
+                        .parse_array(pystr, char_idx + 1, byte_idx + 1, &scan_once, &mut memo, vm)
+                        .map(|(obj, end_char, _end_byte)| {
+                            PyIterReturn::Return(vm.new_tuple((obj, end_char)).into())
+                        });
                 }
                 _ => {}
             }
+
+            let s = &pystr.as_str()[byte_idx..];
 
             macro_rules! parse_const {
                 ($s:literal, $val:expr) => {
                     if s.starts_with($s) {
                         return Ok(PyIterReturn::Return(
-                            vm.new_tuple(($val, idx + $s.len())).into(),
+                            vm.new_tuple(($val, char_idx + $s.len())).into(),
                         ));
                     }
                 };
@@ -159,15 +159,20 @@ mod _json {
             parse_const!("false", false);
 
             if let Some((res, len)) = self.parse_number(s, vm) {
-                return Ok(PyIterReturn::Return(vm.new_tuple((res?, idx + len)).into()));
+                return Ok(PyIterReturn::Return(
+                    vm.new_tuple((res?, char_idx + len)).into(),
+                ));
             }
 
             macro_rules! parse_constant {
                 ($s:literal) => {
                     if s.starts_with($s) {
                         return Ok(PyIterReturn::Return(
-                            vm.new_tuple((self.parse_constant.call(($s,), vm)?, idx + $s.len()))
-                                .into(),
+                            vm.new_tuple((
+                                self.parse_constant.call(($s,), vm)?,
+                                char_idx + $s.len(),
+                            ))
+                            .into(),
                         ));
                     }
                 };
@@ -178,7 +183,7 @@ mod _json {
             parse_constant!("-Infinity");
 
             Ok(PyIterReturn::StopIteration(Some(
-                vm.ctx.new_int(idx).into(),
+                vm.ctx.new_int(char_idx).into(),
             )))
         }
 
@@ -219,87 +224,42 @@ mod _json {
             Some((ret, buf.len()))
         }
 
-        /// Parse a number from a character iterator.
-        /// Returns (result, character_count) where character_count is the number of chars consumed.
-        fn parse_number_from_chars<I>(
-            &self,
-            chars: I,
-            vm: &VirtualMachine,
-        ) -> Option<(PyResult, usize)>
-        where
-            I: Iterator<Item = char>,
-        {
-            flame_guard!("JsonScanner::parse_number_from_chars");
-            let mut buf = String::new();
-            let mut has_neg = false;
-            let mut has_decimal = false;
-            let mut has_exponent = false;
-            let mut has_e_sign = false;
-
-            for c in chars {
-                let i = buf.len();
-                match c {
-                    '-' if i == 0 => has_neg = true,
-                    n if n.is_ascii_digit() => {}
-                    '.' if !has_decimal => has_decimal = true,
-                    'e' | 'E' if !has_exponent => has_exponent = true,
-                    '+' | '-' if !has_e_sign => has_e_sign = true,
-                    _ => break,
-                }
-                buf.push(c);
-            }
-
-            let len = buf.len();
-            if len == 0 || (len == 1 && has_neg) {
-                return None;
-            }
-
-            let ret = if has_decimal || has_exponent {
-                if let Some(ref parse_float) = self.parse_float {
-                    parse_float.call((&buf,), vm)
-                } else {
-                    Ok(vm.ctx.new_float(f64::from_str(&buf).unwrap()).into())
-                }
-            } else if let Some(ref parse_int) = self.parse_int {
-                parse_int.call((&buf,), vm)
-            } else {
-                Ok(vm.new_pyobj(BigInt::from_str(&buf).unwrap()))
-            };
-            Some((ret, len))
-        }
-
         /// Parse a JSON object starting after the opening '{'.
-        /// Returns (parsed_object, end_character_index).
+        /// Returns (parsed_object, end_char_index, end_byte_index).
         fn parse_object(
             &self,
             pystr: PyStrRef,
-            start_idx: usize, // Character index right after '{'
+            start_char_idx: usize,
+            start_byte_idx: usize,
             scan_once: &PyObjectRef,
             memo: &mut HashMap<String, PyStrRef>,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyObjectRef, usize)> {
+        ) -> PyResult<(PyObjectRef, usize, usize)> {
             flame_guard!("JsonScanner::parse_object");
 
-            let s = pystr.as_str();
-            let mut chars = s.chars().skip(start_idx).peekable();
-            let mut idx = start_idx;
+            let bytes = pystr.as_str().as_bytes();
+            let wtf8 = pystr.as_wtf8();
+            let mut char_idx = start_char_idx;
+            let mut byte_idx = start_byte_idx;
 
             // Skip initial whitespace
-            idx += skip_whitespace_chars(&mut chars);
+            let ws = skip_whitespace(&bytes[byte_idx..]);
+            char_idx += ws;
+            byte_idx += ws;
 
             // Check for empty object
-            match chars.peek() {
-                Some('}') => {
-                    return self.finalize_object(vec![], idx + 1, vm);
+            match bytes.get(byte_idx) {
+                Some(b'}') => {
+                    return self.finalize_object(vec![], char_idx + 1, byte_idx + 1, vm);
                 }
-                Some('"') => {
+                Some(b'"') => {
                     // Continue to parse first key
                 }
-                Some(_) | None => {
+                _ => {
                     return Err(self.make_decode_error(
                         "Expecting property name enclosed in double quotes",
                         pystr,
-                        idx,
+                        char_idx,
                         vm,
                     ));
                 }
@@ -309,12 +269,16 @@ mod _json {
 
             loop {
                 // We're now at '"', skip it
-                chars.next();
-                idx += 1;
+                char_idx += 1;
+                byte_idx += 1;
 
-                // Parse key string using existing scanstring
-                let (key_wtf8, key_end) = machinery::scanstring(pystr.as_wtf8(), idx, self.strict)
-                    .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
+                // Parse key string using scanstring with byte slice
+                let (key_wtf8, chars_consumed, bytes_consumed) =
+                    machinery::scanstring(&wtf8[byte_idx..], char_idx, self.strict)
+                        .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
+
+                char_idx += chars_consumed;
+                byte_idx += bytes_consumed;
 
                 // Key memoization - reuse existing key strings
                 let key_str = key_wtf8.to_string();
@@ -327,68 +291,73 @@ mod _json {
                     }
                 };
 
-                // Update position and rebuild iterator
-                idx = key_end;
-                chars = s.chars().skip(idx).peekable();
-
                 // Skip whitespace after key
-                idx += skip_whitespace_chars(&mut chars);
+                let ws = skip_whitespace(&bytes[byte_idx..]);
+                char_idx += ws;
+                byte_idx += ws;
 
                 // Expect ':' delimiter
-                match chars.peek() {
-                    Some(':') => {
-                        chars.next();
-                        idx += 1;
+                match bytes.get(byte_idx) {
+                    Some(b':') => {
+                        char_idx += 1;
+                        byte_idx += 1;
                     }
                     _ => {
                         return Err(self.make_decode_error(
                             "Expecting ':' delimiter",
                             pystr,
-                            idx,
+                            char_idx,
                             vm,
                         ));
                     }
                 }
 
                 // Skip whitespace after ':'
-                idx += skip_whitespace_chars(&mut chars);
+                let ws = skip_whitespace(&bytes[byte_idx..]);
+                char_idx += ws;
+                byte_idx += ws;
 
-                // Parse value recursively using scan_once
-                let (value, value_end) =
-                    self.call_scan_once(scan_once, pystr.clone(), idx, memo, vm)?;
+                // Parse value recursively
+                let (value, value_char_end, value_byte_end) =
+                    self.call_scan_once(scan_once, pystr.clone(), char_idx, byte_idx, memo, vm)?;
 
                 pairs.push((key, value));
-                idx = value_end;
-                chars = s.chars().skip(idx).peekable();
+                char_idx = value_char_end;
+                byte_idx = value_byte_end;
 
                 // Skip whitespace after value
-                idx += skip_whitespace_chars(&mut chars);
+                let ws = skip_whitespace(&bytes[byte_idx..]);
+                char_idx += ws;
+                byte_idx += ws;
 
                 // Check for ',' or '}'
-                match chars.peek() {
-                    Some('}') => {
-                        idx += 1;
+                match bytes.get(byte_idx) {
+                    Some(b'}') => {
+                        char_idx += 1;
+                        byte_idx += 1;
                         break;
                     }
-                    Some(',') => {
-                        let comma_idx = idx;
-                        chars.next();
-                        idx += 1;
+                    Some(b',') => {
+                        let comma_char_idx = char_idx;
+                        char_idx += 1;
+                        byte_idx += 1;
 
                         // Skip whitespace after comma
-                        idx += skip_whitespace_chars(&mut chars);
+                        let ws = skip_whitespace(&bytes[byte_idx..]);
+                        char_idx += ws;
+                        byte_idx += ws;
 
                         // Next must be '"'
-                        match chars.peek() {
-                            Some('"') => {
+                        match bytes.get(byte_idx) {
+                            Some(b'"') => {
                                 // Continue to next key-value pair
                             }
-                            Some('}') => {
+                            Some(b'}') => {
                                 // Trailing comma before end of object
                                 return Err(self.make_decode_error(
                                     "Illegal trailing comma before end of object",
                                     pystr,
-                                    comma_idx,
+                                    comma_char_idx,
                                     vm,
                                 ));
                             }
@@ -396,7 +365,7 @@ mod _json {
                                 return Err(self.make_decode_error(
                                     "Expecting property name enclosed in double quotes",
                                     pystr,
-                                    idx,
+                                    char_idx,
                                     vm,
                                 ));
                             }
@@ -406,72 +375,81 @@ mod _json {
                         return Err(self.make_decode_error(
                             "Expecting ',' delimiter",
                             pystr,
-                            idx,
+                            char_idx,
                             vm,
                         ));
                     }
                 }
             }
 
-            self.finalize_object(pairs, idx, vm)
+            self.finalize_object(pairs, char_idx, byte_idx, vm)
         }
 
         /// Parse a JSON array starting after the opening '['.
-        /// Returns (parsed_array, end_character_index).
+        /// Returns (parsed_array, end_char_index, end_byte_index).
         fn parse_array(
             &self,
             pystr: PyStrRef,
-            start_idx: usize, // Character index right after '['
+            start_char_idx: usize,
+            start_byte_idx: usize,
             scan_once: &PyObjectRef,
             memo: &mut HashMap<String, PyStrRef>,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyObjectRef, usize)> {
+        ) -> PyResult<(PyObjectRef, usize, usize)> {
             flame_guard!("JsonScanner::parse_array");
 
-            let s = pystr.as_str();
-            let mut chars = s.chars().skip(start_idx).peekable();
-            let mut idx = start_idx;
+            let bytes = pystr.as_str().as_bytes();
+            let mut char_idx = start_char_idx;
+            let mut byte_idx = start_byte_idx;
 
             // Skip initial whitespace
-            idx += skip_whitespace_chars(&mut chars);
+            let ws = skip_whitespace(&bytes[byte_idx..]);
+            char_idx += ws;
+            byte_idx += ws;
 
             // Check for empty array
-            if chars.peek() == Some(&']') {
-                return Ok((vm.ctx.new_list(vec![]).into(), idx + 1));
+            if bytes.get(byte_idx) == Some(&b']') {
+                return Ok((vm.ctx.new_list(vec![]).into(), char_idx + 1, byte_idx + 1));
             }
 
             let mut values: Vec<PyObjectRef> = Vec::new();
 
             loop {
                 // Parse value
-                let (value, value_end) =
-                    self.call_scan_once(scan_once, pystr.clone(), idx, memo, vm)?;
+                let (value, value_char_end, value_byte_end) =
+                    self.call_scan_once(scan_once, pystr.clone(), char_idx, byte_idx, memo, vm)?;
 
                 values.push(value);
-                idx = value_end;
-                chars = s.chars().skip(idx).peekable();
+                char_idx = value_char_end;
+                byte_idx = value_byte_end;
 
                 // Skip whitespace after value
-                idx += skip_whitespace_chars(&mut chars);
+                let ws = skip_whitespace(&bytes[byte_idx..]);
+                char_idx += ws;
+                byte_idx += ws;
 
-                match chars.peek() {
-                    Some(']') => {
-                        idx += 1;
+                match bytes.get(byte_idx) {
+                    Some(b']') => {
+                        char_idx += 1;
+                        byte_idx += 1;
                         break;
                     }
-                    Some(',') => {
-                        let comma_idx = idx;
-                        chars.next();
-                        idx += 1;
+                    Some(b',') => {
+                        let comma_char_idx = char_idx;
+                        char_idx += 1;
+                        byte_idx += 1;
+
                         // Skip whitespace after comma
-                        idx += skip_whitespace_chars(&mut chars);
+                        let ws = skip_whitespace(&bytes[byte_idx..]);
+                        char_idx += ws;
+                        byte_idx += ws;
 
                         // Check for trailing comma
-                        if chars.peek() == Some(&']') {
+                        if bytes.get(byte_idx) == Some(&b']') {
                             return Err(self.make_decode_error(
                                 "Illegal trailing comma before end of array",
                                 pystr,
-                                comma_idx,
+                                comma_char_idx,
                                 vm,
                             ));
                         }
@@ -480,23 +458,24 @@ mod _json {
                         return Err(self.make_decode_error(
                             "Expecting ',' delimiter",
                             pystr,
-                            idx,
+                            char_idx,
                             vm,
                         ));
                     }
                 }
             }
 
-            Ok((vm.ctx.new_list(values).into(), idx))
+            Ok((vm.ctx.new_list(values).into(), char_idx, byte_idx))
         }
 
         /// Finalize object construction with hooks.
         fn finalize_object(
             &self,
             pairs: Vec<(PyObjectRef, PyObjectRef)>,
-            end_idx: usize,
+            end_char_idx: usize,
+            end_byte_idx: usize,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyObjectRef, usize)> {
+        ) -> PyResult<(PyObjectRef, usize, usize)> {
             let result = if let Some(ref pairs_hook) = self.object_pairs_hook {
                 // object_pairs_hook takes priority - pass list of tuples
                 let pairs_list: Vec<PyObjectRef> = pairs
@@ -520,87 +499,95 @@ mod _json {
                 }
             };
 
-            Ok((result, end_idx))
+            Ok((result, end_char_idx, end_byte_idx))
         }
 
         /// Call scan_once and handle the result.
-        /// Uses character iterators to avoid byte/char index mismatch with non-ASCII strings.
+        /// Returns (value, end_char_idx, end_byte_idx).
         fn call_scan_once(
             &self,
             scan_once: &PyObjectRef,
             pystr: PyStrRef,
-            idx: usize,
+            char_idx: usize,
+            byte_idx: usize,
             memo: &mut HashMap<String, PyStrRef>,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyObjectRef, usize)> {
+        ) -> PyResult<(PyObjectRef, usize, usize)> {
             let s = pystr.as_str();
-            let chars = s.chars().skip(idx).peekable();
+            let bytes = s.as_bytes();
+            let wtf8 = pystr.as_wtf8();
 
-            let first_char = match chars.clone().next() {
-                Some(c) => c,
-                None => return Err(self.make_decode_error("Expecting value", pystr, idx, vm)),
+            let first_byte = match bytes.get(byte_idx) {
+                Some(&b) => b,
+                None => return Err(self.make_decode_error("Expecting value", pystr, char_idx, vm)),
             };
 
-            match first_char {
-                '"' => {
-                    // String
-                    let (wtf8, end) = machinery::scanstring(pystr.as_wtf8(), idx + 1, self.strict)
-                        .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
-                    let py_str = vm.ctx.new_str(wtf8.to_string());
-                    Ok((py_str.into(), end))
+            match first_byte {
+                b'"' => {
+                    // String - pass slice starting after the quote
+                    let (wtf8_result, chars_consumed, bytes_consumed) =
+                        machinery::scanstring(&wtf8[byte_idx + 1..], char_idx + 1, self.strict)
+                            .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
+                    let py_str = vm.ctx.new_str(wtf8_result.to_string());
+                    Ok((
+                        py_str.into(),
+                        char_idx + 1 + chars_consumed,
+                        byte_idx + 1 + bytes_consumed,
+                    ))
                 }
-                '{' => {
+                b'{' => {
                     // Object
-                    self.parse_object(pystr, idx + 1, scan_once, memo, vm)
+                    self.parse_object(pystr, char_idx + 1, byte_idx + 1, scan_once, memo, vm)
                 }
-                '[' => {
+                b'[' => {
                     // Array
-                    self.parse_array(pystr, idx + 1, scan_once, memo, vm)
+                    self.parse_array(pystr, char_idx + 1, byte_idx + 1, scan_once, memo, vm)
                 }
-                'n' if starts_with_chars(chars.clone(), "null") => {
+                b'n' if starts_with_bytes(&bytes[byte_idx..], b"null") => {
                     // null
-                    Ok((vm.ctx.none(), idx + 4))
+                    Ok((vm.ctx.none(), char_idx + 4, byte_idx + 4))
                 }
-                't' if starts_with_chars(chars.clone(), "true") => {
+                b't' if starts_with_bytes(&bytes[byte_idx..], b"true") => {
                     // true
-                    Ok((vm.ctx.new_bool(true).into(), idx + 4))
+                    Ok((vm.ctx.new_bool(true).into(), char_idx + 4, byte_idx + 4))
                 }
-                'f' if starts_with_chars(chars.clone(), "false") => {
+                b'f' if starts_with_bytes(&bytes[byte_idx..], b"false") => {
                     // false
-                    Ok((vm.ctx.new_bool(false).into(), idx + 5))
+                    Ok((vm.ctx.new_bool(false).into(), char_idx + 5, byte_idx + 5))
                 }
-                'N' if starts_with_chars(chars.clone(), "NaN") => {
+                b'N' if starts_with_bytes(&bytes[byte_idx..], b"NaN") => {
                     // NaN
                     let result = self.parse_constant.call(("NaN",), vm)?;
-                    Ok((result, idx + 3))
+                    Ok((result, char_idx + 3, byte_idx + 3))
                 }
-                'I' if starts_with_chars(chars.clone(), "Infinity") => {
+                b'I' if starts_with_bytes(&bytes[byte_idx..], b"Infinity") => {
                     // Infinity
                     let result = self.parse_constant.call(("Infinity",), vm)?;
-                    Ok((result, idx + 8))
+                    Ok((result, char_idx + 8, byte_idx + 8))
                 }
-                '-' => {
+                b'-' => {
                     // -Infinity or negative number
-                    if starts_with_chars(chars.clone(), "-Infinity") {
+                    if starts_with_bytes(&bytes[byte_idx..], b"-Infinity") {
                         let result = self.parse_constant.call(("-Infinity",), vm)?;
-                        return Ok((result, idx + 9));
+                        return Ok((result, char_idx + 9, byte_idx + 9));
                     }
-                    // Negative number - collect number characters
-                    if let Some((result, len)) = self.parse_number_from_chars(chars, vm) {
-                        return Ok((result?, idx + len));
+                    // Negative number - numbers are ASCII so len == bytes
+                    if let Some((result, len)) = self.parse_number(&s[byte_idx..], vm) {
+                        return Ok((result?, char_idx + len, byte_idx + len));
                     }
-                    Err(self.make_decode_error("Expecting value", pystr, idx, vm))
+                    Err(self.make_decode_error("Expecting value", pystr, char_idx, vm))
                 }
-                c if c.is_ascii_digit() => {
-                    // Positive number
-                    if let Some((result, len)) = self.parse_number_from_chars(chars, vm) {
-                        return Ok((result?, idx + len));
+                b'0'..=b'9' => {
+                    // Positive number - numbers are ASCII so len == bytes
+                    if let Some((result, len)) = self.parse_number(&s[byte_idx..], vm) {
+                        return Ok((result?, char_idx + len, byte_idx + len));
                     }
-                    Err(self.make_decode_error("Expecting value", pystr, idx, vm))
+                    Err(self.make_decode_error("Expecting value", pystr, char_idx, vm))
                 }
                 _ => {
                     // Fall back to scan_once for unrecognized input
-                    let result = scan_once.call((pystr.clone(), idx as isize), vm);
+                    // Note: This path requires char_idx for Python compatibility
+                    let result = scan_once.call((pystr.clone(), char_idx as isize), vm);
 
                     match result {
                         Ok(tuple) => {
@@ -610,11 +597,18 @@ mod _json {
                                 return Err(vm.new_value_error("scan_once must return 2-tuple"));
                             }
                             let value = tuple.as_slice()[0].clone();
-                            let end_idx: isize = tuple.as_slice()[1].try_to_value(vm)?;
-                            Ok((value, end_idx as usize))
+                            let end_char_idx: isize = tuple.as_slice()[1].try_to_value(vm)?;
+                            // For fallback, we need to calculate byte_idx from char_idx
+                            // This is expensive but fallback should be rare
+                            let end_byte_idx = s
+                                .char_indices()
+                                .nth(end_char_idx as usize)
+                                .map(|(i, _)| i)
+                                .unwrap_or(s.len());
+                            Ok((value, end_char_idx as usize, end_byte_idx))
                         }
                         Err(err) if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) => {
-                            Err(self.make_decode_error("Expecting value", pystr, idx, vm))
+                            Err(self.make_decode_error("Expecting value", pystr, char_idx, vm))
                         }
                         Err(err) => Err(err),
                     }
@@ -637,24 +631,35 @@ mod _json {
 
     impl Callable for JsonScanner {
         type Args = (PyStrRef, isize);
-        fn call(zelf: &Py<Self>, (pystr, idx): Self::Args, vm: &VirtualMachine) -> PyResult {
-            if idx < 0 {
+        fn call(zelf: &Py<Self>, (pystr, char_idx): Self::Args, vm: &VirtualMachine) -> PyResult {
+            if char_idx < 0 {
                 return Err(vm.new_value_error("idx cannot be negative"));
             }
-            let idx = idx as usize;
-            let mut chars = pystr.as_str().chars();
-            if idx > 0 && chars.nth(idx - 1).is_none() {
-                PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx).into())).to_pyresult(vm)
+            let char_idx = char_idx as usize;
+            let s = pystr.as_str();
+
+            // Calculate byte index from char index (O(char_idx) but only at entry point)
+            let byte_idx = if char_idx == 0 {
+                0
             } else {
-                zelf.parse(
-                    chars.as_str(),
-                    pystr.clone(),
-                    idx,
-                    zelf.to_owned().into(),
-                    vm,
-                )
-                .and_then(|x| x.to_pyresult(vm))
-            }
+                match s.char_indices().nth(char_idx) {
+                    Some((byte_i, _)) => byte_i,
+                    None => {
+                        // char_idx is beyond the string length
+                        return PyIterReturn::StopIteration(Some(vm.ctx.new_int(char_idx).into()))
+                            .to_pyresult(vm);
+                    }
+                }
+            };
+
+            zelf.parse(
+                pystr.clone(),
+                char_idx,
+                byte_idx,
+                zelf.to_owned().into(),
+                vm,
+            )
+            .and_then(|x| x.to_pyresult(vm))
         }
     }
 
@@ -701,7 +706,28 @@ mod _json {
         vm: &VirtualMachine,
     ) -> PyResult<(Wtf8Buf, usize)> {
         flame_guard!("_json::scanstring");
-        machinery::scanstring(s.as_wtf8(), end, strict.unwrap_or(true))
-            .map_err(|e| py_decode_error(e, s, vm))
+        let wtf8 = s.as_wtf8();
+
+        // Convert char index `end` to byte index
+        let byte_idx = if end == 0 {
+            0
+        } else {
+            wtf8.code_point_indices()
+                .nth(end)
+                .map(|(i, _)| i)
+                .ok_or_else(|| {
+                    py_decode_error(
+                        machinery::DecodeError::new("Unterminated string starting at", end - 1),
+                        s.clone(),
+                        vm,
+                    )
+                })?
+        };
+
+        let (result, chars_consumed, _bytes_consumed) =
+            machinery::scanstring(&wtf8[byte_idx..], end, strict.unwrap_or(true))
+                .map_err(|e| py_decode_error(e, s, vm))?;
+
+        Ok((result, end + chars_consumed))
     }
 }
