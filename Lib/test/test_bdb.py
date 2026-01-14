@@ -616,8 +616,7 @@ class StateTestCase(BaseTestCase):
                 with TracerRun(self) as tracer:
                     tracer.runcall(tfunc_main)
 
-    # AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',), ('quit',)]
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',), ('quit',)]
     def test_stepinstr(self):
         self.expect_set = [
             ('line',   2, 'tfunc_main'),  ('stepinstr', ),
@@ -1249,8 +1248,7 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    # AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',)]
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',)]
     def test_next_to_botframe(self):
         # gh-125422
         # Check that next command won't go to the bottom frame.

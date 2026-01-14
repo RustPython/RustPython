@@ -214,7 +214,7 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
              b'method_annotation</strong></a>(x: bytes)</dt></dl>'),
             response.read())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; hTypeError: HTMLDoc.heading() missing 2 required positional arguments: "fgcol" and "bgcol"
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: HTMLDoc.heading() missing 2 required positional arguments: "fgcol" and "bgcol"
     def test_server_title_escape(self):
         # bpo-38243: Ensure that the server title and documentation
         # are escaped for HTML.

@@ -104,7 +104,7 @@ class ListTest(list_tests.CommonTest):
         x[:] = x
         self.assertEqual(x, [])
 
-    @unittest.skip('TODO: RUSTPYTHON; crash')
+    @unittest.skip("TODO: RUSTPYTHON; crash")
     def test_list_resize_overflow(self):
         # gh-97616: test new_allocated * sizeof(PyObject*) overflow
         # check in list_resize()
@@ -118,7 +118,7 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaises((MemoryError, OverflowError)):
             lst *= size
 
-    @unittest.skip('TODO: RUSTPYTHON; hangs')
+    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_repr_mutate(self):
         class Obj:
             @staticmethod
@@ -227,7 +227,7 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaises(TypeError):
             (3,) + L([1,2])
 
-    @unittest.skip('TODO: RUSTPYTHON; hang')
+    @unittest.skip("TODO: RUSTPYTHON; hang")
     def test_equal_operator_modifying_operand(self):
         # test fix for seg fault reported in bpo-38588 part 2.
         class X:
@@ -253,7 +253,7 @@ class ListTest(list_tests.CommonTest):
         list4 = [1]
         self.assertFalse(list3 == list4)
 
-    @unittest.skip('TODO: RUSTPYTHON; hang')
+    @unittest.skip("TODO: RUSTPYTHON; hang")
     def test_lt_operator_modifying_operand(self):
         # See gh-120298
         class evil:

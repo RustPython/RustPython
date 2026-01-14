@@ -2183,7 +2183,7 @@ class ASTValidatorTests(unittest.TestCase):
         self.expr(ast.Yield(ast.Name("x", ast.Store())), "must have Load")
         self.expr(ast.YieldFrom(ast.Name("x", ast.Store())), "must have Load")
 
-    @unittest.skip('TODO: RUSTPYTHON; thread "main" panicked')
+    @unittest.skip("TODO: RUSTPYTHON; thread 'main' panicked")
     def test_compare(self):
         left = ast.Name("x", ast.Load())
         comp = ast.Compare(left, [ast.In()], [])
@@ -2396,7 +2396,7 @@ class ASTValidatorTests(unittest.TestCase):
         ast.MatchMapping([], [], rest="_"),
     ]
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; thread 'main' panicked
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_match_validation_pattern(self):
         name_x = ast.Name("x", ast.Load())
         for pattern in self._MATCH_PATTERNS:

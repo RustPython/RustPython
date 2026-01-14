@@ -2318,7 +2318,7 @@ class POSIXProcessTestCase(BaseTestCase):
                                       extra_groups=[name_group])
 
     # No skip necessary, this test won't make it to a setgroup() call.
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.skip('TODO: RUSTPYTHON; clarify failure condition')
     def test_extra_groups_invalid_gid_t_values(self):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, extra_groups=[-1])

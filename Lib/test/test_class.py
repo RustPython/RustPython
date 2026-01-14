@@ -554,7 +554,7 @@ class ClassTests(unittest.TestCase):
         self.assertFalse(hasattr(o, "__call__"))
         self.assertFalse(hasattr(c, "__call__"))
 
-    @unittest.skip('TODO: RUSTPYTHON; segmentation fault')
+    @unittest.skip("TODO: RUSTPYTHON, segmentation fault")
     def testSFBug532646(self):
         # Test for SF bug 532646
 

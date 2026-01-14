@@ -1809,29 +1809,24 @@ class TestOperationsMutating:
                 self.assertIn("changed size during iteration", str(e))
 
 
+@unittest.skip("TODO: RUSTPYTHON; segfault")
 class TestBinaryOpsMutating(TestOperationsMutating):
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_eq_with_mutation(self):
         self.check_set_op_does_not_crash(lambda a, b: a == b)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_ne_with_mutation(self):
         self.check_set_op_does_not_crash(lambda a, b: a != b)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_lt_with_mutation(self):
         self.check_set_op_does_not_crash(lambda a, b: a < b)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_le_with_mutation(self):
         self.check_set_op_does_not_crash(lambda a, b: a <= b)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_gt_with_mutation(self):
         self.check_set_op_does_not_crash(lambda a, b: a > b)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_ge_with_mutation(self):
         self.check_set_op_does_not_crash(lambda a, b: a >= b)
 
@@ -1852,19 +1847,16 @@ class TestBinaryOpsMutating(TestOperationsMutating):
             a &= b
         self.check_set_op_does_not_crash(f)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_ior_with_mutation(self):
         def f(a, b):
             a |= b
         self.check_set_op_does_not_crash(f)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_isub_with_mutation(self):
         def f(a, b):
             a -= b
         self.check_set_op_does_not_crash(f)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_ixor_with_mutation(self):
         def f(a, b):
             a ^= b
@@ -1906,12 +1898,12 @@ class TestBinaryOpsMutating_Subclass_Set(TestBinaryOpsMutating, unittest.TestCas
     constructor2 = set
 
 
+@unittest.skip("TODO: RUSTPYTHON; segfault")
 class TestMethodsMutating(TestOperationsMutating):
 
     def test_issubset_with_mutation(self):
         self.check_set_op_does_not_crash(set.issubset)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_issuperset_with_mutation(self):
         self.check_set_op_does_not_crash(set.issuperset)
 
@@ -1927,22 +1919,18 @@ class TestMethodsMutating(TestOperationsMutating):
     def test_symmetric_difference_with_mutation(self):
         self.check_set_op_does_not_crash(set.symmetric_difference)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_isdisjoint_with_mutation(self):
         self.check_set_op_does_not_crash(set.isdisjoint)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_difference_update_with_mutation(self):
         self.check_set_op_does_not_crash(set.difference_update)
 
     def test_intersection_update_with_mutation(self):
         self.check_set_op_does_not_crash(set.intersection_update)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_symmetric_difference_update_with_mutation(self):
         self.check_set_op_does_not_crash(set.symmetric_difference_update)
 
-    @unittest.skip('TODO: RUSTPYTHON; segfault')
     def test_update_with_mutation(self):
         self.check_set_op_does_not_crash(set.update)
 

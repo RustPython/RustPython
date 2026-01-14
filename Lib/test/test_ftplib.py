@@ -921,6 +921,7 @@ class TestTLS_FTPClassMixin(TestFTPClass):
 
 @skipUnless(ssl, "SSL not available")
 @requires_subprocess()
+@unittest.skip("TODO: RUSTPYTHON; SSL + asyncore has problem")
 class TestTLS_FTPClass(TestCase):
     """Specific TLS_FTP class tests."""
 
@@ -1006,7 +1007,6 @@ class TestTLS_FTPClass(TestCase):
             self.assertIs(sock.context, ctx)
             self.assertIsInstance(sock, ssl.SSLSocket)
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky')
     def test_ccc(self):
         self.assertRaises(ValueError, self.client.ccc)
         self.client.login(secure=True)

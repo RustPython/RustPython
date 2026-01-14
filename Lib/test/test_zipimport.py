@@ -796,7 +796,7 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         files = self.getZip64Files()
         self.doTest(".py", files, "f65536", comment=b"c" * ((1 << 16) - 1))
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky - ValueError: name="RustPython/crates/pylib/Lib/test/zipimport_data/sparse-zip64-c0-0x000000000.part" does not fit expected pattern.')
+    @unittest.skip('TODO: RUSTPYTHON; (intermittent success/failures); ValueError: name="RustPython/crates/pylib/Lib/test/zipimport_data/sparse-zip64-c0-0x000000000.part" does not fit expected pattern.')
     def testZip64LargeFile(self):
         support.requires(
             "largefile",

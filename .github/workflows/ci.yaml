@@ -114,7 +114,6 @@ env:
     test.test_multiprocessing_forkserver.test_processes
     test.test_multiprocessing_spawn.test_processes
   ENV_POLLUTING_TESTS_WINDOWS: >-
-    test.test_tempfile
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
