@@ -15,7 +15,11 @@ use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
-    instruction::{Arg, Instruction, decode_load_super_attr_arg, encode_load_super_attr_arg},
+    instruction::{
+        AnyInstruction, Arg, Instruction, InstructionMetadata, PseudoInstruction,
+        decode_load_attr_arg, decode_load_super_attr_arg, encode_load_attr_arg,
+        encode_load_super_attr_arg,
+    },
     oparg::{
         BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
         IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx, OpArg,
@@ -94,20 +98,6 @@ pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTabl
         }
     }
     None
-}
-
-/// Encode LOAD_ATTR oparg: bit 0 = method flag, bits 1+ = name index.
-#[inline]
-pub const fn encode_load_attr_arg(name_idx: u32, is_method: bool) -> u32 {
-    (name_idx << 1) | (is_method as u32)
-}
-
-/// Decode LOAD_ATTR oparg: returns (name_idx, is_method).
-#[inline]
-pub const fn decode_load_attr_arg(oparg: u32) -> (u32, bool) {
-    let is_method = (oparg & 1) == 1;
-    let name_idx = oparg >> 1;
-    (name_idx, is_method)
 }
 
 /// CPython 3.11+ linetable location info codes

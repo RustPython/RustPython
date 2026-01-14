@@ -212,7 +212,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             match instruction {
                 Instruction::ReturnValue
                 | Instruction::ReturnConst { .. }
-                | Instruction::Jump { .. }
                 | Instruction::JumpBackward { .. }
                 | Instruction::JumpBackwardNoInterrupt { .. }
                 | Instruction::JumpForward { .. } => {
@@ -561,8 +560,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::ExtendedArg => Ok(()),
 
-            Instruction::Jump { target }
-            | Instruction::JumpBackward { target }
+            Instruction::JumpBackward { target }
             | Instruction::JumpBackwardNoInterrupt { target }
             | Instruction::JumpForward { target } => {
                 let target_block = self.get_or_create_block(target.get(arg));
@@ -596,10 +594,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 }
             }
             Instruction::Nop => Ok(()),
-            Instruction::PopBlock => {
-                // TODO: block support
-                Ok(())
-            }
             Instruction::PopJumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;

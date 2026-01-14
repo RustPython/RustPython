@@ -2,7 +2,7 @@ use core::{fmt, marker::PhantomData, mem};
 
 use crate::{
     bytecode::{
-        BorrowedConstant, Constant, InstrDisplayContext, decode_load_attr_arg,
+        BorrowedConstant, Constant, InstrDisplayContext,
         oparg::{
             BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
             IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx,
@@ -12,10 +12,13 @@ use crate::{
     marshal::MarshalError,
 };
 
-/// A Single bytecode instruction.
-/// Instructions are ordered to match CPython 3.13 opcode numbers exactly.
-/// HAVE_ARGUMENT = 44: opcodes 0-43 have no argument, 44+ have arguments.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// A Single bytecode instruction that are executed by the VM.
+///
+/// Currently aligned with CPython 3.13.
+///
+/// ## See also
+/// - [CPython opcode IDs](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Include/opcode_ids.h)
+#[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum Instruction {
     // ==================== No-argument instructions (opcode < 44) ====================
@@ -245,20 +248,6 @@ pub enum Instruction {
     Resume {
         arg: Arg<u32>,
     } = 149,
-    // ===== LOAD_SUPER_* Pseudo Opcodes (136-138) =====
-    // These are converted to LoadSuperAttr during bytecode finalization.
-    // "Zero" variants are for 0-arg super() calls (has_class=false).
-    // Non-"Zero" variants are for 2-arg super(cls, self) calls (has_class=true).
-    /// 2-arg super(cls, self).method() - has_class=true, load_method=true
-    LoadSuperMethod {
-        idx: Arg<NameIdx>,
-    } = 136, // CPython uses pseudo-op 260
-    LoadZeroSuperAttr {
-        idx: Arg<NameIdx>,
-    } = 137, // CPython uses pseudo-op 261
-    LoadZeroSuperMethod {
-        idx: Arg<NameIdx>,
-    } = 138, // CPython uses pseudo-op 262
     // ==================== RustPython-only instructions (119-135) ====================
     // Ideally, we want to be fully aligned with CPython opcodes, but we still have some leftovers.
     // So we assign random IDs to these opcodes.
@@ -290,15 +279,8 @@ pub enum Instruction {
     JumpIfNotExcMatch(Arg<Label>) = 131,
     SetExcInfo = 134,
     Subscript = 135,
-    // ===== Pseudo Opcodes (252+) ======
-    Jump {
-        target: Arg<Label>,
-    } = 252, // CPython uses pseudo-op 256
-    LoadClosure(Arg<NameIdx>) = 253, // CPython uses pseudo-op 258
-    LoadAttrMethod {
-        idx: Arg<NameIdx>,
-    } = 254, // CPython uses pseudo-op 259
-    PopBlock = 255,                  // CPython uses pseudo-op 263
+    // Pseudos (needs to be moved to `PseudoInstruction` enum.
+    LoadClosure(Arg<NameIdx>) = 253, // TODO: Move to pseudos
 }
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
@@ -307,7 +289,7 @@ impl From<Instruction> for u8 {
     #[inline]
     fn from(ins: Instruction) -> Self {
         // SAFETY: there's no padding bits
-        unsafe { core::mem::transmute::<Instruction, Self>(ins) }
+        unsafe { mem::transmute::<Instruction, Self>(ins) }
     }
 }
 
@@ -322,6 +304,9 @@ impl TryFrom<u8> for Instruction {
 
         // Resume has a non-contiguous opcode (149)
         let resume_id = u8::from(Self::Resume { arg: Arg::marker() });
+
+        // TODO: Remove this; This instruction needs to be pseudo
+        let load_closure = u8::from(Self::LoadClosure(Arg::marker()));
 
         // RustPython-only opcodes (explicit list to avoid gaps like 125-127)
         let custom_ops: &[u8] = &[
@@ -354,37 +339,25 @@ impl TryFrom<u8> for Instruction {
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
             u8::from(Self::SetExcInfo),
             u8::from(Self::Subscript),
-            // LOAD_SUPER_* pseudo opcodes (136-138)
-            u8::from(Self::LoadSuperMethod { idx: Arg::marker() }),
-            u8::from(Self::LoadZeroSuperAttr { idx: Arg::marker() }),
-            u8::from(Self::LoadZeroSuperMethod { idx: Arg::marker() }),
         ];
-
-        // Pseudo opcodes (252-255)
-        let pseudo_start = u8::from(Self::Jump {
-            target: Arg::marker(),
-        });
-        let pseudo_end = u8::from(Self::PopBlock);
 
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
+            || value == load_closure
             || custom_ops.contains(&value)
-            || (pseudo_start..=pseudo_end).contains(&value)
         {
-            Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
+            Ok(unsafe { mem::transmute::<u8, Self>(value) })
         } else {
             Err(Self::Error::InvalidBytecode)
         }
     }
 }
 
-impl Instruction {
-    /// Gets the label stored inside this instruction, if it exists
+impl InstructionMetadata for Instruction {
     #[inline]
-    pub const fn label_arg(&self) -> Option<Arg<Label>> {
+    fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
-            Self::Jump { target: l }
-            | Self::JumpBackward { target: l }
+            Self::JumpBackward { target: l }
             | Self::JumpBackwardNoInterrupt { target: l }
             | Self::JumpForward { target: l }
             | Self::JumpIfNotExcMatch(l)
@@ -400,20 +373,10 @@ impl Instruction {
         }
     }
 
-    /// Whether this is an unconditional branching
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, Instruction};
-    /// let jump_inst = Instruction::Jump { target: Arg::marker() };
-    /// assert!(jump_inst.unconditional_branch())
-    /// ```
-    pub const fn unconditional_branch(&self) -> bool {
+    fn unconditional_branch(&self) -> bool {
         matches!(
             self,
-            Self::Jump { .. }
-                | Self::JumpForward { .. }
+            Self::JumpForward { .. }
                 | Self::JumpBackward { .. }
                 | Self::JumpBackwardNoInterrupt { .. }
                 | Self::Continue { .. }
@@ -425,18 +388,7 @@ impl Instruction {
         )
     }
 
-    /// What effect this instruction has on the stack
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label};
-    /// let (target, jump_arg) = Arg::new(Label(0xF));
-    /// let jump_instruction = Instruction::Jump { target };
-    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
-    /// ```
-    ///
-    pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
+    fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             Self::Nop => 0,
             Self::ImportName { .. } => -1,
@@ -456,13 +408,10 @@ impl Instruction {
             Self::DeleteGlobal(_) => 0,
             Self::DeleteDeref(_) => 0,
             Self::LoadFromDictOrDeref(_) => 1,
-            Self::LoadClosure(_) => 1,
             Self::Subscript => -1,
             Self::StoreSubscr => -3,
             Self::DeleteSubscr => -2,
             Self::LoadAttr { .. } => 0,
-            // LoadAttrMethod: pop obj, push method + self_or_null
-            Self::LoadAttrMethod { .. } => 1,
             Self::StoreAttr { .. } => -2,
             Self::DeleteAttr { .. } => -1,
             Self::LoadConst { .. } => 1,
@@ -480,7 +429,6 @@ impl Instruction {
             Self::CallIntrinsic2 { .. } => -1, // Takes 2, pushes 1
             Self::Continue { .. } => 0,
             Self::Break { .. } => 0,
-            Self::Jump { .. } => 0,
             Self::PopJumpIfTrue { .. } => -1,
             Self::PopJumpIfFalse { .. } => -1,
             Self::JumpIfTrueOrPop { .. } => {
@@ -542,7 +490,6 @@ impl Instruction {
             Self::SetupAnnotations => 0,
             Self::BeforeWith => 1, // push __exit__, then replace ctx_mgr with __enter__ result
             Self::WithExceptStart => 1, // push __exit__ result
-            Self::PopBlock => 0,
             Self::RaiseVarargs { kind } => {
                 // Stack effects for different raise kinds:
                 // - Reraise (0): gets from VM state, no stack pop
@@ -615,9 +562,6 @@ impl Instruction {
                 if load_method { -3 + 2 } else { -3 + 1 }
             }
             // Pseudo instructions (calculated before conversion)
-            Self::LoadSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
-            Self::LoadZeroSuperAttr { .. } => -3 + 1, // pop 3, push [attr]
-            Self::LoadZeroSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
             Self::Cache => 0,
             Self::BinarySlice => 0,
             Self::BinaryOpInplaceAddUnicode => 0,
@@ -644,25 +588,12 @@ impl Instruction {
             Self::StoreFastStoreFast { .. } => 0,
             Self::PopJumpIfNone { .. } => 0,
             Self::PopJumpIfNotNone { .. } => 0,
+            Self::LoadClosure(_) => 1,
         }
-    }
-
-    pub fn display<'a>(
-        &'a self,
-        arg: OpArg,
-        ctx: &'a impl InstrDisplayContext,
-    ) -> impl fmt::Display + 'a {
-        struct FmtFn<F>(F);
-        impl<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for FmtFn<F> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                (self.0)(f)
-            }
-        }
-        FmtFn(move |f: &mut fmt::Formatter<'_>| self.fmt_dis(arg, f, ctx, false, 0, 0))
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn fmt_dis(
+    fn fmt_dis(
         &self,
         arg: OpArg,
         f: &mut fmt::Formatter<'_>,
@@ -765,7 +696,6 @@ impl Instruction {
             Self::ImportFrom { idx } => w!(IMPORT_FROM, name = idx),
             Self::ImportName { idx } => w!(IMPORT_NAME, name = idx),
             Self::IsOp(inv) => w!(IS_OP, ?inv),
-            Self::Jump { target } => w!(JUMP, target),
             Self::JumpBackward { target } => w!(JUMP_BACKWARD, target),
             Self::JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
             Self::JumpForward { target } => w!(JUMP_FORWARD, target),
@@ -787,7 +717,6 @@ impl Instruction {
                     write!(f, "{:pad$}({}, {})", "LOAD_ATTR", encoded, attr_name)
                 }
             }
-            Self::LoadAttrMethod { idx } => w!(LOAD_ATTR_METHOD, name = idx),
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
             Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
             Self::LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
@@ -807,9 +736,6 @@ impl Instruction {
                     "LOAD_SUPER_ATTR", encoded, attr_name, load_method, has_class
                 )
             }
-            Self::LoadSuperMethod { idx } => w!(LOAD_SUPER_METHOD, name = idx),
-            Self::LoadZeroSuperAttr { idx } => w!(LOAD_ZERO_SUPER_ATTR, name = idx),
-            Self::LoadZeroSuperMethod { idx } => w!(LOAD_ZERO_SUPER_METHOD, name = idx),
             Self::MakeFunction => w!(MAKE_FUNCTION),
             Self::MapAdd { i } => w!(MAP_ADD, i),
             Self::MatchClass(arg) => w!(MATCH_CLASS, arg),
@@ -817,7 +743,6 @@ impl Instruction {
             Self::MatchMapping => w!(MATCH_MAPPING),
             Self::MatchSequence => w!(MATCH_SEQUENCE),
             Self::Nop => w!(NOP),
-            Self::PopBlock => w!(POP_BLOCK),
             Self::PopExcept => w!(POP_EXCEPT),
             Self::PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
             Self::PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
@@ -860,6 +785,266 @@ impl Instruction {
             Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
             _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
+    }
+}
+
+/// Instructions used by the compiler. They are not executed by the VM.
+#[derive(Clone, Copy, Debug)]
+#[repr(u16)]
+pub enum PseudoInstruction {
+    Jump {
+        target: Arg<Label>,
+    } = 256,
+    JumpNoInterrupt {
+        target: Arg<Label>,
+    } = 257, // Placeholder
+    Reserved258 = 258,
+    LoadAttrMethod {
+        idx: Arg<NameIdx>,
+    } = 259,
+    // "Zero" variants are for 0-arg super() calls (has_class=false).
+    // Non-"Zero" variants are for 2-arg super(cls, self) calls (has_class=true).
+    /// 2-arg super(cls, self).method() - has_class=true, load_method=true
+    LoadSuperMethod {
+        idx: Arg<NameIdx>,
+    } = 260,
+    LoadZeroSuperAttr {
+        idx: Arg<NameIdx>,
+    } = 261,
+    LoadZeroSuperMethod {
+        idx: Arg<NameIdx>,
+    } = 262,
+    PopBlock = 263,
+    SetupCleanup = 264,       // Placeholder
+    SetupFinally = 265,       // Placeholder
+    SetupWith = 266,          // Placeholder
+    StoreFastMaybeNull = 267, // Placeholder
+}
+
+const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
+
+impl From<PseudoInstruction> for u16 {
+    #[inline]
+    fn from(ins: PseudoInstruction) -> Self {
+        // SAFETY: there's no padding bits
+        unsafe { mem::transmute::<PseudoInstruction, Self>(ins) }
+    }
+}
+
+impl TryFrom<u16> for PseudoInstruction {
+    type Error = MarshalError;
+
+    #[inline]
+    fn try_from(value: u16) -> Result<Self, MarshalError> {
+        let start = u16::from(Self::Jump {
+            target: Arg::marker(),
+        });
+        let end = u16::from(Self::StoreFastMaybeNull);
+
+        if (start..=end).contains(&value) {
+            Ok(unsafe { mem::transmute::<u16, Self>(value) })
+        } else {
+            Err(Self::Error::InvalidBytecode)
+        }
+    }
+}
+
+impl InstructionMetadata for PseudoInstruction {
+    fn label_arg(&self) -> Option<Arg<Label>> {
+        match self {
+            Self::Jump { target: l } => Some(*l),
+            _ => None,
+        }
+    }
+
+    fn unconditional_branch(&self) -> bool {
+        matches!(self, Self::Jump { .. },)
+    }
+
+    fn stack_effect(&self, _arg: OpArg, _jump: bool) -> i32 {
+        match self {
+            Self::Jump { .. } => 0,
+            Self::JumpNoInterrupt { .. } => 0,
+            Self::LoadAttrMethod { .. } => 1, // pop obj, push method + self_or_null
+            Self::LoadSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
+            Self::LoadZeroSuperAttr { .. } => -3 + 1, // pop 3, push [attr]
+            Self::LoadZeroSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
+            Self::PopBlock => 0,
+            Self::SetupCleanup => 0,
+            Self::SetupFinally => 0,
+            Self::SetupWith => 0,
+            Self::StoreFastMaybeNull => 0,
+            Self::Reserved258 => 0,
+        }
+    }
+
+    fn fmt_dis(
+        &self,
+        _arg: OpArg,
+        _f: &mut fmt::Formatter<'_>,
+        _ctx: &impl InstrDisplayContext,
+        _expand_code_objects: bool,
+        _pad: usize,
+        _level: usize,
+    ) -> fmt::Result {
+        unimplemented!()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum AnyInstruction {
+    Real(Instruction),
+    Pseudo(PseudoInstruction),
+}
+
+impl From<Instruction> for AnyInstruction {
+    fn from(value: Instruction) -> Self {
+        Self::Real(value)
+    }
+}
+
+impl From<PseudoInstruction> for AnyInstruction {
+    fn from(value: PseudoInstruction) -> Self {
+        Self::Pseudo(value)
+    }
+}
+
+impl TryFrom<u8> for AnyInstruction {
+    type Error = MarshalError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(Instruction::try_from(value)?.into())
+    }
+}
+
+impl TryFrom<u16> for AnyInstruction {
+    type Error = MarshalError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match u8::try_from(value) {
+            Ok(v) => v.try_into(),
+            Err(_) => Ok(PseudoInstruction::try_from(value)?.into()),
+        }
+    }
+}
+
+macro_rules! inst_either {
+    (fn $name:ident ( &self $(, $arg:ident : $arg_ty:ty )* ) -> $ret:ty ) => {
+        fn $name(&self $(, $arg : $arg_ty )* ) -> $ret {
+            match self {
+                Self::Real(op) => op.$name($($arg),*),
+                Self::Pseudo(op) => op.$name($($arg),*),
+            }
+        }
+    };
+}
+
+impl InstructionMetadata for AnyInstruction {
+    inst_either!(fn label_arg(&self) -> Option<Arg<Label>>);
+
+    inst_either!(fn unconditional_branch(&self) -> bool);
+
+    inst_either!(fn stack_effect(&self, arg: OpArg, jump: bool) -> i32);
+
+    inst_either!(fn fmt_dis(
+        &self,
+        arg: OpArg,
+        f: &mut fmt::Formatter<'_>,
+        ctx: &impl InstrDisplayContext,
+        expand_code_objects: bool,
+        pad: usize,
+        level: usize
+    ) -> fmt::Result);
+}
+
+impl AnyInstruction {
+    /// Gets the inner value of [`Self::Real`].
+    pub const fn real(self) -> Option<Instruction> {
+        match self {
+            Self::Real(ins) => Some(ins),
+            _ => None,
+        }
+    }
+
+    /// Gets the inner value of [`Self::Pseudo`].
+    pub const fn pseudo(self) -> Option<PseudoInstruction> {
+        match self {
+            Self::Pseudo(ins) => Some(ins),
+            _ => None,
+        }
+    }
+
+    /// Same as [`Self::real`] but panics if wasn't called on [`Self::Real`].
+    ///
+    /// # Panics
+    ///
+    /// If was called on something else other than [`Self::Real`].
+    pub const fn expect_real(self) -> Instruction {
+        self.real()
+            .expect("Expected Instruction::Real, found Instruction::Pseudo")
+    }
+
+    /// Same as [`Self::pseudo`] but panics if wasn't called on [`Self::Pseudo`].
+    ///
+    /// # Panics
+    ///
+    /// If was called on something else other than [`Self::Pseudo`].
+    pub const fn expect_pseudo(self) -> PseudoInstruction {
+        self.pseudo()
+            .expect("Expected Instruction::Pseudo, found Instruction::Real")
+    }
+}
+
+pub trait InstructionMetadata {
+    /// Gets the label stored inside this instruction, if it exists.
+    fn label_arg(&self) -> Option<Arg<Label>>;
+
+    /// Whether this is an unconditional branching.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, InstructionMetadata};
+    /// let jump_inst = Instruction::JumpForward { target: Arg::marker() };
+    /// assert!(jump_inst.unconditional_branch())
+    /// ```
+    fn unconditional_branch(&self) -> bool;
+
+    /// What effect this instruction has on the stack
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label, InstructionMetadata};
+    /// let (target, jump_arg) = Arg::new(Label(0xF));
+    /// let jump_instruction = Instruction::JumpForward { target };
+    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
+    /// ```
+    fn stack_effect(&self, arg: OpArg, jump: bool) -> i32;
+
+    #[allow(clippy::too_many_arguments)]
+    fn fmt_dis(
+        &self,
+        arg: OpArg,
+        f: &mut fmt::Formatter<'_>,
+        ctx: &impl InstrDisplayContext,
+        expand_code_objects: bool,
+        pad: usize,
+        level: usize,
+    ) -> fmt::Result;
+
+    fn display<'a>(
+        &'a self,
+        arg: OpArg,
+        ctx: &'a impl InstrDisplayContext,
+    ) -> impl fmt::Display + 'a {
+        struct FmtFn<F>(F);
+        impl<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for FmtFn<F> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                (self.0)(f)
+            }
+        }
+        FmtFn(move |f: &mut fmt::Formatter<'_>| self.fmt_dis(arg, f, ctx, false, 0, 0))
     }
 }
 
@@ -916,6 +1101,20 @@ impl<T: OpArgType> fmt::Debug for Arg<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Arg<{}>", core::any::type_name::<T>())
     }
+}
+
+/// Encode LOAD_ATTR oparg: bit 0 = method flag, bits 1+ = name index.
+#[inline]
+pub const fn encode_load_attr_arg(name_idx: u32, is_method: bool) -> u32 {
+    (name_idx << 1) | (is_method as u32)
+}
+
+/// Decode LOAD_ATTR oparg: returns (name_idx, is_method).
+#[inline]
+pub const fn decode_load_attr_arg(oparg: u32) -> (u32, bool) {
+    let is_method = (oparg & 1) == 1;
+    let name_idx = oparg >> 1;
+    (name_idx, is_method)
 }
 
 /// Encode LOAD_SUPER_ATTR oparg: bit 0 = load_method, bit 1 = has_class, bits 2+ = name index.

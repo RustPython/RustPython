@@ -5,17 +5,31 @@ mod opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
-        bytecode::Instruction,
+        bytecode::{AnyInstruction, Instruction, InstructionMetadata, PseudoInstruction},
     };
     use core::ops::Deref;
 
-    struct Opcode(Instruction);
+    #[derive(Clone, Copy)]
+    struct Opcode(AnyInstruction);
 
     impl Deref for Opcode {
-        type Target = Instruction;
+        type Target = AnyInstruction;
 
         fn deref(&self) -> &Self::Target {
             &self.0
+        }
+    }
+
+    impl TryFrom<i32> for Opcode {
+        type Error = ();
+
+        fn try_from(value: i32) -> Result<Self, Self::Error> {
+            Ok(Self(
+                u16::try_from(value)
+                    .map_err(|_| ())?
+                    .try_into()
+                    .map_err(|_| ())?,
+            ))
         }
     }
 
@@ -25,9 +39,9 @@ mod opcode {
 
         pub fn try_from_pyint(raw: PyIntRef, vm: &VirtualMachine) -> PyResult<Self> {
             let instruction = raw
-                .try_to_primitive::<u8>(vm)
+                .try_to_primitive::<u16>(vm)
                 .and_then(|v| {
-                    Instruction::try_from(v).map_err(|_| {
+                    AnyInstruction::try_from(v).map_err(|_| {
                         vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned())
                     })
                 })
@@ -36,13 +50,14 @@ mod opcode {
             Ok(Self(instruction))
         }
 
-        /// Check if opcode is valid (can be converted to an Instruction)
+        const fn inner(self) -> AnyInstruction {
+            self.0
+        }
+
+        /// Check if opcode is valid (can be converted to an AnyInstruction)
         #[must_use]
         pub fn is_valid(opcode: i32) -> bool {
-            if !(0..=255).contains(&opcode) {
-                return false;
-            }
-            Instruction::try_from(opcode as u8).is_ok()
+            Self::try_from(opcode).is_ok()
         }
 
         /// Check if instruction has an argument
@@ -54,79 +69,82 @@ mod opcode {
         /// Check if instruction uses co_consts
         #[must_use]
         pub fn has_const(opcode: i32) -> bool {
-            Self::is_valid(opcode)
-                && matches!(
-                    Instruction::try_from(opcode as u8),
-                    Ok(Instruction::LoadConst { .. } | Instruction::ReturnConst { .. })
-                )
+            matches!(
+                Self::try_from(opcode).map(|op| op.inner()),
+                Ok(AnyInstruction::Real(
+                    Instruction::LoadConst { .. } | Instruction::ReturnConst { .. }
+                ))
+            )
         }
 
         /// Check if instruction uses co_names
         #[must_use]
         pub fn has_name(opcode: i32) -> bool {
-            Self::is_valid(opcode)
-                && matches!(
-                    Instruction::try_from(opcode as u8),
-                    Ok(Instruction::DeleteAttr { .. }
+            matches!(
+                Self::try_from(opcode).map(|op| op.inner()),
+                Ok(AnyInstruction::Real(
+                    Instruction::DeleteAttr { .. }
                         | Instruction::DeleteGlobal(_)
                         | Instruction::DeleteName(_)
                         | Instruction::ImportFrom { .. }
                         | Instruction::ImportName { .. }
                         | Instruction::LoadAttr { .. }
                         | Instruction::LoadGlobal(_)
-                        | Instruction::LoadAttrMethod { .. }
                         | Instruction::LoadName(_)
                         | Instruction::StoreAttr { .. }
                         | Instruction::StoreGlobal(_)
-                        | Instruction::StoreName(_))
-                )
+                        | Instruction::StoreName(_)
+                ) | AnyInstruction::Pseudo(PseudoInstruction::LoadAttrMethod { .. }))
+            )
         }
 
         /// Check if instruction is a jump
         #[must_use]
         pub fn has_jump(opcode: i32) -> bool {
-            Self::is_valid(opcode)
-                && matches!(
-                    Instruction::try_from(opcode as u8),
-                    Ok(Instruction::Break { .. }
+            matches!(
+                Self::try_from(opcode).map(|op| op.inner()),
+                Ok(AnyInstruction::Real(
+                    Instruction::Break { .. }
                         | Instruction::Continue { .. }
                         | Instruction::ForIter { .. }
                         | Instruction::JumpIfFalseOrPop { .. }
                         | Instruction::JumpIfNotExcMatch(_)
                         | Instruction::JumpIfTrueOrPop { .. }
-                        | Instruction::Jump { .. }
                         | Instruction::PopJumpIfFalse { .. }
                         | Instruction::PopJumpIfTrue { .. }
-                        | Instruction::Send { .. })
-                )
+                        | Instruction::Send { .. }
+                ) | AnyInstruction::Pseudo(PseudoInstruction::Jump { .. }))
+            )
         }
 
         /// Check if instruction uses co_freevars/co_cellvars
         #[must_use]
         pub fn has_free(opcode: i32) -> bool {
-            Self::is_valid(opcode)
-                && matches!(
-                    Instruction::try_from(opcode as u8),
-                    Ok(Instruction::DeleteDeref(_)
+            matches!(
+                Self::try_from(opcode).map(|op| op.inner()),
+                Ok(AnyInstruction::Real(
+                    Instruction::DeleteDeref(_)
                         | Instruction::LoadFromDictOrDeref(_)
                         | Instruction::LoadClosure(_)
                         | Instruction::LoadDeref(_)
-                        | Instruction::StoreDeref(_))
-                )
+                        | Instruction::StoreDeref(_)
+                ))
+            )
         }
 
         /// Check if instruction uses co_varnames (local variables)
         #[must_use]
         pub fn has_local(opcode: i32) -> bool {
-            Self::is_valid(opcode)
-                && matches!(
-                    Instruction::try_from(opcode as u8),
-                    Ok(Instruction::DeleteFast(_)
+            matches!(
+                Self::try_from(opcode).map(|op| op.inner()),
+                Ok(AnyInstruction::Real(
+                    Instruction::DeleteFast(_)
                         | Instruction::LoadFast(_)
                         | Instruction::LoadFastAndClear(_)
                         | Instruction::StoreFast(_)
-                        | Instruction::StoreFastLoadFast { .. })
-                )
+                        | Instruction::StoreFastLoadFast { .. }
+                ))
+            )
         }
 
         /// Check if instruction has exception info

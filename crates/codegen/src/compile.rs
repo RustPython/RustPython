@@ -34,16 +34,17 @@ use ruff_python_ast::{
     visitor::{Visitor, walk_expr},
 };
 use ruff_text_size::{Ranged, TextRange};
+use std::collections::HashSet;
+
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
-        self, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
+        self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
         ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, Invert, OpArg, OpArgType,
-        UnpackExArgs,
+        PseudoInstruction, UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use std::collections::HashSet;
 
 const MAXBLOCKS: usize = 20;
 
@@ -274,17 +275,24 @@ pub fn compile_expression(
 }
 
 macro_rules! emit {
-    ($c:expr, Instruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
-        $c.emit_arg($arg, |x| Instruction::$op { $arg: x })
+    // Struct variant with single identifier (e.g., Foo::A { arg })
+    ($c:expr, $enum:ident :: $op:ident { $arg:ident $(,)? } $(,)?) => {
+        $c.emit_arg($arg, |x| $enum::$op { $arg: x })
     };
-    ($c:expr, Instruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
-        $c.emit_arg($arg_val, |x| Instruction::$op { $arg: x })
+
+    // Struct variant with explicit value (e.g., Foo::A { arg: 42 })
+    ($c:expr, $enum:ident :: $op:ident { $arg:ident : $arg_val:expr $(,)? } $(,)?) => {
+        $c.emit_arg($arg_val, |x| $enum::$op { $arg: x })
     };
-    ($c:expr, Instruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
-        $c.emit_arg($arg_val, Instruction::$op)
+
+    // Tuple variant (e.g., Foo::B(42))
+    ($c:expr, $enum:ident :: $op:ident($arg_val:expr $(,)? ) $(,)?) => {
+        $c.emit_arg($arg_val, $enum::$op)
     };
-    ($c:expr, Instruction::$op:ident$(,)?) => {
-        $c.emit_no_arg(Instruction::$op)
+
+    // No-arg variant (e.g., Foo::C)
+    ($c:expr, $enum:ident :: $op:ident $(,)?) => {
+        $c.emit_no_arg($enum::$op)
     };
 }
 
@@ -1181,7 +1189,7 @@ impl Compiler {
                 // Stack when entering: [..., __exit__, return_value (if preserve_tos)]
                 // Need to call __exit__(None, None, None)
 
-                emit!(self, Instruction::PopBlock);
+                emit!(self, PseudoInstruction::PopBlock);
 
                 // If preserving return value, swap it below __exit__
                 if preserve_tos {
@@ -1906,7 +1914,7 @@ impl Compiler {
                         self.compile_statements(body)?;
                         emit!(
                             self,
-                            Instruction::Jump {
+                            PseudoInstruction::Jump {
                                 target: after_block
                             }
                         );
@@ -1922,7 +1930,7 @@ impl Compiler {
                             self.compile_statements(&clause.body)?;
                             emit!(
                                 self,
-                                Instruction::Jump {
+                                PseudoInstruction::Jump {
                                     target: after_block
                                 }
                             );
@@ -2510,7 +2518,7 @@ impl Compiler {
             }
 
             // Jump to end (skip exception path blocks)
-            emit!(self, Instruction::Jump { target: end_block });
+            emit!(self, PseudoInstruction::Jump { target: end_block });
 
             if let Some(finally_except) = finally_except_block {
                 // Restore sub_tables for exception path compilation
@@ -2583,7 +2591,7 @@ impl Compiler {
         self.compile_statements(body)?;
         self.pop_fblock(FBlockType::TryExcept);
         // No PopBlock emit - exception table handles this
-        emit!(self, Instruction::Jump { target: else_block });
+        emit!(self, PseudoInstruction::Jump { target: else_block });
 
         // except handlers:
         self.switch_to_block(handler_block);
@@ -2666,7 +2674,7 @@ impl Compiler {
             let handler_normal_exit = self.new_block();
             emit!(
                 self,
-                Instruction::Jump {
+                PseudoInstruction::Jump {
                     target: handler_normal_exit,
                 }
             );
@@ -2715,7 +2723,7 @@ impl Compiler {
             // Jump to finally block
             emit!(
                 self,
-                Instruction::Jump {
+                PseudoInstruction::Jump {
                     target: finally_block,
                 }
             );
@@ -2790,7 +2798,7 @@ impl Compiler {
             self.compile_statements(finalbody)?;
             // Jump to end_block to skip exception path blocks
             // This prevents fall-through to finally_except_block
-            emit!(self, Instruction::Jump { target: end_block });
+            emit!(self, PseudoInstruction::Jump { target: end_block });
         }
 
         // finally (exception path)
@@ -2916,7 +2924,7 @@ impl Compiler {
         )?;
         self.compile_statements(body)?;
         self.pop_fblock(FBlockType::TryExcept);
-        emit!(self, Instruction::Jump { target: else_block });
+        emit!(self, PseudoInstruction::Jump { target: else_block });
 
         // Exception handler entry
         self.switch_to_block(handler_block);
@@ -3029,7 +3037,7 @@ impl Compiler {
             }
 
             // Jump to next handler
-            emit!(self, Instruction::Jump { target: next_block });
+            emit!(self, PseudoInstruction::Jump { target: next_block });
 
             // Handler raised an exception (cleanup_end label)
             self.switch_to_block(handler_except_block);
@@ -3057,7 +3065,7 @@ impl Compiler {
 
             // JUMP except_with_error
             // We directly JUMP to next_block since no_match_block falls through to it
-            emit!(self, Instruction::Jump { target: next_block });
+            emit!(self, PseudoInstruction::Jump { target: next_block });
 
             // No match - pop match (None)
             self.switch_to_block(no_match_block);
@@ -3081,7 +3089,7 @@ impl Compiler {
                 // Stack: [prev_exc, orig, list]
                 emit!(
                     self,
-                    Instruction::Jump {
+                    PseudoInstruction::Jump {
                         target: reraise_star_block
                     }
                 );
@@ -3134,7 +3142,7 @@ impl Compiler {
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
-        emit!(self, Instruction::Jump { target: end_block });
+        emit!(self, PseudoInstruction::Jump { target: end_block });
 
         // Reraise the result
         self.switch_to_block(reraise_block);
@@ -3175,7 +3183,7 @@ impl Compiler {
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
-        emit!(self, Instruction::Jump { target: end_block });
+        emit!(self, PseudoInstruction::Jump { target: end_block });
 
         self.switch_to_block(end_block);
         if !finalbody.is_empty() {
@@ -4017,7 +4025,7 @@ impl Compiler {
         self.ctx.loop_data = was_in_loop;
         emit!(
             self,
-            Instruction::Jump {
+            PseudoInstruction::Jump {
                 target: while_block,
             }
         );
@@ -4154,7 +4162,7 @@ impl Compiler {
         emit!(self, Instruction::PopTop); // Pop __exit__ result
         emit!(
             self,
-            Instruction::Jump {
+            PseudoInstruction::Jump {
                 target: after_block
             }
         );
@@ -4226,7 +4234,7 @@ impl Compiler {
         emit!(self, Instruction::PopTop); // pop lasti
         emit!(
             self,
-            Instruction::Jump {
+            PseudoInstruction::Jump {
                 target: after_block
             }
         );
@@ -4313,7 +4321,7 @@ impl Compiler {
         let was_in_loop = self.ctx.loop_data.replace((for_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
-        emit!(self, Instruction::Jump { target: for_block });
+        emit!(self, PseudoInstruction::Jump { target: for_block });
 
         self.switch_to_block(else_block);
 
@@ -4372,7 +4380,7 @@ impl Compiler {
             JumpOp::Jump => {
                 emit!(
                     self,
-                    Instruction::Jump {
+                    PseudoInstruction::Jump {
                         target: pc.fail_pop[pops]
                     }
                 );
@@ -5038,7 +5046,7 @@ impl Compiler {
                 }
             }
             // Emit a jump to the common end label and reset any failure jump targets.
-            emit!(self, Instruction::Jump { target: end });
+            emit!(self, PseudoInstruction::Jump { target: end });
             self.emit_and_reset_fail_pop(pc)?;
         }
 
@@ -5274,7 +5282,7 @@ impl Compiler {
             }
 
             self.compile_statements(&m.body)?;
-            emit!(self, Instruction::Jump { target: end });
+            emit!(self, PseudoInstruction::Jump { target: end });
             self.emit_and_reset_fail_pop(pattern_context)?;
         }
 
@@ -5387,7 +5395,7 @@ impl Compiler {
         self.compile_addcompare(last_op);
 
         let end = self.new_block();
-        emit!(self, Instruction::Jump { target: end });
+        emit!(self, PseudoInstruction::Jump { target: end });
 
         // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
         self.switch_to_block(cleanup);
@@ -5829,7 +5837,7 @@ impl Compiler {
         );
 
         // JUMP_NO_INTERRUPT send (regular JUMP in RustPython)
-        emit!(self, Instruction::Jump { target: send_block });
+        emit!(self, PseudoInstruction::Jump { target: send_block });
 
         // fail: CLEANUP_THROW
         // Stack when exception: [receiver, yielded_value, exc]
@@ -5906,7 +5914,7 @@ impl Compiler {
                             emit!(self, Instruction::LoadSuperAttr { arg: idx });
                         }
                         SuperCallType::ZeroArg => {
-                            emit!(self, Instruction::LoadZeroSuperAttr { idx });
+                            emit!(self, PseudoInstruction::LoadZeroSuperAttr { idx });
                         }
                     }
                 } else {
@@ -6094,9 +6102,12 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<listcomp>",
-                    Some(Instruction::BuildList {
-                        size: OpArgMarker::marker(),
-                    }),
+                    Some(
+                        Instruction::BuildList {
+                            size: OpArgMarker::marker(),
+                        }
+                        .into(),
+                    ),
                     generators,
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
@@ -6117,9 +6128,12 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<setcomp>",
-                    Some(Instruction::BuildSet {
-                        size: OpArgMarker::marker(),
-                    }),
+                    Some(
+                        Instruction::BuildSet {
+                            size: OpArgMarker::marker(),
+                        }
+                        .into(),
+                    ),
                     generators,
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
@@ -6143,9 +6157,12 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<dictcomp>",
-                    Some(Instruction::BuildMap {
-                        size: OpArgMarker::marker(),
-                    }),
+                    Some(
+                        Instruction::BuildMap {
+                            size: OpArgMarker::marker(),
+                        }
+                        .into(),
+                    ),
                     generators,
                     &|compiler| {
                         // changed evaluation order for Py38 named expression PEP 572
@@ -6222,7 +6239,7 @@ impl Compiler {
                 self.compile_expression(body)?;
                 emit!(
                     self,
-                    Instruction::Jump {
+                    PseudoInstruction::Jump {
                         target: after_block,
                     }
                 );
@@ -6347,10 +6364,10 @@ impl Compiler {
                 let idx = self.name(attr.as_str());
                 match super_type {
                     SuperCallType::TwoArg { .. } => {
-                        emit!(self, Instruction::LoadSuperMethod { idx });
+                        emit!(self, PseudoInstruction::LoadSuperMethod { idx });
                     }
                     SuperCallType::ZeroArg => {
-                        emit!(self, Instruction::LoadZeroSuperMethod { idx });
+                        emit!(self, PseudoInstruction::LoadZeroSuperMethod { idx });
                     }
                 }
                 self.compile_call_helper(0, args)?;
@@ -6359,7 +6376,7 @@ impl Compiler {
                 // LOAD_ATTR_METHOD pushes [method, self_or_null] on stack
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                emit!(self, Instruction::LoadAttrMethod { idx });
+                emit!(self, PseudoInstruction::LoadAttrMethod { idx });
                 self.compile_call_helper(0, args)?;
             }
         } else {
@@ -6505,7 +6522,7 @@ impl Compiler {
     fn compile_comprehension(
         &mut self,
         name: &str,
-        init_collection: Option<Instruction>,
+        init_collection: Option<AnyInstruction>,
         generators: &[Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
         comprehension_type: ComprehensionType,
@@ -6651,7 +6668,7 @@ impl Compiler {
         compile_element(self)?;
 
         for (loop_block, after_block, is_async) in loop_labels.iter().rev().copied() {
-            emit!(self, Instruction::Jump { target: loop_block });
+            emit!(self, PseudoInstruction::Jump { target: loop_block });
 
             self.switch_to_block(after_block);
             if is_async {
@@ -6728,7 +6745,7 @@ impl Compiler {
     /// This generates bytecode inline without creating a new code object
     fn compile_inlined_comprehension(
         &mut self,
-        init_collection: Option<Instruction>,
+        init_collection: Option<AnyInstruction>,
         generators: &[Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
         _has_an_async_gen: bool,
@@ -6849,7 +6866,7 @@ impl Compiler {
 
         // Step 7: Close all loops
         for (loop_block, after_block, is_async) in loop_labels.iter().rev().copied() {
-            emit!(self, Instruction::Jump { target: loop_block });
+            emit!(self, PseudoInstruction::Jump { target: loop_block });
             self.switch_to_block(after_block);
             if is_async {
                 emit!(self, Instruction::EndAsyncFor);
@@ -6863,7 +6880,7 @@ impl Compiler {
             self.pop_fblock(FBlockType::TryExcept);
 
             // Normal path: jump past cleanup
-            emit!(self, Instruction::Jump { target: end_block });
+            emit!(self, PseudoInstruction::Jump { target: end_block });
 
             // Exception cleanup path
             self.switch_to_block(cleanup_block);
@@ -6936,14 +6953,14 @@ impl Compiler {
     }
 
     // Low level helper functions:
-    fn _emit(&mut self, instr: Instruction, arg: OpArg, target: BlockIdx) {
+    fn _emit<I: Into<AnyInstruction>>(&mut self, instr: I, arg: OpArg, target: BlockIdx) {
         let range = self.current_source_range;
         let source = self.source_file.to_source_code();
         let location = source.source_location(range.start(), PositionEncoding::Utf8);
         let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
         let except_handler = self.current_except_handler();
         self.current_block().instructions.push(ir::InstructionInfo {
-            instr,
+            instr: instr.into(),
             arg,
             target,
             location,
@@ -6952,14 +6969,14 @@ impl Compiler {
         });
     }
 
-    fn emit_no_arg(&mut self, ins: Instruction) {
+    fn emit_no_arg<I: Into<AnyInstruction>>(&mut self, ins: I) {
         self._emit(ins, OpArg::null(), BlockIdx::NULL)
     }
 
-    fn emit_arg<A: OpArgType, T: EmitArg<A>>(
+    fn emit_arg<A: OpArgType, T: EmitArg<A>, I: Into<AnyInstruction>>(
         &mut self,
         arg: T,
-        f: impl FnOnce(OpArgMarker<A>) -> Instruction,
+        f: impl FnOnce(OpArgMarker<A>) -> I,
     ) {
         let (op, arg, target) = arg.emit(f);
         self._emit(op, arg, target)
@@ -6984,9 +7001,9 @@ impl Compiler {
 
     fn emit_return_value(&mut self) {
         if let Some(inst) = self.current_block().instructions.last_mut()
-            && let Instruction::LoadConst { idx } = inst.instr
+            && let AnyInstruction::Real(Instruction::LoadConst { idx }) = inst.instr
         {
-            inst.instr = Instruction::ReturnConst { idx };
+            inst.instr = Instruction::ReturnConst { idx }.into();
             return;
         }
         emit!(self, Instruction::ReturnValue)
@@ -7435,23 +7452,28 @@ impl Compiler {
 }
 
 trait EmitArg<Arg: OpArgType> {
-    fn emit(
+    fn emit<I: Into<AnyInstruction>>(
         self,
-        f: impl FnOnce(OpArgMarker<Arg>) -> Instruction,
-    ) -> (Instruction, OpArg, BlockIdx);
+        f: impl FnOnce(OpArgMarker<Arg>) -> I,
+    ) -> (AnyInstruction, OpArg, BlockIdx);
 }
+
 impl<T: OpArgType> EmitArg<T> for T {
-    fn emit(self, f: impl FnOnce(OpArgMarker<T>) -> Instruction) -> (Instruction, OpArg, BlockIdx) {
+    fn emit<I: Into<AnyInstruction>>(
+        self,
+        f: impl FnOnce(OpArgMarker<T>) -> I,
+    ) -> (AnyInstruction, OpArg, BlockIdx) {
         let (marker, arg) = OpArgMarker::new(self);
-        (f(marker), arg, BlockIdx::NULL)
+        (f(marker).into(), arg, BlockIdx::NULL)
     }
 }
+
 impl EmitArg<bytecode::Label> for BlockIdx {
-    fn emit(
+    fn emit<I: Into<AnyInstruction>>(
         self,
-        f: impl FnOnce(OpArgMarker<bytecode::Label>) -> Instruction,
-    ) -> (Instruction, OpArg, BlockIdx) {
-        (f(OpArgMarker::marker()), OpArg::null(), self)
+        f: impl FnOnce(OpArgMarker<bytecode::Label>) -> I,
+    ) -> (AnyInstruction, OpArg, BlockIdx) {
+        (f(OpArgMarker::marker()).into(), OpArg::null(), self)
     }
 }
 
