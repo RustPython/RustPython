@@ -197,48 +197,74 @@ impl CodeInfo {
             .filter(|b| b.next != BlockIdx::NULL || !b.instructions.is_empty())
         {
             for info in &mut block.instructions {
-                match info.instr {
+                // Special case for:
+                // - `RealInstruction::LoadAttr`
+                // - `RealInstruction::LoadSuperAttr`
+
+                if let Some(instr) = info.instr.real() {
+                    match instr {
+                        // LOAD_ATTR → encode with method flag=0
+                        RealInstruction::LoadAttr { idx } => {
+                            let encoded = encode_load_attr_arg(idx.get(info.arg), false);
+                            info.arg = OpArg(encoded);
+                            info.instr = RealInstruction::LoadAttr { idx: Arg::marker() }.into();
+                        }
+                        // LOAD_SUPER_ATTR → encode with flags=0b10 (method=0, class=1)
+                        RealInstruction::LoadSuperAttr { arg: idx } => {
+                            let encoded =
+                                encode_load_super_attr_arg(idx.get(info.arg), false, true);
+                            info.arg = OpArg(encoded);
+                            info.instr =
+                                RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
+                        }
+                        _ => {}
+                    }
+
+                    continue;
+                }
+
+                let instr = info.instr.expect_pseudo();
+
+                match instr {
                     // LOAD_ATTR_METHOD pseudo → LOAD_ATTR (with method flag=1)
-                    Instruction::Pseudo(PseudoInstruction::LoadAttrMethod { idx }) => {
+                    PseudoInstruction::LoadAttrMethod { idx } => {
                         let encoded = encode_load_attr_arg(idx.get(info.arg), true);
                         info.arg = OpArg(encoded);
                         info.instr = RealInstruction::LoadAttr { idx: Arg::marker() }.into();
                     }
-                    // LOAD_ATTR → encode with method flag=0
-                    Instruction::Real(RealInstruction::LoadAttr { idx }) => {
-                        let encoded = encode_load_attr_arg(idx.get(info.arg), false);
-                        info.arg = OpArg(encoded);
-                        info.instr = RealInstruction::LoadAttr { idx: Arg::marker() }.into();
-                    }
                     // POP_BLOCK pseudo → NOP
-                    Instruction::Pseudo(PseudoInstruction::PopBlock) => {
+                    PseudoInstruction::PopBlock => {
                         info.instr = RealInstruction::Nop.into();
                     }
                     // LOAD_SUPER_METHOD pseudo → LOAD_SUPER_ATTR (flags=0b11: method=1, class=1)
-                    Instruction::Pseudo(PseudoInstruction::LoadSuperMethod { idx }) => {
+                    PseudoInstruction::LoadSuperMethod { idx } => {
                         let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, true);
                         info.arg = OpArg(encoded);
                         info.instr = RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
                     }
                     // LOAD_ZERO_SUPER_ATTR pseudo → LOAD_SUPER_ATTR (flags=0b00: method=0, class=0)
-                    Instruction::Pseudo(PseudoInstruction::LoadZeroSuperAttr { idx }) => {
+                    PseudoInstruction::LoadZeroSuperAttr { idx } => {
                         let encoded = encode_load_super_attr_arg(idx.get(info.arg), false, false);
                         info.arg = OpArg(encoded);
                         info.instr = RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
                     }
                     // LOAD_ZERO_SUPER_METHOD pseudo → LOAD_SUPER_ATTR (flags=0b01: method=1, class=0)
-                    Instruction::Pseudo(PseudoInstruction::LoadZeroSuperMethod { idx }) => {
+                    PseudoInstruction::LoadZeroSuperMethod { idx } => {
                         let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, false);
                         info.arg = OpArg(encoded);
                         info.instr = RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
                     }
-                    // LOAD_SUPER_ATTR → encode with flags=0b10 (method=0, class=1)
-                    Instruction::Real(RealInstruction::LoadSuperAttr { arg: idx }) => {
-                        let encoded = encode_load_super_attr_arg(idx.get(info.arg), false, true);
-                        info.arg = OpArg(encoded);
-                        info.instr = RealInstruction::LoadSuperAttr { arg: Arg::marker() }.into();
+                    PseudoInstruction::Jump { .. } => {
+                        // PseudoInstruction::Jump instructions are handled later
                     }
-                    _ => {}
+                    PseudoInstruction::JumpNoInterrupt { .. }
+                    | PseudoInstruction::Reserved258
+                    | PseudoInstruction::SetupCleanup
+                    | PseudoInstruction::SetupFinally
+                    | PseudoInstruction::SetupWith
+                    | PseudoInstruction::StoreFastMaybeNull => {
+                        unimplemented!("Got a placeholder pseudo instruction ({instr:?})")
+                    }
                 }
             }
         }

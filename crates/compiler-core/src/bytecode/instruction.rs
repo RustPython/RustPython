@@ -954,16 +954,40 @@ impl InstructionMetadata for Instruction {
 }
 
 impl Instruction {
-    pub const fn as_real(self) -> Option<RealInstruction> {
+    /// Gets the inner value of [`Self::Real`].
+    pub const fn real(self) -> Option<RealInstruction> {
         match self {
             Self::Real(ins) => Some(ins),
             _ => None,
         }
     }
 
+    /// Gets the inner value of [`Self::Pseudo`].
+    pub const fn pseudo(self) -> Option<PseudoInstruction> {
+        match self {
+            Self::Pseudo(ins) => Some(ins),
+            _ => None,
+        }
+    }
+
+    /// Same as [`Self::real`] but panics if wasn't called on [`Self::Real`].
+    ///
+    /// # Panics
+    ///
+    /// If was called on something else other than [`Self::Real`].
     pub const fn expect_real(self) -> RealInstruction {
-        self.as_real()
+        self.real()
             .expect("Expected Instruction::Real, found Instruction::Pseudo")
+    }
+
+    /// Same as [`Self::pseudo`] but panics if wasn't called on [`Self::Pseudo`].
+    ///
+    /// # Panics
+    ///
+    /// If was called on something else other than [`Self::Pseudo`].
+    pub const fn expect_pseudo(self) -> PseudoInstruction {
+        self.pseudo()
+            .expect("Expected Instruction::Pseudo, found Instruction::Real")
     }
 }
 
