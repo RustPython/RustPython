@@ -9,7 +9,7 @@ pub(crate) use _thread::{
 pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef},
+        builtins::{PyDictRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         frame::FrameRef,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, Representable, SetAttr},
@@ -261,6 +261,11 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
+        fn locked(&self) -> bool {
+            self.mu.is_locked()
+        }
+
+        #[pymethod]
         fn _is_owned(&self) -> bool {
             self.mu.is_owned_by_current_thread()
         }
@@ -291,6 +296,47 @@ pub(crate) mod _thread {
     #[pyfunction]
     pub fn get_ident() -> u64 {
         current_thread_id()
+    }
+
+    /// Set the name of the current thread
+    #[pyfunction]
+    fn set_name(name: PyStrRef) {
+        #[cfg(target_os = "linux")]
+        {
+            use std::ffi::CString;
+            if let Ok(c_name) = CString::new(name.as_str()) {
+                // pthread_setname_np on Linux has a 16-byte limit including null terminator
+                // TODO: Potential UTF-8 boundary issue when truncating thread name on Linux.
+                // https://github.com/RustPython/RustPython/pull/6726/changes#r2689379171
+                let truncated = if c_name.as_bytes().len() > 15 {
+                    CString::new(&c_name.as_bytes()[..15]).unwrap_or(c_name)
+                } else {
+                    c_name
+                };
+                unsafe {
+                    libc::pthread_setname_np(libc::pthread_self(), truncated.as_ptr());
+                }
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            use std::ffi::CString;
+            if let Ok(c_name) = CString::new(name.as_str()) {
+                unsafe {
+                    libc::pthread_setname_np(c_name.as_ptr());
+                }
+            }
+        }
+        #[cfg(windows)]
+        {
+            // Windows doesn't have a simple pthread_setname_np equivalent
+            // SetThreadDescription requires Windows 10+
+            let _ = name;
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+        {
+            let _ = name;
+        }
     }
 
     /// Get OS-level thread ID (pthread_self on Unix)

@@ -24,12 +24,12 @@ thread_local! {
 mod _contextvars {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-        builtins::{PyGenericAlias, PyStrRef, PyType, PyTypeRef},
+        builtins::{PyGenericAlias, PyList, PyStrRef, PyType, PyTypeRef},
         class::StaticType,
         common::hash::PyHash,
         function::{ArgCallable, FuncArgs, OptionalArg},
         protocol::{PyMappingMethods, PySequenceMethods},
-        types::{AsMapping, AsSequence, Constructor, Hashable, Representable},
+        types::{AsMapping, AsSequence, Constructor, Hashable, Iterable, Representable},
     };
     use core::{
         cell::{Cell, RefCell, UnsafeCell},
@@ -163,7 +163,7 @@ mod _contextvars {
         }
     }
 
-    #[pyclass(with(Constructor, AsMapping, AsSequence))]
+    #[pyclass(with(Constructor, AsMapping, AsSequence, Iterable))]
     impl PyContext {
         #[pymethod]
         fn run(
@@ -206,11 +206,6 @@ mod _contextvars {
         }
 
         #[pymethod]
-        fn __iter__(&self) -> PyResult {
-            unimplemented!("Context.__iter__ is currently under construction")
-        }
-
-        #[pymethod]
         fn get(
             &self,
             key: PyRef<ContextVar>,
@@ -237,6 +232,15 @@ mod _contextvars {
         fn values(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
             let vars = zelf.borrow_vars();
             vars.values().map(|value| value.to_owned()).collect()
+        }
+
+        // TODO: wrong return type
+        #[pymethod]
+        fn items(zelf: PyRef<Self>, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            let vars = zelf.borrow_vars();
+            vars.iter()
+                .map(|(k, v)| vm.ctx.new_tuple(vec![k.clone().into(), v.clone()]).into())
+                .collect()
         }
     }
 
@@ -278,6 +282,15 @@ mod _contextvars {
                 ..PySequenceMethods::NOT_IMPLEMENTED
             });
             &AS_SEQUENCE
+        }
+    }
+
+    impl Iterable for PyContext {
+        fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let vars = zelf.borrow_vars();
+            let keys: Vec<PyObjectRef> = vars.keys().map(|k| k.clone().into()).collect();
+            let list = vm.ctx.new_list(keys);
+            <PyList as Iterable>::iter(list, vm)
         }
     }
 
@@ -573,6 +586,22 @@ mod _contextvars {
             vm: &VirtualMachine,
         ) -> PyGenericAlias {
             PyGenericAlias::from_args(cls, args, vm)
+        }
+
+        #[pymethod]
+        fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
+            zelf
+        }
+
+        #[pymethod]
+        fn __exit__(
+            zelf: &Py<Self>,
+            _ty: PyObjectRef,
+            _val: PyObjectRef,
+            _tb: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            ContextVar::reset(&zelf.var, zelf.to_owned(), vm)
         }
     }
 
