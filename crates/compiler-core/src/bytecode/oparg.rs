@@ -80,7 +80,7 @@ impl OpArgState {
     #[inline(always)]
     pub fn get(&mut self, ins: CodeUnit) -> (RealInstruction, OpArg) {
         let arg = self.extend(ins.arg);
-        if ins.op != RealInstruction::ExtendedArg {
+        if !matches!(ins.op, RealInstruction::ExtendedArg) {
             self.reset();
         }
         (ins.op, arg)

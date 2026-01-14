@@ -15,7 +15,7 @@ use crate::{
 /// A Single bytecode instruction.
 /// Instructions are ordered to match CPython 3.13 opcode numbers exactly.
 /// HAVE_ARGUMENT = 44: opcodes 0-43 have no argument, 44+ have arguments.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum RealInstruction {
     // ==================== No-argument instructions (opcode < 44) ====================
@@ -784,7 +784,7 @@ impl InstructionMetadata for RealInstruction {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 #[repr(u16)]
 pub enum PseudoInstruction {
     Jump {
@@ -815,6 +815,8 @@ pub enum PseudoInstruction {
     SetupWith = 266,          // Placeholder
     StoreFastMaybeNull = 267, // Placeholder
 }
+
+const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
 
 impl From<PseudoInstruction> for u16 {
     #[inline]
@@ -884,9 +886,8 @@ impl InstructionMetadata for PseudoInstruction {
     }
 }
 
-const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
+#[repr(u16)]
 pub enum Instruction {
     Real(RealInstruction),
     Pseudo(PseudoInstruction),
