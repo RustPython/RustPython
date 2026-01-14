@@ -155,7 +155,9 @@ if __name__ == "__main__":
         lib_marker = "/Lib/"
 
         if lib_marker not in src_str:
-            print(f"Error: --quick-import path must contain '/Lib/' or '\\Lib\\' (got: {args.quick_import})")
+            print(
+                f"Error: --quick-import path must contain '/Lib/' or '\\Lib\\' (got: {args.quick_import})"
+            )
             sys.exit(1)
 
         idx = src_str.index(lib_marker)
