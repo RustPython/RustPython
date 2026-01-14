@@ -37,6 +37,22 @@ mod _json {
         count
     }
 
+    /// Check if a character iterator starts with a given pattern.
+    /// This avoids byte/char index mismatch issues with non-ASCII strings.
+    #[inline]
+    fn starts_with_chars<I>(mut chars: I, pattern: &str) -> bool
+    where
+        I: Iterator<Item = char>,
+    {
+        for expected in pattern.chars() {
+            match chars.next() {
+                Some(c) if c == expected => continue,
+                _ => return false,
+            }
+        }
+        true
+    }
+
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner", traverse)]
     #[derive(Debug, PyPayload)]
@@ -200,6 +216,54 @@ mod _json {
                 Ok(vm.new_pyobj(BigInt::from_str(buf).unwrap()))
             };
             Some((ret, buf.len()))
+        }
+
+        /// Parse a number from a character iterator.
+        /// Returns (result, character_count) where character_count is the number of chars consumed.
+        fn parse_number_from_chars<I>(
+            &self,
+            chars: I,
+            vm: &VirtualMachine,
+        ) -> Option<(PyResult, usize)>
+        where
+            I: Iterator<Item = char>,
+        {
+            let mut buf = String::new();
+            let mut has_neg = false;
+            let mut has_decimal = false;
+            let mut has_exponent = false;
+            let mut has_e_sign = false;
+
+            for c in chars {
+                let i = buf.len();
+                match c {
+                    '-' if i == 0 => has_neg = true,
+                    n if n.is_ascii_digit() => {}
+                    '.' if !has_decimal => has_decimal = true,
+                    'e' | 'E' if !has_exponent => has_exponent = true,
+                    '+' | '-' if !has_e_sign => has_e_sign = true,
+                    _ => break,
+                }
+                buf.push(c);
+            }
+
+            let len = buf.len();
+            if len == 0 || (len == 1 && has_neg) {
+                return None;
+            }
+
+            let ret = if has_decimal || has_exponent {
+                if let Some(ref parse_float) = self.parse_float {
+                    parse_float.call((&buf,), vm)
+                } else {
+                    Ok(vm.ctx.new_float(f64::from_str(&buf).unwrap()).into())
+                }
+            } else if let Some(ref parse_int) = self.parse_int {
+                parse_int.call((&buf,), vm)
+            } else {
+                Ok(vm.new_pyobj(BigInt::from_str(&buf).unwrap()))
+            };
+            Some((ret, len))
         }
 
         /// Parse a JSON object starting after the opening '{'.
@@ -458,6 +522,7 @@ mod _json {
         }
 
         /// Call scan_once and handle the result.
+        /// Uses character iterators to avoid byte/char index mismatch with non-ASCII strings.
         fn call_scan_once(
             &self,
             scan_once: &PyObjectRef,
@@ -466,100 +531,92 @@ mod _json {
             memo: &mut HashMap<String, PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, usize)> {
-            // First try to handle common cases directly in Rust
             let s = pystr.as_str();
-            let mut chars = s.chars().skip(idx).peekable();
+            let chars = s.chars().skip(idx).peekable();
 
-            let remaining = &s[idx..];
+            let first_char = match chars.clone().next() {
+                Some(c) => c,
+                None => return Err(self.make_decode_error("Expecting value", pystr, idx, vm)),
+            };
 
-            match chars.peek() {
-                Some('"') => {
-                    // String - parse directly in Rust
+            match first_char {
+                '"' => {
+                    // String
                     let (wtf8, end) = machinery::scanstring(pystr.as_wtf8(), idx + 1, self.strict)
                         .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
                     let py_str = vm.ctx.new_str(wtf8.to_string());
-                    return Ok((py_str.into(), end));
+                    Ok((py_str.into(), end))
                 }
-                Some('{') => {
-                    // Nested object - parse recursively in Rust
-                    return self.parse_object(pystr, idx + 1, scan_once, memo, vm);
+                '{' => {
+                    // Object
+                    self.parse_object(pystr, idx + 1, scan_once, memo, vm)
                 }
-                Some('[') => {
-                    // Nested array - parse recursively in Rust
-                    return self.parse_array(pystr, idx + 1, scan_once, memo, vm);
+                '[' => {
+                    // Array
+                    self.parse_array(pystr, idx + 1, scan_once, memo, vm)
                 }
-                Some('n') => {
-                    // null - parse directly in Rust
-                    if remaining.starts_with("null") {
-                        return Ok((vm.ctx.none(), idx + 4));
-                    }
+                'n' if starts_with_chars(chars.clone(), "null") => {
+                    // null
+                    Ok((vm.ctx.none(), idx + 4))
                 }
-                Some('t') => {
-                    // true - parse directly in Rust
-                    if remaining.starts_with("true") {
-                        return Ok((vm.ctx.new_bool(true).into(), idx + 4));
-                    }
+                't' if starts_with_chars(chars.clone(), "true") => {
+                    // true
+                    Ok((vm.ctx.new_bool(true).into(), idx + 4))
                 }
-                Some('f') => {
-                    // false - parse directly in Rust
-                    if remaining.starts_with("false") {
-                        return Ok((vm.ctx.new_bool(false).into(), idx + 5));
-                    }
+                'f' if starts_with_chars(chars.clone(), "false") => {
+                    // false
+                    Ok((vm.ctx.new_bool(false).into(), idx + 5))
                 }
-                Some(c) if c.is_ascii_digit() => {
-                    // Number starting with digit - parse directly in Rust
-                    if let Some((result, len)) = self.parse_number(remaining, vm) {
-                        return Ok((result?, idx + len));
-                    }
+                'N' if starts_with_chars(chars.clone(), "NaN") => {
+                    // NaN
+                    let result = self.parse_constant.call(("NaN",), vm)?;
+                    Ok((result, idx + 3))
                 }
-                Some('N') => {
-                    // NaN - parse directly in Rust
-                    if remaining.starts_with("NaN") {
-                        let result = self.parse_constant.call(("NaN",), vm)?;
-                        return Ok((result, idx + 3));
-                    }
+                'I' if starts_with_chars(chars.clone(), "Infinity") => {
+                    // Infinity
+                    let result = self.parse_constant.call(("Infinity",), vm)?;
+                    Ok((result, idx + 8))
                 }
-                Some('I') => {
-                    // Infinity - parse directly in Rust
-                    if remaining.starts_with("Infinity") {
-                        let result = self.parse_constant.call(("Infinity",), vm)?;
-                        return Ok((result, idx + 8));
-                    }
-                }
-                Some('-') => {
+                '-' => {
                     // -Infinity or negative number
-                    if remaining.starts_with("-Infinity") {
+                    if starts_with_chars(chars.clone(), "-Infinity") {
                         let result = self.parse_constant.call(("-Infinity",), vm)?;
                         return Ok((result, idx + 9));
                     }
-                    // Try parsing as negative number
-                    if let Some((result, len)) = self.parse_number(remaining, vm) {
+                    // Negative number - collect number characters
+                    if let Some((result, len)) = self.parse_number_from_chars(chars, vm) {
                         return Ok((result?, idx + len));
                     }
-                }
-                _ => {
-                    // fall through to call scan_once
-                }
-            }
-
-            // Fall back to scan_once for other value types
-            let result = scan_once.call((pystr.clone(), idx as isize), vm);
-
-            match result {
-                Ok(tuple) => {
-                    use crate::vm::builtins::PyTupleRef;
-                    let tuple: PyTupleRef = tuple.try_into_value(vm)?;
-                    if tuple.len() != 2 {
-                        return Err(vm.new_value_error("scan_once must return 2-tuple"));
-                    }
-                    let value = tuple.as_slice()[0].clone();
-                    let end_idx: isize = tuple.as_slice()[1].try_to_value(vm)?;
-                    Ok((value, end_idx as usize))
-                }
-                Err(err) if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) => {
                     Err(self.make_decode_error("Expecting value", pystr, idx, vm))
                 }
-                Err(err) => Err(err),
+                c if c.is_ascii_digit() => {
+                    // Positive number
+                    if let Some((result, len)) = self.parse_number_from_chars(chars, vm) {
+                        return Ok((result?, idx + len));
+                    }
+                    Err(self.make_decode_error("Expecting value", pystr, idx, vm))
+                }
+                _ => {
+                    // Fall back to scan_once for unrecognized input
+                    let result = scan_once.call((pystr.clone(), idx as isize), vm);
+
+                    match result {
+                        Ok(tuple) => {
+                            use crate::vm::builtins::PyTupleRef;
+                            let tuple: PyTupleRef = tuple.try_into_value(vm)?;
+                            if tuple.len() != 2 {
+                                return Err(vm.new_value_error("scan_once must return 2-tuple"));
+                            }
+                            let value = tuple.as_slice()[0].clone();
+                            let end_idx: isize = tuple.as_slice()[1].try_to_value(vm)?;
+                            Ok((value, end_idx as usize))
+                        }
+                        Err(err) if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) => {
+                            Err(self.make_decode_error("Expecting value", pystr, idx, vm))
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
             }
         }
 
