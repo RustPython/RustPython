@@ -470,6 +470,8 @@ mod _json {
             let s = pystr.as_str();
             let mut chars = s.chars().skip(idx).peekable();
 
+            let remaining = &s[idx..];
+
             match chars.peek() {
                 Some('"') => {
                     // String - parse directly in Rust
@@ -486,8 +488,26 @@ mod _json {
                     // Nested array - parse recursively in Rust
                     return self.parse_array(pystr, idx + 1, scan_once, memo, vm);
                 }
+                Some('n') => {
+                    // null - parse directly in Rust
+                    if remaining.starts_with("null") {
+                        return Ok((vm.ctx.none(), idx + 4));
+                    }
+                }
+                Some('t') => {
+                    // true - parse directly in Rust
+                    if remaining.starts_with("true") {
+                        return Ok((vm.ctx.new_bool(true).into(), idx + 4));
+                    }
+                }
+                Some('f') => {
+                    // false - parse directly in Rust
+                    if remaining.starts_with("false") {
+                        return Ok((vm.ctx.new_bool(false).into(), idx + 5));
+                    }
+                }
                 _ => {
-                    // For other cases (numbers, null, true, false, etc.)
+                    // For other cases (numbers, NaN, Infinity, etc.)
                     // fall through to call scan_once
                 }
             }
