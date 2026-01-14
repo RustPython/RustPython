@@ -24,6 +24,7 @@ mod _json {
     where
         I: Iterator<Item = char>,
     {
+        flame_guard!("_json::skip_whitespace_chars");
         let mut count = 0;
         while let Some(&c) = chars.peek() {
             match c {
@@ -228,6 +229,7 @@ mod _json {
         where
             I: Iterator<Item = char>,
         {
+            flame_guard!("JsonScanner::parse_number_from_chars");
             let mut buf = String::new();
             let mut has_neg = false;
             let mut has_decimal = false;
