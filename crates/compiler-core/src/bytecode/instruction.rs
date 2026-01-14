@@ -12,11 +12,15 @@ use crate::{
     marshal::MarshalError,
 };
 
-/// A Single bytecode instruction.
-/// All instructions above 44 have an argument.
+/// A Single bytecode instruction that are executed by the VM.
+///
+/// Currently aligned with CPython 3.13.
+///
+/// ## See also
+/// - [CPython opcode IDs](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Include/opcode_ids.h)
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
-pub enum RealInstruction {
+pub enum Instruction {
     // ==================== No-argument instructions (opcode < 44) ====================
     Cache = 0, // Placeholder
     BeforeAsyncWith = 1,
@@ -275,20 +279,21 @@ pub enum RealInstruction {
     JumpIfNotExcMatch(Arg<Label>) = 131,
     SetExcInfo = 134,
     Subscript = 135,
+    // Pseudos (needs to be moved to `PseudoInstruction` enum.
     LoadClosure(Arg<NameIdx>) = 253, // TODO: Move to pseudos
 }
 
-const _: () = assert!(mem::size_of::<RealInstruction>() == 1);
+const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
-impl From<RealInstruction> for u8 {
+impl From<Instruction> for u8 {
     #[inline]
-    fn from(ins: RealInstruction) -> Self {
+    fn from(ins: Instruction) -> Self {
         // SAFETY: there's no padding bits
-        unsafe { core::mem::transmute::<RealInstruction, Self>(ins) }
+        unsafe { mem::transmute::<Instruction, Self>(ins) }
     }
 }
 
-impl TryFrom<u8> for RealInstruction {
+impl TryFrom<u8> for Instruction {
     type Error = MarshalError;
 
     #[inline]
@@ -341,14 +346,14 @@ impl TryFrom<u8> for RealInstruction {
             || value == load_closure
             || custom_ops.contains(&value)
         {
-            Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
+            Ok(unsafe { mem::transmute::<u8, Self>(value) })
         } else {
             Err(Self::Error::InvalidBytecode)
         }
     }
 }
 
-impl InstructionMetadata for RealInstruction {
+impl InstructionMetadata for Instruction {
     #[inline]
     fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
@@ -783,6 +788,7 @@ impl InstructionMetadata for RealInstruction {
     }
 }
 
+/// Instructions used by the compiler. They are not executed by the VM.
 #[derive(Clone, Copy, Debug)]
 #[repr(u16)]
 pub enum PseudoInstruction {
@@ -821,7 +827,7 @@ impl From<PseudoInstruction> for u16 {
     #[inline]
     fn from(ins: PseudoInstruction) -> Self {
         // SAFETY: there's no padding bits
-        unsafe { core::mem::transmute::<PseudoInstruction, Self>(ins) }
+        unsafe { mem::transmute::<PseudoInstruction, Self>(ins) }
     }
 }
 
@@ -836,7 +842,7 @@ impl TryFrom<u16> for PseudoInstruction {
         let end = u16::from(Self::StoreFastMaybeNull);
 
         if (start..=end).contains(&value) {
-            Ok(unsafe { core::mem::transmute::<u16, Self>(value) })
+            Ok(unsafe { mem::transmute::<u16, Self>(value) })
         } else {
             Err(Self::Error::InvalidBytecode)
         }
@@ -886,32 +892,32 @@ impl InstructionMetadata for PseudoInstruction {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum Instruction {
-    Real(RealInstruction),
+pub enum AnyInstruction {
+    Real(Instruction),
     Pseudo(PseudoInstruction),
 }
 
-impl From<RealInstruction> for Instruction {
-    fn from(value: RealInstruction) -> Self {
+impl From<Instruction> for AnyInstruction {
+    fn from(value: Instruction) -> Self {
         Self::Real(value)
     }
 }
 
-impl From<PseudoInstruction> for Instruction {
+impl From<PseudoInstruction> for AnyInstruction {
     fn from(value: PseudoInstruction) -> Self {
         Self::Pseudo(value)
     }
 }
 
-impl TryFrom<u8> for Instruction {
+impl TryFrom<u8> for AnyInstruction {
     type Error = MarshalError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Ok(RealInstruction::try_from(value)?.into())
+        Ok(Instruction::try_from(value)?.into())
     }
 }
 
-impl TryFrom<u16> for Instruction {
+impl TryFrom<u16> for AnyInstruction {
     type Error = MarshalError;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
@@ -933,7 +939,7 @@ macro_rules! inst_either {
     };
 }
 
-impl InstructionMetadata for Instruction {
+impl InstructionMetadata for AnyInstruction {
     inst_either!(fn label_arg(&self) -> Option<Arg<Label>>);
 
     inst_either!(fn unconditional_branch(&self) -> bool);
@@ -951,9 +957,9 @@ impl InstructionMetadata for Instruction {
     ) -> fmt::Result);
 }
 
-impl Instruction {
+impl AnyInstruction {
     /// Gets the inner value of [`Self::Real`].
-    pub const fn real(self) -> Option<RealInstruction> {
+    pub const fn real(self) -> Option<Instruction> {
         match self {
             Self::Real(ins) => Some(ins),
             _ => None,
@@ -973,7 +979,7 @@ impl Instruction {
     /// # Panics
     ///
     /// If was called on something else other than [`Self::Real`].
-    pub const fn expect_real(self) -> RealInstruction {
+    pub const fn expect_real(self) -> Instruction {
         self.real()
             .expect("Expected Instruction::Real, found Instruction::Pseudo")
     }
@@ -998,8 +1004,8 @@ pub trait InstructionMetadata {
     /// # Examples
     ///
     /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, InstructionMetadata};
-    /// let jump_inst = RealInstruction::JumpForward { target: Arg::marker() };
+    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, InstructionMetadata};
+    /// let jump_inst = Instruction::JumpForward { target: Arg::marker() };
     /// assert!(jump_inst.unconditional_branch())
     /// ```
     fn unconditional_branch(&self) -> bool;
@@ -1009,9 +1015,9 @@ pub trait InstructionMetadata {
     /// # Examples
     ///
     /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, RealInstruction, Label, InstructionMetadata};
+    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label, InstructionMetadata};
     /// let (target, jump_arg) = Arg::new(Label(0xF));
-    /// let jump_instruction = RealInstruction::JumpForward { target };
+    /// let jump_instruction = Instruction::JumpForward { target };
     /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
     /// ```
     fn stack_effect(&self, arg: OpArg, jump: bool) -> i32;

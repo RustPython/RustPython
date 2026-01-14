@@ -4,8 +4,8 @@ use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::bytecode::{
-    self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, IntrinsicFunction1,
-    Label, OpArg, OpArgState, RealInstruction,
+    self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction,
+    IntrinsicFunction1, Label, OpArg, OpArgState,
 };
 use std::collections::HashMap;
 
@@ -210,11 +210,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
             // If that was an unconditional branch or return, mark future instructions unreachable
             match instruction {
-                RealInstruction::ReturnValue
-                | RealInstruction::ReturnConst { .. }
-                | RealInstruction::JumpBackward { .. }
-                | RealInstruction::JumpBackwardNoInterrupt { .. }
-                | RealInstruction::JumpForward { .. } => {
+                Instruction::ReturnValue
+                | Instruction::ReturnConst { .. }
+                | Instruction::JumpBackward { .. }
+                | Instruction::JumpBackwardNoInterrupt { .. }
+                | Instruction::JumpForward { .. } => {
                     in_unreachable_code = true;
                 }
                 _ => {}
@@ -289,11 +289,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         &mut self,
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
-        instruction: RealInstruction,
+        instruction: Instruction,
         arg: OpArg,
     ) -> Result<(), JitCompileError> {
         match instruction {
-            RealInstruction::BinaryOp { op } => {
+            Instruction::BinaryOp { op } => {
                 let op = op.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -454,12 +454,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            RealInstruction::BuildTuple { size } => {
+            Instruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(size.get(arg) as usize);
                 self.stack.push(JitValue::Tuple(elements));
                 Ok(())
             }
-            RealInstruction::Call { nargs } => {
+            Instruction::Call { nargs } => {
                 let nargs = nargs.get(arg);
 
                 let mut args = Vec::new();
@@ -485,11 +485,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::BadBytecode),
                 }
             }
-            RealInstruction::PushNull => {
+            Instruction::PushNull => {
                 self.stack.push(JitValue::Null);
                 Ok(())
             }
-            RealInstruction::CallIntrinsic1 { func } => {
+            Instruction::CallIntrinsic1 { func } => {
                 match func.get(arg) {
                     IntrinsicFunction1::UnaryPositive => {
                         match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
@@ -504,7 +504,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            RealInstruction::CompareOp { op, .. } => {
+            Instruction::CompareOp { op, .. } => {
                 let op = op.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -558,22 +558,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            RealInstruction::ExtendedArg => Ok(()),
+            Instruction::ExtendedArg => Ok(()),
 
-            RealInstruction::JumpBackward { target }
-            | RealInstruction::JumpBackwardNoInterrupt { target }
-            | RealInstruction::JumpForward { target } => {
+            Instruction::JumpBackward { target }
+            | Instruction::JumpBackwardNoInterrupt { target }
+            | Instruction::JumpForward { target } => {
                 let target_block = self.get_or_create_block(target.get(arg));
                 self.builder.ins().jump(target_block, &[]);
                 Ok(())
             }
-            RealInstruction::LoadConst { idx } => {
+            Instruction::LoadConst { idx } => {
                 let val = self
                     .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
                 self.stack.push(val);
                 Ok(())
             }
-            RealInstruction::LoadFast(idx) => {
+            Instruction::LoadFast(idx) => {
                 let local = self.variables[idx.get(arg) as usize]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
@@ -583,7 +583,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 ));
                 Ok(())
             }
-            RealInstruction::LoadGlobal(idx) => {
+            Instruction::LoadGlobal(idx) => {
                 let name = &bytecode.names[idx.get(arg) as usize];
 
                 if name.as_ref() != bytecode.obj_name.as_ref() {
@@ -593,8 +593,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     Ok(())
                 }
             }
-            RealInstruction::Nop => Ok(()),
-            RealInstruction::PopJumpIfFalse { target } => {
+            Instruction::Nop => Ok(()),
+            Instruction::PopJumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
@@ -607,7 +607,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            RealInstruction::PopJumpIfTrue { target } => {
+            Instruction::PopJumpIfTrue { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
@@ -620,41 +620,41 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            RealInstruction::PopTop => {
+            Instruction::PopTop => {
                 self.stack.pop();
                 Ok(())
             }
-            RealInstruction::Resume { arg: _resume_arg } => {
+            Instruction::Resume { arg: _resume_arg } => {
                 // TODO: Implement the resume instruction
                 Ok(())
             }
-            RealInstruction::ReturnConst { idx } => {
+            Instruction::ReturnConst { idx } => {
                 let val = self
                     .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
                 self.return_value(val)
             }
-            RealInstruction::ReturnValue => {
+            Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.return_value(val)
             }
-            RealInstruction::StoreFast(idx) => {
+            Instruction::StoreFast(idx) => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.store_variable(idx.get(arg), val)
             }
-            RealInstruction::Swap { index } => {
+            Instruction::Swap { index } => {
                 let len = self.stack.len();
                 let i = len - 1;
                 let j = len - 1 - index.get(arg) as usize;
                 self.stack.swap(i, j);
                 Ok(())
             }
-            RealInstruction::ToBool => {
+            Instruction::ToBool => {
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let value = self.boolean_val(a)?;
                 self.stack.push(JitValue::Bool(value));
                 Ok(())
             }
-            RealInstruction::UnaryNot => {
+            Instruction::UnaryNot => {
                 let boolean = match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
                     JitValue::Bool(val) => val,
                     _ => return Err(JitCompileError::BadBytecode),
@@ -663,7 +663,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(JitValue::Bool(not_boolean));
                 Ok(())
             }
-            RealInstruction::UnaryNegative => {
+            Instruction::UnaryNegative => {
                 match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
                     JitValue::Int(val) => {
                         // Compile minus as 0 - val.
@@ -675,7 +675,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            RealInstruction::UnpackSequence { size } => {
+            Instruction::UnpackSequence { size } => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
                 let elements = match val {

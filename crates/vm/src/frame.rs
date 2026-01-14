@@ -7,7 +7,7 @@ use crate::{
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
     },
-    bytecode::{self, RealInstruction},
+    bytecode::{self, Instruction},
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
@@ -342,7 +342,7 @@ impl ExecutingFrame<'_> {
                 Ok(Some(value)) => {
                     break Ok(value);
                 }
-                // Instruction raised an exception
+                // AnyInstruction raised an exception
                 Err(exception) => {
                     #[cold]
                     fn handle_exception(
@@ -388,15 +388,15 @@ impl ExecutingFrame<'_> {
                     }
 
                     // Check if this is a RERAISE instruction
-                    // Both Instruction::Raise { kind: Reraise/ReraiseFromStack } and
-                    // Instruction::Reraise are reraise operations that should not add
+                    // Both AnyInstruction::Raise { kind: Reraise/ReraiseFromStack } and
+                    // AnyInstruction::Reraise are reraise operations that should not add
                     // new traceback entries
                     let is_reraise = match op {
-                        RealInstruction::RaiseVarargs { kind } => matches!(
+                        Instruction::RaiseVarargs { kind } => matches!(
                             kind.get(arg),
                             bytecode::RaiseKind::BareRaise | bytecode::RaiseKind::ReraiseFromStack
                         ),
-                        RealInstruction::Reraise { .. } => true,
+                        Instruction::Reraise { .. } => true,
                         _ => false,
                     };
 
@@ -440,13 +440,13 @@ impl ExecutingFrame<'_> {
         let lasti = self.lasti() as usize;
         if let Some(unit) = self.code.instructions.get(lasti) {
             match &unit.op {
-                RealInstruction::Send { .. } => return Some(self.top_value()),
-                RealInstruction::Resume { .. } => {
+                Instruction::Send { .. } => return Some(self.top_value()),
+                Instruction::Resume { .. } => {
                     // Check if previous instruction was YIELD_VALUE with arg >= 1
                     // This indicates yield-from/await context
                     if lasti > 0
                         && let Some(prev_unit) = self.code.instructions.get(lasti - 1)
-                        && let RealInstruction::YieldValue { .. } = &prev_unit.op
+                        && let Instruction::YieldValue { .. } = &prev_unit.op
                     {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
                         // OpArgByte.0 is the raw byte value
@@ -551,7 +551,7 @@ impl ExecutingFrame<'_> {
     #[inline(always)]
     fn execute_instruction(
         &mut self,
-        instruction: RealInstruction,
+        instruction: Instruction,
         arg: bytecode::OpArg,
         extend_arg: &mut bool,
         vm: &VirtualMachine,
@@ -585,7 +585,7 @@ impl ExecutingFrame<'_> {
         }
 
         match instruction {
-            RealInstruction::BeforeAsyncWith => {
+            Instruction::BeforeAsyncWith => {
                 let mgr = self.pop_value();
                 let error_string = || -> String {
                     format!(
@@ -610,8 +610,8 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            RealInstruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
-            RealInstruction::BinarySubscr => {
+            Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
+            Instruction::BinarySubscr => {
                 let key = self.pop_value();
                 let container = self.pop_value();
                 let result = container.get_item(key.as_object(), vm)?;
@@ -619,30 +619,30 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
 
-            RealInstruction::Break { target } => self.unwind_blocks(
+            Instruction::Break { target } => self.unwind_blocks(
                 vm,
                 UnwindReason::Break {
                     target: target.get(arg),
                 },
             ),
-            RealInstruction::BuildListFromTuples { size } => {
+            Instruction::BuildListFromTuples { size } => {
                 // SAFETY: compiler guarantees `size` tuples are on the stack
                 let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            RealInstruction::BuildList { size } => {
+            Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(size.get(arg) as usize).collect();
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            RealInstruction::BuildMapForCall { size } => {
+            Instruction::BuildMapForCall { size } => {
                 self.execute_build_map_for_call(vm, size.get(arg))
             }
-            RealInstruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
-            RealInstruction::BuildSetFromTuples { size } => {
+            Instruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
+            Instruction::BuildSetFromTuples { size } => {
                 let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
                     // SAFETY: trust compiler
@@ -654,7 +654,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(set.into());
                 Ok(None)
             }
-            RealInstruction::BuildSet { size } => {
+            Instruction::BuildSet { size } => {
                 let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
                     set.add(element, vm)?;
@@ -662,9 +662,9 @@ impl ExecutingFrame<'_> {
                 self.push_value(set.into());
                 Ok(None)
             }
-            RealInstruction::BuildSlice { argc } => self.execute_build_slice(vm, argc.get(arg)),
+            Instruction::BuildSlice { argc } => self.execute_build_slice(vm, argc.get(arg)),
             /*
-             RealInstruction::ToBool => {
+             Instruction::ToBool => {
                  dbg!("Shouldn't be called outside of match statements for now")
                  let value = self.pop_value();
                  // call __bool__
@@ -673,7 +673,7 @@ impl ExecutingFrame<'_> {
                  Ok(None)
             }
             */
-            RealInstruction::BuildString { size } => {
+            Instruction::BuildString { size } => {
                 let s: Wtf8Buf = self
                     .pop_multiple(size.get(arg) as usize)
                     .map(|pyobj| pyobj.downcast::<PyStr>().unwrap())
@@ -681,7 +681,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_str(s).into());
                 Ok(None)
             }
-            RealInstruction::BuildTupleFromIter => {
+            Instruction::BuildTupleFromIter => {
                 if !self.top_value().class().is(vm.ctx.types.tuple_type) {
                     let elements: Vec<_> = self.pop_value().try_to_value(vm)?;
                     let list_obj = vm.ctx.new_tuple(elements);
@@ -689,48 +689,48 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            RealInstruction::BuildTupleFromTuples { size } => {
+            Instruction::BuildTupleFromTuples { size } => {
                 // SAFETY: compiler guarantees `size` tuples are on the stack
                 let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            RealInstruction::BuildTuple { size } => {
+            Instruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(size.get(arg) as usize).collect();
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            RealInstruction::Call { nargs } => {
+            Instruction::Call { nargs } => {
                 // Stack: [callable, self_or_null, arg1, ..., argN]
                 let args = self.collect_positional_args(nargs.get(arg));
                 self.execute_call(args, vm)
             }
-            RealInstruction::CallKw { nargs } => {
+            Instruction::CallKw { nargs } => {
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 let args = self.collect_keyword_args(nargs.get(arg));
                 self.execute_call(args, vm)
             }
-            RealInstruction::CallFunctionEx { has_kwargs } => {
+            Instruction::CallFunctionEx { has_kwargs } => {
                 // Stack: [callable, self_or_null, args_tuple, (kwargs_dict)?]
                 let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
                 self.execute_call(args, vm)
             }
-            RealInstruction::CallIntrinsic1 { func } => {
+            Instruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
                 let result = self.call_intrinsic_1(func.get(arg), value, vm)?;
                 self.push_value(result);
                 Ok(None)
             }
-            RealInstruction::CallIntrinsic2 { func } => {
+            Instruction::CallIntrinsic2 { func } => {
                 let value2 = self.pop_value();
                 let value1 = self.pop_value();
                 let result = self.call_intrinsic_2(func.get(arg), value1, value2, vm)?;
                 self.push_value(result);
                 Ok(None)
             }
-            RealInstruction::CheckEgMatch => {
+            Instruction::CheckEgMatch => {
                 let match_type = self.pop_value();
                 let exc_value = self.pop_value();
                 let (rest, matched) =
@@ -739,8 +739,8 @@ impl ExecutingFrame<'_> {
                 self.push_value(matched);
                 Ok(None)
             }
-            RealInstruction::CompareOp { op } => self.execute_compare(vm, op.get(arg)),
-            RealInstruction::ContainsOp(invert) => {
+            Instruction::CompareOp { op } => self.execute_compare(vm, op.get(arg)),
+            Instruction::ContainsOp(invert) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
 
@@ -751,17 +751,17 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
             }
-            RealInstruction::Continue { target } => self.unwind_blocks(
+            Instruction::Continue { target } => self.unwind_blocks(
                 vm,
                 UnwindReason::Continue {
                     target: target.get(arg),
                 },
             ),
 
-            RealInstruction::ConvertValue { oparg: conversion } => {
+            Instruction::ConvertValue { oparg: conversion } => {
                 self.convert_value(conversion.get(arg), vm)
             }
-            RealInstruction::Copy { index } => {
+            Instruction::Copy { index } => {
                 // CopyItem { index: 1 } copies TOS
                 // CopyItem { index: 2 } copies second from top
                 // This is 1-indexed to match CPython
@@ -777,12 +777,12 @@ impl ExecutingFrame<'_> {
                 self.push_value_opt(value);
                 Ok(None)
             }
-            RealInstruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
-            RealInstruction::DeleteDeref(i) => {
+            Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
+            Instruction::DeleteDeref(i) => {
                 self.cells_frees[i.get(arg) as usize].set(None);
                 Ok(None)
             }
-            RealInstruction::DeleteFast(idx) => {
+            Instruction::DeleteFast(idx) => {
                 let mut fastlocals = self.fastlocals.lock();
                 let idx = idx.get(arg) as usize;
                 if fastlocals[idx].is_none() {
@@ -797,7 +797,7 @@ impl ExecutingFrame<'_> {
                 fastlocals[idx] = None;
                 Ok(None)
             }
-            RealInstruction::DeleteGlobal(idx) => {
+            Instruction::DeleteGlobal(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 match self.globals.del_item(name, vm) {
                     Ok(()) => {}
@@ -808,7 +808,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            RealInstruction::DeleteName(idx) => {
+            Instruction::DeleteName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let res = self.locals.mapping().ass_subscript(name, None, vm);
 
@@ -821,8 +821,8 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            RealInstruction::DeleteSubscr => self.execute_delete_subscript(vm),
-            RealInstruction::DictUpdate { index } => {
+            Instruction::DeleteSubscr => self.execute_delete_subscript(vm),
+            Instruction::DictUpdate { index } => {
                 // Stack before: [..., dict, ..., source]  (source at TOS)
                 // Stack after:  [..., dict, ...]  (source consumed)
                 // The dict to update is at position TOS-i (before popping source)
@@ -858,7 +858,7 @@ impl ExecutingFrame<'_> {
                 dict.merge_object(source, vm)?;
                 Ok(None)
             }
-            RealInstruction::EndAsyncFor => {
+            Instruction::EndAsyncFor => {
                 // END_ASYNC_FOR pops (awaitable, exc) from stack
                 // Stack: [awaitable, exc] -> []
                 // exception_unwind pushes exception to stack before jumping to handler
@@ -878,19 +878,19 @@ impl ExecutingFrame<'_> {
                     Err(exc)
                 }
             }
-            RealInstruction::ExtendedArg => {
+            Instruction::ExtendedArg => {
                 *extend_arg = true;
                 Ok(None)
             }
-            RealInstruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
-            RealInstruction::FormatSimple => {
+            Instruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
+            Instruction::FormatSimple => {
                 let value = self.pop_value();
                 let formatted = vm.format(&value, vm.ctx.new_str(""))?;
                 self.push_value(formatted.into());
 
                 Ok(None)
             }
-            RealInstruction::FormatWithSpec => {
+            Instruction::FormatWithSpec => {
                 let spec = self.pop_value();
                 let value = self.pop_value();
                 let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
@@ -898,13 +898,13 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            RealInstruction::GetAIter => {
+            Instruction::GetAIter => {
                 let aiterable = self.pop_value();
                 let aiter = vm.call_special_method(&aiterable, identifier!(vm, __aiter__), ())?;
                 self.push_value(aiter);
                 Ok(None)
             }
-            RealInstruction::GetANext => {
+            Instruction::GetANext => {
                 #[cfg(debug_assertions)] // remove when GetANext is fully implemented
                 let orig_stack_len = self.state.stack.len();
 
@@ -949,7 +949,7 @@ impl ExecutingFrame<'_> {
                 debug_assert_eq!(orig_stack_len + 1, self.state.stack.len());
                 Ok(None)
             }
-            RealInstruction::GetAwaitable => {
+            Instruction::GetAwaitable => {
                 use crate::protocol::PyIter;
 
                 let awaited_obj = self.pop_value();
@@ -985,13 +985,13 @@ impl ExecutingFrame<'_> {
                 self.push_value(awaitable);
                 Ok(None)
             }
-            RealInstruction::GetIter => {
+            Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
                 let iter_obj = iterated_obj.get_iter(vm)?;
                 self.push_value(iter_obj.into());
                 Ok(None)
             }
-            RealInstruction::GetYieldFromIter => {
+            Instruction::GetYieldFromIter => {
                 // GET_YIELD_FROM_ITER: prepare iterator for yield from
                 // If iterable is a coroutine, ensure we're in a coroutine context
                 // If iterable is a generator, use it directly
@@ -1016,23 +1016,23 @@ impl ExecutingFrame<'_> {
                 self.push_value(iter);
                 Ok(None)
             }
-            RealInstruction::GetLen => {
+            Instruction::GetLen => {
                 // STACK.append(len(STACK[-1]))
                 let obj = self.top_value();
                 let len = obj.length(vm)?;
                 self.push_value(vm.ctx.new_int(len).into());
                 Ok(None)
             }
-            RealInstruction::ImportFrom { idx } => {
+            Instruction::ImportFrom { idx } => {
                 let obj = self.import_from(vm, idx.get(arg))?;
                 self.push_value(obj);
                 Ok(None)
             }
-            RealInstruction::ImportName { idx } => {
+            Instruction::ImportName { idx } => {
                 self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
                 Ok(None)
             }
-            RealInstruction::IsOp(invert) => {
+            Instruction::IsOp(invert) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
                 let res = a.is(&b);
@@ -1044,10 +1044,10 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
             }
-            RealInstruction::JumpIfFalseOrPop { target } => {
+            Instruction::JumpIfFalseOrPop { target } => {
                 self.jump_if_or_pop(vm, target.get(arg), false)
             }
-            RealInstruction::JumpIfNotExcMatch(target) => {
+            Instruction::JumpIfNotExcMatch(target) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
                 if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
@@ -1070,22 +1070,22 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 self.pop_jump_if(vm, target.get(arg), false)
             }
-            RealInstruction::JumpIfTrueOrPop { target } => {
+            Instruction::JumpIfTrueOrPop { target } => {
                 self.jump_if_or_pop(vm, target.get(arg), true)
             }
-            RealInstruction::JumpForward { target } => {
+            Instruction::JumpForward { target } => {
                 self.jump(target.get(arg));
                 Ok(None)
             }
-            RealInstruction::JumpBackward { target } => {
+            Instruction::JumpBackward { target } => {
                 self.jump(target.get(arg));
                 Ok(None)
             }
-            RealInstruction::JumpBackwardNoInterrupt { target } => {
+            Instruction::JumpBackwardNoInterrupt { target } => {
                 self.jump(target.get(arg));
                 Ok(None)
             }
-            RealInstruction::ListAppend { i } => {
+            Instruction::ListAppend { i } => {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
                 let list: &Py<PyList> = unsafe {
@@ -1095,13 +1095,13 @@ impl ExecutingFrame<'_> {
                 list.append(item);
                 Ok(None)
             }
-            RealInstruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
-            RealInstruction::LoadSuperAttr { arg: idx } => self.load_super_attr(vm, idx.get(arg)),
-            RealInstruction::LoadBuildClass => {
+            Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
+            Instruction::LoadSuperAttr { arg: idx } => self.load_super_attr(vm, idx.get(arg)),
+            Instruction::LoadBuildClass => {
                 self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
                 Ok(None)
             }
-            RealInstruction::LoadFromDictOrDeref(i) => {
+            Instruction::LoadFromDictOrDeref(i) => {
                 let i = i.get(arg) as usize;
                 let name = if i < self.code.cellvars.len() {
                     self.code.cellvars[i]
@@ -1117,16 +1117,16 @@ impl ExecutingFrame<'_> {
                 });
                 Ok(None)
             }
-            RealInstruction::LoadClosure(i) => {
+            Instruction::LoadClosure(i) => {
                 let value = self.cells_frees[i.get(arg) as usize].clone();
                 self.push_value(value.into());
                 Ok(None)
             }
-            RealInstruction::LoadConst { idx } => {
+            Instruction::LoadConst { idx } => {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
                 Ok(None)
             }
-            RealInstruction::LoadDeref(i) => {
+            Instruction::LoadDeref(i) => {
                 let i = i.get(arg) as usize;
                 let x = self.cells_frees[i]
                     .get()
@@ -1134,7 +1134,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            RealInstruction::LoadFast(idx) => {
+            Instruction::LoadFast(idx) => {
                 #[cold]
                 fn reference_error(
                     varname: &'static PyStrInterned,
@@ -1152,7 +1152,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            RealInstruction::LoadFastAndClear(idx) => {
+            Instruction::LoadFastAndClear(idx) => {
                 // Load value and clear the slot (for inlined comprehensions)
                 // If slot is empty, push None (not an error - variable may not exist yet)
                 let idx = idx.get(arg) as usize;
@@ -1162,13 +1162,13 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            RealInstruction::LoadGlobal(idx) => {
+            Instruction::LoadGlobal(idx) => {
                 let name = &self.code.names[idx.get(arg) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
                 Ok(None)
             }
-            RealInstruction::LoadName(idx) => {
+            Instruction::LoadName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let result = self.locals.mapping().subscript(name, vm);
                 match result {
@@ -1180,8 +1180,8 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            RealInstruction::MakeFunction => self.execute_make_function(vm),
-            RealInstruction::MapAdd { i } => {
+            Instruction::MakeFunction => self.execute_make_function(vm),
+            Instruction::MapAdd { i } => {
                 let value = self.pop_value();
                 let key = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
@@ -1192,7 +1192,7 @@ impl ExecutingFrame<'_> {
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
-            RealInstruction::MatchClass(nargs) => {
+            Instruction::MatchClass(nargs) => {
                 // STACK[-1] is a tuple of keyword attribute names, STACK[-2] is the class being matched against, and STACK[-3] is the match subject.
                 // nargs is the number of positional sub-patterns.
                 let kwd_attrs = self.pop_value();
@@ -1313,7 +1313,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            RealInstruction::MatchKeys => {
+            Instruction::MatchKeys => {
                 // MATCH_KEYS doesn't pop subject and keys, only reads them
                 let keys_tuple = self.top_value(); // stack[-1]
                 let subject = self.nth_value(1); // stack[-2]
@@ -1379,7 +1379,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            RealInstruction::MatchMapping => {
+            Instruction::MatchMapping => {
                 // Pop and push back the subject to keep it on stack
                 let subject = self.pop_value();
 
@@ -1390,7 +1390,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(is_mapping).into());
                 Ok(None)
             }
-            RealInstruction::MatchSequence => {
+            Instruction::MatchSequence => {
                 // Pop and push back the subject to keep it on stack
                 let subject = self.pop_value();
 
@@ -1401,8 +1401,8 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(is_sequence).into());
                 Ok(None)
             }
-            RealInstruction::Nop => Ok(None),
-            RealInstruction::PopExcept => {
+            Instruction::Nop => Ok(None),
+            Instruction::PopExcept => {
                 // Pop prev_exc from value stack and restore it
                 let prev_exc = self.pop_value();
                 if vm.is_none(&prev_exc) {
@@ -1420,24 +1420,20 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            RealInstruction::PopJumpIfFalse { target } => {
-                self.pop_jump_if(vm, target.get(arg), false)
-            }
-            RealInstruction::PopJumpIfTrue { target } => {
-                self.pop_jump_if(vm, target.get(arg), true)
-            }
-            RealInstruction::PopTop => {
+            Instruction::PopJumpIfFalse { target } => self.pop_jump_if(vm, target.get(arg), false),
+            Instruction::PopJumpIfTrue { target } => self.pop_jump_if(vm, target.get(arg), true),
+            Instruction::PopTop => {
                 // Pop value from stack and ignore.
                 self.pop_value();
                 Ok(None)
             }
-            RealInstruction::PushNull => {
+            Instruction::PushNull => {
                 // Push NULL for self_or_null slot in call protocol
                 self.push_null();
                 Ok(None)
             }
-            RealInstruction::RaiseVarargs { kind } => self.execute_raise(vm, kind.get(arg)),
-            RealInstruction::Resume { arg: resume_arg } => {
+            Instruction::RaiseVarargs { kind } => self.execute_raise(vm, kind.get(arg)),
+            Instruction::Resume { arg: resume_arg } => {
                 // Resume execution after yield, await, or at function start
                 // In CPython, this checks instrumentation and eval breaker
                 // For now, we just check for signals/interrupts
@@ -1449,15 +1445,15 @@ impl ExecutingFrame<'_> {
                 // }
                 Ok(None)
             }
-            RealInstruction::ReturnConst { idx } => {
+            Instruction::ReturnConst { idx } => {
                 let value = self.code.constants[idx.get(arg) as usize].clone().into();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
-            RealInstruction::ReturnValue => {
+            Instruction::ReturnValue => {
                 let value = self.pop_value();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
-            RealInstruction::SetAdd { i } => {
+            Instruction::SetAdd { i } => {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
                 let set: &Py<PySet> = unsafe {
@@ -1467,7 +1463,7 @@ impl ExecutingFrame<'_> {
                 set.add(item, vm)?;
                 Ok(None)
             }
-            RealInstruction::SetExcInfo => {
+            Instruction::SetExcInfo => {
                 // Set the current exception to TOS (for except* handlers)
                 // This updates sys.exc_info() so bare 'raise' will reraise the matched exception
                 let exc = self.top_value();
@@ -1476,7 +1472,7 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            RealInstruction::PushExcInfo => {
+            Instruction::PushExcInfo => {
                 // Stack: [exc] -> [prev_exc, exc]
                 let exc = self.pop_value();
                 let prev_exc = vm
@@ -1493,7 +1489,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(exc);
                 Ok(None)
             }
-            RealInstruction::CheckExcMatch => {
+            Instruction::CheckExcMatch => {
                 // Stack: [exc, type] -> [exc, bool]
                 let exc_type = self.pop_value();
                 let exc = self.top_value();
@@ -1503,7 +1499,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(result).into());
                 Ok(None)
             }
-            RealInstruction::Reraise { depth } => {
+            Instruction::Reraise { depth } => {
                 // inst(RERAISE, (values[oparg], exc -- values[oparg]))
                 //
                 // Stack layout: [values..., exc] where len(values) == oparg
@@ -1530,11 +1526,11 @@ impl ExecutingFrame<'_> {
                     Err(exc)
                 }
             }
-            RealInstruction::SetFunctionAttribute { attr } => {
+            Instruction::SetFunctionAttribute { attr } => {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
-            RealInstruction::SetupAnnotations => self.setup_annotations(vm),
-            RealInstruction::BeforeWith => {
+            Instruction::SetupAnnotations => self.setup_annotations(vm),
+            Instruction::BeforeWith => {
                 // TOS: context_manager
                 // Result: [..., __exit__, __enter__ result]
                 let context_manager = self.pop_value();
@@ -1563,18 +1559,18 @@ impl ExecutingFrame<'_> {
                 self.push_value(enter_res);
                 Ok(None)
             }
-            RealInstruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
-            RealInstruction::StoreDeref(i) => {
+            Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
+            Instruction::StoreDeref(i) => {
                 let value = self.pop_value();
                 self.cells_frees[i.get(arg) as usize].set(Some(value));
                 Ok(None)
             }
-            RealInstruction::StoreFast(idx) => {
+            Instruction::StoreFast(idx) => {
                 let value = self.pop_value();
                 self.fastlocals.lock()[idx.get(arg) as usize] = Some(value);
                 Ok(None)
             }
-            RealInstruction::StoreFastLoadFast {
+            Instruction::StoreFastLoadFast {
                 store_idx,
                 load_idx,
             } => {
@@ -1589,21 +1585,21 @@ impl ExecutingFrame<'_> {
                 self.push_value(load_value);
                 Ok(None)
             }
-            RealInstruction::StoreGlobal(idx) => {
+            Instruction::StoreGlobal(idx) => {
                 let value = self.pop_value();
                 self.globals
                     .set_item(self.code.names[idx.get(arg) as usize], value, vm)?;
                 Ok(None)
             }
-            RealInstruction::StoreName(idx) => {
+            Instruction::StoreName(idx) => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let value = self.pop_value();
                 self.locals.mapping().ass_subscript(name, Some(value), vm)?;
                 Ok(None)
             }
-            RealInstruction::StoreSubscr => self.execute_store_subscript(vm),
-            RealInstruction::Subscript => self.execute_subscript(vm),
-            RealInstruction::Swap { index } => {
+            Instruction::StoreSubscr => self.execute_store_subscript(vm),
+            Instruction::Subscript => self.execute_subscript(vm),
+            Instruction::Swap { index } => {
                 let len = self.state.stack.len();
                 debug_assert!(len > 0, "stack underflow in SWAP");
                 let i = len - 1; // TOS index
@@ -1620,18 +1616,18 @@ impl ExecutingFrame<'_> {
                 self.state.stack.swap(i, j);
                 Ok(None)
             }
-            RealInstruction::ToBool => {
+            Instruction::ToBool => {
                 let obj = self.pop_value();
                 let bool_val = obj.try_to_bool(vm)?;
                 self.push_value(vm.ctx.new_bool(bool_val).into());
                 Ok(None)
             }
-            RealInstruction::UnpackEx { args } => {
+            Instruction::UnpackEx { args } => {
                 let args = args.get(arg);
                 self.execute_unpack_ex(vm, args.before, args.after)
             }
-            RealInstruction::UnpackSequence { size } => self.unpack_sequence(size.get(arg), vm),
-            RealInstruction::WithExceptStart => {
+            Instruction::UnpackSequence { size } => self.unpack_sequence(size.get(arg), vm),
+            Instruction::WithExceptStart => {
                 // Stack: [..., __exit__, lasti, prev_exc, exc]
                 // Call __exit__(type, value, tb) and push result
                 // __exit__ is at TOS-3 (below lasti, prev_exc, and exc)
@@ -1654,7 +1650,7 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            RealInstruction::YieldValue { arg: oparg } => {
+            Instruction::YieldValue { arg: oparg } => {
                 let value = self.pop_value();
                 // arg=0: direct yield (wrapped for async generators)
                 // arg=1: yield from await/yield-from (NOT wrapped)
@@ -1666,7 +1662,7 @@ impl ExecutingFrame<'_> {
                 };
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            RealInstruction::Send { target } => {
+            Instruction::Send { target } => {
                 // Stack: (receiver, value) -> (receiver, retval)
                 // On StopIteration: replace value with stop value and jump to target
                 let exit_label = target.get(arg);
@@ -1690,7 +1686,7 @@ impl ExecutingFrame<'_> {
                     }
                 }
             }
-            RealInstruction::EndSend => {
+            Instruction::EndSend => {
                 // Stack: (receiver, value) -> (value)
                 // Pops receiver, leaves value
                 let value = self.pop_value();
@@ -1698,7 +1694,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(value);
                 Ok(None)
             }
-            RealInstruction::CleanupThrow => {
+            Instruction::CleanupThrow => {
                 // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) OR re-raise
                 // If StopIteration: pop all 3, extract value, push (None, value)
                 // Otherwise: pop all 3, return Err(exc) for unwind_blocks to handle
@@ -1736,19 +1732,19 @@ impl ExecutingFrame<'_> {
                     .map_err(|_| vm.new_type_error("exception expected".to_owned()))?;
                 Err(exc)
             }
-            RealInstruction::UnaryInvert => {
+            Instruction::UnaryInvert => {
                 let a = self.pop_value();
                 let value = vm._invert(&a)?;
                 self.push_value(value);
                 Ok(None)
             }
-            RealInstruction::UnaryNegative => {
+            Instruction::UnaryNegative => {
                 let a = self.pop_value();
                 let value = vm._neg(&a)?;
                 self.push_value(value);
                 Ok(None)
             }
-            RealInstruction::UnaryNot => {
+            Instruction::UnaryNot => {
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 self.push_value(vm.ctx.new_bool(!value).into());

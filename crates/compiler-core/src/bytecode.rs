@@ -16,7 +16,7 @@ use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
     instruction::{
-        Arg, Instruction, InstructionMetadata, PseudoInstruction, RealInstruction,
+        AnyInstruction, Arg, Instruction, InstructionMetadata, PseudoInstruction,
         decode_load_attr_arg, decode_load_super_attr_arg, encode_load_attr_arg,
         encode_load_super_attr_arg,
     },
@@ -303,14 +303,14 @@ bitflags! {
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct CodeUnit {
-    pub op: RealInstruction,
+    pub op: Instruction,
     pub arg: OpArgByte,
 }
 
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
 impl CodeUnit {
-    pub const fn new(op: RealInstruction, arg: OpArgByte) -> Self {
+    pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
     }
 }

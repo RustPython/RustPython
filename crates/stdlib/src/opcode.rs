@@ -5,15 +5,15 @@ mod opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
-        bytecode::{Instruction, InstructionMetadata, PseudoInstruction, RealInstruction},
+        bytecode::{AnyInstruction, Instruction, InstructionMetadata, PseudoInstruction},
     };
     use core::ops::Deref;
 
     #[derive(Clone, Copy)]
-    struct Opcode(Instruction);
+    struct Opcode(AnyInstruction);
 
     impl Deref for Opcode {
-        type Target = Instruction;
+        type Target = AnyInstruction;
 
         fn deref(&self) -> &Self::Target {
             &self.0
@@ -41,7 +41,7 @@ mod opcode {
             let instruction = raw
                 .try_to_primitive::<u16>(vm)
                 .and_then(|v| {
-                    Instruction::try_from(v).map_err(|_| {
+                    AnyInstruction::try_from(v).map_err(|_| {
                         vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned())
                     })
                 })
@@ -50,11 +50,11 @@ mod opcode {
             Ok(Self(instruction))
         }
 
-        const fn inner(self) -> Instruction {
+        const fn inner(self) -> AnyInstruction {
             self.0
         }
 
-        /// Check if opcode is valid (can be converted to an Instruction)
+        /// Check if opcode is valid (can be converted to an AnyInstruction)
         #[must_use]
         pub fn is_valid(opcode: i32) -> bool {
             Self::try_from(opcode).is_ok()
@@ -71,8 +71,8 @@ mod opcode {
         pub fn has_const(opcode: i32) -> bool {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
-                Ok(Instruction::Real(
-                    RealInstruction::LoadConst { .. } | RealInstruction::ReturnConst { .. }
+                Ok(AnyInstruction::Real(
+                    Instruction::LoadConst { .. } | Instruction::ReturnConst { .. }
                 ))
             )
         }
@@ -82,19 +82,19 @@ mod opcode {
         pub fn has_name(opcode: i32) -> bool {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
-                Ok(Instruction::Real(
-                    RealInstruction::DeleteAttr { .. }
-                        | RealInstruction::DeleteGlobal(_)
-                        | RealInstruction::DeleteName(_)
-                        | RealInstruction::ImportFrom { .. }
-                        | RealInstruction::ImportName { .. }
-                        | RealInstruction::LoadAttr { .. }
-                        | RealInstruction::LoadGlobal(_)
-                        | RealInstruction::LoadName(_)
-                        | RealInstruction::StoreAttr { .. }
-                        | RealInstruction::StoreGlobal(_)
-                        | RealInstruction::StoreName(_)
-                ) | Instruction::Pseudo(PseudoInstruction::LoadAttrMethod { .. }))
+                Ok(AnyInstruction::Real(
+                    Instruction::DeleteAttr { .. }
+                        | Instruction::DeleteGlobal(_)
+                        | Instruction::DeleteName(_)
+                        | Instruction::ImportFrom { .. }
+                        | Instruction::ImportName { .. }
+                        | Instruction::LoadAttr { .. }
+                        | Instruction::LoadGlobal(_)
+                        | Instruction::LoadName(_)
+                        | Instruction::StoreAttr { .. }
+                        | Instruction::StoreGlobal(_)
+                        | Instruction::StoreName(_)
+                ) | AnyInstruction::Pseudo(PseudoInstruction::LoadAttrMethod { .. }))
             )
         }
 
@@ -103,17 +103,17 @@ mod opcode {
         pub fn has_jump(opcode: i32) -> bool {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
-                Ok(Instruction::Real(
-                    RealInstruction::Break { .. }
-                        | RealInstruction::Continue { .. }
-                        | RealInstruction::ForIter { .. }
-                        | RealInstruction::JumpIfFalseOrPop { .. }
-                        | RealInstruction::JumpIfNotExcMatch(_)
-                        | RealInstruction::JumpIfTrueOrPop { .. }
-                        | RealInstruction::PopJumpIfFalse { .. }
-                        | RealInstruction::PopJumpIfTrue { .. }
-                        | RealInstruction::Send { .. }
-                ) | Instruction::Pseudo(PseudoInstruction::Jump { .. }))
+                Ok(AnyInstruction::Real(
+                    Instruction::Break { .. }
+                        | Instruction::Continue { .. }
+                        | Instruction::ForIter { .. }
+                        | Instruction::JumpIfFalseOrPop { .. }
+                        | Instruction::JumpIfNotExcMatch(_)
+                        | Instruction::JumpIfTrueOrPop { .. }
+                        | Instruction::PopJumpIfFalse { .. }
+                        | Instruction::PopJumpIfTrue { .. }
+                        | Instruction::Send { .. }
+                ) | AnyInstruction::Pseudo(PseudoInstruction::Jump { .. }))
             )
         }
 
@@ -122,12 +122,12 @@ mod opcode {
         pub fn has_free(opcode: i32) -> bool {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
-                Ok(Instruction::Real(
-                    RealInstruction::DeleteDeref(_)
-                        | RealInstruction::LoadFromDictOrDeref(_)
-                        | RealInstruction::LoadClosure(_)
-                        | RealInstruction::LoadDeref(_)
-                        | RealInstruction::StoreDeref(_)
+                Ok(AnyInstruction::Real(
+                    Instruction::DeleteDeref(_)
+                        | Instruction::LoadFromDictOrDeref(_)
+                        | Instruction::LoadClosure(_)
+                        | Instruction::LoadDeref(_)
+                        | Instruction::StoreDeref(_)
                 ))
             )
         }
@@ -137,12 +137,12 @@ mod opcode {
         pub fn has_local(opcode: i32) -> bool {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
-                Ok(Instruction::Real(
-                    RealInstruction::DeleteFast(_)
-                        | RealInstruction::LoadFast(_)
-                        | RealInstruction::LoadFastAndClear(_)
-                        | RealInstruction::StoreFast(_)
-                        | RealInstruction::StoreFastLoadFast { .. }
+                Ok(AnyInstruction::Real(
+                    Instruction::DeleteFast(_)
+                        | Instruction::LoadFast(_)
+                        | Instruction::LoadFastAndClear(_)
+                        | Instruction::StoreFast(_)
+                        | Instruction::StoreFastLoadFast { .. }
                 ))
             )
         }

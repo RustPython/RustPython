@@ -2,7 +2,7 @@ use bitflags::bitflags;
 
 use core::{fmt, num::NonZeroU8};
 
-use crate::bytecode::{CodeUnit, instruction::RealInstruction};
+use crate::bytecode::{CodeUnit, instruction::Instruction};
 
 pub trait OpArgType: Copy {
     fn from_op_arg(x: u32) -> Option<Self>;
@@ -78,9 +78,9 @@ pub struct OpArgState {
 
 impl OpArgState {
     #[inline(always)]
-    pub fn get(&mut self, ins: CodeUnit) -> (RealInstruction, OpArg) {
+    pub fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
         let arg = self.extend(ins.arg);
-        if !matches!(ins.op, RealInstruction::ExtendedArg) {
+        if !matches!(ins.op, Instruction::ExtendedArg) {
             self.reset();
         }
         (ins.op, arg)
@@ -98,7 +98,7 @@ impl OpArgState {
     }
 }
 
-/// Oparg values for [`RealInstruction::ConvertValue`].
+/// Oparg values for [`Instruction::ConvertValue`].
 ///
 /// ## See also
 ///
@@ -142,7 +142,7 @@ impl fmt::Display for ConvertValueOparg {
             Self::Str => "1 (str)",
             Self::Repr => "2 (repr)",
             Self::Ascii => "3 (ascii)",
-            // We should never reach this. `FVC_NONE` are being handled by `RealInstruction::FormatSimple`
+            // We should never reach this. `FVC_NONE` are being handled by `Instruction::FormatSimple`
             Self::None => "",
         };
 
@@ -364,9 +364,9 @@ op_arg_enum!(
     /// # Examples
     ///
     /// ```rust
-    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, RealInstruction};
+    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, Instruction};
     /// let (op, _) = Arg::new(BinaryOperator::Add);
-    /// let instruction = RealInstruction::BinaryOp { op };
+    /// let instruction = Instruction::BinaryOp { op };
     /// ```
     ///
     /// See also:
