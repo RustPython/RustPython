@@ -52,7 +52,7 @@ def extract_enum_body(contents: str, enum_name: str) -> str:
 contents = BYTECODE_FILE.read_text()
 enum_body = "\n".join(
     extract_enum_body(contents, enum_name)
-    for enum_name in ("RealInstruction", "PseudoInstruction")
+    for enum_name in ("Instruction", "PseudoInstruction")
 )
 opcodes = list(Opcode.from_str(enum_body))
 
