@@ -15,6 +15,7 @@ mod _json {
     use core::str::FromStr;
     use malachite_bigint::BigInt;
     use rustpython_common::wtf8::Wtf8Buf;
+    use std::collections::HashMap;
 
     /// Skip JSON whitespace characters (space, tab, newline, carriage return).
     /// Works with a character iterator and returns the number of characters skipped.
@@ -111,14 +112,16 @@ mod _json {
                 }
                 '{' => {
                     // Parse object in Rust
+                    let mut memo = HashMap::new();
                     return self
-                        .parse_object(pystr, next_idx, &scan_once, vm)
+                        .parse_object(pystr, next_idx, &scan_once, &mut memo, vm)
                         .map(|(obj, end)| PyIterReturn::Return(vm.new_tuple((obj, end)).into()));
                 }
                 '[' => {
                     // Parse array in Rust
+                    let mut memo = HashMap::new();
                     return self
-                        .parse_array(pystr, next_idx, &scan_once, vm)
+                        .parse_array(pystr, next_idx, &scan_once, &mut memo, vm)
                         .map(|(obj, end)| PyIterReturn::Return(vm.new_tuple((obj, end)).into()));
                 }
                 _ => {}
@@ -206,6 +209,7 @@ mod _json {
             pystr: PyStrRef,
             start_idx: usize, // Character index right after '{'
             scan_once: &PyObjectRef,
+            memo: &mut HashMap<String, PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, usize)> {
             flame_guard!("JsonScanner::parse_object");
@@ -246,8 +250,16 @@ mod _json {
                 let (key_wtf8, key_end) = machinery::scanstring(pystr.as_wtf8(), idx, self.strict)
                     .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
 
+                // Key memoization - reuse existing key strings
                 let key_str = key_wtf8.to_string();
-                let key: PyObjectRef = vm.ctx.new_str(key_str).into();
+                let key: PyObjectRef = match memo.get(&key_str) {
+                    Some(cached) => cached.clone().into(),
+                    None => {
+                        let py_key = vm.ctx.new_str(key_str.clone());
+                        memo.insert(key_str, py_key.clone());
+                        py_key.into()
+                    }
+                };
 
                 // Update position and rebuild iterator
                 idx = key_end;
@@ -276,7 +288,8 @@ mod _json {
                 idx += skip_whitespace_chars(&mut chars);
 
                 // Parse value recursively using scan_once
-                let (value, value_end) = self.call_scan_once(scan_once, pystr.clone(), idx, vm)?;
+                let (value, value_end) =
+                    self.call_scan_once(scan_once, pystr.clone(), idx, memo, vm)?;
 
                 pairs.push((key, value));
                 idx = value_end;
@@ -344,6 +357,7 @@ mod _json {
             pystr: PyStrRef,
             start_idx: usize, // Character index right after '['
             scan_once: &PyObjectRef,
+            memo: &mut HashMap<String, PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, usize)> {
             flame_guard!("JsonScanner::parse_array");
@@ -364,7 +378,8 @@ mod _json {
 
             loop {
                 // Parse value
-                let (value, value_end) = self.call_scan_once(scan_once, pystr.clone(), idx, vm)?;
+                let (value, value_end) =
+                    self.call_scan_once(scan_once, pystr.clone(), idx, memo, vm)?;
 
                 values.push(value);
                 idx = value_end;
@@ -448,6 +463,7 @@ mod _json {
             scan_once: &PyObjectRef,
             pystr: PyStrRef,
             idx: usize,
+            memo: &mut HashMap<String, PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, usize)> {
             // First try to handle common cases directly in Rust
@@ -464,11 +480,11 @@ mod _json {
                 }
                 Some('{') => {
                     // Nested object - parse recursively in Rust
-                    return self.parse_object(pystr, idx + 1, scan_once, vm);
+                    return self.parse_object(pystr, idx + 1, scan_once, memo, vm);
                 }
                 Some('[') => {
                     // Nested array - parse recursively in Rust
-                    return self.parse_array(pystr, idx + 1, scan_once, vm);
+                    return self.parse_array(pystr, idx + 1, scan_once, memo, vm);
                 }
                 _ => {
                     // For other cases (numbers, null, true, false, etc.)
