@@ -5,11 +5,14 @@ on:
   push:
     paths:
       - .github/workflows/cron-ci.yaml
+  pull_request:
+    paths:
+      - .github/workflows/cron-ci.yaml
 
 name: Periodic checks/tasks
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,ssl,jit
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,ssl-rustls,jit
   PYTHON_VERSION: "3.13.1"
 
 jobs:
@@ -29,7 +32,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: sudo apt-get update && sudo apt-get -y install lcov
       - name: Run cargo-llvm-cov with Rust tests.
-        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --verbose --no-default-features --features stdlib,importlib,encodings,ssl,jit
+        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher --verbose --no-default-features --features stdlib,importlib,encodings,ssl-rustls,jit
       - name: Run cargo-llvm-cov with Python snippets.
         run: python scripts/cargo-llvm-cov.py
         continue-on-error: true
@@ -39,6 +42,7 @@ jobs:
       - name: Prepare code coverage data
         run: cargo llvm-cov report --lcov --output-path='codecov.lcov'
       - name: Upload to Codecov
+        if: ${{ github.event_name != 'pull_request' }}
         uses: codecov/codecov-action@v5
         with:
           file: ./codecov.lcov
@@ -58,6 +62,7 @@ jobs:
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
       - name: upload tests data to the website
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -94,6 +99,7 @@ jobs:
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
       - name: Upload data to the website
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -141,7 +147,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6.1.0
         with:
-          python-version: 3.9
+          python-version: ${{ env.PYTHON_VERSION }}
       - run: cargo install cargo-criterion
       - name: build benchmarks
         run: cargo build --release --benches
@@ -162,6 +168,7 @@ jobs:
           mv reports/* .
           rmdir reports
       - name: upload benchmark data to the website
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
         run: |
