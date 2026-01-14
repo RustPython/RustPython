@@ -142,7 +142,7 @@ impl fmt::Display for ConvertValueOparg {
             Self::Str => "1 (str)",
             Self::Repr => "2 (repr)",
             Self::Ascii => "3 (ascii)",
-            // We should never reach this. `FVC_NONE` are being handled by `Instruction::FormatSimple`
+            // We should never reach this. `FVC_NONE` are being handled by `RealInstruction::FormatSimple`
             Self::None => "",
         };
 
@@ -364,9 +364,9 @@ op_arg_enum!(
     /// # Examples
     ///
     /// ```rust
-    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, Instruction};
+    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, RealInstruction};
     /// let (op, _) = Arg::new(BinaryOperator::Add);
-    /// let instruction = Instruction::BinaryOp { op };
+    /// let instruction = RealInstruction::BinaryOp { op };
     /// ```
     ///
     /// See also:
