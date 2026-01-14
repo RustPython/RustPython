@@ -13,8 +13,7 @@ use crate::{
 };
 
 /// A Single bytecode instruction.
-/// Instructions are ordered to match CPython 3.13 opcode numbers exactly.
-/// HAVE_ARGUMENT = 44: opcodes 0-43 have no argument, 44+ have arguments.
+/// All instructions above 44 have an argument.
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum RealInstruction {
