@@ -209,9 +209,9 @@ impl PySequenceIterator {
             if let Some(obj) = obj {
                 let seq = obj.sequence_unchecked();
                 match seq.length_opt(vm) {
-                    Some(len) => len.map(|len| {
-                        PyInt::from(len.saturating_sub(position)).into_pyobject(vm)
-                    }),
+                    Some(len) => {
+                        len.map(|len| PyInt::from(len.saturating_sub(position)).into_pyobject(vm))
+                    }
                     None => Ok(vm.ctx.not_implemented()),
                 }
             } else {
