@@ -860,22 +860,19 @@ impl PyType {
             )));
         }
 
-        let attrs = self.attributes.read();
+        let mut attrs = self.attributes.write();
         // First try __annotate__, in case that's been set explicitly
         if let Some(annotate) = attrs.get(identifier!(vm, __annotate__)).cloned() {
             return Ok(annotate);
         }
         // Then try __annotate_func__
         if let Some(annotate) = attrs.get(identifier!(vm, __annotate_func__)).cloned() {
+            // TODO: Apply descriptor tp_descr_get if needed
             return Ok(annotate);
         }
-        drop(attrs);
-
-        // Set None if not found
+        // Set __annotate_func__ = None and return None
         let none = vm.ctx.none();
-        self.attributes
-            .write()
-            .insert(identifier!(vm, __annotate_func__), none.clone());
+        attrs.insert(identifier!(vm, __annotate_func__), none.clone());
         Ok(none)
     }
 
@@ -898,6 +895,7 @@ impl PyType {
         }
 
         let mut attrs = self.attributes.write();
+        // Store to __annotate_func__
         attrs.insert(identifier!(vm, __annotate_func__), value.clone());
         // Always clear cached annotations when __annotate__ is updated
         attrs.swap_remove(identifier!(vm, __annotations_cache__));
@@ -958,24 +956,35 @@ impl PyType {
         }
 
         let mut attrs = self.attributes.write();
-        if let Some(value) = value {
-            attrs.insert(identifier!(vm, __annotations__), value);
-            // Clear __annotate__ when __annotations__ is set
-            attrs.swap_remove(identifier!(vm, __annotate__));
-        } else {
-            // Delete
-            if attrs
+        // conditional update based on __annotations__ presence
+        let has_annotations = attrs.contains_key(identifier!(vm, __annotations__));
+
+        if has_annotations {
+            // If __annotations__ is in dict, update it
+            if let Some(value) = value {
+                attrs.insert(identifier!(vm, __annotations__), value);
+            } else if attrs
                 .swap_remove(identifier!(vm, __annotations__))
                 .is_none()
             {
-                return Err(vm.new_attribute_error(format!(
-                    "'{}' object has no attribute '__annotations__'",
-                    self.name()
-                )));
+                return Err(vm.new_attribute_error("__annotations__".to_owned()));
             }
-            // Also clear __annotate__
-            attrs.swap_remove(identifier!(vm, __annotate__));
+            // Also clear __annotations_cache__
+            attrs.swap_remove(identifier!(vm, __annotations_cache__));
+        } else {
+            // Otherwise update only __annotations_cache__
+            if let Some(value) = value {
+                attrs.insert(identifier!(vm, __annotations_cache__), value);
+            } else if attrs
+                .swap_remove(identifier!(vm, __annotations_cache__))
+                .is_none()
+            {
+                return Err(vm.new_attribute_error("__annotations__".to_owned()));
+            }
         }
+        // Always clear __annotate_func__ and __annotate__
+        attrs.swap_remove(identifier!(vm, __annotate_func__));
+        attrs.swap_remove(identifier!(vm, __annotate__));
 
         Ok(())
     }

@@ -1168,6 +1168,29 @@ impl ExecutingFrame<'_> {
                 });
                 Ok(None)
             }
+            Instruction::LoadFromDictOrGlobals(idx) => {
+                // PEP 649: Pop dict from stack (classdict), check there first, then globals
+                let dict = self.pop_value();
+                let name = self.code.names[idx.get(arg) as usize];
+
+                // Only treat KeyError as "not found", propagate other exceptions
+                let value = if let Some(dict_obj) = dict.downcast_ref::<PyDict>() {
+                    dict_obj.get_item_opt(name, vm)?
+                } else {
+                    // Not an exact dict, use mapping protocol
+                    match dict.get_item(name, vm) {
+                        Ok(v) => Some(v),
+                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => None,
+                        Err(e) => return Err(e),
+                    }
+                };
+
+                self.push_value(match value {
+                    Some(v) => v,
+                    None => self.load_global_or_builtin(name, vm)?,
+                });
+                Ok(None)
+            }
             Instruction::LoadClosure(i) => {
                 let value = self.cells_frees[i.get(arg) as usize].clone();
                 self.push_value(value.into());
