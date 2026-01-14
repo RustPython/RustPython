@@ -108,14 +108,12 @@ env:
   ENV_POLLUTING_TESTS_COMMON: >-
   ENV_POLLUTING_TESTS_LINUX: >-
     test.test_multiprocessing_fork.test_processes
-    test.test_multiprocessing_fork.test_threads
     test.test_multiprocessing_forkserver.test_processes
     test.test_multiprocessing_forkserver.test_threads
     test.test_multiprocessing_spawn.test_processes
     test.test_multiprocessing_spawn.test_threads
   ENV_POLLUTING_TESTS_MACOS: >-
     test.test_multiprocessing_forkserver.test_processes
-    test.test_multiprocessing_forkserver.test_threads
     test.test_multiprocessing_spawn.test_processes
     test.test_multiprocessing_spawn.test_threads
   ENV_POLLUTING_TESTS_WINDOWS: >-
