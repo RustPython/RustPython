@@ -29,7 +29,7 @@ from pydoc import ModuleScanner
 
 if not sys.flags.isolated:
     print("running without -I option.")
-    print("python -I whats_left.py")
+    print("python -I scripts/whats_left.py")
     exit(1)
 
 GENERATED_FILE = "extra_tests/not_impl.py"
@@ -39,7 +39,7 @@ if implementation != "CPython":
     sys.exit(f"whats_left.py must be run under CPython, got {implementation} instead")
 if sys.version_info[:2] < (3, 14):
     sys.exit(
-        f"whats_left.py must be run under CPython 3.14 or newer, got {implementation} {sys.version} instead. If you have uv, try `uv run python -I whats_left.py` to select a proper Python interpreter easier."
+        f"whats_left.py must be run under CPython 3.14 or newer, got {implementation} {sys.version} instead. If you have uv, try `uv run python -I scripts/whats_left.py` to select a proper Python interpreter easier."
     )
 
 

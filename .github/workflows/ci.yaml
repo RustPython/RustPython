@@ -412,7 +412,7 @@ jobs:
           target/release/rustpython -m venv testvenv
           testvenv/bin/rustpython -m pip install wheel
       - name: Check whats_left is not broken
-        run: python -I whats_left.py
+        run: python -I scripts/whats_left.py
 
   lint:
     name: Check Rust code with clippy

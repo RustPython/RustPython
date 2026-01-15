@@ -106,7 +106,7 @@ cargo run --release -- -m test test_unicode -k test_unicode_escape
 
 ### Determining What to Implement
 
-Run `./whats_left.py` to get a list of unimplemented methods, which is helpful when looking for contribution opportunities.
+Run `./scripts/whats_left.py` to get a list of unimplemented methods, which is helpful when looking for contribution opportunities.
 
 ## Coding Guidelines
 
