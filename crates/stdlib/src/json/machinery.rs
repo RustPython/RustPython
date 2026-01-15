@@ -30,6 +30,7 @@
 use std::io;
 
 use itertools::Itertools;
+use memchr::memchr2;
 use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
 static ESCAPE_CHARS: [&str; 0x20] = [
@@ -108,7 +109,7 @@ pub struct DecodeError {
     pub pos: usize,
 }
 impl DecodeError {
-    fn new(msg: impl Into<String>, pos: usize) -> Self {
+    pub fn new(msg: impl Into<String>, pos: usize) -> Self {
         let msg = msg.into();
         Self { msg, pos }
     }
@@ -126,24 +127,63 @@ impl StrOrChar<'_> {
         }
     }
 }
+/// Scan a JSON string starting right after the opening quote.
+///
+/// # Arguments
+/// * `s` - The string slice starting at the first character after the opening `"`
+/// * `char_offset` - The character index where this slice starts (for error messages)
+/// * `strict` - Whether to reject control characters
+///
+/// # Returns
+/// * `Ok((result, chars_consumed, bytes_consumed))` - The decoded string and how much was consumed
+/// * `Err(DecodeError)` - If the string is malformed
 pub fn scanstring<'a>(
     s: &'a Wtf8,
-    end: usize,
+    char_offset: usize,
     strict: bool,
-) -> Result<(Wtf8Buf, usize), DecodeError> {
+) -> Result<(Wtf8Buf, usize, usize), DecodeError> {
+    flame_guard!("machinery::scanstring");
+    let unterminated_err = || DecodeError::new("Unterminated string starting at", char_offset - 1);
+
+    let bytes = s.as_bytes();
+
+    // Fast path: use memchr to find " or \ quickly
+    if let Some(pos) = memchr2(b'"', b'\\', bytes)
+        && bytes[pos] == b'"'
+    {
+        let content_bytes = &bytes[..pos];
+
+        // In strict mode, check for control characters (0x00-0x1F)
+        let has_control_char = strict && content_bytes.iter().any(|&b| b < 0x20);
+
+        if !has_control_char {
+            flame_guard!("machinery::scanstring::fast_path");
+            let result_slice = &s[..pos];
+            let char_count = result_slice.code_points().count();
+            let mut out = Wtf8Buf::with_capacity(pos);
+            out.push_wtf8(result_slice);
+            // +1 for the closing quote
+            return Ok((out, char_count + 1, pos + 1));
+        }
+    }
+
+    // Slow path: chunk-based parsing for strings with escapes or control chars
+    flame_guard!("machinery::scanstring::slow_path");
     let mut chunks: Vec<StrOrChar<'a>> = Vec::new();
     let mut output_len = 0usize;
     let mut push_chunk = |chunk: StrOrChar<'a>| {
         output_len += chunk.len();
         chunks.push(chunk);
     };
-    let unterminated_err = || DecodeError::new("Unterminated string starting at", end - 1);
-    let mut chars = s.code_point_indices().enumerate().skip(end).peekable();
-    let &(_, (mut chunk_start, _)) = chars.peek().ok_or_else(unterminated_err)?;
+
+    let mut chars = s.code_point_indices().enumerate().peekable();
+    let mut chunk_start: usize = 0;
+
     while let Some((char_i, (byte_i, c))) = chars.next() {
         match c.to_char_lossy() {
             '"' => {
                 push_chunk(StrOrChar::Str(&s[chunk_start..byte_i]));
+                flame_guard!("machinery::scanstring::assemble_chunks");
                 let mut out = Wtf8Buf::with_capacity(output_len);
                 for x in chunks {
                     match x {
@@ -151,11 +191,12 @@ pub fn scanstring<'a>(
                         StrOrChar::Char(c) => out.push(c),
                     }
                 }
-                return Ok((out, char_i + 1));
+                // +1 for the closing quote
+                return Ok((out, char_i + 1, byte_i + 1));
             }
             '\\' => {
                 push_chunk(StrOrChar::Str(&s[chunk_start..byte_i]));
-                let (_, (_, c)) = chars.next().ok_or_else(unterminated_err)?;
+                let (next_char_i, (_, c)) = chars.next().ok_or_else(unterminated_err)?;
                 let esc = match c.to_char_lossy() {
                     '"' => "\"",
                     '\\' => "\\",
@@ -166,20 +207,21 @@ pub fn scanstring<'a>(
                     'r' => "\r",
                     't' => "\t",
                     'u' => {
-                        let mut uni = decode_unicode(&mut chars, char_i)?;
+                        let mut uni = decode_unicode(&mut chars, char_offset + char_i)?;
                         chunk_start = byte_i + 6;
                         if let Some(lead) = uni.to_lead_surrogate() {
                             // uni is a surrogate -- try to find its pair
                             let mut chars2 = chars.clone();
-                            if let Some(((pos2, _), (_, _))) = chars2
+                            if let Some(((_, (byte_pos2, _)), (_, _))) = chars2
                                 .next_tuple()
                                 .filter(|((_, (_, c1)), (_, (_, c2)))| *c1 == '\\' && *c2 == 'u')
                             {
-                                let uni2 = decode_unicode(&mut chars2, pos2)?;
+                                let uni2 =
+                                    decode_unicode(&mut chars2, char_offset + next_char_i + 1)?;
                                 if let Some(trail) = uni2.to_trail_surrogate() {
                                     // ok, we found what we were looking for -- \uXXXX\uXXXX, both surrogates
                                     uni = lead.merge(trail).into();
-                                    chunk_start = pos2 + 6;
+                                    chunk_start = byte_pos2 + 6;
                                     chars = chars2;
                                 }
                             }
@@ -188,7 +230,10 @@ pub fn scanstring<'a>(
                         continue;
                     }
                     _ => {
-                        return Err(DecodeError::new(format!("Invalid \\escape: {c:?}"), char_i));
+                        return Err(DecodeError::new(
+                            format!("Invalid \\escape: {c:?}"),
+                            char_offset + char_i,
+                        ));
                     }
                 };
                 chunk_start = byte_i + 2;
@@ -197,7 +242,7 @@ pub fn scanstring<'a>(
             '\x00'..='\x1f' if strict => {
                 return Err(DecodeError::new(
                     format!("Invalid control character {c:?} at"),
-                    char_i,
+                    char_offset + char_i,
                 ));
             }
             _ => {}
@@ -211,12 +256,13 @@ fn decode_unicode<I>(it: &mut I, pos: usize) -> Result<CodePoint, DecodeError>
 where
     I: Iterator<Item = (usize, (usize, CodePoint))>,
 {
+    flame_guard!("machinery::decode_unicode");
     let err = || DecodeError::new("Invalid \\uXXXX escape", pos);
-    let mut uni = 0;
-    for x in (0..4).rev() {
+    let mut uni = 0u16;
+    for _ in 0..4 {
         let (_, (_, c)) = it.next().ok_or_else(err)?;
         let d = c.to_char().and_then(|c| c.to_digit(16)).ok_or_else(err)? as u16;
-        uni += d * 16u16.pow(x);
+        uni = (uni << 4) | d;
     }
     Ok(uni.into())
 }
