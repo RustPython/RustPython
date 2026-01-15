@@ -527,8 +527,10 @@ impl PyBaseObject {
     #[pymethod]
     fn __sizeof__(zelf: PyObjectRef) -> usize {
         if let Some(int) = zelf.downcast_ref::<PyInt>() {
-            let bits = int.as_bigint().bits();
-            return std::mem::size_of::<PyInt>() + (((bits + 7) & !7) / 8) as usize;
+            let digits = int.as_bigint().iter_u32_digits().count();
+            let basicsize = zelf.class().slots.basicsize;
+            let itemsize = zelf.class().slots.itemsize;
+            return basicsize + itemsize * digits;
         }
 
         zelf.class().slots.basicsize

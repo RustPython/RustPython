@@ -444,7 +444,8 @@ impl PyInt {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        core::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
+        let digits = self.value.iter_u32_digits().count().max(1);
+        core::mem::size_of::<Self>() + (<Self as crate::class::PyClassDef>::ITEMSIZE * digits)
     }
 
     #[pymethod]
