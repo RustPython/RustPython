@@ -1834,8 +1834,8 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
         object.__init__(A(3))
         self.assertRaises(TypeError, object.__init__, A(3), 5)
 
-    @unittest.skip('TODO: RUSTPYTHON; This passes, but the `expectedFailure` here is from CPython, so this test is an "UNEXPECTED SUCCESS" (not good)')
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
+    # @unittest.expectedFailure
     def test_restored_object_new(self):
         class A(object):
             def __new__(cls, *args, **kwargs):

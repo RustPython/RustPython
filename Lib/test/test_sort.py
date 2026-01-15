@@ -149,7 +149,7 @@ class TestBugs(unittest.TestCase):
         L = [C() for i in range(50)]
         self.assertRaises(ValueError, L.sort)
 
-    @unittest.skip("TODO: RUSTPYTHON; figure out how to detect sort mutation that doesn't change list length")
+    @unittest.expectedFailure # TODO: RUSTPYTHON; figure out how to detect sort mutation that doesn't change list length
     def test_undetected_mutation(self):
         # Python 2.4a1 did not always detect mutation
         memorywaster = []

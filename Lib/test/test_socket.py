@@ -6842,7 +6842,6 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
 
 @unittest.skipUnless(hasattr(os, "sendfile"),
                      'os.sendfile() required for this test.')
-@unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly")
 class SendfileUsingSendfileTest(SendfileUsingSendTest):
     """
     Test the sendfile() implementation of socket.sendfile().
@@ -6850,6 +6849,13 @@ class SendfileUsingSendfileTest(SendfileUsingSendTest):
     def meth_from_sock(self, sock):
         return getattr(sock, "_sendfile_use_sendfile")
 
+    @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
+    def testWithTimeout(self):
+        super().testWithTimeout()
+
+    @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
+    def testCount(self):
+        super().testCount()
 
 @unittest.skipUnless(HAVE_SOCKET_ALG, 'AF_ALG required')
 class LinuxKernelCryptoAPI(unittest.TestCase):
@@ -6867,8 +6873,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
 
     # bpo-31705: On kernel older than 4.5, sendto() failed with ENOKEY,
     # at least on ppc64le architecture
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @support.requires_linux_version(4, 5)
     def test_sha256(self):
         expected = bytes.fromhex("ba7816bf8f01cfea414140de5dae2223b00361a396"

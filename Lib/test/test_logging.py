@@ -1115,7 +1115,6 @@ class SMTPHandlerTest(BaseTest):
     # bpo-14314, bpo-19665, bpo-34092: don't wait forever
     TIMEOUT = support.LONG_TIMEOUT
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_basic(self):
         sockmap = {}
         server = TestSMTPServer((socket_helper.HOST, 0), self.process_message, 0.001,
@@ -2153,7 +2152,6 @@ class HTTPHandlerTest(BaseTest):
         request.end_headers()
         self.handled.set()
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
     def test_output(self):
         # The log message sent to the HTTPHandler is properly received.
         logger = logging.getLogger("http")

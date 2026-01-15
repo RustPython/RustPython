@@ -249,14 +249,14 @@ class ThreadedImportTests(unittest.TestCase):
             __import__(TESTFN)
         del sys.modules[TESTFN]
 
-    @unittest.skip("TODO: RUSTPYTHON; hang")
+    @unittest.skip('TODO: RUSTPYTHON; hang; Suspected cause of crashes in Windows CI - PermissionError: [WinError 32] Permission denied: "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\test_python_0cdrhhs_\\test_python_6340æ"')
     def test_concurrent_futures_circular_import(self):
         # Regression test for bpo-43515
         fn = os.path.join(os.path.dirname(__file__),
                           'partial', 'cfimport.py')
         script_helper.assert_python_ok(fn)
 
-    @unittest.skip("TODO: RUSTPYTHON - fails on Linux due to multiprocessing issues")
+    @unittest.skip('TODO: RUSTPYTHON; hang')
     def test_multiprocessing_pool_circular_import(self):
         # Regression test for bpo-41567
         fn = os.path.join(os.path.dirname(__file__),

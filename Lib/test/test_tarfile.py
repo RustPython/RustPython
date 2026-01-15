@@ -456,7 +456,6 @@ class CommonReadTest(ReadTest):
                 with self.assertRaisesRegex(tarfile.ReadError, "unexpected end of data"):
                     tar.extractfile(t).read()
 
-    @unittest.skip("TODO: RUSTPYTHON, infinite recursion")
     def test_length_zero_header(self):
         # bpo-39017 (CVE-2019-20907): reading a zero-length header should fail
         # with an exception
