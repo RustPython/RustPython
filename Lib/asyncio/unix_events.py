@@ -32,6 +32,7 @@ __all__ = (
     'FastChildWatcher', 'PidfdChildWatcher',
     'MultiLoopChildWatcher', 'ThreadedChildWatcher',
     'DefaultEventLoopPolicy',
+    'EventLoop',
 )
 
 
@@ -63,6 +64,7 @@ class _UnixSelectorEventLoop(selector_events.BaseSelectorEventLoop):
     def __init__(self, selector=None):
         super().__init__(selector)
         self._signal_handlers = {}
+        self._unix_server_sockets = {}
 
     def close(self):
         super().close()
@@ -283,7 +285,7 @@ class _UnixSelectorEventLoop(selector_events.BaseSelectorEventLoop):
             sock=None, backlog=100, ssl=None,
             ssl_handshake_timeout=None,
             ssl_shutdown_timeout=None,
-            start_serving=True):
+            start_serving=True, cleanup_socket=True):
         if isinstance(ssl, bool):
             raise TypeError('ssl argument must be an SSLContext or None')
 
@@ -339,6 +341,15 @@ class _UnixSelectorEventLoop(selector_events.BaseSelectorEventLoop):
                 raise ValueError(
                     f'A UNIX Domain Stream Socket was expected, got {sock!r}')
 
+        if cleanup_socket:
+            path = sock.getsockname()
+            # Check for abstract socket. `str` and `bytes` paths are supported.
+            if path[0] not in (0, '\x00'):
+                try:
+                    self._unix_server_sockets[sock] = os.stat(path).st_ino
+                except FileNotFoundError:
+                    pass
+
         sock.setblocking(False)
         server = base_events.Server(self, [sock], protocol_factory,
                                     ssl, backlog, ssl_handshake_timeout,
@@ -392,6 +403,9 @@ class _UnixSelectorEventLoop(selector_events.BaseSelectorEventLoop):
                 self._sock_sendfile_update_filepos(fileno, offset, total_sent)
                 fut.set_result(total_sent)
                 return
+
+        # On 32-bit architectures truncate to 1GiB to avoid OverflowError
+        blocksize = min(blocksize, sys.maxsize//2 + 1)
 
         try:
             sent = os.sendfile(fd, fileno, offset, blocksize)
@@ -455,6 +469,27 @@ class _UnixSelectorEventLoop(selector_events.BaseSelectorEventLoop):
                 if fd != -1:
                     self.remove_writer(fd)
         fut.add_done_callback(cb)
+
+    def _stop_serving(self, sock):
+        # Is this a unix socket that needs cleanup?
+        if sock in self._unix_server_sockets:
+            path = sock.getsockname()
+        else:
+            path = None
+
+        super()._stop_serving(sock)
+
+        if path is not None:
+            prev_ino = self._unix_server_sockets[sock]
+            del self._unix_server_sockets[sock]
+            try:
+                if os.stat(path).st_ino == prev_ino:
+                    os.unlink(path)
+            except FileNotFoundError:
+                pass
+            except OSError as err:
+                logger.error('Unable to clean up listening UNIX socket '
+                             '%r: %r', path, err)
 
 
 class _UnixReadPipeTransport(transports.ReadTransport):
@@ -1498,3 +1533,4 @@ class _UnixDefaultEventLoopPolicy(events.BaseDefaultEventLoopPolicy):
 
 SelectorEventLoop = _UnixSelectorEventLoop
 DefaultEventLoopPolicy = _UnixDefaultEventLoopPolicy
+EventLoop = SelectorEventLoop
