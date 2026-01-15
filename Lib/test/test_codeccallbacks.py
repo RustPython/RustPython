@@ -909,8 +909,6 @@ class CodecCallbackTest(unittest.TestCase):
                 self.assertEqual(exc.object, input)
                 self.assertEqual(exc.reason, "surrogates not allowed")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_badregistercall(self):
         # enhance coverage of:
         # Modules/_codecsmodule.c::register_error()

@@ -1,5 +1,6 @@
-from testutils import assert_raises
 import io
+
+from testutils import assert_raises
 
 print(2 + 3)
 

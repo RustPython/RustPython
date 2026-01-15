@@ -25,16 +25,17 @@
 # SOFTWARE.
 
 
-import unittest
-import os, sys, traceback
 import inspect
 import json
-import time
-import re
 import operator
-from unittest.runner import result
-from unittest.runner import registerResult
+import os
+import re
+import sys
+import time
+import traceback
+import unittest
 from functools import reduce
+from unittest.runner import registerResult, result
 
 
 class TablePrinter(object):
@@ -111,7 +112,7 @@ class TablePrinter(object):
 
 def get_function_args(func_ref):
     try:
-        return [p for p in inspect.getargspec(func_ref).args if p != "self"]
+        return [p for p in inspect.getfullargspec(func_ref).args if p != "self"]
     except:
         return None
 

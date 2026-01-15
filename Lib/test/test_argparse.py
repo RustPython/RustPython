@@ -6747,8 +6747,6 @@ class TestExitOnError(TestCase):
                 "ambiguous option: --foob=1 could match --foobaz, --fooble$",
             self.parser.parse_args, ['--foob=1', '--foogle', '2'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_os_error(self):
         self.parser.add_argument('file')
         self.assertRaisesRegex(argparse.ArgumentError,

@@ -49,7 +49,7 @@ mod interpreter;
 mod settings;
 mod shell;
 
-use rustpython_vm::{PyResult, VirtualMachine, scope::Scope};
+use rustpython_vm::{AsObject, PyObjectRef, PyResult, VirtualMachine, scope::Scope};
 use std::env;
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -58,6 +58,14 @@ pub use interpreter::InterpreterConfig;
 pub use rustpython_vm as vm;
 pub use settings::{InstallPipMode, RunMode, parse_opts};
 pub use shell::run_shell;
+
+#[cfg(all(
+    feature = "ssl",
+    not(any(feature = "ssl-rustls", feature = "ssl-openssl"))
+))]
+compile_error!(
+    "Feature \"ssl\" is now enabled by either \"ssl-rustls\" or \"ssl-openssl\" to be enabled. Do not manually pass \"ssl\" feature. To enable ssl-openssl, use --no-default-features to disable ssl-rustls"
+);
 
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
@@ -103,22 +111,7 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     let interp = config.interpreter();
     let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
 
-    ExitCode::from(exitcode)
-}
-
-fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
-    let scope = vm.new_scope_with_builtins();
-    let main_module = vm.new_module("__main__", scope.globals.clone(), None);
-    main_module
-        .dict()
-        .set_item("__annotations__", vm.ctx.new_dict().into(), vm)
-        .expect("Failed to initialize __main__.__annotations__");
-
-    vm.sys_module
-        .get_attr("modules", vm)?
-        .set_item("__main__", main_module.into(), vm)?;
-
-    Ok(scope)
+    rustpython_vm::common::os::exit_code(exitcode)
 }
 
 fn get_pip(scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
@@ -136,12 +129,12 @@ __import__("io").TextIOWrapper(
         .downcast()
         .expect("TextIOWrapper.read() should return str");
     eprintln!("running get-pip.py...");
-    vm.run_code_string(scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
+    vm.run_string(scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
     Ok(())
 }
 
 fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
-    if cfg!(not(feature = "ssl")) {
+    if !cfg!(feature = "ssl") {
         return Err(vm.new_exception_msg(
             vm.ctx.exceptions.system_error.to_owned(),
             "install-pip requires rustpython be build with '--features=ssl'".to_owned(),
@@ -154,22 +147,70 @@ fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> 
     }
 }
 
+// pymain_run_file_obj in Modules/main.c
+fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
+    // Check if path is a package/directory with __main__.py
+    if let Some(_importer) = get_importer(path, vm)? {
+        vm.insert_sys_path(vm.new_pyobj(path))?;
+        let runpy = vm.import("runpy", 0)?;
+        let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
+        run_module_as_main.call((vm::identifier!(vm, __main__).to_owned(), false), vm)?;
+        return Ok(());
+    }
+
+    // Add script directory to sys.path[0]
+    if !vm.state.config.settings.safe_path {
+        let dir = std::path::Path::new(path)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or("");
+        vm.insert_sys_path(vm.new_pyobj(dir))?;
+    }
+
+    vm.run_any_file(scope, path)
+}
+
+fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+    use rustpython_vm::builtins::PyDictRef;
+    use rustpython_vm::convert::TryFromObject;
+
+    let path_importer_cache = vm.sys_module.get_attr("path_importer_cache", vm)?;
+    let path_importer_cache = PyDictRef::try_from_object(vm, path_importer_cache)?;
+    if let Some(importer) = path_importer_cache.get_item_opt(path, vm)? {
+        return Ok(Some(importer));
+    }
+    let path_obj = vm.ctx.new_str(path);
+    let path_hooks = vm.sys_module.get_attr("path_hooks", vm)?;
+    let mut importer = None;
+    let path_hooks: Vec<PyObjectRef> = path_hooks.try_into_value(vm)?;
+    for path_hook in path_hooks {
+        match path_hook.call((path_obj.clone(),), vm) {
+            Ok(imp) => {
+                importer = Some(imp);
+                break;
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.import_error) => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(if let Some(imp) = importer {
+        let imp = path_importer_cache.get_or_insert(vm, path_obj.into(), || imp.clone())?;
+        Some(imp)
+    } else {
+        None
+    })
+}
+
+// pymain_run_python
 fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
 
-    let scope = setup_main_module(vm)?;
+    let scope = vm.new_scope_with_main()?;
 
-    if !vm.state.settings.safe_path {
-        // TODO: The prepending path depends on running mode
-        // See https://docs.python.org/3/using/cmdline.html#cmdoption-P
-        vm.run_code_string(
-            vm.new_scope_with_builtins(),
-            "import sys; sys.path.insert(0, '')",
-            "<embedded>".to_owned(),
-        )?;
-    }
-
+    // Import site first, before setting sys.path[0]
+    // This matches CPython's behavior where site.removeduppaths() runs
+    // before sys.path[0] is set, preventing '' from being converted to cwd
     let site_result = vm.import("site", 0);
     if site_result.is_err() {
         warn!(
@@ -178,9 +219,31 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         );
     }
 
+    // _PyPathConfig_ComputeSysPath0 - set sys.path[0] after site import
+    if !vm.state.config.settings.safe_path {
+        let path0: Option<String> = match &run_mode {
+            RunMode::Command(_) => Some(String::new()),
+            RunMode::Module(_) => env::current_dir()
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_owned())),
+            RunMode::Script(_) | RunMode::InstallPip(_) => None, // handled by run_script
+            RunMode::Repl => Some(String::new()),
+        };
+
+        if let Some(path) = path0 {
+            vm.insert_sys_path(vm.new_pyobj(path))?;
+        }
+    }
+
+    // Enable faulthandler if -X faulthandler, PYTHONFAULTHANDLER or -X dev is set
+    // _PyFaulthandler_Init()
+    if vm.state.config.settings.faulthandler {
+        let _ = vm.run_simple_string("import faulthandler; faulthandler.enable()");
+    }
+
     let is_repl = matches!(run_mode, RunMode::Repl);
-    if !vm.state.settings.quiet
-        && (vm.state.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
+    if !vm.state.config.settings.quiet
+        && (vm.state.config.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
     {
         eprintln!(
             "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
@@ -198,7 +261,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     let res = match run_mode {
         RunMode::Command(command) => {
             debug!("Running command {command}");
-            vm.run_code_string(scope.clone(), &command, "<stdin>".to_owned())
+            vm.run_string(scope.clone(), &command, "<string>".to_owned())
                 .map(drop)
         }
         RunMode::Module(module) => {
@@ -206,30 +269,32 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
             vm.run_module(&module)
         }
         RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),
-        RunMode::Script(script) => {
-            debug!("Running script {}", &script);
-            vm.run_script(scope.clone(), &script)
+        RunMode::Script(script_path) => {
+            // pymain_run_file_obj
+            debug!("Running script {}", &script_path);
+            run_file(vm, scope.clone(), &script_path)
         }
         RunMode::Repl => Ok(()),
     };
-    if is_repl || vm.state.settings.inspect {
-        shell::run_shell(vm, scope)?;
+    let result = if is_repl || vm.state.config.settings.inspect {
+        shell::run_shell(vm, scope)
     } else {
-        res?;
-    }
+        res
+    };
 
     #[cfg(feature = "flame-it")]
     {
         main_guard.end();
-        if let Err(e) = write_profile(&vm.state.as_ref().settings) {
+        if let Err(e) = write_profile(&vm.state.as_ref().config.settings) {
             error!("Error writing profile information: {}", e);
         }
     }
-    Ok(())
+
+    result
 }
 
 #[cfg(feature = "flame-it")]
-fn write_profile(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
+fn write_profile(settings: &Settings) -> Result<(), Box<dyn core::error::Error>> {
     use std::{fs, io};
 
     enum ProfileFormat {
@@ -287,13 +352,13 @@ mod tests {
     fn test_run_script() {
         interpreter().enter(|vm| {
             vm.unwrap_pyresult((|| {
-                let scope = setup_main_module(vm)?;
+                let scope = vm.new_scope_with_main()?;
                 // test file run
-                vm.run_script(scope, "extra_tests/snippets/dir_main/__main__.py")?;
+                vm.run_any_file(scope, "extra_tests/snippets/dir_main/__main__.py")?;
 
-                let scope = setup_main_module(vm)?;
-                // test module run
-                vm.run_script(scope, "extra_tests/snippets/dir_main")?;
+                let scope = vm.new_scope_with_main()?;
+                // test module run (directory with __main__.py)
+                run_file(vm, scope, "extra_tests/snippets/dir_main")?;
 
                 Ok(())
             })());

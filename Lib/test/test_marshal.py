@@ -35,7 +35,7 @@ class IntTestCase(unittest.TestCase, HelperMixin):
                 self.helper(expected)
             n = n >> 1
 
-    @unittest.skip("TODO: RUSTPYTHON; hang")
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_int64(self):
         # Simulate int marshaling with TYPE_INT64.
         maxint64 = (1 << 63) - 1
@@ -232,7 +232,7 @@ class BugsTestCase(unittest.TestCase):
             self.assertRaises(ValueError, marshal.loads, s)
         run_tests(2**20, check)
 
-    @unittest.skip("TODO: RUSTPYTHON; segfault")
+    @unittest.expectedFailure # TODO: RUSTPYTHON; segfault
     def test_recursion_limit(self):
         # Create a deeply nested structure.
         head = last = []

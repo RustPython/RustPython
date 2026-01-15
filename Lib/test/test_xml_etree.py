@@ -437,7 +437,6 @@ class ElementTreeTest(unittest.TestCase):
         self.serialize_check(e2, '<tag>hello<bar /></tag>')
         self.serialize_check(e3, '<tag>hello<foo /></tag>')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_attrib(self):
         # Test attribute handling.
 
@@ -1481,7 +1480,6 @@ class ElementTreeTest(unittest.TestCase):
               {'': 'http://www.w3.org/2001/XMLSchema',
                'ns': 'http://www.w3.org/2001/XMLSchema'})
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_processinginstruction(self):
         # Test ProcessingInstruction directly
 
@@ -2303,7 +2301,6 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(t.find('.//paragraph').text,
             'A new cultivar of Begonia plant named \u2018BCT9801BEG\u2019.')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipIf(sys.gettrace(), "Skips under coverage.")
     def test_bug_xmltoolkit63(self):
         # Check reference leak.
@@ -2369,7 +2366,6 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(str(cm.exception),
                 'cannot use non-qualified names with default_namespace option')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_200709_register_namespace(self):
         e = ET.Element("{http://namespace.invalid/does/not/exist/}title")
         self.assertEqual(ET.tostring(e),

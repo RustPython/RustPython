@@ -258,8 +258,6 @@ class ListTest(ReadTest, unittest.TestCase):
     def setUp(self):
         self.tar = tarfile.open(self.tarname, mode=self.mode)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list(self):
         tio = io.TextIOWrapper(io.BytesIO(), 'ascii', newline='\n')
         with support.swap_attr(sys, 'stdout', tio):
@@ -297,8 +295,6 @@ class ListTest(ReadTest, unittest.TestCase):
         self.assertNotIn(b'link to', out)
         self.assertNotIn(b'->', out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_verbose(self):
         tio = io.TextIOWrapper(io.BytesIO(), 'ascii', newline='\n')
         with support.swap_attr(sys, 'stdout', tio):
@@ -323,8 +319,6 @@ class ListTest(ReadTest, unittest.TestCase):
         self.assertIn(b'pax' + (b'/123' * 125) + b'/longlink link to pax' +
                       (b'/123' * 125) + b'/longname', out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_members(self):
         tio = io.TextIOWrapper(io.BytesIO(), 'ascii', newline='\n')
         def members(tar):
@@ -462,7 +456,6 @@ class CommonReadTest(ReadTest):
                 with self.assertRaisesRegex(tarfile.ReadError, "unexpected end of data"):
                     tar.extractfile(t).read()
 
-    @unittest.skip("TODO: RUSTPYTHON, infinite recursion")
     def test_length_zero_header(self):
         # bpo-39017 (CVE-2019-20907): reading a zero-length header should fail
         # with an exception
@@ -628,7 +621,6 @@ class MiscReadTestBase(CommonReadTest):
                 data = f.read()
             self.assertEqual(sha256sum(data), sha256_regtype)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extractall(self):
         # Test if extractall() correctly restores directory permissions
         # and times (see issue1735).
@@ -659,7 +651,6 @@ class MiscReadTestBase(CommonReadTest):
             tar.close()
             os_helper.rmtree(DIR)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extract_directory(self):
         dirtype = "ustar/dirtype"
         DIR = os.path.join(TEMPDIR, "extractdir")
@@ -675,7 +666,6 @@ class MiscReadTestBase(CommonReadTest):
         finally:
             os_helper.rmtree(DIR)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extractall_pathlike_name(self):
         DIR = pathlib.Path(TEMPDIR) / "extractall"
         with os_helper.temp_dir(DIR), \
@@ -686,7 +676,6 @@ class MiscReadTestBase(CommonReadTest):
                 path = DIR / tarinfo.name
                 self.assertEqual(os.path.getmtime(path), tarinfo.mtime)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extract_pathlike_name(self):
         dirtype = "ustar/dirtype"
         DIR = pathlib.Path(TEMPDIR) / "extractall"
@@ -1060,19 +1049,15 @@ class GNUReadTest(LongnameTest, ReadTest, unittest.TestCase):
             s = os.stat(filename)
             self.assertLess(s.st_blocks * 512, s.st_size)
 
-    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_old(self):
         self._test_sparse_file("gnu/sparse")
 
-    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_00(self):
         self._test_sparse_file("gnu/sparse-0.0")
 
-    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_01(self):
         self._test_sparse_file("gnu/sparse-0.1")
 
-    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_10(self):
         self._test_sparse_file("gnu/sparse-1.0")
 
@@ -2508,8 +2493,6 @@ class CommandLineTest(unittest.TestCase):
                 finally:
                     os_helper.unlink(tmpname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_command(self):
         for tar_name in testtarnames:
             with support.captured_stdout() as t:
@@ -2521,8 +2504,6 @@ class CommandLineTest(unittest.TestCase):
                                       PYTHONIOENCODING='ascii')
                 self.assertEqual(out, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_command_verbose(self):
         for tar_name in testtarnames:
             with support.captured_stdout() as t:

@@ -44,7 +44,7 @@ cargo run -- script.py
 cargo run
 
 # With specific features
-cargo run --features ssl
+cargo run --features jit
 
 # Release mode (recommended for better performance)
 cargo run --release -- script.py
@@ -73,23 +73,36 @@ The `Lib/` directory contains Python standard library files copied from the CPyt
   - `unittest.skip("TODO: RustPython <reason>")`
   - `unittest.expectedFailure` with `# TODO: RUSTPYTHON <reason>` comment
 
+### Clean Build
+
+When you modify bytecode instructions, a full clean is required:
+
+```bash
+rm -r target/debug/build/rustpython-* && find . | grep -E "\.pyc$" | xargs rm -r
+```
+
 ### Testing
 
 ```bash
 # Run Rust unit tests
 cargo test --workspace --exclude rustpython_wasm
 
-# Run Python snippets tests
+# Run Python snippets tests (debug mode recommended for faster compilation)
+cargo run -- extra_tests/snippets/builtin_bytes.py
+
+# Run all Python snippets tests with pytest
 cd extra_tests
 pytest -v
 
-# Run the Python test module
+# Run the Python test module (release mode recommended for better performance)
 cargo run --release -- -m test ${TEST_MODULE}
 cargo run --release -- -m test test_unicode # to test test_unicode.py
 
 # Run the Python test module with specific function
 cargo run --release -- -m test test_unicode -k test_unicode_escape
 ```
+
+**Note**: For `extra_tests/snippets` tests, use debug mode (`cargo run`) as compilation is faster. For `unittest` (`-m test`), use release mode (`cargo run --release`) for better runtime performance.
 
 ### Determining What to Implement
 
@@ -176,12 +189,11 @@ cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdli
 cargo run --features jit
 ```
 
-### SSL Support
+### Building venvlauncher (Windows)
 
-```bash
-# Enable SSL support
-cargo run --features ssl
-```
+See DEVELOPMENT.md "CPython Version Upgrade Checklist" section.
+
+**IMPORTANT**: All 4 venvlauncher binaries use the same source code. Do NOT add multiple `[[bin]]` entries to Cargo.toml. Build once and copy with different names.
 
 ## Test Code Modification Rules
 

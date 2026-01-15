@@ -24,8 +24,6 @@ class TestAbstractContextManager(unittest.TestCase):
         manager = DefaultEnter()
         self.assertIs(manager.__enter__(), manager)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slots(self):
         class DefaultContextManager(AbstractContextManager):
             __slots__ = ()
@@ -846,8 +844,6 @@ class TestBaseExitStack:
             stack.push(lambda *exc: True)
             1/0
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_exception_traceback(self):
         # This test captures the current behavior of ExitStack so that we know
         # if we ever unintendedly change it. It is not a statement of what the

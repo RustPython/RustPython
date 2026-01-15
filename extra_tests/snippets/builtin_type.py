@@ -1,6 +1,6 @@
 import types
-from testutils import assert_raises
 
+from testutils import assert_raises
 
 # Spec: https://docs.python.org/2/library/types.html
 print(None)
@@ -72,6 +72,15 @@ assert isinstance(type.__doc__, str)
 assert object.__qualname__ == "object"
 assert int.__qualname__ == "int"
 
+with assert_raises(TypeError):
+    type.__module__ = "nope"
+
+with assert_raises(TypeError):
+    object.__module__ = "nope"
+
+with assert_raises(TypeError):
+    map.__module__ = "nope"
+
 
 class A(type):
     pass
@@ -110,8 +119,6 @@ with assert_raises(TypeError):
     C.__qualname__ = 123
 with assert_raises(TypeError):
     del int.__qualname__
-
-from testutils import assert_raises
 
 import platform
 
@@ -231,6 +238,56 @@ class C(B, BB):
 
 
 assert C.mro() == [C, B, A, BB, AA, object]
+
+
+class TypeA:
+    def __init__(self):
+        self.a = 1
+
+
+class TypeB:
+    __slots__ = "b"
+
+    def __init__(self):
+        self.b = 2
+
+
+obj = TypeA()
+with assert_raises(TypeError) as cm:
+    obj.__class__ = TypeB
+assert "__class__ assignment: 'TypeB' object layout differs from 'TypeA'" in str(
+    cm.exception
+)
+
+
+# Test: same slot count but different slot names should fail
+class SlotX:
+    __slots__ = ("x",)
+
+
+class SlotY:
+    __slots__ = ("y",)
+
+
+slot_obj = SlotX()
+with assert_raises(TypeError) as cm:
+    slot_obj.__class__ = SlotY
+assert "__class__ assignment: 'SlotY' object layout differs from 'SlotX'" in str(
+    cm.exception
+)
+
+
+# Test: same slots should succeed
+class SlotA:
+    __slots__ = ("a",)
+
+
+class SlotA2:
+    __slots__ = ("a",)
+
+
+slot_a = SlotA()
+slot_a.__class__ = SlotA2  # Should work
 
 
 assert type(Exception.args).__name__ == "getset_descriptor"
@@ -527,6 +584,7 @@ assert ClassWithNew.__new__.__qualname__ == "ClassWithNew.__new__"
 assert ClassWithNew().__new__.__qualname__ == "ClassWithNew.__new__"
 assert ClassWithNew.__new__.__name__ == "__new__"
 assert ClassWithNew().__new__.__name__ == "__new__"
+assert isinstance(ClassWithNew.__dict__.get("__new__"), staticmethod)
 
 assert ClassWithNew.N.__new__.__qualname__ == "ClassWithNew.N.__new__"
 assert ClassWithNew().N.__new__.__qualname__ == "ClassWithNew.N.__new__"
@@ -536,6 +594,7 @@ assert ClassWithNew.N().__new__.__qualname__ == "ClassWithNew.N.__new__"
 assert ClassWithNew().N().__new__.__qualname__ == "ClassWithNew.N.__new__"
 assert ClassWithNew.N().__new__.__name__ == "__new__"
 assert ClassWithNew().N().__new__.__name__ == "__new__"
+assert isinstance(ClassWithNew.N.__dict__.get("__new__"), staticmethod)
 
 
 # Regression to:
@@ -607,3 +666,24 @@ class A(type):
 
 
 assert "__dict__" not in A.__dict__
+
+
+# regression tests for: https://github.com/RustPython/RustPython/issues/4505
+
+
+def foo():
+    def inner():
+        pass
+
+
+assert foo.__code__.co_names == ()
+
+stmts = """
+import blah
+
+def foo():
+    pass
+"""
+
+code = compile(stmts, "<test>", "exec")
+assert code.co_names == ("blah", "foo")

@@ -1,5 +1,6 @@
-from io import BufferedReader, FileIO, StringIO, BytesIO
 import os
+from io import BufferedReader, BytesIO, FileIO, StringIO
+
 from testutils import assert_raises
 
 fi = FileIO("README.md")

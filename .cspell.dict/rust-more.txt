@@ -50,6 +50,7 @@ nanos
 nonoverlapping
 objclass
 peekable
+pemfile
 powc
 powf
 powi
@@ -61,6 +62,7 @@ rposition
 rsplitn
 rustc
 rustfmt
+rustls
 rustyline
 seedable
 seekfrom
@@ -80,6 +82,7 @@ unsync
 wasip1
 wasip2
 wasmbind
+wasmer
 wasmtime
 widestring
 winapi

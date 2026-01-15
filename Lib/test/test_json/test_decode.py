@@ -138,8 +138,6 @@ class TestDecode:
 class TestPyDecode(TestDecode, PyTest): pass
 
 class TestCDecode(TestDecode, CTest):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keys_reuse(self):
         return super().test_keys_reuse()
 

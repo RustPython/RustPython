@@ -374,7 +374,6 @@ class FaultHandlerTests(unittest.TestCase):
             'Segmentation fault',
             all_threads=False)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'")
     @skip_segfault_on_android
     def test_disable(self):
         code = """
@@ -412,8 +411,6 @@ class FaultHandlerTests(unittest.TestCase):
         for name in ('sys', 'faulthandler'):
             self.assertIn(name, modules)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'faulthandler' has no attribute 'is_enabled'
-    @unittest.expectedFailure
     def test_is_enabled(self):
         orig_stderr = sys.stderr
         try:
@@ -436,8 +433,6 @@ class FaultHandlerTests(unittest.TestCase):
         finally:
             sys.stderr = orig_stderr
 
-    # TODO: RUSTPYTHON, subprocess.CalledProcessError: Command ... returned non-zero exit status 1.
-    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_disabled_by_default(self):
         # By default, the module should be disabled
@@ -447,8 +442,6 @@ class FaultHandlerTests(unittest.TestCase):
         output = subprocess.check_output(args)
         self.assertEqual(output.rstrip(), b"False")
 
-    # TODO: RUSTPYTHON, subprocess.CalledProcessError: Command '<filter object at ...>' returned non-zero exit status 1.
-    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_sys_xoptions(self):
         # Test python -X faulthandler
@@ -462,8 +455,6 @@ class FaultHandlerTests(unittest.TestCase):
         output = subprocess.check_output(args, env=env)
         self.assertEqual(output.rstrip(), b"True")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_env_var(self):
         # empty env var
@@ -529,12 +520,10 @@ class FaultHandlerTests(unittest.TestCase):
         self.assertEqual(trace, expected)
         self.assertEqual(exitcode, 0)
 
-    # TODO: RUSTPYTHON, AssertionError: Lists differ
-    @unittest.expectedFailure
     def test_dump_traceback(self):
         self.check_dump_traceback()
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON - binary file write needs different handling
     @unittest.expectedFailure
     def test_dump_traceback_file(self):
         with temporary_filename() as filename:
@@ -548,8 +537,6 @@ class FaultHandlerTests(unittest.TestCase):
         with tempfile.TemporaryFile('wb+') as fp:
             self.check_dump_traceback(fd=fp.fileno())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_truncate(self):
         maxlen = 500
         func_name = 'x' * (maxlen + 50)
@@ -871,8 +858,6 @@ class FaultHandlerTests(unittest.TestCase):
         finally:
             sys.stderr = stderr
 
-    # TODO: RUSTPYTHON, AssertionError: RuntimeError not raised
-    @unittest.expectedFailure
     def test_stderr_None(self):
         # Issue #21497: provide a helpful error if sys.stderr is None,
         # instead of just an attribute error: "None has no attribute fileno".
@@ -903,8 +888,6 @@ class FaultHandlerTests(unittest.TestCase):
                 3,
                 name)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'
-    @unittest.expectedFailure
     @unittest.skipUnless(MS_WINDOWS, 'specific to Windows')
     def test_ignore_exception(self):
         for exc_code in (
@@ -921,8 +904,6 @@ class FaultHandlerTests(unittest.TestCase):
             self.assertEqual(output, [])
             self.assertEqual(exitcode, exc_code)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'
-    @unittest.expectedFailure
     @unittest.skipUnless(MS_WINDOWS, 'specific to Windows')
     def test_raise_nonfatal_exception(self):
         # These exceptions are not strictly errors. Letting
@@ -951,8 +932,6 @@ class FaultHandlerTests(unittest.TestCase):
             self.assertIn(exitcode,
                           (exc, exc & ~0x10000000))
 
-    # TODO: RUSTPYTHON, AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'
-    @unittest.expectedFailure
     @unittest.skipUnless(MS_WINDOWS, 'specific to Windows')
     def test_disable_windows_exc_handler(self):
         code = dedent("""
@@ -966,8 +945,6 @@ class FaultHandlerTests(unittest.TestCase):
         self.assertEqual(output, [])
         self.assertEqual(exitcode, 0xC0000005)
 
-    # TODO: RUSTPYTHON, AssertionError: Lists differ
-    @unittest.expectedFailure
     def test_cancel_later_without_dump_traceback_later(self):
         # bpo-37933: Calling cancel_dump_traceback_later()
         # without dump_traceback_later() must not segfault.
@@ -979,7 +956,6 @@ class FaultHandlerTests(unittest.TestCase):
         self.assertEqual(output, [])
         self.assertEqual(exitcode, 0)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'")
     @threading_helper.requires_working_threading()
     @unittest.skipUnless(support.Py_GIL_DISABLED, "only meaningful if the GIL is disabled")
     def test_free_threaded_dump_traceback(self):

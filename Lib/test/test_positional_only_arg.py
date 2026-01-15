@@ -152,8 +152,6 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r"f\(\) takes 3 positional arguments but 4 were given"):
             f(1, 2, 3, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_positional_only_and_optional_arg_invalid_calls(self):
         def f(a, b, /, c=3):
             pass
@@ -198,8 +196,6 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r"f\(\) takes 2 positional arguments but 3 were given"):
             f(1, 2, 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_positional_only_with_optional_invalid_calls(self):
         def f(a, b=2, /):
             pass

@@ -1,5 +1,5 @@
-import browser
 import asyncweb
+import browser
 
 
 async def main(delay):

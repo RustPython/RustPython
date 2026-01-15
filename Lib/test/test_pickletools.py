@@ -99,11 +99,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_optional_frames(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_optional_frames()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_py_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_py_methods()
 

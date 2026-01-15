@@ -611,7 +611,6 @@ class ClassTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             a >= b
 
-    @unittest.skip("TODO: RUSTPYTHON; unstable result")
     def testHashComparisonOfMethods(self):
         # Test comparison and hash of methods
         class A:

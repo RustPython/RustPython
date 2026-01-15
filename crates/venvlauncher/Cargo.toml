@@ -1,0 +1,27 @@
+[package]
+name = "rustpython-venvlauncher"
+description = "Lightweight venv launcher for RustPython"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# Free-threaded variants (RustPython uses Py_GIL_DISABLED=true)
+[[bin]]
+name = "venvlaunchert"
+path = "src/main.rs"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_Environment",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_Security",
+] }
+
+[lints]
+workspace = true

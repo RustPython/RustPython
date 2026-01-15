@@ -58,7 +58,6 @@ class KeywordOnlyArgTestCase(unittest.TestCase):
         fundef = "def f(*, %s):\n  pass\n" % ', '.join('i%d' % i for i in range(300))
         compile(fundef, "<test>", "single")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testTooManyPositionalErrorMessage(self):
         def f(a, b=None, *, c=None):
             pass

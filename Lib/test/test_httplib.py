@@ -22,11 +22,11 @@ from test.support import warnings_helper
 
 here = os.path.dirname(__file__)
 # Self-signed cert file for 'localhost'
-CERT_localhost = os.path.join(here, 'keycert.pem')
+CERT_localhost = os.path.join(here, 'certdata/keycert.pem')
 # Self-signed cert file for 'fakehostname'
-CERT_fakehostname = os.path.join(here, 'keycert2.pem')
+CERT_fakehostname = os.path.join(here, 'certdata/keycert2.pem')
 # Self-signed cert file for self-signed.pythontest.net
-CERT_selfsigned_pythontestdotnet = os.path.join(here, 'selfsigned_pythontestdotnet.pem')
+CERT_selfsigned_pythontestdotnet = os.path.join(here, 'certdata/selfsigned_pythontestdotnet.pem')
 
 # constants for testing chunked encoding
 chunked_start = (
@@ -1733,8 +1733,6 @@ class HTTPSTest(TestCase):
             h.close()
             self.assertIn('text/html', content_type)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_networked_good_cert(self):
         # We feed the server's cert as a validating cert
         import ssl
@@ -1780,8 +1778,6 @@ class HTTPSTest(TestCase):
                 h.request('GET', '/')
             self.assertEqual(exc_info.exception.reason, 'CERTIFICATE_VERIFY_FAILED')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.platform == 'darwin', 'Occasionally success on macOS')
     def test_local_unknown_cert(self):
         # The custom cert isn't known to the default trust bundle
@@ -1805,8 +1801,6 @@ class HTTPSTest(TestCase):
         self.addCleanup(resp.close)
         self.assertEqual(resp.status, 404)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_local_bad_hostname(self):
         # The (valid) cert doesn't validate the HTTP hostname
         import ssl

@@ -65,8 +65,6 @@ class FunctionPropertiesTest(FuncAttrsTest):
             return 3
         self.assertNotEqual(self.b, duplicate)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copying___code__(self):
         def test(): pass
         self.assertEqual(test(), None)

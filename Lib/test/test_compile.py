@@ -108,7 +108,6 @@ class TestSpecifics(unittest.TestCase):
         exec('z = a', g, d)
         self.assertEqual(d['z'], 12)
 
-    @unittest.skip("TODO: RUSTPYTHON; segmentation fault")
     def test_extended_arg(self):
         # default: 1000 * 2.5 = 2500 repetitions
         repeat = int(sys.getrecursionlimit() * 2.5)
@@ -1039,8 +1038,6 @@ if 1:
         the_dict = "{" + ",".join(f"{x}:{x}" for x in range(dict_size)) + "}"
         self.assertEqual(len(eval(the_dict)), dict_size)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_redundant_jump_in_if_else_break(self):
         # Check if bytecode containing jumps that simply point to the next line
         # is generated around if-else-break style structures. See bpo-42615.
@@ -1070,8 +1067,6 @@ if 1:
             elif instr.opname in HANDLED_JUMPS:
                 self.assertNotEqual(instr.arg, (line + 1)*INSTR_SIZE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_wraparound_jump(self):
         # See https://bugs.python.org/issue46724
 
@@ -1538,8 +1533,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_star_qualified(self):
         snippet = """
             try:
@@ -1551,8 +1544,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_star_as(self):
         snippet = """
             try:
@@ -1564,8 +1555,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_star_finally(self):
         snippet = """
                 try:

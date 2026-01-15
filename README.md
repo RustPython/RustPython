@@ -66,6 +66,18 @@ Welcome to the magnificent Rust Python interpreter
 >>>>>
 ```
 
+### venv
+
+Because RustPython currently doesn't provide a well-packaged installation, using venv helps to use pip easier.
+
+```sh
+$ rustpython -m venv <your_env_name>
+$ . <your_env_name>/bin/activate
+$ python # now `python` is the alias of the RustPython for the new env
+```
+
+### PIP
+
 If you'd like to make https requests, you can enable the `ssl` feature, which
 also lets you install the `pip` package manager. Note that on Windows, you may
 need to install OpenSSL, or you can enable the `ssl-vendor` feature instead,
@@ -76,7 +88,7 @@ Once you've installed rustpython with SSL support, you can install pip by
 running:
 
 ```bash
-cargo install --git https://github.com/RustPython/RustPython --features ssl
+cargo install --git https://github.com/RustPython/RustPython
 rustpython --install-pip
 ```
 
@@ -87,6 +99,13 @@ this isn't officially supported and may be out of date:
 conda install rustpython -c conda-forge
 rustpython
 ```
+
+### SSL provider
+
+For HTTPS requests, `ssl-rustls` feature is enabled by default. You can replace it with `ssl-openssl` feature if your environment requires OpenSSL.
+Note that to use OpenSSL on Windows, you may need to install OpenSSL, or you can enable the `ssl-vendor` feature instead,
+which compiles OpenSSL for you but requires a C compiler, perl, and `make`.
+OpenSSL version 3 is expected and tested in CI. Older versions may not work.
 
 ### WASI
 

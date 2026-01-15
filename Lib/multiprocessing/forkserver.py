@@ -127,12 +127,13 @@ class ForkServer(object):
             cmd = ('from multiprocessing.forkserver import main; ' +
                    'main(%d, %d, %r, **%r)')
 
+            main_kws = {}
             if self._preload_modules:
-                desired_keys = {'main_path', 'sys_path'}
                 data = spawn.get_preparation_data('ignore')
-                data = {x: y for x, y in data.items() if x in desired_keys}
-            else:
-                data = {}
+                if 'sys_path' in data:
+                    main_kws['sys_path'] = data['sys_path']
+                if 'init_main_from_path' in data:
+                    main_kws['main_path'] = data['init_main_from_path']
 
             with socket.socket(socket.AF_UNIX) as listener:
                 address = connection.arbitrary_address('AF_UNIX')
@@ -147,7 +148,7 @@ class ForkServer(object):
                 try:
                     fds_to_pass = [listener.fileno(), alive_r]
                     cmd %= (listener.fileno(), alive_r, self._preload_modules,
-                            data)
+                            main_kws)
                     exe = spawn.get_executable()
                     args = [exe] + util._args_from_interpreter_flags()
                     args += ['-c', cmd]
@@ -181,6 +182,10 @@ def main(listener_fd, alive_r, preload, main_path=None, sys_path=None):
                 __import__(modname)
             except ImportError:
                 pass
+
+        # gh-135335: flush stdout/stderr in case any of the preloaded modules
+        # wrote to them, otherwise children might inherit buffered data
+        util._flush_std_streams()
 
     util._close_stdin()
 

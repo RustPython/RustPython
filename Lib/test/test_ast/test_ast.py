@@ -191,7 +191,6 @@ class AST_Tests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     compile(tree, "<string>", "exec")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_compilation_of_ast_nodes_with_default_end_position_values(self):
         tree = ast.Module(
             body=[
@@ -212,7 +211,6 @@ class AST_Tests(unittest.TestCase):
         # Check that compilation doesn't crash. Note: this may crash explicitly only on debug mode.
         compile(tree, "<string>", "exec")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: required field "end_lineno" missing from alias
     def test_negative_locations_for_compile(self):
         # See https://github.com/python/cpython/issues/130775
         alias = ast.alias(name='traceback', lineno=0, col_offset=0)
@@ -997,7 +995,6 @@ class AST_Tests(unittest.TestCase):
                 f"identifier field can't represent '{constant[0]}' constant"):
                 ast.parse(constant[1], mode="eval")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_precedence_enum(self):
         class _Precedence(enum.IntEnum):
             """Precedence table that originated from python grammar."""
@@ -1725,7 +1722,6 @@ Module(
             compile(mod, "test", "exec")
         self.assertIn("invalid integer value: None", str(cm.exception))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_level_as_none(self):
         body = [
             ast.ImportFrom(
@@ -2400,7 +2396,7 @@ class ASTValidatorTests(unittest.TestCase):
         ast.MatchMapping([], [], rest="_"),
     ]
 
-    @unittest.skip("TODO: RUSTPYTHON; thread 'main' panicked")
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_match_validation_pattern(self):
         name_x = ast.Name("x", ast.Load())
         for pattern in self._MATCH_PATTERNS:

@@ -1807,7 +1807,6 @@ class TestBasicOps(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "tee"):
             next(a)
 
-    @unittest.skip("TODO: RUSTPYTHON; , hangs")
     @threading_helper.requires_working_threading()
     def test_tee_concurrent(self):
         start = threading.Event()

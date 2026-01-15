@@ -1,8 +1,8 @@
-from testutils import assert_raises
-
 import select
-import sys
 import socket
+import sys
+
+from testutils import assert_raises
 
 
 class Nope:

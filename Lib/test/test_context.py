@@ -358,7 +358,6 @@ class ContextTest(unittest.TestCase):
 
         ctx1.run(ctx1_fun)
 
-    @unittest.skip("TODO: RUSTPYTHON; threading is not safe")
     @isolated_context
     @threading_helper.requires_working_threading()
     def test_context_threads_1(self):

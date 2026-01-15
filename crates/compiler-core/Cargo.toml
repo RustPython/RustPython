@@ -1,0 +1,24 @@
+[package]
+name = "rustpython-compiler-core"
+description = "RustPython specific bytecode."
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+# rustpython-parser-core = { workspace = true, features=["location"] }
+ruff_source_file = { workspace = true }
+rustpython-wtf8 = { workspace = true }
+
+bitflags = { workspace = true }
+itertools = { workspace = true }
+malachite-bigint = { workspace = true }
+num-complex = { workspace = true }
+
+lz4_flex = "0.12"
+
+[lints]
+workspace = true

@@ -136,8 +136,6 @@ class AttributesTest(unittest.TestCase):
         if os.name == "nt":
             self.assertEqual(e.winerror, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(os.name == "nt", "Windows-specific test")
     def test_errno_translation(self):
         # ERROR_ALREADY_EXISTS (183) -> EEXIST

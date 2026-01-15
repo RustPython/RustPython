@@ -16,18 +16,20 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls
+  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite
+  # Crates excluded from workspace builds:
+  # - rustpython_wasm: requires wasm target
+  # - rustpython-compiler-source: deprecated
+  # - rustpython-venvlauncher: Windows-only
+  WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
   # test_glob: many failing tests
-  # test_io: many failing tests
-  # test_os: many failing tests
-  # test_pathlib: support.rmtree() failing
+  # test_pathlib: panic by surrogate chars
   # test_posixpath: OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
   # test_venv: couple of failing tests
   WINDOWS_SKIPS: >-
     test_glob
-    test_io
-    test_os
     test_rlcompleter
     test_pathlib
     test_posixpath
@@ -103,8 +105,19 @@ env:
     test_unpack
     test_weakref
     test_yield_from
+  ENV_POLLUTING_TESTS_COMMON: >-
+  ENV_POLLUTING_TESTS_LINUX: >-
+    test.test_multiprocessing_fork.test_processes
+    test.test_multiprocessing_forkserver.test_processes
+    test.test_multiprocessing_spawn.test_processes
+  ENV_POLLUTING_TESTS_MACOS: >-
+    test.test_multiprocessing_forkserver.test_processes
+    test.test_multiprocessing_spawn.test_processes
+  ENV_POLLUTING_TESTS_WINDOWS: >-
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
 
 jobs:
   rust_tests:
@@ -112,59 +125,61 @@ jobs:
     env:
       RUST_BACKTRACE: full
     name: Run rust tests
-    runs-on:  ${{ matrix.os }}
-    timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 30 }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-          - windows-2025 # TODO: Switch to `windows-latest` on 2025/09/30
+        os: [macos-latest, ubuntu-latest, windows-2025]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Set up the Windows environment
-        shell: bash
-        run: |
-          git config --system core.longpaths true
-          cargo install --target-dir=target -v cargo-vcpkg
-          cargo vcpkg -v build
-        if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
 
       - name: run clippy
-        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets --exclude rustpython_wasm -- -Dwarnings
+        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os != 'macOS'
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --verbose --features threading  ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --exclude rustpython-jit --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
 
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
 
+      - name: Test openssl build
+        run: cargo build --no-default-features --features ssl-openssl
+        if: runner.os == 'Linux'
+
+      # - name: Install tk-dev for tkinter build
+      #   run: sudo apt-get update && sudo apt-get install -y tk-dev
+      #   if: runner.os == 'Linux'
+
+      # - name: Test tkinter build
+      #   run: cargo build --features tkinter
+      #   if: runner.os == 'Linux'
+
       - name: Test example projects
-        run:
+        run: |
           cargo run --manifest-path example_projects/barebone/Cargo.toml
           cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
         if: runner.os == 'Linux'
 
-      - name: prepare AppleSilicon build
+      - name: prepare Intel MacOS build
         uses: dtolnay/rust-toolchain@stable
         with:
-          target: aarch64-apple-darwin
+          target: x86_64-apple-darwin
         if: runner.os == 'macOS'
-      - name: Check compilation for Apple Silicon
-        run: cargo check --target aarch64-apple-darwin
+      - name: Check compilation for Intel MacOS
+        run: cargo check --target x86_64-apple-darwin
         if: runner.os == 'macOS'
       - name: prepare iOS build
         uses: dtolnay/rust-toolchain@stable
@@ -172,7 +187,7 @@ jobs:
           target: aarch64-apple-ios
         if: runner.os == 'macOS'
       - name: Check compilation for iOS
-        run: cargo check --target aarch64-apple-ios
+        run: cargo check --target aarch64-apple-ios ${{ env.CARGO_ARGS_NO_SSL }}
         if: runner.os == 'macOS'
 
   exotic_targets:
@@ -181,7 +196,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-gnu
@@ -189,14 +204,14 @@ jobs:
       - name: Install gcc-multilib and musl-tools
         run: sudo apt-get update && sudo apt-get install gcc-multilib musl-tools
       - name: Check compilation for x86 32bit
-        run: cargo check --target i686-unknown-linux-gnu
+        run: cargo check --target i686-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: aarch64-linux-android
 
       - name: Check compilation for android
-        run: cargo check --target aarch64-linux-android
+        run: cargo check --target aarch64-linux-android ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -205,28 +220,28 @@ jobs:
       - name: Install gcc-aarch64-linux-gnu
         run: sudo apt install gcc-aarch64-linux-gnu
       - name: Check compilation for aarch64 linux gnu
-        run: cargo check --target aarch64-unknown-linux-gnu
+        run: cargo check --target aarch64-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-musl
 
       - name: Check compilation for musl
-        run: cargo check --target i686-unknown-linux-musl
+        run: cargo check --target i686-unknown-linux-musl ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freebsd
-        run: cargo check --target x86_64-unknown-freebsd
+        run: cargo check --target x86_64-unknown-freebsd ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freeBSD
-        run: cargo check --target x86_64-unknown-freebsd
+        run: cargo check --target x86_64-unknown-freebsd ${{ env.CARGO_ARGS_NO_SSL }}
 
       # - name: Prepare repository for redox compilation
       #   run: bash scripts/redox/uncomment-cargo.sh
@@ -241,29 +256,18 @@ jobs:
     env:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
-    runs-on:  ${{ matrix.os }}
-    timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 30 }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-          - windows-2025 # TODO: Switch to `windows-latest` on 2025/09/30
+        os: [macos-latest, ubuntu-latest, windows-2025]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Set up the Windows environment
-        shell: bash
-        run: |
-          git config --system core.longpaths true
-          cargo install cargo-vcpkg
-          cargo vcpkg build
-        if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
@@ -273,34 +277,132 @@ jobs:
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }},jit
         if: runner.os != 'macOS'
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
         working-directory: ./extra_tests
+
       - if: runner.os == 'Linux'
         name: run cpython platform-independent tests
-        run:
-          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        timeout-minutes: 45
+
       - if: runner.os == 'Linux'
         name: run cpython platform-dependent tests (Linux)
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        timeout-minutes: 45
+
       - if: runner.os == 'macOS'
         name: run cpython platform-dependent tests (MacOS)
-        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        timeout-minutes: 45
+
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
-        run:
-          target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
+        timeout-minutes: 45
+
+      - if: runner.os == 'Linux'
+        name: run cpython tests to check if env polluters have stopped polluting (Common/Linux)
+        shell: bash
+        run: |
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_LINUX }}; do
+            for i in $(seq 1 10); do
+              set +e
+              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+              exit_code=$?
+              set -e
+              if [ ${exit_code} -eq 3 ]; then
+                echo "Test ${thing} polluted the environment on attempt ${i}."
+                break
+              fi
+            done
+            if [ ${exit_code} -ne 3 ]; then
+              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_LINUX in '.github/workflows/ci.yaml'."
+              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
+              if [ ${exit_code} -ne 0 ]; then
+                echo "Test ${thing} failed with exit code ${exit_code}."
+                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
+              fi
+              exit 1
+            fi
+          done
+        timeout-minutes: 15
+
+      - if: runner.os == 'macOS'
+        name: run cpython tests to check if env polluters have stopped polluting (Common/macOS)
+        shell: bash
+        run: |
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_MACOS }}; do
+            for i in $(seq 1 10); do
+              set +e
+              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+              exit_code=$?
+              set -e
+              if [ ${exit_code} -eq 3 ]; then
+                echo "Test ${thing} polluted the environment on attempt ${i}."
+                break
+              fi
+            done
+            if [ ${exit_code} -ne 3 ]; then
+              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_MACOS in '.github/workflows/ci.yaml'."
+              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
+              if [ ${exit_code} -ne 0 ]; then
+                echo "Test ${thing} failed with exit code ${exit_code}."
+                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
+              fi
+              exit 1
+            fi
+          done
+        timeout-minutes: 15
+
+      - if: runner.os == 'Windows'
+        name: run cpython tests to check if env polluters have stopped polluting (Common/windows)
+        shell: bash
+        run: |
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_WINDOWS }}; do
+            for i in $(seq 1 10); do
+              set +e
+              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+              exit_code=$?
+              set -e
+              if [ ${exit_code} -eq 3 ]; then
+                echo "Test ${thing} polluted the environment on attempt ${i}."
+                break
+              fi
+            done
+            if [ ${exit_code} -ne 3 ]; then
+              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_WINDOWS in '.github/workflows/ci.yaml'."
+              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
+              if [ ${exit_code} -ne 0 ]; then
+                echo "Test ${thing} failed with exit code ${exit_code}."
+                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
+              fi
+              exit 1
+            fi
+          done
+        timeout-minutes: 15
+
       - if: runner.os != 'Windows'
         name: check that --install-pip succeeds
         run: |
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
           target/release/rustpython -m pip install six
-      - if: runner.os != 'Windows'
-        name: Check that ensurepip succeeds.
+      - name: Check that ensurepip succeeds.
         run: |
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
@@ -313,30 +415,40 @@ jobs:
         run: python -I whats_left.py
 
   lint:
-    name: Check Rust code with rustfmt and clippy
+    name: Check Rust code with clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
-            components: rustfmt, clippy
-      - name: run rustfmt
-        run: cargo fmt --check
+          components: clippy
+
       - name: run clippy on wasm
-        run: cargo clippy --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: install ruff
-        run: python -m pip install ruff==0.11.8
+        run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
+
       - name: Ensure docs generate no warnings
         run: cargo doc
-      - name: run ruff check
-        run: ruff check --diff
-      - name: run ruff format
-        run: ruff format --check
+
+      - name: Ensure Lib/_opcode_metadata is updated
+        run: |
+          python scripts/generate_opcode_metadata.py
+          if [ -n "$(git status --porcelain)" ]; then
+            exit 1
+          fi
+
+      - name: Install ruff
+        uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
+        with:
+          version: "0.14.11"
+          args: "--version"
+
+      - run: ruff check --diff
+
+      - run: ruff format --check
+
       - name: install prettier
         run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
+
       - name: check wasm code with prettier
         # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
         run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
@@ -344,9 +456,9 @@ jobs:
       - name: install extra dictionaries
         run: npm install @cspell/dict-en_us @cspell/dict-cpp @cspell/dict-python @cspell/dict-rust @cspell/dict-win32 @cspell/dict-shell
       - name: spell checker
-        uses: streetsidesoftware/cspell-action@v7
+        uses: streetsidesoftware/cspell-action@v8
         with:
-          files: '**/*.rs'
+          files: "**/*.rs"
           incremental_files_only: true
 
   miri:
@@ -357,21 +469,21 @@ jobs:
     env:
       NIGHTLY_CHANNEL: nightly
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
 
       - uses: dtolnay/rust-toolchain@master
         with:
-            toolchain: ${{ env.NIGHTLY_CHANNEL }}
-            components: miri
+          toolchain: ${{ env.NIGHTLY_CHANNEL }}
+          components: miri
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Run tests under miri
         run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test -p rustpython-vm -- miri_test
         env:
-        # miri-ignore-leaks because the type-object circular reference means that there will always be
-        # a memory leak, at least until we have proper cyclic gc
-          MIRIFLAGS: '-Zmiri-ignore-leaks'
+          # miri-ignore-leaks because the type-object circular reference means that there will always be
+          # a memory leak, at least until we have proper cyclic gc
+          MIRIFLAGS: "-Zmiri-ignore-leaks"
 
   wasm:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -379,7 +491,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -390,12 +502,12 @@ jobs:
           wget https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz
           mkdir geckodriver
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           cache: "npm"
           cache-dependency-path: "wasm/demo/package-lock.json"
@@ -411,11 +523,13 @@ jobs:
         with: { wabt-version: "1.0.36" }
       - name: check wasm32-unknown without js
         run: |
-          cd wasm/wasm-unknown-test
-          cargo build --release --verbose
-          if wasm-objdump -xj Import target/wasm32-unknown-unknown/release/wasm_unknown_test.wasm; then
-            echo "ERROR: wasm32-unknown module expects imports from the host environment" >2
+          cd example_projects/wasm32_without_js/rustpython-without-js
+          cargo build
+          cd ..
+          if wasm-objdump -xj Import rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm; then
+            echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
           fi
+          cargo run --release --manifest-path wasm-runtime/Cargo.toml rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
         run: |
@@ -440,7 +554,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasip1

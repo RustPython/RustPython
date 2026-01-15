@@ -26,5 +26,5 @@ fn main() -> ExitCode {
     let result = result.map(|result| {
         println!("name: {result}");
     });
-    ExitCode::from(interp.run(|_vm| result))
+    vm::common::os::exit_code(interp.run(|_vm| result))
 }

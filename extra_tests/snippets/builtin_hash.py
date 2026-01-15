@@ -12,6 +12,14 @@ assert type(hash(1)) is int
 assert type(hash(1.1)) is int
 assert type(hash("")) is int
 
+
+class Evil:
+    def __hash__(self):
+        return 1 << 63
+
+
+assert hash(Evil()) == 4
+
 with assert_raises(TypeError):
     hash({})
 

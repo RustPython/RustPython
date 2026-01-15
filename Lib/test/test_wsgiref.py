@@ -1,6 +1,6 @@
 from unittest import mock
 from test import support
-from test.support import warnings_helper
+from test.support import socket_helper
 from test.test_httpservers import NoLogRequestHandler
 from unittest import TestCase
 from wsgiref.util import setup_testing_defaults
@@ -80,41 +80,26 @@ def run_amock(app=hello_app, data=b"GET / HTTP/1.0\n\n"):
 
     return out.getvalue(), err.getvalue()
 
-def compare_generic_iter(make_it,match):
-    """Utility to compare a generic 2.1/2.2+ iterator with an iterable
 
-    If running under Python 2.2+, this tests the iterator using iter()/next(),
-    as well as __getitem__.  'make_it' must be a function returning a fresh
+def compare_generic_iter(make_it, match):
+    """Utility to compare a generic iterator with an iterable
+
+    This tests the iterator using iter()/next().
+    'make_it' must be a function returning a fresh
     iterator to be tested (since this may test the iterator twice)."""
 
     it = make_it()
-    n = 0
+    if not iter(it) is it:
+        raise AssertionError
     for item in match:
-        if not it[n]==item: raise AssertionError
-        n+=1
+        if not next(it) == item:
+            raise AssertionError
     try:
-        it[n]
-    except IndexError:
+        next(it)
+    except StopIteration:
         pass
     else:
-        raise AssertionError("Too many items from __getitem__",it)
-
-    try:
-        iter, StopIteration
-    except NameError:
-        pass
-    else:
-        # Only test iter mode under 2.2+
-        it = make_it()
-        if not iter(it) is it: raise AssertionError
-        for item in match:
-            if not next(it) == item: raise AssertionError
-        try:
-            next(it)
-        except StopIteration:
-            pass
-        else:
-            raise AssertionError("Too many items from .__next__()", it)
+        raise AssertionError("Too many items from .__next__()", it)
 
 
 class IntegrationTests(TestCase):
@@ -149,10 +134,11 @@ class IntegrationTests(TestCase):
             b"Python test,Python test 2;query=test;/path/"
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; http library needs to be updated
     def test_request_length(self):
         out, err = run_amock(data=b"GET " + (b"x" * 65537) + b" HTTP/1.0\n\n")
         self.assertEqual(out.splitlines()[0],
-                         b"HTTP/1.0 414 Request-URI Too Long")
+                         b"HTTP/1.0 414 URI Too Long")
 
     def test_validated_hello(self):
         out, err = run_amock(validator(hello_app))
@@ -264,7 +250,7 @@ class IntegrationTests(TestCase):
         class WsgiHandler(NoLogRequestHandler, WSGIRequestHandler):
             pass
 
-        server = make_server(support.HOST, 0, app, handler_class=WsgiHandler)
+        server = make_server(socket_helper.HOST, 0, app, handler_class=WsgiHandler)
         self.addCleanup(server.server_close)
         interrupted = threading.Event()
 
@@ -339,7 +325,6 @@ class UtilityTests(TestCase):
         util.setup_testing_defaults(kw)
         self.assertEqual(util.request_uri(kw,query),uri)
 
-    @warnings_helper.ignore_warnings(category=DeprecationWarning)
     def checkFW(self,text,size,match):
 
         def make_it(text=text,size=size):
@@ -357,15 +342,6 @@ class UtilityTests(TestCase):
 
         it.close()
         self.assertTrue(it.filelike.closed)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_filewrapper_getitem_deprecation(self):
-        wrapper = util.FileWrapper(StringIO('foobar'), 3)
-        with self.assertWarnsRegex(DeprecationWarning,
-                                   r'Use iterator protocol instead'):
-            # This should have returned 'bar'.
-            self.assertEqual(wrapper[1], 'foo')
 
     def testSimpleShifts(self):
         self.checkShift('','/', '', '/', '')
@@ -472,6 +448,10 @@ class UtilityTests(TestCase):
         ).split():
             for alt in hop, hop.title(), hop.upper(), hop.lower():
                 self.assertFalse(util.is_hop_by_hop(alt))
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_filewrapper_getitem_deprecation(self):
+        return super().test_filewrapper_getitem_deprecation()
 
 class HeaderTests(TestCase):
 
@@ -581,7 +561,7 @@ class HandlerTests(TestCase):
         # Test handler.environ as a dict
         expected = {}
         setup_testing_defaults(expected)
-        # Handler inherits os_environ variables which are not overriden
+        # Handler inherits os_environ variables which are not overridden
         # by SimpleHandler.add_cgi_vars() (SimpleHandler.base_env)
         for key, value in os_environ.items():
             if key not in expected:
@@ -821,8 +801,6 @@ class HandlerTests(TestCase):
             b"Hello, world!",
             written)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testClientConnectionTerminations(self):
         environ = {"SERVER_PROTOCOL": "HTTP/1.0"}
         for exception in (
@@ -841,8 +819,6 @@ class HandlerTests(TestCase):
 
                 self.assertFalse(stderr.getvalue())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testDontResetInternalStateOnException(self):
         class CustomException(ValueError):
             pass

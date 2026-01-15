@@ -545,9 +545,6 @@ class ConnectionTests(unittest.TestCase):
                     cx.isolation_level = level
                     self.assertEqual(cx.isolation_level, level)
 
-    # TODO: RUSTPYTHON
-    # @unittest.expectedFailure
-    @unittest.skip("TODO: RUSTPYTHON deadlock")
     def test_connection_reinit(self):
         db = ":memory:"
         cx = sqlite.connect(db)
@@ -573,8 +570,6 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(all(isinstance(r, sqlite.Row) for r in rows))
         self.assertEqual([r[0] for r in rows], ["2", "3"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_connection_bad_reinit(self):
         cx = sqlite.connect(":memory:")
         with cx:
@@ -589,11 +584,11 @@ class ConnectionTests(unittest.TestCase):
                                    ((v,) for v in range(3)))
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class UninitialisedConnectionTests(unittest.TestCase):
     def setUp(self):
         self.cx = sqlite.Connection.__new__(sqlite.Connection)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_uninit_operations(self):
         funcs = (
             lambda: self.cx.isolation_level,
@@ -1469,8 +1464,6 @@ class BlobTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite.ProgrammingError, msg):
                 blob[0] = b""
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_closed_db_read(self):
         with memory_database() as cx:
             cx.execute("create table test(b blob)")
@@ -1739,8 +1732,6 @@ class ClosedConTests(unittest.TestCase):
             con()
 
 class ClosedCurTests(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_closed(self):
         con = sqlite.connect(":memory:")
         cur = con.cursor()

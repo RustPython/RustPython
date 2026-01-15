@@ -1886,8 +1886,6 @@ class DeprecatedTests(unittest.TestCase):
             isinstance(cell.cell_contents, deprecated) for cell in d.__closure__
         ))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inspect(self):
         @deprecated("depr")
         def sync():
@@ -1911,8 +1909,6 @@ class DeprecatedTests(unittest.TestCase):
         self.assertFalse(inspect.iscoroutinefunction(Cls.sync))
         self.assertTrue(inspect.iscoroutinefunction(Cls.coro))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inspect_class_signature(self):
         class Cls1:  # no __init__ or __new__
             pass

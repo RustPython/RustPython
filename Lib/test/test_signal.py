@@ -13,9 +13,10 @@ import threading
 import time
 import unittest
 from test import support
-from test.support import os_helper
+from test.support import (
+    is_apple, is_apple_mobile, os_helper, threading_helper
+)
 from test.support.script_helper import assert_python_ok, spawn_python
-from test.support import threading_helper
 try:
     import _testcapi
 except ImportError:
@@ -24,8 +25,6 @@ except ImportError:
 
 class GenericTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_enums(self):
         for name in dir(signal):
             sig = getattr(signal, name)
@@ -82,8 +81,6 @@ class PosixTests(unittest.TestCase):
     def create_handler_with_partial(self, argument):
         return functools.partial(self.trivial_signal_handler, argument)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_out_of_range_signal_number_raises_error(self):
         self.assertRaises(ValueError, signal.getsignal, 4242)
 
@@ -126,23 +123,19 @@ class PosixTests(unittest.TestCase):
         self.assertEqual(signal.getsignal(signal.SIGHUP), hup)
         self.assertEqual(0, argument.repr_count)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform.startswith("netbsd"),
+                     "gh-124083: strsignal is not supported on NetBSD")
     def test_strsignal(self):
         self.assertIn("Interrupt", signal.strsignal(signal.SIGINT))
         self.assertIn("Terminated", signal.strsignal(signal.SIGTERM))
         self.assertIn("Hangup", signal.strsignal(signal.SIGHUP))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
     def test_interprocess_signal(self):
         dirname = os.path.dirname(__file__)
         script = os.path.join(dirname, 'signalinterproctester.py')
         assert_python_ok(script)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(
         hasattr(signal, "valid_signals"),
         "requires signal.valid_signals"
@@ -190,8 +183,6 @@ class PosixTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform == "win32", "Windows specific")
 class WindowsSignalTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_signals(self):
         s = signal.valid_signals()
         self.assertIsInstance(s, set)
@@ -201,8 +192,7 @@ class WindowsSignalTests(unittest.TestCase):
         self.assertNotIn(signal.NSIG, s)
         self.assertLess(len(s), signal.NSIG)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_issue9324(self):
         # Updated for issue #10003, adding SIGBREAK
         handler = lambda x, y: None
@@ -224,8 +214,6 @@ class WindowsSignalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             signal.signal(7, handler)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(sys.executable, "sys.executable required.")
     @support.requires_subprocess()
     def test_keyboard_interrupt_exit_code(self):
@@ -253,13 +241,11 @@ class WakeupFDTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             signal.set_wakeup_fd(signal.SIGINT, False)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_invalid_fd(self):
         fd = os_helper.make_bad_fd()
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(support.has_socket_support, "needs working sockets.")
     def test_invalid_socket(self):
         sock = socket.socket()
@@ -268,7 +254,6 @@ class WakeupFDTests(unittest.TestCase):
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     # Emscripten does not support fstat on pipes yet.
     # https://github.com/emscripten-core/emscripten/issues/16414
     @unittest.skipIf(support.is_emscripten, "Emscripten cannot fstat pipes.")
@@ -290,7 +275,6 @@ class WakeupFDTests(unittest.TestCase):
         self.assertEqual(signal.set_wakeup_fd(-1), w2)
         self.assertEqual(signal.set_wakeup_fd(-1), -1)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipIf(support.is_emscripten, "Emscripten cannot fstat pipes.")
     @unittest.skipUnless(support.has_socket_support, "needs working sockets.")
     def test_set_wakeup_fd_socket_result(self):
@@ -717,7 +701,7 @@ class WakeupSocketSignalTests(unittest.TestCase):
 @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
 class SiginterruptTest(unittest.TestCase):
 
-    def readpipe_interrupted(self, interrupt):
+    def readpipe_interrupted(self, interrupt, timeout=support.SHORT_TIMEOUT):
         """Perform a read during which a signal will arrive.  Return True if the
         read is interrupted by the signal and raises an exception.  Return False
         if it returns normally.
@@ -765,7 +749,7 @@ class SiginterruptTest(unittest.TestCase):
                 # wait until the child process is loaded and has started
                 first_line = process.stdout.readline()
 
-                stdout, stderr = process.communicate(timeout=support.SHORT_TIMEOUT)
+                stdout, stderr = process.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 process.kill()
                 return False
@@ -777,8 +761,6 @@ class SiginterruptTest(unittest.TestCase):
                                     % (exitcode, stdout))
                 return (exitcode == 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_without_siginterrupt(self):
         # If a signal handler is installed and siginterrupt is not called
         # at all, when that signal arrives, it interrupts a syscall that's in
@@ -786,8 +768,6 @@ class SiginterruptTest(unittest.TestCase):
         interrupted = self.readpipe_interrupted(None)
         self.assertTrue(interrupted)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_siginterrupt_on(self):
         # If a signal handler is installed and siginterrupt is called with
         # a true value for the second argument, when that signal arrives, it
@@ -800,7 +780,7 @@ class SiginterruptTest(unittest.TestCase):
         # If a signal handler is installed and siginterrupt is called with
         # a false value for the second argument, when that signal arrives, it
         # does not interrupt a syscall that's in progress.
-        interrupted = self.readpipe_interrupted(False)
+        interrupted = self.readpipe_interrupted(False, timeout=2)
         self.assertFalse(interrupted)
 
 
@@ -840,8 +820,6 @@ class ItimerTest(unittest.TestCase):
         self.hndl_called = True
         signal.setitimer(signal.ITIMER_PROF, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_exc(self):
         # XXX I'm assuming -1 is an invalid itimer, but maybe some platform
         # defines it ?
@@ -851,27 +829,23 @@ class ItimerTest(unittest.TestCase):
             self.assertRaises(signal.ItimerError,
                               signal.setitimer, signal.ITIMER_REAL, -1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_real(self):
         self.itimer = signal.ITIMER_REAL
         signal.setitimer(self.itimer, 1.0)
         signal.pause()
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
-    @unittest.skipIf(sys.platform in ('netbsd5',),
+    @unittest.skipIf(sys.platform in ('netbsd5',) or is_apple_mobile,
         'itimer not reliable (does not mix well with threading) on some BSDs.')
     def test_itimer_virtual(self):
         self.itimer = signal.ITIMER_VIRTUAL
         signal.signal(signal.SIGVTALRM, self.sig_vtalrm)
-        signal.setitimer(self.itimer, 0.3, 0.2)
+        signal.setitimer(self.itimer, 0.001, 0.001)
 
         for _ in support.busy_retry(support.LONG_TIMEOUT):
             # use up some virtual time by doing real work
-            _ = pow(12345, 67890, 10000019)
+            _ = sum(i * i for i in range(10**5))
             if signal.getitimer(self.itimer) == (0.0, 0.0):
                 # sig_vtalrm handler stopped this itimer
                 break
@@ -881,8 +855,6 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_prof(self):
         self.itimer = signal.ITIMER_PROF
         signal.signal(signal.SIGPROF, self.sig_prof)
@@ -890,7 +862,7 @@ class ItimerTest(unittest.TestCase):
 
         for _ in support.busy_retry(support.LONG_TIMEOUT):
             # do some work
-            _ = pow(12345, 67890, 10000019)
+            _ = sum(i * i for i in range(10**5))
             if signal.getitimer(self.itimer) == (0.0, 0.0):
                 # sig_prof handler stopped this itimer
                 break
@@ -900,8 +872,6 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setitimer_tiny(self):
         # bpo-30807: C setitimer() takes a microsecond-resolution interval.
         # Check that float -> timeval conversion doesn't round
@@ -1358,15 +1328,18 @@ class StressTest(unittest.TestCase):
         def handler(signum, frame):
             sigs.append(signum)
 
-        self.setsig(signal.SIGUSR1, handler)
+        # On Android, SIGUSR1 is unreliable when used in close proximity to
+        # another signal – see Android/testbed/app/src/main/python/main.py.
+        # So we use a different signal.
+        self.setsig(signal.SIGUSR2, handler)
         self.setsig(signal.SIGALRM, handler)  # for ITIMER_REAL
 
         expected_sigs = 0
         while expected_sigs < N:
             # Hopefully the SIGALRM will be received somewhere during
-            # initial processing of SIGUSR1.
+            # initial processing of SIGUSR2.
             signal.setitimer(signal.ITIMER_REAL, 1e-6 + random.random() * 1e-5)
-            os.kill(os.getpid(), signal.SIGUSR1)
+            os.kill(os.getpid(), signal.SIGUSR2)
 
             expected_sigs += 2
             # Wait for handlers to run to avoid signal coalescing
@@ -1378,8 +1351,7 @@ class StressTest(unittest.TestCase):
         # Python handler
         self.assertEqual(len(sigs), N, "Some signals were lost")
 
-    @unittest.skip("TODO: RUSTPYTHON; hang")
-    @unittest.skipIf(sys.platform == "darwin", "crashes due to system bug (FB13453490)")
+    @unittest.skipIf(is_apple, "crashes due to system bug (FB13453490)")
     @unittest.skipUnless(hasattr(signal, "SIGUSR1"),
                          "test needs SIGUSR1")
     @threading_helper.requires_working_threading()
@@ -1442,14 +1414,11 @@ class StressTest(unittest.TestCase):
 
 class RaiseSignalTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sigint(self):
         with self.assertRaises(KeyboardInterrupt):
             signal.raise_signal(signal.SIGINT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform != "win32", "Windows specific test")
     def test_invalid_argument(self):
         try:
@@ -1462,8 +1431,6 @@ class RaiseSignalTest(unittest.TestCase):
             else:
                 raise
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_handler(self):
         is_ok = False
         def handler(a, b):
@@ -1475,8 +1442,7 @@ class RaiseSignalTest(unittest.TestCase):
         signal.raise_signal(signal.SIGINT)
         self.assertTrue(is_ok)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test__thread_interrupt_main(self):
         # See https://github.com/python/cpython/issues/102397
         code = """if 1:

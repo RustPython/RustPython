@@ -17,15 +17,14 @@
 # We then run this second generated script with RustPython.
 
 import argparse
-import re
-import os
-import re
-import sys
-import json
-import warnings
 import inspect
-import subprocess
+import json
+import os
 import platform
+import re
+import subprocess
+import sys
+import warnings
 from pydoc import ModuleScanner
 
 if not sys.flags.isolated:
@@ -327,13 +326,13 @@ libdir = ""
 def compare():
     import inspect
     import io
+    import json
     import os
+    import platform
     import re
     import sys
     import warnings
     from contextlib import redirect_stdout
-    import json
-    import platform
 
     def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)
@@ -362,7 +361,9 @@ def compare():
 
     if platform.python_implementation() == "CPython":
         if not_implementeds:
-            sys.exit("ERROR: CPython should have all the methods")
+            sys.exit(
+                f"ERROR: CPython should have all the methods but missing: {not_implementeds}"
+            )
 
     mod_names = [
         name.decode()
@@ -456,6 +457,7 @@ result = subprocess.run(
 )
 # The last line should be json output, the rest of the lines can contain noise
 # because importing certain modules can print stuff to stdout/stderr
+print(result.stderr, file=sys.stderr)
 result = json.loads(result.stdout.splitlines()[-1])
 
 if args.json:

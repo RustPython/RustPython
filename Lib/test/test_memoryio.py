@@ -724,8 +724,6 @@ class CBytesIOTest(PyBytesIOTest):
     ioclass = io.BytesIO
     UnsupportedOperation = io.UnsupportedOperation
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bytes_array(self):
         super().test_bytes_array()
 
@@ -739,8 +737,6 @@ class CBytesIOTest(PyBytesIOTest):
     def test_getbuffer(self):
         super().test_getbuffer()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_init(self):
         super().test_init()
 
@@ -770,8 +766,6 @@ class CBytesIOTest(PyBytesIOTest):
     def test_seek(self):
         super().test_seek()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclassing(self):
         super().test_subclassing()
 
@@ -884,8 +878,6 @@ class CStringIOTest(PyStringIOTest):
     def test_flags(self):
         super().test_flags()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_init(self):
         super().test_init()
 

@@ -105,7 +105,6 @@ class ThreadRunningTests(BasicThreadTest):
 
         thread.stack_size(0)
 
-    @unittest.skip("TODO: RUSTPYTHON, weakref destructors")
     def test__count(self):
         # Test the _count() function.
         orig = thread._count()

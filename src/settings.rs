@@ -267,8 +267,10 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
         match &*name {
             "dev" => settings.dev_mode = true,
+            "faulthandler" => settings.faulthandler = true,
             "warn_default_encoding" => settings.warn_default_encoding = true,
             "no_sig_int" => settings.install_signal_handlers = false,
+            "no_debug_ranges" => settings.code_debug_ranges = false,
             "int_max_str_digits" => {
                 settings.int_max_str_digits = match value.unwrap().parse() {
                     Ok(digits) if digits == 0 || digits >= 640 => digits,
@@ -291,9 +293,31 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     settings.warn_default_encoding =
         settings.warn_default_encoding || env_bool("PYTHONWARNDEFAULTENCODING");
+    settings.faulthandler = settings.faulthandler || env_bool("PYTHONFAULTHANDLER");
+    if env_bool("PYTHONNODEBUGRANGES") {
+        settings.code_debug_ranges = false;
+    }
+
+    // Parse PYTHONIOENCODING=encoding[:errors]
+    if let Some(val) = get_env("PYTHONIOENCODING")
+        && let Some(val_str) = val.to_str()
+        && !val_str.is_empty()
+    {
+        if let Some((enc, err)) = val_str.split_once(':') {
+            if !enc.is_empty() {
+                settings.stdio_encoding = Some(enc.to_owned());
+            }
+            if !err.is_empty() {
+                settings.stdio_errors = Some(err.to_owned());
+            }
+        } else {
+            settings.stdio_encoding = Some(val_str.to_owned());
+        }
+    }
 
     if settings.dev_mode {
-        settings.warnoptions.push("default".to_owned())
+        settings.warnoptions.push("default".to_owned());
+        settings.faulthandler = true;
     }
     if settings.bytes_warning > 0 {
         let warn = if settings.bytes_warning > 1 {
@@ -336,6 +360,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 /// Helper function to retrieve a sequence of paths from an environment variable.
 fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
     env::var_os(env_variable_name)
+        .filter(|v| !v.is_empty())
         .into_iter()
         .flat_map(move |paths| {
             split_paths(&paths)

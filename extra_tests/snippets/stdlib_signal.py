@@ -1,6 +1,7 @@
 import signal
-import time
 import sys
+import time
+
 from testutils import assert_raises
 
 assert_raises(TypeError, lambda: signal.signal(signal.SIGINT, 2))

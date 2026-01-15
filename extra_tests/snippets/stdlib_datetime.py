@@ -4,27 +4,20 @@ See http://www.zope.org/Members/fdrake/DateTimeWiki/TestCases
 """
 
 # import copy
-import sys
-import random
-
-from operator import lt, le, gt, ge, eq, ne, truediv, floordiv, mod
-
 import datetime as datetime_module
-from datetime import MINYEAR, MAXYEAR
-from datetime import timedelta
-from datetime import tzinfo
-from datetime import time
-from datetime import timezone
-from datetime import date, datetime
+import random
+import sys
 import time as _time
+from datetime import MAXYEAR, MINYEAR, date, datetime, time, timedelta, timezone, tzinfo
+from operator import eq, floordiv, ge, gt, le, lt, mod, ne, truediv
 
 from testutils import (
-    assert_raises,
     assert_equal,
-    assert_true,
     assert_false,
-    assert_isinstance,
     assert_in,
+    assert_isinstance,
+    assert_raises,
+    assert_true,
 )
 
 # An arbitrary collection of objects of non-datetime types, for testing

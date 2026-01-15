@@ -1,13 +1,9 @@
-import os as _os, sys as _sys
+import os as _os
+import sys as _sys
 import types as _types
-
-from _ctypes import RTLD_LOCAL, RTLD_GLOBAL
-from _ctypes import sizeof
-from _ctypes import _SimpleCData, Array
+from _ctypes import RTLD_GLOBAL, RTLD_LOCAL, Array, _SimpleCData, sizeof
 from _ctypes import CFuncPtr as _CFuncPtr
-
 from struct import calcsize as _calcsize
-
 
 assert Array.__class__.__name__ == "PyCArrayType"
 assert Array.__base__.__name__ == "_CData"
@@ -24,8 +20,14 @@ if _os.name == "posix" and _sys.platform == "darwin":
 
 from _ctypes import (
     FUNCFLAG_CDECL as _FUNCFLAG_CDECL,
+)
+from _ctypes import (
     FUNCFLAG_PYTHONAPI as _FUNCFLAG_PYTHONAPI,
+)
+from _ctypes import (
     FUNCFLAG_USE_ERRNO as _FUNCFLAG_USE_ERRNO,
+)
+from _ctypes import (
     FUNCFLAG_USE_LASTERROR as _FUNCFLAG_USE_LASTERROR,
 )
 
@@ -40,7 +42,6 @@ def create_string_buffer(init, size=None):
             size = len(init) + 1
         _sys.audit("ctypes.create_string_buffer", init, size)
         buftype = c_char.__mul__(size)
-        print(type(c_char.__mul__(size)))
         # buftype = c_char * size
         buf = buftype()
         buf.value = init
@@ -211,8 +212,8 @@ assert i.value == 42
 assert abs(f.value - 3.14) < 1e-06
 
 if _os.name == "nt":
-    from _ctypes import LoadLibrary as _dlopen
     from _ctypes import FUNCFLAG_STDCALL as _FUNCFLAG_STDCALL
+    from _ctypes import LoadLibrary as _dlopen
 elif _os.name == "posix":
     from _ctypes import dlopen as _dlopen
 
@@ -334,8 +335,14 @@ cdll = LibraryLoader(CDLL)
 test_byte_array = create_string_buffer(b"Hello, World!\n")
 assert test_byte_array._length_ == 15
 
-if _os.name == "posix" or _sys.platform == "darwin":
-    pass
+if _os.name == "posix":
+    if _sys.platform == "darwin":
+        libc = cdll.LoadLibrary("libc.dylib")
+        libc.rand()
+        i = c_int(1)
+        # print("start srand")
+        # print(libc.srand(i))
+        # print(test_byte_array)
 else:
     import os
 
@@ -343,9 +350,9 @@ else:
     libc.rand()
     i = c_int(1)
     print("start srand")
-    print(libc.srand(i))
-    print(test_byte_array)
-    print(test_byte_array._type_)
+    # print(libc.srand(i))
+    # print(test_byte_array)
+    # print(test_byte_array._type_)
     # print("start printf")
     # libc.printf(test_byte_array)
 
@@ -390,3 +397,5 @@ else:
         return buf.value
 
     # print(get_win_folder_via_ctypes("CSIDL_DOWNLOADS"))
+
+print("done")

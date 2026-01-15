@@ -432,8 +432,6 @@ class ConstructorTestCase(unittest.TestCase):
         with self.assertRaises(TypeError):
             h = hmac.new("key", digestmod='sha256')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_withtext(self):
         # Constructor call with text.
@@ -443,8 +441,6 @@ class ConstructorTestCase(unittest.TestCase):
             self.fail("Constructor call with text argument raised exception.")
         self.assertEqual(h.hexdigest(), self.expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_with_bytearray(self):
         try:
@@ -454,8 +450,6 @@ class ConstructorTestCase(unittest.TestCase):
             self.fail("Constructor call with bytearray arguments raised exception.")
         self.assertEqual(h.hexdigest(), self.expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_with_memoryview_msg(self):
         try:
@@ -464,8 +458,6 @@ class ConstructorTestCase(unittest.TestCase):
             self.fail("Constructor call with memoryview msg raised exception.")
         self.assertEqual(h.hexdigest(), self.expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_withmodule(self):
         # Constructor call with text and digest module.
@@ -511,6 +503,14 @@ class SanityTestCase(unittest.TestCase):
             h.copy()
         except Exception:
             self.fail("Exception raised during normal usage of HMAC class.")
+
+
+class UpdateTestCase(unittest.TestCase):
+    @hashlib_helper.requires_hashdigest('sha256')
+    def test_with_str_update(self):
+        with self.assertRaises(TypeError):
+            h = hmac.new(b"key", digestmod='sha256')
+            h.update("invalid update")
 
 
 class CopyTestCase(unittest.TestCase):

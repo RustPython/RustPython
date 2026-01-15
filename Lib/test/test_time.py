@@ -284,8 +284,6 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(TypeError, time.strptime, b'2009', "%Y")
         self.assertRaises(TypeError, time.strptime, '2009', b'%Y')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_strptime_exception_context(self):
         # check that this doesn't chain exceptions needlessly (see #17572)
         with self.assertRaises(ValueError) as e:
@@ -624,7 +622,6 @@ class _TestAsctimeYear:
         self.assertEqual(self.yearstr(12345), '12345')
         self.assertEqual(self.yearstr(123456789), '123456789')
 
-@unittest.skip("TODO: RUSTPYTHON, ValueError: invalid struct_time parameter")
 class _TestStrftimeYear:
 
     # Issue 13305:  For years < 1000, the value is not always

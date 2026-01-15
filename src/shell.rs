@@ -1,7 +1,7 @@
 mod helper;
 
 use rustpython_compiler::{
-    CompileError, ParseError, parser::FStringErrorType, parser::LexicalErrorType,
+    CompileError, ParseError, parser::InterpolatedStringErrorType, parser::LexicalErrorType,
     parser::ParseErrorType,
 };
 use rustpython_vm::{
@@ -52,7 +52,7 @@ fn shell_exec(
         Err(CompileError::Parse(ParseError {
             error:
                 ParseErrorType::Lexical(LexicalErrorType::FStringError(
-                    FStringErrorType::UnterminatedTripleQuotedString,
+                    InterpolatedStringErrorType::UnterminatedTripleQuotedString,
                 )),
             ..
         })) => ShellExecResult::ContinueLine,
@@ -207,6 +207,13 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 Err(keyboard_interrupt)
             }
             ReadlineResult::Eof => {
+                break;
+            }
+            #[cfg(unix)]
+            ReadlineResult::OsError(num) => {
+                let os_error =
+                    vm.new_exception_msg(vm.ctx.exceptions.os_error.to_owned(), format!("{num:?}"));
+                vm.print_exception(os_error);
                 break;
             }
             ReadlineResult::Other(err) => {

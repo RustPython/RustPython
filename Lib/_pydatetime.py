@@ -402,6 +402,8 @@ def _parse_hh_mm_ss_ff(tstr):
             raise ValueError("Invalid microsecond component")
         else:
             pos += 1
+            if not all(map(_is_ascii_digit, tstr[pos:])):
+                raise ValueError("Non-digit values in fraction")
 
             len_remainder = len_str - pos
 
@@ -413,9 +415,6 @@ def _parse_hh_mm_ss_ff(tstr):
             time_comps[3] = int(tstr[pos:(pos+to_parse)])
             if to_parse < 6:
                 time_comps[3] *= _FRACTION_CORRECTION[to_parse-1]
-            if (len_remainder > to_parse
-                    and not all(map(_is_ascii_digit, tstr[(pos+to_parse):]))):
-                raise ValueError("Non-digit values in unparsed fraction")
 
     return time_comps
 
@@ -555,10 +554,6 @@ def _check_time_fields(hour, minute, second, microsecond, fold):
 def _check_tzinfo_arg(tz):
     if tz is not None and not isinstance(tz, tzinfo):
         raise TypeError("tzinfo argument must be None or of a tzinfo subclass")
-
-def _cmperror(x, y):
-    raise TypeError("can't compare '%s' to '%s'" % (
-                    type(x).__name__, type(y).__name__))
 
 def _divide_and_round(a, b):
     """divide a by b and round result to the nearest integer
@@ -970,6 +965,8 @@ class date:
     @classmethod
     def fromtimestamp(cls, t):
         "Construct a date from a POSIX timestamp (like time.time())."
+        if t is None:
+            raise TypeError("'NoneType' object cannot be interpreted as an integer")
         y, m, d, hh, mm, ss, weekday, jday, dst = _time.localtime(t)
         return cls(y, m, d)
 
@@ -1059,8 +1056,8 @@ class date:
         This is 'YYYY-MM-DD'.
 
         References:
-        - http://www.w3.org/TR/NOTE-datetime
-        - http://www.cl.cam.ac.uk/~mgk25/iso-time.html
+        - https://www.w3.org/TR/NOTE-datetime
+        - https://www.cl.cam.ac.uk/~mgk25/iso-time.html
         """
         return "%04d-%02d-%02d" % (self._year, self._month, self._day)
 
@@ -1108,35 +1105,38 @@ class date:
             day = self._day
         return type(self)(year, month, day)
 
+    __replace__ = replace
+
     # Comparisons of date objects with other.
 
     def __eq__(self, other):
-        if isinstance(other, date):
+        if isinstance(other, date) and not isinstance(other, datetime):
             return self._cmp(other) == 0
         return NotImplemented
 
     def __le__(self, other):
-        if isinstance(other, date):
+        if isinstance(other, date) and not isinstance(other, datetime):
             return self._cmp(other) <= 0
         return NotImplemented
 
     def __lt__(self, other):
-        if isinstance(other, date):
+        if isinstance(other, date) and not isinstance(other, datetime):
             return self._cmp(other) < 0
         return NotImplemented
 
     def __ge__(self, other):
-        if isinstance(other, date):
+        if isinstance(other, date) and not isinstance(other, datetime):
             return self._cmp(other) >= 0
         return NotImplemented
 
     def __gt__(self, other):
-        if isinstance(other, date):
+        if isinstance(other, date) and not isinstance(other, datetime):
             return self._cmp(other) > 0
         return NotImplemented
 
     def _cmp(self, other):
         assert isinstance(other, date)
+        assert not isinstance(other, datetime)
         y, m, d = self._year, self._month, self._day
         y2, m2, d2 = other._year, other._month, other._day
         return _cmp((y, m, d), (y2, m2, d2))
@@ -1191,7 +1191,7 @@ class date:
         The first week is 1; Monday is 1 ... Sunday is 7.
 
         ISO calendar algorithm taken from
-        http://www.phys.uu.nl/~vgent/calendar/isocalendar.htm
+        https://www.phys.uu.nl/~vgent/calendar/isocalendar.htm
         (used with permission)
         """
         year = self._year
@@ -1633,6 +1633,8 @@ class time:
             fold = self._fold
         return type(self)(hour, minute, second, microsecond, tzinfo, fold=fold)
 
+    __replace__ = replace
+
     # Pickle support.
 
     def _getstate(self, protocol=3):
@@ -1680,7 +1682,7 @@ class datetime(date):
     The year, month and day arguments are required. tzinfo may be None, or an
     instance of a tzinfo subclass. The remaining arguments may be ints.
     """
-    __slots__ = date.__slots__ + time.__slots__
+    __slots__ = time.__slots__
 
     def __new__(cls, year, month=None, day=None, hour=0, minute=0, second=0,
                 microsecond=0, tzinfo=None, *, fold=0):
@@ -1979,6 +1981,8 @@ class datetime(date):
         return type(self)(year, month, day, hour, minute, second,
                           microsecond, tzinfo, fold=fold)
 
+    __replace__ = replace
+
     def _local_timezone(self):
         if self.tzinfo is None:
             ts = self._mktime()
@@ -2040,7 +2044,7 @@ class datetime(date):
         By default, the fractional part is omitted if self.microsecond == 0.
 
         If self.tzinfo is not None, the UTC offset is also attached, giving
-        giving a full format of 'YYYY-MM-DD HH:MM:SS.mmmmmm+HH:MM'.
+        a full format of 'YYYY-MM-DD HH:MM:SS.mmmmmm+HH:MM'.
 
         Optional argument sep specifies the separator between date and
         time, default 'T'.
@@ -2131,42 +2135,32 @@ class datetime(date):
     def __eq__(self, other):
         if isinstance(other, datetime):
             return self._cmp(other, allow_mixed=True) == 0
-        elif not isinstance(other, date):
-            return NotImplemented
         else:
-            return False
+            return NotImplemented
 
     def __le__(self, other):
         if isinstance(other, datetime):
             return self._cmp(other) <= 0
-        elif not isinstance(other, date):
-            return NotImplemented
         else:
-            _cmperror(self, other)
+            return NotImplemented
 
     def __lt__(self, other):
         if isinstance(other, datetime):
             return self._cmp(other) < 0
-        elif not isinstance(other, date):
-            return NotImplemented
         else:
-            _cmperror(self, other)
+            return NotImplemented
 
     def __ge__(self, other):
         if isinstance(other, datetime):
             return self._cmp(other) >= 0
-        elif not isinstance(other, date):
-            return NotImplemented
         else:
-            _cmperror(self, other)
+            return NotImplemented
 
     def __gt__(self, other):
         if isinstance(other, datetime):
             return self._cmp(other) > 0
-        elif not isinstance(other, date):
-            return NotImplemented
         else:
-            _cmperror(self, other)
+            return NotImplemented
 
     def _cmp(self, other, allow_mixed=False):
         assert isinstance(other, datetime)
@@ -2311,7 +2305,6 @@ datetime.resolution = timedelta(microseconds=1)
 
 def _isoweek1monday(year):
     # Helper to calculate the day number of the Monday starting week 1
-    # XXX This could be done more efficiently
     THURSDAY = 3
     firstday = _ymd2ord(year, 1, 1)
     firstweekday = (firstday + 6) % 7  # See weekday() above
@@ -2340,6 +2333,9 @@ class timezone(tzinfo):
                              "strictly between -timedelta(hours=24) and "
                              "timedelta(hours=24).")
         return cls._create(offset, name)
+
+    def __init_subclass__(cls):
+        raise TypeError("type 'datetime.timezone' is not an acceptable base type")
 
     @classmethod
     def _create(cls, offset, name=None):

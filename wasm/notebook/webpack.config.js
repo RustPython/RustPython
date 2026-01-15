@@ -18,7 +18,7 @@ module.exports = (env = {}) => {
             alias: {
                 rustpython: path.resolve(
                     __dirname,
-                    env.rustpythonPkg || '../lib/pkg',
+                    env.rustpythonPkg || '../../crates/wasm/pkg',
                 ),
             },
         },

@@ -4,6 +4,7 @@ aenter
 aexit
 aiter
 anext
+anextawaitable
 appendleft
 argcount
 arrayiterator
@@ -147,6 +148,7 @@ nbytes
 ncallbacks
 ndigits
 ndim
+needsfree
 nldecoder
 nlocals
 NOARGS
@@ -167,13 +169,17 @@ pycache
 pycodecs
 pycs
 pyexpat
+PYTHONAPI
 PYTHONBREAKPOINT
 PYTHONDEBUG
 PYTHONDONTWRITEBYTECODE
+PYTHONFAULTHANDLER
 PYTHONHASHSEED
 PYTHONHOME
 PYTHONINSPECT
 PYTHONINTMAXSTRDIGITS
+PYTHONIOENCODING
+PYTHONNODEBUGRANGES
 PYTHONNOUSERSITE
 PYTHONOPTIMIZE
 PYTHONPATH
@@ -195,6 +201,7 @@ readbuffer
 reconstructor
 refcnt
 releaselevel
+reraised
 reverseitemiterator
 reverseiterator
 reversekeyiterator

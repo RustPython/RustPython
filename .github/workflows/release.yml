@@ -17,6 +17,8 @@ permissions:
 
 env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,sqlite,ssl
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
 
 jobs:
   build:
@@ -42,28 +44,21 @@ jobs:
             target: aarch64-apple-darwin
 #          - runner: macos-latest
 #            target: x86_64-apple-darwin
-          - runner: windows-latest
+          - runner: windows-2025
             target: x86_64-pc-windows-msvc
-#          - runner: windows-latest
+#          - runner: windows-2025
 #            target: i686-pc-windows-msvc
-#          - runner: windows-latest
+#          - runner: windows-2025
 #            target: aarch64-pc-windows-msvc
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
       - uses: cargo-bins/cargo-binstall@main
 
       - name: Set up Environment
         shell: bash
         run: rustup target add ${{ matrix.platform.target }}
-      - name: Set up Windows Environment
-        shell: bash
-        run: |
-          git config --global core.longpaths true
-          cargo install --target-dir=target -v cargo-vcpkg
-          cargo vcpkg -v build
-        if: runner.os == 'Windows'
       - name: Set up MacOS Environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
@@ -83,7 +78,7 @@ jobs:
         if: runner.os == 'Windows'
 
       - name: Upload Binary Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
           path: target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}*
@@ -93,7 +88,7 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
@@ -105,14 +100,14 @@ jobs:
         run: cp target/wasm32-wasip1/release/rustpython.wasm target/rustpython-release-wasm32-wasip1.wasm
 
       - name: Upload Binary Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: rustpython-release-wasm32-wasip1
           path: target/rustpython-release-wasm32-wasip1.wasm
 
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
       - uses: mwilliamson/setup-wabt-action@v3
         with: { wabt-version: "1.0.30" }
       - name: build demo
@@ -144,12 +139,18 @@ jobs:
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     needs: [build, build-wasm]
     steps:
+      - uses: actions/checkout@v6.0.1
+
       - name: Download Binary Artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7.0.0
         with:
           path: bin
           pattern: rustpython-*
           merge-multiple: true
+
+      - name: Create Lib Archive
+        run: |
+          zip -r bin/rustpython-lib.zip Lib/
 
       - name: List Binaries
         run: |
@@ -174,6 +175,7 @@ jobs:
               --repo="$GITHUB_REPOSITORY" \
               --title="RustPython $RELEASE_TYPE_NAME $today-$tag #$run" \
               --target="$tag" \
+              --notes "⚠️ **Important**: To run RustPython, you must download both the binary for your platform AND the \`rustpython-lib.zip\` archive. Extract the Lib directory from the archive to the same location as the binary, or set the \`RUSTPYTHONPATH\` environment variable to point to the Lib directory." \
               --generate-notes \
               $PRERELEASE_ARG \
               bin/rustpython-release-*

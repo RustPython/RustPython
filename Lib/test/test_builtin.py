@@ -153,8 +153,6 @@ class BuiltinTest(unittest.TestCase):
         it = pickle.loads(d)
         self.assertEqual(list(it), seq[1:])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_import(self):
         __import__('sys')
         __import__('time')
@@ -1358,7 +1356,6 @@ class BuiltinTest(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old_environ)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON Windows')
     @support.requires_subprocess()
     def test_open_non_inheritable(self):
         fileobj = open(__file__, encoding="utf-8")
@@ -2244,6 +2241,7 @@ class PtyTests(unittest.TestCase):
             expected = terminal_input.decode(sys.stdin.encoding)  # what else?
         self.assertEqual(input_result, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_input_tty(self):
         # Test input() functionality when wired to a tty (the code path
         # is different and invokes GNU readline if available).
@@ -2260,17 +2258,21 @@ class PtyTests(unittest.TestCase):
             self.skipTest("the readline module is loaded")
 
     @unittest.skipUnless(hasattr(sys.stdin, 'detach'), 'TODO: RustPython: requires detach function in TextIOWrapper')
+    @unittest.expectedFailure  # TODO: RUSTPYTHON AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_non_ascii(self):
         self.skip_if_readline()
         # Check stdin/stdout encoding is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "utf-8")
 
     @unittest.skipUnless(hasattr(sys.stdin, 'detach'), 'TODO: RustPython: requires detach function in TextIOWrapper')
+    @unittest.expectedFailure  # TODO: RUSTPYTHON AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_non_ascii_unicode_errors(self):
         self.skip_if_readline()
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
+    @unittest.skip('TODO: RUSTPYTHON FAILURE, WORKER BUG')
+    @unittest.expectedFailure  # TODO: RUSTPYTHON AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_no_stdout_fileno(self):
         # Issue #24402: If stdin is the original terminal but stdout.fileno()
         # fails, do not use the original stdout file descriptor
@@ -2402,8 +2404,6 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('a', (), dict={})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_type_name(self):
         for name in 'A', '\xc4', '\U0001f40d', 'B.A', '42', '':
             with self.subTest(name=name):
@@ -2453,8 +2453,6 @@ class TestType(unittest.TestCase):
             A.__qualname__ = b'B'
         self.assertEqual(A.__qualname__, 'D.E')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_type_doc(self):
         for doc in 'x', '\xc4', '\U0001f40d', 'x\x00y', b'x', 42, None:
             A = type('A', (), {'__doc__': doc})
@@ -2488,8 +2486,6 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('A', (int, str), {})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_slots(self):
         with self.assertRaises(TypeError):
             type('A', (), {'__slots__': b'x'})

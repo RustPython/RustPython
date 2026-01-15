@@ -618,6 +618,7 @@ class MmapTests(unittest.TestCase):
             self.assertEqual(m.read_byte(), b)
             m.close()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(os.name == 'nt', 'requires Windows')
     def test_tagname(self):
         data1 = b"0123456789"
@@ -867,6 +868,7 @@ class MmapTests(unittest.TestCase):
         finally:
             f.close()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(os.name == 'nt', 'requires Windows')
     def test_resize_succeeds_with_error_for_second_named_mapping(self):
         """If a more than one mapping exists of the same name, none of them can

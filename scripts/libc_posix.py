@@ -13,7 +13,7 @@ OS_CONSTS_PAT = re.compile(
 )  # TODO: Exclude matches if they have `(` after (those are functions)
 
 
-LIBC_VERSION = "0.2.175"
+LIBC_VERSION = "0.2.177"
 
 EXCLUDE = frozenset(
     {

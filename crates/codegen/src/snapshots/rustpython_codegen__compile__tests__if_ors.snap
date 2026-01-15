@@ -1,0 +1,12 @@
+---
+source: crates/codegen/src/compile.rs
+expression: "compile_exec(\"\\\nif True or False or False:\n    pass\n\")"
+---
+  1           0 LOAD_CONST           (True)
+              1 POP_JUMP_IF_TRUE     (6)
+              2 LOAD_CONST           (False)
+              3 POP_JUMP_IF_TRUE     (6)
+              4 LOAD_CONST           (False)
+              5 POP_JUMP_IF_FALSE    (6)
+
+  2     >>    6 RETURN_CONST         (None)
