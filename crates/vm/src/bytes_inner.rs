@@ -19,6 +19,7 @@ use bstr::ByteSlice;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
+use alloc::borrow::Cow;
 
 const STRING_WITHOUT_ENCODING: &str = "string argument without an encoding";
 const ENCODING_WITHOUT_STRING: &str = "encoding without a string argument";
@@ -1103,9 +1104,9 @@ pub fn bytes_decode(
 ) -> PyResult<PyStrRef> {
     let DecodeArgs { encoding, errors } = args;
 
-    let encoding = match encoding.as_ref() {
+    let encoding: Cow<'_, str> = match encoding.as_ref() {
         Some(s) => match s.to_str() {
-            Some(valid_str) => valid_str,
+            Some(valid_str) => Cow::Borrowed(valid_str),
             None => {
                 let Some(errors) = &errors else {
                     return Err(vm.new_unicode_encode_error(format!(
@@ -1120,10 +1121,8 @@ pub fn bytes_decode(
                             vm.new_unicode_encode_error("Struct format must be a UTF-8 string")
                         );
                     }
-                    "ignore" => todo!("TODO"),
-                    "replace" => todo!("TODO"),
-                    "backslashreplace" => todo!("TODO"),
-                    "surrogateescape" => &s.to_string_lossy(),
+                    "ignore"|"replace"|"backslashreplace" =>     Cow::Borrowed(encoding.as_ref().map_or(crate::codecs::DEFAULT_ENCODING, |s| s.as_str())),
+                    "surrogateescape" => s.to_string_lossy(),
                     _ => {
                         return Err(vm.new_unicode_encode_error(format!(
                             "'{}' codec can't encode characters: surrogates not allowed",
@@ -1133,12 +1132,12 @@ pub fn bytes_decode(
                 }
             }
         },
-        None => crate::codecs::DEFAULT_ENCODING,
+        None => Cow::Borrowed(crate::codecs::DEFAULT_ENCODING),
     };
 
     vm.state
         .codec_registry
-        .decode_text(zelf, encoding, errors, vm)
+        .decode_text(zelf, &encoding, errors, vm)
 }
 
 fn hex_impl_no_sep(bytes: &[u8]) -> String {
