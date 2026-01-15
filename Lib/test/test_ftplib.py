@@ -902,7 +902,8 @@ class TestIPv6Environment(TestCase):
         self.client.set_pasv(False)
         retr()
 
-@unittest.skip('TODO: RUSTPYTHON; SSL + asyncore has problem; flaky')
+
+@unittest.skip("TODO: RUSTPYTHON; SSL + asyncore has problem")
 @skipUnless(ssl, "SSL not available")
 @requires_subprocess()
 class TestTLS_FTPClassMixin(TestFTPClass):
