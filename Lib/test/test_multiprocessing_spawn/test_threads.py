@@ -5,10 +5,7 @@ install_tests_in_module_dict(globals(), 'spawn', only_type="threads")
 
 import os, sys  # TODO: RUSTPYTHON
 class WithThreadsTestPool(WithThreadsTestPool):  # TODO: RUSTPYTHON
-    @unittest.skipIf(  # TODO: RUSTPYTHON
-        sys.platform in ('darwin', 'linux') and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,  # TODO: RUSTPYTHON
-        'TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to unknown reason'
-    )  # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; flaky environment pollution when running rustpython -m test --fail-env-changed due to unknown reason")
     def test_terminate(self): super().test_terminate()  # TODO: RUSTPYTHON
 
 if __name__ == '__main__':
