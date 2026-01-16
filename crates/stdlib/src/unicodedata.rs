@@ -4,34 +4,11 @@
 
 // spell-checker:ignore nfkc unistr unidata
 
+pub(crate) use unicodedata::module_def;
+
 use crate::vm::{
-    PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyModule,
-    builtins::PyStr, convert::TryFromBorrowedObject,
+    PyObject, PyResult, VirtualMachine, builtins::PyStr, convert::TryFromBorrowedObject,
 };
-
-pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = unicodedata::make_module(vm);
-
-    let ucd: PyObjectRef = unicodedata::Ucd::new(unic_ucd_age::UNICODE_VERSION)
-        .into_ref(&vm.ctx)
-        .into();
-
-    for attr in [
-        "category",
-        "lookup",
-        "name",
-        "bidirectional",
-        "east_asian_width",
-        "normalize",
-        "mirrored",
-    ] {
-        crate::vm::extend_module!(vm, &module, {
-            attr => ucd.get_attr(attr, vm).unwrap(),
-        });
-    }
-
-    module
-}
 
 enum NormalizeForm {
     Nfc,
@@ -60,7 +37,8 @@ impl<'a> TryFromBorrowedObject<'a> for NormalizeForm {
 #[pymodule]
 mod unicodedata {
     use crate::vm::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyStrRef,
+        Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::{PyModule, PyStrRef},
         function::OptionalArg,
     };
     use itertools::Itertools;
@@ -72,6 +50,27 @@ mod unicodedata {
     use unic_ucd_bidi::BidiClass;
     use unic_ucd_category::GeneralCategory;
     use unicode_bidi_mirroring::is_mirroring;
+
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+
+        // Add UCD methods as module-level functions
+        let ucd: PyObjectRef = Ucd::new(UNICODE_VERSION).into_ref(&vm.ctx).into();
+
+        for attr in [
+            "category",
+            "lookup",
+            "name",
+            "bidirectional",
+            "east_asian_width",
+            "normalize",
+            "mirrored",
+        ] {
+            module.set_attr(attr, ucd.get_attr(attr, vm)?, vm)?;
+        }
+
+        Ok(())
+    }
 
     #[pyattr]
     #[pyclass(name = "UCD")]

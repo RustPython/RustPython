@@ -1,27 +1,32 @@
 // spell-checker:disable
 
-use crate::vm::{PyRef, VirtualMachine, builtins::PyModule};
+pub(crate) use _socket::module_def;
+
 #[cfg(feature = "ssl")]
 pub(super) use _socket::{PySocket, SelectKind, sock_select, timeout_error_msg};
-
-pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    #[cfg(windows)]
-    crate::vm::windows::init_winsock();
-    _socket::make_module(vm)
-}
 
 #[pymodule]
 mod _socket {
     use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyListRef, PyOSError, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{
+            PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
+        },
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, OptionalArg, OptionalOption},
         types::{Constructor, DefaultConstructor, Initializer, Representable},
         utils::ToCString,
     };
+
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        #[cfg(windows)]
+        crate::vm::windows::init_winsock();
+
+        __module_exec(vm, module);
+        Ok(())
+    }
     use core::{
         mem::MaybeUninit,
         net::{Ipv4Addr, Ipv6Addr, SocketAddr},

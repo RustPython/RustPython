@@ -7,10 +7,8 @@ use alloc::rc::{Rc, Weak};
 use core::cell::RefCell;
 use js_sys::{Object, TypeError};
 use rustpython_vm::{
-    Interpreter, PyObjectRef, PyPayload, PyRef, PyResult, Settings, VirtualMachine,
-    builtins::{PyModule, PyWeak},
-    compiler::Mode,
-    scope::Scope,
+    Interpreter, PyObjectRef, PyRef, PyResult, Settings, VirtualMachine, builtins::PyWeak,
+    compiler::Mode, scope::Scope,
 };
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -24,16 +22,17 @@ pub(crate) struct StoredVirtualMachine {
 }
 
 #[pymodule]
-mod _window {}
+mod _window {
+    use super::{js_module, wasm_builtins};
+    use rustpython_vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
 
-fn init_window_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = _window::make_module(vm);
-
-    extend_module!(vm, &module, {
-        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(&vm.ctx),
-    });
-
-    module
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+        extend_module!(vm, module, {
+            "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(&vm.ctx),
+        });
+        Ok(())
+    }
 }
 
 impl StoredVirtualMachine {
@@ -43,7 +42,7 @@ impl StoredVirtualMachine {
         settings.allow_external_library = false;
         let interp = Interpreter::with_init(settings, |vm| {
             #[cfg(feature = "freeze-stdlib")]
-            vm.add_native_modules(rustpython_stdlib::get_module_inits());
+            vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
 
             #[cfg(feature = "freeze-stdlib")]
             vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
@@ -52,7 +51,7 @@ impl StoredVirtualMachine {
 
             js_module::setup_js_module(vm);
             if inject_browser_module {
-                vm.add_native_module("_window".to_owned(), Box::new(init_window_module));
+                vm.add_native_module_def("_window".to_owned(), _window::module_def);
                 setup_browser_module(vm);
             }
 

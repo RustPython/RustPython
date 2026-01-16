@@ -9,7 +9,7 @@
 //! use rustpython_vm::{pymodule, py_freeze};
 //! fn main() {
 //!     rustpython::run(|vm| {
-//!         vm.add_native_module("my_mod".to_owned(), Box::new(my_mod::make_module));
+//!         vm.add_native_module_def("my_mod".to_owned(), my_mod::module_def);
 //!         vm.add_frozen(py_freeze!(source = "def foo(): pass", module_name = "other_thing"));
 //!     });
 //! }

@@ -38,7 +38,7 @@ impl Interpreter {
     /// use rustpython_vm::Interpreter;
     /// Interpreter::with_init(Default::default(), |vm| {
     ///     // put this line to add stdlib to the vm
-    ///     // vm.add_native_modules(rustpython_stdlib::get_module_inits());
+    ///     // vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
     /// }).enter(|vm| {
     ///     vm.run_code_string(vm.new_scope_with_builtins(), "print(1)", "<...>".to_owned());
     /// });

@@ -479,6 +479,7 @@ impl VirtualMachine {
     }
 
     /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]
+    #[deprecated(note = "use add_native_module_def(s) with multi-phase module initialization")]
     pub fn add_native_module<S>(&mut self, name: S, module: stdlib::StdlibInitFunc)
     where
         S: Into<Cow<'static, str>>,
@@ -486,6 +487,7 @@ impl VirtualMachine {
         self.state_mut().module_inits.insert(name.into(), module);
     }
 
+    #[deprecated(note = "use add_native_module_defs with multi-phase module initialization")]
     pub fn add_native_modules<I>(&mut self, iter: I)
     where
         I: IntoIterator<Item = (Cow<'static, str>, stdlib::StdlibInitFunc)>,
@@ -1444,7 +1446,7 @@ fn test_nested_frozen() {
     use rustpython_vm as vm;
 
     vm::Interpreter::with_init(Default::default(), |vm| {
-        // vm.add_native_modules(rustpython_stdlib::get_module_inits());
+        // vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
         vm.add_frozen(rustpython_vm::py_freeze!(
             dir = "../../extra_tests/snippets"
         ));

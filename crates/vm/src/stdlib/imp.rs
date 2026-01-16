@@ -135,13 +135,8 @@ mod _imp {
             // Phase 1: Create module from definition
             let module = PyModule::from_def(def).into_ref(&vm.ctx);
 
-            // Initialize module dict
-            let dict = vm.ctx.new_dict();
-            dict.set_item("__name__", vm.ctx.new_str(def.name.as_str()).into(), vm)?;
-            if let Some(doc) = def.doc {
-                dict.set_item("__doc__", vm.ctx.new_str(doc.as_str()).into(), vm)?;
-            }
-            module.set_attr("__dict__", dict, vm)?;
+            // Initialize module dict using proper method
+            PyModule::__init_dict_from_def(vm, &module);
 
             // Add to sys.modules BEFORE exec (critical for circular import handling)
             sys_modules.set_item(&*name, module.clone().into(), vm)?;

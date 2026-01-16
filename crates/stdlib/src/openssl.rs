@@ -23,17 +23,10 @@ cfg_if::cfg_if! {
     }
 }
 
-use crate::vm::{PyRef, VirtualMachine, builtins::PyModule};
+pub(crate) use _ssl::module_def;
+
 use openssl_probe::ProbeResult;
 use std::sync::LazyLock;
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    // if openssl is vendored, it doesn't know the locations
-    // of system certificates - cache the probe result now.
-    #[cfg(openssl_vendored)]
-    LazyLock::force(&PROBE);
-    _ssl::make_module(vm)
-}
 
 // define our own copy of ProbeResult so we can handle the vendor case
 // easily, without having to have a bunch of cfgs
@@ -52,6 +45,8 @@ cfg_if::cfg_if! {
 #[allow(non_upper_case_globals)]
 #[pymodule(with(cert::ssl_cert, ssl_error::ssl_error, ossl101, ossl111, windows))]
 mod _ssl {
+    #[cfg(openssl_vendored)]
+    use super::PROBE;
     use super::{bio, probe};
 
     // Import error types and helpers used in this module (others are exposed via pymodule(with(...)))
@@ -67,8 +62,8 @@ mod _ssl {
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{
-                PyBaseException, PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType,
-                PyWeak,
+                PyBaseException, PyBaseExceptionRef, PyBytesRef, PyListRef, PyModule, PyStrRef,
+                PyType, PyWeak,
             },
             class_or_notimplemented,
             convert::ToPyException,
@@ -103,6 +98,16 @@ mod _ssl {
 
     // Import certificate types from parent module
     use super::cert::{self, cert_to_certificate, cert_to_py};
+
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        // if openssl is vendored, it doesn't know the locations
+        // of system certificates - cache the probe result now.
+        #[cfg(openssl_vendored)]
+        std::sync::LazyLock::force(&PROBE);
+
+        __module_exec(vm, module);
+        Ok(())
+    }
 
     // Re-export PySSLCertificate to make it available in the _ssl module
     // It will be automatically exposed to Python via #[pyclass]

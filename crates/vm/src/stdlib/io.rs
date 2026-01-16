@@ -95,7 +95,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _io::make_module(vm);
 
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-    fileio::extend_module(vm, &module).unwrap();
+    fileio::module_exec(vm, &module).unwrap();
 
     let unsupported_operation = _io::unsupported_operation().to_owned();
     extend_module!(vm, &module, {

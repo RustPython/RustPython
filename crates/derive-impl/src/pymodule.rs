@@ -58,7 +58,7 @@ struct ModuleContext {
     name: String,
     function_items: FunctionNursery,
     attribute_items: ItemNursery,
-    has_extend_module: bool, // TODO: check if `fn extend_module` exists
+    has_module_exec: bool,
     errors: Vec<syn::Error>,
 }
 
@@ -82,6 +82,12 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
 
     // collect to context
     for item in items.iter_mut() {
+        // Check if module_exec function is already defined
+        if let Item::Fn(func) = item
+            && func.sig.ident == "module_exec"
+        {
+            context.has_module_exec = true;
+        }
         if matches!(item, Item::Impl(_) | Item::Trait(_)) {
             // #[pyclass] implementations
             continue;
@@ -133,7 +139,7 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
                             methods: METHOD_DEFS,
                             slots: Default::default(),
                         };
-                        def.slots.exec = Some(extend_module);
+                        def.slots.exec = Some(module_exec);
                         def
                     })
                 }
@@ -146,16 +152,16 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
                     use ::rustpython_vm::PyPayload;
                     let module = ::rustpython_vm::builtins::PyModule::from_def(module_def(&vm.ctx)).into_ref(&vm.ctx);
                     __init_dict(vm, &module);
-                    extend_module(vm, &module).unwrap();
+                    module_exec(vm, &module).unwrap();
                     module
                 }
             },
         ]);
     }
-    if !is_submodule && !context.has_extend_module {
+    if !is_submodule && !context.has_module_exec {
         items.push(parse_quote! {
-            pub(crate) fn extend_module(vm: &::rustpython_vm::VirtualMachine, module: &::rustpython_vm::Py<::rustpython_vm::builtins::PyModule>) -> ::rustpython_vm::PyResult<()> {
-                __extend_module(vm, module);
+            pub(crate) fn module_exec(vm: &::rustpython_vm::VirtualMachine, module: &::rustpython_vm::Py<::rustpython_vm::builtins::PyModule>) -> ::rustpython_vm::PyResult<()> {
+                __module_exec(vm, module);
                 Ok(())
             }
         });
@@ -192,7 +198,7 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
             }
         },
         parse_quote! {
-            pub(crate) fn __extend_module(
+            pub(crate) fn __module_exec(
                 vm: &::rustpython_vm::VirtualMachine,
                 module: &::rustpython_vm::Py<::rustpython_vm::builtins::PyModule>,
             ) {

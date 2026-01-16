@@ -1100,7 +1100,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
 
     crate::protocol::VecBuffer::make_class(&vm.ctx);
 
-    builtins::extend_module(vm, module).unwrap();
+    builtins::module_exec(vm, module).unwrap();
 
     let debug_mode: bool = vm.state.config.settings.optimize == 0;
     // Create dynamic ExceptionGroup with multiple inheritance (BaseExceptionGroup + Exception)

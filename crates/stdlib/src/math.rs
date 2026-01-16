@@ -1,4 +1,4 @@
-pub(crate) use math::__module_def;
+pub(crate) use math::module_def;
 
 use crate::vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 

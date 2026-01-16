@@ -6,10 +6,7 @@ pub fn main() {
     let interp = rustpython::InterpreterConfig::new()
         .init_stdlib()
         .init_hook(Box::new(|vm| {
-            vm.add_native_module(
-                "rust_py_module".to_owned(),
-                Box::new(rust_py_module::make_module),
-            );
+            vm.add_native_module_def("rust_py_module".to_owned(), rust_py_module::module_def);
         }))
         .interpreter();
 

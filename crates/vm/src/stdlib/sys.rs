@@ -1609,7 +1609,7 @@ mod sys {
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {
-    sys::extend_module(vm, module).unwrap();
+    sys::module_exec(vm, module).unwrap();
 
     let modules = vm.ctx.new_dict();
     modules

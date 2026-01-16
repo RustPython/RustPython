@@ -69,11 +69,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_builtin_functions(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_builtin_functions()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_bytearray_memoization()
 

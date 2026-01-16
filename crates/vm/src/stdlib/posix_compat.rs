@@ -5,7 +5,7 @@ use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = module::make_module(vm);
-    super::os::extend_module(vm, &module);
+    super::os::module_exec(vm, &module);
     module
 }
 

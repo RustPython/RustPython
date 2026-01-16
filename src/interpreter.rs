@@ -1,4 +1,6 @@
-use rustpython_vm::{Interpreter, PyRef, Settings, VirtualMachine, builtins::PyModule};
+use rustpython_vm::{
+    Interpreter, PyRef, Settings, VirtualMachine, builtins::PyModule, stdlib::StdlibDefFunc,
+};
 
 pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 
@@ -34,9 +36,9 @@ pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 ///
 /// let interpreter = rustpython::InterpreterConfig::new()
 ///     .init_stdlib()
-///     .add_native_module(
+///     .add_native_module_def(
 ///         "your_module_name".to_owned(),
-///         your_module::make_module,
+///         your_module::module_def,
 ///     )
 ///     .interpreter();
 /// ```
@@ -78,7 +80,14 @@ impl InterpreterConfig {
         self
     }
 
+    /// Adds a native module definition to the interpreter.
+    pub fn add_native_module_def(self, name: String, def_func: StdlibDefFunc) -> Self {
+        self.init_hook(Box::new(move |vm| vm.add_native_module_def(name, def_func)))
+    }
+
     /// Adds a native module to the interpreter.
+    #[deprecated(note = "use add_native_module_def with multi-phase module initialization")]
+    #[allow(deprecated)]
     pub fn add_native_module(
         self,
         name: String,
@@ -101,9 +110,7 @@ impl InterpreterConfig {
 /// Initializes all standard library modules for the given VM.
 #[cfg(feature = "stdlib")]
 pub fn init_stdlib(vm: &mut VirtualMachine) {
-    // Add multi-phase init modules first (they're checked first in import_builtin)
     vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
-    vm.add_native_modules(rustpython_stdlib::get_module_inits());
 
     #[cfg(feature = "freeze-stdlib")]
     setup_frozen_stdlib(vm);

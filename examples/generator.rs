@@ -43,7 +43,7 @@ gen()
 
 fn main() -> ExitCode {
     let interp = vm::Interpreter::with_init(Default::default(), |vm| {
-        vm.add_native_modules(rustpython_stdlib::get_module_inits());
+        vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
     });
     let result = py_main(&interp);
     vm::common::os::exit_code(interp.run(|_vm| result))

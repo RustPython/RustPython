@@ -1896,7 +1896,7 @@ impl SupportFunc {
     }
 }
 
-pub fn extend_module(vm: &VirtualMachine, module: &Py<PyModule>) {
+pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) {
     let support_funcs = _os::support_funcs();
     let supports_fd = PySet::default().into_ref(&vm.ctx);
     let supports_dir_fd = PySet::default().into_ref(&vm.ctx);

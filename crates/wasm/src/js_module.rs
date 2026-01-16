@@ -621,8 +621,8 @@ mod _js {
     }
 }
 
-pub(crate) use _js::make_module;
+pub(crate) use _js::module_def;
 
 pub fn setup_js_module(vm: &mut VirtualMachine) {
-    vm.add_native_module("_js".to_owned(), Box::new(make_module));
+    vm.add_native_module_def("_js".to_owned(), module_def);
 }

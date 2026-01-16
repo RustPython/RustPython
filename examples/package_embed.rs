@@ -20,7 +20,7 @@ fn main() -> ExitCode {
     let mut settings = vm::Settings::default();
     settings.path_list.push("Lib".to_owned());
     let interp = vm::Interpreter::with_init(settings, |vm| {
-        vm.add_native_modules(rustpython_stdlib::get_module_inits());
+        vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
     });
     let result = py_main(&interp);
     let result = result.map(|result| {

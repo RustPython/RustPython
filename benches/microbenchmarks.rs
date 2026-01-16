@@ -114,9 +114,7 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
     settings.user_site_directory = false;
 
     Interpreter::with_init(settings, |vm| {
-        for (name, init) in rustpython_stdlib::get_module_inits() {
-            vm.add_native_module(name, init);
-        }
+        vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
     })
     .enter(|vm| {
         let setup_code = vm

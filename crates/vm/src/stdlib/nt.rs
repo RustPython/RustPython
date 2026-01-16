@@ -6,7 +6,7 @@ pub use module::raw_set_handle_inheritable;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = module::make_module(vm);
-    super::os::extend_module(vm, &module);
+    super::os::module_exec(vm, &module);
     module
 }
 

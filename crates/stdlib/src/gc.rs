@@ -2,7 +2,7 @@ pub(crate) use gc::module_def;
 
 #[pymodule]
 mod gc {
-    use crate::vm::{PyObjectRef, PyResult, VirtualMachine, function::FuncArgs};
+    use crate::vm::{PyResult, VirtualMachine, function::FuncArgs};
 
     #[pyfunction]
     fn collect(_args: FuncArgs, _vm: &VirtualMachine) -> i32 {
@@ -40,15 +40,13 @@ mod gc {
     }
 
     #[pyfunction]
-    fn get_referents(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
-        // RustPython does not track object references.
-        vm.ctx.new_tuple(vec![]).into()
+    fn get_referents(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
-    fn get_referrers(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
-        // RustPython does not track object references.
-        vm.ctx.new_list(vec![]).into()
+    fn get_referrers(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]

@@ -105,10 +105,7 @@ mod tkinter;
 use rustpython_common as common;
 use rustpython_vm as vm;
 
-use crate::vm::{
-    builtins,
-    stdlib::{StdlibDefFunc, StdlibInitFunc},
-};
+use crate::vm::{builtins, stdlib::StdlibDefFunc};
 use alloc::borrow::Cow;
 
 /// Returns module definitions for multi-phase init modules.
@@ -133,12 +130,13 @@ pub fn get_module_defs() -> impl Iterator<Item = (Cow<'static, str>, StdlibDefFu
     modules! {
         #[cfg(all())]
         {
-            "_asyncio" => _asyncio::module_def,
+            "array" => array::module_def,
             "binascii" => binascii::module_def,
             "_bisect" => bisect::module_def,
             "_blake2" => blake2::module_def,
             "_bz2" => bz2::module_def,
             "cmath" => cmath::module_def,
+            "_contextvars" => contextvars::module_def,
             "_csv" => csv::module_def,
             "faulthandler" => faulthandler::module_def,
             "gc" => gc::module_def,
@@ -149,27 +147,44 @@ pub fn get_module_defs() -> impl Iterator<Item = (Cow<'static, str>, StdlibDefFu
             "_opcode" => opcode::module_def,
             "_random" => random::module_def,
             "_sha1" => sha1::module_def,
+            "_sha256" => sha256::module_def,
             "_sha3" => sha3::module_def,
+            "_sha512" => sha512::module_def,
             "_statistics" => statistics::module_def,
             "_struct" => pystruct::module_def,
             "_suggestions" => suggestions::module_def,
             "zlib" => zlib::module_def,
+            "pyexpat" => pyexpat::module_def,
+            "unicodedata" => unicodedata::module_def,
         }
         #[cfg(any(unix, target_os = "wasi"))]
         {
             "fcntl" => fcntl::module_def,
         }
+        #[cfg(any(unix, windows, target_os = "wasi"))]
+        {
+            "select" => select::module_def,
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             "_multiprocessing" => multiprocessing::module_def,
+            "_socket" => socket::module_def,
         }
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         {
             "_lzma" => lzma::module_def,
         }
+        #[cfg(all(feature = "sqlite", not(any(target_os = "android", target_arch = "wasm32"))))]
+        {
+            "_sqlite3" => sqlite::module_def,
+        }
         #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
         {
             "_ssl" => ssl::module_def,
+        }
+        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
+        {
+            "_ssl" => openssl::module_def,
         }
         #[cfg(windows)]
         {
@@ -215,53 +230,6 @@ pub fn get_module_defs() -> impl Iterator<Item = (Cow<'static, str>, StdlibDefFu
         #[cfg(feature = "tkinter")]
         {
             "_tkinter" => tkinter::module_def,
-        }
-    }
-}
-
-/// Returns module initializers for single-phase init modules.
-/// These are modules that don't use #[pymodule] macro or need custom initialization.
-pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInitFunc)> {
-    macro_rules! modules {
-        {
-            $(
-                #[cfg($cfg:meta)]
-                { $( $key:expr => $val:expr),* $(,)? }
-            )*
-        } => {{
-            [
-                $(
-                    $(#[cfg($cfg)] (Cow::<'static, str>::from($key), Box::new($val) as StdlibInitFunc),)*
-                )*
-            ]
-            .into_iter()
-        }};
-    }
-    modules! {
-        #[cfg(all())]
-        {
-            "array" => array::make_module,
-            "_contextvars" => contextvars::make_module,
-            "pyexpat" => pyexpat::make_module,
-            "_sha256" => sha256::make_module,
-            "_sha512" => sha512::make_module,
-            "unicodedata" => unicodedata::make_module,
-        }
-        #[cfg(any(unix, windows, target_os = "wasi"))]
-        {
-            "select" => select::make_module,
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            "_socket" => socket::make_module,
-        }
-        #[cfg(all(feature = "sqlite", not(any(target_os = "android", target_arch = "wasm32"))))]
-        {
-            "_sqlite3" => sqlite::make_module,
-        }
-        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
-        {
-            "_ssl" => openssl::make_module,
         }
     }
 }
