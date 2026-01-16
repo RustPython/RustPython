@@ -36,8 +36,8 @@ use super::_ssl::PySSLSocket;
 
 // Import error types and helper functions from error module
 use super::error::{
-    PySSLCertVerificationError, PySSLError, create_ssl_eof_error, create_ssl_want_read_error,
-    create_ssl_want_write_error, create_ssl_zero_return_error,
+    PySSLCertVerificationError, PySSLError, create_ssl_eof_error, create_ssl_syscall_error,
+    create_ssl_want_read_error, create_ssl_want_write_error, create_ssl_zero_return_error,
 };
 
 // SSL Verification Flags
@@ -553,8 +553,8 @@ impl SslError {
             SslError::WantWrite => create_ssl_want_write_error(vm).upcast(),
             SslError::Timeout(msg) => timeout_error_msg(vm, msg).upcast(),
             SslError::Syscall(msg) => {
-                // Create SSLError with library=None for syscall errors during SSL operations
-                Self::create_ssl_error_with_reason(vm, None, &msg, msg.clone())
+                // SSLSyscallError with errno=SSL_ERROR_SYSCALL (5)
+                create_ssl_syscall_error(vm, msg).upcast()
             }
             SslError::Ssl(msg) => vm
                 .new_os_subtype_error(
@@ -1039,6 +1039,36 @@ fn send_all_bytes(
             return Err(SslError::Timeout("The operation timed out".to_string()));
         }
 
+        // Wait for socket to be writable before sending
+        let timed_out = if let Some(dl) = deadline {
+            let now = std::time::Instant::now();
+            if now >= dl {
+                socket
+                    .pending_tls_output
+                    .lock()
+                    .extend_from_slice(&buf[sent_total..]);
+                return Err(SslError::Timeout(
+                    "The write operation timed out".to_string(),
+                ));
+            }
+            socket
+                .sock_wait_for_io_with_timeout(SelectKind::Write, Some(dl - now), vm)
+                .map_err(SslError::Py)?
+        } else {
+            socket
+                .sock_wait_for_io_impl(SelectKind::Write, vm)
+                .map_err(SslError::Py)?
+        };
+        if timed_out {
+            socket
+                .pending_tls_output
+                .lock()
+                .extend_from_slice(&buf[sent_total..]);
+            return Err(SslError::Timeout(
+                "The write operation timed out".to_string(),
+            ));
+        }
+
         match socket.sock_send(&buf[sent_total..], vm) {
             Ok(result) => {
                 let sent: usize = result
@@ -1443,9 +1473,17 @@ pub(super) fn ssl_do_handshake(
         }
     }
 
-    // If we exit the loop without completing handshake, return error
-    // Check rustls state to provide better error message
+    // If we exit the loop without completing handshake, return appropriate error
     if conn.is_handshaking() {
+        // For non-blocking sockets, return WantRead/WantWrite to signal caller
+        // should retry when socket is ready. This matches OpenSSL behavior.
+        if conn.wants_write() {
+            return Err(SslError::WantWrite);
+        }
+        if conn.wants_read() {
+            return Err(SslError::WantRead);
+        }
+        // Neither wants_read nor wants_write - this is a real error
         Err(SslError::Syscall(format!(
             "SSL handshake failed: incomplete after {iteration_count} iterations",
         )))
@@ -1581,6 +1619,14 @@ pub(super) fn ssl_read(
                 if let Some(t) = timeout
                     && t.is_zero()
                 {
+                    // Non-blocking socket: check if peer has closed before returning WantRead
+                    // If close_notify was received, we should return ZeroReturn (EOF), not WantRead
+                    // This is critical for asyncore-based applications that rely on recv() returning
+                    // 0 or raising SSL_ERROR_ZERO_RETURN to detect connection close.
+                    let io_state = conn.process_new_packets().map_err(SslError::from_rustls)?;
+                    if io_state.peer_has_closed() {
+                        return Err(SslError::ZeroReturn);
+                    }
                     // Non-blocking socket: return immediately
                     return Err(SslError::WantRead);
                 }
@@ -1605,7 +1651,13 @@ pub(super) fn ssl_read(
                     .unwrap_or(0);
 
                 if bytes_read == 0 {
-                    // No more data available - connection might be closed
+                    // No more data available - check if this is clean shutdown or unexpected EOF
+                    // If close_notify was already received, return ZeroReturn (clean closure)
+                    // Otherwise, return Eof (unexpected EOF)
+                    let io_state = conn.process_new_packets().map_err(SslError::from_rustls)?;
+                    if io_state.peer_has_closed() {
+                        return Err(SslError::ZeroReturn);
+                    }
                     return Err(SslError::Eof);
                 }
 
@@ -1648,6 +1700,138 @@ pub(super) fn ssl_read(
     }
 }
 
+/// Equivalent to OpenSSL's SSL_write()
+///
+/// Writes application data to TLS connection.
+/// Automatically handles TLS record I/O as needed.
+///
+/// = SSL_write_ex()
+pub(super) fn ssl_write(
+    conn: &mut TlsConnection,
+    data: &[u8],
+    socket: &PySSLSocket,
+    vm: &VirtualMachine,
+) -> SslResult<usize> {
+    if data.is_empty() {
+        return Ok(0);
+    }
+
+    let is_bio = socket.is_bio_mode();
+
+    // Get socket timeout and calculate deadline (= _PyDeadline_Init)
+    let deadline = if !is_bio {
+        match socket.get_socket_timeout(vm).map_err(SslError::Py)? {
+            Some(timeout) if !timeout.is_zero() => Some(std::time::Instant::now() + timeout),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    // Flush any pending TLS output before writing new data
+    if !is_bio {
+        socket
+            .flush_pending_tls_output(vm, deadline)
+            .map_err(SslError::Py)?;
+    }
+
+    // Check if we already have data buffered from a previous retry
+    // (prevents duplicate writes when retrying after WantWrite/WantRead)
+    let already_buffered = *socket.write_buffered_len.lock();
+
+    // Only write plaintext if not already buffered
+    if already_buffered == 0 {
+        // Write plaintext to rustls (= SSL_write_ex internal buffer write)
+        {
+            let mut writer = conn.writer();
+            use std::io::Write;
+            writer
+                .write_all(data)
+                .map_err(|e| SslError::Syscall(format!("Write failed: {e}")))?;
+        }
+        // Mark data as buffered
+        *socket.write_buffered_len.lock() = data.len();
+    } else if already_buffered != data.len() {
+        // Caller is retrying with different data - this is a protocol error
+        // Clear the buffer state and return an SSL error (bad write retry)
+        *socket.write_buffered_len.lock() = 0;
+        return Err(SslError::Ssl("bad write retry".to_string()));
+    }
+    // else: already_buffered == data.len(), this is a valid retry
+
+    // Loop to send TLS records, handling WANT_READ/WANT_WRITE
+    // Matches CPython's do-while loop on SSL_ERROR_WANT_READ/WANT_WRITE
+    loop {
+        // Check deadline
+        if let Some(dl) = deadline
+            && std::time::Instant::now() >= dl
+        {
+            return Err(SslError::Timeout(
+                "The write operation timed out".to_string(),
+            ));
+        }
+
+        // Check if rustls has TLS data to send
+        if !conn.wants_write() {
+            // All TLS data sent successfully
+            break;
+        }
+
+        // Get TLS records from rustls
+        let tls_data = ssl_write_tls_records(conn)?;
+        if tls_data.is_empty() {
+            break;
+        }
+
+        // Send TLS data to socket
+        match send_all_bytes(socket, tls_data, vm, deadline) {
+            Ok(()) => {
+                // Successfully sent, continue loop to check for more data
+            }
+            Err(SslError::WantWrite) => {
+                // Non-blocking socket would block - return WANT_WRITE
+                // Keep write_buffered_len set so we don't re-buffer on retry
+                return Err(SslError::WantWrite);
+            }
+            Err(SslError::WantRead) => {
+                // Need to read before write can complete (e.g., renegotiation)
+                // This matches CPython's handling of SSL_ERROR_WANT_READ in write
+                if is_bio {
+                    // Keep write_buffered_len set so we don't re-buffer on retry
+                    return Err(SslError::WantRead);
+                }
+                // For socket mode, try to read TLS data
+                let recv_result = socket.sock_recv(4096, vm).map_err(SslError::Py)?;
+                ssl_read_tls_records(conn, recv_result, false, vm)?;
+                conn.process_new_packets().map_err(SslError::from_rustls)?;
+                // Continue loop
+            }
+            Err(e @ SslError::Timeout(_)) => {
+                // Preserve buffered state so retry doesn't duplicate data
+                // (send_all_bytes saved unsent TLS bytes to pending_tls_output)
+                return Err(e);
+            }
+            Err(e) => {
+                // Clear buffer state on error
+                *socket.write_buffered_len.lock() = 0;
+                return Err(e);
+            }
+        }
+    }
+
+    // Final flush to ensure all data is sent
+    if !is_bio {
+        socket
+            .flush_pending_tls_output(vm, deadline)
+            .map_err(SslError::Py)?;
+    }
+
+    // Write completed successfully - clear buffer state
+    *socket.write_buffered_len.lock() = 0;
+
+    Ok(data.len())
+}
+
 // Helper functions (private-ish, used by public SSL functions)
 
 /// Write TLS records from rustls to socket
@@ -1684,26 +1868,24 @@ fn ssl_read_tls_records(
             // 1. Clean shutdown: received TLS close_notify → return ZeroReturn (0 bytes)
             // 2. Unexpected EOF: no close_notify → return Eof (SSLEOFError)
             //
-            // SSL_ERROR_ZERO_RETURN vs SSL_ERROR_SYSCALL(errno=0) logic
+            // SSL_ERROR_ZERO_RETURN vs SSL_ERROR_EOF logic
             // CPython checks SSL_get_shutdown() & SSL_RECEIVED_SHUTDOWN
             //
             // Process any buffered TLS records (may contain close_notify)
-            let _ = conn.process_new_packets();
-
-            // IMPORTANT: CPython's default behavior (suppress_ragged_eofs=True)
-            // treats empty recv() as clean shutdown, returning 0 bytes instead of raising SSLEOFError.
-            //
-            // This is necessary for HTTP/1.0 servers that:
-            // 1. Send response without Content-Length header
-            // 2. Signal end-of-response by closing connection (TCP FIN)
-            // 3. Don't send TLS close_notify before TCP close
-            //
-            // While this could theoretically allow truncation attacks,
-            // it's the standard behavior for compatibility with real-world servers.
-            // Python only raises SSLEOFError when suppress_ragged_eofs=False is explicitly set.
-            //
-            // TODO: Implement suppress_ragged_eofs parameter if needed for strict security mode.
-            return Err(SslError::ZeroReturn);
+            match conn.process_new_packets() {
+                Ok(io_state) => {
+                    if io_state.peer_has_closed() {
+                        // Received close_notify - normal SSL closure (SSL_ERROR_ZERO_RETURN)
+                        return Err(SslError::ZeroReturn);
+                    } else {
+                        // No close_notify - ragged EOF (SSL_ERROR_EOF → SSLEOFError)
+                        // CPython raises SSLEOFError here, which SSLSocket.read() handles
+                        // based on suppress_ragged_eofs setting
+                        return Err(SslError::Eof);
+                    }
+                }
+                Err(e) => return Err(SslError::from_rustls(e)),
+            }
         }
     }
 
@@ -1816,6 +1998,9 @@ fn ssl_ensure_data_available(
         let data = match socket.sock_recv(2048, vm) {
             Ok(data) => data,
             Err(e) => {
+                if is_blocking_io_error(&e, vm) {
+                    return Err(SslError::WantRead);
+                }
                 // Before returning socket error, check if rustls already has a queued TLS alert
                 // This mirrors CPython/OpenSSL behavior: SSL errors take precedence over socket errors
                 // On Windows, TCP RST may arrive before we read the alert, but rustls may have
