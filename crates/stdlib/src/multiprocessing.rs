@@ -547,6 +547,13 @@ mod _multiprocessing {
             self.last_tid.store(0, Ordering::Release);
         }
 
+        /// SemLock objects cannot be pickled directly.
+        /// Use multiprocessing.synchronize.SemLock wrapper which handles pickling.
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot pickle 'SemLock' object".to_owned()))
+        }
+
         /// Num of `acquire()`s minus num of `release()`s for this process.
         // _multiprocessing_SemLock__count_impl
         #[pymethod]
