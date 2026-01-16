@@ -1,21 +1,6 @@
 use super::constant::{Constant, ConstantLiteral};
 use super::*;
 
-fn ruff_fstring_value_into_iter(
-    mut fstring_value: ruff::FStringValue,
-) -> impl Iterator<Item = ruff::FStringPart> + 'static {
-    let default = ruff::FStringPart::FString(ruff::FString {
-        node_index: Default::default(),
-        range: Default::default(),
-        elements: Default::default(),
-        flags: ruff::FStringFlags::empty(),
-    });
-    (0..fstring_value.as_slice().len()).map(move |i| {
-        let tmp = fstring_value.iter_mut().nth(i).unwrap();
-        core::mem::replace(tmp, default.clone())
-    })
-}
-
 fn ruff_fstring_element_into_iter(
     mut fstring_element: ruff::InterpolatedStringElements,
 ) -> impl Iterator<Item = ruff::InterpolatedStringElement> + 'static {
@@ -30,31 +15,6 @@ fn ruff_fstring_element_into_iter(
         let tmp = fstring_element.into_iter().nth(i).unwrap();
         core::mem::replace(tmp, default.clone())
     })
-}
-
-fn fstring_part_to_joined_str_part(fstring_part: ruff::FStringPart) -> Vec<JoinedStrPart> {
-    match fstring_part {
-        ruff::FStringPart::Literal(ruff::StringLiteral {
-            range,
-            value,
-            flags,
-            node_index: _,
-        }) => {
-            vec![JoinedStrPart::Constant(Constant::new_str(
-                value,
-                flags.prefix(),
-                range,
-            ))]
-        }
-        ruff::FStringPart::FString(ruff::FString {
-            range: _,
-            elements,
-            flags: _, // TODO
-            node_index: _,
-        }) => ruff_fstring_element_into_iter(elements)
-            .map(ruff_fstring_element_to_joined_str_part)
-            .collect(),
-    }
 }
 
 fn ruff_fstring_element_to_joined_str_part(
@@ -357,48 +317,51 @@ pub(super) fn fstring_to_object(
 ) -> PyObjectRef {
     let ruff::ExprFString {
         range,
-        value,
+        mut value,
         node_index: _,
     } = expression;
-    let values: Vec<_> = ruff_fstring_value_into_iter(value)
-        .flat_map(fstring_part_to_joined_str_part)
-        .collect();
-    let values = values.into_boxed_slice();
-    let c = JoinedStr { range, values };
+    let default_part = ruff::FStringPart::FString(ruff::FString {
+        node_index: Default::default(),
+        range: Default::default(),
+        elements: Default::default(),
+        flags: ruff::FStringFlags::empty(),
+    });
+    let mut values = Vec::new();
+    for i in 0..value.as_slice().len() {
+        let part = core::mem::replace(value.iter_mut().nth(i).unwrap(), default_part.clone());
+        match part {
+            ruff::FStringPart::Literal(ruff::StringLiteral {
+                range,
+                value,
+                flags,
+                node_index: _,
+            }) => {
+                values.push(JoinedStrPart::Constant(Constant::new_str(
+                    value,
+                    flags.prefix(),
+                    range,
+                )));
+            }
+            ruff::FStringPart::FString(ruff::FString {
+                range: _,
+                elements,
+                flags: _,
+                node_index: _,
+            }) => {
+                for element in ruff_fstring_element_into_iter(elements) {
+                    values.push(ruff_fstring_element_to_joined_str_part(element));
+                }
+            }
+        }
+    }
+    let c = JoinedStr {
+        range,
+        values: values.into_boxed_slice(),
+    };
     c.ast_to_object(vm, source_file)
 }
 
 // ===== TString (Template String) Support =====
-
-fn ruff_tstring_value_into_iter(
-    mut tstring_value: ruff::TStringValue,
-) -> impl Iterator<Item = ruff::TString> + 'static {
-    let default = ruff::TString {
-        node_index: Default::default(),
-        range: Default::default(),
-        elements: Default::default(),
-        flags: ruff::TStringFlags::empty(),
-    };
-    (0..tstring_value.as_slice().len()).map(move |i| {
-        let tmp = tstring_value.iter_mut().nth(i).unwrap();
-        core::mem::replace(tmp, default.clone())
-    })
-}
-
-fn tstring_to_template_str_parts(
-    tstring: ruff::TString,
-    source_file: &SourceFile,
-) -> Vec<TemplateStrPart> {
-    let ruff::TString {
-        range: _,
-        elements,
-        flags: _,
-        node_index: _,
-    } = tstring;
-    ruff_fstring_element_into_iter(elements)
-        .map(|e| ruff_tstring_element_to_template_str_part(e, source_file))
-        .collect()
-}
 
 fn ruff_tstring_element_to_template_str_part(
     element: ruff::InterpolatedStringElement,
@@ -606,13 +569,28 @@ pub(super) fn tstring_to_object(
 ) -> PyObjectRef {
     let ruff::ExprTString {
         range,
-        value,
+        mut value,
         node_index: _,
     } = expression;
-    let values: Vec<_> = ruff_tstring_value_into_iter(value)
-        .flat_map(|p| tstring_to_template_str_parts(p, source_file))
-        .collect();
-    let values = values.into_boxed_slice();
-    let c = TemplateStr { range, values };
+    let default_tstring = ruff::TString {
+        node_index: Default::default(),
+        range: Default::default(),
+        elements: Default::default(),
+        flags: ruff::TStringFlags::empty(),
+    };
+    let mut values = Vec::new();
+    for i in 0..value.as_slice().len() {
+        let tstring = core::mem::replace(value.iter_mut().nth(i).unwrap(), default_tstring.clone());
+        for element in ruff_fstring_element_into_iter(tstring.elements) {
+            values.push(ruff_tstring_element_to_template_str_part(
+                element,
+                source_file,
+            ));
+        }
+    }
+    let c = TemplateStr {
+        range,
+        values: values.into_boxed_slice(),
+    };
     c.ast_to_object(vm, source_file)
 }
