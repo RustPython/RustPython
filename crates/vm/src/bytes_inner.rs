@@ -1089,7 +1089,7 @@ impl AnyStr for [u8] {
     }
 }
 
-#[derive(FromArgs, Debug)]
+#[derive(FromArgs)]
 pub struct DecodeArgs {
     #[pyarg(any, default)]
     encoding: Option<PyStrRef>,

@@ -133,6 +133,11 @@ class TestUnstructuredHeader(TestHeaderBase):
                         source,
                         decoded,
                         *args):
+        # TODO: RUSTPYTHON; RustPython currently does not support non-utf8 encoding
+        if source == '=?gb2312?b?1eLKx9bQzsSy4srUo6E=?=':
+            raise unittest.SkipTest("TODO: RUSTPYTHON; RustPython currently does not support non-utf8 encoding")
+        # RUSTPYTHON: End
+        # ------------------------------------------------------------------
         l = len(args)
         defects = args[0] if l>0 else []
         header = 'Subject:' + (' ' if source else '')

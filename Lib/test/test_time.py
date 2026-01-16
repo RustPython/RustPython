@@ -53,8 +53,6 @@ class TimeTestCase(unittest.TestCase):
     def setUp(self):
         self.t = time.time()
 
-    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'altzone'
-    @unittest.expectedFailure
     def test_data_attributes(self):
         time.altzone
         time.daylight
