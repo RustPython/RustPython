@@ -160,7 +160,9 @@ def is_super_call_only(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> boo
     return True
 
 
-def remove_expected_failures(contents: str, tests_to_remove: set[tuple[str, str]]) -> str:
+def remove_expected_failures(
+    contents: str, tests_to_remove: set[tuple[str, str]]
+) -> str:
     """Remove @unittest.expectedFailure decorators from tests that now pass."""
     if not tests_to_remove:
         return contents
