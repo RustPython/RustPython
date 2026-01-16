@@ -22,7 +22,7 @@ use alloc::ffi::CString;
 
 use core::{convert::Infallible as Never, ffi::CStr, marker::PhantomData, ops::Deref};
 
-pub(crate) use _posixsubprocess::make_module;
+pub(crate) use _posixsubprocess::module_def;
 
 #[pymodule]
 mod _posixsubprocess {

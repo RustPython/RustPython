@@ -123,7 +123,7 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
                 pub(crate) const DOC: Option<&'static str> = #doc;
             },
             parse_quote! {
-                pub(crate) fn __module_def(
+                pub(crate) fn module_def(
                     ctx: &::rustpython_vm::Context,
                 ) -> &'static ::rustpython_vm::builtins::PyModuleDef {
                     DEF.get_or_init(|| {
@@ -144,7 +144,7 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
                     vm: &::rustpython_vm::VirtualMachine
                 ) -> ::rustpython_vm::PyRef<::rustpython_vm::builtins::PyModule> {
                     use ::rustpython_vm::PyPayload;
-                    let module = ::rustpython_vm::builtins::PyModule::from_def(__module_def(&vm.ctx)).into_ref(&vm.ctx);
+                    let module = ::rustpython_vm::builtins::PyModule::from_def(module_def(&vm.ctx)).into_ref(&vm.ctx);
                     __init_dict(vm, &module);
                     extend_module(vm, &module).unwrap();
                     module

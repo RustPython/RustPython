@@ -1,4 +1,4 @@
-pub(crate) use re::make_module;
+pub(crate) use re::module_def;
 
 #[pymodule]
 mod re {

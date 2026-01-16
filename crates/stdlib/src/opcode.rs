@@ -1,4 +1,4 @@
-pub(crate) use opcode::make_module;
+pub(crate) use opcode::__module_def;
 
 #[pymodule]
 mod opcode {

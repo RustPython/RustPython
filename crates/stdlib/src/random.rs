@@ -1,6 +1,6 @@
 //! Random module.
 
-pub(crate) use _random::make_module;
+pub(crate) use _random::module_def;
 
 #[pymodule]
 mod _random {

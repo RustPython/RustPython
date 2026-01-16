@@ -1,4 +1,4 @@
-pub(crate) use _scproxy::make_module;
+pub(crate) use _scproxy::module_def;
 
 #[pymodule]
 mod _scproxy {

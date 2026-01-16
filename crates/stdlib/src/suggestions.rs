@@ -1,4 +1,4 @@
-pub(crate) use _suggestions::make_module;
+pub(crate) use _suggestions::module_def;
 
 #[pymodule]
 mod _suggestions {

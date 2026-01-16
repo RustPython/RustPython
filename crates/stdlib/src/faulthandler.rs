@@ -1,4 +1,4 @@
-pub(crate) use decl::make_module;
+pub(crate) use decl::module_def;
 
 #[allow(static_mut_refs)] // TODO: group code only with static mut refs
 #[pymodule(name = "faulthandler")]

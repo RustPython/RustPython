@@ -115,13 +115,112 @@ use alloc::borrow::Cow;
 /// These modules are added to sys.modules BEFORE their exec function runs,
 /// allowing safe circular imports.
 pub fn get_module_defs() -> impl Iterator<Item = (Cow<'static, str>, StdlibDefFunc)> {
-    [(
-        Cow::from("_asyncio"),
-        _asyncio::__module_def as StdlibDefFunc,
-    )]
-    .into_iter()
+    macro_rules! modules {
+        {
+            $(
+                #[cfg($cfg:meta)]
+                { $( $key:expr => $val:expr),* $(,)? }
+            )*
+        } => {{
+            [
+                $(
+                    $(#[cfg($cfg)] (Cow::<'static, str>::from($key), $val as StdlibDefFunc),)*
+                )*
+            ]
+            .into_iter()
+        }};
+    }
+    modules! {
+        #[cfg(all())]
+        {
+            "_asyncio" => _asyncio::module_def,
+            "binascii" => binascii::module_def,
+            "_bisect" => bisect::module_def,
+            "_blake2" => blake2::module_def,
+            "_bz2" => bz2::module_def,
+            "cmath" => cmath::module_def,
+            "_csv" => csv::module_def,
+            "faulthandler" => faulthandler::module_def,
+            "gc" => gc::module_def,
+            "_hashlib" => hashlib::module_def,
+            "_json" => json::module_def,
+            "math" => math::module_def,
+            "_md5" => md5::module_def,
+            "_opcode" => opcode::module_def,
+            "_random" => random::module_def,
+            "_sha1" => sha1::module_def,
+            "_sha3" => sha3::module_def,
+            "_statistics" => statistics::module_def,
+            "_struct" => pystruct::module_def,
+            "_suggestions" => suggestions::module_def,
+            "zlib" => zlib::module_def,
+        }
+        #[cfg(any(unix, target_os = "wasi"))]
+        {
+            "fcntl" => fcntl::module_def,
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            "_multiprocessing" => multiprocessing::module_def,
+        }
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        {
+            "_lzma" => lzma::module_def,
+        }
+        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
+        {
+            "_ssl" => ssl::module_def,
+        }
+        #[cfg(windows)]
+        {
+            "_overlapped" => overlapped::module_def,
+        }
+        #[cfg(unix)]
+        {
+            "_posixsubprocess" => posixsubprocess::module_def,
+        }
+        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
+        {
+            "_posixshmem" => posixshmem::module_def,
+        }
+        #[cfg(any(unix, windows))]
+        {
+            "mmap" => mmap::module_def,
+        }
+        #[cfg(all(unix, not(target_os = "redox")))]
+        {
+            "syslog" => syslog::module_def,
+            "resource" => resource::module_def,
+        }
+        #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
+        {
+            "termios" => termios::module_def,
+        }
+        #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+        {
+            "grp" => grp::module_def,
+        }
+        #[cfg(target_os = "macos")]
+        {
+            "_scproxy" => scproxy::module_def,
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32", target_os = "redox")))]
+        {
+            "_uuid" => uuid::module_def,
+        }
+        #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+        {
+            "_locale" => locale::module_def,
+        }
+        #[cfg(feature = "tkinter")]
+        {
+            "_tkinter" => tkinter::module_def,
+        }
+    }
 }
 
+/// Returns module initializers for single-phase init modules.
+/// These are modules that don't use #[pymodule] macro or need custom initialization.
 pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInitFunc)> {
     macro_rules! modules {
         {
@@ -142,37 +241,11 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(all())]
         {
             "array" => array::make_module,
-            "binascii" => binascii::make_module,
-            "_bisect" => bisect::make_module,
-            "_bz2" => bz2::make_module,
-            "cmath" => cmath::make_module,
             "_contextvars" => contextvars::make_module,
-            "_csv" => csv::make_module,
-            "faulthandler" => faulthandler::make_module,
-            "gc" => gc::make_module,
-            "_hashlib" => hashlib::make_module,
-            "_sha1" => sha1::make_module,
-            "_sha3" => sha3::make_module,
+            "pyexpat" => pyexpat::make_module,
             "_sha256" => sha256::make_module,
             "_sha512" => sha512::make_module,
-            "_md5" => md5::make_module,
-            "_blake2" => blake2::make_module,
-            "_json" => json::make_module,
-            "math" => math::make_module,
-            "pyexpat" => pyexpat::make_module,
-            "_opcode" => opcode::make_module,
-            "_random" => random::make_module,
-            "_statistics" => statistics::make_module,
-            "_struct" => pystruct::make_module,
             "unicodedata" => unicodedata::make_module,
-            "zlib" => zlib::make_module,
-            "_statistics" => statistics::make_module,
-            "_suggestions" => suggestions::make_module,
-            // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
-        }
-        #[cfg(any(unix, target_os = "wasi"))]
-        {
-            "fcntl" => fcntl::make_module,
         }
         #[cfg(any(unix, windows, target_os = "wasi"))]
         {
@@ -180,70 +253,15 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            "_multiprocessing" => multiprocessing::make_module,
             "_socket" => socket::make_module,
-        }
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-        {
-            "_lzma" => lzma::make_module,
         }
         #[cfg(all(feature = "sqlite", not(any(target_os = "android", target_arch = "wasm32"))))]
         {
             "_sqlite3" => sqlite::make_module,
         }
-        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
-        {
-            "_ssl" => ssl::make_module,
-        }
         #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
         {
             "_ssl" => openssl::make_module,
-        }
-        #[cfg(windows)]
-        {
-            "_overlapped" => overlapped::make_module,
-        }
-        // Unix-only
-        #[cfg(unix)]
-        {
-            "_posixsubprocess" => posixsubprocess::make_module,
-        }
-        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
-        {
-            "_posixshmem" => posixshmem::make_module,
-        }
-        #[cfg(any(unix, windows))]
-        {
-            "mmap" => mmap::make_module,
-        }
-        #[cfg(all(unix, not(target_os = "redox")))]
-        {
-            "syslog" => syslog::make_module,
-            "resource" => resource::make_module,
-        }
-        #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
-        {
-            "termios" => termios::make_module,
-        }
-        #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
-        {
-            "grp" => grp::make_module,
-        }
-        #[cfg(target_os = "macos")]
-        {
-            "_scproxy" => scproxy::make_module,
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32", target_os = "redox")))]
-        {
-            "_uuid" => uuid::make_module,
-        }
-        #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
-        {
-            "_locale" => locale::make_module,
-        }
-        #[cfg(feature = "tkinter")]
-        {
-            "_tkinter" => tkinter::make_module,
         }
     }
 }

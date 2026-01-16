@@ -159,8 +159,8 @@ impl VirtualMachine {
         };
 
         // Hard-core modules:
-        let builtins = new_module(stdlib::builtins::__module_def(&ctx));
-        let sys_module = new_module(stdlib::sys::__module_def(&ctx));
+        let builtins = new_module(stdlib::builtins::module_def(&ctx));
+        let sys_module = new_module(stdlib::sys::module_def(&ctx));
 
         let import_func = ctx.none();
         let profile_func = RefCell::new(ctx.none());

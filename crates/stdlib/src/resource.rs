@@ -1,6 +1,6 @@
 // spell-checker:disable
 
-pub(crate) use resource::make_module;
+pub(crate) use resource::module_def;
 
 #[pymodule]
 mod resource {
