@@ -22,6 +22,17 @@ namespace = {}
 exec("", namespace)
 assert namespace["__builtins__"] == __builtins__.__dict__
 
+
+# function.__builtins__ should be a dict, not a module
+# See: https://docs.python.org/3/reference/datamodel.html
+def test_func():
+    pass
+
+
+assert isinstance(test_func.__builtins__, dict), (
+    f"function.__builtins__ should be dict, got {type(test_func.__builtins__)}"
+)
+
 # with assert_raises(NameError):
 #     exec('print(__builtins__)', {'__builtins__': {}})
 
