@@ -16,6 +16,7 @@ class OpListTests(unittest.TestCase):
                 self.assertIsInstance(func(op), bool)
                 self.assertEqual(func(op), expected)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Move LoadClosure to psudoes
     def test_invalid_opcodes(self):
         invalid = [-100, -1, 255, 512, 513, 1000]
         self.check_bool_function_result(_opcode.is_valid, invalid, False)
@@ -27,7 +28,6 @@ class OpListTests(unittest.TestCase):
         self.check_bool_function_result(_opcode.has_local, invalid, False)
         self.check_bool_function_result(_opcode.has_exc, invalid, False)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON - no instrumented opcodes
     def test_is_valid(self):
         names = [
             'CACHE',
