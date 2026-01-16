@@ -409,8 +409,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
 
     # Pickling raises an exception; there's no way to serialize an lzma_stream.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises(TypeError):

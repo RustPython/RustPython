@@ -698,7 +698,6 @@ class TestDialectRegistry(unittest.TestCase):
             dialect = csv.get_dialect(name)
             self.assertRaises(TypeError, copy.copy, dialect)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickle(self):
         for name in csv.list_dialects():
             dialect = csv.get_dialect(name)
