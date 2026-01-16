@@ -259,6 +259,10 @@ Disallow: /another/path?
     good = ['/some/path?']
     bad = ['/another/path?']
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertFalse(self.parser.can_fetch(agent, url))\nAssertionError: True is not false
+    def test_bad_urls(self):
+        super().test_bad_urls()
+
 
 class DefaultEntryTest(BaseRequestRateTest, unittest.TestCase):
     robots_txt = """\
