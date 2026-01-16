@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTuple, PyTupleRef,
-    PyType,
+    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef, PyTuple,
+    PyTupleRef, PyType,
 };
 #[cfg(feature = "jit")]
 use crate::common::lock::OnceCell;
@@ -67,9 +67,15 @@ impl PyFunction {
             if let Some(frame) = vm.current_frame() {
                 frame.builtins.clone().into()
             } else {
-                vm.builtins.clone().into()
+                vm.builtins.dict().into()
             }
         });
+        // If builtins is a module, use its __dict__ instead
+        let builtins = if let Some(module) = builtins.downcast_ref::<PyModule>() {
+            module.dict().into()
+        } else {
+            builtins
+        };
 
         let qualname = vm.ctx.new_str(code.qualname.as_str());
         let func = Self {
@@ -679,11 +685,11 @@ pub struct PyFunctionNewArgs {
     #[pyarg(any, optional)]
     name: OptionalArg<PyStrRef>,
     #[pyarg(any, optional)]
-    defaults: OptionalArg<PyTupleRef>,
+    argdefs: Option<PyTupleRef>,
     #[pyarg(any, optional)]
-    closure: OptionalArg<PyTupleRef>,
+    closure: Option<PyTupleRef>,
     #[pyarg(any, optional)]
-    kwdefaults: OptionalArg<PyDictRef>,
+    kwdefaults: Option<PyDictRef>,
 }
 
 impl Constructor for PyFunction {
@@ -691,7 +697,7 @@ impl Constructor for PyFunction {
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         // Handle closure - must be a tuple of cells
-        let closure = if let Some(closure_tuple) = args.closure.into_option() {
+        let closure = if let Some(closure_tuple) = args.closure {
             // Check that closure length matches code's free variables
             if closure_tuple.len() != args.code.freevars.len() {
                 return Err(vm.new_value_error(format!(
@@ -722,10 +728,10 @@ impl Constructor for PyFunction {
         if let Some(closure_tuple) = closure {
             func.closure = Some(closure_tuple);
         }
-        if let Some(defaults) = args.defaults.into_option() {
-            func.defaults_and_kwdefaults.lock().0 = Some(defaults);
+        if let Some(argdefs) = args.argdefs {
+            func.defaults_and_kwdefaults.lock().0 = Some(argdefs);
         }
-        if let Some(kwdefaults) = args.kwdefaults.into_option() {
+        if let Some(kwdefaults) = args.kwdefaults {
             func.defaults_and_kwdefaults.lock().1 = Some(kwdefaults);
         }
 
