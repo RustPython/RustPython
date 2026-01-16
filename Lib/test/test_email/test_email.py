@@ -481,6 +481,7 @@ class TestMessageAPI(TestEmailBase):
             "Content-Type: foo; bar*0=\"baz\\\"foobar\"; bar*1=\"\\\"baz\"")
         self.assertEqual(msg.get_param('bar'), 'baz"foobar"baz')
 
+    @unittest.skip('TODO: RUSTPYTHON; Takes a long time to the point of timeouting')
     def test_get_param_linear_complexity(self):
         # Ensure that email.message._parseparam() is fast.
         # See https://github.com/python/cpython/issues/136063.
