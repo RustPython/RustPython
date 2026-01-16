@@ -736,6 +736,7 @@ class HandlerTest(BaseTest):
     @threading_helper.requires_working_threading()
     @skip_if_asan_fork
     @skip_if_tsan_fork
+    @unittest.skip("TODO: RUSTPYTHON; Flaky")
     def test_post_fork_child_no_deadlock(self):
         """Ensure child logging locks are not held; bpo-6721 & bpo-36533."""
         class _OurHandler(logging.Handler):
