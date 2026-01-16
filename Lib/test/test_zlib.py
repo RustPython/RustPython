@@ -747,15 +747,11 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         self.assertRaises(ValueError, copy.copy, d)
         self.assertRaises(ValueError, copy.deepcopy, d)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compresspickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises((TypeError, pickle.PicklingError)):
                 pickle.dumps(zlib.compressobj(zlib.Z_BEST_COMPRESSION), proto)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompresspickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises((TypeError, pickle.PicklingError)):
@@ -1006,8 +1002,6 @@ class ZlibDecompressorTest(unittest.TestCase):
             compressed = None
             decompressed = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testPickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises(TypeError):
