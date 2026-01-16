@@ -1,8 +1,10 @@
 //! Implementation of the _thread module
+#[cfg(unix)]
+pub(crate) use _thread::after_fork_child;
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
-    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, after_fork_child,
-    get_all_current_frames, get_ident, init_main_thread_ident, make_module,
+    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames, get_ident,
+    init_main_thread_ident, make_module,
 };
 
 #[pymodule]
@@ -882,6 +884,7 @@ pub(crate) mod _thread {
 
     /// Called after fork() in child process to mark all other threads as done.
     /// This prevents join() from hanging on threads that don't exist in the child.
+    #[cfg(unix)]
     pub fn after_fork_child(vm: &VirtualMachine) {
         let current_ident = get_ident();
 
