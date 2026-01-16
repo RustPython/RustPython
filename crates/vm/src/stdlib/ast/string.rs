@@ -367,3 +367,252 @@ pub(super) fn fstring_to_object(
     let c = JoinedStr { range, values };
     c.ast_to_object(vm, source_file)
 }
+
+// ===== TString (Template String) Support =====
+
+fn ruff_tstring_value_into_iter(
+    mut tstring_value: ruff::TStringValue,
+) -> impl Iterator<Item = ruff::TString> + 'static {
+    let default = ruff::TString {
+        node_index: Default::default(),
+        range: Default::default(),
+        elements: Default::default(),
+        flags: ruff::TStringFlags::empty(),
+    };
+    (0..tstring_value.as_slice().len()).map(move |i| {
+        let tmp = tstring_value.iter_mut().nth(i).unwrap();
+        core::mem::replace(tmp, default.clone())
+    })
+}
+
+fn tstring_to_template_str_parts(
+    tstring: ruff::TString,
+    source_file: &SourceFile,
+) -> Vec<TemplateStrPart> {
+    let ruff::TString {
+        range: _,
+        elements,
+        flags: _,
+        node_index: _,
+    } = tstring;
+    ruff_fstring_element_into_iter(elements)
+        .map(|e| ruff_tstring_element_to_template_str_part(e, source_file))
+        .collect()
+}
+
+fn ruff_tstring_element_to_template_str_part(
+    element: ruff::InterpolatedStringElement,
+    source_file: &SourceFile,
+) -> TemplateStrPart {
+    match element {
+        ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
+            range,
+            value,
+            node_index: _,
+        }) => TemplateStrPart::Constant(Constant::new_str(
+            value,
+            ruff::str_prefix::StringLiteralPrefix::Empty,
+            range,
+        )),
+        ruff::InterpolatedStringElement::Interpolation(ruff::InterpolatedElement {
+            range,
+            expression,
+            debug_text,
+            conversion,
+            format_spec,
+            node_index: _,
+        }) => {
+            // Get the expression source text for the "str" field
+            let expr_str = debug_text
+                .map(|dt| dt.leading.to_string() + &dt.trailing)
+                .unwrap_or_else(|| source_file.slice(expression.range()).to_string());
+            TemplateStrPart::Interpolation(TStringInterpolation {
+                value: expression,
+                str: expr_str,
+                conversion,
+                format_spec: ruff_format_spec_to_template_str(format_spec, source_file),
+                range,
+            })
+        }
+    }
+}
+
+fn ruff_format_spec_to_template_str(
+    format_spec: Option<Box<ruff::InterpolatedStringFormatSpec>>,
+    source_file: &SourceFile,
+) -> Option<Box<TemplateStr>> {
+    match format_spec {
+        None => None,
+        Some(format_spec) => {
+            let ruff::InterpolatedStringFormatSpec {
+                range,
+                elements,
+                node_index: _,
+            } = *format_spec;
+            let values: Vec<_> = ruff_fstring_element_into_iter(elements)
+                .map(|e| ruff_tstring_element_to_template_str_part(e, source_file))
+                .collect();
+            let values = values.into_boxed_slice();
+            Some(Box::new(TemplateStr { range, values }))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct TemplateStr {
+    pub(super) range: TextRange,
+    pub(super) values: Box<[TemplateStrPart]>,
+}
+
+// constructor
+impl Node for TemplateStr {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let Self { values, range } = self;
+        let node = NodeAst
+            .into_ref_with_type(vm, pyast::NodeExprTemplateStr::static_type().to_owned())
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        dict.set_item(
+            "values",
+            BoxedSlice(values).ast_to_object(vm, source_file),
+            vm,
+        )
+        .unwrap();
+        node_add_location(&dict, range, vm, source_file);
+        node.into()
+    }
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        let values: BoxedSlice<_> = Node::ast_from_object(
+            vm,
+            source_file,
+            get_node_field(vm, &object, "values", "TemplateStr")?,
+        )?;
+        Ok(Self {
+            values: values.0,
+            range: range_from_object(vm, source_file, object, "TemplateStr")?,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum TemplateStrPart {
+    Interpolation(TStringInterpolation),
+    Constant(Constant),
+}
+
+// constructor
+impl Node for TemplateStrPart {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        match self {
+            Self::Interpolation(value) => value.ast_to_object(vm, source_file),
+            Self::Constant(value) => value.ast_to_object(vm, source_file),
+        }
+    }
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        let cls = object.class();
+        if cls.is(pyast::NodeExprInterpolation::static_type()) {
+            Ok(Self::Interpolation(Node::ast_from_object(
+                vm,
+                source_file,
+                object,
+            )?))
+        } else {
+            Ok(Self::Constant(Node::ast_from_object(
+                vm,
+                source_file,
+                object,
+            )?))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct TStringInterpolation {
+    value: Box<ruff::Expr>,
+    str: String,
+    conversion: ruff::ConversionFlag,
+    format_spec: Option<Box<TemplateStr>>,
+    range: TextRange,
+}
+
+// constructor
+impl Node for TStringInterpolation {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let Self {
+            value,
+            str,
+            conversion,
+            format_spec,
+            range,
+        } = self;
+        let node = NodeAst
+            .into_ref_with_type(vm, pyast::NodeExprInterpolation::static_type().to_owned())
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        dict.set_item("value", value.ast_to_object(vm, source_file), vm)
+            .unwrap();
+        dict.set_item("str", vm.ctx.new_str(str).into(), vm)
+            .unwrap();
+        dict.set_item("conversion", conversion.ast_to_object(vm, source_file), vm)
+            .unwrap();
+        dict.set_item(
+            "format_spec",
+            format_spec.ast_to_object(vm, source_file),
+            vm,
+        )
+        .unwrap();
+        node_add_location(&dict, range, vm, source_file);
+        node.into()
+    }
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        let str_obj = get_node_field(vm, &object, "str", "Interpolation")?;
+        let str_val: String = str_obj.try_into_value(vm)?;
+        Ok(Self {
+            value: Node::ast_from_object(
+                vm,
+                source_file,
+                get_node_field(vm, &object, "value", "Interpolation")?,
+            )?,
+            str: str_val,
+            conversion: Node::ast_from_object(
+                vm,
+                source_file,
+                get_node_field(vm, &object, "conversion", "Interpolation")?,
+            )?,
+            format_spec: get_node_field_opt(vm, &object, "format_spec")?
+                .map(|obj| Node::ast_from_object(vm, source_file, obj))
+                .transpose()?,
+            range: range_from_object(vm, source_file, object, "Interpolation")?,
+        })
+    }
+}
+
+pub(super) fn tstring_to_object(
+    vm: &VirtualMachine,
+    source_file: &SourceFile,
+    expression: ruff::ExprTString,
+) -> PyObjectRef {
+    let ruff::ExprTString {
+        range,
+        value,
+        node_index: _,
+    } = expression;
+    let values: Vec<_> = ruff_tstring_value_into_iter(value)
+        .flat_map(|p| tstring_to_template_str_parts(p, source_file))
+        .collect();
+    let values = values.into_boxed_slice();
+    let c = TemplateStr { range, values };
+    c.ast_to_object(vm, source_file)
+}

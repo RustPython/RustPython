@@ -1441,14 +1441,19 @@ impl SymbolTableBuilder {
                 }
             }
             Expr::TString(tstring) => {
-                return Err(SymbolTableError {
-                    error: "not yet implemented".into(),
-                    location: Some(
-                        self.source_file
-                            .to_source_code()
-                            .source_location(tstring.range.start(), PositionEncoding::Utf8),
-                    ),
-                });
+                // Scan t-string interpolation expressions (similar to f-strings)
+                for expr in tstring
+                    .value
+                    .elements()
+                    .filter_map(|x| x.as_interpolation())
+                {
+                    self.scan_expression(&expr.expression, ExpressionContext::Load)?;
+                    if let Some(format_spec) = &expr.format_spec {
+                        for element in format_spec.elements.interpolations() {
+                            self.scan_expression(&element.expression, ExpressionContext::Load)?
+                        }
+                    }
+                }
             }
             // Constants
             Expr::StringLiteral(_)

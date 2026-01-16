@@ -24,13 +24,13 @@ use num_traits::{Num, ToPrimitive};
 use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
     ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
-    ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
-    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedStringElement,
+    ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTString, ExprTuple,
+    ExprUnaryOp, FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedStringElement,
     InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
     Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
     PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
-    Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
-    TypeParams, UnaryOp, WithItem,
+    Stmt, StmtExpr, TString, TypeParam, TypeParamParamSpec, TypeParamTypeVar,
+    TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
     visitor::{Visitor, walk_expr},
 };
 use ruff_text_size::{Ranged, TextRange};
@@ -6282,8 +6282,8 @@ impl Compiler {
             Expr::FString(fstring) => {
                 self.compile_expr_fstring(fstring)?;
             }
-            Expr::TString(_) => {
-                return Err(self.error(CodegenErrorType::NotImplementedYet));
+            Expr::TString(tstring) => {
+                self.compile_expr_tstring(tstring)?;
             }
             Expr::StringLiteral(string) => {
                 let value = string.value.to_str();
@@ -7462,6 +7462,114 @@ impl Compiler {
                     size: element_count
                 }
             );
+        }
+
+        Ok(())
+    }
+
+    fn compile_expr_tstring(&mut self, expr_tstring: &ExprTString) -> CompileResult<()> {
+        // TStringValue can contain multiple TString parts (implicit concatenation)
+        // Each TString part should be compiled and the results merged into a single Template
+        let tstring_value = &expr_tstring.value;
+
+        // Collect all strings and compile all interpolations
+        let mut all_strings: Vec<Wtf8Buf> = Vec::new();
+        let mut current_string = Wtf8Buf::new();
+        let mut interp_count: u32 = 0;
+
+        for tstring in tstring_value.iter() {
+            self.compile_tstring_into(
+                tstring,
+                &mut all_strings,
+                &mut current_string,
+                &mut interp_count,
+            )?;
+        }
+
+        // Add trailing string
+        all_strings.push(std::mem::take(&mut current_string));
+
+        // Now build the Template:
+        // Stack currently has all interpolations from compile_tstring_into calls
+
+        // 1. Build interpolations tuple from the interpolations on the stack
+        emit!(self, Instruction::BuildTuple { size: interp_count });
+
+        // 2. Load all string parts
+        let string_count: u32 = all_strings
+            .len()
+            .try_into()
+            .expect("t-string string count overflowed");
+        for s in &all_strings {
+            self.emit_load_const(ConstantData::Str { value: s.clone() });
+        }
+
+        // 3. Build strings tuple
+        emit!(self, Instruction::BuildTuple { size: string_count });
+
+        // 4. Swap so strings is below interpolations: [interps, strings] -> [strings, interps]
+        emit!(self, Instruction::Swap { index: 2 });
+
+        // 5. Build the Template
+        emit!(self, Instruction::BuildTemplate);
+
+        Ok(())
+    }
+
+    fn compile_tstring_into(
+        &mut self,
+        tstring: &TString,
+        strings: &mut Vec<Wtf8Buf>,
+        current_string: &mut Wtf8Buf,
+        interp_count: &mut u32,
+    ) -> CompileResult<()> {
+        for element in &tstring.elements {
+            match element {
+                InterpolatedStringElement::Literal(lit) => {
+                    // Accumulate literal parts into current_string
+                    current_string.push_str(&lit.value);
+                }
+                InterpolatedStringElement::Interpolation(interp) => {
+                    // Finish current string segment
+                    strings.push(std::mem::take(current_string));
+
+                    // Compile the interpolation value
+                    self.compile_expression(&interp.expression)?;
+
+                    // Load the expression source string
+                    let expr_range = interp.expression.range();
+                    let expr_source = self.source_file.slice(expr_range);
+                    self.emit_load_const(ConstantData::Str {
+                        value: expr_source.to_string().into(),
+                    });
+
+                    // Determine conversion code
+                    let conversion: u32 = match interp.conversion {
+                        ConversionFlag::None => 0,
+                        ConversionFlag::Str => 1,
+                        ConversionFlag::Repr => 2,
+                        ConversionFlag::Ascii => 3,
+                    };
+
+                    // Handle format_spec
+                    let has_format_spec = interp.format_spec.is_some();
+                    if let Some(format_spec) = &interp.format_spec {
+                        // Compile format_spec as a string using fstring element compilation
+                        // Use default FStringFlags since format_spec syntax is independent of t-string flags
+                        self.compile_fstring_elements(
+                            FStringFlags::empty(),
+                            &format_spec.elements,
+                        )?;
+                    }
+
+                    // Emit BUILD_INTERPOLATION
+                    // oparg encoding: (conversion << 2) | has_format_spec
+                    let oparg = (conversion << 2) | (has_format_spec as u32);
+                    emit!(self, Instruction::BuildInterpolation { oparg });
+
+                    *interp_count += 1;
+                }
+            }
         }
 
         Ok(())

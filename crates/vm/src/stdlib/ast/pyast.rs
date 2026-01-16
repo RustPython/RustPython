@@ -449,6 +449,20 @@ impl_node!(
 );
 
 impl_node!(
+    #[pyclass(module = "_ast", name = "TemplateStr", base = NodeExpr)]
+    pub(crate) struct NodeExprTemplateStr,
+    fields: ["values"],
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
+);
+
+impl_node!(
+    #[pyclass(module = "_ast", name = "Interpolation", base = NodeExpr)]
+    pub(crate) struct NodeExprInterpolation,
+    fields: ["value", "str", "conversion", "format_spec"],
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
+);
+
+impl_node!(
     #[pyclass(module = "_ast", name = "Constant", base = NodeExpr)]
     pub(crate) struct NodeExprConstant,
     fields: ["value", "kind"],
@@ -918,6 +932,8 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "Call" => NodeExprCall::make_class(&vm.ctx),
         "FormattedValue" => NodeExprFormattedValue::make_class(&vm.ctx),
         "JoinedStr" => NodeExprJoinedStr::make_class(&vm.ctx),
+        "TemplateStr" => NodeExprTemplateStr::make_class(&vm.ctx),
+        "Interpolation" => NodeExprInterpolation::make_class(&vm.ctx),
         "Constant" => NodeExprConstant::make_class(&vm.ctx),
         "Attribute" => NodeExprAttribute::make_class(&vm.ctx),
         "Subscript" => NodeExprSubscript::make_class(&vm.ctx),
