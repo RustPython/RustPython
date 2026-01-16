@@ -516,7 +516,7 @@ pub(crate) mod _thread {
                 let mut handles = vm.state.shutdown_handles.lock();
                 // Clean up finished entries
                 handles.retain(|(inner_weak, _): &ShutdownEntry| {
-                    inner_weak.upgrade().map_or(false, |inner| {
+                    inner_weak.upgrade().is_some_and(|inner| {
                         let guard = inner.lock();
                         guard.state != ThreadHandleState::Done && guard.ident != current_ident
                     })

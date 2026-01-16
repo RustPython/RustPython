@@ -188,10 +188,7 @@ fn type_slot_names(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<sup
 fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyResult {
     // Check itemsize
     if required && obj.class().slots.itemsize > 0 {
-        return Err(vm.new_type_error(format!(
-            "cannot pickle {:.200} objects",
-            obj.class().name()
-        )));
+        return Err(vm.new_type_error(format!("cannot pickle {:.200} objects", obj.class().name())));
     }
 
     let state = if obj.dict().is_none_or(|d| d.is_empty()) {
@@ -237,9 +234,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
         // Fail if actual type's basicsize > expected basicsize
         if obj.class().slots.basicsize > basicsize {
-            return Err(
-                vm.new_type_error(format!("cannot pickle '{}' object", obj.class().name()))
-            );
+            return Err(vm.new_type_error(format!("cannot pickle '{}' object", obj.class().name())));
         }
     }
 
@@ -683,9 +678,7 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // Check if type has tp_new
     let cls = obj.class();
     if cls.slots.new.load().is_none() {
-        return Err(
-            vm.new_type_error(format!("cannot pickle '{}' object", cls.name()))
-        );
+        return Err(vm.new_type_error(format!("cannot pickle '{}' object", cls.name())));
     }
 
     let (args, kwargs) = get_new_arguments(&obj, vm)?;
@@ -694,13 +687,13 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
     let has_args = args.is_some();
 
-    let (newobj, newargs): (PyObjectRef, PyObjectRef) = if kwargs.is_none() || kwargs.as_ref().is_some_and(|k| k.is_empty()) {
+    let (newobj, newargs): (PyObjectRef, PyObjectRef) = if kwargs.is_none()
+        || kwargs.as_ref().is_some_and(|k| k.is_empty())
+    {
         // Use copyreg.__newobj__
         let newobj = copyreg.get_attr("__newobj__", vm)?;
 
-        let args_vec: Vec<PyObjectRef> = args
-            .map(|a| a.as_slice().to_vec())
-            .unwrap_or_default();
+        let args_vec: Vec<PyObjectRef> = args.map(|a| a.as_slice().to_vec()).unwrap_or_default();
 
         // Create (cls, *args) tuple
         let mut newargs_vec: Vec<PyObjectRef> = vec![cls.to_owned().into()];
@@ -711,10 +704,16 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     } else {
         // Use copyreg.__newobj_ex__
         let newobj = copyreg.get_attr("__newobj_ex__", vm)?;
-        let args_tuple: PyObjectRef = args.map(|a| a.into()).unwrap_or_else(|| vm.ctx.empty_tuple.clone().into());
-        let kwargs_dict: PyObjectRef = kwargs.map(|k| k.into()).unwrap_or_else(|| vm.ctx.new_dict().into());
+        let args_tuple: PyObjectRef = args
+            .map(|a| a.into())
+            .unwrap_or_else(|| vm.ctx.empty_tuple.clone().into());
+        let kwargs_dict: PyObjectRef = kwargs
+            .map(|k| k.into())
+            .unwrap_or_else(|| vm.ctx.new_dict().into());
 
-        let newargs = vm.ctx.new_tuple(vec![cls.to_owned().into(), args_tuple, kwargs_dict]);
+        let newargs = vm
+            .ctx
+            .new_tuple(vec![cls.to_owned().into(), args_tuple, kwargs_dict]);
         (newobj, newargs.into())
     };
 
@@ -728,7 +727,9 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
     let (listitems, dictitems) = get_items_iter(&obj, vm)?;
 
-    let result = vm.ctx.new_tuple(vec![newobj, newargs, state, listitems, dictitems]);
+    let result = vm
+        .ctx
+        .new_tuple(vec![newobj, newargs, state, listitems, dictitems]);
     Ok(result.into())
 }
 

@@ -4104,6 +4104,10 @@ mod _io {
 
         #[pymethod]
         fn __setstate__(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+            // Check closed state first (like CHECK_CLOSED)
+            if zelf.closed.load() {
+                return Err(vm.new_value_error("__setstate__ on closed file"));
+            }
             if state.len() != 4 {
                 return Err(vm.new_type_error(format!(
                     "__setstate__ argument should be 4-tuple, got {}",
@@ -4116,14 +4120,14 @@ mod _io {
             let pos: u64 = state[2].clone().try_into_value(vm)?;
             let dict = &state[3];
 
-            // Set content
+            // Set content and position
             let raw_bytes = content.as_bytes().to_vec();
-            *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
-
-            // Set position
-            zelf.buffer(vm)?
+            let mut buffer = zelf.buffer.write();
+            *buffer = BufferedIO::new(Cursor::new(raw_bytes));
+            buffer
                 .seek(SeekFrom::Start(pos))
                 .map_err(|err| os_err(vm, err))?;
+            drop(buffer);
 
             // Set __dict__ if provided
             if !vm.is_none(dict) {
@@ -4324,13 +4328,13 @@ mod _io {
             let pos: u64 = state[1].clone().try_into_value(vm)?;
             let dict = &state[2];
 
-            // Set content
-            *zelf.buffer.write() = BufferedIO::new(Cursor::new(content.as_bytes().to_vec()));
-
-            // Set position
-            zelf.buffer(vm)?
+            // Check exports and set content (like CHECK_EXPORTS)
+            let mut buffer = zelf.try_resizable(vm)?;
+            *buffer = BufferedIO::new(Cursor::new(content.as_bytes().to_vec()));
+            buffer
                 .seek(SeekFrom::Start(pos))
                 .map_err(|err| os_err(vm, err))?;
+            drop(buffer);
 
             // Set __dict__ if provided
             if !vm.is_none(dict) {
