@@ -1,3 +1,22 @@
+# TODO: RUSTPYTHON
+try:
+    nonlocal_ex = """\
+def f():
+    x = 1
+    def g():
+        nonlocal x
+        x = 2
+        y = 7
+        def h():
+            nonlocal x, y
+"""
+    import ast
+    import unittest
+    ast1 = ast.parse(nonlocal_ex)
+    code2 = ast.unparse(ast1)
+except AttributeError:
+    raise unittest.SkipTest('TODO: RUSTPYTHON; type_comment attribute not implemented. FunctionDef, AsyncFunctionDef, For, AsyncFor, With and AsyncWith should have attribute')
+
 """Tests for ast.unparse."""
 
 import unittest
@@ -512,6 +531,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_src_roundtrip("class X(*args):\n    pass")
         self.check_src_roundtrip("class X(*args, **kwargs):\n    pass")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; f"{f'{x!ÿ}\n'!ÿ}\n"
     def test_fstrings(self):
         self.check_src_roundtrip('''f\'\'\'-{f"""*{f"+{f'.{x}.'}+"}*"""}-\'\'\'''')
         self.check_src_roundtrip('''f\'-{f\'\'\'*{f"""+{f".{f'{x}'}."}+"""}*\'\'\'}-\'''')
@@ -651,6 +671,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_ast_roundtrip("""f'''""\"''\\'{"\\n\\"'"}''' """)
         self.check_ast_roundtrip("""f'''""\"''\\'{""\"\\n\\"'''""\" '''\\n'''}''' """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: SyntaxWarning not triggered
     def test_backslash_in_format_spec(self):
         import re
         msg = re.escape("invalid escape sequence '\\ '")

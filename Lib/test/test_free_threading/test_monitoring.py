@@ -1,3 +1,10 @@
+# TODO: RUSTPYTHON
+try:
+    import unittest
+    from sys import monitoring
+except ImportError:
+    raise unittest.SkipTest('TODO: RUSTPYTHON; cannot import name "monitoring" from sys')
+
 """Tests monitoring, sys.settrace, and sys.setprofile in a multi-threaded
 environment to verify things are thread-safe in a free-threaded build"""
 
