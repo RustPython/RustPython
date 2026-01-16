@@ -5,16 +5,23 @@ use crate::{
     coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameRef,
     function::OptionalArg,
+    object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
     types::{IterNext, Iterable, Representable, SelfIter},
 };
 use crossbeam_utils::atomic::AtomicCell;
 
-#[pyclass(module = false, name = "coroutine")]
+#[pyclass(module = false, name = "coroutine", traverse = "manual")]
 #[derive(Debug)]
 // PyCoro_Type in CPython
 pub struct PyCoroutine {
     inner: Coro,
+}
+
+unsafe impl Traverse for PyCoroutine {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.inner.traverse(tracer_fn);
+    }
 }
 
 impl PyPayload for PyCoroutine {
@@ -138,12 +145,18 @@ impl IterNext for PyCoroutine {
     }
 }
 
-#[pyclass(module = false, name = "coroutine_wrapper")]
+#[pyclass(module = false, name = "coroutine_wrapper", traverse = "manual")]
 #[derive(Debug)]
 // PyCoroWrapper_Type in CPython
 pub struct PyCoroutineWrapper {
     coro: PyRef<PyCoroutine>,
     closed: AtomicCell<bool>,
+}
+
+unsafe impl Traverse for PyCoroutineWrapper {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.coro.traverse(tracer_fn);
+    }
 }
 
 impl PyPayload for PyCoroutineWrapper {
