@@ -62,12 +62,22 @@ mod winapi;
 #[cfg(windows)]
 mod winreg;
 
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
+use crate::{Context, PyRef, VirtualMachine, builtins::PyModule, builtins::PyModuleDef};
 use alloc::borrow::Cow;
 use std::collections::HashMap;
 
+/// Legacy single-phase init: function that creates and populates a module in one step
 pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyRef<PyModule>)>;
+
+/// Multi-phase init: function that returns a module definition
+/// The import machinery will:
+/// 1. Create module from def
+/// 2. Add to sys.modules
+/// 3. Call exec slot (which can safely import other modules)
+pub type StdlibDefFunc = fn(&Context) -> &'static PyModuleDef;
+
 pub type StdlibMap = HashMap<Cow<'static, str>, StdlibInitFunc, ahash::RandomState>;
+pub type StdlibDefMap = HashMap<Cow<'static, str>, StdlibDefFunc, ahash::RandomState>;
 
 pub fn get_module_inits() -> StdlibMap {
     macro_rules! modules {
@@ -153,4 +163,13 @@ pub fn get_module_inits() -> StdlibMap {
             "_ctypes" => ctypes::make_module,
         }
     }
+}
+
+/// Returns module definitions for multi-phase init modules.
+/// These modules use CPython's two-phase initialization pattern:
+/// 1. Create module from def and add to sys.modules
+/// 2. Call exec slot (can safely import other modules without circular import issues)
+pub fn get_module_defs() -> StdlibDefMap {
+    // Currently empty - modules will be migrated to multi-phase init as needed
+    HashMap::default()
 }

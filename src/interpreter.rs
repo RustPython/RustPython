@@ -101,6 +101,8 @@ impl InterpreterConfig {
 /// Initializes all standard library modules for the given VM.
 #[cfg(feature = "stdlib")]
 pub fn init_stdlib(vm: &mut VirtualMachine) {
+    // Add multi-phase init modules first (they're checked first in import_builtin)
+    vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
     vm.add_native_modules(rustpython_stdlib::get_module_inits());
 
     #[cfg(feature = "freeze-stdlib")]

@@ -169,6 +169,8 @@ mod sys {
     #[pyattr]
     fn builtin_module_names(vm: &VirtualMachine) -> PyTupleRef {
         let mut module_names: Vec<_> = vm.state.module_inits.keys().cloned().collect();
+        // Also include multi-phase init modules
+        module_names.extend(vm.state.module_defs.keys().cloned());
         module_names.push("sys".into());
         module_names.push("builtins".into());
         module_names.sort();

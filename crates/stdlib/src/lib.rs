@@ -105,8 +105,22 @@ mod tkinter;
 use rustpython_common as common;
 use rustpython_vm as vm;
 
-use crate::vm::{builtins, stdlib::StdlibInitFunc};
+use crate::vm::{
+    builtins,
+    stdlib::{StdlibDefFunc, StdlibInitFunc},
+};
 use alloc::borrow::Cow;
+
+/// Returns module definitions for multi-phase init modules.
+/// These modules are added to sys.modules BEFORE their exec function runs,
+/// allowing safe circular imports.
+pub fn get_module_defs() -> impl Iterator<Item = (Cow<'static, str>, StdlibDefFunc)> {
+    [(
+        Cow::from("_asyncio"),
+        _asyncio::__module_def as StdlibDefFunc,
+    )]
+    .into_iter()
+}
 
 pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInitFunc)> {
     macro_rules! modules {

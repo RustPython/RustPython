@@ -103,6 +103,7 @@ struct ExceptionStack {
 pub struct PyGlobalState {
     pub config: PyConfig,
     pub module_inits: stdlib::StdlibMap,
+    pub module_defs: stdlib::StdlibDefMap,
     pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -170,6 +171,7 @@ impl VirtualMachine {
         ));
 
         let module_inits = stdlib::get_module_inits();
+        let module_defs = stdlib::get_module_defs();
 
         let seed = match config.settings.hash_seed {
             Some(seed) => seed,
@@ -203,6 +205,7 @@ impl VirtualMachine {
             state: PyRc::new(PyGlobalState {
                 config,
                 module_inits,
+                module_defs,
                 frozen: HashMap::default(),
                 stacksize: AtomicCell::new(0),
                 thread_count: AtomicCell::new(0),
@@ -488,6 +491,23 @@ impl VirtualMachine {
         I: IntoIterator<Item = (Cow<'static, str>, stdlib::StdlibInitFunc)>,
     {
         self.state_mut().module_inits.extend(iter);
+    }
+
+    /// Add a module definition for multi-phase initialization.
+    /// These modules are added to sys.modules BEFORE their exec function runs,
+    /// allowing safe circular imports.
+    pub fn add_native_module_def<S>(&mut self, name: S, def_func: stdlib::StdlibDefFunc)
+    where
+        S: Into<Cow<'static, str>>,
+    {
+        self.state_mut().module_defs.insert(name.into(), def_func);
+    }
+
+    pub fn add_native_module_defs<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = (Cow<'static, str>, stdlib::StdlibDefFunc)>,
+    {
+        self.state_mut().module_defs.extend(iter);
     }
 
     /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]

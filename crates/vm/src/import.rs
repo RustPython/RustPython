@@ -87,6 +87,43 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
+    use crate::PyPayload;
+    use crate::builtins::PyModule;
+
+    let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+
+    // Check if already in sys.modules (handles recursive imports)
+    if let Ok(module) = sys_modules.get_item(module_name, vm) {
+        return Ok(module);
+    }
+
+    // Try multi-phase init first (preferred for modules that import other modules)
+    if let Some(def_func) = vm.state.module_defs.get(module_name) {
+        let def = def_func(&vm.ctx);
+
+        // Phase 1: Create module from definition
+        let module = PyModule::from_def(def).into_ref(&vm.ctx);
+
+        // Initialize module dict
+        let dict = vm.ctx.new_dict();
+        dict.set_item("__name__", vm.ctx.new_str(def.name.as_str()).into(), vm)?;
+        if let Some(doc) = def.doc {
+            dict.set_item("__doc__", vm.ctx.new_str(doc.as_str()).into(), vm)?;
+        }
+        module.set_attr("__dict__", dict, vm)?;
+
+        // Add to sys.modules BEFORE exec (critical for circular import handling)
+        sys_modules.set_item(module_name, module.clone().into(), vm)?;
+
+        // Phase 2: Call exec slot (can safely import other modules now)
+        if let Some(exec) = def.slots.exec {
+            exec(vm, &module)?;
+        }
+
+        return Ok(module.into());
+    }
+
+    // Fall back to legacy single-phase init
     let make_module_func = vm.state.module_inits.get(module_name).ok_or_else(|| {
         vm.new_import_error(
             format!("Cannot import builtin module {module_name}"),
@@ -94,7 +131,6 @@ pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
         )
     })?;
     let module = make_module_func(vm);
-    let sys_modules = vm.sys_module.get_attr("modules", vm)?;
     sys_modules.set_item(module_name, module.as_object().to_owned(), vm)?;
     Ok(module.into())
 }
