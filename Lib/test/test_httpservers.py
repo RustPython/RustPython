@@ -1025,7 +1025,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
 
         self.assertEqual(res.read(), b'1, python, 123456' + self.linesep)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'' != b'32768 32768\n'
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"" != b"32768 32768\n"')
     def test_large_content_length(self):
         for w in range(15, 25):
             size = 1 << w
@@ -1034,7 +1034,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             res = self.request('/cgi-bin/file7.py', 'POST', body, headers)
             self.assertEqual(res.read(), b'%d %d' % (size, size) + self.linesep)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: b'' != b'Hello World\n'
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"" != b"Hello World\n"')
     def test_large_content_length_truncated(self):
         with support.swap_attr(self.request_handler, 'timeout', 0.001):
             for w in range(18, 65):
