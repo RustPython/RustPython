@@ -245,10 +245,7 @@ pub enum Instruction {
     YieldValue {
         arg: Arg<u32>,
     } = 118,
-    Resume {
-        arg: Arg<u32>,
-    } = 149,
-    // ==================== RustPython-only instructions (119-135) ====================
+    // ==================== RustPython-only instructions (119-133) ====================
     // Ideally, we want to be fully aligned with CPython opcodes, but we still have some leftovers.
     // So we assign random IDs to these opcodes.
     Break {
@@ -277,10 +274,106 @@ pub enum Instruction {
         target: Arg<Label>,
     } = 130,
     JumpIfNotExcMatch(Arg<Label>) = 131,
-    SetExcInfo = 134,
-    Subscript = 135,
+    SetExcInfo = 132,
+    Subscript = 133,
+    // End of custom instructions
+    Resume {
+        arg: Arg<u32>,
+    } = 149,
+    BinaryOpAddFloat = 150,                     // Placeholder
+    BinaryOpAddInt = 151,                       // Placeholder
+    BinaryOpAddUnicode = 152,                   // Placeholder
+    BinaryOpMultiplyFloat = 153,                // Placeholder
+    BinaryOpMultiplyInt = 154,                  // Placeholder
+    BinaryOpSubtractFloat = 155,                // Placeholder
+    BinaryOpSubtractInt = 156,                  // Placeholder
+    BinarySubscrDict = 157,                     // Placeholder
+    BinarySubscrGetitem = 158,                  // Placeholder
+    BinarySubscrListInt = 159,                  // Placeholder
+    BinarySubscrStrInt = 160,                   // Placeholder
+    BinarySubscrTupleInt = 161,                 // Placeholder
+    CallAllocAndEnterInit = 162,                // Placeholder
+    CallBoundMethodExactArgs = 163,             // Placeholder
+    CallBoundMethodGeneral = 164,               // Placeholder
+    CallBuiltinClass = 165,                     // Placeholder
+    CallBuiltinFast = 166,                      // Placeholder
+    CallBuiltinFastWithKeywords = 167,          // Placeholder
+    CallBuiltinO = 168,                         // Placeholder
+    CallIsinstance = 169,                       // Placeholder
+    CallLen = 170,                              // Placeholder
+    CallListAppend = 171,                       // Placeholder
+    CallMethodDescriptorFast = 172,             // Placeholder
+    CallMethodDescriptorFastWithKeywords = 173, // Placeholder
+    CallMethodDescriptorNoargs = 174,           // Placeholder
+    CallMethodDescriptorO = 175,                // Placeholder
+    CallNonPyGeneral = 176,                     // Placeholder
+    CallPyExactArgs = 177,                      // Placeholder
+    CallPyGeneral = 178,                        // Placeholder
+    CallStr1 = 179,                             // Placeholder
+    CallTuple1 = 180,                           // Placeholder
+    CallType1 = 181,                            // Placeholder
+    CompareOpFloat = 182,                       // Placeholder
+    CompareOpInt = 183,                         // Placeholder
+    CompareOpStr = 184,                         // Placeholder
+    ContainsOpDict = 185,                       // Placeholder
+    ContainsOpSet = 186,                        // Placeholder
+    ForIterGen = 187,                           // Placeholder
+    ForIterList = 188,                          // Placeholder
+    ForIterRange = 189,                         // Placeholder
+    ForIterTuple = 190,                         // Placeholder
+    LoadAttrClass = 191,                        // Placeholder
+    LoadAttrGetattributeOverridden = 192,       // Placeholder
+    LoadAttrInstanceValue = 193,                // Placeholder
+    LoadAttrMethodLazyDict = 194,               // Placeholder
+    LoadAttrMethodNoDict = 195,                 // Placeholder
+    LoadAttrMethodWithValues = 196,             // Placeholder
+    LoadAttrModule = 197,                       // Placeholder
+    LoadAttrNondescriptorNoDict = 198,          // Placeholder
+    LoadAttrNondescriptorWithValues = 199,      // Placeholder
+    LoadAttrProperty = 200,                     // Placeholder
+    LoadAttrSlot = 201,                         // Placeholder
+    LoadAttrWithHint = 202,                     // Placeholder
+    LoadGlobalBuiltin = 203,                    // Placeholder
+    LoadGlobalModule = 204,                     // Placeholder
+    LoadSuperAttrAttr = 205,                    // Placeholder
+    LoadSuperAttrMethod = 206,                  // Placeholder
+    ResumeCheck = 207,                          // Placeholder
+    SendGen = 208,                              // Placeholder
+    StoreAttrInstanceValue = 209,               // Placeholder
+    StoreAttrSlot = 210,                        // Placeholder
+    StoreAttrWithHint = 211,                    // Placeholder
+    StoreSubscrDict = 212,                      // Placeholder
+    StoreSubscrListInt = 213,                   // Placeholder
+    ToBoolAlwaysTrue = 214,                     // Placeholder
+    ToBoolBool = 215,                           // Placeholder
+    ToBoolInt = 216,                            // Placeholder
+    ToBoolList = 217,                           // Placeholder
+    ToBoolNone = 218,                           // Placeholder
+    ToBoolStr = 219,                            // Placeholder
+    UnpackSequenceList = 220,                   // Placeholder
+    UnpackSequenceTuple = 221,                  // Placeholder
+    UnpackSequenceTwoTuple = 222,               // Placeholder
+    InstrumentedResume = 236,                   // Placeholder
+    InstrumentedEndFor = 237,                   // Placeholder
+    InstrumentedEndSend = 238,                  // Placeholder
+    InstrumentedReturnValue = 239,              // Placeholder
+    InstrumentedReturnConst = 240,              // Placeholder
+    InstrumentedYieldValue = 241,               // Placeholder
+    InstrumentedLoadSuperAttr = 242,            // Placeholder
+    InstrumentedForIter = 243,                  // Placeholder
+    InstrumentedCall = 244,                     // Placeholder
+    InstrumentedCallKw = 245,                   // Placeholder
+    InstrumentedCallFunctionEx = 246,           // Placeholder
+    InstrumentedInstruction = 247,              // Placeholder
+    InstrumentedJumpForward = 248,              // Placeholder
+    InstrumentedJumpBackward = 249,             // Placeholder
+    InstrumentedPopJumpIfTrue = 250,            // Placeholder
+    InstrumentedPopJumpIfFalse = 251,           // Placeholder
+    InstrumentedPopJumpIfNone = 252,            // Placeholder
+    InstrumentedPopJumpIfNotNone = 253,         // Placeholder
+    InstrumentedLine = 254,                     // Placeholder
     // Pseudos (needs to be moved to `PseudoInstruction` enum.
-    LoadClosure(Arg<NameIdx>) = 253, // TODO: Move to pseudos
+    LoadClosure(Arg<NameIdx>) = 255, // TODO: Move to pseudos
 }
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
@@ -304,6 +397,12 @@ impl TryFrom<u8> for Instruction {
 
         // Resume has a non-contiguous opcode (149)
         let resume_id = u8::from(Self::Resume { arg: Arg::marker() });
+
+        let specialized_start = u8::from(Self::BinaryOpAddFloat);
+        let specialized_end = u8::from(Self::UnpackSequenceTwoTuple);
+
+        let instrumented_start = u8::from(Self::InstrumentedResume);
+        let instrumented_end = u8::from(Self::InstrumentedLine);
 
         // TODO: Remove this; This instruction needs to be pseudo
         let load_closure = u8::from(Self::LoadClosure(Arg::marker()));
@@ -345,6 +444,8 @@ impl TryFrom<u8> for Instruction {
             || value == resume_id
             || value == load_closure
             || custom_ops.contains(&value)
+            || (specialized_start..=specialized_end).contains(&value)
+            || (instrumented_start..=instrumented_end).contains(&value)
         {
             Ok(unsafe { mem::transmute::<u8, Self>(value) })
         } else {
@@ -589,6 +690,98 @@ impl InstructionMetadata for Instruction {
             Self::PopJumpIfNone { .. } => 0,
             Self::PopJumpIfNotNone { .. } => 0,
             Self::LoadClosure(_) => 1,
+            Self::BinaryOpAddFloat => 0,
+            Self::BinaryOpAddInt => 0,
+            Self::BinaryOpAddUnicode => 0,
+            Self::BinaryOpMultiplyFloat => 0,
+            Self::BinaryOpMultiplyInt => 0,
+            Self::BinaryOpSubtractFloat => 0,
+            Self::BinaryOpSubtractInt => 0,
+            Self::BinarySubscrDict => 0,
+            Self::BinarySubscrGetitem => 0,
+            Self::BinarySubscrListInt => 0,
+            Self::BinarySubscrStrInt => 0,
+            Self::BinarySubscrTupleInt => 0,
+            Self::CallAllocAndEnterInit => 0,
+            Self::CallBoundMethodExactArgs => 0,
+            Self::CallBoundMethodGeneral => 0,
+            Self::CallBuiltinClass => 0,
+            Self::CallBuiltinFast => 0,
+            Self::CallBuiltinFastWithKeywords => 0,
+            Self::CallBuiltinO => 0,
+            Self::CallIsinstance => 0,
+            Self::CallLen => 0,
+            Self::CallListAppend => 0,
+            Self::CallMethodDescriptorFast => 0,
+            Self::CallMethodDescriptorFastWithKeywords => 0,
+            Self::CallMethodDescriptorNoargs => 0,
+            Self::CallMethodDescriptorO => 0,
+            Self::CallNonPyGeneral => 0,
+            Self::CallPyExactArgs => 0,
+            Self::CallPyGeneral => 0,
+            Self::CallStr1 => 0,
+            Self::CallTuple1 => 0,
+            Self::CallType1 => 0,
+            Self::CompareOpFloat => 0,
+            Self::CompareOpInt => 0,
+            Self::CompareOpStr => 0,
+            Self::ContainsOpDict => 0,
+            Self::ContainsOpSet => 0,
+            Self::ForIterGen => 0,
+            Self::ForIterList => 0,
+            Self::ForIterRange => 0,
+            Self::ForIterTuple => 0,
+            Self::LoadAttrClass => 0,
+            Self::LoadAttrGetattributeOverridden => 0,
+            Self::LoadAttrInstanceValue => 0,
+            Self::LoadAttrMethodLazyDict => 0,
+            Self::LoadAttrMethodNoDict => 0,
+            Self::LoadAttrMethodWithValues => 0,
+            Self::LoadAttrModule => 0,
+            Self::LoadAttrNondescriptorNoDict => 0,
+            Self::LoadAttrNondescriptorWithValues => 0,
+            Self::LoadAttrProperty => 0,
+            Self::LoadAttrSlot => 0,
+            Self::LoadAttrWithHint => 0,
+            Self::LoadGlobalBuiltin => 0,
+            Self::LoadGlobalModule => 0,
+            Self::LoadSuperAttrAttr => 0,
+            Self::LoadSuperAttrMethod => 0,
+            Self::ResumeCheck => 0,
+            Self::SendGen => 0,
+            Self::StoreAttrInstanceValue => 0,
+            Self::StoreAttrSlot => 0,
+            Self::StoreAttrWithHint => 0,
+            Self::StoreSubscrDict => 0,
+            Self::StoreSubscrListInt => 0,
+            Self::ToBoolAlwaysTrue => 0,
+            Self::ToBoolBool => 0,
+            Self::ToBoolInt => 0,
+            Self::ToBoolList => 0,
+            Self::ToBoolNone => 0,
+            Self::ToBoolStr => 0,
+            Self::UnpackSequenceList => 0,
+            Self::UnpackSequenceTuple => 0,
+            Self::UnpackSequenceTwoTuple => 0,
+            Self::InstrumentedResume => 0,
+            Self::InstrumentedEndFor => 0,
+            Self::InstrumentedEndSend => 0,
+            Self::InstrumentedReturnValue => 0,
+            Self::InstrumentedReturnConst => 0,
+            Self::InstrumentedYieldValue => 0,
+            Self::InstrumentedLoadSuperAttr => 0,
+            Self::InstrumentedForIter => 0,
+            Self::InstrumentedCall => 0,
+            Self::InstrumentedCallKw => 0,
+            Self::InstrumentedCallFunctionEx => 0,
+            Self::InstrumentedInstruction => 0,
+            Self::InstrumentedJumpForward => 0,
+            Self::InstrumentedJumpBackward => 0,
+            Self::InstrumentedPopJumpIfTrue => 0,
+            Self::InstrumentedPopJumpIfFalse => 0,
+            Self::InstrumentedPopJumpIfNone => 0,
+            Self::InstrumentedPopJumpIfNotNone => 0,
+            Self::InstrumentedLine => 0,
         }
     }
 
