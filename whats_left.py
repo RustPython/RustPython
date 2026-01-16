@@ -195,6 +195,9 @@ def gen_methods():
         typ = eval(typ_code)
         attrs = []
         for attr in dir(typ):
+            # Skip attributes in dir() but not actually accessible (e.g., descriptor that raises)
+            if not hasattr(typ, attr):
+                continue
             if attr_is_not_inherited(typ, attr):
                 attrs.append((attr, extra_info(getattr(typ, attr))))
         methods[typ.__name__] = (typ_code, extra_info(typ), attrs)
