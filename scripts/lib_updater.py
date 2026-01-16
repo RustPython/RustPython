@@ -280,13 +280,45 @@ def has_unittest_import(tree: ast.Module) -> bool:
     return False
 
 
-def find_import_insert_line(tree: ast.Module) -> int:
-    """Find the line number after the last import statement."""
+def find_import_insert_line(tree: ast.Module, lines: list[str] | None = None) -> int:
+    """Find the line number after the last import statement.
+
+    If no imports exist, returns the line after the module docstring
+    (if present). If there's no docstring either, attempts to skip
+    shebang and encoding lines to comply with PEP 263.
+    """
     last_import_line = 0
     for node in tree.body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             last_import_line = node.end_lineno or node.lineno
-    return last_import_line
+
+    # If we found imports, return after the last one
+    if last_import_line > 0:
+        return last_import_line
+
+    # No imports found - check for module docstring
+    if tree.body:
+        first_node = tree.body[0]
+        if (
+            isinstance(first_node, ast.Expr)
+            and isinstance(first_node.value, ast.Constant)
+            and isinstance(first_node.value.value, str)
+        ):
+            return first_node.end_lineno or first_node.lineno
+
+    # No imports and no docstring - try to skip shebang/encoding if lines provided
+    # PEP 263: encoding declaration must be in first or second line
+    # and match: ^[ \t\f]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)
+    if lines:
+        insert_line = 0
+        for i, line in enumerate(lines[:2]):  # Only check first two lines per PEP 263
+            if line.startswith("#!") or re.match(
+                r"^[ \t\f]*#.*?coding[:=][ \t]*[-_.a-zA-Z0-9]+", line
+            ):
+                insert_line = i + 1
+        return insert_line
+
+    return 0
 
 
 def apply_patches(contents: str, patches: Patches) -> str:
@@ -297,7 +329,7 @@ def apply_patches(contents: str, patches: Patches) -> str:
 
     # If we have modifications and unittest is not imported, add it
     if modifications and not has_unittest_import(tree):
-        import_line = find_import_insert_line(tree)
+        import_line = find_import_insert_line(tree, lines)
         modifications.append(
             (
                 import_line,
