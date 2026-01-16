@@ -34,6 +34,29 @@ class TestUnicode:
         j = self.dumps(u + "\n", ensure_ascii=False)
         self.assertEqual(j, f'"{u}\\n"')
 
+    def test_ascii_non_printable_encode(self):
+        u = '\b\t\n\f\r\x00\x1f\x7f'
+        self.assertEqual(self.dumps(u),
+                         '"\\b\\t\\n\\f\\r\\u0000\\u001f\\u007f"')
+        self.assertEqual(self.dumps(u, ensure_ascii=False),
+                         '"\\b\\t\\n\\f\\r\\u0000\\u001f\x7f"')
+
+    def test_ascii_non_printable_decode(self):
+        self.assertEqual(self.loads('"\\b\\t\\n\\f\\r"'),
+                         '\b\t\n\f\r')
+        s = ''.join(map(chr, range(32)))
+        for c in s:
+            self.assertRaises(self.JSONDecodeError, self.loads, f'"{c}"')
+        self.assertEqual(self.loads(f'"{s}"', strict=False), s)
+        self.assertEqual(self.loads('"\x7f"'), '\x7f')
+
+    def test_escaped_decode(self):
+        self.assertEqual(self.loads('"\\b\\t\\n\\f\\r"'), '\b\t\n\f\r')
+        self.assertEqual(self.loads('"\\"\\\\\\/"'), '"\\/')
+        for c in set(map(chr, range(0x100))) - set('"\\/bfnrt'):
+            self.assertRaises(self.JSONDecodeError, self.loads, f'"\\{c}"')
+            self.assertRaises(self.JSONDecodeError, self.loads, f'"\\{c}"', strict=False)
+
     def test_big_unicode_encode(self):
         u = '\U0001d120'
         self.assertEqual(self.dumps(u), '"\\ud834\\udd20"')
@@ -49,6 +72,18 @@ class TestUnicode:
             u = chr(i)
             s = f'"\\u{i:04x}"'
             self.assertEqual(self.loads(s), u)
+
+    def test_single_surrogate_encode(self):
+        self.assertEqual(self.dumps('\uD83D'), '"\\ud83d"')
+        self.assertEqual(self.dumps('\uD83D', ensure_ascii=False), '"\ud83d"')
+        self.assertEqual(self.dumps('\uDC0D'), '"\\udc0d"')
+        self.assertEqual(self.dumps('\uDC0D', ensure_ascii=False), '"\udc0d"')
+
+    def test_single_surrogate_decode(self):
+        self.assertEqual(self.loads('"\uD83D"'), '\ud83d')
+        self.assertEqual(self.loads('"\\uD83D"'), '\ud83d')
+        self.assertEqual(self.loads('"\udc0d"'), '\udc0d')
+        self.assertEqual(self.loads('"\\udc0d"'), '\udc0d')
 
     def test_unicode_preservation(self):
         self.assertEqual(type(self.loads('""')), str)
@@ -104,4 +139,19 @@ class TestUnicode:
 
 
 class TestPyUnicode(TestUnicode, PyTest): pass
-class TestCUnicode(TestUnicode, CTest): pass
+
+class TestCUnicode(TestUnicode, CTest):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_ascii_non_printable_encode(self):
+        return super().test_ascii_non_printable_encode()
+
+    # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; panics with 'str has surrogates'")
+    def test_single_surrogate_decode(self):
+        return super().test_single_surrogate_decode()
+
+    # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; panics with 'str has surrogates'")
+    def test_single_surrogate_encode(self):
+        return super().test_single_surrogate_encode()
