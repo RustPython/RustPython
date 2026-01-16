@@ -216,6 +216,20 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
             basicsize += core::mem::size_of::<PyObjectRef>();
         }
 
+        // Add __weakref__ size if type has weakref support
+        let has_weakref = if let Some(ref ext) = obj.class().heaptype_ext {
+            match &ext.slots {
+                None => true, // Heap type without __slots__ has automatic weakref
+                Some(slots) => slots.iter().any(|s| s.as_str() == "__weakref__"),
+            }
+        } else {
+            let weakref_name = vm.ctx.intern_str("__weakref__");
+            obj.class().attributes.read().contains_key(weakref_name)
+        };
+        if has_weakref {
+            basicsize += core::mem::size_of::<PyObjectRef>();
+        }
+
         // Add slots size
         if let Some(ref slot_names) = slot_names {
             basicsize += core::mem::size_of::<PyObjectRef>() * slot_names.__len__();
