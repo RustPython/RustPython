@@ -2547,18 +2547,28 @@ impl Compiler {
                     )?;
                 }
                 self.compile_statements(finalbody)?;
-                // RERAISE 0 is emitted BEFORE pop_fblock
-                // This ensures RERAISE goes to cleanup block (FinallyEnd handler)
-                // which then properly restores prev_exc before going to outer handler
+
+                // Pop FinallyEnd fblock BEFORE emitting RERAISE
+                // This ensures RERAISE routes to outer exception handler, not cleanup block
+                // Cleanup block is only for new exceptions raised during finally body execution
+                if finally_cleanup_block.is_some() {
+                    self.pop_fblock(FBlockType::FinallyEnd);
+                }
+
+                // Restore prev_exc as current exception before RERAISE
+                // Stack: [prev_exc, exc] -> COPY 2 -> [prev_exc, exc, prev_exc]
+                // POP_EXCEPT pops prev_exc and sets exc_info->exc_value = prev_exc
+                // Stack after POP_EXCEPT: [prev_exc, exc]
+                emit!(self, Instruction::Copy { index: 2_u32 });
+                emit!(self, Instruction::PopExcept);
+
+                // RERAISE 0: re-raise the original exception to outer handler
                 emit!(
                     self,
                     Instruction::RaiseVarargs {
                         kind: bytecode::RaiseKind::ReraiseFromStack
                     }
                 );
-                if finally_cleanup_block.is_some() {
-                    self.pop_fblock(FBlockType::FinallyEnd);
-                }
             }
 
             if let Some(cleanup) = finally_cleanup_block {
@@ -2837,10 +2847,21 @@ impl Compiler {
             // Run finally body
             self.compile_statements(finalbody)?;
 
-            // RERAISE 0 is emitted BEFORE pop_fblock
-            // This ensures RERAISE goes to cleanup block (FinallyEnd handler)
-            // which then properly restores prev_exc before going to outer handler
-            // RERAISE 0: reraise the exception on TOS
+            // Pop FinallyEnd fblock BEFORE emitting RERAISE
+            // This ensures RERAISE routes to outer exception handler, not cleanup block
+            // Cleanup block is only for new exceptions raised during finally body execution
+            if finally_cleanup_block.is_some() {
+                self.pop_fblock(FBlockType::FinallyEnd);
+            }
+
+            // Restore prev_exc as current exception before RERAISE
+            // Stack: [lasti, prev_exc, exc] -> COPY 2 -> [lasti, prev_exc, exc, prev_exc]
+            // POP_EXCEPT pops prev_exc and sets exc_info->exc_value = prev_exc
+            // Stack after POP_EXCEPT: [lasti, prev_exc, exc]
+            emit!(self, Instruction::Copy { index: 2_u32 });
+            emit!(self, Instruction::PopExcept);
+
+            // RERAISE 0: re-raise the original exception to outer handler
             // Stack: [lasti, prev_exc, exc] - exception is on top
             emit!(
                 self,
@@ -2848,10 +2869,6 @@ impl Compiler {
                     kind: bytecode::RaiseKind::ReraiseFromStack,
                 }
             );
-
-            if finally_cleanup_block.is_some() {
-                self.pop_fblock(FBlockType::FinallyEnd);
-            }
         }
 
         // finally cleanup block
