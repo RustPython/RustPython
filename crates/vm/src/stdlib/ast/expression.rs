@@ -36,7 +36,7 @@ impl Node for ruff::Expr {
             Self::NumberLiteral(cons) => constant::number_literal_to_object(vm, source_file, cons),
             Self::StringLiteral(cons) => constant::string_literal_to_object(vm, source_file, cons),
             Self::FString(cons) => string::fstring_to_object(vm, source_file, cons),
-            Self::TString(_) => unimplemented!(),
+            Self::TString(cons) => string::tstring_to_object(vm, source_file, cons),
             Self::BytesLiteral(cons) => constant::bytes_literal_to_object(vm, source_file, cons),
             Self::BooleanLiteral(cons) => {
                 constant::boolean_literal_to_object(vm, source_file, cons)

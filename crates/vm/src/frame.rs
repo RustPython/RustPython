@@ -2,7 +2,8 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
-        PyList, PySet, PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
+        PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyStrRef, PyTemplate,
+        PyTraceback, PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
@@ -700,6 +701,56 @@ impl ExecutingFrame<'_> {
                 let elements = self.pop_multiple(size.get(arg) as usize).collect();
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj.into());
+                Ok(None)
+            }
+            Instruction::BuildTemplate => {
+                // Stack: [strings_tuple, interpolations_tuple] -> [template]
+                let interpolations = self.pop_value();
+                let strings = self.pop_value();
+
+                let strings = strings
+                    .downcast::<PyTuple>()
+                    .map_err(|_| vm.new_type_error("BUILD_TEMPLATE expected tuple for strings"))?;
+                let interpolations = interpolations.downcast::<PyTuple>().map_err(|_| {
+                    vm.new_type_error("BUILD_TEMPLATE expected tuple for interpolations")
+                })?;
+
+                let template = PyTemplate::new(strings, interpolations);
+                self.push_value(template.into_pyobject(vm));
+                Ok(None)
+            }
+            Instruction::BuildInterpolation { oparg } => {
+                // oparg encoding: (conversion << 2) | has_format_spec
+                // Stack: [value, expression_str, (format_spec)?] -> [interpolation]
+                let oparg_val = oparg.get(arg);
+                let has_format_spec = (oparg_val & 1) != 0;
+                let conversion_code = oparg_val >> 2;
+
+                let format_spec = if has_format_spec {
+                    self.pop_value().downcast::<PyStr>().map_err(|_| {
+                        vm.new_type_error("BUILD_INTERPOLATION expected str for format_spec")
+                    })?
+                } else {
+                    vm.ctx.empty_str.to_owned()
+                };
+
+                let expression = self.pop_value().downcast::<PyStr>().map_err(|_| {
+                    vm.new_type_error("BUILD_INTERPOLATION expected str for expression")
+                })?;
+                let value = self.pop_value();
+
+                // conversion: 0=None, 1=Str, 2=Repr, 3=Ascii
+                let conversion: PyObjectRef = match conversion_code {
+                    0 => vm.ctx.none(),
+                    1 => vm.ctx.new_str("s").into(),
+                    2 => vm.ctx.new_str("r").into(),
+                    3 => vm.ctx.new_str("a").into(),
+                    _ => vm.ctx.none(), // should not happen
+                };
+
+                let interpolation =
+                    PyInterpolation::new(value, expression, conversion, format_spec, vm)?;
+                self.push_value(interpolation.into_pyobject(vm));
                 Ok(None)
             }
             Instruction::Call { nargs } => {

@@ -380,8 +380,10 @@ impl VirtualMachine {
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
-        if let Ok(seq_a) = a.try_sequence(self) {
-            let result = seq_a.concat(b, self)?;
+        // Check if concat slot is available directly, matching PyNumber_Add behavior
+        let seq = a.sequence_unchecked();
+        if let Some(f) = seq.slots().concat.load() {
+            let result = f(seq, b, self)?;
             if !result.is(&self.ctx.not_implemented) {
                 return Ok(result);
             }
@@ -394,8 +396,11 @@ impl VirtualMachine {
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
-        if let Ok(seq_a) = a.try_sequence(self) {
-            let result = seq_a.inplace_concat(b, self)?;
+        // Check inplace_concat or concat slot directly, matching PyNumber_InPlaceAdd behavior
+        let seq = a.sequence_unchecked();
+        let slots = seq.slots();
+        if let Some(f) = slots.inplace_concat.load().or_else(|| slots.concat.load()) {
+            let result = f(seq, b, self)?;
             if !result.is(&self.ctx.not_implemented) {
                 return Ok(result);
             }

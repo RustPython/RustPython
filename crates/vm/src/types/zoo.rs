@@ -3,9 +3,9 @@ use crate::{
     builtins::{
         asyncgenerator, bool_, builtin_func, bytearray, bytes, classmethod, code, complex,
         coroutine, descriptor, dict, enumerate, filter, float, frame, function, generator,
-        genericalias, getset, int, iter, list, map, mappingproxy, memory, module, namespace,
-        object, property, pystr, range, set, singletons, slice, staticmethod, super_, traceback,
-        tuple,
+        genericalias, getset, int, interpolation, iter, list, map, mappingproxy, memory, module,
+        namespace, object, property, pystr, range, set, singletons, slice, staticmethod, super_,
+        template, traceback, tuple,
         type_::{self, PyType},
         union_, weakproxy, weakref, zip,
     },
@@ -93,6 +93,9 @@ pub struct TypeZoo {
     pub not_implemented_type: &'static Py<PyType>,
     pub generic_alias_type: &'static Py<PyType>,
     pub union_type: &'static Py<PyType>,
+    pub interpolation_type: &'static Py<PyType>,
+    pub template_type: &'static Py<PyType>,
+    pub template_iter_type: &'static Py<PyType>,
     pub member_descriptor_type: &'static Py<PyType>,
     pub wrapper_descriptor_type: &'static Py<PyType>,
     pub method_wrapper_type: &'static Py<PyType>,
@@ -188,6 +191,9 @@ impl TypeZoo {
             not_implemented_type: singletons::PyNotImplemented::init_builtin_type(),
             generic_alias_type: genericalias::PyGenericAlias::init_builtin_type(),
             union_type: union_::PyUnion::init_builtin_type(),
+            interpolation_type: interpolation::PyInterpolation::init_builtin_type(),
+            template_type: template::PyTemplate::init_builtin_type(),
+            template_iter_type: template::PyTemplateIter::init_builtin_type(),
             member_descriptor_type: descriptor::PyMemberDescriptor::init_builtin_type(),
             wrapper_descriptor_type: descriptor::PyWrapper::init_builtin_type(),
             method_wrapper_type: descriptor::PyMethodWrapper::init_builtin_type(),
@@ -243,6 +249,8 @@ impl TypeZoo {
         traceback::init(context);
         genericalias::init(context);
         union_::init(context);
+        interpolation::init(context);
+        template::init(context);
         descriptor::init(context);
         crate::stdlib::typing::init(context);
     }

@@ -264,6 +264,19 @@ pub enum Instruction {
     BuildTupleFromTuples {
         size: Arg<u32>,
     } = 124,
+    /// Build a Template from strings tuple and interpolations tuple on stack.
+    /// Stack: [strings_tuple, interpolations_tuple] -> [template]
+    BuildTemplate = 125,
+    /// Build an Interpolation from value, expression string, and optional format_spec on stack.
+    ///
+    /// oparg encoding: (conversion << 2) | has_format_spec
+    /// - has_format_spec (bit 0): if 1, format_spec is on stack
+    /// - conversion (bits 2+): 0=None, 1=Str, 2=Repr, 3=Ascii
+    ///
+    /// Stack: [value, expression_str, format_spec?] -> [interpolation]
+    BuildInterpolation {
+        oparg: Arg<u32>,
+    } = 126,
     Continue {
         target: Arg<Label>,
     } = 128,
@@ -425,7 +438,11 @@ impl TryFrom<u8> for Instruction {
             u8::from(Self::BuildTupleFromTuples {
                 size: Arg::marker(),
             }),
-            // 125, 126, 127 are unused
+            u8::from(Self::BuildTemplate),
+            u8::from(Self::BuildInterpolation {
+                oparg: Arg::marker(),
+            }),
+            // 127 is unused
             u8::from(Self::Continue {
                 target: Arg::marker(),
             }),
@@ -782,6 +799,14 @@ impl InstructionMetadata for Instruction {
             Self::InstrumentedPopJumpIfNone => 0,
             Self::InstrumentedPopJumpIfNotNone => 0,
             Self::InstrumentedLine => 0,
+            // BuildTemplate: pops [strings_tuple, interpolations_tuple], pushes [template]
+            Self::BuildTemplate => -1,
+            // BuildInterpolation: pops [value, expr_str, format_spec?], pushes [interpolation]
+            // has_format_spec is bit 0 of oparg
+            Self::BuildInterpolation { oparg } => {
+                let has_format_spec = oparg.get(arg) & 1 != 0;
+                if has_format_spec { -2 } else { -1 }
+            }
         }
     }
 
@@ -976,6 +1001,8 @@ impl InstructionMetadata for Instruction {
             Self::UnaryNot => w!(UNARY_NOT),
             Self::YieldValue { arg } => w!(YIELD_VALUE, arg),
             Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
+            Self::BuildTemplate => w!(BUILD_TEMPLATE),
+            Self::BuildInterpolation { oparg } => w!(BUILD_INTERPOLATION, oparg),
             _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
     }
