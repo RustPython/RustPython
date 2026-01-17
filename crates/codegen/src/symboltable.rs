@@ -780,6 +780,8 @@ struct SymbolTableBuilder {
     source_file: SourceFile,
     // Current scope's varnames being collected (temporary storage)
     current_varnames: Vec<String>,
+    // Stack to preserve parent varnames when entering nested scopes
+    varnames_stack: Vec<Vec<String>>,
     // Track if we're inside an iterable definition expression (for nested comprehensions)
     in_iter_def_exp: bool,
     // Track if we're inside an annotation (yield/await/named expr not allowed)
@@ -815,6 +817,7 @@ impl SymbolTableBuilder {
             future_annotations: false,
             source_file,
             current_varnames: Vec::new(),
+            varnames_stack: Vec::new(),
             in_iter_def_exp: false,
             in_annotation: false,
             in_type_alias: false,
@@ -845,8 +848,9 @@ impl SymbolTableBuilder {
             .unwrap_or(false);
         let table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
         self.tables.push(table);
-        // Clear current_varnames for the new scope
-        self.current_varnames.clear();
+        // Save parent's varnames and start fresh for the new scope
+        self.varnames_stack
+            .push(core::mem::take(&mut self.current_varnames));
     }
 
     fn enter_type_param_block(&mut self, name: &str, line_number: u32) -> SymbolTableResult {
@@ -880,6 +884,8 @@ impl SymbolTableBuilder {
         // Save the collected varnames to the symbol table
         table.varnames = core::mem::take(&mut self.current_varnames);
         self.tables.last_mut().unwrap().sub_tables.push(table);
+        // Restore parent's varnames
+        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
     }
 
     /// Enter annotation scope (PEP 649)
@@ -907,7 +913,10 @@ impl SymbolTableBuilder {
         // Take the annotation block and push to stack for processing
         let annotation_table = current.annotation_block.take().unwrap();
         self.tables.push(*annotation_table);
-        self.current_varnames.clear();
+        // Save parent's varnames and seed with existing annotation varnames (e.g., "format")
+        self.varnames_stack
+            .push(core::mem::take(&mut self.current_varnames));
+        self.current_varnames = self.tables.last().unwrap().varnames.clone();
 
         if can_see_class_scope && !self.future_annotations {
             self.add_classdict_freevar();
@@ -927,6 +936,8 @@ impl SymbolTableBuilder {
         // Store back to parent's annotation_block (not sub_tables)
         let parent = self.tables.last_mut().unwrap();
         parent.annotation_block = Some(Box::new(table));
+        // Restore parent's varnames
+        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
     }
 
     fn add_classdict_freevar(&mut self) {
