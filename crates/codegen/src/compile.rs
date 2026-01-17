@@ -110,14 +110,6 @@ enum NameUsage {
     Store,
     Delete,
 }
-
-fn is_forbidden_name(name: &str) -> bool {
-    // See https://docs.python.org/3/library/constants.html#built-in-constants
-    const BUILTIN_CONSTANTS: &[&str] = &["__debug__"];
-
-    BUILTIN_CONSTANTS.contains(&name)
-}
-
 /// Main structure holding the state of compilation.
 struct Compiler {
     code_stack: Vec<ir::CodeInfo>,
@@ -1523,11 +1515,7 @@ impl Compiler {
         self._name_inner(name, |i| &mut i.metadata.names)
     }
     fn varname(&mut self, name: &str) -> CompileResult<bytecode::NameIdx> {
-        if Self::is_forbidden_arg_name(name) {
-            return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                "cannot assign to {name}",
-            ))));
-        }
+        // Note: __debug__ checks are now handled in symboltable phase
         Ok(self._name_inner(name, |i| &mut i.metadata.varnames))
     }
     fn _name_inner(
@@ -1812,15 +1800,6 @@ impl Compiler {
         symboltable::mangle_name(private, name)
     }
 
-    fn check_forbidden_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
-        let msg = match usage {
-            NameUsage::Store if is_forbidden_name(name) => "cannot assign to",
-            NameUsage::Delete if is_forbidden_name(name) => "cannot delete",
-            _ => return Ok(()),
-        };
-        Err(self.error(CodegenErrorType::SyntaxError(format!("{msg} {name}"))))
-    }
-
     // = compiler_nameop
     fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
         enum NameOp {
@@ -1832,7 +1811,6 @@ impl Compiler {
         }
 
         let name = self.mangle(name);
-        self.check_forbidden_name(&name, usage)?;
 
         // Special handling for __debug__
         if NameUsage::Load == usage && name == "__debug__" {
@@ -2434,7 +2412,6 @@ impl Compiler {
         match &expression {
             Expr::Name(ExprName { id, .. }) => self.compile_name(id.as_str(), NameUsage::Delete)?,
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-                self.check_forbidden_name(attr.as_str(), NameUsage::Delete)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
                 emit!(self, Instruction::DeleteAttr { idx });
@@ -3451,10 +3428,6 @@ impl Compiler {
         }
 
         Ok(())
-    }
-
-    fn is_forbidden_arg_name(name: &str) -> bool {
-        is_forbidden_name(name)
     }
 
     /// Compile default arguments
@@ -6000,7 +5973,6 @@ impl Compiler {
                 self.compile_subscript(value, slice, *ctx)?;
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-                self.check_forbidden_name(attr.as_str(), NameUsage::Store)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
                 emit!(self, Instruction::StoreAttr { idx });
@@ -6095,7 +6067,6 @@ impl Compiler {
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
                 let attr = attr.as_str();
-                self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Copy { index: 1_u32 });
                 let idx = self.name(attr);
@@ -6922,12 +6893,6 @@ impl Compiler {
         // Normal arguments:
         let (size, unpack) = self.gather_elements(additional_positional, &arguments.args)?;
         let has_double_star = arguments.keywords.iter().any(|k| k.arg.is_none());
-
-        for keyword in &arguments.keywords {
-            if let Some(name) = &keyword.arg {
-                self.check_forbidden_name(name.as_str(), NameUsage::Store)?;
-            }
-        }
 
         if unpack || has_double_star {
             // Create a tuple with positional args:
