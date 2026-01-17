@@ -78,7 +78,7 @@ mod sys {
     #[pyattr(name = "abiflags")]
     const ABIFLAGS_ATTR: &str = "t"; // 't' for free-threaded (no GIL)
     // Internal constant used for sysconfigdata_name
-    pub(crate) const ABIFLAGS: &str = "t";
+    pub const ABIFLAGS: &str = "t";
     #[pyattr(name = "api_version")]
     const API_VERSION: u32 = 0x0; // what C api?
     #[pyattr(name = "copyright")]
@@ -94,7 +94,7 @@ mod sys {
     #[pyattr(name = "maxunicode")]
     const MAXUNICODE: u32 = core::char::MAX as u32;
     #[pyattr(name = "platform")]
-    pub(crate) const PLATFORM: &str = {
+    pub const PLATFORM: &str = {
         cfg_if::cfg_if! {
             if #[cfg(target_os = "linux")] {
                 "linux"
@@ -166,11 +166,11 @@ mod sys {
 
     #[pyattr]
     fn builtin_module_names(vm: &VirtualMachine) -> PyTupleRef {
-        let mut module_names: Vec<_> = vm.state.module_inits.keys().cloned().collect();
-        // Also include multi-phase init modules
-        module_names.extend(vm.state.module_defs.keys().cloned());
-        module_names.push("sys".into());
-        module_names.push("builtins".into());
+        let mut module_names: Vec<String> =
+            vm.state.module_defs.keys().map(|&s| s.to_owned()).collect();
+        module_names.push("sys".to_owned());
+        module_names.push("builtins".to_owned());
+
         module_names.sort();
         vm.ctx.new_tuple(
             module_names
@@ -1609,6 +1609,7 @@ mod sys {
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {
+    module.__init_methods(vm).unwrap();
     sys::module_exec(vm, module).unwrap();
 
     let modules = vm.ctx.new_dict();
@@ -1620,7 +1621,8 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
         .unwrap();
 
     // Create sys._jit submodule
-    let jit_module = sys_jit::make_module(vm);
+    let jit_def = sys_jit::module_def(&vm.ctx);
+    let jit_module = jit_def.create_module(vm).unwrap();
 
     extend_module!(vm, module, {
         "__doc__" => sys::DOC.to_owned().to_pyobject(vm),

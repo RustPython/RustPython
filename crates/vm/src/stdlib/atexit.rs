@@ -1,5 +1,5 @@
 pub use atexit::_run_exitfuncs;
-pub(crate) use atexit::make_module;
+pub(crate) use atexit::module_def;
 
 #[pymodule]
 mod atexit {

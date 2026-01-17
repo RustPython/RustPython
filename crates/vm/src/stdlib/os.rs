@@ -149,6 +149,8 @@ pub(super) mod _os {
     use super::{DirFd, FollowSymlinks, SupportFunc};
     #[cfg(windows)]
     use crate::common::windows::ToWideString;
+    #[cfg(any(unix, windows))]
+    use crate::utils::ToCString;
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
@@ -168,7 +170,6 @@ pub(super) mod _os {
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
-        utils::ToCString,
         vm::VirtualMachine,
     };
     use core::time::Duration;
@@ -1896,21 +1897,21 @@ impl SupportFunc {
     }
 }
 
-pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) {
+pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
     let support_funcs = _os::support_funcs();
     let supports_fd = PySet::default().into_ref(&vm.ctx);
     let supports_dir_fd = PySet::default().into_ref(&vm.ctx);
     let supports_follow_symlinks = PySet::default().into_ref(&vm.ctx);
     for support in support_funcs {
-        let func_obj = module.get_attr(support.name, vm).unwrap();
+        let func_obj = module.get_attr(support.name, vm)?;
         if support.fd.unwrap_or(false) {
-            supports_fd.clone().add(func_obj.clone(), vm).unwrap();
+            supports_fd.clone().add(func_obj.clone(), vm)?;
         }
         if support.dir_fd.unwrap_or(false) {
-            supports_dir_fd.clone().add(func_obj.clone(), vm).unwrap();
+            supports_dir_fd.clone().add(func_obj.clone(), vm)?;
         }
         if support.follow_symlinks.unwrap_or(false) {
-            supports_follow_symlinks.clone().add(func_obj, vm).unwrap();
+            supports_follow_symlinks.clone().add(func_obj, vm)?;
         }
     }
 
@@ -1920,6 +1921,8 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) {
         "supports_follow_symlinks" => supports_follow_symlinks,
         "error" => vm.ctx.exceptions.os_error.to_owned(),
     });
+
+    Ok(())
 }
 
 #[cfg(not(windows))]

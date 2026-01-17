@@ -1,5 +1,5 @@
 // spell-checker:ignore pyfrozen pycomplex
-pub(crate) use decl::make_module;
+pub(crate) use decl::module_def;
 
 #[pymodule(name = "marshal")]
 mod decl {

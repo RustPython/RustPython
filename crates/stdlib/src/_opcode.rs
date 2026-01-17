@@ -1,7 +1,7 @@
-pub(crate) use opcode::module_def;
+pub(crate) use _opcode::module_def;
 
 #[pymodule]
-mod opcode {
+mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},

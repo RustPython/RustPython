@@ -33,20 +33,18 @@ use std::sync::LazyLock;
 cfg_if::cfg_if! {
     if #[cfg(openssl_vendored)] {
         static PROBE: LazyLock<ProbeResult> = LazyLock::new(openssl_probe::probe);
-        fn probe() -> &'static ProbeResult { &PROBE }
     } else {
-        static EMPTY_PROBE: LazyLock<ProbeResult> = LazyLock::new(|| ProbeResult { cert_file: None, cert_dir: vec![] });
-        fn probe() -> &'static ProbeResult {
-            &EMPTY_PROBE
-        }
+        static PROBE: LazyLock<ProbeResult> = LazyLock::new(|| ProbeResult { cert_file: None, cert_dir: vec![] });
     }
+}
+
+fn probe() -> &'static ProbeResult {
+    &PROBE
 }
 
 #[allow(non_upper_case_globals)]
 #[pymodule(with(cert::ssl_cert, ssl_error::ssl_error, ossl101, ossl111, windows))]
 mod _ssl {
-    #[cfg(openssl_vendored)]
-    use super::PROBE;
     use super::{bio, probe};
 
     // Import error types and helpers used in this module (others are exposed via pymodule(with(...)))
@@ -103,7 +101,7 @@ mod _ssl {
         // if openssl is vendored, it doesn't know the locations
         // of system certificates - cache the probe result now.
         #[cfg(openssl_vendored)]
-        std::sync::LazyLock::force(&PROBE);
+        std::sync::LazyLock::force(&super::PROBE);
 
         __module_exec(vm, module);
         Ok(())

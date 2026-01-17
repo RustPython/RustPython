@@ -1,5 +1,5 @@
 use crate::{
-    browser_module::setup_browser_module,
+    browser_module,
     convert::{self, PyResultExt},
     js_module, wasm_builtins,
 };
@@ -37,45 +37,45 @@ mod _window {
 
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
-        let mut scope = None;
         let mut settings = Settings::default();
         settings.allow_external_library = false;
-        let interp = Interpreter::with_init(settings, |vm| {
-            #[cfg(feature = "freeze-stdlib")]
-            vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
 
-            #[cfg(feature = "freeze-stdlib")]
-            vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
+        let mut builder = Interpreter::builder(settings);
 
-            vm.wasm_id = Some(id);
+        #[cfg(feature = "freeze-stdlib")]
+        {
+            let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+            builder = builder
+                .add_native_modules(&defs)
+                .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB);
+        }
 
-            js_module::setup_js_module(vm);
-            if inject_browser_module {
-                vm.add_native_module_def("_window".to_owned(), _window::module_def);
-                setup_browser_module(vm);
-            }
+        // Add wasm-specific modules
+        let js_def = js_module::module_def(&builder.ctx);
+        builder = builder.add_native_module(js_def);
 
-            VM_INIT_FUNCS.with_borrow(|funcs| {
-                for f in funcs {
-                    f(vm)
-                }
-            });
+        if inject_browser_module {
+            let window_def = _window::module_def(&builder.ctx);
+            let browser_def = browser_module::module_def(&builder.ctx);
+            builder = builder
+                .add_native_modules(&[window_def, browser_def])
+                .add_frozen_modules(rustpython_vm::py_freeze!(dir = "Lib"));
+        }
 
-            scope = Some(vm.new_scope_with_builtins());
-        });
+        let interp = builder
+            .init_hook(move |vm| {
+                vm.wasm_id = Some(id);
+            })
+            .build();
+
+        let scope = interp.enter(|vm| vm.new_scope_with_builtins());
 
         StoredVirtualMachine {
             interp,
-            scope: scope.unwrap(),
+            scope,
             held_objects: RefCell::new(Vec::new()),
         }
     }
-}
-
-/// Add a hook to add builtins or frozen modules to the RustPython VirtualMachine while it's
-/// initializing.
-pub fn add_init_func(f: fn(&mut VirtualMachine)) {
-    VM_INIT_FUNCS.with_borrow_mut(|funcs| funcs.push(f))
 }
 
 // It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local!
@@ -83,9 +83,6 @@ pub fn add_init_func(f: fn(&mut VirtualMachine)) {
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
     static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> = RefCell::default();
-    static VM_INIT_FUNCS: RefCell<Vec<fn(&mut VirtualMachine)>> = const {
-        RefCell::new(Vec::new())
-    };
 }
 
 pub fn get_vm_id(vm: &VirtualMachine) -> &str {

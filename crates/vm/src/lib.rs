@@ -99,7 +99,7 @@ pub use self::object::{
     AsObject, Py, PyAtomicRef, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact,
     PyResult, PyWeakRef,
 };
-pub use self::vm::{Context, Interpreter, Settings, VirtualMachine};
+pub use self::vm::{Context, Interpreter, InterpreterBuilder, Settings, VirtualMachine};
 
 pub use rustpython_common as common;
 pub use rustpython_compiler_core::{bytecode, frozen};

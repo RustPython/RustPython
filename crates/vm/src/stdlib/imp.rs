@@ -1,6 +1,6 @@
 use crate::frozen::FrozenModule;
 use crate::{VirtualMachine, builtins::PyBaseExceptionRef};
-pub(crate) use _imp::make_module;
+pub(crate) use _imp::module_def;
 
 pub use crate::vm::resolve_frozen_alias;
 
@@ -84,7 +84,7 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 #[pymodule(with(lock))]
 mod _imp {
     use crate::{
-        PyObjectRef, PyRef, PyResult, VirtualMachine,
+        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef},
         function::OptionalArg,
         import, version,
@@ -106,8 +106,7 @@ mod _imp {
 
     #[pyfunction]
     fn is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
-        vm.state.module_inits.contains_key(name.as_str())
-            || vm.state.module_defs.contains_key(name.as_str())
+        vm.state.module_defs.contains_key(name.as_str())
     }
 
     #[pyfunction]
@@ -117,9 +116,6 @@ mod _imp {
 
     #[pyfunction]
     fn create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        use crate::PyPayload;
-        use crate::builtins::PyModule;
-
         let sys_modules = vm.sys_module.get_attr("modules", vm).unwrap();
         let name: PyStrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
 
@@ -129,14 +125,20 @@ mod _imp {
         }
 
         // Try multi-phase init modules first (they need special handling)
-        if let Some(def_func) = vm.state.module_defs.get(name.as_str()) {
-            let def = def_func(&vm.ctx);
+        if let Some(&def) = vm.state.module_defs.get(name.as_str()) {
+            // Phase 1: Create module (use create slot if provided, else default creation)
+            let module = if let Some(create) = def.slots.create {
+                // Custom module creation
+                create(vm, &spec, def)?
+            } else {
+                // Default module creation
+                PyModule::from_def(def).into_ref(&vm.ctx)
+            };
 
-            // Phase 1: Create module from definition
-            let module = PyModule::from_def(def).into_ref(&vm.ctx);
-
-            // Initialize module dict using proper method
+            // Initialize module dict and methods
+            // Corresponds to PyModule_FromDefAndSpec: md_def, _add_methods_to_object, PyModule_SetDocString
             PyModule::__init_dict_from_def(vm, &module);
+            module.__init_methods(vm)?;
 
             // Add to sys.modules BEFORE exec (critical for circular import handling)
             sys_modules.set_item(&*name, module.clone().into(), vm)?;
@@ -146,13 +148,6 @@ mod _imp {
                 exec(vm, &module)?;
             }
 
-            return Ok(module.into());
-        }
-
-        // Fall back to legacy single-phase init
-        if let Some(make_module_func) = vm.state.module_inits.get(name.as_str()) {
-            let module = make_module_func(vm);
-            sys_modules.set_item(&*name, module.clone().into(), vm)?;
             return Ok(module.into());
         }
 

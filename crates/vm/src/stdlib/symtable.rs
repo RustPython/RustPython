@@ -1,7 +1,7 @@
-pub(crate) use symtable::make_module;
+pub(crate) use _symtable::module_def;
 
 #[pymodule]
-mod symtable {
+mod _symtable {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStrRef},

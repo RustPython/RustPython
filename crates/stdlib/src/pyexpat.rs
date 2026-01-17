@@ -42,6 +42,7 @@ mod _pyexpat {
     use crate::vm::{
         Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBytesRef, PyModule, PyStr, PyStrRef, PyType},
+        extend_module,
         function::ArgBytesLike,
         function::{Either, IntoFuncArgs, OptionalArg},
     };
@@ -53,10 +54,13 @@ mod _pyexpat {
         __module_exec(vm, module);
 
         // Add submodules
-        let model = PyModule::from_def(super::_model::module_def(&vm.ctx)).into_ref(&vm.ctx);
-        let errors = PyModule::from_def(super::_errors::module_def(&vm.ctx)).into_ref(&vm.ctx);
-        module.set_attr("model", model, vm)?;
-        module.set_attr("errors", errors, vm)?;
+        let model = super::_model::module_def(&vm.ctx).create_module(vm)?;
+        let errors = super::_errors::module_def(&vm.ctx).create_module(vm)?;
+
+        extend_module!(vm, module, {
+            "model" => model,
+            "errors" => errors,
+        });
 
         Ok(())
     }

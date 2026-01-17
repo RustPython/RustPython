@@ -1,4 +1,4 @@
-pub(crate) use _functools::make_module;
+pub(crate) use _functools::module_def;
 
 #[pymodule]
 mod _functools {

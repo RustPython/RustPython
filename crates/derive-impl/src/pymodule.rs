@@ -144,18 +144,6 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
                     })
                 }
             },
-            parse_quote! {
-                #[allow(dead_code)]
-                pub(crate) fn make_module(
-                    vm: &::rustpython_vm::VirtualMachine
-                ) -> ::rustpython_vm::PyRef<::rustpython_vm::builtins::PyModule> {
-                    use ::rustpython_vm::PyPayload;
-                    let module = ::rustpython_vm::builtins::PyModule::from_def(module_def(&vm.ctx)).into_ref(&vm.ctx);
-                    __init_dict(vm, &module);
-                    module_exec(vm, &module).unwrap();
-                    module
-                }
-            },
         ]);
     }
     if !is_submodule && !context.has_module_exec {
@@ -202,7 +190,6 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
                 vm: &::rustpython_vm::VirtualMachine,
                 module: &::rustpython_vm::Py<::rustpython_vm::builtins::PyModule>,
             ) {
-                module.__init_methods(vm).unwrap();
                 __init_attributes(vm, module);
             }
         },
