@@ -5,6 +5,7 @@ aexit
 aiter
 anext
 anextawaitable
+annotationlib
 appendleft
 argcount
 arrayiterator

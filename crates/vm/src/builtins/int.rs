@@ -12,7 +12,8 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
+        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
+        PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -286,6 +287,13 @@ impl PyInt {
     where
         I: PrimInt + TryFrom<&'a BigInt>,
     {
+        // TODO: Python 3.14+: ValueError for negative int to unsigned type
+        // See stdlib_socket.py socket.htonl(-1)
+        //
+        // if I::min_value() == I::zero() && self.as_bigint().sign() == Sign::Minus {
+        //     return Err(vm.new_value_error("Cannot convert negative int".to_owned()));
+        // }
+
         I::try_from(self.as_bigint()).map_err(|_| {
             vm.new_overflow_error(format!(
                 "Python int too large to convert to Rust {}",
@@ -381,10 +389,10 @@ impl PyInt {
     #[pymethod]
     fn __round__(
         zelf: PyRef<Self>,
-        ndigits: OptionalArg<PyIntRef>,
+        ndigits: OptionalOption<PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        if let OptionalArg::Present(ndigits) = ndigits {
+        if let Some(ndigits) = ndigits.flatten() {
             let ndigits = ndigits.as_bigint();
             // round(12345, -2) == 12300
             // If precision >= 0, then any integer is already rounded correctly

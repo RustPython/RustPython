@@ -24,6 +24,7 @@ Manual workflow:
 
 import argparse
 import ast
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -82,7 +83,7 @@ def parse_results(result):
     test_results.stdout = result.stdout
     in_test_results = False
     for line in lines:
-        if line == "Run tests sequentially":
+        if re.match(r"Run tests? sequentially", line):
             in_test_results = True
         elif line.startswith("-----------"):
             in_test_results = False

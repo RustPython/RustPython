@@ -852,6 +852,58 @@ impl PyType {
     }
 
     #[pygetset]
+    fn __annotate__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return Err(vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '__annotate__'",
+                self.name()
+            )));
+        }
+
+        let mut attrs = self.attributes.write();
+        // First try __annotate__, in case that's been set explicitly
+        if let Some(annotate) = attrs.get(identifier!(vm, __annotate__)).cloned() {
+            return Ok(annotate);
+        }
+        // Then try __annotate_func__
+        if let Some(annotate) = attrs.get(identifier!(vm, __annotate_func__)).cloned() {
+            // TODO: Apply descriptor tp_descr_get if needed
+            return Ok(annotate);
+        }
+        // Set __annotate_func__ = None and return None
+        let none = vm.ctx.none();
+        attrs.insert(identifier!(vm, __annotate_func__), none.clone());
+        Ok(none)
+    }
+
+    #[pygetset(setter)]
+    fn set___annotate__(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
+        if value.is_none() {
+            return Err(vm.new_type_error("cannot delete __annotate__ attribute".to_owned()));
+        }
+        let value = value.unwrap();
+
+        if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '__annotate__' attribute of immutable type '{}'",
+                self.name()
+            )));
+        }
+
+        if !vm.is_none(&value) && !value.is_callable() {
+            return Err(vm.new_type_error("__annotate__ must be callable or None".to_owned()));
+        }
+
+        let mut attrs = self.attributes.write();
+        // Store to __annotate_func__
+        attrs.insert(identifier!(vm, __annotate_func__), value.clone());
+        // Always clear cached annotations when __annotate__ is updated
+        attrs.swap_remove(identifier!(vm, __annotations_cache__));
+
+        Ok(())
+    }
+
+    #[pygetset]
     fn __annotations__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
             return Err(vm.new_attribute_error(format!(
@@ -860,20 +912,37 @@ impl PyType {
             )));
         }
 
-        let __annotations__ = identifier!(vm, __annotations__);
-        let annotations = self.attributes.read().get(__annotations__).cloned();
+        // First try __annotations__ (e.g. for "from __future__ import annotations")
+        let attrs = self.attributes.read();
+        if let Some(annotations) = attrs.get(identifier!(vm, __annotations__)).cloned() {
+            return Ok(annotations);
+        }
+        // Then try __annotations_cache__
+        if let Some(annotations) = attrs.get(identifier!(vm, __annotations_cache__)).cloned() {
+            return Ok(annotations);
+        }
+        drop(attrs);
 
-        let annotations = if let Some(annotations) = annotations {
-            annotations
+        // Get __annotate__ and call it if callable
+        let annotate = self.__annotate__(vm)?;
+        let annotations = if annotate.is_callable() {
+            // Call __annotate__(1) where 1 is FORMAT_VALUE
+            let result = annotate.call((1i32,), vm)?;
+            if !result.class().is(vm.ctx.types.dict_type) {
+                return Err(vm.new_type_error(format!(
+                    "__annotate__ returned non-dict of type '{}'",
+                    result.class().name()
+                )));
+            }
+            result
         } else {
-            let annotations: PyObjectRef = vm.ctx.new_dict().into();
-            let removed = self
-                .attributes
-                .write()
-                .insert(__annotations__, annotations.clone());
-            debug_assert!(removed.is_none());
-            annotations
+            vm.ctx.new_dict().into()
         };
+
+        // Cache the result in __annotations_cache__
+        self.attributes
+            .write()
+            .insert(identifier!(vm, __annotations_cache__), annotations.clone());
         Ok(annotations)
     }
 
@@ -886,21 +955,36 @@ impl PyType {
             )));
         }
 
-        let __annotations__ = identifier!(vm, __annotations__);
-        if let Some(value) = value {
-            self.attributes.write().insert(__annotations__, value);
+        let mut attrs = self.attributes.write();
+        // conditional update based on __annotations__ presence
+        let has_annotations = attrs.contains_key(identifier!(vm, __annotations__));
+
+        if has_annotations {
+            // If __annotations__ is in dict, update it
+            if let Some(value) = value {
+                attrs.insert(identifier!(vm, __annotations__), value);
+            } else if attrs
+                .swap_remove(identifier!(vm, __annotations__))
+                .is_none()
+            {
+                return Err(vm.new_attribute_error("__annotations__".to_owned()));
+            }
+            // Also clear __annotations_cache__
+            attrs.swap_remove(identifier!(vm, __annotations_cache__));
         } else {
-            self.attributes
-                .read()
-                .get(__annotations__)
-                .cloned()
-                .ok_or_else(|| {
-                    vm.new_attribute_error(format!(
-                        "'{}' object has no attribute '__annotations__'",
-                        self.name()
-                    ))
-                })?;
+            // Otherwise update only __annotations_cache__
+            if let Some(value) = value {
+                attrs.insert(identifier!(vm, __annotations_cache__), value);
+            } else if attrs
+                .swap_remove(identifier!(vm, __annotations_cache__))
+                .is_none()
+            {
+                return Err(vm.new_attribute_error("__annotations__".to_owned()));
+            }
         }
+        // Always clear __annotate_func__ and __annotate__
+        attrs.swap_remove(identifier!(vm, __annotate_func__));
+        attrs.swap_remove(identifier!(vm, __annotate__));
 
         Ok(())
     }

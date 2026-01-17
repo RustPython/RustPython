@@ -348,8 +348,18 @@ pub(super) mod types {
     impl Initializer for PyBaseExceptionGroup {
         type Args = FuncArgs;
 
-        fn slot_init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
-            // No-op: __new__ already set up the correct args (message, exceptions_tuple)
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            // BaseExceptionGroup_init: no kwargs allowed
+            if !args.kwargs.is_empty() {
+                return Err(vm.new_type_error(format!(
+                    "{} does not take keyword arguments",
+                    zelf.class().name()
+                )));
+            }
+            // Do NOT call PyBaseException::slot_init here.
+            // slot_new already set args to (message, exceptions_tuple).
+            // Calling base init would overwrite with original args (message, exceptions_list).
+            let _ = (zelf, args, vm);
             Ok(())
         }
 

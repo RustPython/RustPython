@@ -63,6 +63,72 @@ impl From<ConstantData> for StackValue {
     }
 }
 
+/// Extract annotations from an annotate function's bytecode.
+/// The annotate function uses BUILD_MAP with key-value pairs loaded before it.
+/// Keys are parameter names (from LOAD_CONST), values are type names (from LOAD_NAME/LOAD_GLOBAL).
+fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<String, StackValue> {
+    let mut annotations = HashMap::new();
+    let mut stack: Vec<(bool, usize)> = Vec::new(); // (is_const, index)
+    let mut op_arg_state = OpArgState::default();
+
+    for &word in code.instructions.iter() {
+        let (instruction, arg) = op_arg_state.get(word);
+
+        match instruction {
+            Instruction::LoadConst { idx } => {
+                stack.push((true, idx.get(arg) as usize));
+            }
+            Instruction::LoadName(idx) | Instruction::LoadGlobal(idx) => {
+                stack.push((false, idx.get(arg) as usize));
+            }
+            Instruction::BuildMap { size, .. } => {
+                let count = size.get(arg) as usize;
+                // Stack has key-value pairs in order: k1, v1, k2, v2, ...
+                // So we need count * 2 items from the stack
+                let start = stack.len().saturating_sub(count * 2);
+                let pairs: Vec<_> = stack.drain(start..).collect();
+
+                for chunk in pairs.chunks(2) {
+                    if chunk.len() == 2 {
+                        let (key_is_const, key_idx) = chunk[0];
+                        let (_val_is_const, val_idx) = chunk[1];
+
+                        // Key should be a const string (parameter name)
+                        if key_is_const
+                            && let ConstantData::Str { value } = &code.constants[key_idx]
+                        {
+                            let param_name = value.to_string_lossy().into_owned();
+                            // Value should be a name (type name)
+                            if let Some(type_name) = code.names.get(val_idx) {
+                                annotations
+                                    .insert(param_name, StackValue::String(type_name.clone()));
+                            }
+                        }
+                    }
+                }
+                // Return after processing BUILD_MAP - we got our annotations
+                return annotations;
+            }
+            Instruction::Resume { .. }
+            | Instruction::LoadFast(_)
+            | Instruction::CompareOp { .. }
+            | Instruction::ExtendedArg => {
+                // Ignore these instructions for annotation extraction
+            }
+            Instruction::ReturnValue | Instruction::ReturnConst { .. } => {
+                // End of function - return what we have
+                return annotations;
+            }
+            _ => {
+                // For other instructions, clear the stack tracking as we don't understand the effect
+                stack.clear();
+            }
+        }
+    }
+
+    annotations
+}
+
 pub struct StackMachine {
     stack: Vec<StackValue>,
     locals: HashMap<String, StackValue>,
@@ -92,6 +158,9 @@ impl StackMachine {
         names: &[String],
     ) -> ControlFlow<()> {
         match instruction {
+            Instruction::Resume { .. } => {
+                // No-op for JIT tests - just marks function entry point
+            }
             Instruction::LoadConst { idx } => {
                 let idx = idx.get(arg);
                 self.stack.push(constants[idx as usize].clone().into())
@@ -143,13 +212,31 @@ impl StackMachine {
                 };
                 let attr_value = self.stack.pop().expect("Expected attribute value on stack");
 
-                // For now, we only handle ANNOTATIONS flag in JIT tests
-                if attr
-                    .get(arg)
+                let flags = attr.get(arg);
+
+                // Handle ANNOTATE flag (PEP 649 style - Python 3.14+)
+                // The attr_value is a function that returns annotations when called
+                if flags.contains(rustpython_compiler_core::bytecode::MakeFunctionFlags::ANNOTATE) {
+                    if let StackValue::Function(annotate_func) = attr_value {
+                        // Parse the annotate function's bytecode to extract annotations
+                        // The pattern is: LOAD_CONST (key), LOAD_NAME (value), ... BUILD_MAP
+                        let annotate_code = &annotate_func.code;
+                        let annotations = extract_annotations_from_annotate_code(annotate_code);
+
+                        let updated_func = Function {
+                            code: func.code,
+                            annotations,
+                        };
+                        self.stack.push(StackValue::Function(updated_func));
+                    } else {
+                        panic!("Expected annotate function for ANNOTATE flag");
+                    }
+                }
+                // Handle old ANNOTATIONS flag (Python 3.12 style)
+                else if flags
                     .contains(rustpython_compiler_core::bytecode::MakeFunctionFlags::ANNOTATIONS)
                 {
                     if let StackValue::Map(annotations) = attr_value {
-                        // Update function's annotations
                         let updated_func = Function {
                             code: func.code,
                             annotations,
@@ -160,7 +247,6 @@ impl StackMachine {
                     }
                 } else {
                     // For other attributes, just push the function back unchanged
-                    // (since JIT tests mainly care about type annotations)
                     self.stack.push(StackValue::Function(func));
                 }
             }

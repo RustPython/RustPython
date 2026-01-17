@@ -13,7 +13,7 @@ name: Periodic checks/tasks
 
 env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,ssl-rustls,jit
-  PYTHON_VERSION: "3.13.1"
+  PYTHON_VERSION: "3.14.2"
 
 jobs:
   # codecov collects code coverage data from the rust tests, python snippets and python test suite.
@@ -94,8 +94,8 @@ jobs:
         run: cargo build --release --verbose
       - name: Collect what is left data
         run: |
-          chmod +x ./whats_left.py
-          ./whats_left.py --features "ssl,sqlite" > whats_left.temp
+          chmod +x ./scripts/whats_left.py
+          ./scripts/whats_left.py --features "ssl,sqlite" > whats_left.temp
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
       - name: Upload data to the website

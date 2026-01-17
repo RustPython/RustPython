@@ -161,7 +161,17 @@ __all__ = [
 ]
 
 
-def _type_convert(arg, module=None, *, allow_special_forms=False):
+class _LazyAnnotationLib:
+    def __getattr__(self, attr):
+        global _lazy_annotationlib
+        import annotationlib
+        _lazy_annotationlib = annotationlib
+        return getattr(annotationlib, attr)
+
+_lazy_annotationlib = _LazyAnnotationLib()
+
+
+def _type_convert(arg, module=None, *, allow_special_forms=False, owner=None):
     """For converting None to type(None), and strings to ForwardRef."""
     if arg is None:
         return type(None)
@@ -170,7 +180,7 @@ def _type_convert(arg, module=None, *, allow_special_forms=False):
     return arg
 
 
-def _type_check(arg, msg, is_argument=True, module=None, *, allow_special_forms=False):
+def _type_check(arg, msg, is_argument=True, module=None, *, allow_special_forms=False, owner=None):
     """Check that the argument is a type, and return it (internal helper).
 
     As a special case, accept None and return type(None) instead. Also wrap strings
@@ -188,7 +198,7 @@ def _type_check(arg, msg, is_argument=True, module=None, *, allow_special_forms=
         if is_argument:
             invalid_generic_forms += (Final,)
 
-    arg = _type_convert(arg, module=module, allow_special_forms=allow_special_forms)
+    arg = _type_convert(arg, module=module, allow_special_forms=allow_special_forms, owner=owner)
     if (isinstance(arg, _GenericAlias) and
             arg.__origin__ in invalid_generic_forms):
         raise TypeError(f"{arg} is not valid as type argument")
@@ -1918,6 +1928,7 @@ _SPECIAL_NAMES = frozenset({
     '__init__', '__module__', '__new__', '__slots__',
     '__subclasshook__', '__weakref__', '__class_getitem__',
     '__match_args__', '__static_attributes__', '__firstlineno__',
+    '__annotate__', '__annotate_func__', '__annotations_cache__',
 })
 
 # These special attributes will be not collected as protocol members.
@@ -2442,7 +2453,7 @@ def get_type_hints(obj, globalns=None, localns=None, include_extras=False):
                 base_globals = getattr(sys.modules.get(base.__module__, None), '__dict__', {})
             else:
                 base_globals = globalns
-            ann = base.__dict__.get('__annotations__', {})
+            ann = _lazy_annotationlib.get_annotations(base)
             if isinstance(ann, types.GetSetDescriptorType):
                 ann = {}
             base_locals = dict(vars(base)) if localns is None else localns
@@ -2476,7 +2487,10 @@ def get_type_hints(obj, globalns=None, localns=None, include_extras=False):
             localns = globalns
     elif localns is None:
         localns = globalns
-    hints = getattr(obj, '__annotations__', None)
+    try:
+        hints = _lazy_annotationlib.get_annotations(obj)
+    except TypeError:
+        hints = getattr(obj, '__annotations__', None)
     if hints is None:
         # Return empty annotations for something that _could_ have them.
         if isinstance(obj, _allowed_types):
@@ -2992,7 +3006,8 @@ _prohibited = frozenset({'__new__', '__init__', '__slots__', '__getnewargs__',
                          '_fields', '_field_defaults',
                          '_make', '_replace', '_asdict', '_source'})
 
-_special = frozenset({'__module__', '__name__', '__annotations__'})
+_special = frozenset({'__module__', '__name__', '__annotations__', '__annotate__',
+                      '__annotate_func__', '__annotations_cache__'})
 
 
 class NamedTupleMeta(type):
@@ -3003,7 +3018,13 @@ class NamedTupleMeta(type):
                 raise TypeError(
                     'can only inherit from a NamedTuple type and Generic')
         bases = tuple(tuple if base is _NamedTuple else base for base in bases)
-        types = ns.get('__annotations__', {})
+        if "__annotations__" in ns:
+            types = ns["__annotations__"]
+        elif (annotate := _lazy_annotationlib.get_annotate_from_class_namespace(ns)) is not None:
+            types = _lazy_annotationlib.call_annotate_function(
+                annotate, _lazy_annotationlib.Format.VALUE)
+        else:
+            types = {}
         default_names = []
         for field_name in types:
             if field_name in ns:
@@ -3158,16 +3179,26 @@ class _TypedDictMeta(type):
         else:
             generic_base = ()
 
+        ns_annotations = ns.pop('__annotations__', None)
+
         tp_dict = type.__new__(_TypedDictMeta, name, (*generic_base, dict), ns)
 
         if not hasattr(tp_dict, '__orig_bases__'):
             tp_dict.__orig_bases__ = bases
 
-        annotations = {}
-        own_annotations = ns.get('__annotations__', {})
+        if ns_annotations is not None:
+            own_annotate = None
+            own_annotations = ns_annotations
+        elif (own_annotate := _lazy_annotationlib.get_annotate_from_class_namespace(ns)) is not None:
+            own_annotations = _lazy_annotationlib.call_annotate_function(
+                own_annotate, _lazy_annotationlib.Format.FORWARDREF, owner=tp_dict
+            )
+        else:
+            own_annotate = None
+            own_annotations = {}
         msg = "TypedDict('Name', {f0: t0, f1: t1, ...}); each t must be a type"
-        own_annotations = {
-            n: _type_check(tp, msg, module=tp_dict.__module__)
+        own_checked_annotations = {
+            n: _type_check(tp, msg, owner=tp_dict, module=tp_dict.__module__)
             for n, tp in own_annotations.items()
         }
         required_keys = set()
@@ -3176,8 +3207,6 @@ class _TypedDictMeta(type):
         mutable_keys = set()
 
         for base in bases:
-            annotations.update(base.__dict__.get('__annotations__', {}))
-
             base_required = base.__dict__.get('__required_keys__', set())
             required_keys |= base_required
             optional_keys -= base_required
@@ -3189,8 +3218,7 @@ class _TypedDictMeta(type):
             readonly_keys.update(base.__dict__.get('__readonly_keys__', ()))
             mutable_keys.update(base.__dict__.get('__mutable_keys__', ()))
 
-        annotations.update(own_annotations)
-        for annotation_key, annotation_type in own_annotations.items():
+        for annotation_key, annotation_type in own_checked_annotations.items():
             qualifiers = set(_get_typeddict_qualifiers(annotation_type))
             if Required in qualifiers:
                 is_required = True
@@ -3221,7 +3249,36 @@ class _TypedDictMeta(type):
             f"Required keys overlap with optional keys in {name}:"
             f" {required_keys=}, {optional_keys=}"
         )
-        tp_dict.__annotations__ = annotations
+
+        def __annotate__(format):
+            annos = {}
+            for base in bases:
+                if base is Generic:
+                    continue
+                base_annotate = base.__annotate__
+                if base_annotate is None:
+                    continue
+                base_annos = _lazy_annotationlib.call_annotate_function(
+                    base_annotate, format, owner=base)
+                annos.update(base_annos)
+            if own_annotate is not None:
+                own = _lazy_annotationlib.call_annotate_function(
+                    own_annotate, format, owner=tp_dict)
+                if format != _lazy_annotationlib.Format.STRING:
+                    own = {
+                        n: _type_check(tp, msg, module=tp_dict.__module__)
+                        for n, tp in own.items()
+                    }
+            elif format == _lazy_annotationlib.Format.STRING:
+                own = _lazy_annotationlib.annotations_to_string(own_annotations)
+            elif format in (_lazy_annotationlib.Format.FORWARDREF, _lazy_annotationlib.Format.VALUE):
+                own = own_checked_annotations
+            else:
+                raise NotImplementedError(format)
+            annos.update(own)
+            return annos
+
+        tp_dict.__annotate__ = __annotate__
         tp_dict.__required_keys__ = frozenset(required_keys)
         tp_dict.__optional_keys__ = frozenset(optional_keys)
         tp_dict.__readonly_keys__ = frozenset(readonly_keys)

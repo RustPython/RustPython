@@ -202,7 +202,7 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
         })
         .collect::<Result<Box<[(SourceLocation, SourceLocation)]>>>()?;
 
-    let flags = CodeFlags::from_bits_truncate(rdr.read_u16()?);
+    let flags = CodeFlags::from_bits_truncate(rdr.read_u32()?);
 
     let posonlyarg_count = rdr.read_u32()?;
     let arg_count = rdr.read_u32()?;
@@ -660,7 +660,7 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
         buf.write_u32(end.character_offset.to_zero_indexed() as _);
     }
 
-    buf.write_u16(code.flags.bits());
+    buf.write_u32(code.flags.bits());
 
     buf.write_u32(code.posonlyarg_count);
     buf.write_u32(code.arg_count);

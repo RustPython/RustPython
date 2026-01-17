@@ -36,7 +36,8 @@ pub struct PyFunction {
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
     type_params: PyMutex<PyTupleRef>,
-    annotations: PyMutex<PyDictRef>,
+    annotations: PyMutex<Option<PyDictRef>>,
+    annotate: PyMutex<Option<PyObjectRef>>,
     module: PyMutex<PyObjectRef>,
     doc: PyMutex<PyObjectRef>,
     #[cfg(feature = "jit")]
@@ -77,6 +78,17 @@ impl PyFunction {
             builtins
         };
 
+        // Get docstring from co_consts[0] if HAS_DOCSTRING flag is set
+        let doc = if code.code.flags.contains(bytecode::CodeFlags::HAS_DOCSTRING) {
+            code.code
+                .constants
+                .first()
+                .map(|c| c.as_object().to_owned())
+                .unwrap_or_else(|| vm.ctx.none())
+        } else {
+            vm.ctx.none()
+        };
+
         let qualname = vm.ctx.new_str(code.qualname.as_str());
         let func = Self {
             code: PyMutex::new(code.clone()),
@@ -87,9 +99,10 @@ impl PyFunction {
             name,
             qualname: PyMutex::new(qualname),
             type_params: PyMutex::new(vm.ctx.empty_tuple.clone()),
-            annotations: PyMutex::new(vm.ctx.new_dict()),
+            annotations: PyMutex::new(None),
+            annotate: PyMutex::new(None),
             module: PyMutex::new(module),
-            doc: PyMutex::new(vm.ctx.none()),
+            doc: PyMutex::new(doc),
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
         };
@@ -364,7 +377,7 @@ impl PyFunction {
                     )));
                 }
             };
-            *self.annotations.lock() = annotations;
+            *self.annotations.lock() = Some(annotations);
         } else if attr == bytecode::MakeFunctionFlags::CLOSURE {
             // For closure, we need special handling
             // The closure tuple contains cell objects
@@ -388,6 +401,12 @@ impl PyFunction {
                 ))
             })?;
             *self.type_params.lock() = type_params;
+        } else if attr == bytecode::MakeFunctionFlags::ANNOTATE {
+            // PEP 649: Store the __annotate__ function closure
+            if !attr_value.is_callable() {
+                return Err(vm.new_type_error("__annotate__ must be callable".to_owned()));
+            }
+            *self.annotate.lock() = Some(attr_value);
         } else {
             unreachable!("This is a compiler bug");
         }
@@ -574,13 +593,103 @@ impl PyFunction {
     }
 
     #[pygetset]
-    fn __annotations__(&self) -> PyDictRef {
-        self.annotations.lock().clone()
+    fn __annotations__(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        // First check if we have cached annotations
+        {
+            let annotations = self.annotations.lock();
+            if let Some(ref ann) = *annotations {
+                return Ok(ann.clone());
+            }
+        }
+
+        // Check for callable __annotate__ and clone it before calling
+        let annotate_fn = {
+            let annotate = self.annotate.lock();
+            if let Some(ref func) = *annotate
+                && func.is_callable()
+            {
+                Some(func.clone())
+            } else {
+                None
+            }
+        };
+
+        // Release locks before calling __annotate__ to avoid deadlock
+        if let Some(annotate_fn) = annotate_fn {
+            let one = vm.ctx.new_int(1);
+            let ann_dict = annotate_fn.call((one,), vm)?;
+            let ann_dict = ann_dict
+                .downcast::<crate::builtins::PyDict>()
+                .map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "__annotate__ returned non-dict of type '{}'",
+                        obj.class().name()
+                    ))
+                })?;
+
+            // Cache the result
+            *self.annotations.lock() = Some(ann_dict.clone());
+            return Ok(ann_dict);
+        }
+
+        // No __annotate__ or not callable, create empty dict
+        let new_dict = vm.ctx.new_dict();
+        *self.annotations.lock() = Some(new_dict.clone());
+        Ok(new_dict)
     }
 
     #[pygetset(setter)]
-    fn set___annotations__(&self, annotations: PyDictRef) {
-        *self.annotations.lock() = annotations
+    fn set___annotations__(
+        &self,
+        value: PySetterValue<Option<PyObjectRef>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let annotations = match value {
+            PySetterValue::Assign(Some(value)) => {
+                let annotations = value.downcast::<crate::builtins::PyDict>().map_err(|_| {
+                    vm.new_type_error("__annotations__ must be set to a dict object")
+                })?;
+                Some(annotations)
+            }
+            PySetterValue::Assign(None) | PySetterValue::Delete => None,
+        };
+        *self.annotations.lock() = annotations;
+
+        // Clear __annotate__ when __annotations__ is set
+        *self.annotate.lock() = None;
+        Ok(())
+    }
+
+    #[pygetset]
+    fn __annotate__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.annotate
+            .lock()
+            .clone()
+            .unwrap_or_else(|| vm.ctx.none())
+    }
+
+    #[pygetset(setter)]
+    fn set___annotate__(
+        &self,
+        value: PySetterValue<Option<PyObjectRef>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let annotate = match value {
+            PySetterValue::Assign(Some(value)) => {
+                if !value.is_callable() {
+                    return Err(vm.new_type_error("__annotate__ must be callable or None"));
+                }
+                // Clear cached __annotations__ when __annotate__ is set
+                *self.annotations.lock() = None;
+                Some(value)
+            }
+            PySetterValue::Assign(None) => None,
+            PySetterValue::Delete => {
+                return Err(vm.new_type_error("__annotate__ cannot be deleted"));
+            }
+        };
+        *self.annotate.lock() = annotate;
+        Ok(())
     }
 
     #[pygetset]

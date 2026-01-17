@@ -2,7 +2,7 @@
 
 # [RustPython](https://rustpython.github.io/)
 
-A Python-3 (CPython >= 3.13.0) Interpreter written in Rust :snake: :scream:
+A Python-3 (CPython >= 3.14.0) Interpreter written in Rust :snake: :scream:
 :metal:.
 
 [![Build Status](https://github.com/RustPython/RustPython/workflows/CI/badge.svg)](https://github.com/RustPython/RustPython/actions?query=workflow%3ACI)
@@ -245,7 +245,7 @@ To enhance CPython compatibility, try to increase unittest coverage by checking 
 Another approach is to checkout the source code: builtin functions and object
 methods are often the simplest and easiest way to contribute.
 
-You can also simply run `python -I whats_left.py` to assist in finding any unimplemented
+You can also simply run `python -I scripts/whats_left.py` to assist in finding any unimplemented
 method.
 
 ## Compiling to WebAssembly
