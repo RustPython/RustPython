@@ -29,8 +29,9 @@ use ruff_python_ast::{
     InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
     Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
     PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
-    Stmt, StmtAnnAssign, StmtExpr, TString, TypeParam, TypeParamParamSpec, TypeParamTypeVar,
-    TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
+    Stmt, StmtAnnAssign, StmtExpr, StmtFor, StmtIf, StmtMatch, StmtTry, StmtWhile, StmtWith,
+    TString, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams,
+    UnaryOp, WithItem,
     visitor::{Visitor, walk_expr},
 };
 use ruff_text_size::{Ranged, TextRange};
@@ -3630,23 +3631,69 @@ impl Compiler {
         Ok(true)
     }
 
-    /// Collect simple (non-conditional) annotations from module body
+    /// Collect simple annotations from module body in AST order (including nested blocks)
     /// Returns list of (name, annotation_expr) pairs
+    /// This must match the order that annotations are compiled to ensure
+    /// conditional_annotation_index stays in sync with __annotate__ enumeration.
     fn collect_simple_annotations(body: &[Stmt]) -> Vec<(&str, &Expr)> {
-        let mut annotations = Vec::new();
-        for stmt in body {
-            if let Stmt::AnnAssign(StmtAnnAssign {
-                target,
-                annotation,
-                simple,
-                ..
-            }) = stmt
-                && *simple
-                && let Expr::Name(ExprName { id, .. }) = target.as_ref()
-            {
-                annotations.push((id.as_str(), annotation.as_ref()));
+        fn walk<'a>(stmts: &'a [Stmt], out: &mut Vec<(&'a str, &'a Expr)>) {
+            for stmt in stmts {
+                match stmt {
+                    Stmt::AnnAssign(StmtAnnAssign {
+                        target,
+                        annotation,
+                        simple,
+                        ..
+                    }) if *simple && matches!(target.as_ref(), Expr::Name(_)) => {
+                        if let Expr::Name(ExprName { id, .. }) = target.as_ref() {
+                            out.push((id.as_str(), annotation.as_ref()));
+                        }
+                    }
+                    Stmt::If(StmtIf {
+                        body,
+                        elif_else_clauses,
+                        ..
+                    }) => {
+                        walk(body, out);
+                        for clause in elif_else_clauses {
+                            walk(&clause.body, out);
+                        }
+                    }
+                    Stmt::For(StmtFor { body, orelse, .. })
+                    | Stmt::While(StmtWhile { body, orelse, .. }) => {
+                        walk(body, out);
+                        walk(orelse, out);
+                    }
+                    Stmt::With(StmtWith { body, .. }) => walk(body, out),
+                    Stmt::Try(StmtTry {
+                        body,
+                        handlers,
+                        orelse,
+                        finalbody,
+                        ..
+                    }) => {
+                        walk(body, out);
+                        for handler in handlers {
+                            let ExceptHandler::ExceptHandler(ExceptHandlerExceptHandler {
+                                body,
+                                ..
+                            }) = handler;
+                            walk(body, out);
+                        }
+                        walk(orelse, out);
+                        walk(finalbody, out);
+                    }
+                    Stmt::Match(StmtMatch { cases, .. }) => {
+                        for case in cases {
+                            walk(&case.body, out);
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
+        let mut annotations = Vec::new();
+        walk(body, &mut annotations);
         annotations
     }
 
