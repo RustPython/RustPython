@@ -135,6 +135,7 @@ declare_const_name! {
     __getformat__,
     __getitem__,
     __getnewargs__,
+    __getnewargs_ex__,
     __getstate__,
     __gt__,
     __hash__,

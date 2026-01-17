@@ -745,8 +745,6 @@ class CBytesIOTest(PyBytesIOTest):
     def test_issue5449(self):
         super().test_issue5449()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickling(self):
         super().test_pickling()
 
@@ -777,8 +775,6 @@ class CBytesIOTest(PyBytesIOTest):
     def test_write(self):
         super().test_write()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getstate(self):
         memio = self.ioclass()
         state = memio.__getstate__()
@@ -911,8 +907,6 @@ class CStringIOTest(PyStringIOTest):
     def test_newlines_property(self):
         super().test_newlines_property()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickling(self):
         super().test_pickling()
 
@@ -954,8 +948,6 @@ class CStringIOTest(PyStringIOTest):
         self.assertEqual(memio.tell(), len(buf) * 2)
         self.assertEqual(memio.getvalue(), buf + buf)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getstate(self):
         memio = self.ioclass()
         state = memio.__getstate__()
@@ -1006,8 +998,6 @@ class CStringIOPickleTest(PyStringIOPickleTest):
     def test_newline_crlf(self):
         super().test_newline_crlf()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_newline_default(self):
         super().test_newline_default()
 
@@ -1016,8 +1006,6 @@ class CStringIOPickleTest(PyStringIOPickleTest):
     def test_newline_empty(self):
         super().test_newline_empty()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_newline_lf(self):
         super().test_newline_lf()
 

@@ -10328,7 +10328,6 @@ class SpecialAttrsTests(BaseTestCase):
 
     TypeName = typing.NewType('SpecialAttrsTests.TypeName', Any)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_special_attrs2(self):
         # Forward refs provide a different introspection API. __name__ and
         # __qualname__ make little sense for forward refs as they can store
