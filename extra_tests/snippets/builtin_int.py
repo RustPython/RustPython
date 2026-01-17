@@ -318,8 +318,9 @@ assert isinstance((0).__round__(0), int)
 assert isinstance((1).__round__(0), int)
 assert (0).__round__(0) == 0
 assert (1).__round__(0) == 1
-assert_raises(TypeError, lambda: (0).__round__(None))
-assert_raises(TypeError, lambda: (1).__round__(None))
+# Python 3.14+: __round__(None) is now allowed, same as __round__()
+assert (0).__round__(None) == 0
+assert (1).__round__(None) == 1
 assert_raises(TypeError, lambda: (0).__round__(0.0))
 assert_raises(TypeError, lambda: (1).__round__(0.0))
 

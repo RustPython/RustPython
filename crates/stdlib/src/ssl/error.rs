@@ -7,7 +7,7 @@ pub(crate) mod ssl_error {
     use crate::vm::{
         Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseException, PyOSError, PyStrRef},
-        types::{Constructor, Initializer},
+        types::Constructor,
     };
 
     // Error type constants - exposed as pyattr and available for internal use

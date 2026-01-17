@@ -523,7 +523,7 @@ impl VirtualMachine {
     /// ```no_run
     /// use rustpython_vm::Interpreter;
     /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
-    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-313.pyc").unwrap();
+    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-314.pyc").unwrap();
     ///     let main_scope = vm.new_scope_with_main().unwrap();
     ///     vm.run_pyc_bytes(&bytes, main_scope);
     /// });

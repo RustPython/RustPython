@@ -290,13 +290,16 @@ pub struct CodeObject<C: Constant = ConstantData> {
 
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
-    pub struct CodeFlags: u16 {
+    pub struct CodeFlags: u32 {
         const OPTIMIZED = 0x0001;
         const NEWLOCALS = 0x0002;
         const VARARGS = 0x0004;
         const VARKEYWORDS = 0x0008;
         const GENERATOR = 0x0020;
         const COROUTINE = 0x0080;
+        /// If a code object represents a function and has a docstring,
+        /// this bit is set and the first item in co_consts is the docstring.
+        const HAS_DOCSTRING = 0x4000000;
     }
 }
 

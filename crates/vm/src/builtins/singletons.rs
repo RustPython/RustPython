@@ -108,11 +108,12 @@ impl PyNotImplemented {
 
 impl AsNumber for PyNotImplemented {
     fn as_number() -> &'static PyNumberMethods {
-        // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
-        // in boolean contexts will need to raise a DeprecationWarning in 3.9
-        // and, eventually, a TypeError.
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            boolean: Some(|_number, _vm| Ok(true)),
+            boolean: Some(|_number, vm| {
+                Err(vm.new_type_error(
+                    "NotImplemented should not be used in a boolean context".to_owned(),
+                ))
+            }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER

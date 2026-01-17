@@ -4,7 +4,7 @@ code_class = type(c1)
 
 
 def f(x, y, *args, power=1, **kwargs):
-    print("Constant String", 2, None, (2, 4))
+    print("Constant String", 256, None, (2, 4))
     assert code_class == type(c1)
     z = x * y
     return z**power
@@ -19,7 +19,7 @@ assert c2.co_argcount == 2
 # assert isinstance(c2.co_code, bytes)
 assert "Constant String" in c2.co_consts, c2.co_consts
 print(c2.co_consts)
-assert 2 in c2.co_consts, c2.co_consts
+assert 256 in c2.co_consts, c2.co_consts
 assert "example_interactive.py" in c2.co_filename
 assert c2.co_firstlineno == 6, str(c2.co_firstlineno)
 # assert isinstance(c2.co_flags, int) # 'OPTIMIZED, NEWLOCALS, NOFREE'

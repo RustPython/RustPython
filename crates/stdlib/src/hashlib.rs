@@ -11,7 +11,7 @@ pub mod _hashlib {
         class::StaticType,
         convert::ToPyObject,
         function::{ArgBytesLike, ArgStrOrBytesLike, FuncArgs, OptionalArg},
-        types::{Constructor, Initializer, Representable},
+        types::{Constructor, Representable},
     };
     use blake2::{Blake2b512, Blake2s256};
     use digest::{DynDigest, core_api::BlockSizeUser};

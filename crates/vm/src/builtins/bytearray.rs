@@ -322,8 +322,8 @@ impl PyByteArray {
     }
 
     #[pyclassmethod]
-    fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let bytes = PyBytesInner::fromhex(string.as_bytes(), vm)?;
+    fn fromhex(cls: PyTypeRef, string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let bytes = PyBytesInner::fromhex_object(string, vm)?;
         let bytes = vm.ctx.new_bytes(bytes);
         let args = vec![bytes.into()].into();
         PyType::call(&cls, args, vm)

@@ -1,11 +1,13 @@
 # Author: Steven J. Bethard <steven.bethard@gmail.com>.
 
+import _colorize
 import contextlib
 import functools
 import inspect
 import io
 import operator
 import os
+import py_compile
 import shutil
 import stat
 import sys
@@ -16,10 +18,20 @@ import argparse
 import warnings
 
 from enum import StrEnum
-from test.support import captured_stderr
+from test.support import (
+    captured_stderr,
+    force_not_colorized,
+    force_not_colorized_test_class,
+    swap_attr,
+)
+from test.support import import_helper
 from test.support import os_helper
+from test.support import script_helper
 from test.support.i18n_helper import TestTranslationsBase, update_translation_snapshots
 from unittest import mock
+
+
+py = os.path.basename(sys.executable)
 
 
 class StdIOBuffer(io.TextIOWrapper):
@@ -631,9 +643,9 @@ class TestOptionalsNargsOptional(ParserTestCase):
         Sig('-w', nargs='?'),
         Sig('-x', nargs='?', const=42),
         Sig('-y', nargs='?', default='spam'),
-        Sig('-z', nargs='?', type=int, const='42', default='84'),
+        Sig('-z', nargs='?', type=int, const='42', default='84', choices=[1, 2]),
     ]
-    failures = ['2']
+    failures = ['2', '-z a', '-z 42', '-z 84']
     successes = [
         ('', NS(w=None, x=None, y='spam', z=84)),
         ('-w', NS(w=None, x=None, y='spam', z=84)),
@@ -777,48 +789,12 @@ class TestBooleanOptionalAction(ParserTestCase):
 
         self.assertIn("got an unexpected keyword argument 'const'", str(cm.exception))
 
-    def test_deprecated_init_kw(self):
-        # See gh-92248
+    def test_invalid_name(self):
         parser = argparse.ArgumentParser()
-
-        with self.assertWarns(DeprecationWarning):
-            parser.add_argument(
-                '-a',
-                action=argparse.BooleanOptionalAction,
-                type=None,
-            )
-        with self.assertWarns(DeprecationWarning):
-            parser.add_argument(
-                '-b',
-                action=argparse.BooleanOptionalAction,
-                type=bool,
-            )
-
-        with self.assertWarns(DeprecationWarning):
-            parser.add_argument(
-                '-c',
-                action=argparse.BooleanOptionalAction,
-                metavar=None,
-            )
-        with self.assertWarns(DeprecationWarning):
-            parser.add_argument(
-                '-d',
-                action=argparse.BooleanOptionalAction,
-                metavar='d',
-            )
-
-        with self.assertWarns(DeprecationWarning):
-            parser.add_argument(
-                '-e',
-                action=argparse.BooleanOptionalAction,
-                choices=None,
-            )
-        with self.assertWarns(DeprecationWarning):
-            parser.add_argument(
-                '-f',
-                action=argparse.BooleanOptionalAction,
-                choices=(),
-            )
+        with self.assertRaises(ValueError) as cm:
+            parser.add_argument('--no-foo', action=argparse.BooleanOptionalAction)
+        self.assertEqual(str(cm.exception),
+                         "invalid option name '--no-foo' for BooleanOptionalAction")
 
 class TestBooleanOptionalActionRequired(ParserTestCase):
     """Tests BooleanOptionalAction required"""
@@ -1036,6 +1012,7 @@ class TestStrEnumChoices(TestCase):
         args = parser.parse_args(['--color', 'red'])
         self.assertEqual(args.color, self.Color.RED)
 
+    @force_not_colorized
     def test_help_message_contains_enum_choices(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--color', choices=self.Color, help='Choose a color')
@@ -1101,8 +1078,8 @@ class TestPositionalsNargsZeroOrMore(ParserTestCase):
 class TestPositionalsNargsZeroOrMoreDefault(ParserTestCase):
     """Test a Positional that specifies unlimited nargs and a default"""
 
-    argument_signatures = [Sig('foo', nargs='*', default='bar')]
-    failures = ['-x']
+    argument_signatures = [Sig('foo', nargs='*', default='bar', choices=['a', 'b'])]
+    failures = ['-x', 'bar', 'a c']
     successes = [
         ('', NS(foo='bar')),
         ('a', NS(foo=['a'])),
@@ -1135,8 +1112,8 @@ class TestPositionalsNargsOptional(ParserTestCase):
 class TestPositionalsNargsOptionalDefault(ParserTestCase):
     """Tests an Optional Positional with a default value"""
 
-    argument_signatures = [Sig('foo', nargs='?', default=42)]
-    failures = ['-x', 'a b']
+    argument_signatures = [Sig('foo', nargs='?', default=42, choices=['a', 'b'])]
+    failures = ['-x', 'a b', '42']
     successes = [
         ('', NS(foo=42)),
         ('a', NS(foo='a')),
@@ -1149,9 +1126,9 @@ class TestPositionalsNargsOptionalConvertedDefault(ParserTestCase):
     """
 
     argument_signatures = [
-        Sig('foo', nargs='?', type=int, default='42'),
+        Sig('foo', nargs='?', type=int, default='42', choices=[1, 2]),
     ]
-    failures = ['-x', 'a b', '1 2']
+    failures = ['-x', 'a b', '1 2', '42']
     successes = [
         ('', NS(foo=42)),
         ('1', NS(foo=1)),
@@ -1811,27 +1788,43 @@ class TestArgumentsFromFileConverter(TempDirMixin, ParserTestCase):
 # Type conversion tests
 # =====================
 
+def FileType(*args, **kwargs):
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', 'FileType is deprecated',
+                                PendingDeprecationWarning, __name__)
+        return argparse.FileType(*args, **kwargs)
+
+
+class TestFileTypeDeprecation(TestCase):
+
+    def test(self):
+        with self.assertWarns(PendingDeprecationWarning) as cm:
+            argparse.FileType()
+        self.assertIn('FileType is deprecated', str(cm.warning))
+        self.assertEqual(cm.filename, __file__)
+
+
 class TestFileTypeRepr(TestCase):
 
     def test_r(self):
-        type = argparse.FileType('r')
+        type = FileType('r')
         self.assertEqual("FileType('r')", repr(type))
 
     def test_wb_1(self):
-        type = argparse.FileType('wb', 1)
+        type = FileType('wb', 1)
         self.assertEqual("FileType('wb', 1)", repr(type))
 
     def test_r_latin(self):
-        type = argparse.FileType('r', encoding='latin_1')
+        type = FileType('r', encoding='latin_1')
         self.assertEqual("FileType('r', encoding='latin_1')", repr(type))
 
     def test_w_big5_ignore(self):
-        type = argparse.FileType('w', encoding='big5', errors='ignore')
+        type = FileType('w', encoding='big5', errors='ignore')
         self.assertEqual("FileType('w', encoding='big5', errors='ignore')",
                          repr(type))
 
     def test_r_1_replace(self):
-        type = argparse.FileType('r', 1, errors='replace')
+        type = FileType('r', 1, errors='replace')
         self.assertEqual("FileType('r', 1, errors='replace')", repr(type))
 
 
@@ -1885,7 +1878,6 @@ class RFile(object):
             text = text.decode('ascii')
         return self.name == other.name == text
 
-
 class TestFileTypeR(TempDirMixin, ParserTestCase):
     """Test the FileType option/argument type for reading files"""
 
@@ -1898,8 +1890,8 @@ class TestFileTypeR(TempDirMixin, ParserTestCase):
         self.create_readonly_file('readonly')
 
     argument_signatures = [
-        Sig('-x', type=argparse.FileType()),
-        Sig('spam', type=argparse.FileType('r')),
+        Sig('-x', type=FileType()),
+        Sig('spam', type=FileType('r')),
     ]
     failures = ['-x', '', 'non-existent-file.txt']
     successes = [
@@ -1919,7 +1911,7 @@ class TestFileTypeDefaults(TempDirMixin, ParserTestCase):
         file.close()
 
     argument_signatures = [
-        Sig('-c', type=argparse.FileType('r'), default='no-file.txt'),
+        Sig('-c', type=FileType('r'), default='no-file.txt'),
     ]
     # should provoke no such file error
     failures = ['']
@@ -1938,8 +1930,8 @@ class TestFileTypeRB(TempDirMixin, ParserTestCase):
                 file.write(file_name)
 
     argument_signatures = [
-        Sig('-x', type=argparse.FileType('rb')),
-        Sig('spam', type=argparse.FileType('rb')),
+        Sig('-x', type=FileType('rb')),
+        Sig('spam', type=FileType('rb')),
     ]
     failures = ['-x', '']
     successes = [
@@ -1977,8 +1969,8 @@ class TestFileTypeW(TempDirMixin, ParserTestCase):
         self.create_writable_file('writable')
 
     argument_signatures = [
-        Sig('-x', type=argparse.FileType('w')),
-        Sig('spam', type=argparse.FileType('w')),
+        Sig('-x', type=FileType('w')),
+        Sig('spam', type=FileType('w')),
     ]
     failures = ['-x', '', 'readonly']
     successes = [
@@ -2000,8 +1992,8 @@ class TestFileTypeX(TempDirMixin, ParserTestCase):
         self.create_writable_file('writable')
 
     argument_signatures = [
-        Sig('-x', type=argparse.FileType('x')),
-        Sig('spam', type=argparse.FileType('x')),
+        Sig('-x', type=FileType('x')),
+        Sig('spam', type=FileType('x')),
     ]
     failures = ['-x', '', 'readonly', 'writable']
     successes = [
@@ -2015,8 +2007,8 @@ class TestFileTypeWB(TempDirMixin, ParserTestCase):
     """Test the FileType option/argument type for writing binary files"""
 
     argument_signatures = [
-        Sig('-x', type=argparse.FileType('wb')),
-        Sig('spam', type=argparse.FileType('wb')),
+        Sig('-x', type=FileType('wb')),
+        Sig('spam', type=FileType('wb')),
     ]
     failures = ['-x', '']
     successes = [
@@ -2032,8 +2024,8 @@ class TestFileTypeXB(TestFileTypeX):
     "Test the FileType option/argument type for writing new binary files only"
 
     argument_signatures = [
-        Sig('-x', type=argparse.FileType('xb')),
-        Sig('spam', type=argparse.FileType('xb')),
+        Sig('-x', type=FileType('xb')),
+        Sig('spam', type=FileType('xb')),
     ]
     successes = [
         ('-x foo bar', NS(x=WFile('foo'), spam=WFile('bar'))),
@@ -2045,7 +2037,7 @@ class TestFileTypeOpenArgs(TestCase):
     """Test that open (the builtin) is correctly called"""
 
     def test_open_args(self):
-        FT = argparse.FileType
+        FT = FileType
         cases = [
             (FT('rb'), ('rb', -1, None, None)),
             (FT('w', 1), ('w', 1, None, None)),
@@ -2060,7 +2052,7 @@ class TestFileTypeOpenArgs(TestCase):
 
     def test_invalid_file_type(self):
         with self.assertRaises(ValueError):
-            argparse.FileType('b')('-test')
+            FileType('b')('-test')
 
 
 class TestFileTypeMissingInitialization(TestCase):
@@ -2071,7 +2063,7 @@ class TestFileTypeMissingInitialization(TestCase):
 
     def test(self):
         parser = argparse.ArgumentParser()
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(TypeError) as cm:
             parser.add_argument('-x', type=argparse.FileType)
 
         self.assertEqual(
@@ -2256,6 +2248,130 @@ class TestActionExtend(ParserTestCase):
     ]
 
 
+class TestNegativeNumber(ParserTestCase):
+    """Test parsing negative numbers"""
+
+    argument_signatures = [
+        Sig('--int', type=int),
+        Sig('--float', type=float),
+        Sig('--complex', type=complex),
+    ]
+    failures = [
+        '--float -_.45',
+        '--float -1__000.0',
+        '--float -1.0.0',
+        '--int -1__000',
+        '--int -1.0',
+        '--complex -1__000.0j',
+        '--complex -1.0jj',
+        '--complex -_.45j',
+    ]
+    successes = [
+        ('--int -1000 --float -1000.0', NS(int=-1000, float=-1000.0, complex=None)),
+        ('--int -1_000 --float -1_000.0', NS(int=-1000, float=-1000.0, complex=None)),
+        ('--int -1_000_000 --float -1_000_000.0', NS(int=-1000000, float=-1000000.0, complex=None)),
+        ('--float -1_000.0', NS(int=None, float=-1000.0, complex=None)),
+        ('--float -1_000_000.0_0', NS(int=None, float=-1000000.0, complex=None)),
+        ('--float -.5', NS(int=None, float=-0.5, complex=None)),
+        ('--float -.5_000', NS(int=None, float=-0.5, complex=None)),
+        ('--float -1e3', NS(int=None, float=-1000, complex=None)),
+        ('--float -1e-3', NS(int=None, float=-0.001, complex=None)),
+        ('--complex -1j', NS(int=None, float=None, complex=-1j)),
+        ('--complex -1_000j', NS(int=None, float=None, complex=-1000j)),
+        ('--complex -1_000.0j', NS(int=None, float=None, complex=-1000.0j)),
+        ('--complex -1e3j', NS(int=None, float=None, complex=-1000j)),
+        ('--complex -1e-3j', NS(int=None, float=None, complex=-0.001j)),
+    ]
+
+class TestArgumentAndSubparserSuggestions(TestCase):
+    """Test error handling and suggestion when a user makes a typo"""
+
+    def test_wrong_argument_error_with_suggestions(self):
+        parser = ErrorRaisingArgumentParser(suggest_on_error=True)
+        parser.add_argument('foo', choices=['bar', 'baz'])
+        with self.assertRaises(ArgumentParserError) as excinfo:
+            parser.parse_args(('bazz',))
+        self.assertIn(
+            "error: argument foo: invalid choice: 'bazz', maybe you meant 'baz'? (choose from bar, baz)",
+            excinfo.exception.stderr
+        )
+
+    def test_wrong_argument_error_no_suggestions(self):
+        parser = ErrorRaisingArgumentParser(suggest_on_error=False)
+        parser.add_argument('foo', choices=['bar', 'baz'])
+        with self.assertRaises(ArgumentParserError) as excinfo:
+            parser.parse_args(('bazz',))
+        self.assertIn(
+            "error: argument foo: invalid choice: 'bazz' (choose from bar, baz)",
+            excinfo.exception.stderr,
+        )
+
+    def test_wrong_argument_subparsers_with_suggestions(self):
+        parser = ErrorRaisingArgumentParser(suggest_on_error=True)
+        subparsers = parser.add_subparsers(required=True)
+        subparsers.add_parser('foo')
+        subparsers.add_parser('bar')
+        with self.assertRaises(ArgumentParserError) as excinfo:
+            parser.parse_args(('baz',))
+        self.assertIn(
+            "error: argument {foo,bar}: invalid choice: 'baz', maybe you meant"
+             " 'bar'? (choose from foo, bar)",
+            excinfo.exception.stderr,
+        )
+
+    def test_wrong_argument_subparsers_no_suggestions(self):
+        parser = ErrorRaisingArgumentParser(suggest_on_error=False)
+        subparsers = parser.add_subparsers(required=True)
+        subparsers.add_parser('foo')
+        subparsers.add_parser('bar')
+        with self.assertRaises(ArgumentParserError) as excinfo:
+            parser.parse_args(('baz',))
+        self.assertIn(
+            "error: argument {foo,bar}: invalid choice: 'baz' (choose from foo, bar)",
+            excinfo.exception.stderr,
+        )
+
+    def test_wrong_argument_no_suggestion_implicit(self):
+        parser = ErrorRaisingArgumentParser()
+        parser.add_argument('foo', choices=['bar', 'baz'])
+        with self.assertRaises(ArgumentParserError) as excinfo:
+            parser.parse_args(('bazz',))
+        self.assertIn(
+            "error: argument foo: invalid choice: 'bazz' (choose from bar, baz)",
+            excinfo.exception.stderr,
+        )
+
+    def test_suggestions_choices_empty(self):
+        parser = ErrorRaisingArgumentParser(suggest_on_error=True)
+        parser.add_argument('foo', choices=[])
+        with self.assertRaises(ArgumentParserError) as excinfo:
+            parser.parse_args(('bazz',))
+        self.assertIn(
+            "error: argument foo: invalid choice: 'bazz' (choose from )",
+            excinfo.exception.stderr,
+        )
+
+    def test_suggestions_choices_int(self):
+        parser = ErrorRaisingArgumentParser(suggest_on_error=True)
+        parser.add_argument('foo', choices=[1, 2])
+        with self.assertRaises(ArgumentParserError) as excinfo:
+            parser.parse_args(('3',))
+        self.assertIn(
+            "error: argument foo: invalid choice: '3' (choose from 1, 2)",
+            excinfo.exception.stderr,
+        )
+
+    def test_suggestions_choices_mixed_types(self):
+        parser = ErrorRaisingArgumentParser(suggest_on_error=True)
+        parser.add_argument('foo', choices=[1, '2'])
+        with self.assertRaises(ArgumentParserError) as excinfo:
+            parser.parse_args(('3',))
+        self.assertIn(
+            "error: argument foo: invalid choice: '3' (choose from 1, 2)",
+            excinfo.exception.stderr,
+        )
+
+
 class TestInvalidAction(TestCase):
     """Test invalid user defined Action"""
 
@@ -2269,17 +2385,31 @@ class TestInvalidAction(TestCase):
         self.assertRaises(NotImplementedError, parser.parse_args, ['--foo', 'bar'])
 
     def test_modified_invalid_action(self):
-        parser = ErrorRaisingArgumentParser()
+        parser = argparse.ArgumentParser(exit_on_error=False)
         action = parser.add_argument('--foo')
         # Someone got crazy and did this
         action.type = 1
-        self.assertRaises(ArgumentParserError, parser.parse_args, ['--foo', 'bar'])
+        self.assertRaisesRegex(TypeError, '1 is not callable',
+                               parser.parse_args, ['--foo', 'bar'])
+        action.type = ()
+        self.assertRaisesRegex(TypeError, r'\(\) is not callable',
+                               parser.parse_args, ['--foo', 'bar'])
+        # It is impossible to distinguish a TypeError raised due to a mismatch
+        # of the required function arguments from a TypeError raised for an incorrect
+        # argument value, and using the heavy inspection machinery is not worthwhile
+        # as it does not reliably work in all cases.
+        # Therefore, a generic ArgumentError is raised to handle this logical error.
+        action.type = pow
+        self.assertRaisesRegex(argparse.ArgumentError,
+                               "argument --foo: invalid pow value: 'bar'",
+                               parser.parse_args, ['--foo', 'bar'])
 
 
 # ================
 # Subparsers tests
 # ================
 
+@force_not_colorized_test_class
 class TestAddSubparsers(TestCase):
     """Test the add_subparsers method"""
 
@@ -2287,16 +2417,17 @@ class TestAddSubparsers(TestCase):
         self.assertRaises(ArgumentParserError, *args, **kwargs)
 
     def _get_parser(self, subparser_help=False, prefix_chars=None,
-                    aliases=False):
+                    aliases=False, usage=None):
         # create a parser with a subparsers argument
         if prefix_chars:
             parser = ErrorRaisingArgumentParser(
-                prog='PROG', description='main description', prefix_chars=prefix_chars)
+                prog='PROG', description='main description', usage=usage,
+                prefix_chars=prefix_chars)
             parser.add_argument(
                 prefix_chars[0] * 2 + 'foo', action='store_true', help='foo help')
         else:
             parser = ErrorRaisingArgumentParser(
-                prog='PROG', description='main description')
+                prog='PROG', description='main description', usage=usage)
             parser.add_argument(
                 '--foo', action='store_true', help='foo help')
         parser.add_argument(
@@ -2310,7 +2441,7 @@ class TestAddSubparsers(TestCase):
         else:
             subparsers_kwargs['help'] = 'command help'
         subparsers = parser.add_subparsers(**subparsers_kwargs)
-        self.assertRaisesRegex(argparse.ArgumentError,
+        self.assertRaisesRegex(ValueError,
                                'cannot have multiple subparser arguments',
                                parser.add_subparsers)
 
@@ -2333,7 +2464,8 @@ class TestAddSubparsers(TestCase):
         parser2.add_argument('z', type=complex, nargs='*', help='z help')
 
         # add third sub-parser
-        parser3_kwargs = dict(description='3 description')
+        parser3_kwargs = dict(description='3 description',
+                              usage='PROG --foo bar 3 t ...')
         if subparser_help:
             parser3_kwargs['help'] = '3 help'
         parser3 = subparsers.add_parser('3', **parser3_kwargs)
@@ -2354,6 +2486,47 @@ class TestAddSubparsers(TestCase):
                          '0.5 1 -y', '0.5 2 -w']:
             args = args_str.split()
             self.assertArgumentParserError(self.parser.parse_args, args)
+
+    def test_parse_args_failures_details(self):
+        for args_str, usage_str, error_str in [
+            ('',
+             'usage: PROG [-h] [--foo] bar {1,2,3} ...',
+             'PROG: error: the following arguments are required: bar'),
+            ('0.5 1 -y',
+             'usage: PROG bar 1 [-h] [-w W] {a,b,c}',
+             'PROG bar 1: error: the following arguments are required: x'),
+            ('0.5 3',
+             'usage: PROG --foo bar 3 t ...',
+             'PROG bar 3: error: the following arguments are required: t'),
+        ]:
+            with self.subTest(args_str):
+                args = args_str.split()
+                with self.assertRaises(ArgumentParserError) as cm:
+                    self.parser.parse_args(args)
+                self.assertEqual(cm.exception.args[0], 'SystemExit')
+                self.assertEqual(cm.exception.args[2], f'{usage_str}\n{error_str}\n')
+
+    def test_parse_args_failures_details_custom_usage(self):
+        parser = self._get_parser(usage='PROG [--foo] bar 1 [-w W] {a,b,c}\n'
+                                 '       PROG --foo bar 3 t ...')
+        for args_str, usage_str, error_str in [
+            ('',
+             'usage: PROG [--foo] bar 1 [-w W] {a,b,c}\n'
+             '       PROG --foo bar 3 t ...',
+             'PROG: error: the following arguments are required: bar'),
+            ('0.5 1 -y',
+             'usage: PROG bar 1 [-h] [-w W] {a,b,c}',
+             'PROG bar 1: error: the following arguments are required: x'),
+            ('0.5 3',
+             'usage: PROG --foo bar 3 t ...',
+             'PROG bar 3: error: the following arguments are required: t'),
+        ]:
+            with self.subTest(args_str):
+                args = args_str.split()
+                with self.assertRaises(ArgumentParserError) as cm:
+                    parser.parse_args(args)
+                self.assertEqual(cm.exception.args[0], 'SystemExit')
+                self.assertEqual(cm.exception.args[2], f'{usage_str}\n{error_str}\n')
 
     def test_parse_args(self):
         # check some non-failure cases:
@@ -2508,18 +2681,6 @@ class TestAddSubparsers(TestCase):
             'error: the following arguments are required: {foo,bar}\n$'
         )
 
-    def test_wrong_argument_subparsers_no_destination_error(self):
-        parser = ErrorRaisingArgumentParser()
-        subparsers = parser.add_subparsers(required=True)
-        subparsers.add_parser('foo')
-        subparsers.add_parser('bar')
-        with self.assertRaises(ArgumentParserError) as excinfo:
-            parser.parse_args(('baz',))
-        self.assertRegex(
-            excinfo.exception.stderr,
-            r"error: argument {foo,bar}: invalid choice: 'baz' \(choose from foo, bar\)\n$"
-        )
-
     def test_optional_subparsers(self):
         parser = ErrorRaisingArgumentParser()
         subparsers = parser.add_subparsers(dest='command', required=False)
@@ -2654,6 +2815,29 @@ class TestAddSubparsers(TestCase):
               -h, --help  show this help message and exit
               --foo       foo help
             '''))
+
+    def assert_bad_help(self, context_type, func, *args, **kwargs):
+        with self.assertRaisesRegex(ValueError, 'badly formed help string') as cm:
+            func(*args, **kwargs)
+        self.assertIsInstance(cm.exception.__context__, context_type)
+
+    def test_invalid_subparsers_help(self):
+        parser = ErrorRaisingArgumentParser(prog='PROG')
+        self.assert_bad_help(ValueError, parser.add_subparsers, help='%Y-%m-%d')
+        parser = ErrorRaisingArgumentParser(prog='PROG')
+        self.assert_bad_help(KeyError, parser.add_subparsers, help='%(spam)s')
+        parser = ErrorRaisingArgumentParser(prog='PROG')
+        self.assert_bad_help(TypeError, parser.add_subparsers, help='%(prog)d')
+
+    def test_invalid_subparser_help(self):
+        parser = ErrorRaisingArgumentParser(prog='PROG')
+        subparsers = parser.add_subparsers()
+        self.assert_bad_help(ValueError, subparsers.add_parser, '1',
+                             help='%Y-%m-%d')
+        self.assert_bad_help(KeyError, subparsers.add_parser, '1',
+                             help='%(spam)s')
+        self.assert_bad_help(TypeError, subparsers.add_parser, '1',
+                             help='%(prog)d')
 
     def test_subparser_title_help(self):
         parser = ErrorRaisingArgumentParser(prog='PROG',
@@ -2796,10 +2980,43 @@ class TestPositionalsGroups(TestCase):
         result = parser.parse_args('1 2 3 4'.split())
         self.assertEqual(expected, result)
 
+class TestGroupConstructor(TestCase):
+    def test_group_prefix_chars(self):
+        parser = ErrorRaisingArgumentParser()
+        msg = (
+            "The use of the undocumented 'prefix_chars' parameter in "
+            "ArgumentParser.add_argument_group() is deprecated."
+        )
+        with self.assertWarns(DeprecationWarning) as cm:
+            parser.add_argument_group(prefix_chars='-+')
+        self.assertEqual(msg, str(cm.warning))
+        self.assertEqual(cm.filename, __file__)
+
+    def test_group_prefix_chars_default(self):
+        # "default" isn't quite the right word here, but it's the same as
+        # the parser's default prefix so it's a good test
+        parser = ErrorRaisingArgumentParser()
+        msg = (
+            "The use of the undocumented 'prefix_chars' parameter in "
+            "ArgumentParser.add_argument_group() is deprecated."
+        )
+        with self.assertWarns(DeprecationWarning) as cm:
+            parser.add_argument_group(prefix_chars='-')
+        self.assertEqual(msg, str(cm.warning))
+        self.assertEqual(cm.filename, __file__)
+
+    def test_nested_argument_group(self):
+        parser = argparse.ArgumentParser()
+        g = parser.add_argument_group()
+        self.assertRaisesRegex(ValueError,
+                                 'argument groups cannot be nested',
+                                 g.add_argument_group)
+
 # ===================
 # Parent parser tests
 # ===================
 
+@force_not_colorized_test_class
 class TestParentParsers(TestCase):
     """Tests that parsers can be created with parent parsers"""
 
@@ -2832,8 +3049,6 @@ class TestParentParsers(TestCase):
         group.add_argument('-a', action='store_true')
         group.add_argument('-b', action='store_true')
 
-        self.main_program = os.path.basename(sys.argv[0])
-
     def test_single_parent(self):
         parser = ErrorRaisingArgumentParser(parents=[self.wxyz_parent])
         self.assertEqual(parser.parse_args('-y 1 2 --w 3'.split()),
@@ -2844,7 +3059,7 @@ class TestParentParsers(TestCase):
         parser = ErrorRaisingArgumentParser(parents=[self.ab_mutex_parent])
         self._test_mutex_ab(parser.parse_args)
 
-    def test_single_granparent_mutex(self):
+    def test_single_grandparent_mutex(self):
         parents = [self.ab_mutex_parent]
         parser = ErrorRaisingArgumentParser(add_help=False, parents=parents)
         parser = ErrorRaisingArgumentParser(parents=[parser])
@@ -2923,11 +3138,10 @@ class TestParentParsers(TestCase):
 
     def test_parent_help(self):
         parents = [self.abcd_parent, self.wxyz_parent]
-        parser = ErrorRaisingArgumentParser(parents=parents)
+        parser = ErrorRaisingArgumentParser(prog='PROG', parents=parents)
         parser_help = parser.format_help()
-        progname = self.main_program
         self.assertEqual(parser_help, textwrap.dedent('''\
-            usage: {}{}[-h] [-b B] [--d D] [--w W] [-y Y] a z
+            usage: PROG [-h] [-b B] [--d D] [--w W] [-y Y] a z
 
             positional arguments:
               a
@@ -2943,7 +3157,7 @@ class TestParentParsers(TestCase):
 
             x:
               -y Y
-        '''.format(progname, ' ' if progname else '' )))
+        '''))
 
     def test_groups_parents(self):
         parent = ErrorRaisingArgumentParser(add_help=False)
@@ -2953,15 +3167,14 @@ class TestParentParsers(TestCase):
         m = parent.add_mutually_exclusive_group()
         m.add_argument('-y')
         m.add_argument('-z')
-        parser = ErrorRaisingArgumentParser(parents=[parent])
+        parser = ErrorRaisingArgumentParser(prog='PROG', parents=[parent])
 
         self.assertRaises(ArgumentParserError, parser.parse_args,
             ['-y', 'Y', '-z', 'Z'])
 
         parser_help = parser.format_help()
-        progname = self.main_program
         self.assertEqual(parser_help, textwrap.dedent('''\
-            usage: {}{}[-h] [-w W] [-x X] [-y Y | -z Z]
+            usage: PROG [-h] [-w W] [-x X] [-y Y | -z Z]
 
             options:
               -h, --help  show this help message and exit
@@ -2973,7 +3186,7 @@ class TestParentParsers(TestCase):
 
               -w W
               -x X
-        '''.format(progname, ' ' if progname else '' )))
+        '''))
 
     def test_wrong_type_parents(self):
         self.assertRaises(TypeError, ErrorRaisingArgumentParser, parents=[1])
@@ -3011,6 +3224,7 @@ class TestParentParsers(TestCase):
 # Mutually exclusive group tests
 # ==============================
 
+@force_not_colorized_test_class
 class TestMutuallyExclusiveGroupErrors(TestCase):
 
     def test_invalid_add_argument_group(self):
@@ -3049,6 +3263,29 @@ class TestMutuallyExclusiveGroupErrors(TestCase):
               '''
         self.assertEqual(parser.format_help(), textwrap.dedent(expected))
 
+    def test_optional_order(self):
+        parser = ErrorRaisingArgumentParser(prog='PROG')
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument('--foo')
+        group.add_argument('bar', nargs='?')
+        expected = '''\
+            usage: PROG [-h] (--foo FOO | bar)
+
+            positional arguments:
+              bar
+
+            options:
+              -h, --help  show this help message and exit
+              --foo FOO
+              '''
+        self.assertEqual(parser.format_help(), textwrap.dedent(expected))
+
+        parser = ErrorRaisingArgumentParser(prog='PROG')
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument('bar', nargs='?')
+        group.add_argument('--foo')
+        self.assertEqual(parser.format_help(), textwrap.dedent(expected))
+
     def test_help_subparser_all_mutually_exclusive_group_members_suppressed(self):
         self.maxDiff = None
         parser = ErrorRaisingArgumentParser(prog='PROG')
@@ -3076,6 +3313,14 @@ class TestMutuallyExclusiveGroupErrors(TestCase):
         group = parser.add_mutually_exclusive_group()
         with self.assertRaises(ValueError):
             parser.parse_args(['-h'])
+
+    def test_nested_mutex_groups(self):
+        parser = argparse.ArgumentParser(prog='PROG')
+        g = parser.add_mutually_exclusive_group()
+        g.add_argument("--spam")
+        self.assertRaisesRegex(ValueError,
+                               'mutually exclusive groups cannot be nested',
+                               g.add_mutually_exclusive_group)
 
 class MEMixin(object):
 
@@ -3108,21 +3353,25 @@ class MEMixin(object):
                 actual_ns = parse_args(args_string.split())
                 self.assertEqual(actual_ns, expected_ns)
 
+    @force_not_colorized
     def test_usage_when_not_required(self):
         format_usage = self.get_parser(required=False).format_usage
         expected_usage = self.usage_when_not_required
         self.assertEqual(format_usage(), textwrap.dedent(expected_usage))
 
+    @force_not_colorized
     def test_usage_when_required(self):
         format_usage = self.get_parser(required=True).format_usage
         expected_usage = self.usage_when_required
         self.assertEqual(format_usage(), textwrap.dedent(expected_usage))
 
+    @force_not_colorized
     def test_help_when_not_required(self):
         format_help = self.get_parser(required=False).format_help
         help = self.usage_when_not_required + self.help
         self.assertEqual(format_help(), textwrap.dedent(help))
 
+    @force_not_colorized
     def test_help_when_required(self):
         format_help = self.get_parser(required=True).format_help
         help = self.usage_when_required + self.help
@@ -3443,55 +3692,6 @@ class TestMutuallyExclusiveOptionalsAndPositionalsMixed(MEMixin, TestCase):
           -b          b help
           -c          c help
         '''
-
-class TestMutuallyExclusiveNested(MEMixin, TestCase):
-
-    # Nesting mutually exclusive groups is an undocumented feature
-    # that came about by accident through inheritance and has been
-    # the source of many bugs. It is deprecated and this test should
-    # eventually be removed along with it.
-
-    def get_parser(self, required):
-        parser = ErrorRaisingArgumentParser(prog='PROG')
-        group = parser.add_mutually_exclusive_group(required=required)
-        group.add_argument('-a')
-        group.add_argument('-b')
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', DeprecationWarning)
-            group2 = group.add_mutually_exclusive_group(required=required)
-        group2.add_argument('-c')
-        group2.add_argument('-d')
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', DeprecationWarning)
-            group3 = group2.add_mutually_exclusive_group(required=required)
-        group3.add_argument('-e')
-        group3.add_argument('-f')
-        return parser
-
-    usage_when_not_required = '''\
-        usage: PROG [-h] [-a A | -b B | [-c C | -d D | [-e E | -f F]]]
-        '''
-    usage_when_required = '''\
-        usage: PROG [-h] (-a A | -b B | (-c C | -d D | (-e E | -f F)))
-        '''
-
-    help = '''\
-
-        options:
-          -h, --help  show this help message and exit
-          -a A
-          -b B
-          -c C
-          -d D
-          -e E
-          -f F
-        '''
-
-    # We are only interested in testing the behavior of format_usage().
-    test_failures_when_not_required = None
-    test_failures_when_required = None
-    test_successes_when_not_required = None
-    test_successes_when_required = None
 
 
 class TestMutuallyExclusiveOptionalOptional(MEMixin, TestCase):
@@ -3843,11 +4043,13 @@ class TestHelpFormattingMetaclass(type):
                 tester.maxDiff = None
                 tester.assertEqual(expected_text, parser_text)
 
+            @force_not_colorized
             def test_format(self, tester):
                 parser = self._get_parser(tester)
                 format = getattr(parser, 'format_%s' % self.func_suffix)
                 self._test(tester, format())
 
+            @force_not_colorized
             def test_print(self, tester):
                 parser = self._get_parser(tester)
                 print_ = getattr(parser, 'print_%s' % self.func_suffix)
@@ -3860,6 +4062,7 @@ class TestHelpFormattingMetaclass(type):
                     setattr(sys, self.std_name, old_stream)
                 self._test(tester, parser_text)
 
+            @force_not_colorized
             def test_print_file(self, tester):
                 parser = self._get_parser(tester)
                 print_ = getattr(parser, 'print_%s' % self.func_suffix)
@@ -4601,6 +4804,7 @@ class TestHelpUsageMetavarsSpacesParentheses(HelpTestCase):
     version = ''
 
 
+@force_not_colorized_test_class
 class TestHelpUsageNoWhitespaceCrash(TestCase):
 
     def test_all_suppressed_mutex_followed_by_long_arg(self):
@@ -4661,25 +4865,6 @@ class TestHelpUsageNoWhitespaceCrash(TestCase):
             '--param2',
             nargs='?', const='default', metavar='NAME', help=argparse.SUPPRESS)
         usage = 'usage: PROG [-h]\n'
-        self.assertEqual(parser.format_usage(), usage)
-
-    def test_nested_mutex_groups(self):
-        parser = argparse.ArgumentParser(prog='PROG')
-        g = parser.add_mutually_exclusive_group()
-        g.add_argument("--spam")
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', DeprecationWarning)
-            gg = g.add_mutually_exclusive_group()
-        gg.add_argument("--hax")
-        gg.add_argument("--hox", help=argparse.SUPPRESS)
-        gg.add_argument("--hex")
-        g.add_argument("--eggs")
-        parser.add_argument("--num")
-
-        usage = textwrap.dedent('''\
-        usage: PROG [-h] [--spam SPAM | [--hax HAX | --hex HEX] | --eggs EGGS]
-                    [--num NUM]
-        ''')
         self.assertEqual(parser.format_usage(), usage)
 
     def test_long_mutex_groups_wrap(self):
@@ -5301,11 +5486,61 @@ class TestHelpMetavarTypeFormatter(HelpTestCase):
     version = ''
 
 
-class TestHelpUsageLongSubparserCommand(TestCase):
-    """Test that subparser commands are formatted correctly in help"""
+@force_not_colorized_test_class
+class TestHelpCustomHelpFormatter(TestCase):
     maxDiff = None
 
-    def test_parent_help(self):
+    def test_custom_formatter_function(self):
+        def custom_formatter(prog):
+            return argparse.RawTextHelpFormatter(prog, indent_increment=5)
+
+        parser = argparse.ArgumentParser(
+                prog='PROG',
+                prefix_chars='-+',
+                formatter_class=custom_formatter
+        )
+        parser.add_argument('+f', '++foo', help="foo help")
+        parser.add_argument('spam', help="spam help")
+
+        parser_help = parser.format_help()
+        self.assertEqual(parser_help, textwrap.dedent('''\
+            usage: PROG [-h] [+f FOO] spam
+
+            positional arguments:
+                 spam           spam help
+
+            options:
+                 -h, --help     show this help message and exit
+                 +f, ++foo FOO  foo help
+        '''))
+
+    def test_custom_formatter_class(self):
+        class CustomFormatter(argparse.RawTextHelpFormatter):
+            def __init__(self, prog):
+                super().__init__(prog, indent_increment=5)
+
+        parser = argparse.ArgumentParser(
+                prog='PROG',
+                prefix_chars='-+',
+                formatter_class=CustomFormatter
+        )
+        parser.add_argument('+f', '++foo', help="foo help")
+        parser.add_argument('spam', help="spam help")
+
+        parser_help = parser.format_help()
+        self.assertEqual(parser_help, textwrap.dedent('''\
+            usage: PROG [-h] [+f FOO] spam
+
+            positional arguments:
+                 spam           spam help
+
+            options:
+                 -h, --help     show this help message and exit
+                 +f, ++foo FOO  foo help
+        '''))
+
+    def test_usage_long_subparser_command(self):
+        """Test that subparser commands are formatted correctly in help"""
         def custom_formatter(prog):
             return argparse.RawTextHelpFormatter(prog, max_help_position=50)
 
@@ -5371,29 +5606,45 @@ class TestInvalidArgumentConstructors(TestCase):
                 self.assertTypeError(action=action)
 
     def test_invalid_option_strings(self):
-        self.assertValueError('--')
-        self.assertValueError('---')
+        self.assertTypeError('-', errmsg='dest= is required')
+        self.assertTypeError('--', errmsg='dest= is required')
+        self.assertTypeError('---', errmsg='dest= is required')
 
     def test_invalid_prefix(self):
-        self.assertValueError('--foo', '+foo')
+        self.assertValueError('--foo', '+foo',
+                              errmsg='must start with a character')
 
     def test_invalid_type(self):
-        self.assertValueError('--foo', type='int')
-        self.assertValueError('--foo', type=(int, float))
+        self.assertTypeError('--foo', type='int',
+                             errmsg="'int' is not callable")
+        self.assertTypeError('--foo', type=(int, float),
+                             errmsg='is not callable')
 
     def test_invalid_action(self):
-        self.assertValueError('-x', action='foo')
-        self.assertValueError('foo', action='baz')
-        self.assertValueError('--foo', action=('store', 'append'))
+        self.assertValueError('-x', action='foo',
+                              errmsg='unknown action')
+        self.assertValueError('foo', action='baz',
+                              errmsg='unknown action')
+        self.assertValueError('--foo', action=('store', 'append'),
+                              errmsg='unknown action')
         self.assertValueError('--foo', action="store-true",
                               errmsg='unknown action')
+
+    def test_invalid_help(self):
+        self.assertValueError('--foo', help='%Y-%m-%d',
+                              errmsg='badly formed help string')
+        self.assertValueError('--foo', help='%(spam)s',
+                              errmsg='badly formed help string')
+        self.assertValueError('--foo', help='%(prog)d',
+                              errmsg='badly formed help string')
 
     def test_multiple_dest(self):
         parser = argparse.ArgumentParser()
         parser.add_argument(dest='foo')
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(TypeError) as cm:
             parser.add_argument('bar', dest='baz')
-        self.assertIn('dest supplied twice for positional argument',
+        self.assertIn('dest supplied twice for positional argument,'
+                      ' did you mean metavar?',
                       str(cm.exception))
 
     def test_no_argument_actions(self):
@@ -5405,8 +5656,11 @@ class TestInvalidArgumentConstructors(TestCase):
                     with self.subTest(attrs=attrs):
                         self.assertTypeError('-x', action=action, **attrs)
                         self.assertTypeError('x', action=action, **attrs)
+                self.assertValueError('x', action=action,
+                    errmsg=f"action '{action}' is not valid for positional arguments")
                 self.assertTypeError('-x', action=action, nargs=0)
-                self.assertTypeError('x', action=action, nargs=0)
+                self.assertValueError('x', action=action, nargs=0,
+                    errmsg='nargs for positionals must be != 0')
 
     def test_no_argument_no_const_actions(self):
         # options with zero arguments
@@ -5426,7 +5680,7 @@ class TestInvalidArgumentConstructors(TestCase):
                 self.assertValueError('-x', nargs=0, action=action,
                     errmsg=f'nargs for {action_name} actions must be != 0')
                 self.assertValueError('spam', nargs=0, action=action,
-                    errmsg=f'nargs for {action_name} actions must be != 0')
+                    errmsg='nargs for positionals must be != 0')
 
                 # const is disallowed with non-optional arguments
                 for nargs in [1, '*', '+']:
@@ -5529,6 +5783,7 @@ class TestConflictHandling(TestCase):
         self.assertRaises(argparse.ArgumentError,
                           parser.add_argument, '--spam')
 
+    @force_not_colorized
     def test_resolve_error(self):
         get_parser = argparse.ArgumentParser
         parser = get_parser(prog='PROG', conflict_handler='resolve')
@@ -5558,20 +5813,25 @@ class TestConflictHandling(TestCase):
         parser = argparse.ArgumentParser()
         sp = parser.add_subparsers()
         sp.add_parser('fullname', aliases=['alias'])
-        self.assertRaises(argparse.ArgumentError,
-                          sp.add_parser, 'fullname')
-        self.assertRaises(argparse.ArgumentError,
-                          sp.add_parser, 'alias')
-        self.assertRaises(argparse.ArgumentError,
-                          sp.add_parser, 'other', aliases=['fullname'])
-        self.assertRaises(argparse.ArgumentError,
-                          sp.add_parser, 'other', aliases=['alias'])
+        self.assertRaisesRegex(ValueError,
+                               'conflicting subparser: fullname',
+                               sp.add_parser, 'fullname')
+        self.assertRaisesRegex(ValueError,
+                               'conflicting subparser: alias',
+                               sp.add_parser, 'alias')
+        self.assertRaisesRegex(ValueError,
+                               'conflicting subparser alias: fullname',
+                               sp.add_parser, 'other', aliases=['fullname'])
+        self.assertRaisesRegex(ValueError,
+                               'conflicting subparser alias: alias',
+                               sp.add_parser, 'other', aliases=['alias'])
 
 
 # =============================
 # Help and Version option tests
 # =============================
 
+@force_not_colorized_test_class
 class TestOptionalsHelpVersionActions(TestCase):
     """Test the help and version actions"""
 
@@ -5791,6 +6051,7 @@ class TestArgumentError(TestCase):
 
 class TestArgumentTypeError(TestCase):
 
+    @force_not_colorized
     def test_argument_type_error(self):
 
         def spam(string):
@@ -6563,9 +6824,10 @@ class TestInvalidNargs(TestCase):
 
 class TestImportStar(TestCase):
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test(self):
         for name in argparse.__all__:
-            self.assertTrue(hasattr(argparse, name))
+            self.assertHasAttr(argparse, name)
 
     def test_all_exports_everything_but_modules(self):
         items = [
@@ -6589,6 +6851,7 @@ class TestWrappingMetavar(TestCase):
         metavar = '<http[s]://example:1234>'
         self.parser.add_argument('--proxy', metavar=metavar)
 
+    @force_not_colorized
     def test_help_with_metavar(self):
         help_text = self.parser.format_help()
         self.assertEqual(help_text, textwrap.dedent('''\
@@ -6754,6 +7017,99 @@ class TestExitOnError(TestCase):
                                self.parser.parse_args, ['@no-such-file'])
 
 
+@force_not_colorized_test_class
+class TestProgName(TestCase):
+    source = textwrap.dedent('''\
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.parse_args()
+    ''')
+
+    def setUp(self):
+        self.dirname = 'package' + os_helper.FS_NONASCII
+        self.addCleanup(os_helper.rmtree, self.dirname)
+        os.mkdir(self.dirname)
+
+    def make_script(self, dirname, basename, *, compiled=False):
+        script_name = script_helper.make_script(dirname, basename, self.source)
+        if not compiled:
+            return script_name
+        py_compile.compile(script_name, doraise=True)
+        os.remove(script_name)
+        pyc_file = import_helper.make_legacy_pyc(script_name)
+        return pyc_file
+
+    def make_zip_script(self, script_name, name_in_zip=None):
+        zip_name, _ = script_helper.make_zip_script(self.dirname, 'test_zip',
+                                                    script_name, name_in_zip)
+        return zip_name
+
+    def check_usage(self, expected, *args, **kwargs):
+        res = script_helper.assert_python_ok('-Xutf8', *args, '-h', **kwargs)
+        self.assertEqual(os.fsdecode(res.out.splitlines()[0]),
+                         f'usage: {expected} [-h]')
+
+    def test_script(self, compiled=False):
+        basename = os_helper.TESTFN
+        script_name = self.make_script(self.dirname, basename, compiled=compiled)
+        self.check_usage(os.path.basename(script_name), script_name, '-h')
+
+    def test_script_compiled(self):
+        self.test_script(compiled=True)
+
+    def test_directory(self, compiled=False):
+        dirname = os.path.join(self.dirname, os_helper.TESTFN)
+        os.mkdir(dirname)
+        self.make_script(dirname, '__main__', compiled=compiled)
+        self.check_usage(f'{py} {dirname}', dirname)
+        dirname2 = os.path.join(os.curdir, dirname)
+        self.check_usage(f'{py} {dirname2}', dirname2)
+
+    def test_directory_compiled(self):
+        self.test_directory(compiled=True)
+
+    def test_module(self, compiled=False):
+        basename = 'module' + os_helper.FS_NONASCII
+        modulename = f'{self.dirname}.{basename}'
+        self.make_script(self.dirname, basename, compiled=compiled)
+        self.check_usage(f'{py} -m {modulename}',
+                         '-m', modulename, PYTHONPATH=os.curdir)
+
+    def test_module_compiled(self):
+        self.test_module(compiled=True)
+
+    def test_package(self, compiled=False):
+        basename = 'subpackage' + os_helper.FS_NONASCII
+        packagename = f'{self.dirname}.{basename}'
+        subdirname = os.path.join(self.dirname, basename)
+        os.mkdir(subdirname)
+        self.make_script(subdirname, '__main__', compiled=compiled)
+        self.check_usage(f'{py} -m {packagename}',
+                         '-m', packagename, PYTHONPATH=os.curdir)
+        self.check_usage(f'{py} -m {packagename}',
+                         '-m', packagename + '.__main__', PYTHONPATH=os.curdir)
+
+    def test_package_compiled(self):
+        self.test_package(compiled=True)
+
+    def test_zipfile(self, compiled=False):
+        script_name = self.make_script(self.dirname, '__main__', compiled=compiled)
+        zip_name = self.make_zip_script(script_name)
+        self.check_usage(f'{py} {zip_name}', zip_name)
+
+    def test_zipfile_compiled(self):
+        self.test_zipfile(compiled=True)
+
+    def test_directory_in_zipfile(self, compiled=False):
+        script_name = self.make_script(self.dirname, '__main__', compiled=compiled)
+        name_in_zip = 'package/subpackage/__main__' + ('.py', '.pyc')[compiled]
+        zip_name = self.make_zip_script(script_name, name_in_zip)
+        dirname = os.path.join(zip_name, 'package', 'subpackage')
+        self.check_usage(f'{py} {dirname}', dirname)
+
+    def test_directory_in_zipfile_compiled(self):
+        self.test_directory_in_zipfile(compiled=True)
+
 # =================
 # Translation tests
 # =================
@@ -6762,6 +7118,257 @@ class TestTranslations(TestTranslationsBase):
 
     def test_translations(self):
         self.assertMsgidsEqual(argparse)
+
+
+# ===========
+# Color tests
+# ===========
+
+
+class TestColorized(TestCase):
+    maxDiff = None
+
+    def setUp(self):
+        super().setUp()
+        # Ensure color even if ran with NO_COLOR=1
+        self.enterContext(swap_attr(_colorize, 'can_colorize',
+                                     lambda *args, **kwargs: True))
+        self.theme = _colorize.get_theme(force_color=True).argparse
+
+    def test_argparse_color(self):
+        # Arrange: create a parser with a bit of everything
+        parser = argparse.ArgumentParser(
+            color=True,
+            description="Colorful help",
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            prefix_chars="-+",
+            prog="PROG",
+        )
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument(
+            "-v", "--verbose", action="store_true", help="more spam"
+        )
+        group.add_argument(
+            "-q", "--quiet", action="store_true", help="less spam"
+        )
+        parser.add_argument("x", type=int, help="the base")
+        parser.add_argument(
+            "y", type=int, help="the exponent", deprecated=True
+        )
+        parser.add_argument(
+            "this_indeed_is_a_very_long_action_name",
+            type=int,
+            help="the exponent",
+        )
+        parser.add_argument(
+            "-o", "--optional1", action="store_true", deprecated=True
+        )
+        parser.add_argument("--optional2", help="pick one")
+        parser.add_argument("--optional3", choices=("X", "Y", "Z"))
+        parser.add_argument(
+            "--optional4", choices=("X", "Y", "Z"), help="pick one"
+        )
+        parser.add_argument(
+            "--optional5", choices=("X", "Y", "Z"), help="pick one"
+        )
+        parser.add_argument(
+            "--optional6", choices=("X", "Y", "Z"), help="pick one"
+        )
+        parser.add_argument(
+            "-p",
+            "--optional7",
+            choices=("Aaaaa", "Bbbbb", "Ccccc", "Ddddd"),
+            help="pick one",
+        )
+
+        parser.add_argument("+f")
+        parser.add_argument("++bar")
+        parser.add_argument("-+baz")
+        parser.add_argument("-c", "--count")
+
+        subparsers = parser.add_subparsers(
+            title="subcommands",
+            description="valid subcommands",
+            help="additional help",
+        )
+        subparsers.add_parser("sub1", deprecated=True, help="sub1 help")
+        sub2 = subparsers.add_parser("sub2", deprecated=True, help="sub2 help")
+        sub2.add_argument("--baz", choices=("X", "Y", "Z"), help="baz help")
+
+        prog = self.theme.prog
+        heading = self.theme.heading
+        long = self.theme.summary_long_option
+        short = self.theme.summary_short_option
+        label = self.theme.summary_label
+        pos = self.theme.summary_action
+        long_b = self.theme.long_option
+        short_b = self.theme.short_option
+        label_b = self.theme.label
+        pos_b = self.theme.action
+        reset = self.theme.reset
+
+        # Act
+        help_text = parser.format_help()
+
+        # Assert
+        self.assertEqual(
+            help_text,
+            textwrap.dedent(
+                f"""\
+                {heading}usage: {reset}{prog}PROG{reset} [{short}-h{reset}] [{short}-v{reset} | {short}-q{reset}] [{short}-o{reset}] [{long}--optional2 {label}OPTIONAL2{reset}] [{long}--optional3 {label}{{X,Y,Z}}{reset}]
+                            [{long}--optional4 {label}{{X,Y,Z}}{reset}] [{long}--optional5 {label}{{X,Y,Z}}{reset}] [{long}--optional6 {label}{{X,Y,Z}}{reset}]
+                            [{short}-p {label}{{Aaaaa,Bbbbb,Ccccc,Ddddd}}{reset}] [{short}+f {label}F{reset}] [{long}++bar {label}BAR{reset}] [{long}-+baz {label}BAZ{reset}]
+                            [{short}-c {label}COUNT{reset}]
+                            {pos}x{reset} {pos}y{reset} {pos}this_indeed_is_a_very_long_action_name{reset} {pos}{{sub1,sub2}} ...{reset}
+
+                Colorful help
+
+                {heading}positional arguments:{reset}
+                  {pos_b}x{reset}                     the base
+                  {pos_b}y{reset}                     the exponent
+                  {pos_b}this_indeed_is_a_very_long_action_name{reset}
+                                        the exponent
+
+                {heading}options:{reset}
+                  {short_b}-h{reset}, {long_b}--help{reset}            show this help message and exit
+                  {short_b}-v{reset}, {long_b}--verbose{reset}         more spam (default: False)
+                  {short_b}-q{reset}, {long_b}--quiet{reset}           less spam (default: False)
+                  {short_b}-o{reset}, {long_b}--optional1{reset}
+                  {long_b}--optional2{reset} {label_b}OPTIONAL2{reset}
+                                        pick one (default: None)
+                  {long_b}--optional3{reset} {label_b}{{X,Y,Z}}{reset}
+                  {long_b}--optional4{reset} {label_b}{{X,Y,Z}}{reset}   pick one (default: None)
+                  {long_b}--optional5{reset} {label_b}{{X,Y,Z}}{reset}   pick one (default: None)
+                  {long_b}--optional6{reset} {label_b}{{X,Y,Z}}{reset}   pick one (default: None)
+                  {short_b}-p{reset}, {long_b}--optional7{reset} {label_b}{{Aaaaa,Bbbbb,Ccccc,Ddddd}}{reset}
+                                        pick one (default: None)
+                  {short_b}+f{reset} {label_b}F{reset}
+                  {long_b}++bar{reset} {label_b}BAR{reset}
+                  {long_b}-+baz{reset} {label_b}BAZ{reset}
+                  {short_b}-c{reset}, {long_b}--count{reset} {label_b}COUNT{reset}
+
+                {heading}subcommands:{reset}
+                  valid subcommands
+
+                  {pos_b}{{sub1,sub2}}{reset}           additional help
+                    {pos_b}sub1{reset}                sub1 help
+                    {pos_b}sub2{reset}                sub2 help
+                """
+            ),
+        )
+
+    def test_argparse_color_usage(self):
+        # Arrange
+        parser = argparse.ArgumentParser(
+            add_help=False,
+            color=True,
+            description="Test prog and usage colors",
+            prog="PROG",
+            usage="[prefix] %(prog)s [suffix]",
+        )
+        heading = self.theme.heading
+        prog = self.theme.prog
+        reset = self.theme.reset
+        usage = self.theme.prog_extra
+
+        # Act
+        help_text = parser.format_help()
+
+        # Assert
+        self.assertEqual(
+            help_text,
+            textwrap.dedent(
+                f"""\
+                {heading}usage: {reset}{usage}[prefix] {prog}PROG{reset}{usage} [suffix]{reset}
+
+                Test prog and usage colors
+                """
+            ),
+        )
+
+    def test_custom_formatter_function(self):
+        def custom_formatter(prog):
+            return argparse.RawTextHelpFormatter(prog, indent_increment=5)
+
+        parser = argparse.ArgumentParser(
+            prog="PROG",
+            prefix_chars="-+",
+            formatter_class=custom_formatter,
+            color=True,
+        )
+        parser.add_argument('+f', '++foo', help="foo help")
+        parser.add_argument('spam', help="spam help")
+
+        prog = self.theme.prog
+        heading = self.theme.heading
+        short = self.theme.summary_short_option
+        label = self.theme.summary_label
+        pos = self.theme.summary_action
+        long_b = self.theme.long_option
+        short_b = self.theme.short_option
+        label_b = self.theme.label
+        pos_b = self.theme.action
+        reset = self.theme.reset
+
+        parser_help = parser.format_help()
+        self.assertEqual(parser_help, textwrap.dedent(f'''\
+            {heading}usage: {reset}{prog}PROG{reset} [{short}-h{reset}] [{short}+f {label}FOO{reset}] {pos}spam{reset}
+
+            {heading}positional arguments:{reset}
+                 {pos_b}spam{reset}           spam help
+
+            {heading}options:{reset}
+                 {short_b}-h{reset}, {long_b}--help{reset}     show this help message and exit
+                 {short_b}+f{reset}, {long_b}++foo{reset} {label_b}FOO{reset}  foo help
+        '''))
+
+    def test_custom_formatter_class(self):
+        class CustomFormatter(argparse.RawTextHelpFormatter):
+            def __init__(self, prog):
+                super().__init__(prog, indent_increment=5)
+
+        parser = argparse.ArgumentParser(
+            prog="PROG",
+            prefix_chars="-+",
+            formatter_class=CustomFormatter,
+            color=True,
+        )
+        parser.add_argument('+f', '++foo', help="foo help")
+        parser.add_argument('spam', help="spam help")
+
+        prog = self.theme.prog
+        heading = self.theme.heading
+        short = self.theme.summary_short_option
+        label = self.theme.summary_label
+        pos = self.theme.summary_action
+        long_b = self.theme.long_option
+        short_b = self.theme.short_option
+        label_b = self.theme.label
+        pos_b = self.theme.action
+        reset = self.theme.reset
+
+        parser_help = parser.format_help()
+        self.assertEqual(parser_help, textwrap.dedent(f'''\
+            {heading}usage: {reset}{prog}PROG{reset} [{short}-h{reset}] [{short}+f {label}FOO{reset}] {pos}spam{reset}
+
+            {heading}positional arguments:{reset}
+                 {pos_b}spam{reset}           spam help
+
+            {heading}options:{reset}
+                 {short_b}-h{reset}, {long_b}--help{reset}     show this help message and exit
+                 {short_b}+f{reset}, {long_b}++foo{reset} {label_b}FOO{reset}  foo help
+        '''))
+
+    def test_subparser_prog_is_stored_without_color(self):
+        parser = argparse.ArgumentParser(prog='complex', color=True)
+        sub = parser.add_subparsers(dest='command')
+        demo_parser = sub.add_parser('demo')
+
+        self.assertNotIn('\x1b[', demo_parser.prog)
+
+        demo_parser.color = False
+        help_text = demo_parser.format_help()
+        self.assertNotIn('\x1b[', help_text)
 
 
 def tearDownModule():

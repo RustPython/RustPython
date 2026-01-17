@@ -131,8 +131,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_c_methods()
 
-
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
@@ -227,7 +225,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_c_methods()
 
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_badly_escaped_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
@@ -242,7 +239,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     @unittest.expectedFailure
     def test_load_python2_str_as_bytes(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_load_python2_str_as_bytes()
-
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure

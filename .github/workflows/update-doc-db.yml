@@ -9,7 +9,7 @@ on:
       python-version:
         description: Target python version to generate doc db for
         type: string
-        default: "3.13.9"
+        default: "3.14.2"
       ref:
         description: Branch to commit to (leave empty for current branch)
         type: string

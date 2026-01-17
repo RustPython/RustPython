@@ -778,36 +778,10 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
         }
     };
 
-    // We need this method, because of how `CPython` copies `__init__`
-    // from `BaseException` in `SimpleExtendsException` macro.
-    // See: `(initproc)BaseException_init`
-    // spell-checker:ignore initproc
-    let slot_init = if with_contains(&with_items, "Initializer") {
-        quote!()
-    } else {
-        with_items.push(Ident::new("Initializer", Span::call_site()));
-        quote! {
-            impl ::rustpython_vm::types::Initializer for #self_ty {
-                type Args = ::rustpython_vm::function::FuncArgs;
-
-                fn slot_init(
-                    zelf: ::rustpython_vm::PyObjectRef,
-                    args: ::rustpython_vm::function::FuncArgs,
-                    vm: &::rustpython_vm::VirtualMachine,
-                ) -> ::rustpython_vm::PyResult<()> {
-                    <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_init(zelf, args, vm)
-                }
-
-                fn init(
-                    _zelf: ::rustpython_vm::PyRef<Self>,
-                    _args: Self::Args,
-                    _vm: &::rustpython_vm::VirtualMachine
-                ) -> ::rustpython_vm::PyResult<()> {
-                    unreachable!("slot_init is defined")
-                }
-            }
-        }
-    };
+    // SimpleExtendsException: inherits BaseException_init from the base class via MRO.
+    // Only exceptions that explicitly specify `with(Initializer)` will have
+    // their own __init__ in __dict__.
+    let slot_init = quote!();
 
     let extra_attrs_tokens = if extra_attrs.is_empty() {
         quote!()
