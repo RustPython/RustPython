@@ -3104,6 +3104,7 @@ dependencies = [
  "num-traits",
  "rustpython-compiler-core",
  "rustpython-derive",
+ "rustpython-wtf8",
  "thiserror 2.0.17",
 ]
 

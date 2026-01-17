@@ -23,6 +23,7 @@ cranelift-module = "0.127"
 
 [dev-dependencies]
 rustpython-derive = { workspace = true }
+rustpython-wtf8 = { workspace = true }
 
 approx = "0.5.1"
 

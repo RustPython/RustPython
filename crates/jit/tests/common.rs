@@ -3,19 +3,20 @@ use rustpython_compiler_core::bytecode::{
     CodeObject, ConstantData, Instruction, OpArg, OpArgState,
 };
 use rustpython_jit::{CompiledCode, JitType};
+use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Function {
     code: Box<CodeObject>,
-    annotations: HashMap<String, StackValue>,
+    annotations: HashMap<Wtf8Buf, StackValue>,
 }
 
 impl Function {
     pub fn compile(self) -> CompiledCode {
         let mut arg_types = Vec::new();
         for arg in self.code.arg_names().args {
-            let arg_type = match self.annotations.get(arg) {
+            let arg_type = match self.annotations.get(AsRef::<Wtf8>::as_ref(arg.as_str())) {
                 Some(StackValue::String(annotation)) => match annotation.as_str() {
                     "int" => JitType::Int,
                     "float" => JitType::Float,
@@ -27,7 +28,7 @@ impl Function {
             arg_types.push(arg_type);
         }
 
-        let ret_type = match self.annotations.get("return") {
+        let ret_type = match self.annotations.get(AsRef::<Wtf8>::as_ref("return")) {
             Some(StackValue::String(annotation)) => match annotation.as_str() {
                 "int" => Some(JitType::Int),
                 "float" => Some(JitType::Float),
@@ -45,7 +46,7 @@ impl Function {
 enum StackValue {
     String(String),
     None,
-    Map(HashMap<String, StackValue>),
+    Map(HashMap<Wtf8Buf, StackValue>),
     Code(Box<CodeObject>),
     Function(Function),
 }
@@ -66,7 +67,7 @@ impl From<ConstantData> for StackValue {
 /// Extract annotations from an annotate function's bytecode.
 /// The annotate function uses BUILD_MAP with key-value pairs loaded before it.
 /// Keys are parameter names (from LOAD_CONST), values are type names (from LOAD_NAME/LOAD_GLOBAL).
-fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<String, StackValue> {
+fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf, StackValue> {
     let mut annotations = HashMap::new();
     let mut stack: Vec<(bool, usize)> = Vec::new(); // (is_const, index)
     let mut op_arg_state = OpArgState::default();
@@ -91,17 +92,55 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<String, 
                 for chunk in pairs.chunks(2) {
                     if chunk.len() == 2 {
                         let (key_is_const, key_idx) = chunk[0];
-                        let (_val_is_const, val_idx) = chunk[1];
+                        let (val_is_const, val_idx) = chunk[1];
 
                         // Key should be a const string (parameter name)
                         if key_is_const
                             && let ConstantData::Str { value } = &code.constants[key_idx]
                         {
-                            let param_name = value.to_string_lossy().into_owned();
-                            // Value should be a name (type name)
-                            if let Some(type_name) = code.names.get(val_idx) {
+                            let param_name = value;
+                            // Value can be a name (type ref) or a const string (forward ref)
+                            let type_name = if val_is_const {
+                                match code.constants.get(val_idx) {
+                                    Some(ConstantData::Str { value }) => {
+                                        Some(value.as_str().map(|s| s.to_owned()).unwrap_or_else(
+                                            |_| value.to_string_lossy().into_owned(),
+                                        ))
+                                    }
+                                    Some(other) => {
+                                        eprintln!(
+                                            "Warning: Malformed annotation for '{:?}': expected string constant at index {}, got {:?}",
+                                            param_name, val_idx, other
+                                        );
+                                        None
+                                    }
+                                    None => {
+                                        eprintln!(
+                                            "Warning: Malformed annotation for '{:?}': constant index {} out of bounds (len={})",
+                                            param_name,
+                                            val_idx,
+                                            code.constants.len()
+                                        );
+                                        None
+                                    }
+                                }
+                            } else {
+                                match code.names.get(val_idx) {
+                                    Some(name) => Some(name.clone()),
+                                    None => {
+                                        eprintln!(
+                                            "Warning: Malformed annotation for '{}': name index {} out of bounds (len={})",
+                                            param_name,
+                                            val_idx,
+                                            code.names.len()
+                                        );
+                                        None
+                                    }
+                                }
+                            };
+                            if let Some(type_name) = type_name {
                                 annotations
-                                    .insert(param_name, StackValue::String(type_name.clone()));
+                                    .insert(param_name.clone(), StackValue::String(type_name));
                             }
                         }
                     }
@@ -183,7 +222,7 @@ impl StackMachine {
                 for _ in 0..size.get(arg) {
                     let value = self.stack.pop().unwrap();
                     let name = if let Some(StackValue::String(name)) = self.stack.pop() {
-                        name
+                        Wtf8Buf::from(name)
                     } else {
                         unimplemented!("no string keys isn't yet supported in py_function!")
                     };
