@@ -550,6 +550,18 @@ impl VirtualMachine {
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
+        // During interpreter finalization, sys.unraisablehook may not be available,
+        // but we still need to report exceptions (especially from atexit callbacks).
+        // Write directly to stderr like PyErr_FormatUnraisable.
+        if self
+            .state
+            .finalizing
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);
+            return;
+        }
+
         let sys_module = self.import("sys", 0).unwrap();
         let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
 
@@ -565,6 +577,57 @@ impl VirtualMachine {
         };
         if let Err(e) = unraisablehook.call((args,), self) {
             println!("{}", e.as_object().repr(self).unwrap());
+        }
+    }
+
+    /// Write unraisable exception to stderr during finalization.
+    /// Similar to _PyErr_WriteUnraisableDefaultHook in CPython.
+    fn write_unraisable_to_stderr(
+        &self,
+        e: &PyBaseExceptionRef,
+        msg: Option<&str>,
+        object: &PyObjectRef,
+    ) {
+        // Get stderr once and reuse it
+        let stderr = crate::stdlib::sys::get_stderr(self).ok();
+
+        let write_to_stderr = |s: &str, stderr: &Option<PyObjectRef>, vm: &VirtualMachine| {
+            if let Some(stderr) = stderr {
+                let _ = vm.call_method(stderr, "write", (s.to_owned(),));
+            } else {
+                eprint!("{}", s);
+            }
+        };
+
+        // Format: "Exception ignored {msg} {object_repr}\n"
+        if let Some(msg) = msg {
+            write_to_stderr(&format!("Exception ignored {}", msg), &stderr, self);
+        } else {
+            write_to_stderr("Exception ignored in: ", &stderr, self);
+        }
+
+        if let Ok(repr) = object.repr(self) {
+            write_to_stderr(&format!("{}\n", repr.as_str()), &stderr, self);
+        } else {
+            write_to_stderr("<object repr failed>\n", &stderr, self);
+        }
+
+        // Write exception type and message
+        let exc_type_name = e.class().name();
+        if let Ok(exc_str) = e.as_object().str(self) {
+            let exc_str = exc_str.as_str();
+            if exc_str.is_empty() {
+                write_to_stderr(&format!("{}\n", exc_type_name), &stderr, self);
+            } else {
+                write_to_stderr(&format!("{}: {}\n", exc_type_name, exc_str), &stderr, self);
+            }
+        } else {
+            write_to_stderr(&format!("{}\n", exc_type_name), &stderr, self);
+        }
+
+        // Flush stderr to ensure output is visible
+        if let Some(ref stderr) = stderr {
+            let _ = self.call_method(stderr, "flush", ());
         }
     }
 
