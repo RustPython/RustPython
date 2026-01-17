@@ -180,7 +180,11 @@ jobs:
           cd website
           rm -rf ./assets/criterion
           cp -r ../target/criterion ./assets/criterion
-          git add ./assets/criterion
+          printf '{\n  "generated_at": "%s",\n  "rustpython_commit": "%s",\n  "rustpython_ref": "%s"\n}\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "${{ github.sha }}" \
+            "${{ github.ref_name }}" > ./_data/criterion-metadata.json
+          git add ./assets/criterion ./_data/criterion-metadata.json
           if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update benchmark results"; then
             git push
           fi
