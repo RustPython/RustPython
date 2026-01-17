@@ -220,6 +220,11 @@ impl WeakRefList {
             }))
         });
         let mut inner = unsafe { inner_ptr.as_ref().lock() };
+        // If obj was cleared by GC but object is still alive (e.g., new weakref
+        // created during __del__), restore the obj pointer
+        if inner.obj.is_none() {
+            inner.obj = Some(NonNull::from(obj));
+        }
         if is_generic && let Some(generic_weakref) = inner.generic_weakref {
             let generic_weakref = unsafe { generic_weakref.as_ref() };
             if generic_weakref.0.ref_count.get() != 0 {
@@ -243,14 +248,72 @@ impl WeakRefList {
         weak
     }
 
+    /// Clear all weakrefs and call their callbacks.
+    /// This is the main clear function called when the owner object is being dropped.
+    /// It decrements ref_count and deallocates if needed.
     fn clear(&self) {
+        self.clear_inner(true, true)
+    }
+
+    /// Clear all weakrefs but DON'T call callbacks. Instead, return them for later invocation.
+    /// This is used by GC to ensure ALL weakrefs are cleared BEFORE any callbacks are invoked.
+    /// Returns a vector of (PyRef<PyWeak>, callback) pairs.
+    fn clear_for_gc_collect_callbacks(&self) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
+        let ptr = match self.inner.get() {
+            Some(ptr) => ptr,
+            None => return vec![],
+        };
+        let mut inner = unsafe { ptr.as_ref().lock() };
+
+        // Clear the object reference
+        inner.obj = None;
+
+        // Collect weakrefs with callbacks
+        let mut callbacks = Vec::new();
+        let mut v = Vec::with_capacity(16);
+        loop {
+            let inner2 = &mut *inner;
+            let iter = inner2
+                .list
+                .drain_filter(|_| true)
+                .filter_map(|wr| {
+                    let wr = ManuallyDrop::new(wr);
+
+                    if Some(NonNull::from(&**wr)) == inner2.generic_weakref {
+                        inner2.generic_weakref = None
+                    }
+
+                    // if strong_count == 0 there's some reentrancy going on
+                    (wr.as_object().strong_count() > 0).then(|| (*wr).clone())
+                })
+                .take(16);
+            v.extend(iter);
+            if v.is_empty() {
+                break;
+            }
+            for wr in v.drain(..) {
+                let cb = unsafe { wr.callback.get().replace(None) };
+                if let Some(cb) = cb {
+                    callbacks.push((wr, cb));
+                }
+            }
+        }
+        callbacks
+    }
+
+    fn clear_inner(&self, call_callbacks: bool, decrement_ref_count: bool) {
         let to_dealloc = {
             let ptr = match self.inner.get() {
                 Some(ptr) => ptr,
                 None => return,
             };
             let mut inner = unsafe { ptr.as_ref().lock() };
+
+            // If already cleared (obj is None), skip the ref_count decrement
+            // to avoid double decrement when called by both GC and drop_slow_inner
+            let already_cleared = inner.obj.is_none();
             inner.obj = None;
+
             // TODO: can be an arrayvec
             let mut v = Vec::with_capacity(16);
             loop {
@@ -278,20 +341,33 @@ impl WeakRefList {
                 if v.is_empty() {
                     break;
                 }
-                PyMutexGuard::unlocked(&mut inner, || {
-                    for wr in v.drain(..) {
-                        let cb = unsafe { wr.callback.get().replace(None) };
-                        if let Some(cb) = cb {
-                            crate::vm::thread::with_vm(&cb, |vm| {
-                                // TODO: handle unraisable exception
-                                let _ = cb.call((wr.clone(),), vm);
-                            });
+                if call_callbacks {
+                    PyMutexGuard::unlocked(&mut inner, || {
+                        for wr in v.drain(..) {
+                            let cb = unsafe { wr.callback.get().replace(None) };
+                            if let Some(cb) = cb {
+                                crate::vm::thread::with_vm(&cb, |vm| {
+                                    // TODO: handle unraisable exception
+                                    let _ = cb.call((wr.clone(),), vm);
+                                });
+                            }
                         }
+                    })
+                } else {
+                    // Just drain without calling callbacks
+                    for wr in v.drain(..) {
+                        let _ = unsafe { wr.callback.get().replace(None) };
                     }
-                })
+                }
             }
-            inner.ref_count -= 1;
-            (inner.ref_count == 0).then_some(ptr)
+
+            // Only decrement ref_count if requested AND not already cleared
+            if decrement_ref_count && !already_cleared {
+                inner.ref_count -= 1;
+                (inner.ref_count == 0).then_some(ptr)
+            } else {
+                None
+            }
         };
         if let Some(ptr) = to_dealloc {
             unsafe { Self::dealloc(ptr) }
@@ -835,15 +911,34 @@ impl PyObject {
             slot_del: fn(&PyObject, &VirtualMachine) -> PyResult<()>,
         ) -> Result<(), ()> {
             let ret = crate::vm::thread::with_vm(zelf, |vm| {
+                // Note: inc() from 0 does a double increment (0→2) for thread safety.
+                // This gives us "permission" to decrement twice.
                 zelf.0.ref_count.inc();
+                let after_inc = zelf.strong_count(); // Should be 2
+
                 if let Err(e) = slot_del(zelf, vm) {
                     let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                     vm.run_unraisable(e, None, del_method);
                 }
+
+                let after_del = zelf.strong_count();
+
+                // First decrement
+                zelf.0.ref_count.dec();
+
+                // Check for resurrection: if ref_count increased beyond our expected 2,
+                // then __del__ created new references (resurrection occurred).
+                if after_del > after_inc {
+                    // Resurrected - don't do second decrement, leave object alive
+                    return false;
+                }
+
+                // No resurrection - do second decrement to get back to 0
+                // This matches the double increment from inc()
                 zelf.0.ref_count.dec()
             });
             match ret {
-                // the decref right above set ref_count back to 0
+                // the decref set ref_count back to 0
                 Some(true) => Ok(()),
                 // we've been resurrected by __del__
                 Some(false) => Err(()),
