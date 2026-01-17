@@ -745,9 +745,6 @@ class CBytesIOTest(PyBytesIOTest):
     def test_issue5449(self):
         super().test_issue5449()
 
-    def test_pickling(self):
-        super().test_pickling()
-
     def test_read(self):
         super().test_read()
 
@@ -907,9 +904,6 @@ class CStringIOTest(PyStringIOTest):
     def test_newlines_property(self):
         super().test_newlines_property()
 
-    def test_pickling(self):
-        super().test_pickling()
-
     def test_read(self):
         super().test_read()
 
@@ -998,16 +992,10 @@ class CStringIOPickleTest(PyStringIOPickleTest):
     def test_newline_crlf(self):
         super().test_newline_crlf()
 
-    def test_newline_default(self):
-        super().test_newline_default()
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_newline_empty(self):
         super().test_newline_empty()
-
-    def test_newline_lf(self):
-        super().test_newline_lf()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure

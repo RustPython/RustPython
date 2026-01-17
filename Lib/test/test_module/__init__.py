@@ -293,8 +293,6 @@ a = A(destroyed)"""
             melon = Descr()
         self.assertRaises(RuntimeError, getattr, M("mymod"), "melon")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lazy_create_annotations(self):
         # module objects lazy create their __annotations__ dict on demand.
         # the annotations dict is stored in module.__dict__.

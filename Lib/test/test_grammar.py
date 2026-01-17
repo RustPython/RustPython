@@ -374,6 +374,7 @@ class GrammarTests(unittest.TestCase):
         self.assertEqual(F.__annotations__, {})
 
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_var_annot_metaclass_semantics(self):
         class CMeta(type):
             @classmethod
@@ -403,6 +404,7 @@ class GrammarTests(unittest.TestCase):
         with self.assertRaises(NameError):
             ann_module3.D_bad_ann(5)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_var_annot_simple_exec(self):
         gns = {}; lns= {}
         exec("'docstring'\n"

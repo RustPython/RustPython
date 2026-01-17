@@ -97,8 +97,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
     def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_oob_buffers_writable_to_readonly()
 
-
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
