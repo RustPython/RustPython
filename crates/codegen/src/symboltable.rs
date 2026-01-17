@@ -780,6 +780,8 @@ struct SymbolTableBuilder {
     source_file: SourceFile,
     // Current scope's varnames being collected (temporary storage)
     current_varnames: Vec<String>,
+    // Stack to preserve parent varnames when entering nested scopes
+    varnames_stack: Vec<Vec<String>>,
     // Track if we're inside an iterable definition expression (for nested comprehensions)
     in_iter_def_exp: bool,
     // Track if we're inside an annotation (yield/await/named expr not allowed)
@@ -815,6 +817,7 @@ impl SymbolTableBuilder {
             future_annotations: false,
             source_file,
             current_varnames: Vec::new(),
+            varnames_stack: Vec::new(),
             in_iter_def_exp: false,
             in_annotation: false,
             in_type_alias: false,
@@ -845,8 +848,9 @@ impl SymbolTableBuilder {
             .unwrap_or(false);
         let table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
         self.tables.push(table);
-        // Clear current_varnames for the new scope
-        self.current_varnames.clear();
+        // Save parent's varnames and start fresh for the new scope
+        self.varnames_stack
+            .push(core::mem::take(&mut self.current_varnames));
     }
 
     fn enter_type_param_block(&mut self, name: &str, line_number: u32) -> SymbolTableResult {
@@ -880,6 +884,8 @@ impl SymbolTableBuilder {
         // Save the collected varnames to the symbol table
         table.varnames = core::mem::take(&mut self.current_varnames);
         self.tables.last_mut().unwrap().sub_tables.push(table);
+        // Restore parent's varnames
+        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
     }
 
     /// Enter annotation scope (PEP 649)
@@ -907,7 +913,10 @@ impl SymbolTableBuilder {
         // Take the annotation block and push to stack for processing
         let annotation_table = current.annotation_block.take().unwrap();
         self.tables.push(*annotation_table);
-        self.current_varnames.clear();
+        // Save parent's varnames and seed with existing annotation varnames (e.g., "format")
+        self.varnames_stack
+            .push(core::mem::take(&mut self.current_varnames));
+        self.current_varnames = self.tables.last().unwrap().varnames.clone();
 
         if can_see_class_scope && !self.future_annotations {
             self.add_classdict_freevar();
@@ -927,6 +936,8 @@ impl SymbolTableBuilder {
         // Store back to parent's annotation_block (not sub_tables)
         let parent = self.tables.last_mut().unwrap();
         parent.annotation_block = Some(Box::new(table));
+        // Restore parent's varnames
+        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
     }
 
     fn add_classdict_freevar(&mut self) {
@@ -977,6 +988,12 @@ impl SymbolTableBuilder {
     }
 
     fn scan_parameter(&mut self, parameter: &Parameter) -> SymbolTableResult {
+        self.check_name(
+            parameter.name.as_str(),
+            ExpressionContext::Store,
+            parameter.name.range,
+        )?;
+
         let usage = if parameter.annotation.is_some() {
             SymbolUsage::AnnotationParameter
         } else {
@@ -1239,6 +1256,7 @@ impl SymbolTableBuilder {
                 for name in names {
                     if let Some(alias) = &name.asname {
                         // `import my_module as my_alias`
+                        self.check_name(alias.as_str(), ExpressionContext::Store, alias.range)?;
                         self.register_ident(alias, SymbolUsage::Imported)?;
                     } else if name.name.as_str() == "*" {
                         // Star imports are only allowed at module level
@@ -1253,12 +1271,10 @@ impl SymbolTableBuilder {
                         }
                         // Don't register star imports as symbols
                     } else {
-                        // `import module`
-                        self.register_name(
-                            name.name.split('.').next().unwrap(),
-                            SymbolUsage::Imported,
-                            name.name.range,
-                        )?;
+                        // `import module` or `from x import name`
+                        let imported_name = name.name.split('.').next().unwrap();
+                        self.check_name(imported_name, ExpressionContext::Store, name.name.range)?;
+                        self.register_name(imported_name, SymbolUsage::Imported, name.name.range)?;
                     }
                 }
             }
@@ -1295,7 +1311,11 @@ impl SymbolTableBuilder {
                 // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
                 match &**target {
                     Expr::Name(ast::ExprName { id, .. }) if *simple => {
-                        self.register_name(id.as_str(), SymbolUsage::AnnotationAssigned, *range)?;
+                        let id_str = id.as_str();
+
+                        self.check_name(id_str, ExpressionContext::Store, *range)?;
+
+                        self.register_name(id_str, SymbolUsage::AnnotationAssigned, *range)?;
                         // PEP 649: Register annotate function in module/class scope
                         let current_scope = self.tables.last().map(|t| t.typ);
                         match current_scope {
@@ -1512,8 +1532,9 @@ impl SymbolTableBuilder {
                 self.scan_expression(slice, ExpressionContext::Load)?;
             }
             Expr::Attribute(ExprAttribute {
-                value, range: _, ..
+                value, attr, range, ..
             }) => {
+                self.check_name(attr.as_str(), context, *range)?;
                 self.scan_expression(value, ExpressionContext::Load)?;
             }
             Expr::Dict(ExprDict {
@@ -1657,11 +1678,17 @@ impl SymbolTableBuilder {
 
                 self.scan_expressions(&arguments.args, ExpressionContext::Load)?;
                 for keyword in &arguments.keywords {
+                    if let Some(arg) = &keyword.arg {
+                        self.check_name(arg.as_str(), ExpressionContext::Store, keyword.range)?;
+                    }
                     self.scan_expression(&keyword.value, ExpressionContext::Load)?;
                 }
             }
             Expr::Name(ExprName { id, range, .. }) => {
                 let id = id.as_str();
+
+                self.check_name(id, context, *range)?;
+
                 // Determine the contextual usage of this symbol:
                 match context {
                     ExpressionContext::Delete => {
@@ -1785,6 +1812,7 @@ impl SymbolTableBuilder {
                 // propagate inner names.
                 if let Expr::Name(ExprName { id, .. }) = &**target {
                     let id = id.as_str();
+                    self.check_name(id, ExpressionContext::Store, *range)?;
                     let table = self.tables.last().unwrap();
                     if table.typ == CompilerScope::Comprehension {
                         self.register_name(
@@ -2150,6 +2178,37 @@ impl SymbolTableBuilder {
         self.register_name(ident.as_str(), role, ident.range)
     }
 
+    fn check_name(
+        &self,
+        name: &str,
+        context: ExpressionContext,
+        range: TextRange,
+    ) -> SymbolTableResult {
+        if name == "__debug__" {
+            let location = Some(
+                self.source_file
+                    .to_source_code()
+                    .source_location(range.start(), PositionEncoding::Utf8),
+            );
+            match context {
+                ExpressionContext::Store | ExpressionContext::Iter => {
+                    return Err(SymbolTableError {
+                        error: "cannot assign to __debug__".to_owned(),
+                        location,
+                    });
+                }
+                ExpressionContext::Delete => {
+                    return Err(SymbolTableError {
+                        error: "cannot delete __debug__".to_owned(),
+                        location,
+                    });
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     fn register_name(
         &mut self,
         name: &str,
@@ -2162,18 +2221,7 @@ impl SymbolTableBuilder {
             .source_location(range.start(), PositionEncoding::Utf8);
         let location = Some(location);
 
-        // Check for forbidden names like __debug__
-        if name == "__debug__"
-            && matches!(
-                role,
-                SymbolUsage::Parameter | SymbolUsage::AnnotationParameter | SymbolUsage::Assigned
-            )
-        {
-            return Err(SymbolTableError {
-                error: "cannot assign to __debug__".to_owned(),
-                location,
-            });
-        }
+        // Note: __debug__ checks are handled by check_name function, so no check needed here.
 
         let scope_depth = self.tables.len();
         let table = self.tables.last_mut().unwrap();

@@ -459,9 +459,6 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertAnnotationEqual("('inf', 1e1000, 'infxxx', 1e1000j)", expected=f"('inf', {inf}, 'infxxx', {infj})")
         self.assertAnnotationEqual("(1e1000, (1e1000j,))", expected=f"({inf}, ({infj},))")
 
-    # TODO: RUSTPYTHON
-    # AssertionError: SyntaxError not raised
-    @unittest.expectedFailure
     def test_annotation_with_complex_target(self):
         with self.assertRaises(SyntaxError):
             exec(

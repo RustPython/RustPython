@@ -145,6 +145,14 @@ pub struct CodeInfo {
 
     // Reference to the symbol table for this scope
     pub symbol_table_index: usize,
+
+    // PEP 649: Track nesting depth inside conditional blocks (if/for/while/etc.)
+    // u_in_conditional_block
+    pub in_conditional_block: u32,
+
+    // PEP 649: Next index for conditional annotation tracking
+    // u_next_conditional_annotation_index
+    pub next_conditional_annotation_index: u32,
 }
 
 impl CodeInfo {
@@ -171,6 +179,8 @@ impl CodeInfo {
             in_inlined_comp: _,
             fblock: _,
             symbol_table_index: _,
+            in_conditional_block: _,
+            next_conditional_annotation_index: _,
         } = self;
 
         let CodeUnitMetadata {

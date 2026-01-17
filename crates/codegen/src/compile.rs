@@ -110,14 +110,6 @@ enum NameUsage {
     Store,
     Delete,
 }
-
-fn is_forbidden_name(name: &str) -> bool {
-    // See https://docs.python.org/3/library/constants.html#built-in-constants
-    const BUILTIN_CONSTANTS: &[&str] = &["__debug__"];
-
-    BUILTIN_CONSTANTS.contains(&name)
-}
-
 /// Main structure holding the state of compilation.
 struct Compiler {
     code_stack: Vec<ir::CodeInfo>,
@@ -130,10 +122,6 @@ struct Compiler {
     ctx: CompileContext,
     opts: CompileOpts,
     in_annotation: bool,
-    // PEP 649: Track if we're inside a conditional block (if/for/while/etc.)
-    in_conditional_block: bool,
-    // PEP 649: Next index for conditional annotation tracking
-    next_conditional_annotation_index: u32,
 }
 
 enum DoneWithFuture {
@@ -424,6 +412,8 @@ impl Compiler {
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
             symbol_table_index: 0, // Module is always the first symbol table
+            in_conditional_block: 0,
+            next_conditional_annotation_index: 0,
         };
         Self {
             code_stack: vec![module_code],
@@ -441,8 +431,6 @@ impl Compiler {
             },
             opts,
             in_annotation: false,
-            in_conditional_block: false,
-            next_conditional_annotation_index: 0,
         }
     }
 
@@ -1045,6 +1033,8 @@ impl Compiler {
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
             symbol_table_index: key,
+            in_conditional_block: 0,
+            next_conditional_annotation_index: 0,
         };
 
         // Push the old compiler unit on the stack (like PyCapsule)
@@ -1525,11 +1515,7 @@ impl Compiler {
         self._name_inner(name, |i| &mut i.metadata.names)
     }
     fn varname(&mut self, name: &str) -> CompileResult<bytecode::NameIdx> {
-        if Self::is_forbidden_arg_name(name) {
-            return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                "cannot assign to {name}",
-            ))));
-        }
+        // Note: __debug__ checks are now handled in symboltable phase
         Ok(self._name_inner(name, |i| &mut i.metadata.varnames))
     }
     fn _name_inner(
@@ -1814,15 +1800,6 @@ impl Compiler {
         symboltable::mangle_name(private, name)
     }
 
-    fn check_forbidden_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
-        let msg = match usage {
-            NameUsage::Store if is_forbidden_name(name) => "cannot assign to",
-            NameUsage::Delete if is_forbidden_name(name) => "cannot delete",
-            _ => return Ok(()),
-        };
-        Err(self.error(CodegenErrorType::SyntaxError(format!("{msg} {name}"))))
-    }
-
     // = compiler_nameop
     fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
         enum NameOp {
@@ -1834,7 +1811,6 @@ impl Compiler {
         }
 
         let name = self.mangle(name);
-        self.check_forbidden_name(&name, usage)?;
 
         // Special handling for __debug__
         if NameUsage::Load == usage && name == "__debug__" {
@@ -2135,6 +2111,7 @@ impl Compiler {
                 elif_else_clauses,
                 ..
             }) => {
+                self.enter_conditional_block();
                 match elif_else_clauses.as_slice() {
                     // Only if
                     [] => {
@@ -2182,6 +2159,7 @@ impl Compiler {
                         self.switch_to_block(after_block);
                     }
                 }
+                self.leave_conditional_block();
             }
             Stmt::While(StmtWhile {
                 test, body, orelse, ..
@@ -2228,11 +2206,13 @@ impl Compiler {
                 is_star,
                 ..
             }) => {
+                self.enter_conditional_block();
                 if *is_star {
                     self.compile_try_star_except(body, handlers, orelse, finalbody)?
                 } else {
                     self.compile_try_statement(body, handlers, orelse, finalbody)?
                 }
+                self.leave_conditional_block();
             }
             Stmt::FunctionDef(StmtFunctionDef {
                 name,
@@ -2432,7 +2412,6 @@ impl Compiler {
         match &expression {
             Expr::Name(ExprName { id, .. }) => self.compile_name(id.as_str(), NameUsage::Delete)?,
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-                self.check_forbidden_name(attr.as_str(), NameUsage::Delete)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
                 emit!(self, Instruction::DeleteAttr { idx });
@@ -3449,10 +3428,6 @@ impl Compiler {
         }
 
         Ok(())
-    }
-
-    fn is_forbidden_arg_name(name: &str) -> bool {
-        is_forbidden_name(name)
     }
 
     /// Compile default arguments
@@ -4485,6 +4460,8 @@ impl Compiler {
     }
 
     fn compile_while(&mut self, test: &Expr, body: &[Stmt], orelse: &[Stmt]) -> CompileResult<()> {
+        self.enter_conditional_block();
+
         let while_block = self.new_block();
         let else_block = self.new_block();
         let after_block = self.new_block();
@@ -4513,6 +4490,8 @@ impl Compiler {
         // Note: PopBlock is no longer emitted for loops
         self.compile_statements(orelse)?;
         self.switch_to_block(after_block);
+
+        self.leave_conditional_block();
         Ok(())
     }
 
@@ -4522,6 +4501,8 @@ impl Compiler {
         body: &[Stmt],
         is_async: bool,
     ) -> CompileResult<()> {
+        self.enter_conditional_block();
+
         // Python 3.12+ style with statement:
         //
         // BEFORE_WITH          # TOS: ctx_mgr -> [__exit__, __enter__ result]
@@ -4734,6 +4715,7 @@ impl Compiler {
         // ===== After block =====
         self.switch_to_block(after_block);
 
+        self.leave_conditional_block();
         Ok(())
     }
 
@@ -4745,6 +4727,8 @@ impl Compiler {
         orelse: &[Stmt],
         is_async: bool,
     ) -> CompileResult<()> {
+        self.enter_conditional_block();
+
         // Start loop
         let for_block = self.new_block();
         let else_block = self.new_block();
@@ -4812,6 +4796,7 @@ impl Compiler {
 
         self.switch_to_block(after_block);
 
+        self.leave_conditional_block();
         Ok(())
     }
 
@@ -5784,8 +5769,10 @@ impl Compiler {
     }
 
     fn compile_match(&mut self, subject: &Expr, cases: &[MatchCase]) -> CompileResult<()> {
+        self.enter_conditional_block();
         let mut pattern_context = PatternContext::new();
         self.compile_match_inner(subject, cases, &mut pattern_context)?;
+        self.leave_conditional_block();
         Ok(())
     }
 
@@ -5946,16 +5933,22 @@ impl Compiler {
             } else {
                 // PEP 649: Handle conditional annotations
                 if self.current_symbol_table().has_conditional_annotations {
+                    // Allocate an index for every annotation when has_conditional_annotations
+                    // This keeps indices aligned with compile_module_annotate's enumeration
+                    let code_info = self.current_code_info();
+                    let annotation_index = code_info.next_conditional_annotation_index;
+                    code_info.next_conditional_annotation_index += 1;
+
                     // Determine if this annotation is conditional
-                    let is_module = self.current_symbol_table().typ == CompilerScope::Module;
-                    let is_conditional = is_module || self.in_conditional_block;
+                    // Module and Class scopes both need all annotations tracked
+                    let scope_type = self.current_symbol_table().typ;
+                    let in_conditional_block = self.current_code_info().in_conditional_block > 0;
+                    let is_conditional =
+                        matches!(scope_type, CompilerScope::Module | CompilerScope::Class)
+                            || in_conditional_block;
 
+                    // Only add to __conditional_annotations__ set if actually conditional
                     if is_conditional {
-                        // Get the current annotation index and increment
-                        let annotation_index = self.next_conditional_annotation_index;
-                        self.next_conditional_annotation_index += 1;
-
-                        // Add index to __conditional_annotations__ set
                         let cond_annotations_name = self.name("__conditional_annotations__");
                         emit!(self, Instruction::LoadName(cond_annotations_name));
                         self.emit_load_const(ConstantData::Integer {
@@ -5980,7 +5973,6 @@ impl Compiler {
                 self.compile_subscript(value, slice, *ctx)?;
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-                self.check_forbidden_name(attr.as_str(), NameUsage::Store)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
                 emit!(self, Instruction::StoreAttr { idx });
@@ -6075,7 +6067,6 @@ impl Compiler {
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
                 let attr = attr.as_str();
-                self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Copy { index: 1_u32 });
                 let idx = self.name(attr);
@@ -6903,12 +6894,6 @@ impl Compiler {
         let (size, unpack) = self.gather_elements(additional_positional, &arguments.args)?;
         let has_double_star = arguments.keywords.iter().any(|k| k.arg.is_none());
 
-        for keyword in &arguments.keywords {
-            if let Some(name) = &keyword.arg {
-                self.check_forbidden_name(name.as_str(), NameUsage::Store)?;
-            }
-        }
-
         if unpack || has_double_star {
             // Create a tuple with positional args:
             if unpack {
@@ -7509,6 +7494,19 @@ impl Compiler {
 
     fn current_code_info(&mut self) -> &mut ir::CodeInfo {
         self.code_stack.last_mut().expect("no code on stack")
+    }
+
+    /// Enter a conditional block (if/for/while/match/try/with)
+    /// PEP 649: Track conditional annotation context
+    fn enter_conditional_block(&mut self) {
+        self.current_code_info().in_conditional_block += 1;
+    }
+
+    /// Leave a conditional block
+    fn leave_conditional_block(&mut self) {
+        let code_info = self.current_code_info();
+        debug_assert!(code_info.in_conditional_block > 0);
+        code_info.in_conditional_block -= 1;
     }
 
     /// Compile break or continue statement with proper fblock cleanup.
