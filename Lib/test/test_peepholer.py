@@ -454,7 +454,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertLessEqual(len(returns), 6)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_make_function_doesnt_bail(self):
         def f():
             def g()->1+1:
