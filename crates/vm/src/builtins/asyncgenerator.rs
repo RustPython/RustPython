@@ -207,7 +207,11 @@ impl Representable for PyAsyncGen {
     }
 }
 
-#[pyclass(module = false, name = "async_generator_wrapped_value", traverse = "manual")]
+#[pyclass(
+    module = false,
+    name = "async_generator_wrapped_value",
+    traverse = "manual"
+)]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
 
