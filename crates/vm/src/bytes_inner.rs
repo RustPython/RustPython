@@ -15,7 +15,6 @@ use crate::{
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
 };
-use alloc::borrow::Cow;
 use bstr::ByteSlice;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -1103,45 +1102,12 @@ pub fn bytes_decode(
     vm: &VirtualMachine,
 ) -> PyResult<PyStrRef> {
     let DecodeArgs { encoding, errors } = args;
-
-    let encoding: Cow<'_, str> = match encoding.as_ref() {
-        Some(s) => match s.to_str() {
-            Some(valid_str) => Cow::Borrowed(valid_str),
-            None => {
-                let Some(errors) = &errors else {
-                    return Err(vm.new_unicode_encode_error(format!(
-                        "'{}' codec can't encode characters: surrogates not allowed",
-                        s
-                    )));
-                };
-
-                match errors.as_str() {
-                    "strict" => {
-                        return Err(
-                            vm.new_unicode_encode_error("Struct format must be a UTF-8 string")
-                        );
-                    }
-                    "ignore" | "replace" | "backslashreplace" => Cow::Borrowed(
-                        encoding
-                            .as_ref()
-                            .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.as_str()),
-                    ),
-                    "surrogateescape" => s.to_string_lossy(),
-                    _ => {
-                        return Err(vm.new_unicode_encode_error(format!(
-                            "'{}' codec can't encode characters: surrogates not allowed",
-                            s
-                        )));
-                    }
-                }
-            }
-        },
-        None => Cow::Borrowed(crate::codecs::DEFAULT_ENCODING),
-    };
-
+    let encoding = encoding
+        .as_ref()
+        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.as_str());
     vm.state
         .codec_registry
-        .decode_text(zelf, &encoding, errors, vm)
+        .decode_text(zelf, encoding, errors, vm)
 }
 
 fn hex_impl_no_sep(bytes: &[u8]) -> String {
