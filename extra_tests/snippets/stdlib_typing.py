@@ -18,7 +18,7 @@ TracebackFilter = bool | Callable[[int], int]
 # This tests that annotation scopes can access global implicit symbols (like Union)
 # that are imported at module level but not explicitly bound in the function scope.
 # Regression test for: rich
-from typing import Union, Optional
+from typing import Optional, Union
 
 
 def function_with_union_param(x: Optional[Union[int, str]] = None) -> None:
