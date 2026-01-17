@@ -4186,6 +4186,10 @@ impl Compiler {
         firstlineno: u32,
     ) -> CompileResult<CodeObject> {
         // 1. Enter class scope
+        // Reset conditional-annotation index for class scope (restore after)
+        let saved_conditional_index = self.next_conditional_annotation_index;
+        self.next_conditional_annotation_index = 0;
+
         let key = self.symbol_table_stack.len();
         self.push_symbol_table()?;
         self.enter_scope(name, CompilerScope::Class, key, firstlineno)?;
@@ -4290,7 +4294,9 @@ impl Compiler {
         self.emit_return_value();
 
         // Exit scope and return the code object
-        Ok(self.exit_scope())
+        let code = self.exit_scope();
+        self.next_conditional_annotation_index = saved_conditional_index;
+        Ok(code)
     }
 
     fn compile_class_def(
