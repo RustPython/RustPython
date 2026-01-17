@@ -282,10 +282,11 @@ def has_unittest_import(tree: ast.Module) -> bool:
 
 def find_import_insert_line(tree: ast.Module) -> int:
     """Find the line number after the last import statement."""
-    last_import_line = 0
+    last_import_line = None
     for node in tree.body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             last_import_line = node.end_lineno or node.lineno
+    assert last_import_line is not None
     return last_import_line
 
 
