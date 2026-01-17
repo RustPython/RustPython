@@ -135,8 +135,13 @@ impl Interpreter {
             // threading module may not be imported, so ignore import errors.
             if let Ok(threading) = vm.import("threading", 0)
                 && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
+                && let Err(e) = shutdown.call((), vm)
             {
-                let _ = shutdown.call((), vm);
+                vm.run_unraisable(
+                    e,
+                    Some("Exception ignored in threading shutdown".to_owned()),
+                    threading,
+                );
             }
 
             // Mark as finalizing AFTER thread shutdown
@@ -149,35 +154,6 @@ impl Interpreter {
 
             exit_code
         })
-    }
-}
-
-/// Wait until threading._shutdown completes, provided
-/// the threading module was imported in the first place.
-/// The shutdown routine will wait until all non-daemon
-/// "threading" threads have completed.
-fn wait_for_thread_shutdown(vm: &VirtualMachine) {
-    // Try to get the threading module if it was already imported
-    // Use sys.modules.get("threading") like PyImport_GetModule
-    let threading = match (|| -> PyResult<_> {
-        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
-        let threading = sys_modules.get_item("threading", vm)?;
-        Ok(threading)
-    })() {
-        Ok(module) => module,
-        Err(_) => {
-            // threading not imported, nothing to do
-            return;
-        }
-    };
-
-    // Call threading._shutdown()
-    if let Err(e) = vm.call_method(&threading, "_shutdown", ()) {
-        vm.run_unraisable(
-            e,
-            Some("Exception ignored on threading shutdown".to_owned()),
-            threading,
-        );
     }
 }
 
