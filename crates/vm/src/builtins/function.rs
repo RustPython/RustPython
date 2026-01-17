@@ -605,12 +605,10 @@ impl PyFunction {
         // Check for callable __annotate__ and clone it before calling
         let annotate_fn = {
             let annotate = self.annotate.lock();
-            if let Some(ref func) = *annotate {
-                if func.is_callable() {
-                    Some(func.clone())
-                } else {
-                    None
-                }
+            if let Some(ref func) = *annotate
+                && func.is_callable()
+            {
+                Some(func.clone())
             } else {
                 None
             }
@@ -641,26 +639,24 @@ impl PyFunction {
     }
 
     #[pygetset(setter)]
-    fn set___annotations__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(value) => {
-                if vm.is_none(&value) {
-                    *self.annotations.lock() = None;
-                } else {
-                    let annotations =
-                        value.downcast::<crate::builtins::PyDict>().map_err(|_| {
-                            vm.new_type_error("__annotations__ must be set to a dict object")
-                        })?;
-                    *self.annotations.lock() = Some(annotations);
-                }
-                // Clear __annotate__ when __annotations__ is set
-                *self.annotate.lock() = None;
+    fn set___annotations__(
+        &self,
+        value: PySetterValue<Option<PyObjectRef>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let annotations = match value {
+            PySetterValue::Assign(Some(value)) => {
+                let annotations = value.downcast::<crate::builtins::PyDict>().map_err(|_| {
+                    vm.new_type_error("__annotations__ must be set to a dict object")
+                })?;
+                Some(annotations)
             }
-            PySetterValue::Delete => {
-                *self.annotations.lock() = None;
-                *self.annotate.lock() = None;
-            }
-        }
+            PySetterValue::Assign(None) | PySetterValue::Delete => None,
+        };
+        *self.annotations.lock() = annotations;
+
+        // Clear __annotate__ when __annotations__ is set
+        *self.annotate.lock() = None;
         Ok(())
     }
 
@@ -673,23 +669,26 @@ impl PyFunction {
     }
 
     #[pygetset(setter)]
-    fn set___annotate__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(value) => {
-                if vm.is_none(&value) {
-                    *self.annotate.lock() = Some(value);
-                } else if value.is_callable() {
-                    *self.annotate.lock() = Some(value);
-                    // Clear cached __annotations__ when __annotate__ is set
-                    *self.annotations.lock() = None;
-                } else {
+    fn set___annotate__(
+        &self,
+        value: PySetterValue<Option<PyObjectRef>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let annotate = match value {
+            PySetterValue::Assign(Some(value)) => {
+                if !value.is_callable() {
                     return Err(vm.new_type_error("__annotate__ must be callable or None"));
                 }
+                // Clear cached __annotations__ when __annotate__ is set
+                *self.annotations.lock() = None;
+                Some(value)
             }
+            PySetterValue::Assign(None) => None,
             PySetterValue::Delete => {
                 return Err(vm.new_type_error("__annotate__ cannot be deleted"));
             }
-        }
+        };
+        *self.annotate.lock() = annotate;
         Ok(())
     }
 

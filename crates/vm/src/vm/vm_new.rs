@@ -65,8 +65,6 @@ impl VirtualMachine {
     pub fn new_scope_with_main(&self) -> PyResult<Scope> {
         let scope = self.new_scope_with_builtins();
         let main_module = self.new_module("__main__", scope.globals.clone(), None);
-        // PEP 649: Don't automatically initialize __annotations__
-        // It will be lazily created by the descriptor when accessed
 
         self.sys_module.get_attr("modules", self)?.set_item(
             "__main__",

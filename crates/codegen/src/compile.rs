@@ -1191,12 +1191,7 @@ impl Compiler {
 
         // Jump to body if format <= 2 (comparison is false)
         let body_block = self.new_block();
-        emit!(
-            self,
-            Instruction::PopJumpIfFalse {
-                target: body_block,
-            }
-        );
+        emit!(self, Instruction::PopJumpIfFalse { target: body_block });
 
         // Raise NotImplementedError
         let not_implemented_error = self.name("NotImplementedError");
