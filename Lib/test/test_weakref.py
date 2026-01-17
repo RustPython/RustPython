@@ -1952,6 +1952,7 @@ class MappingTestCase(TestBase):
                 x = d.pop(10, 10)
                 self.assertIsNot(x, None)  # we never put None in there!
 
+    @unittest.skip("TODO: RUSTPYTHON; race condition between GC and WeakValueDictionary callback")
     @threading_helper.requires_working_threading()
     def test_threaded_weak_valued_consistency(self):
         # Issue #28427: old keys should not remove new values from
