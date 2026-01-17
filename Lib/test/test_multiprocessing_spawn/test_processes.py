@@ -20,6 +20,13 @@ class WithProcessesTestLock(WithProcessesTestLock):  # TODO: RUSTPYTHON
     )  # TODO: RUSTPYTHON
     def test_repr_rlock(self): super().test_repr_rlock()  # TODO: RUSTPYTHON
 
+class WithProcessesTestHeap(WithProcessesTestHeap):  # TODO: RUSTPYTHON
+    @unittest.skipIf(  # TODO: RUSTPYTHON
+        sys.platform in ('darwin', 'linux') and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,  # TODO: RUSTPYTHON
+        'TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to gc threshold change'
+    )  # TODO: RUSTPYTHON
+    def test_free_from_gc(self): super().test_free_from_gc()  # TODO: RUSTPYTHON
+
 class WithProcessesTestPool(WithProcessesTestPool):  # TODO: RUSTPYTHON
     @unittest.skipIf(  # TODO: RUSTPYTHON
         sys.platform in ('darwin', 'linux') and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,  # TODO: RUSTPYTHON

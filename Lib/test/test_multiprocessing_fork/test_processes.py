@@ -22,6 +22,13 @@ class WithProcessesTestProcess(WithProcessesTestProcess):  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform == 'linux', 'TODO: RUSTPYTHON flaky timeout')
     def test_process(self): super().test_process()  # TODO: RUSTPYTHON
 
+class WithProcessesTestHeap(WithProcessesTestHeap):  # TODO: RUSTPYTHON
+    @unittest.skipIf(  # TODO: RUSTPYTHON
+        sys.platform == 'linux' and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,  # TODO: RUSTPYTHON
+        'TODO: RUSTPYTHON environment pollution when running rustpython -m test --fail-env-changed due to gc threshold change'
+    )  # TODO: RUSTPYTHON
+    def test_free_from_gc(self): super().test_free_from_gc()  # TODO: RUSTPYTHON
+
 class WithProcessesTestPool(WithProcessesTestPool):  # TODO: RUSTPYTHON
     @unittest.skipIf(  # TODO: RUSTPYTHON
         sys.platform == 'linux' and 'RUSTPYTHON_SKIP_ENV_POLLUTERS' in os.environ,  # TODO: RUSTPYTHON
