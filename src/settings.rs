@@ -285,6 +285,20 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
                     }
                 };
             }
+            "thread_inherit_context" => {
+                settings.thread_inherit_context = match value {
+                    Some("1") => true,
+                    Some("0") => false,
+                    _ => {
+                        error!(
+                            "Fatal Python error: config_init_thread_inherit_context: \
+                             -X thread_inherit_context=n: n is missing or invalid\n\
+                             Python runtime state: preinitialized"
+                        );
+                        std::process::exit(1);
+                    }
+                };
+            }
             _ => {}
         }
         (name, value.map(str::to_owned))
@@ -296,6 +310,20 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     settings.faulthandler = settings.faulthandler || env_bool("PYTHONFAULTHANDLER");
     if env_bool("PYTHONNODEBUGRANGES") {
         settings.code_debug_ranges = false;
+    }
+    if let Some(val) = get_env("PYTHON_THREAD_INHERIT_CONTEXT") {
+        settings.thread_inherit_context = match val.to_str() {
+            Some("1") => true,
+            Some("0") => false,
+            _ => {
+                error!(
+                    "Fatal Python error: config_init_thread_inherit_context: \
+                     PYTHON_THREAD_INHERIT_CONTEXT=N: N is missing or invalid\n\
+                     Python runtime state: preinitialized"
+                );
+                std::process::exit(1);
+            }
+        };
     }
 
     // Parse PYTHONIOENCODING=encoding[:errors]
