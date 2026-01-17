@@ -56,7 +56,7 @@ pub enum Instruction {
     PopExcept = 31,
     PopTop = 32,
     PushExcInfo = 33,
-    PushNull = 34,        // Placeholder
+    PushNull = 34,
     ReturnGenerator = 35, // Placeholder
     ReturnValue = 36,
     SetupAnnotations = 37,
@@ -148,13 +148,13 @@ pub enum Instruction {
     IsOp(Arg<Invert>) = 76,
     JumpBackward {
         target: Arg<Label>,
-    } = 77, // Placeholder
+    } = 77,
     JumpBackwardNoInterrupt {
         target: Arg<Label>,
     } = 78, // Placeholder
     JumpForward {
         target: Arg<Label>,
-    } = 79, // Placeholder
+    } = 79,
     ListAppend {
         i: Arg<u32>,
     } = 80,
