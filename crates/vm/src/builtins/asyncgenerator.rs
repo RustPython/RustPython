@@ -87,9 +87,14 @@ impl PyAsyncGen {
         if let Some(finalizer) = finalizer
             && !zelf.inner.closed.load()
         {
-            // Ignore any errors (PyErr_WriteUnraisable)
+            // Create a strong reference for the finalizer call.
+            // This keeps the object alive during the finalizer execution.
             let obj: PyObjectRef = zelf.to_owned().into();
-            let _ = finalizer.call((obj,), vm);
+
+            // Call the finalizer. Any exceptions are handled as unraisable.
+            if let Err(e) = finalizer.call((obj,), vm) {
+                vm.run_unraisable(e, Some("async generator finalizer".to_owned()), finalizer);
+            }
         }
     }
 
@@ -496,11 +501,13 @@ impl PyAsyncGenAThrow {
     }
     fn yield_close(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.ag.running_async.store(false);
+        self.ag.inner.closed.store(true);
         self.state.store(AwaitableState::Closed);
         vm.new_runtime_error("async generator ignored GeneratorExit")
     }
     fn check_error(&self, exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.ag.running_async.store(false);
+        self.ag.inner.closed.store(true);
         self.state.store(AwaitableState::Closed);
         if self.aclose
             && (exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
@@ -687,12 +694,14 @@ impl IterNext for PyAnextAwaitable {
 /// _PyGen_Finalize for async generators
 impl Destructor for PyAsyncGen {
     fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        // Generator isn't paused, so no need to close
+        // Generator is already closed, nothing to do
         if zelf.inner.closed.load() {
             return Ok(());
         }
 
+        // Call the async generator finalizer hook if set.
         Self::call_finalizer(zelf, vm);
+
         Ok(())
     }
 }
