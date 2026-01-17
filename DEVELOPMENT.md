@@ -95,6 +95,41 @@ To run only `test_cmath` (located at `Lib/test/test_cmath`) verbosely:
 $ cargo run --release -- -m test test_cmath -v
 ```
 
+### Testing on Linux from macOS
+
+You can test RustPython on Linux from macOS using Apple's `container` CLI.
+
+**Setup (one-time):**
+
+```shell
+# Install container CLI
+$ brew install container
+
+# Disable Rosetta requirement for arm64-only builds
+$ defaults write com.apple.container.defaults build.rosetta -bool false
+
+# Build the development image
+$ container build --arch arm64 -t rustpython-dev -f .devcontainer/Dockerfile .
+```
+
+**Running tests:**
+
+```shell
+# Start a persistent container in background (8GB memory, 4 CPUs for compilation)
+$ container run -d --name rustpython-test -m 8G -c 4 \
+    --mount type=bind,source=$(pwd),target=/workspace \
+    -w /workspace rustpython-dev sleep infinity
+
+# Run tests inside the container
+$ container exec rustpython-test sh -c "cargo run --release -- -m test test_ensurepip"
+
+# Run any command
+$ container exec rustpython-test sh -c "cargo test --workspace"
+
+# Stop and remove the container when done
+$ container rm -f rustpython-test
+```
+
 ## Profiling
 
 To profile RustPython, build it in `release` mode with the `flame-it` feature.
