@@ -749,7 +749,7 @@ impl ExecutingFrame<'_> {
                 };
 
                 let interpolation =
-                    PyInterpolation::new(value, expression, conversion, format_spec);
+                    PyInterpolation::new(value, expression, conversion, format_spec, vm)?;
                 self.push_value(interpolation.into_pyobject(vm));
                 Ok(None)
             }

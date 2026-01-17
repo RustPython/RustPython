@@ -3,18 +3,18 @@ use super::*;
 
 fn ruff_fstring_element_into_iter(
     mut fstring_element: ruff::InterpolatedStringElements,
-) -> impl Iterator<Item = ruff::InterpolatedStringElement> + 'static {
+) -> impl Iterator<Item = ruff::InterpolatedStringElement> {
     let default =
         ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
             node_index: Default::default(),
             range: Default::default(),
             value: Default::default(),
         });
-    (0..fstring_element.into_iter().len()).map(move |i| {
-        let fstring_element = &mut fstring_element;
-        let tmp = fstring_element.into_iter().nth(i).unwrap();
-        core::mem::replace(tmp, default.clone())
-    })
+    fstring_element
+        .iter_mut()
+        .map(move |elem| core::mem::replace(elem, default.clone()))
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 fn ruff_fstring_element_to_joined_str_part(

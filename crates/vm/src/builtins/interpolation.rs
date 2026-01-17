@@ -33,13 +33,25 @@ impl PyInterpolation {
         expression: PyStrRef,
         conversion: PyObjectRef,
         format_spec: PyStrRef,
-    ) -> Self {
-        Self {
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        // Validate conversion like _PyInterpolation_Build does
+        let is_valid = vm.is_none(&conversion)
+            || conversion
+                .downcast_ref::<PyStr>()
+                .is_some_and(|s| matches!(s.as_str(), "s" | "r" | "a"));
+        if !is_valid {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.system_error.to_owned(),
+                "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'".to_owned(),
+            ));
+        }
+        Ok(Self {
             value,
             expression,
             conversion,
             format_spec,
-        }
+        })
     }
 }
 

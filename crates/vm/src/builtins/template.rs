@@ -293,15 +293,7 @@ impl PyTemplateIter {
 }
 
 #[pyclass(with(IterNext, Iterable))]
-impl PyTemplateIter {
-    #[pymethod(name = "__reduce__")]
-    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
-        vm.new_tuple((
-            vm.ctx.types.template_iter_type.to_owned(),
-            (zelf.template.clone(),),
-        ))
-    }
-}
+impl PyTemplateIter {}
 
 impl SelfIter for PyTemplateIter {}
 
