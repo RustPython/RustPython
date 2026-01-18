@@ -899,7 +899,6 @@ class CWCmdLineTests(WCmdLineTests, unittest.TestCase):
 class PyWCmdLineTests(WCmdLineTests, unittest.TestCase):
     module = py_warnings
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON blank rhs of assertion
     def test_improper_option(self):
         # Same as above, but check that the message is printed out when
         # the interpreter is executed. This also checks that options are
