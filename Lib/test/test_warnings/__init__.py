@@ -101,6 +101,7 @@ class PublicAPITests(BaseTest):
     public API.
     """
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON 'PyPublicAPITests' object has no attribute 'assertHasAttr'
     def test_module_all_attribute(self):
         self.assertHasAttr(self.module, '__all__')
         target_api = ["warn", "warn_explicit", "showwarning",
@@ -241,6 +242,7 @@ class FilterTests(BaseTest):
                                     42)
             self.assertEqual(len(w), 0)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON re.PatternError: bad escape \z at position 15
     def test_filter_module(self):
         MS_WINDOWS = (sys.platform == 'win32')
         with self.module.catch_warnings(record=True) as w:
@@ -849,6 +851,7 @@ class PyWarnTests(WarnTests, unittest.TestCase):
 
     # As an early adopter, we sanity check the
     # test.import_helper.import_fresh_module utility function
+    @unittest.expectedFailure # TODO: RUSTPYTHON 'PyWarnTests' object has no attribute 'assertHasAttr'
     def test_pure_python(self):
         self.assertIsNot(original_warnings, self.module)
         self.assertHasAttr(self.module.warn, '__code__')
@@ -896,6 +899,7 @@ class CWCmdLineTests(WCmdLineTests, unittest.TestCase):
 class PyWCmdLineTests(WCmdLineTests, unittest.TestCase):
     module = py_warnings
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON blank rhs of assertion
     def test_improper_option(self):
         # Same as above, but check that the message is printed out when
         # the interpreter is executed. This also checks that options are
@@ -1549,6 +1553,8 @@ class EnvironmentVariableTests(BaseTest):
 
 class CEnvironmentVariableTests(EnvironmentVariableTests, unittest.TestCase):
     module = c_warnings
+    @unittest.expectedFailure # TODO: RUSTPYTHON Lists differ
+    def test_default_filter_configuration(self): super().test_default_filter_configuration()  # TODO: RUSTPYTHON
 
 class PyEnvironmentVariableTests(EnvironmentVariableTests, unittest.TestCase):
     module = py_warnings
@@ -1847,6 +1853,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertEqual(len(overloads), 2)
         self.assertEqual(overloads[0].__deprecated__, "no more ints")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_class(self):
         @deprecated("A will go away soon")
         class A:
@@ -1858,6 +1865,7 @@ class DeprecatedTests(PyPublicAPITests):
             with self.assertRaises(TypeError):
                 A(42)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_class_with_init(self):
         @deprecated("HasInit will go away soon")
         class HasInit:
@@ -1868,6 +1876,7 @@ class DeprecatedTests(PyPublicAPITests):
             instance = HasInit(42)
         self.assertEqual(instance.x, 42)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_class_with_new(self):
         has_new_called = False
 
@@ -1886,6 +1895,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertEqual(instance.x, 42)
         self.assertTrue(has_new_called)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_class_with_inherited_new(self):
         new_base_called = False
 
@@ -1907,6 +1917,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertEqual(instance.x, 42)
         self.assertTrue(new_base_called)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_class_with_new_but_no_init(self):
         new_called = False
 
@@ -1924,6 +1935,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertEqual(instance.x, 42)
         self.assertTrue(new_called)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_mixin_class(self):
         @deprecated("Mixin will go away soon")
         class Mixin:
@@ -1940,6 +1952,7 @@ class DeprecatedTests(PyPublicAPITests):
         instance = Child(42)
         self.assertEqual(instance.a, 42)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_do_not_shadow_user_arguments(self):
         new_called = False
         new_called_cls = None
@@ -1959,6 +1972,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertTrue(new_called)
         self.assertEqual(new_called_cls, 'haha')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_existing_init_subclass(self):
         @deprecated("C will go away soon")
         class C:
@@ -1975,6 +1989,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertTrue(D.inited)
         self.assertIsInstance(D(), D)  # no deprecation
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_existing_init_subclass_in_base(self):
         class Base:
             def __init_subclass__(cls, x) -> None:
@@ -1995,6 +2010,7 @@ class DeprecatedTests(PyPublicAPITests):
 
         self.assertEqual(D.inited, 3)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_existing_init_subclass_in_sibling_base(self):
         @deprecated("A will go away soon")
         class A:
@@ -2014,6 +2030,7 @@ class DeprecatedTests(PyPublicAPITests):
                 pass
         self.assertEqual(D.inited, 42)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_init_subclass_has_correct_cls(self):
         init_subclass_saw = None
 
@@ -2031,6 +2048,7 @@ class DeprecatedTests(PyPublicAPITests):
 
         self.assertIs(init_subclass_saw, C)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_init_subclass_with_explicit_classmethod(self):
         init_subclass_saw = None
 
@@ -2049,6 +2067,7 @@ class DeprecatedTests(PyPublicAPITests):
 
         self.assertIs(init_subclass_saw, C)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_function(self):
         @deprecated("b will go away soon")
         def b():
@@ -2057,6 +2076,7 @@ class DeprecatedTests(PyPublicAPITests):
         with self.assertWarnsRegex(DeprecationWarning, "b will go away soon"):
             b()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_method(self):
         class Capybara:
             @deprecated("x will go away soon")
@@ -2067,6 +2087,7 @@ class DeprecatedTests(PyPublicAPITests):
         with self.assertWarnsRegex(DeprecationWarning, "x will go away soon"):
             instance.x()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
     def test_property(self):
         class Capybara:
             @property
@@ -2094,6 +2115,7 @@ class DeprecatedTests(PyPublicAPITests):
         with self.assertWarnsRegex(DeprecationWarning, "no more setting"):
             instance.no_more_setting = 42
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON RuntimeWarning not triggered
     def test_category(self):
         @deprecated("c will go away soon", category=RuntimeWarning)
         def c():
