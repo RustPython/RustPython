@@ -1,17 +1,12 @@
-import unittest
 import base64
 import binascii
 import os
+import unittest
 from array import array
 from test.support import cpython_only
 from test.support import os_helper
 from test.support import script_helper
-
-# XXX: RUSTPYTHON - ensure_lazy_imports doesn't exist in RustPython
-try:
-    from test.support.import_helper import ensure_lazy_imports
-except ImportError:
-    ensure_lazy_imports = None
+from test.support.import_helper import ensure_lazy_imports
 
 
 class LazyImportTest(unittest.TestCase):
@@ -831,8 +826,6 @@ class BaseXYTestCase(unittest.TestCase):
         for f in decode_funcs:
             self.assertRaises(ValueError, f, 'with non-ascii \xcb')
 
-    # TODO: RUSTPYTHON - assertIsSubclass not available
-    @unittest.expectedFailure
     def test_ErrorHeritage(self):
         self.assertIsSubclass(binascii.Error, ValueError)
 
