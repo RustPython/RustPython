@@ -236,11 +236,14 @@ def build_patch_dict(it: "Iterator[PatchEntry]") -> Patches:
 
 
 def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int, str]]":
-    cache = {}  # Used in phase 2. Stores the end line location of a class name.
+    # Build cache of all classes (for Phase 2 to find classes without methods)
+    cache = {}
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            cache[node.name] = node.end_lineno
 
     # Phase 1: Iterate and mark existing tests
     for cls_node, fn_node in iter_tests(tree):
-        cache[cls_node.name] = cls_node.end_lineno
         specs = patches.get(cls_node.name, {}).pop(fn_node.name, None)
         if not specs:
             continue
