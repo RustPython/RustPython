@@ -1069,7 +1069,6 @@ class _WarningsTests(BaseTest, unittest.TestCase):
         finally:
             self.module.showwarning = orig
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_filename_none(self):
         # issue #12467: race condition if a warning is emitted at shutdown
         globals_dict = globals()
