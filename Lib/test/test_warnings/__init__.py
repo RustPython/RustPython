@@ -841,8 +841,6 @@ class PyWCmdLineTests(WCmdLineTests, unittest.TestCase):
         rc, out, err = assert_python_ok("-Wxxx", "-c", "pass")
         self.assertIn(b"Invalid -W option ignored: invalid action: 'xxx'", err)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_warnings_bootstrap(self):
         # Check that the warnings module does get loaded when -W<some option>
         # is used (see issue #10372 for an example of silent bootstrap failure).
