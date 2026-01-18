@@ -233,7 +233,6 @@ opmap = {
     'INSTRUMENTED_POP_JUMP_IF_NONE': 252,
     'INSTRUMENTED_POP_JUMP_IF_NOT_NONE': 253,
     'INSTRUMENTED_LINE': 254,
-    'LOAD_CLOSURE': 255,
     'JUMP': 256,
     'JUMP_NO_INTERRUPT': 257,
     'RESERVED_258': 258,
@@ -246,6 +245,7 @@ opmap = {
     'SETUP_FINALLY': 265,
     'SETUP_WITH': 266,
     'STORE_FAST_MAYBE_NULL': 267,
+    'LOAD_CLOSURE': 268,
 }
 
 # CPython 3.13 compatible: opcodes < 44 have no argument

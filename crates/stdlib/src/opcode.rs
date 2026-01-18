@@ -125,7 +125,6 @@ mod opcode {
                 Ok(AnyInstruction::Real(
                     Instruction::DeleteDeref(_)
                         | Instruction::LoadFromDictOrDeref(_)
-                        | Instruction::LoadClosure(_)
                         | Instruction::LoadDeref(_)
                         | Instruction::StoreDeref(_)
                 ))

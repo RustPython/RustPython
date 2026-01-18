@@ -263,6 +263,13 @@ impl CodeInfo {
                         info.arg = OpArg(encoded);
                         info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() }.into();
                     }
+                    // LOAD_CLOSURE pseudo → LOAD_FAST (with varnames offset)
+                    PseudoInstruction::LoadClosure(idx) => {
+                        let varnames_len = varname_cache.len() as u32;
+                        let new_idx = varnames_len + idx.get(info.arg);
+                        info.arg = OpArg(new_idx);
+                        info.instr = Instruction::LoadFast(Arg::marker()).into();
+                    }
                     PseudoInstruction::Jump { .. } => {
                         // PseudoInstruction::Jump instructions are handled later
                     }

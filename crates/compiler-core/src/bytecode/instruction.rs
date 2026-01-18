@@ -383,8 +383,6 @@ pub enum Instruction {
     InstrumentedPopJumpIfNone = 252,            // Placeholder
     InstrumentedPopJumpIfNotNone = 253,         // Placeholder
     InstrumentedLine = 254,                     // Placeholder
-    // Pseudos (needs to be moved to `PseudoInstruction` enum.
-    LoadClosure(Arg<NameIdx>) = 255, // TODO: Move to pseudos
 }
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
@@ -414,9 +412,6 @@ impl TryFrom<u8> for Instruction {
 
         let instrumented_start = u8::from(Self::InstrumentedResume);
         let instrumented_end = u8::from(Self::InstrumentedLine);
-
-        // TODO: Remove this; This instruction needs to be pseudo
-        let load_closure = u8::from(Self::LoadClosure(Arg::marker()));
 
         // RustPython-only opcodes (explicit list to avoid gaps like 125-127)
         let custom_ops: &[u8] = &[
@@ -457,7 +452,6 @@ impl TryFrom<u8> for Instruction {
 
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
-            || value == load_closure
             || custom_ops.contains(&value)
             || (specialized_start..=specialized_end).contains(&value)
             || (instrumented_start..=instrumented_end).contains(&value)
@@ -704,7 +698,6 @@ impl InstructionMetadata for Instruction {
             Self::StoreFastStoreFast { .. } => 0,
             Self::PopJumpIfNone { .. } => 0,
             Self::PopJumpIfNotNone { .. } => 0,
-            Self::LoadClosure(_) => 1,
             Self::BinaryOpAddFloat => 0,
             Self::BinaryOpAddInt => 0,
             Self::BinaryOpAddUnicode => 0,
@@ -935,7 +928,6 @@ impl InstructionMetadata for Instruction {
             }
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
             Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
-            Self::LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
             Self::LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
             Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             Self::LoadFast(idx) => w!(LOAD_FAST, varname = idx),
@@ -1037,6 +1029,7 @@ pub enum PseudoInstruction {
     SetupFinally = 265,       // Placeholder
     SetupWith = 266,          // Placeholder
     StoreFastMaybeNull = 267, // Placeholder
+    LoadClosure(Arg<NameIdx>) = 268,
 }
 
 const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
@@ -1057,7 +1050,7 @@ impl TryFrom<u16> for PseudoInstruction {
         let start = u16::from(Self::Jump {
             target: Arg::marker(),
         });
-        let end = u16::from(Self::StoreFastMaybeNull);
+        let end = u16::from(Self::LoadClosure(Arg::marker()));
 
         if (start..=end).contains(&value) {
             Ok(unsafe { mem::transmute::<u16, Self>(value) })
@@ -1093,6 +1086,7 @@ impl InstructionMetadata for PseudoInstruction {
             Self::SetupWith => 0,
             Self::StoreFastMaybeNull => 0,
             Self::Reserved258 => 0,
+            Self::LoadClosure(_) => 1,
         }
     }
 
