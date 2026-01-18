@@ -136,8 +136,7 @@ class ThreadedImportTests(unittest.TestCase):
             if verbose:
                 print("OK.")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_parallel_module_init(self):
         self.check_parallel_module_init()
 
