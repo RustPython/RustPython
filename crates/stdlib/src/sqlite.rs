@@ -425,6 +425,12 @@ mod _sqlite {
         name: PyStrRef,
     }
 
+    #[derive(FromArgs)]
+    struct CursorArgs {
+        #[pyarg(any, default)]
+        factory: OptionalArg<PyObjectRef>,
+    }
+
     struct CallbackData {
         obj: NonNull<PyObject>,
         vm: *const VirtualMachine,
@@ -1023,22 +1029,29 @@ mod _sqlite {
         #[pymethod]
         fn cursor(
             zelf: PyRef<Self>,
-            factory: OptionalArg<ArgCallable>,
+            args: CursorArgs,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Cursor>> {
+        ) -> PyResult<PyObjectRef> {
             zelf.db_lock(vm).map(drop)?;
 
-            let cursor = if let OptionalArg::Present(factory) = factory {
-                let cursor = factory.invoke((zelf.clone(),), vm)?;
-                let cursor = cursor.downcast::<Cursor>().map_err(|x| {
-                    vm.new_type_error(format!("factory must return a cursor, not {}", x.class()))
-                })?;
-                let _ = unsafe { cursor.row_factory.swap(zelf.row_factory.to_owned()) };
-                cursor
-            } else {
-                let row_factory = zelf.row_factory.to_owned();
-                Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx)
+            let factory = match args.factory {
+                OptionalArg::Present(f) => f,
+                OptionalArg::Missing => Cursor::class(&vm.ctx).to_owned().into(),
             };
+
+            let cursor = factory.call((zelf.clone(),), vm)?;
+
+            if !cursor.class().fast_issubclass(Cursor::class(&vm.ctx)) {
+                return Err(vm.new_type_error(format!(
+                    "factory must return a cursor, not {}",
+                    cursor.class()
+                )));
+            }
+
+            if let Some(cursor_ref) = cursor.downcast_ref::<Cursor>() {
+                let _ = unsafe { cursor_ref.row_factory.swap(zelf.row_factory.to_owned()) };
+            }
+
             Ok(cursor)
         }
 
