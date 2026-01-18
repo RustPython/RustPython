@@ -83,6 +83,31 @@ pub(crate) fn save_checkpoint_with_lasti_stack_blocks_and_locals(
     Ok(())
 }
 
+pub(crate) fn save_checkpoint_bytes_with_lasti_stack_blocks_and_locals(
+    vm: &VirtualMachine,
+    innermost_resume_lasti: u32,
+    innermost_stack: Vec<crate::PyObjectRef>,
+    innermost_blocks: Vec<crate::frame::Block>,
+    innermost_locals: Option<crate::PyObjectRef>,
+) -> PyResult<Vec<u8>> {
+    let frames = vm.frames.borrow();
+    if frames.is_empty() {
+        return Err(vm.new_runtime_error("checkpoint requires an active frame".to_owned()));
+    }
+
+    let frame_refs: Vec<_> = frames.iter().map(|f| f.to_owned()).collect();
+    drop(frames);
+
+    save_checkpoint_bytes_from_frames_with_stack_blocks_and_locals(
+        vm,
+        &frame_refs,
+        Some(innermost_resume_lasti),
+        innermost_stack,
+        innermost_blocks,
+        innermost_locals,
+    )
+}
+
 #[allow(dead_code)]
 pub(crate) fn save_checkpoint_bytes(vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     let frames = vm.frames.borrow();
@@ -402,9 +427,9 @@ fn save_checkpoint_bytes_from_frames_with_stack_blocks_and_locals(
     // Get source path from the outermost (first) frame
     let source_path = frames[0].code.source_path.as_str();
     
-    // Build blocks vec: only innermost frame gets blocks, others get empty vec
+    // Build blocks vec: only innermost frame gets blocks, others get empty vec.
     // Outer frames are waiting for inner frames to return and their block state
-    // can be safely reconstructed as empty since they're not in active control flow
+    // can be safely reconstructed as empty since they're not in active control flow.
     let mut all_blocks = vec![Vec::new(); frames.len()];
     if !frames.is_empty() {
         all_blocks[frames.len() - 1] = innermost_blocks;

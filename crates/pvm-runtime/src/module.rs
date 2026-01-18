@@ -3,6 +3,7 @@ pub(crate) use pvm_host_module::make_module;
 #[rustpython_vm::pymodule]
 mod pvm_host_module {
     use crate::host;
+    use crate::continuation::RuntimeConfig;
     use ::pvm_host::{HostApi, HostContext, HostError};
     use rustpython_vm::{
         AsObject,
@@ -86,6 +87,34 @@ mod pvm_host_module {
         Ok(vm.ctx.new_bytes(bytes.to_vec()).into())
     }
 
+    #[pyfunction]
+    fn send_message(target: ArgBytesLike, payload: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+        with_host(vm, |host| {
+            target.with_ref(|t| payload.with_ref(|p| host.send_message(t, p)))
+        })?;
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn schedule_timer(height: u64, payload: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let timer_id = with_host(vm, |host| {
+            payload.with_ref(|p| host.schedule_timer(height, p))
+        })?;
+        Ok(vm.ctx.new_bytes(timer_id).into())
+    }
+
+    #[pyfunction]
+    fn cancel_timer(timer_id: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+        with_host(vm, |host| timer_id.with_ref(|id| host.cancel_timer(id)))?;
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn runtime_config(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let config = host::runtime_config();
+        Ok(runtime_config_to_dict(vm, config)?.into())
+    }
+
     #[pyattr(name = "HostError", once)]
     fn host_error_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
@@ -140,6 +169,24 @@ mod pvm_host_module {
         )?;
         dict.set_item("sender", vm.ctx.new_bytes(ctx.sender).into(), vm)?;
         dict.set_item("timestamp_ms", vm.new_pyobj(ctx.timestamp_ms), vm)?;
+        dict.set_item("actor_addr", vm.ctx.new_bytes(ctx.actor_addr).into(), vm)?;
+        dict.set_item("msg_id", vm.ctx.new_bytes(ctx.msg_id).into(), vm)?;
+        dict.set_item("nonce", vm.new_pyobj(ctx.nonce), vm)?;
+        Ok(dict)
+    }
+
+    fn runtime_config_to_dict(
+        vm: &VirtualMachine,
+        cfg: Option<RuntimeConfig>,
+    ) -> PyResult<rustpython_vm::builtins::PyDictRef> {
+        let dict = vm.ctx.new_dict();
+        if let Some(cfg) = cfg {
+            dict.set_item(
+                "continuation_mode",
+                vm.ctx.new_str(cfg.continuation_mode.to_string()).into(),
+                vm,
+            )?;
+        }
         Ok(dict)
     }
 

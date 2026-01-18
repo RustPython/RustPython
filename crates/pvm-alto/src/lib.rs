@@ -11,6 +11,7 @@ pub struct FsHost {
     gas_left: u64,
     context: HostContext,
     randomness_seed: [u8; 32],
+    timer_nonce: u64,
 }
 
 impl FsHost {
@@ -34,6 +35,7 @@ impl FsHost {
             gas_left: gas_limit,
             randomness_seed: context.tx_hash,
             context,
+            timer_nonce: 0,
         })
     }
 
@@ -105,6 +107,52 @@ impl HostApi for FsHost {
 
     fn randomness(&self, domain: &[u8]) -> HostResult<[u8; 32]> {
         Ok(pseudo_random(&self.randomness_seed, domain))
+    }
+
+    fn send_message(&mut self, target: &[u8], payload: &[u8]) -> HostResult<()> {
+        let line = format!(
+            "message:{}:{}\n",
+            encode_hex(target),
+            encode_hex(payload)
+        );
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.events_path)
+            .and_then(|mut file| file.write_all(line.as_bytes()))
+            .map_err(|_| HostError::StorageError)
+    }
+
+    fn schedule_timer(&mut self, height: u64, payload: &[u8]) -> HostResult<Bytes> {
+        self.timer_nonce = self.timer_nonce.wrapping_add(1);
+        let mut id = Vec::with_capacity(8);
+        id.extend_from_slice(&self.timer_nonce.to_le_bytes());
+        let line = format!(
+            "timer.schedule:{}:{}:{}\n",
+            height,
+            encode_hex(&id),
+            encode_hex(payload)
+        );
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.events_path)
+            .and_then(|mut file| file.write_all(line.as_bytes()))
+            .map_err(|_| HostError::StorageError)?;
+        Ok(id)
+    }
+
+    fn cancel_timer(&mut self, timer_id: &[u8]) -> HostResult<()> {
+        let line = format!(
+            "timer.cancel:{}\n",
+            encode_hex(timer_id)
+        );
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.events_path)
+            .and_then(|mut file| file.write_all(line.as_bytes()))
+            .map_err(|_| HostError::StorageError)
     }
 }
 

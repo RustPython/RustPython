@@ -12,8 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut input_file: Option<String> = None;
 
     let mut sender = b"alice".to_vec();
-    let mut state_dir = PathBuf::from("tmp/pvm_dex_state");
-    let mut events_path = PathBuf::from("tmp/pvm_dex_events.log");
+    let mut actor_addr = b"demo_actor".to_vec();
+    let mut state_dir = PathBuf::from("tmp/pvm_actor_transfer_state");
+    let mut events_path = PathBuf::from("tmp/pvm_actor_transfer_events.log");
     let mut gas_limit: u64 = 1_000_000;
 
     while let Some(arg) = args.next() {
@@ -21,6 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--sender" => {
                 let value = args.next().ok_or_else(|| usage())?;
                 sender = value.into_bytes();
+            }
+            "--actor" => {
+                let value = args.next().ok_or_else(|| usage())?;
+                actor_addr = value.into_bytes();
             }
             "--state-dir" => {
                 let value = args.next().ok_or_else(|| usage())?;
@@ -45,6 +50,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => {
                 if let Some(value) = arg.strip_prefix("--sender=") {
                     sender = value.as_bytes().to_vec();
+                    continue;
+                }
+                if let Some(value) = arg.strip_prefix("--actor=") {
+                    actor_addr = value.as_bytes().to_vec();
                     continue;
                 }
                 if let Some(value) = arg.strip_prefix("--state-dir=") {
@@ -98,7 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tx_hash: [1u8; 32],
         sender,
         timestamp_ms: 1_700_000_000_000,
-        actor_addr: b"demo_actor".to_vec(),
+        actor_addr,
         msg_id: Vec::new(),
         nonce: 0,
     };
@@ -128,5 +137,5 @@ fn encode_hex(bytes: &[u8]) -> String {
 }
 
 fn usage() -> &'static str {
-    "usage: pvm_dex_demo [--sender <name>] [--state-dir <path>] [--events-path <path>] [--gas <limit>] [--input-file <path>] <script.py> [input]"
+    "usage: pvm_actor_transfer_demo [--sender <name>] [--actor <addr>] [--state-dir <path>] [--events-path <path>] [--gas <limit>] [--input-file <path>] <script.py> [input]"
 }

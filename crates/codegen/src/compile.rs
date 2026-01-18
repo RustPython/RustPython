@@ -13,6 +13,7 @@ use crate::{
     IndexMap, IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
+    pvm_fsm,
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
@@ -119,6 +120,8 @@ pub struct CompileOpts {
     /// How optimized the bytecode output should be; any optimize > 0 does
     /// not emit assert statements
     pub optimize: u8,
+    /// Enable PVM FSM continuation transform
+    pub pvm_fsm: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -170,6 +173,15 @@ pub fn compile_top(
     mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    let ast = if opts.pvm_fsm {
+        pvm_fsm::transform_mod(ast, &source_file).map_err(|err| CodegenError {
+            location: None,
+            error: err,
+            source_path: source_file.name().to_owned(),
+        })?
+    } else {
+        ast
+    };
     match ast {
         ruff_python_ast::Mod::Module(module) => match mode {
             Mode::Exec | Mode::Eval => compile_program(&module, source_file, opts),

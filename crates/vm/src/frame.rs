@@ -483,7 +483,7 @@ impl ExecutingFrame<'_> {
             if !do_extend_arg {
                 arg_state.reset()
             }
-            if let Some(path) = maybe_checkpoint_request(vm, op, idx as u32) {
+            if let Some(request) = maybe_checkpoint_request(vm, op, idx as u32) {
                 // Save checkpoint using the new multi-frame API
                 // Pass the current instruction index (which has already been validated as PopTop)
                 // The resume point is the next instruction after PopTop
@@ -512,14 +512,38 @@ impl ExecutingFrame<'_> {
                     Some(locals_dict.into())
                 };
                 
-                match checkpoint::save_checkpoint_with_lasti_stack_blocks_and_locals(&vm, &path, resume_lasti, current_stack, current_blocks, current_locals) {
-                    Ok(_) => {
+                let save_result = match request.target {
+                    crate::vm::CheckpointTarget::File(path) => {
+                        checkpoint::save_checkpoint_with_lasti_stack_blocks_and_locals(
+                            &vm,
+                            &path,
+                            resume_lasti,
+                            current_stack,
+                            current_blocks,
+                            current_locals,
+                        )
+                        .map(|_| None)
                     }
+                    crate::vm::CheckpointTarget::Bytes => {
+                        checkpoint::save_checkpoint_bytes_with_lasti_stack_blocks_and_locals(
+                            &vm,
+                            resume_lasti,
+                            current_stack,
+                            current_blocks,
+                            current_locals,
+                        )
+                        .map(Some)
+                    }
+                };
+                let checkpoint_bytes = match save_result {
+                    Ok(bytes) => bytes,
                     Err(exc) => {
                         eprintln!("  Exception class: {}", exc.class().name());
-                        // Return the error instead of swallowing it to see traceback
                         return Err(exc);
                     }
+                };
+                if let Some(bytes) = checkpoint_bytes {
+                    *vm.state.checkpoint_result.lock() = Some(bytes);
                 }
                 
                 // Flush output buffers before exiting
@@ -538,7 +562,13 @@ impl ExecutingFrame<'_> {
                 let _ = std::io::stdout().flush();
                 let _ = std::io::stderr().flush();
                 
-                std::process::exit(0);
+                if vm.state.config.settings.checkpoint_exit {
+                    std::process::exit(0);
+                }
+                return Err(vm.new_exception_msg(
+                    vm.ctx.exceptions.system_exit.to_owned(),
+                    "checkpoint exit".to_owned(),
+                ));
             }
         }
     }
@@ -2686,7 +2716,7 @@ fn maybe_checkpoint_request(
     vm: &VirtualMachine,
     op: bytecode::Instruction,
     idx: u32,
-) -> Option<String> {
+) -> Option<crate::vm::CheckpointRequest> {
     let mut request = vm.state.checkpoint_request.lock();
     let Some(pending) = request.as_ref() else {
         return None;
@@ -2694,13 +2724,13 @@ fn maybe_checkpoint_request(
     if pending.expected_lasti != idx {
         return None;
     }
-    let path = pending.path.clone();
     if op != bytecode::Instruction::PopTop {
         *request = None;
         return None;
     }
+    let pending = pending.clone();
     *request = None;
-    Some(path)
+    Some(pending)
 }
 
 impl fmt::Debug for Frame {

@@ -53,7 +53,10 @@ fn main() -> Result<(), lexopt::Error> {
         return Err("expected at least one argument".into());
     }
 
-    let opts = compiler::CompileOpts { optimize };
+    let opts = compiler::CompileOpts {
+        optimize,
+        pvm_fsm: false,
+    };
 
     for script in &scripts {
         if script.exists() && script.is_file() {

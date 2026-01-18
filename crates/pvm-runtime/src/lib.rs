@@ -1,8 +1,10 @@
 mod host;
+mod continuation;
 mod determinism;
 mod guard;
 mod module;
 
+pub use continuation::{ContinuationOptions, RuntimeConfig};
 pub use determinism::DeterminismOptions;
 use pvm_host::{Bytes, HostApi, HostError};
 use std::collections::HashSet;
@@ -17,6 +19,7 @@ use rustpython_vm::{
     convert::TryFromObject,
     scope::Scope,
 };
+use rustpython_vm::vm::ContinuationMode;
 
 #[derive(Clone, Debug)]
 pub struct ExecutionOptions {
@@ -32,6 +35,7 @@ pub struct ExecutionOptions {
     pub hash_seed: Option<u32>,
     pub determinism: Option<DeterminismOptions>,
     pub set_main_module: bool,
+    pub continuation: Option<ContinuationOptions>,
 }
 
 impl Default for ExecutionOptions {
@@ -49,6 +53,7 @@ impl Default for ExecutionOptions {
             hash_seed: None,
             determinism: None,
             set_main_module: true,
+            continuation: Some(ContinuationOptions::default()),
         }
     }
 }
@@ -103,7 +108,7 @@ pub fn execute_tx_with_options(
         options.argv.clone()
     };
 
-    let determinism = options.determinism.clone().or_else(|| {
+    let mut determinism = options.determinism.clone().or_else(|| {
         if options.deterministic {
             Some(DeterminismOptions::deterministic(options.hash_seed))
         } else {
@@ -123,7 +128,10 @@ pub fn execute_tx_with_options(
         settings.hash_seed = Some(seed);
     }
 
-    let _host_guard = host::HostGuard::install(host);
+    if let Some(cont) = options.continuation.as_ref() {
+        settings.continuation_mode = Some(cont.mode);
+        settings.checkpoint_exit = false;
+    }
 
     let mut config = InterpreterConfig::new().settings(settings);
     #[cfg(feature = "stdlib")]
@@ -133,7 +141,56 @@ pub fn execute_tx_with_options(
         }
     }
     config = config.add_native_module(options.host_module_name.clone(), module::make_module);
+    if options.host_module_name != "pvm_host_module" {
+        config = config.add_native_module("pvm_host_module".to_owned(), module::make_module);
+    }
     let interpreter = config.interpreter();
+
+    let resume_bytes = if let Some(cont) = options.continuation.as_ref() {
+        if cont.mode == ContinuationMode::Checkpoint {
+            if let Some(bytes) = cont.resume_bytes.as_ref() {
+                Some(bytes.clone())
+            } else if let Some(key) = cont.resume_key.as_ref() {
+                host.state_get(key)?
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if resume_bytes.is_some() {
+        if let Some(det) = determinism.as_mut().filter(|item| item.enabled) {
+            // Snapshot restore may import os/path modules; allow them during resume.
+            let allow = [
+                "os",
+                "posix",
+                "posixpath",
+                "genericpath",
+                "stat",
+                "_stat",
+                "errno",
+                "nt",
+                "ntpath",
+                "pvm_host_module",
+                "importlib",
+                "_frozen_importlib",
+                "_frozen_importlib_external",
+            ];
+            det.stdlib_blacklist
+                .retain(|item| !allow.iter().any(|name| name == item));
+            for name in allow {
+                if !det.stdlib_whitelist.iter().any(|item| item == name) {
+                    det.stdlib_whitelist.push(name.to_owned());
+                }
+            }
+        }
+    }
+
+    let runtime_config = RuntimeConfig::from_options(options.continuation.as_ref());
+    let _host_guard = host::HostGuard::install(host, runtime_config);
 
     interpreter.enter(|vm| {
         if let Some(det) = determinism.as_ref().filter(|item| item.enabled) {
@@ -142,7 +199,16 @@ pub fn execute_tx_with_options(
                 return Err(HostError::Internal);
             }
         }
-        let res = run_source(vm, source, input, options);
+        let res = if let Some(data) = resume_bytes.as_ref() {
+            if let Err(err) = ensure_sys_path(vm) {
+                Err(err)
+            } else {
+                vm.resume_from_bytes(options.source_path.as_str(), data)
+                    .and_then(|_| Ok(Vec::new()))
+            }
+        } else {
+            run_source(vm, source, input, options)
+        };
         let trace_result = determinism
             .as_ref()
             .filter(|item| item.enabled)
@@ -150,14 +216,37 @@ pub fn execute_tx_with_options(
             .unwrap_or(Ok(()));
         match res {
             Ok(bytes) => {
+                if let Some(checkpoint) = vm.take_checkpoint_bytes() {
+                    if let Some(cont) = options.continuation.as_ref() {
+                        if let Some(key) = cont.checkpoint_key.as_ref() {
+                            let result = host::with_host(|host| host.state_set(key, &checkpoint))
+                                .ok_or(HostError::Internal)?;
+                            result?;
+                        }
+                    }
+                    return Ok(Vec::new());
+                }
                 if let Err(err) = trace_result {
                     return Err(err);
                 }
                 Ok(bytes)
             }
             Err(err) => {
+                if let Some(checkpoint) = vm.take_checkpoint_bytes() {
+                    if let Some(cont) = options.continuation.as_ref() {
+                        if let Some(key) = cont.checkpoint_key.as_ref() {
+                            let result = host::with_host(|host| host.state_set(key, &checkpoint))
+                                .ok_or(HostError::Internal)?;
+                            result?;
+                        }
+                    }
+                    return Ok(Vec::new());
+                }
                 if let Err(trace_err) = trace_result {
                     eprintln!("pvm import trace failed: {trace_err}");
+                }
+                if std::env::var_os("PVM_PRINT_EXCEPTION").is_some() {
+                    vm.print_exception(err.clone());
                 }
                 let host_error = map_exception(vm, &err, options);
                 if host_error == HostError::Internal {
@@ -205,6 +294,23 @@ fn run_source(
     };
 
     extract_output(vm, output)
+}
+
+fn ensure_sys_path(vm: &VirtualMachine) -> PyResult<()> {
+    let obj = vm.sys_module.get_attr("path", vm)?;
+    let list = PyListRef::try_from_object(vm, obj)?;
+    let items = list.borrow_vec();
+    let mut existing = HashSet::new();
+    for item in items.iter() {
+        let value = item.str(vm)?;
+        existing.insert(value.to_string());
+    }
+    for path in vm.state.config.paths.module_search_paths.iter().rev() {
+        if !existing.contains(path) {
+            vm.insert_sys_path(vm.ctx.new_str(path.as_str()).into())?;
+        }
+    }
+    Ok(())
 }
 
 fn setup_main_module(vm: &VirtualMachine, options: &ExecutionOptions) -> PyResult<Scope> {

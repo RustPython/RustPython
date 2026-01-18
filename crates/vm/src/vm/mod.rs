@@ -52,7 +52,7 @@ use std::{
 pub use context::Context;
 pub use interpreter::Interpreter;
 pub(crate) use method::PyMethod;
-pub use setting::{CheckHashPycsMode, Paths, PyConfig, Settings};
+pub use setting::{CheckHashPycsMode, ContinuationMode, Paths, PyConfig, Settings};
 
 pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 
@@ -106,11 +106,19 @@ pub struct PyGlobalState {
     pub int_max_str_digits: AtomicCell<usize>,
     pub switch_interval: AtomicCell<f64>,
     pub(crate) checkpoint_request: PyMutex<Option<CheckpointRequest>>,
+    pub(crate) checkpoint_result: PyMutex<Option<Vec<u8>>>,
 }
 
+#[derive(Clone)]
 pub(crate) struct CheckpointRequest {
-    pub path: String,
+    pub target: CheckpointTarget,
     pub expected_lasti: u32,
+}
+
+#[derive(Clone)]
+pub(crate) enum CheckpointTarget {
+    File(String),
+    Bytes,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -196,6 +204,7 @@ impl VirtualMachine {
                 int_max_str_digits,
                 switch_interval: AtomicCell::new(0.005),
                 checkpoint_request: PyMutex::default(),
+                checkpoint_result: PyMutex::default(),
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
@@ -515,7 +524,15 @@ impl VirtualMachine {
     pub fn compile_opts(&self) -> crate::compiler::CompileOpts {
         crate::compiler::CompileOpts {
             optimize: self.state.config.settings.optimize,
+            pvm_fsm: matches!(
+                self.state.config.settings.continuation_mode,
+                Some(setting::ContinuationMode::Fsm)
+            ),
         }
+    }
+
+    pub fn take_checkpoint_bytes(&self) -> Option<Vec<u8>> {
+        self.state.checkpoint_result.lock().take()
     }
 
     // To be called right before raising the recursion depth.

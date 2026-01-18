@@ -70,6 +70,10 @@ impl VirtualMachine {
         checkpoint::resume_script_from_checkpoint(self, scope, path, checkpoint_path)
     }
 
+    pub fn resume_from_bytes(&self, script_path: &str, data: &[u8]) -> PyResult<()> {
+        checkpoint::resume_script_from_bytes(self, script_path, data)
+    }
+
     // = _PyRun_AnyFileObject
     fn run_any_file(&self, scope: Scope, path: &str) -> PyResult<()> {
         let path = if path.is_empty() { "???" } else { path };

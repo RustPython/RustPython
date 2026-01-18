@@ -1854,6 +1854,18 @@ impl<'a> SnapshotReader<'a> {
                         let attr = self.vm.ctx.intern_str("maketrans");
                         self.vm.ctx.types.str_type.as_object().get_attr(attr, self.vm)
                             .map_err(|_| SnapshotError::msg("str.maketrans not found"))?
+                    } else if module_name == "builtins" && payload.name.ends_with("_errors") {
+                        let name = payload.name.trim_end_matches("_errors");
+                        self.vm
+                            .state
+                            .codec_registry
+                            .lookup_error(name, self.vm)
+                            .map_err(|_| {
+                                SnapshotError::msg(format!(
+                                    "builtin function lookup failed: {}.{}",
+                                    module_name, payload.name
+                                ))
+                            })?
                     } else {
                         let module = lookup_module(self.vm, module_name)?;
                         let attr = self.vm.ctx.intern_str(payload.name.as_str());
@@ -1930,6 +1942,7 @@ impl<'a> SnapshotReader<'a> {
                         ("builtins", "frame") => ("types", "FrameType"),
                         ("builtins", "NoneType") => ("types", "NoneType"),
                         ("builtins", "NotImplementedType") => ("types", "NotImplementedType"),
+                        ("_json", "Scanner") => ("_json", "make_scanner"),
                         _ => (module.as_str(), name.as_str()),
                     };
                     
@@ -2388,7 +2401,14 @@ fn lookup_module(vm: &VirtualMachine, name: &str) -> Result<PyObjectRef, Snapsho
             Ok(module)
         }
         Err(e) => {
-            Err(SnapshotError::msg(format!("failed to import module: {name}")))
+            let msg = e
+                .as_object()
+                .str(vm)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|_| "unknown import error".to_owned());
+            Err(SnapshotError::msg(format!(
+                "failed to import module: {name} ({msg})"
+            )))
         }
     }
 }

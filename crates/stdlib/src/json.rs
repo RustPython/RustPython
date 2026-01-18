@@ -34,23 +34,42 @@ mod _json {
         type Args = PyObjectRef;
 
         fn py_new(_cls: &Py<PyType>, ctx: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let strict = ctx.get_attr("strict", vm)?.try_to_bool(vm)?;
-            let object_hook = vm.option_if_none(ctx.get_attr("object_hook", vm)?);
-            let object_pairs_hook = vm.option_if_none(ctx.get_attr("object_pairs_hook", vm)?);
-            let parse_float = ctx.get_attr("parse_float", vm)?;
-            let parse_float = if vm.is_none(&parse_float) || parse_float.is(vm.ctx.types.float_type)
-            {
-                None
-            } else {
-                Some(parse_float)
+            let strict = match vm.get_attribute_opt(ctx.clone(), "strict")? {
+                Some(value) => value.try_to_bool(vm)?,
+                None => true,
             };
-            let parse_int = ctx.get_attr("parse_int", vm)?;
-            let parse_int = if vm.is_none(&parse_int) || parse_int.is(vm.ctx.types.int_type) {
-                None
-            } else {
-                Some(parse_int)
+            let object_hook = match vm.get_attribute_opt(ctx.clone(), "object_hook")? {
+                Some(value) => vm.option_if_none(value),
+                None => None,
             };
-            let parse_constant = ctx.get_attr("parse_constant", vm)?;
+            let object_pairs_hook = match vm.get_attribute_opt(ctx.clone(), "object_pairs_hook")? {
+                Some(value) => vm.option_if_none(value),
+                None => None,
+            };
+            let parse_float = match vm.get_attribute_opt(ctx.clone(), "parse_float")? {
+                Some(value) => {
+                    if vm.is_none(&value) || value.is(vm.ctx.types.float_type) {
+                        None
+                    } else {
+                        Some(value)
+                    }
+                }
+                None => None,
+            };
+            let parse_int = match vm.get_attribute_opt(ctx.clone(), "parse_int")? {
+                Some(value) => {
+                    if vm.is_none(&value) || value.is(vm.ctx.types.int_type) {
+                        None
+                    } else {
+                        Some(value)
+                    }
+                }
+                None => None,
+            };
+            let parse_constant = match vm.get_attribute_opt(ctx.clone(), "parse_constant")? {
+                Some(value) if !vm.is_none(&value) => value,
+                _ => vm.ctx.types.float_type.to_owned().into(),
+            };
 
             Ok(Self {
                 strict,
@@ -66,6 +85,11 @@ mod _json {
 
     #[pyclass(with(Callable, Constructor))]
     impl JsonScanner {
+        #[pymethod]
+        fn __getnewargs__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            Ok(vm.new_tuple(vec![self.ctx.clone()]).into())
+        }
+
         fn parse(
             &self,
             s: &str,

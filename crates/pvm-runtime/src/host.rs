@@ -1,4 +1,5 @@
 use pvm_host::HostApi;
+use crate::continuation::RuntimeConfig;
 use std::cell::Cell;
 use std::marker::PhantomData;
 use std::mem;
@@ -7,6 +8,7 @@ type HostPtr = *mut (dyn HostApi + 'static);
 
 thread_local! {
     static HOST: Cell<Option<HostPtr>> = Cell::new(None);
+    static RUNTIME_CONFIG: Cell<Option<RuntimeConfig>> = Cell::new(None);
 }
 
 pub struct HostGuard<'a> {
@@ -14,11 +16,12 @@ pub struct HostGuard<'a> {
 }
 
 impl<'a> HostGuard<'a> {
-    pub fn install(host: &'a mut dyn HostApi) -> Self {
+    pub fn install(host: &'a mut dyn HostApi, runtime_config: RuntimeConfig) -> Self {
         let ptr = host as *mut dyn HostApi;
         // Erase the lifetime; the guard ensures the pointer is only used in-scope.
         let ptr = unsafe { mem::transmute::<*mut dyn HostApi, HostPtr>(ptr) };
         HOST.with(|cell| cell.set(Some(ptr)));
+        RUNTIME_CONFIG.with(|cell| cell.set(Some(runtime_config)));
         Self {
             _marker: PhantomData,
         }
@@ -28,6 +31,7 @@ impl<'a> HostGuard<'a> {
 impl Drop for HostGuard<'_> {
     fn drop(&mut self) {
         HOST.with(|cell| cell.set(None));
+        RUNTIME_CONFIG.with(|cell| cell.set(None));
     }
 }
 
@@ -37,4 +41,8 @@ pub(crate) fn with_host<R>(f: impl FnOnce(&mut dyn HostApi) -> R) -> Option<R> {
         // Safety: host pointer is installed for the duration of an execution.
         Some(unsafe { f(&mut *ptr) })
     })
+}
+
+pub(crate) fn runtime_config() -> Option<RuntimeConfig> {
+    RUNTIME_CONFIG.with(|cell| cell.get())
 }

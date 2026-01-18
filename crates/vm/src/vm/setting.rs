@@ -141,6 +141,12 @@ pub struct Settings {
     /// -O optimization switch counter
     pub optimize: u8,
 
+    /// PVM continuation mode (FSM or checkpoint)
+    pub continuation_mode: Option<ContinuationMode>,
+
+    /// Allow checkpoint to exit the process (CLI default)
+    pub checkpoint_exit: bool,
+
     /// -E
     pub ignore_environment: bool,
 
@@ -162,6 +168,13 @@ pub enum CheckHashPycsMode {
     Never,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, strum_macros::Display, strum_macros::EnumString)]
+#[strum(serialize_all = "lowercase")]
+pub enum ContinuationMode {
+    Fsm,
+    Checkpoint,
+}
+
 impl Settings {
     pub fn with_path(mut self, path: String) -> Self {
         self.path_list.push(path);
@@ -177,6 +190,8 @@ impl Default for Settings {
             inspect: false,
             interactive: false,
             optimize: 0,
+            continuation_mode: None,
+            checkpoint_exit: true,
             install_signal_handlers: true,
             user_site_directory: true,
             import_site: true,

@@ -1,6 +1,6 @@
 use lexopt::Arg::*;
 use lexopt::ValueExt;
-use rustpython_vm::{Settings, vm::CheckHashPycsMode};
+use rustpython_vm::{Settings, vm::{CheckHashPycsMode, ContinuationMode}};
 use std::str::FromStr;
 use std::{cmp, env};
 
@@ -53,6 +53,7 @@ struct CliArgs {
     implementation_option: Vec<String>,
     check_hash_based_pycs: CheckHashPycsMode,
     resume_path: Option<String>,
+    continuation_mode: Option<ContinuationMode>,
 
     #[cfg(feature = "flame-it")]
     profile_output: Option<std::ffi::OsString>,
@@ -102,6 +103,7 @@ Options (and corresponding environment variables):
 
 RustPython extensions:
 --resume path : resume execution from a checkpoint file
+--continuation mode : continuation mode (fsm or checkpoint)
 
 
 Arguments:
@@ -154,6 +156,10 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             }
             Long("resume") => {
                 args.resume_path = Some(parser.value()?.string()?);
+            }
+            Long("continuation") => {
+                let mode: ContinuationMode = parser.value()?.parse()?;
+                args.continuation_mode = Some(mode);
             }
 
             // TODO: make these more specific
@@ -332,6 +338,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     settings.argv = argv;
     settings.resume_path = args.resume_path;
+    settings.continuation_mode = args.continuation_mode;
 
     #[cfg(feature = "flame-it")]
     {

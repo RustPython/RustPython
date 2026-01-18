@@ -9,6 +9,9 @@ pub struct HostContext {
     pub tx_hash: [u8; 32],
     pub sender: Bytes,
     pub timestamp_ms: u64,
+    pub actor_addr: Bytes,
+    pub msg_id: Bytes,
+    pub nonce: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,4 +102,8 @@ pub trait HostApi {
 
     fn context(&self) -> HostContext;
     fn randomness(&self, domain: &[u8]) -> HostResult<[u8; 32]>;
+
+    fn send_message(&mut self, target: &[u8], payload: &[u8]) -> HostResult<()>;
+    fn schedule_timer(&mut self, height: u64, payload: &[u8]) -> HostResult<Bytes>;
+    fn cancel_timer(&mut self, timer_id: &[u8]) -> HostResult<()>;
 }
