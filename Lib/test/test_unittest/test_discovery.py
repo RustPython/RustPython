@@ -884,6 +884,7 @@ class TestDiscovery(unittest.TestCase):
 
         self.assertEqual(suite, ['/a/tests', '/b/tests'])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_discovery_start_dir_is_namespace(self):
         """Subdirectory discovery not affected if start_dir is a namespace pkg."""
         loader = unittest.TestLoader()

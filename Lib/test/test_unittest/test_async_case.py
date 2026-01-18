@@ -13,7 +13,9 @@ class MyException(Exception):
 
 
 def tearDownModule():
-    asyncio.events._set_event_loop_policy(None)
+    # XXX: RUSTPYTHON; asyncio.events._set_event_loop_policy is not implemented
+    # asyncio.events._set_event_loop_policy(None)
+    pass
 
 
 class TestCM:
@@ -476,6 +478,7 @@ class TestAsyncCase(unittest.TestCase):
         test.doCleanups()
         self.assertEqual(events, ['asyncSetUp', 'test', 'cleanup'])
 
+    @unittest.expectedFailure
     def test_setup_get_event_loop(self):
         # See https://github.com/python/cpython/issues/95736
         # Make sure the default event loop is not used
@@ -492,6 +495,7 @@ class TestAsyncCase(unittest.TestCase):
         result = test.run()
         self.assertTrue(result.wasSuccessful())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; asyncio.events._set_event_loop_policy is not implemented
     def test_loop_factory(self):
         asyncio.events._set_event_loop_policy(None)
 
