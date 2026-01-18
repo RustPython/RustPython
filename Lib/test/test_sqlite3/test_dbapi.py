@@ -527,7 +527,7 @@ class ConnectionTests(unittest.TestCase):
                                    cx.executemany, "insert into t values(?)",
                                    ((v,) for v in range(3)))
 
-    @unittest.skip("TODO: RUSTPYTHON SQLITE_DBCONFIG constants not implemented")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON SQLITE_DBCONFIG constants not implemented
     def test_connection_config(self):
         op = sqlite.SQLITE_DBCONFIG_ENABLE_FKEY
         with memory_database() as cx:
@@ -552,7 +552,7 @@ class ConnectionTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite.IntegrityError, "constraint"):
                 cx.execute("insert into u values(0)")
 
-    @unittest.skip("TODO: RUSTPYTHON deprecation warning not emitted for positional args")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON deprecation warning not emitted for positional args
     def test_connect_positional_arguments(self):
         regex = (
             r"Passing more than 1 positional argument to sqlite3.connect\(\)"
@@ -566,14 +566,14 @@ class ConnectionTests(unittest.TestCase):
             cx.close()
         self.assertEqual(cm.filename, __file__)
 
-    @unittest.skip("TODO: RUSTPYTHON ResourceWarning not emitted")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON ResourceWarning not emitted
     def test_connection_resource_warning(self):
         with self.assertWarns(ResourceWarning):
             cx = sqlite.connect(":memory:")
             del cx
             gc_collect()
 
-    @unittest.skip("TODO: RUSTPYTHON Connection signature inspection not working")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON Connection signature inspection not working
     def test_connection_signature(self):
         from inspect import signature
         sig = signature(self.cx)
@@ -875,7 +875,7 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(ZeroDivisionError):
             self.cu.execute("select name from test where name=?", L())
 
-    @unittest.skip("TODO: RUSTPYTHON mixed named and positional parameters not validated")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON mixed named and positional parameters not validated
     def test_execute_named_param_and_sequence(self):
         dataset = (
             ("select :a", (1,)),
@@ -1088,7 +1088,7 @@ class CursorTests(unittest.TestCase):
 
         self.assertEqual(len(res), 2)
 
-    @unittest.skip("TODO: RUSTPYTHON arraysize validation not implemented")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON arraysize validation not implemented
     def test_invalid_array_size(self):
         UINT32_MAX = (1 << 32) - 1
         setter = functools.partial(setattr, self.cu, 'arraysize')
@@ -1097,7 +1097,7 @@ class CursorTests(unittest.TestCase):
         self.assertRaises(ValueError, setter, -3)
         self.assertRaises(OverflowError, setter, UINT32_MAX + 1)
 
-    @unittest.skip("TODO: RUSTPYTHON fetchmany behavior with exhausted cursor differs")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON fetchmany behavior with exhausted cursor differs
     def test_fetchmany(self):
         # no active SQL statement
         res = self.cu.fetchmany()
@@ -1126,7 +1126,7 @@ class CursorTests(unittest.TestCase):
         res = self.cu.fetchmany(100)
         self.assertEqual(res, [])
 
-    @unittest.skip("TODO: RUSTPYTHON fetchmany size validation not implemented")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON fetchmany size validation not implemented
     def test_invalid_fetchmany(self):
         UINT32_MAX = (1 << 32) - 1
         fetchmany = self.cu.fetchmany
@@ -1762,29 +1762,29 @@ class ClosedConTests(unittest.TestCase):
         self.cur = self.con.cursor()
         self.con.close()
 
-    @unittest.skip("TODO: RUSTPYTHON error message differs for closed connection")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
     def test_closed_con_cursor(self):
         self.check(self.con.cursor)
 
-    @unittest.skip("TODO: RUSTPYTHON error message differs for closed connection")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
     def test_closed_con_commit(self):
         self.check(self.con.commit)
 
-    @unittest.skip("TODO: RUSTPYTHON error message differs for closed connection")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
     def test_closed_con_rollback(self):
         self.check(self.con.rollback)
 
-    @unittest.skip("TODO: RUSTPYTHON error message differs for closed connection")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
     def test_closed_cur_execute(self):
         self.check(self.cur.execute, "select 4")
 
-    @unittest.skip("TODO: RUSTPYTHON error message differs for closed connection")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
     def test_closed_create_function(self):
         def f(x):
             return 17
         self.check(self.con.create_function, "foo", 1, f)
 
-    @unittest.skip("TODO: RUSTPYTHON error message differs for closed connection")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
     def test_closed_create_aggregate(self):
         class Agg:
             def __init__(self):
@@ -1795,19 +1795,19 @@ class ClosedConTests(unittest.TestCase):
                 return 17
         self.check(self.con.create_aggregate, "foo", 1, Agg)
 
-    @unittest.skip("TODO: RUSTPYTHON error message differs for closed connection")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
     def test_closed_set_authorizer(self):
         def authorizer(*args):
             return sqlite.DENY
         self.check(self.con.set_authorizer, authorizer)
 
-    @unittest.skip("TODO: RUSTPYTHON error message differs for closed connection")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
     def test_closed_set_progress_callback(self):
         def progress():
             pass
         self.check(self.con.set_progress_handler, progress, 100)
 
-    @unittest.skip("TODO: RUSTPYTHON error message differs for closed connection")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
     def test_closed_call(self):
         self.check(self.con)
 
@@ -1930,7 +1930,7 @@ class MultiprocessTests(unittest.TestCase):
     def tearDown(self):
         unlink(TESTFN)
 
-    @unittest.skip("TODO: RUSTPYTHON multiprocess test fails")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON multiprocess test fails
     def test_ctx_mgr_rollback_if_commit_failed(self):
         # bpo-27334: ctx manager does not rollback if commit fails
         SCRIPT = f"""if 1:
@@ -2042,7 +2042,7 @@ class RowTests(unittest.TestCase):
 
         self.assertNotEqual(r1, r3)
 
-    @unittest.skip("TODO: RUSTPYTHON Row with no description fails")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON Row with no description fails
     def test_row_no_description(self):
         cu = self.cx.cursor()
         self.assertIsNone(cu.description)
