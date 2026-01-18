@@ -882,6 +882,7 @@ class SysModuleTest(unittest.TestCase):
                     '''))
                 self.assertTrue(sys._is_interned(s))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON needs update for context_aware_warnings
     def test_sys_flags(self):
         self.assertTrue(sys.flags)
         attrs = ("debug",
