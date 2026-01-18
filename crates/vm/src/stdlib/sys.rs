@@ -76,8 +76,11 @@ mod sys {
     #[pyattr(name = "_rustpython_debugbuild")]
     const RUSTPYTHON_DEBUGBUILD: bool = cfg!(debug_assertions);
 
+    #[cfg(not(windows))]
     #[pyattr(name = "abiflags")]
-    pub(crate) const ABIFLAGS: &str = "t"; // 't' for free-threaded (no GIL)
+    const ABIFLAGS_ATTR: &str = "t"; // 't' for free-threaded (no GIL)
+    // Internal constant used for sysconfigdata_name
+    pub(crate) const ABIFLAGS: &str = "t";
     #[pyattr(name = "api_version")]
     const API_VERSION: u32 = 0x0; // what C api?
     #[pyattr(name = "copyright")]
@@ -527,6 +530,7 @@ mod sys {
             "_multiarch" => ctx.new_str(multiarch()),
             "version" => version_info(vm),
             "hexversion" => ctx.new_int(version::VERSION_HEX),
+            "supports_isolated_interpreters" => ctx.new_bool(false),
         })
     }
 
@@ -626,6 +630,12 @@ mod sys {
     #[pyfunction]
     const fn _is_gil_enabled() -> bool {
         false // RustPython has no GIL (like free-threaded Python)
+    }
+
+    /// Return True if remote debugging is enabled, False otherwise.
+    #[pyfunction]
+    const fn is_remote_debug_enabled() -> bool {
+        false // RustPython does not support remote debugging
     }
 
     #[pyfunction]
