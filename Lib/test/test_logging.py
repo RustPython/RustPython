@@ -6753,8 +6753,6 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
                     self.assertStartsWith(fn, 'g')
                     self.assertTrue(fn[1].isdigit())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compute_files_to_delete_same_filename_different_extensions(self):
         # See GH-93205 for background
         wd = pathlib.Path(tempfile.mkdtemp(prefix='test_logging_'))

@@ -2098,7 +2098,6 @@ class HTTPSTest(TestCase):
             h.request('GET', '/')
         self.assertEqual(exc_info.exception.reason, 'CERTIFICATE_VERIFY_FAILED')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON http.client.RemoteDisconnected: Remote end closed connection without response
     def test_local_good_hostname(self):
         # The (valid) cert validates the HTTPS hostname
         import ssl
@@ -2112,7 +2111,6 @@ class HTTPSTest(TestCase):
         self.addCleanup(resp.close)
         self.assertEqual(resp.status, 404)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON http.client.RemoteDisconnected: Remote end closed connection without response
     def test_local_bad_hostname(self):
         # The (valid) cert doesn't validate the HTTPS hostname
         import ssl
