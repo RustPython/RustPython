@@ -5,6 +5,7 @@ use crate::{
     exceptions::types::PyBaseException,
     frame::{ExecutionResult, FrameRef},
     function::OptionalArg,
+    object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -36,6 +37,15 @@ pub struct Coro {
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
     exception: PyMutex<Option<PyBaseExceptionRef>>, // exc_state
+}
+
+unsafe impl Traverse for Coro {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.frame.traverse(tracer_fn);
+        self.name.traverse(tracer_fn);
+        self.qualname.traverse(tracer_fn);
+        self.exception.traverse(tracer_fn);
+    }
 }
 
 fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
