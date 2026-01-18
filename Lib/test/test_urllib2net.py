@@ -7,7 +7,6 @@ from test import support
 from test.support import os_helper
 from test.support import socket_helper
 from test.support import ResourceDenied
-from test.test_urllib2 import sanepathname2url
 from test.support.warnings_helper import check_no_resource_warning
 
 import os
@@ -192,7 +191,7 @@ class OtherNetworkTests(unittest.TestCase):
             f.write('hi there\n')
             f.close()
             urls = [
-                'file:' + sanepathname2url(os.path.abspath(TESTFN)),
+                urllib.request.pathname2url(os.path.abspath(TESTFN), add_scheme=True),
                 ('file:///nonsensename/etc/passwd', None,
                  urllib.error.URLError),
                 ]

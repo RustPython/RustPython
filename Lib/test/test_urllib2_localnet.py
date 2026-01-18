@@ -11,7 +11,6 @@ import hashlib
 from test import support
 from test.support import hashlib_helper
 from test.support import threading_helper
-from test.support.testcase import ExtraAssertions
 
 try:
     import ssl
@@ -447,7 +446,7 @@ def GetRequestHandler(responses):
     return FakeHTTPRequestHandler
 
 
-class TestUrlopen(unittest.TestCase, ExtraAssertions):
+class TestUrlopen(unittest.TestCase):
     """Tests urllib.request.urlopen using the network.
 
     These tests are not exhaustive.  Assuming that testing using files does a
@@ -685,7 +684,6 @@ class TestUrlopen(unittest.TestCase, ExtraAssertions):
         opener.open(request, "1234567890".encode("us-ascii"))
         self.assertEqual(b"1234567890", request.data)
         self.assertEqual("10", request.get_header("Content-length"))
-
 
 def setUpModule():
     thread_info = threading_helper.threading_setup()
