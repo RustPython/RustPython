@@ -389,9 +389,11 @@ impl Interpreter {
     /// 1. Flush stdout and stderr.
     /// 1. Handle exit exception and turn it to exit code.
     /// 1. Wait for thread shutdown (call threading._shutdown).
-    /// 1. Mark vm as finalizing.
+    /// 1. Set finalizing flag (suppresses unraisable exceptions).
+    /// 1. Call threading._shutdown() to join non-daemon threads.
     /// 1. Run atexit exit functions.
-    /// 1. Mark vm as finalized.
+    /// 1. GC pass and module cleanup.
+    /// 1. Final GC pass.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
     pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
@@ -419,11 +421,24 @@ impl Interpreter {
                 );
             }
 
-            // Mark as finalizing AFTER thread shutdown
+            // Run atexit handlers before setting finalizing flag.
+            // This allows unraisable exceptions from atexit handlers to be reported.
+            atexit::_run_exitfuncs(vm);
+
+            // Now suppress unraisable exceptions from daemon threads and __del__
+            // methods during the rest of shutdown.
             vm.state.finalizing.store(true, Ordering::Release);
 
-            // Run atexit exit functions
-            atexit::_run_exitfuncs(vm);
+            // First GC pass - collect cycles before module cleanup
+            crate::gc_state::gc_state().collect_force(2);
+
+            // Clear modules to break references to objects in module namespaces.
+            // This allows cyclic garbage created in modules to be collected.
+            vm.finalize_modules();
+
+            // Second GC pass - now cyclic garbage in modules can be collected
+            // and __del__ methods will be called
+            crate::gc_state::gc_state().collect_force(2);
 
             vm.flush_std();
 

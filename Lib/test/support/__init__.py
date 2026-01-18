@@ -919,13 +919,6 @@ def disable_gc():
 
 @contextlib.contextmanager
 def gc_threshold(*args):
-    # TODO: RUSTPYTHON; GC is not supported yet
-    try:
-        yield
-    finally:
-        pass
-    return
-
     import gc
     old_threshold = gc.get_threshold()
     gc.set_threshold(*args)

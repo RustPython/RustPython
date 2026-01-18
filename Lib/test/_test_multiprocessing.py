@@ -4057,8 +4057,6 @@ class _TestHeap(BaseTestCase):
         self.assertEqual(len(heap._allocated_blocks), 0, heap._allocated_blocks)
         self.assertEqual(len(heap._len_to_seq), 0)
 
-    # TODO: RUSTPYTHON - gc.enable() not implemented
-    @unittest.expectedFailure
     def test_free_from_gc(self):
         # Check that freeing of blocks by the garbage collector doesn't deadlock
         # (issue #12352).

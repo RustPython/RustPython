@@ -767,6 +767,12 @@ impl VirtualMachine {
             // Update the frame slot to the new top frame (or None if empty)
             #[cfg(feature = "threading")]
             crate::vm::thread::update_current_frame(self.frames.borrow().last().cloned());
+
+            // Reactivate EBR guard at frame boundary (safe point)
+            // This allows GC to advance epochs and free deferred objects
+            #[cfg(feature = "threading")]
+            crate::vm::thread::reactivate_guard();
+
             result
         })
     }
@@ -1238,6 +1244,75 @@ impl VirtualMachine {
         let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
         run_module_as_main.call((module,), self)?;
         Ok(())
+    }
+
+    /// Clear module references during shutdown.
+    /// This breaks references from modules to objects, allowing cyclic garbage
+    /// to be collected in the subsequent GC pass.
+    ///
+    /// Clears __main__ and user-imported modules while preserving stdlib modules
+    /// needed for __del__ to work correctly (e.g., print, traceback, etc.).
+    pub fn finalize_modules(&self) {
+        // Get sys.modules dict
+        if let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self)
+            && let Some(modules_dict) = modules.downcast_ref::<PyDict>()
+        {
+            // First pass: clear __main__ module
+            if let Ok(main_module) = modules_dict.get_item("__main__", self)
+                && let Some(module) = main_module.downcast_ref::<PyModule>()
+            {
+                module.dict().clear();
+            }
+
+            // Second pass: clear user modules (non-stdlib)
+            // A module is considered "user" if it has a __file__ attribute
+            // that doesn't point to the stdlib location
+            let module_items: Vec<_> = modules_dict.into_iter().collect();
+            for (key, value) in &module_items {
+                if let Some(key_str) = key.downcast_ref::<PyStr>() {
+                    let name = key_str.as_str();
+                    // Skip stdlib modules (starting with _ or known stdlib names)
+                    if name.starts_with('_')
+                        || matches!(
+                            name,
+                            "sys"
+                                | "builtins"
+                                | "os"
+                                | "io"
+                                | "traceback"
+                                | "linecache"
+                                | "posixpath"
+                                | "ntpath"
+                                | "genericpath"
+                                | "abc"
+                                | "codecs"
+                                | "encodings"
+                                | "stat"
+                                | "collections"
+                                | "functools"
+                                | "types"
+                                | "importlib"
+                                | "warnings"
+                                | "weakref"
+                                | "gc"
+                        )
+                    {
+                        continue;
+                    }
+                }
+                if let Some(module) = value.downcast_ref::<PyModule>()
+                    && let Ok(file_attr) = module.dict().get_item("__file__", self)
+                    && !self.is_none(&file_attr)
+                    && let Some(file_str) = file_attr.downcast_ref::<PyStr>()
+                {
+                    let file_path = file_str.as_str();
+                    // Clear if not in pylib (stdlib)
+                    if !file_path.contains("pylib") && !file_path.contains("Lib") {
+                        module.dict().clear();
+                    }
+                }
+            }
+        }
     }
 
     pub fn fs_encoding(&self) -> &'static PyStrInterned {

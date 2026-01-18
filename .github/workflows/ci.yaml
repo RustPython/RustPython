@@ -111,6 +111,7 @@ env:
     test.test_multiprocessing_forkserver.test_processes
     test.test_multiprocessing_spawn.test_processes
   ENV_POLLUTING_TESTS_MACOS: >-
+    test.test_concurrent_futures.test_shutdown
     test.test_multiprocessing_forkserver.test_processes
     test.test_multiprocessing_spawn.test_processes
   ENV_POLLUTING_TESTS_WINDOWS: >-
