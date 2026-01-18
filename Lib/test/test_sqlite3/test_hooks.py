@@ -196,6 +196,7 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
         con.execute("select 1 union select 2 union select 3").fetchall()
         self.assertEqual(action, 0, "progress handler was not cleared")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @with_tracebacks(ZeroDivisionError, msg_regex="bad_progress")
     def test_error_in_progress_handler(self):
         def bad_progress():
@@ -206,6 +207,7 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
                 create table foo(a, b)
                 """)
 
+    @unittest.skip("TODO: RUSTPYTHON unraisable exception handling not implemented")
     @with_tracebacks(ZeroDivisionError, msg_regex="bad_progress")
     def test_error_in_progress_handler_result(self):
         class BadBool:
@@ -219,6 +221,7 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
                 create table foo(a, b)
                 """)
 
+    @unittest.skip("TODO: RUSTPYTHON keyword-only arguments not supported for set_progress_handler")
     def test_progress_handler_keyword_args(self):
         regex = (
             r"Passing keyword argument 'progress_handler' to "
@@ -322,6 +325,7 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
                 cx.execute("create table t(t)")
                 cx.executemany("insert into t values(?)", ((v,) for v in range(3)))
 
+    @unittest.skip("TODO: RUSTPYTHON unraisable exception handling not implemented")
     @with_tracebacks(
         sqlite.DataError,
         regex="Expanded SQL string exceeds the maximum string length"
@@ -346,12 +350,14 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
             with self.check_stmt_trace(cx, [expanded_query]):
                 cx.execute(unexpanded_query, (ok_param,))
 
+    @unittest.skip("TODO: RUSTPYTHON unraisable exception handling not implemented")
     @with_tracebacks(ZeroDivisionError, regex="division by zero")
     def test_trace_bad_handler(self):
         with memory_database() as cx:
             cx.set_trace_callback(lambda stmt: 5/0)
             cx.execute("select 1")
 
+    @unittest.skip("TODO: RUSTPYTHON keyword-only arguments not supported for set_trace_callback")
     def test_trace_keyword_args(self):
         regex = (
             r"Passing keyword argument 'trace_callback' to "

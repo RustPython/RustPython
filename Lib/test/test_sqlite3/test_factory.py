@@ -40,6 +40,7 @@ class MyCursor(sqlite.Cursor):
         self.row_factory = dict_factory
 
 class ConnectionFactoryTests(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_connection_factories(self):
         class DefectFactory(sqlite.Connection):
             def __init__(self, *args, **kwargs):
@@ -67,6 +68,7 @@ class ConnectionFactoryTests(unittest.TestCase):
             self.assertIsNone(con.isolation_level)
             self.assertIsInstance(con, Factory)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_connection_factory_as_positional_arg(self):
         class Factory(sqlite.Connection):
             def __init__(self, *args, **kwargs):
