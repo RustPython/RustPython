@@ -3,7 +3,6 @@ from test import support
 from test.support import import_helper
 import binascii
 import copy
-import os
 import pickle
 import random
 import sys
@@ -13,11 +12,11 @@ from test.support import bigmemtest, _1G, _4G, is_s390x
 zlib = import_helper.import_module('zlib')
 
 requires_Compress_copy = unittest.skipUnless(
-    hasattr(zlib.compressobj(), "copy"),
-    'requires Compress.copy()')
+        hasattr(zlib.compressobj(), "copy"),
+        'requires Compress.copy()')
 requires_Decompress_copy = unittest.skipUnless(
-    hasattr(zlib.decompressobj(), "copy"),
-    'requires Decompress.copy()')
+        hasattr(zlib.decompressobj(), "copy"),
+        'requires Decompress.copy()')
 
 
 def _zlib_runtime_version_tuple(zlib_version=zlib.ZLIB_RUNTIME_VERSION):
@@ -154,7 +153,7 @@ class ExceptionTestCase(unittest.TestCase):
         self.assertRaises(ValueError, zlib.compressobj, 1, zlib.DEFLATED, 0)
         # specifying total bits too large causes an error
         self.assertRaises(ValueError,
-                          zlib.compressobj, 1, zlib.DEFLATED, zlib.MAX_WBITS + 1)
+                zlib.compressobj, 1, zlib.DEFLATED, zlib.MAX_WBITS + 1)
 
     def test_baddecompressobj(self):
         # verify failure on building decompress object with bad params
@@ -242,8 +241,8 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
         # A useful error message is given
         x = zlib.compress(HAMLET_SCENE)
         self.assertRaisesRegex(zlib.error,
-                               "Error -5 while decompressing data: incomplete or truncated stream",
-                               zlib.decompress, x[:-1])
+            "Error -5 while decompressing data: incomplete or truncated stream",
+            zlib.decompress, x[:-1])
 
     # Memory use of the following functions takes into account overallocation
 
@@ -377,7 +376,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
             bufs.append(dco.decompress(combuf[i:i+dcx]))
             self.assertEqual(b'', dco.unconsumed_tail, ########
                              "(A) uct should be b'': not %d long" %
-                             len(dco.unconsumed_tail))
+                                       len(dco.unconsumed_tail))
             self.assertEqual(b'', dco.unused_data)
         if flush:
             bufs.append(dco.flush())
@@ -390,7 +389,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
                     break
         self.assertEqual(b'', dco.unconsumed_tail, ########
                          "(B) uct should be b'': not %d long" %
-                         len(dco.unconsumed_tail))
+                                       len(dco.unconsumed_tail))
         self.assertEqual(b'', dco.unused_data)
         self.assertEqual(data, b''.join(bufs))
         # Failure means: "decompressobj with init options failed"
@@ -419,7 +418,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
             #max_length = 1 + len(cb)//10
             chunk = dco.decompress(cb, dcx)
             self.assertFalse(len(chunk) > dcx,
-                             'chunk too big (%d>%d)' % (len(chunk), dcx))
+                    'chunk too big (%d>%d)' % (len(chunk), dcx))
             bufs.append(chunk)
             cb = dco.unconsumed_tail
         bufs.append(dco.flush())
@@ -444,7 +443,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
             max_length = 1 + len(cb)//10
             chunk = dco.decompress(cb, max_length)
             self.assertFalse(len(chunk) > max_length,
-                             'chunk too big (%d>%d)' % (len(chunk),max_length))
+                        'chunk too big (%d>%d)' % (len(chunk),max_length))
             bufs.append(chunk)
             cb = dco.unconsumed_tail
         if flush:
@@ -453,7 +452,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
             while chunk:
                 chunk = dco.decompress(b'', max_length)
                 self.assertFalse(len(chunk) > max_length,
-                                 'chunk too big (%d>%d)' % (len(chunk),max_length))
+                            'chunk too big (%d>%d)' % (len(chunk),max_length))
                 bufs.append(chunk)
         self.assertEqual(data, b''.join(bufs), 'Wrong data retrieved')
 
@@ -490,8 +489,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         ddata += dco.decompress(dco.unconsumed_tail)
         self.assertEqual(dco.unconsumed_tail, b"")
 
-    # TODO: RUSTPYTHON: Z_BLOCK support in flate2
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Z_BLOCK support in flate2
     def test_flushes(self):
         # Test flush() with the various options, using all the
         # different levels in order to provide more variations.
@@ -633,7 +631,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
                         self.assertEqual(dco.unconsumed_tail, b'')
                     else:
                         data += dco.decompress(
-                            dco.unconsumed_tail + x[i : i + step], maxlen)
+                                dco.unconsumed_tail + x[i : i + step], maxlen)
                 data += dco.flush()
                 self.assertTrue(dco.eof)
                 self.assertEqual(data, source)
@@ -811,8 +809,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         finally:
             comp = uncomp = data = None
 
-    # TODO: RUSTPYTHON: wbits=0 support in flate2
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; wbits=0 support in flate2
     def test_wbits(self):
         # wbits=0 only supported since zlib v1.2.3.5
         supports_wbits_0 = ZLIB_RUNTIME_VERSION_TUPLE >= (1, 2, 3, 5)
@@ -941,6 +938,7 @@ LAERTES
        Farewell.
 """
 
+
 class ZlibDecompressorTest(unittest.TestCase):
     # Test adopted from test_bz2.py
     TEXT = HAMLET_SCENE
@@ -1015,7 +1013,7 @@ class ZlibDecompressorTest(unittest.TestCase):
         # Feed some input
         len_ = len(self.BIG_DATA) - 64
         out.append(zlibd.decompress(self.BIG_DATA[:len_],
-                                    max_length=max_length))
+                                  max_length=max_length))
         self.assertFalse(zlibd.needs_input)
         self.assertEqual(len(out[-1]), max_length)
 
@@ -1026,7 +1024,7 @@ class ZlibDecompressorTest(unittest.TestCase):
 
         # Retrieve more data while providing more input
         out.append(zlibd.decompress(self.BIG_DATA[len_:],
-                                    max_length=max_length))
+                                  max_length=max_length))
         self.assertLessEqual(len(out[-1]), max_length)
 
         # Retrieve remaining uncompressed data
@@ -1046,7 +1044,7 @@ class ZlibDecompressorTest(unittest.TestCase):
 
         # Create input buffer and fill it
         self.assertEqual(zlibd.decompress(self.DATA[:100],
-                                          max_length=0), b'')
+                                        max_length=0), b'')
 
         # Retrieve some results, freeing capacity at beginning
         # of input buffer
@@ -1068,7 +1066,7 @@ class ZlibDecompressorTest(unittest.TestCase):
 
         # Create input buffer and empty it
         self.assertEqual(zlibd.decompress(self.DATA[:200],
-                                          max_length=0), b'')
+                                        max_length=0), b'')
         out.append(zlibd.decompress(b''))
 
         # Fill buffer with new data
@@ -1111,6 +1109,7 @@ class ZlibDecompressorTest(unittest.TestCase):
         for i in range(100):
             zlibd.__init__()
         self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
+
 
 class CustomInt:
     def __index__(self):

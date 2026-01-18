@@ -1,4 +1,3 @@
-import _compression
 import array
 from io import BytesIO, UnsupportedOperation, DEFAULT_BUFFER_SIZE
 import os
@@ -7,6 +6,7 @@ import random
 import sys
 from test import support
 import unittest
+from compression._common import _streams
 
 from test.support import _4G, bigmemtest
 from test.support.import_helper import import_module
@@ -22,8 +22,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
 
     # Test error cases.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_simple_bad_args(self):
         self.assertRaises(TypeError, LZMACompressor, [])
         self.assertRaises(TypeError, LZMACompressor, format=3.45)
@@ -64,8 +63,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd.decompress(empty)
         self.assertRaises(EOFError, lzd.decompress, b"quux")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bad_filter_spec(self):
         self.assertRaises(TypeError, LZMACompressor, filters=[b"wobsite"])
         self.assertRaises(ValueError, LZMACompressor, filters=[{"xyzzy": 3}])
@@ -82,8 +80,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd.decompress(COMPRESSED_XZ)
         self.assertRaises(EOFError, lzd.decompress, b"nyan")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_memlimit(self):
         lzd = LZMADecompressor(memlimit=1024)
         self.assertRaises(LZMAError, lzd.decompress, COMPRESSED_XZ)
@@ -104,8 +101,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, unused_data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_auto(self):
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, COMPRESSED_XZ, lzma.CHECK_CRC64)
@@ -113,44 +109,37 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, COMPRESSED_ALONE, lzma.CHECK_NONE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_xz(self):
         lzd = LZMADecompressor(lzma.FORMAT_XZ)
         self._test_decompressor(lzd, COMPRESSED_XZ, lzma.CHECK_CRC64)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_alone(self):
         lzd = LZMADecompressor(lzma.FORMAT_ALONE)
         self._test_decompressor(lzd, COMPRESSED_ALONE, lzma.CHECK_NONE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_raw_1(self):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_1)
         self._test_decompressor(lzd, COMPRESSED_RAW_1, lzma.CHECK_NONE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_raw_2(self):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_2)
         self._test_decompressor(lzd, COMPRESSED_RAW_2, lzma.CHECK_NONE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_raw_3(self):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_3)
         self._test_decompressor(lzd, COMPRESSED_RAW_3, lzma.CHECK_NONE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_raw_4(self):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         self._test_decompressor(lzd, COMPRESSED_RAW_4, lzma.CHECK_NONE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_chunks(self):
         lzd = LZMADecompressor()
         out = []
@@ -163,8 +152,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, b"")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_chunks_empty(self):
         lzd = LZMADecompressor()
         out = []
@@ -180,8 +168,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, b"")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_chunks_maxsize(self):
         lzd = LZMADecompressor()
         max_length = 100
@@ -273,16 +260,14 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         out.append(lzd.decompress(COMPRESSED_XZ[300:]))
         self.assertEqual(b''.join(out), INPUT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_unused_data(self):
         lzd = LZMADecompressor()
         extra = b"fooblibar"
         self._test_decompressor(lzd, COMPRESSED_XZ + extra, lzma.CHECK_CRC64,
                                 unused_data=extra)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_bad_input(self):
         lzd = LZMADecompressor()
         self.assertRaises(LZMAError, lzd.decompress, COMPRESSED_RAW_1)
@@ -296,8 +281,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_1)
         self.assertRaises(LZMAError, lzd.decompress, COMPRESSED_XZ)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_bug_28275(self):
         # Test coverage for Issue 28275
         lzd = LZMADecompressor()
@@ -307,32 +291,28 @@ class CompressorDecompressorTestCase(unittest.TestCase):
 
     # Test that LZMACompressor->LZMADecompressor preserves the input data.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_roundtrip_xz(self):
         lzc = LZMACompressor()
         cdata = lzc.compress(INPUT) + lzc.flush()
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, cdata, lzma.CHECK_CRC64)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_roundtrip_alone(self):
         lzc = LZMACompressor(lzma.FORMAT_ALONE)
         cdata = lzc.compress(INPUT) + lzc.flush()
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, cdata, lzma.CHECK_NONE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_roundtrip_raw(self):
         lzc = LZMACompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         cdata = lzc.compress(INPUT) + lzc.flush()
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         self._test_decompressor(lzd, cdata, lzma.CHECK_NONE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_roundtrip_raw_empty(self):
         lzc = LZMACompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         cdata = lzc.compress(INPUT)
@@ -343,8 +323,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         self._test_decompressor(lzd, cdata, lzma.CHECK_NONE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_roundtrip_chunks(self):
         lzc = LZMACompressor()
         cdata = []
@@ -355,8 +334,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, cdata, lzma.CHECK_CRC64)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_roundtrip_empty_chunks(self):
         lzc = LZMACompressor()
         cdata = []
@@ -372,8 +350,7 @@ class CompressorDecompressorTestCase(unittest.TestCase):
 
     # LZMADecompressor intentionally does not handle concatenated streams.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompressor_multistream(self):
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, COMPRESSED_XZ + COMPRESSED_ALONE,
@@ -434,8 +411,7 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
 
     # Test error cases:
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bad_args(self):
         self.assertRaises(TypeError, lzma.compress)
         self.assertRaises(TypeError, lzma.compress, [])
@@ -463,24 +439,22 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
             lzma.decompress(b"", format=lzma.FORMAT_XZ, filters=FILTERS_RAW_1)
         with self.assertRaises(ValueError):
             lzma.decompress(
-                b"", format=lzma.FORMAT_ALONE, filters=FILTERS_RAW_1)
+                    b"", format=lzma.FORMAT_ALONE, filters=FILTERS_RAW_1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompress_memlimit(self):
         with self.assertRaises(LZMAError):
             lzma.decompress(COMPRESSED_XZ, memlimit=1024)
         with self.assertRaises(LZMAError):
             lzma.decompress(
-                COMPRESSED_XZ, format=lzma.FORMAT_XZ, memlimit=1024)
+                    COMPRESSED_XZ, format=lzma.FORMAT_XZ, memlimit=1024)
         with self.assertRaises(LZMAError):
             lzma.decompress(
-                COMPRESSED_ALONE, format=lzma.FORMAT_ALONE, memlimit=1024)
+                    COMPRESSED_ALONE, format=lzma.FORMAT_ALONE, memlimit=1024)
 
     # Test LZMADecompressor on known-good input data.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompress_good_input(self):
         ddata = lzma.decompress(COMPRESSED_XZ)
         self.assertEqual(ddata, INPUT)
@@ -495,23 +469,22 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
         self.assertEqual(ddata, INPUT)
 
         ddata = lzma.decompress(
-            COMPRESSED_RAW_1, lzma.FORMAT_RAW, filters=FILTERS_RAW_1)
+                COMPRESSED_RAW_1, lzma.FORMAT_RAW, filters=FILTERS_RAW_1)
         self.assertEqual(ddata, INPUT)
 
         ddata = lzma.decompress(
-            COMPRESSED_RAW_2, lzma.FORMAT_RAW, filters=FILTERS_RAW_2)
+                COMPRESSED_RAW_2, lzma.FORMAT_RAW, filters=FILTERS_RAW_2)
         self.assertEqual(ddata, INPUT)
 
         ddata = lzma.decompress(
-            COMPRESSED_RAW_3, lzma.FORMAT_RAW, filters=FILTERS_RAW_3)
+                COMPRESSED_RAW_3, lzma.FORMAT_RAW, filters=FILTERS_RAW_3)
         self.assertEqual(ddata, INPUT)
 
         ddata = lzma.decompress(
-            COMPRESSED_RAW_4, lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
+                COMPRESSED_RAW_4, lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         self.assertEqual(ddata, INPUT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompress_incomplete_input(self):
         self.assertRaises(LZMAError, lzma.decompress, COMPRESSED_XZ[:128])
         self.assertRaises(LZMAError, lzma.decompress, COMPRESSED_ALONE[:128])
@@ -524,8 +497,7 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
         self.assertRaises(LZMAError, lzma.decompress, COMPRESSED_RAW_4[:128],
                           format=lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompress_bad_input(self):
         with self.assertRaises(LZMAError):
             lzma.decompress(COMPRESSED_BOGUS)
@@ -541,8 +513,7 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
 
     # Test that compress()->decompress() preserves the input data.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_roundtrip(self):
         cdata = lzma.compress(INPUT)
         ddata = lzma.decompress(cdata)
@@ -568,14 +539,12 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
 
     # Test robust handling of non-LZMA data following the compressed stream(s).
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompress_trailing_junk(self):
         ddata = lzma.decompress(COMPRESSED_XZ + COMPRESSED_BOGUS)
         self.assertEqual(ddata, INPUT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_decompress_multistream_trailing_junk(self):
         ddata = lzma.decompress(COMPRESSED_XZ * 3 + COMPRESSED_BOGUS)
         self.assertEqual(ddata, INPUT * 3)
@@ -612,8 +581,7 @@ class FileTestCase(unittest.TestCase):
             self.assertIsInstance(f, LZMAFile)
             self.assertEqual(f.mode, "wb")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_init_with_PathLike_filename(self):
         filename = FakePath(TESTFN)
         with TempFile(filename, COMPRESSED_XZ):
@@ -694,8 +662,7 @@ class FileTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(COMPRESSED_XZ), "rw")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_init_bad_check(self):
         with self.assertRaises(TypeError):
             LZMAFile(BytesIO(), "w", check=b"asd")
@@ -716,6 +683,7 @@ class FileTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(COMPRESSED_XZ), check=lzma.CHECK_UNKNOWN)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_init_bad_preset(self):
         with self.assertRaises(TypeError):
             LZMAFile(BytesIO(), "w", preset=4.39)
@@ -723,18 +691,19 @@ class FileTestCase(unittest.TestCase):
             LZMAFile(BytesIO(), "w", preset=10)
         with self.assertRaises(LZMAError):
             LZMAFile(BytesIO(), "w", preset=23)
-        with self.assertRaises(OverflowError):
+        with self.assertRaises(ValueError):
             LZMAFile(BytesIO(), "w", preset=-1)
-        with self.assertRaises(OverflowError):
+        with self.assertRaises(ValueError):
             LZMAFile(BytesIO(), "w", preset=-7)
+        with self.assertRaises(OverflowError):
+            LZMAFile(BytesIO(), "w", preset=2**1000)
         with self.assertRaises(TypeError):
             LZMAFile(BytesIO(), "w", preset="foo")
         # Cannot specify a preset with mode="r".
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(COMPRESSED_XZ), preset=3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_init_bad_filter_spec(self):
         with self.assertRaises(TypeError):
             LZMAFile(BytesIO(), "w", filters=[b"wobsite"])
@@ -752,8 +721,7 @@ class FileTestCase(unittest.TestCase):
             LZMAFile(BytesIO(), "w",
                      filters=[{"id": lzma.FILTER_X86, "foo": 0}])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_init_with_preset_and_filters(self):
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(), "w", format=lzma.FORMAT_RAW,
@@ -872,8 +840,7 @@ class FileTestCase(unittest.TestCase):
             f.close()
         self.assertRaises(ValueError, f.writable)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_read(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ)) as f:
             self.assertEqual(f.read(), INPUT)
@@ -921,8 +888,7 @@ class FileTestCase(unittest.TestCase):
                 chunks.append(result)
             self.assertEqual(b"".join(chunks), INPUT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_read_multistream(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ * 5)) as f:
             self.assertEqual(f.read(), INPUT * 5)
@@ -935,22 +901,20 @@ class FileTestCase(unittest.TestCase):
     def test_read_multistream_buffer_size_aligned(self):
         # Test the case where a stream boundary coincides with the end
         # of the raw read buffer.
-        saved_buffer_size = _compression.BUFFER_SIZE
-        _compression.BUFFER_SIZE = len(COMPRESSED_XZ)
+        saved_buffer_size = _streams.BUFFER_SIZE
+        _streams.BUFFER_SIZE = len(COMPRESSED_XZ)
         try:
             with LZMAFile(BytesIO(COMPRESSED_XZ *  5)) as f:
                 self.assertEqual(f.read(), INPUT * 5)
         finally:
-            _compression.BUFFER_SIZE = saved_buffer_size
+            _streams.BUFFER_SIZE = saved_buffer_size
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_read_trailing_junk(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ + COMPRESSED_BOGUS)) as f:
             self.assertEqual(f.read(), INPUT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_read_multistream_trailing_junk(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ * 5 + COMPRESSED_BOGUS)) as f:
             self.assertEqual(f.read(), INPUT * 5)
@@ -1056,8 +1020,7 @@ class FileTestCase(unittest.TestCase):
         with LZMAFile(BytesIO(COMPRESSED_XZ)) as f:
             self.assertRaises(TypeError, f.read, float())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_read_bad_data(self):
         with LZMAFile(BytesIO(COMPRESSED_BOGUS)) as f:
             self.assertRaises(LZMAError, f.read)
@@ -1103,20 +1066,19 @@ class FileTestCase(unittest.TestCase):
         with LZMAFile(BytesIO(COMPRESSED_XZ)) as f:
             result = f.peek()
             self.assertGreater(len(result), 0)
-            self.assertTrue(INPUT.startswith(result))
+            self.assertStartsWith(INPUT, result)
             self.assertEqual(f.read(), INPUT)
         with LZMAFile(BytesIO(COMPRESSED_XZ)) as f:
             result = f.peek(10)
             self.assertGreater(len(result), 0)
-            self.assertTrue(INPUT.startswith(result))
+            self.assertStartsWith(INPUT, result)
             self.assertEqual(f.read(), INPUT)
 
     def test_peek_bad_args(self):
         with LZMAFile(BytesIO(), "w") as f:
             self.assertRaises(ValueError, f.peek)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_iterator(self):
         with BytesIO(INPUT) as f:
             lines = f.readlines()
@@ -1148,16 +1110,15 @@ class FileTestCase(unittest.TestCase):
     def test_decompress_limited(self):
         """Decompressed data buffering should be limited"""
         bomb = lzma.compress(b'\0' * int(2e6), preset=6)
-        self.assertLess(len(bomb), _compression.BUFFER_SIZE)
+        self.assertLess(len(bomb), _streams.BUFFER_SIZE)
 
         decomp = LZMAFile(BytesIO(bomb))
         self.assertEqual(decomp.read(1), b'\0')
         max_decomp = 1 + DEFAULT_BUFFER_SIZE
         self.assertLessEqual(decomp._buffer.raw.tell(), max_decomp,
-                             "Excessive amount of data was decompressed")
+            "Excessive amount of data was decompressed")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write(self):
         with BytesIO() as dst:
             with LZMAFile(dst, "w") as f:
@@ -1426,8 +1387,7 @@ class FileTestCase(unittest.TestCase):
         f.close()
         self.assertRaises(ValueError, f.tell)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_issue21872(self):
         # sometimes decompress data incompletely
 
@@ -1511,8 +1471,7 @@ class OpenTestCase(unittest.TestCase):
             with lzma.open(TESTFN, "rb") as f:
                 self.assertEqual(f.read(), INPUT * 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_with_pathlike_filename(self):
         filename = FakePath(TESTFN)
         with TempFile(filename):
@@ -1539,8 +1498,7 @@ class OpenTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             lzma.open(TESTFN, "rb", newline="\n")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_format_and_filters(self):
         # Test non-default format and filter chain.
         options = {"format": lzma.FORMAT_RAW, "filters": FILTERS_RAW_1}
@@ -1571,8 +1529,7 @@ class OpenTestCase(unittest.TestCase):
             with lzma.open(bio, "rt", encoding="ascii", errors="ignore") as f:
                 self.assertEqual(f.read(), "foobar")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_newline(self):
         # Test with explicit newline (universal newline mode disabled).
         text = INPUT.decode("ascii")
@@ -1597,8 +1554,7 @@ class OpenTestCase(unittest.TestCase):
 
 class MiscellaneousTestCase(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_is_check_supported(self):
         # CHECK_NONE and CHECK_CRC32 should always be supported,
         # regardless of the options liblzma was compiled with.
@@ -1611,8 +1567,7 @@ class MiscellaneousTestCase(unittest.TestCase):
         # This value should not be a valid check ID.
         self.assertFalse(lzma.is_check_supported(lzma.CHECK_UNKNOWN))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test__encode_filter_properties(self):
         with self.assertRaises(TypeError):
             lzma._encode_filter_properties(b"not a dict")
@@ -1622,20 +1577,19 @@ class MiscellaneousTestCase(unittest.TestCase):
             lzma._encode_filter_properties({"id": lzma.FILTER_LZMA2, "junk": 12})
         with self.assertRaises(lzma.LZMAError):
             lzma._encode_filter_properties({"id": lzma.FILTER_DELTA,
-                                            "dist": 9001})
+                                           "dist": 9001})
 
         # Test with parameters used by zipfile module.
         props = lzma._encode_filter_properties({
-            "id": lzma.FILTER_LZMA1,
-            "pb": 2,
-            "lp": 0,
-            "lc": 3,
-            "dict_size": 8 << 20,
-        })
+                "id": lzma.FILTER_LZMA1,
+                "pb": 2,
+                "lp": 0,
+                "lc": 3,
+                "dict_size": 8 << 20,
+            })
         self.assertEqual(props, b"]\x00\x00\x80\x00")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test__decode_filter_properties(self):
         with self.assertRaises(TypeError):
             lzma._decode_filter_properties(lzma.FILTER_X86, {"should be": bytes})
@@ -1644,7 +1598,7 @@ class MiscellaneousTestCase(unittest.TestCase):
 
         # Test with parameters used by zipfile module.
         filterspec = lzma._decode_filter_properties(
-            lzma.FILTER_LZMA1, b"]\x00\x00\x80\x00")
+                lzma.FILTER_LZMA1, b"]\x00\x00\x80\x00")
         self.assertEqual(filterspec["id"], lzma.FILTER_LZMA1)
         self.assertEqual(filterspec["pb"], 2)
         self.assertEqual(filterspec["lp"], 0)
@@ -1659,11 +1613,10 @@ class MiscellaneousTestCase(unittest.TestCase):
             filterspec = lzma._decode_filter_properties(f, b"")
             self.assertEqual(filterspec, {"id": f})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_filter_properties_roundtrip(self):
         spec1 = lzma._decode_filter_properties(
-            lzma.FILTER_LZMA1, b"]\x00\x00\x80\x00")
+                lzma.FILTER_LZMA1, b"]\x00\x00\x80\x00")
         reencoded = lzma._encode_filter_properties(spec1)
         spec2 = lzma._decode_filter_properties(lzma.FILTER_LZMA1, reencoded)
         self.assertEqual(spec1, spec2)
