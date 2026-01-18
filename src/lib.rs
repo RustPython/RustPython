@@ -219,6 +219,12 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         );
     }
 
+    // Initialize warnings module to process sys.warnoptions
+    // _PyWarnings_Init()
+    if vm.import("warnings", 0).is_err() {
+        warn!("Failed to import warnings module");
+    }
+
     // _PyPathConfig_ComputeSysPath0 - set sys.path[0] after site import
     if !vm.state.config.settings.safe_path {
         let path0: Option<String> = match &run_mode {
