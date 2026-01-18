@@ -210,8 +210,19 @@ jobs:
         with:
           target: aarch64-linux-android
 
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+          add-to-path: true
+
       - name: Check compilation for android
         run: cargo check --target aarch64-linux-android ${{ env.CARGO_ARGS_NO_SSL }}
+        env:
+          CC_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          AR_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
 
       - uses: dtolnay/rust-toolchain@stable
         with:
