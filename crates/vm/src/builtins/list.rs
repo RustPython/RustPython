@@ -3,6 +3,7 @@ use crate::atomic_func;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     class::PyClassImpl,
@@ -23,7 +24,7 @@ use crate::{
 use alloc::fmt;
 use core::ops::DerefMut;
 
-#[pyclass(module = false, name = "list", unhashable = true, traverse)]
+#[pyclass(module = false, name = "list", unhashable = true, traverse = "manual")]
 #[derive(Default)]
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
@@ -47,6 +48,22 @@ impl From<Vec<PyObjectRef>> for PyList {
 impl FromIterator<PyObjectRef> for PyList {
     fn from_iter<T: IntoIterator<Item = PyObjectRef>>(iter: T) -> Self {
         Vec::from_iter(iter).into()
+    }
+}
+
+// SAFETY: Traverse properly visits all owned PyObjectRefs
+unsafe impl Traverse for PyList {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        self.elements.traverse(traverse_fn);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        // During GC, we use interior mutability to access elements.
+        // This is safe because during GC collection, the object is unreachable
+        // and no other code should be accessing it.
+        if let Some(mut guard) = self.elements.try_write() {
+            out.extend(guard.drain(..));
+        }
     }
 }
 

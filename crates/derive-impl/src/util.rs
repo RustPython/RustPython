@@ -372,6 +372,7 @@ impl ItemMeta for ClassItemMeta {
         "ctx",
         "impl",
         "traverse",
+        "clear", // tp_clear
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {

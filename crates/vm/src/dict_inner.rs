@@ -724,6 +724,17 @@ impl<T: Clone> Dict<T> {
             + inner.indices.len() * size_of::<i64>()
             + inner.entries.len() * size_of::<DictEntry<T>>()
     }
+
+    /// Pop all entries from the dict, returning (key, value) pairs.
+    /// This is used for circular reference resolution in GC.
+    /// Requires &mut self to avoid lock contention.
+    pub fn drain_entries(&mut self) -> impl Iterator<Item = (PyObjectRef, T)> + '_ {
+        let inner = self.inner.get_mut();
+        inner.used = 0;
+        inner.filled = 0;
+        inner.indices.iter_mut().for_each(|i| *i = IndexEntry::FREE);
+        inner.entries.drain(..).flatten().map(|e| (e.key, e.value))
+    }
 }
 
 type LookupResult = (IndexEntry, IndexIndex);
