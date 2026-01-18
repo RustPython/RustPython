@@ -91,6 +91,9 @@ pub struct Settings {
     /// -X thread_inherit_context, whether new threads inherit context from parent
     pub thread_inherit_context: bool,
 
+    /// -X context_aware_warnings, whether warnings are context aware
+    pub context_aware_warnings: bool,
+
     /// -i
     pub inspect: bool,
 
@@ -194,6 +197,7 @@ impl Default for Settings {
             dev_mode: false,
             warn_default_encoding: false,
             thread_inherit_context: false,
+            context_aware_warnings: false,
             warnoptions: vec![],
             path_list: vec![],
             argv: vec![],
