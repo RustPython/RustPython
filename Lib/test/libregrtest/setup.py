@@ -13,7 +13,7 @@ from _colorize import can_colorize  # type: ignore[import-not-found]
 from .filter import set_match_tests
 from .runtests import RunTests
 from .utils import (
-    setup_unraisable_hook, setup_threading_excepthook, fix_umask,
+    setup_unraisable_hook, setup_threading_excepthook,
     adjust_rlimit_nofile)
 
 
@@ -28,8 +28,6 @@ def setup_test_dir(testdir: str | None) -> None:
 
 
 def setup_process() -> None:
-    fix_umask()
-
     assert sys.__stderr__ is not None, "sys.__stderr__ is None"
     try:
         stderr_fd = sys.__stderr__.fileno()
@@ -54,7 +52,7 @@ def setup_process() -> None:
 
     adjust_rlimit_nofile()
 
-    support.record_original_stdout(sys.stdout)  # TODO: RUSTPYTHON, figure out why this was disabled in the first place
+    support.record_original_stdout(sys.stdout)
 
     # Set sys.stdout encoder error handler to backslashreplace,
     # similar to sys.stderr error handler, to avoid UnicodeEncodeError
