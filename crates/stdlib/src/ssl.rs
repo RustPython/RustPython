@@ -3503,9 +3503,9 @@ mod _ssl {
             }
 
             // Check if connection has been shut down
-            // After unwrap()/shutdown(), read operations should fail with SSLError
+            // Only block after shutdown is COMPLETED, not during shutdown process
             let shutdown_state = *self.shutdown_state.lock();
-            if shutdown_state != ShutdownState::NotStarted {
+            if shutdown_state == ShutdownState::Completed {
                 return Err(vm
                     .new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
@@ -3677,7 +3677,8 @@ mod _ssl {
             }
 
             // Check shutdown state
-            if *self.shutdown_state.lock() != ShutdownState::NotStarted {
+            // Only block after shutdown is COMPLETED, not during shutdown process
+            if *self.shutdown_state.lock() == ShutdownState::Completed {
                 return Err(vm
                     .new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
@@ -4138,6 +4139,8 @@ mod _ssl {
                         }
                     }
 
+                    // Set shutdown_state first to ensure atomic visibility
+                    // This prevents read/write race conditions during shutdown
                     *self.shutdown_state.lock() = ShutdownState::Completed;
                     *self.connection.lock() = None;
                     return Ok(self.sock.clone());
@@ -4396,6 +4399,21 @@ mod _ssl {
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             unimplemented!("use slot_new")
+        }
+    }
+
+    // Clean up SSL socket resources on drop
+    impl Drop for PySSLSocket {
+        fn drop(&mut self) {
+            // Clear connection state
+            let _ = self.connection.lock().take();
+
+            // Clear pending buffers
+            self.pending_tls_output.lock().clear();
+            *self.write_buffered_len.lock() = 0;
+
+            // Reset shutdown state
+            *self.shutdown_state.lock() = ShutdownState::NotStarted;
         }
     }
 
