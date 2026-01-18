@@ -3,7 +3,7 @@ use crate::stdlib::ast::argument::{merge_class_def_args, split_class_def_args};
 use rustpython_compiler_core::SourceFile;
 
 // sum
-impl Node for ruff::Stmt {
+impl Node for ast::Stmt {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         match self {
             Self::FunctionDef(cons) => cons.ast_to_object(vm, source_file),
@@ -44,117 +44,93 @@ impl Node for ruff::Stmt {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(pyast::NodeStmtFunctionDef::static_type()) {
-            Self::FunctionDef(ruff::StmtFunctionDef::ast_from_object(
+            Self::FunctionDef(ast::StmtFunctionDef::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtAsyncFunctionDef::static_type()) {
-            Self::FunctionDef(ruff::StmtFunctionDef::ast_from_object(
+            Self::FunctionDef(ast::StmtFunctionDef::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtClassDef::static_type()) {
-            Self::ClassDef(ruff::StmtClassDef::ast_from_object(
+            Self::ClassDef(ast::StmtClassDef::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtReturn::static_type()) {
-            Self::Return(ruff::StmtReturn::ast_from_object(
-                _vm,
-                source_file,
-                _object,
-            )?)
+            Self::Return(ast::StmtReturn::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtDelete::static_type()) {
-            Self::Delete(ruff::StmtDelete::ast_from_object(
-                _vm,
-                source_file,
-                _object,
-            )?)
+            Self::Delete(ast::StmtDelete::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtAssign::static_type()) {
-            Self::Assign(ruff::StmtAssign::ast_from_object(
-                _vm,
-                source_file,
-                _object,
-            )?)
+            Self::Assign(ast::StmtAssign::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtTypeAlias::static_type()) {
-            Self::TypeAlias(ruff::StmtTypeAlias::ast_from_object(
+            Self::TypeAlias(ast::StmtTypeAlias::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtAugAssign::static_type()) {
-            Self::AugAssign(ruff::StmtAugAssign::ast_from_object(
+            Self::AugAssign(ast::StmtAugAssign::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtAnnAssign::static_type()) {
-            Self::AnnAssign(ruff::StmtAnnAssign::ast_from_object(
+            Self::AnnAssign(ast::StmtAnnAssign::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtFor::static_type()) {
-            Self::For(ruff::StmtFor::ast_from_object(_vm, source_file, _object)?)
+            Self::For(ast::StmtFor::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtAsyncFor::static_type()) {
-            Self::For(ruff::StmtFor::ast_from_object(_vm, source_file, _object)?)
+            Self::For(ast::StmtFor::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtWhile::static_type()) {
-            Self::While(ruff::StmtWhile::ast_from_object(_vm, source_file, _object)?)
+            Self::While(ast::StmtWhile::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtIf::static_type()) {
-            Self::If(ruff::StmtIf::ast_from_object(_vm, source_file, _object)?)
+            Self::If(ast::StmtIf::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtWith::static_type()) {
-            Self::With(ruff::StmtWith::ast_from_object(_vm, source_file, _object)?)
+            Self::With(ast::StmtWith::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtAsyncWith::static_type()) {
-            Self::With(ruff::StmtWith::ast_from_object(_vm, source_file, _object)?)
+            Self::With(ast::StmtWith::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtMatch::static_type()) {
-            Self::Match(ruff::StmtMatch::ast_from_object(_vm, source_file, _object)?)
+            Self::Match(ast::StmtMatch::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtRaise::static_type()) {
-            Self::Raise(ruff::StmtRaise::ast_from_object(_vm, source_file, _object)?)
+            Self::Raise(ast::StmtRaise::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtTry::static_type()) {
-            Self::Try(ruff::StmtTry::ast_from_object(_vm, source_file, _object)?)
+            Self::Try(ast::StmtTry::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtTryStar::static_type()) {
-            Self::Try(ruff::StmtTry::ast_from_object(_vm, source_file, _object)?)
+            Self::Try(ast::StmtTry::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtAssert::static_type()) {
-            Self::Assert(ruff::StmtAssert::ast_from_object(
-                _vm,
-                source_file,
-                _object,
-            )?)
+            Self::Assert(ast::StmtAssert::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtImport::static_type()) {
-            Self::Import(ruff::StmtImport::ast_from_object(
-                _vm,
-                source_file,
-                _object,
-            )?)
+            Self::Import(ast::StmtImport::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtImportFrom::static_type()) {
-            Self::ImportFrom(ruff::StmtImportFrom::ast_from_object(
+            Self::ImportFrom(ast::StmtImportFrom::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtGlobal::static_type()) {
-            Self::Global(ruff::StmtGlobal::ast_from_object(
-                _vm,
-                source_file,
-                _object,
-            )?)
+            Self::Global(ast::StmtGlobal::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtNonlocal::static_type()) {
-            Self::Nonlocal(ruff::StmtNonlocal::ast_from_object(
+            Self::Nonlocal(ast::StmtNonlocal::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtExpr::static_type()) {
-            Self::Expr(ruff::StmtExpr::ast_from_object(_vm, source_file, _object)?)
+            Self::Expr(ast::StmtExpr::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtPass::static_type()) {
-            Self::Pass(ruff::StmtPass::ast_from_object(_vm, source_file, _object)?)
+            Self::Pass(ast::StmtPass::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtBreak::static_type()) {
-            Self::Break(ruff::StmtBreak::ast_from_object(_vm, source_file, _object)?)
+            Self::Break(ast::StmtBreak::ast_from_object(_vm, source_file, _object)?)
         } else if _cls.is(pyast::NodeStmtContinue::static_type()) {
-            Self::Continue(ruff::StmtContinue::ast_from_object(
+            Self::Continue(ast::StmtContinue::ast_from_object(
                 _vm,
                 source_file,
                 _object,
@@ -169,7 +145,7 @@ impl Node for ruff::Stmt {
 }
 
 // constructor
-impl Node for ruff::StmtFunctionDef {
+impl Node for ast::StmtFunctionDef {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -266,7 +242,7 @@ impl Node for ruff::StmtFunctionDef {
 }
 
 // constructor
-impl Node for ruff::StmtClassDef {
+impl Node for ast::StmtClassDef {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -348,7 +324,7 @@ impl Node for ruff::StmtClassDef {
     }
 }
 // constructor
-impl Node for ruff::StmtReturn {
+impl Node for ast::StmtReturn {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -379,7 +355,7 @@ impl Node for ruff::StmtReturn {
     }
 }
 // constructor
-impl Node for ruff::StmtDelete {
+impl Node for ast::StmtDelete {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -413,7 +389,7 @@ impl Node for ruff::StmtDelete {
 }
 
 // constructor
-impl Node for ruff::StmtAssign {
+impl Node for ast::StmtAssign {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -461,7 +437,7 @@ impl Node for ruff::StmtAssign {
 }
 
 // constructor
-impl Node for ruff::StmtTypeAlias {
+impl Node for ast::StmtTypeAlias {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -516,7 +492,7 @@ impl Node for ruff::StmtTypeAlias {
 }
 
 // constructor
-impl Node for ruff::StmtAugAssign {
+impl Node for ast::StmtAugAssign {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -566,7 +542,7 @@ impl Node for ruff::StmtAugAssign {
 }
 
 // constructor
-impl Node for ruff::StmtAnnAssign {
+impl Node for ast::StmtAnnAssign {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -626,7 +602,7 @@ impl Node for ruff::StmtAnnAssign {
 }
 
 // constructor
-impl Node for ruff::StmtFor {
+impl Node for ast::StmtFor {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -704,7 +680,7 @@ impl Node for ruff::StmtFor {
 }
 
 // constructor
-impl Node for ruff::StmtWhile {
+impl Node for ast::StmtWhile {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -754,7 +730,7 @@ impl Node for ruff::StmtWhile {
     }
 }
 // constructor
-impl Node for ruff::StmtIf {
+impl Node for ast::StmtIf {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -764,7 +740,7 @@ impl Node for ruff::StmtIf {
             elif_else_clauses,
         } = self;
         elif_else_clause::ast_to_object(
-            ruff::ElifElseClause {
+            ast::ElifElseClause {
                 node_index: Default::default(),
                 range,
                 test: Some(*test),
@@ -784,7 +760,7 @@ impl Node for ruff::StmtIf {
     }
 }
 // constructor
-impl Node for ruff::StmtWith {
+impl Node for ast::StmtWith {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -844,7 +820,7 @@ impl Node for ruff::StmtWith {
     }
 }
 // constructor
-impl Node for ruff::StmtMatch {
+impl Node for ast::StmtMatch {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -885,7 +861,7 @@ impl Node for ruff::StmtMatch {
     }
 }
 // constructor
-impl Node for ruff::StmtRaise {
+impl Node for ast::StmtRaise {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -922,7 +898,7 @@ impl Node for ruff::StmtRaise {
     }
 }
 // constructor
-impl Node for ruff::StmtTry {
+impl Node for ast::StmtTry {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -996,7 +972,7 @@ impl Node for ruff::StmtTry {
     }
 }
 // constructor
-impl Node for ruff::StmtAssert {
+impl Node for ast::StmtAssert {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1035,7 +1011,7 @@ impl Node for ruff::StmtAssert {
     }
 }
 // constructor
-impl Node for ruff::StmtImport {
+impl Node for ast::StmtImport {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1068,7 +1044,7 @@ impl Node for ruff::StmtImport {
     }
 }
 // constructor
-impl Node for ruff::StmtImportFrom {
+impl Node for ast::StmtImportFrom {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1117,7 +1093,7 @@ impl Node for ruff::StmtImportFrom {
     }
 }
 // constructor
-impl Node for ruff::StmtGlobal {
+impl Node for ast::StmtGlobal {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1150,7 +1126,7 @@ impl Node for ruff::StmtGlobal {
     }
 }
 // constructor
-impl Node for ruff::StmtNonlocal {
+impl Node for ast::StmtNonlocal {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1183,7 +1159,7 @@ impl Node for ruff::StmtNonlocal {
     }
 }
 // constructor
-impl Node for ruff::StmtExpr {
+impl Node for ast::StmtExpr {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1216,7 +1192,7 @@ impl Node for ruff::StmtExpr {
     }
 }
 // constructor
-impl Node for ruff::StmtPass {
+impl Node for ast::StmtPass {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1241,7 +1217,7 @@ impl Node for ruff::StmtPass {
     }
 }
 // constructor
-impl Node for ruff::StmtBreak {
+impl Node for ast::StmtBreak {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1268,7 +1244,7 @@ impl Node for ruff::StmtBreak {
 }
 
 // constructor
-impl Node for ruff::StmtContinue {
+impl Node for ast::StmtContinue {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,

@@ -18,9 +18,9 @@ use rustpython_compiler_core::SourceFile;
 /// - `FunctionType`: A function signature with argument and return type
 ///   annotations, representing the type hints of a function (e.g., `def add(x: int, y: int) -> int`).
 pub(super) enum Mod {
-    Module(ruff::ModModule),
+    Module(ast::ModModule),
     Interactive(ModInteractive),
-    Expression(ruff::ModExpression),
+    Expression(ast::ModExpression),
     FunctionType(ModFunctionType),
 }
 
@@ -42,11 +42,11 @@ impl Node for Mod {
     ) -> PyResult<Self> {
         let cls = object.class();
         Ok(if cls.is(pyast::NodeModModule::static_type()) {
-            Self::Module(ruff::ModModule::ast_from_object(vm, source_file, object)?)
+            Self::Module(ast::ModModule::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeModInteractive::static_type()) {
             Self::Interactive(ModInteractive::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeModExpression::static_type()) {
-            Self::Expression(ruff::ModExpression::ast_from_object(
+            Self::Expression(ast::ModExpression::ast_from_object(
                 vm,
                 source_file,
                 object,
@@ -63,7 +63,7 @@ impl Node for Mod {
 }
 
 // constructor
-impl Node for ruff::ModModule {
+impl Node for ast::ModModule {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -113,7 +113,7 @@ impl Node for ruff::ModModule {
 
 pub(super) struct ModInteractive {
     pub(crate) range: TextRange,
-    pub(crate) body: Vec<ruff::Stmt>,
+    pub(crate) body: Vec<ast::Stmt>,
 }
 
 // constructor
@@ -147,7 +147,7 @@ impl Node for ModInteractive {
 }
 
 // constructor
-impl Node for ruff::ModExpression {
+impl Node for ast::ModExpression {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -182,8 +182,8 @@ impl Node for ruff::ModExpression {
 }
 
 pub(super) struct ModFunctionType {
-    pub(crate) argtypes: Box<[ruff::Expr]>,
-    pub(crate) returns: ruff::Expr,
+    pub(crate) argtypes: Box<[ast::Expr]>,
+    pub(crate) returns: ast::Expr,
     pub(crate) range: TextRange,
 }
 

@@ -13,12 +13,7 @@ use crate::{
 };
 use alloc::{borrow::Cow, fmt};
 use bitflags::bitflags;
-use ruff_python_ast::{
-    self as ast, Comprehension, Decorator, Expr, Identifier, ModExpression, ModModule, Parameter,
-    ParameterWithDefault, Parameters, Pattern, PatternMatchAs, PatternMatchClass,
-    PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchStar, PatternMatchValue,
-    Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams,
-};
+use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
 use std::collections::HashSet;
@@ -97,13 +92,19 @@ impl SymbolTable {
         }
     }
 
-    pub fn scan_program(program: &ModModule, source_file: SourceFile) -> SymbolTableResult<Self> {
+    pub fn scan_program(
+        program: &ast::ModModule,
+        source_file: SourceFile,
+    ) -> SymbolTableResult<Self> {
         let mut builder = SymbolTableBuilder::new(source_file);
         builder.scan_statements(program.body.as_ref())?;
         builder.finish()
     }
 
-    pub fn scan_expr(expr: &ModExpression, source_file: SourceFile) -> SymbolTableResult<Self> {
+    pub fn scan_expr(
+        expr: &ast::ModExpression,
+        source_file: SourceFile,
+    ) -> SymbolTableResult<Self> {
         let mut builder = SymbolTableBuilder::new(source_file);
         builder.scan_expression(expr.body.as_ref(), ExpressionContext::Load)?;
         builder.finish()
@@ -973,21 +974,21 @@ impl SymbolTableBuilder {
             .get() as _
     }
 
-    fn scan_statements(&mut self, statements: &[Stmt]) -> SymbolTableResult {
+    fn scan_statements(&mut self, statements: &[ast::Stmt]) -> SymbolTableResult {
         for statement in statements {
             self.scan_statement(statement)?;
         }
         Ok(())
     }
 
-    fn scan_parameters(&mut self, parameters: &[ParameterWithDefault]) -> SymbolTableResult {
+    fn scan_parameters(&mut self, parameters: &[ast::ParameterWithDefault]) -> SymbolTableResult {
         for parameter in parameters {
             self.scan_parameter(&parameter.parameter)?;
         }
         Ok(())
     }
 
-    fn scan_parameter(&mut self, parameter: &Parameter) -> SymbolTableResult {
+    fn scan_parameter(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
         self.check_name(
             parameter.name.as_str(),
             ExpressionContext::Store,
@@ -1019,7 +1020,7 @@ impl SymbolTableBuilder {
         self.register_ident(&parameter.name, usage)
     }
 
-    fn scan_annotation(&mut self, annotation: &Expr) -> SymbolTableResult {
+    fn scan_annotation(&mut self, annotation: &ast::Expr) -> SymbolTableResult {
         let current_scope = self.tables.last().map(|t| t.typ);
 
         // PEP 649: Check if this is a conditional annotation
@@ -1074,8 +1075,8 @@ impl SymbolTableBuilder {
         result
     }
 
-    fn scan_statement(&mut self, statement: &Stmt) -> SymbolTableResult {
-        use ruff_python_ast::*;
+    fn scan_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
+        use ast::*;
         if let Stmt::ImportFrom(StmtImportFrom { module, names, .. }) = &statement
             && module.as_ref().map(|id| id.as_str()) == Some("__future__")
         {
@@ -1435,7 +1436,7 @@ impl SymbolTableBuilder {
 
     fn scan_decorators(
         &mut self,
-        decorators: &[Decorator],
+        decorators: &[ast::Decorator],
         context: ExpressionContext,
     ) -> SymbolTableResult {
         for decorator in decorators {
@@ -1446,7 +1447,7 @@ impl SymbolTableBuilder {
 
     fn scan_expressions(
         &mut self,
-        expressions: &[Expr],
+        expressions: &[ast::Expr],
         context: ExpressionContext,
     ) -> SymbolTableResult {
         for expression in expressions {
@@ -1457,10 +1458,10 @@ impl SymbolTableBuilder {
 
     fn scan_expression(
         &mut self,
-        expression: &Expr,
+        expression: &ast::Expr,
         context: ExpressionContext,
     ) -> SymbolTableResult {
-        use ruff_python_ast::*;
+        use ast::*;
 
         // Check for expressions not allowed in certain contexts
         // (type parameters, annotations, type aliases, TypeVar bounds/defaults)
@@ -1837,9 +1838,9 @@ impl SymbolTableBuilder {
     fn scan_comprehension(
         &mut self,
         scope_name: &str,
-        elt1: &Expr,
-        elt2: Option<&Expr>,
-        generators: &[Comprehension],
+        elt1: &ast::Expr,
+        elt2: Option<&ast::Expr>,
+        generators: &[ast::Comprehension],
         range: TextRange,
         is_generator: bool,
     ) -> SymbolTableResult {
@@ -1906,7 +1907,7 @@ impl SymbolTableBuilder {
     // = symtable_visit_type_param_bound_or_default
     fn scan_type_param_bound_or_default(
         &mut self,
-        expr: &Expr,
+        expr: &ast::Expr,
         scope_name: &str,
         scope_info: &'static str,
     ) -> SymbolTableResult {
@@ -1932,14 +1933,14 @@ impl SymbolTableBuilder {
         result
     }
 
-    fn scan_type_params(&mut self, type_params: &TypeParams) -> SymbolTableResult {
+    fn scan_type_params(&mut self, type_params: &ast::TypeParams) -> SymbolTableResult {
         // Check for duplicate type parameter names
         let mut seen_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for type_param in &type_params.type_params {
             let (name, range) = match type_param {
-                TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range),
-                TypeParam::ParamSpec(ps) => (ps.name.as_str(), ps.range),
-                TypeParam::TypeVarTuple(tvt) => (tvt.name.as_str(), tvt.range),
+                ast::TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range),
+                ast::TypeParam::ParamSpec(ps) => (ps.name.as_str(), ps.range),
+                ast::TypeParam::TypeVarTuple(tvt) => (tvt.name.as_str(), tvt.range),
             };
             if !seen_names.insert(name) {
                 return Err(SymbolTableError {
@@ -1959,7 +1960,7 @@ impl SymbolTableBuilder {
         // First register all type parameters
         for type_param in &type_params.type_params {
             match type_param {
-                TypeParam::TypeVar(TypeParamTypeVar {
+                ast::TypeParam::TypeVar(ast::TypeParamTypeVar {
                     name,
                     bound,
                     range: type_var_range,
@@ -1991,7 +1992,7 @@ impl SymbolTableBuilder {
                         )?;
                     }
                 }
-                TypeParam::ParamSpec(TypeParamParamSpec {
+                ast::TypeParam::ParamSpec(ast::TypeParamParamSpec {
                     name,
                     range: param_spec_range,
                     default,
@@ -2009,7 +2010,7 @@ impl SymbolTableBuilder {
                         )?;
                     }
                 }
-                TypeParam::TypeVarTuple(TypeParamTypeVarTuple {
+                ast::TypeParam::TypeVarTuple(ast::TypeParamTypeVarTuple {
                     name,
                     range: type_var_tuple_range,
                     default,
@@ -2032,22 +2033,24 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    fn scan_patterns(&mut self, patterns: &[Pattern]) -> SymbolTableResult {
+    fn scan_patterns(&mut self, patterns: &[ast::Pattern]) -> SymbolTableResult {
         for pattern in patterns {
             self.scan_pattern(pattern)?;
         }
         Ok(())
     }
 
-    fn scan_pattern(&mut self, pattern: &Pattern) -> SymbolTableResult {
-        use Pattern::*;
+    fn scan_pattern(&mut self, pattern: &ast::Pattern) -> SymbolTableResult {
+        use ast::Pattern::*;
         match pattern {
-            MatchValue(PatternMatchValue { value, .. }) => {
+            MatchValue(ast::PatternMatchValue { value, .. }) => {
                 self.scan_expression(value, ExpressionContext::Load)?
             }
             MatchSingleton(_) => {}
-            MatchSequence(PatternMatchSequence { patterns, .. }) => self.scan_patterns(patterns)?,
-            MatchMapping(PatternMatchMapping {
+            MatchSequence(ast::PatternMatchSequence { patterns, .. }) => {
+                self.scan_patterns(patterns)?
+            }
+            MatchMapping(ast::PatternMatchMapping {
                 keys,
                 patterns,
                 rest,
@@ -2059,19 +2062,19 @@ impl SymbolTableBuilder {
                     self.register_ident(rest, SymbolUsage::Assigned)?;
                 }
             }
-            MatchClass(PatternMatchClass { cls, arguments, .. }) => {
+            MatchClass(ast::PatternMatchClass { cls, arguments, .. }) => {
                 self.scan_expression(cls, ExpressionContext::Load)?;
                 self.scan_patterns(&arguments.patterns)?;
                 for kw in &arguments.keywords {
                     self.scan_pattern(&kw.pattern)?;
                 }
             }
-            MatchStar(PatternMatchStar { name, .. }) => {
+            MatchStar(ast::PatternMatchStar { name, .. }) => {
                 if let Some(name) = name {
                     self.register_ident(name, SymbolUsage::Assigned)?;
                 }
             }
-            MatchAs(PatternMatchAs { pattern, name, .. }) => {
+            MatchAs(ast::PatternMatchAs { pattern, name, .. }) => {
                 if let Some(pattern) = pattern {
                     self.scan_pattern(pattern)?;
                 }
@@ -2079,7 +2082,7 @@ impl SymbolTableBuilder {
                     self.register_ident(name, SymbolUsage::Assigned)?;
                 }
             }
-            MatchOr(PatternMatchOr { patterns, .. }) => self.scan_patterns(patterns)?,
+            MatchOr(ast::PatternMatchOr { patterns, .. }) => self.scan_patterns(patterns)?,
         }
         Ok(())
     }
@@ -2087,7 +2090,7 @@ impl SymbolTableBuilder {
     fn enter_scope_with_parameters(
         &mut self,
         name: &str,
-        parameters: &Parameters,
+        parameters: &ast::Parameters,
         line_number: u32,
         has_return_annotation: bool,
     ) -> SymbolTableResult {
@@ -2174,7 +2177,7 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    fn register_ident(&mut self, ident: &Identifier, role: SymbolUsage) -> SymbolTableResult {
+    fn register_ident(&mut self, ident: &ast::Identifier, role: SymbolUsage) -> SymbolTableResult {
         self.register_name(ident.as_str(), role, ident.range)
     }
 

@@ -18,7 +18,7 @@ pub mod symboltable;
 mod unparse;
 
 pub use compile::CompileOpts;
-use ruff_python_ast::Expr;
+use ruff_python_ast as ast;
 
 pub(crate) use compile::InternalResult;
 
@@ -27,7 +27,7 @@ pub trait ToPythonName {
     fn python_name(&self) -> &'static str;
 }
 
-impl ToPythonName for Expr {
+impl ToPythonName for ast::Expr {
     fn python_name(&self) -> &'static str {
         match self {
             Self::BoolOp { .. } | Self::BinOp { .. } | Self::UnaryOp { .. } => "operator",

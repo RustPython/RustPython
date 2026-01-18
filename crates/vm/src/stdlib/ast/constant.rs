@@ -1,6 +1,6 @@
 use super::*;
 use crate::builtins::{PyComplex, PyFrozenSet, PyTuple};
-use ruff::str_prefix::StringLiteralPrefix;
+use ast::str_prefix::StringLiteralPrefix;
 use rustpython_compiler_core::SourceFile;
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ impl Constant {
         }
     }
 
-    pub(super) const fn new_int(value: ruff::Int, range: TextRange) -> Self {
+    pub(super) const fn new_int(value: ast::Int, range: TextRange) -> Self {
         Self {
             range,
             value: ConstantLiteral::Int(value),
@@ -71,7 +71,7 @@ impl Constant {
         }
     }
 
-    pub(crate) fn into_expr(self) -> ruff::Expr {
+    pub(crate) fn into_expr(self) -> ast::Expr {
         constant_to_ruff_expr(self)
     }
 }
@@ -85,7 +85,7 @@ pub(crate) enum ConstantLiteral {
         prefix: StringLiteralPrefix,
     },
     Bytes(Box<[u8]>),
-    Int(ruff::Int),
+    Int(ast::Int),
     Tuple(Vec<ConstantLiteral>),
     FrozenSet(Vec<ConstantLiteral>),
     Float(f64),
@@ -244,48 +244,48 @@ impl Node for ConstantLiteral {
     }
 }
 
-fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
+fn constant_to_ruff_expr(value: Constant) -> ast::Expr {
     let Constant { value, range } = value;
     match value {
-        ConstantLiteral::None => ruff::Expr::NoneLiteral(ruff::ExprNoneLiteral {
+        ConstantLiteral::None => ast::Expr::NoneLiteral(ast::ExprNoneLiteral {
             node_index: Default::default(),
             range,
         }),
-        ConstantLiteral::Bool(value) => ruff::Expr::BooleanLiteral(ruff::ExprBooleanLiteral {
+        ConstantLiteral::Bool(value) => ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral {
             node_index: Default::default(),
             range,
             value,
         }),
         ConstantLiteral::Str { value, prefix } => {
-            ruff::Expr::StringLiteral(ruff::ExprStringLiteral {
+            ast::Expr::StringLiteral(ast::ExprStringLiteral {
                 node_index: Default::default(),
                 range,
-                value: ruff::StringLiteralValue::single(ruff::StringLiteral {
+                value: ast::StringLiteralValue::single(ast::StringLiteral {
                     node_index: Default::default(),
                     range,
                     value,
-                    flags: ruff::StringLiteralFlags::empty().with_prefix(prefix),
+                    flags: ast::StringLiteralFlags::empty().with_prefix(prefix),
                 }),
             })
         }
         ConstantLiteral::Bytes(value) => {
-            ruff::Expr::BytesLiteral(ruff::ExprBytesLiteral {
+            ast::Expr::BytesLiteral(ast::ExprBytesLiteral {
                 node_index: Default::default(),
                 range,
-                value: ruff::BytesLiteralValue::single(ruff::BytesLiteral {
+                value: ast::BytesLiteralValue::single(ast::BytesLiteral {
                     node_index: Default::default(),
                     range,
                     value,
-                    flags: ruff::BytesLiteralFlags::empty(), // TODO
+                    flags: ast::BytesLiteralFlags::empty(), // TODO
                 }),
             })
         }
-        ConstantLiteral::Int(value) => ruff::Expr::NumberLiteral(ruff::ExprNumberLiteral {
+        ConstantLiteral::Int(value) => ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
             node_index: Default::default(),
             range,
-            value: ruff::Number::Int(value),
+            value: ast::Number::Int(value),
         }),
-        ConstantLiteral::Tuple(value) => ruff::Expr::Tuple(ruff::ExprTuple {
+        ConstantLiteral::Tuple(value) => ast::Expr::Tuple(ast::ExprTuple {
             node_index: Default::default(),
             range,
             elts: value
@@ -297,21 +297,21 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
                     })
                 })
                 .collect(),
-            ctx: ruff::ExprContext::Load,
+            ctx: ast::ExprContext::Load,
             // TODO: Does this matter?
             parenthesized: true,
         }),
-        ConstantLiteral::FrozenSet(value) => ruff::Expr::Call(ruff::ExprCall {
+        ConstantLiteral::FrozenSet(value) => ast::Expr::Call(ast::ExprCall {
             node_index: Default::default(),
             range,
             // idk lol
-            func: Box::new(ruff::Expr::Name(ruff::ExprName {
+            func: Box::new(ast::Expr::Name(ast::ExprName {
                 node_index: Default::default(),
                 range: TextRange::default(),
-                id: ruff::name::Name::new_static("frozenset"),
-                ctx: ruff::ExprContext::Load,
+                id: ast::name::Name::new_static("frozenset"),
+                ctx: ast::ExprContext::Load,
             })),
-            arguments: ruff::Arguments {
+            arguments: ast::Arguments {
                 node_index: Default::default(),
                 range,
                 args: value
@@ -326,19 +326,19 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
                 keywords: Box::default(),
             },
         }),
-        ConstantLiteral::Float(value) => ruff::Expr::NumberLiteral(ruff::ExprNumberLiteral {
+        ConstantLiteral::Float(value) => ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
             node_index: Default::default(),
             range,
-            value: ruff::Number::Float(value),
+            value: ast::Number::Float(value),
         }),
         ConstantLiteral::Complex { real, imag } => {
-            ruff::Expr::NumberLiteral(ruff::ExprNumberLiteral {
+            ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
                 node_index: Default::default(),
                 range,
-                value: ruff::Number::Complex { real, imag },
+                value: ast::Number::Complex { real, imag },
             })
         }
-        ConstantLiteral::Ellipsis => ruff::Expr::EllipsisLiteral(ruff::ExprEllipsisLiteral {
+        ConstantLiteral::Ellipsis => ast::Expr::EllipsisLiteral(ast::ExprEllipsisLiteral {
             node_index: Default::default(),
             range,
         }),
@@ -348,17 +348,17 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
 pub(super) fn number_literal_to_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    constant: ruff::ExprNumberLiteral,
+    constant: ast::ExprNumberLiteral,
 ) -> PyObjectRef {
-    let ruff::ExprNumberLiteral {
+    let ast::ExprNumberLiteral {
         node_index: _,
         range,
         value,
     } = constant;
     let c = match value {
-        ruff::Number::Int(n) => Constant::new_int(n, range),
-        ruff::Number::Float(n) => Constant::new_float(n, range),
-        ruff::Number::Complex { real, imag } => Constant::new_complex(real, imag, range),
+        ast::Number::Int(n) => Constant::new_int(n, range),
+        ast::Number::Float(n) => Constant::new_float(n, range),
+        ast::Number::Complex { real, imag } => Constant::new_complex(real, imag, range),
     };
     c.ast_to_object(vm, source_file)
 }
@@ -366,9 +366,9 @@ pub(super) fn number_literal_to_object(
 pub(super) fn string_literal_to_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    constant: ruff::ExprStringLiteral,
+    constant: ast::ExprStringLiteral,
 ) -> PyObjectRef {
-    let ruff::ExprStringLiteral {
+    let ast::ExprStringLiteral {
         node_index: _,
         range,
         value,
@@ -384,9 +384,9 @@ pub(super) fn string_literal_to_object(
 pub(super) fn bytes_literal_to_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    constant: ruff::ExprBytesLiteral,
+    constant: ast::ExprBytesLiteral,
 ) -> PyObjectRef {
-    let ruff::ExprBytesLiteral {
+    let ast::ExprBytesLiteral {
         node_index: _,
         range,
         value,
@@ -399,9 +399,9 @@ pub(super) fn bytes_literal_to_object(
 pub(super) fn boolean_literal_to_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    constant: ruff::ExprBooleanLiteral,
+    constant: ast::ExprBooleanLiteral,
 ) -> PyObjectRef {
-    let ruff::ExprBooleanLiteral {
+    let ast::ExprBooleanLiteral {
         node_index: _,
         range,
         value,
@@ -413,9 +413,9 @@ pub(super) fn boolean_literal_to_object(
 pub(super) fn none_literal_to_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    constant: ruff::ExprNoneLiteral,
+    constant: ast::ExprNoneLiteral,
 ) -> PyObjectRef {
-    let ruff::ExprNoneLiteral {
+    let ast::ExprNoneLiteral {
         node_index: _,
         range,
     } = constant;
@@ -426,9 +426,9 @@ pub(super) fn none_literal_to_object(
 pub(super) fn ellipsis_literal_to_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    constant: ruff::ExprEllipsisLiteral,
+    constant: ast::ExprEllipsisLiteral,
 ) -> PyObjectRef {
-    let ruff::ExprEllipsisLiteral {
+    let ast::ExprEllipsisLiteral {
         node_index: _,
         range,
     } = constant;
