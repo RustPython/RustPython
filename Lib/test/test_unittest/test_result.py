@@ -4,8 +4,12 @@ import textwrap
 import traceback
 import unittest
 from unittest.util import strclass
-from test.support import warnings_helper
-from test.support import captured_stdout, force_not_colorized_test_class
+
+from test.support import (
+    captured_stdout,
+    force_not_colorized_test_class,
+    warnings_helper,
+)
 from test.test_unittest.support import BufferedWriter
 
 
@@ -13,7 +17,7 @@ class MockTraceback(object):
     class TracebackException:
         def __init__(self, *args, **kwargs):
             self.capture_locals = kwargs.get('capture_locals', False)
-        def format(self):
+        def format(self, **kwargs):
             result = ['A traceback']
             if self.capture_locals:
                 result.append('locals')
@@ -186,7 +190,7 @@ class Test_TestResult(unittest.TestCase):
         test = Foo('test_1')
         try:
             test.fail("foo")
-        except:
+        except AssertionError:
             exc_info_tuple = sys.exc_info()
 
         result = unittest.TestResult()
@@ -214,7 +218,7 @@ class Test_TestResult(unittest.TestCase):
         def get_exc_info():
             try:
                 test.fail("foo")
-            except:
+            except AssertionError:
                 return sys.exc_info()
 
         exc_info_tuple = get_exc_info()
@@ -241,9 +245,9 @@ class Test_TestResult(unittest.TestCase):
             try:
                 try:
                     test.fail("foo")
-                except:
+                except AssertionError:
                     raise ValueError(42)
-            except:
+            except ValueError:
                 return sys.exc_info()
 
         exc_info_tuple = get_exc_info()
@@ -271,7 +275,7 @@ class Test_TestResult(unittest.TestCase):
                 loop.__cause__ = loop
                 loop.__context__ = loop
                 raise loop
-            except:
+            except Exception:
                 return sys.exc_info()
 
         exc_info_tuple = get_exc_info()
@@ -300,7 +304,7 @@ class Test_TestResult(unittest.TestCase):
                     ex1.__cause__ = ex2
                     ex2.__context__ = ex1
                 raise C
-            except:
+            except Exception:
                 return sys.exc_info()
 
         exc_info_tuple = get_exc_info()
@@ -345,7 +349,7 @@ class Test_TestResult(unittest.TestCase):
         test = Foo('test_1')
         try:
             raise TypeError()
-        except:
+        except TypeError:
             exc_info_tuple = sys.exc_info()
 
         result = unittest.TestResult()
@@ -454,7 +458,7 @@ class Test_TestResult(unittest.TestCase):
             self.assertTrue(result.failfast)
         result = runner.run(test)
         stream.flush()
-        self.assertTrue(stream.getvalue().endswith('\n\nOK\n'))
+        self.assertEndsWith(stream.getvalue(), '\n\nOK\n')
 
 
 @force_not_colorized_test_class

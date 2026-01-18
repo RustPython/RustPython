@@ -24,7 +24,7 @@ import unittest
 from xml.etree import ElementTree
 
 from test import support
-from test.support import os_helper, without_optimizer
+from test.support import os_helper, requires_jit_disabled
 from test.libregrtest import cmdline
 from test.libregrtest import main
 from test.libregrtest import setup
@@ -1245,7 +1245,7 @@ class ArgsTestCase(BaseTestCase):
                                   stats=TestStats(4, 1),
                                   forever=True)
 
-    @without_optimizer
+    @requires_jit_disabled
     def check_leak(self, code, what, *, run_workers=False):
         test = self.create_test('huntrleaks', code=code)
 

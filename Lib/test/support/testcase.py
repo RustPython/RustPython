@@ -1,6 +1,7 @@
 from math import copysign, isnan
 
 
+# XXX: RUSTPYTHON: removed in 3.14
 class ExtraAssertions:
 
     def assertIsSubclass(self, cls, superclass, msg=None):

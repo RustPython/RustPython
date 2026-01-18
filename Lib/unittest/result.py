@@ -3,9 +3,9 @@
 import io
 import sys
 import traceback
+from functools import wraps
 
 from . import util
-from functools import wraps
 
 __unittest = True
 
@@ -189,7 +189,10 @@ class TestResult(object):
         tb_e = traceback.TracebackException(
             exctype, value, tb,
             capture_locals=self.tb_locals, compact=True)
-        msgLines = list(tb_e.format())
+        from _colorize import can_colorize
+
+        colorize = hasattr(self, "stream") and can_colorize(file=self.stream)
+        msgLines = list(tb_e.format(colorize=colorize))
 
         if self.buffer:
             output = sys.stdout.getvalue()

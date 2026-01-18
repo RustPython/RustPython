@@ -3,16 +3,15 @@
 
 import collections
 import importlib
-import sys
 import os
 import os.path
-import subprocess
 import py_compile
-
+import subprocess
+import sys
 from importlib.util import source_from_cache
+
 from test import support
 from test.support.import_helper import make_legacy_pyc
-
 
 # Cached result of the expensive test performed in the function below.
 __cached_interp_requires_environment = None
@@ -70,23 +69,25 @@ class _PythonRunResult(collections.namedtuple("_PythonRunResult",
             out = b'(... truncated stdout ...)' + out[-maxlen:]
         if len(err) > maxlen:
             err = b'(... truncated stderr ...)' + err[-maxlen:]
-        out = out.decode('ascii', 'replace').rstrip()
-        err = err.decode('ascii', 'replace').rstrip()
-        raise AssertionError("Process return code is %d\n"
-                             "command line: %r\n"
-                             "\n"
-                             "stdout:\n"
-                             "---\n"
-                             "%s\n"
-                             "---\n"
-                             "\n"
-                             "stderr:\n"
-                             "---\n"
-                             "%s\n"
-                             "---"
-                             % (self.rc, cmd_line,
-                                out,
-                                err))
+        out = out.decode('utf8', 'replace').rstrip()
+        err = err.decode('utf8', 'replace').rstrip()
+
+        exitcode = self.rc
+        signame = support.get_signal_name(exitcode)
+        if signame:
+            exitcode = f"{exitcode} ({signame})"
+        raise AssertionError(f"Process return code is {exitcode}\n"
+                             f"command line: {cmd_line!r}\n"
+                             f"\n"
+                             f"stdout:\n"
+                             f"---\n"
+                             f"{out}\n"
+                             f"---\n"
+                             f"\n"
+                             f"stderr:\n"
+                             f"---\n"
+                             f"{err}\n"
+                             f"---")
 
 
 # Executing the interpreter in a subprocess

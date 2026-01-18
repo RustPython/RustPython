@@ -1090,7 +1090,6 @@ class CommandLineTestCase(unittest.TestCase):
             output = run('--months', '1', '2004')
             self.assertIn(conv('\nMo Tu We Th Fr Sa Su\n'), output)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_option_type(self):
         self.assertFailure('-t')
         self.assertFailure('--type')

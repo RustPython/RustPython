@@ -6824,7 +6824,6 @@ class TestInvalidNargs(TestCase):
 
 class TestImportStar(TestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test(self):
         for name in argparse.__all__:
             self.assertHasAttr(argparse, name)
