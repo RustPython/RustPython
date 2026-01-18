@@ -1,3 +1,5 @@
+#[cfg(feature = "flame")]
+use crate::bytecode::InstructionMetadata;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
@@ -137,10 +139,24 @@ impl Frame {
         func_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> Self {
-        let cells_frees = core::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
-            .take(code.cellvars.len())
-            .chain(closure.iter().cloned())
-            .collect();
+        let nlocals = code.varnames.len();
+        let num_cells = code.cellvars.len();
+        let nfrees = closure.len();
+
+        let cells_frees: Box<[PyCellRef]> =
+            core::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
+                .take(num_cells)
+                .chain(closure.iter().cloned())
+                .collect();
+
+        // Extend fastlocals to include varnames + cellvars + freevars (localsplus)
+        let total_locals = nlocals + num_cells + nfrees;
+        let mut fastlocals_vec: Vec<Option<PyObjectRef>> = vec![None; total_locals];
+
+        // Store cell objects at cellvars and freevars positions
+        for (i, cell) in cells_frees.iter().enumerate() {
+            fastlocals_vec[nlocals + i] = Some(cell.clone().into());
+        }
 
         let state = FrameState {
             stack: BoxVec::new(code.max_stackdepth as usize),
@@ -149,7 +165,7 @@ impl Frame {
         };
 
         Self {
-            fastlocals: PyMutex::new(vec![None; code.varnames.len()].into_boxed_slice()),
+            fastlocals: PyMutex::new(fastlocals_vec.into_boxed_slice()),
             cells_frees,
             locals: scope.locals,
             globals: scope.globals,
@@ -1211,11 +1227,6 @@ impl ExecutingFrame<'_> {
                     Some(v) => v,
                     None => self.load_global_or_builtin(name, vm)?,
                 });
-                Ok(None)
-            }
-            Instruction::LoadClosure(i) => {
-                let value = self.cells_frees[i.get(arg) as usize].clone();
-                self.push_value(value.into());
                 Ok(None)
             }
             Instruction::LoadConst { idx } => {
