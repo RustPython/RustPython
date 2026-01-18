@@ -80,8 +80,6 @@ class CursorFactoryTests(unittest.TestCase):
     def tearDown(self):
         self.con.close()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_instance(self):
         cur = self.con.cursor()
         self.assertIsInstance(cur, sqlite.Cursor)
