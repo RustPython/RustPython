@@ -13,6 +13,7 @@ use crate::{
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{ArgMapping, Either, FuncArgs},
+    object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::{builtins, typing},
@@ -66,7 +67,7 @@ type Lasti = atomic::AtomicU32;
 #[cfg(not(feature = "threading"))]
 type Lasti = core::cell::Cell<u32>;
 
-#[pyclass(module = false, name = "frame")]
+#[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct Frame {
     pub code: PyRef<PyCode>,
     pub func_obj: Option<PyObjectRef>,
@@ -94,6 +95,27 @@ impl PyPayload for Frame {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.frame_type
+    }
+}
+
+unsafe impl Traverse for FrameState {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.stack.traverse(tracer_fn);
+    }
+}
+
+unsafe impl Traverse for Frame {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.code.traverse(tracer_fn);
+        self.func_obj.traverse(tracer_fn);
+        self.fastlocals.traverse(tracer_fn);
+        self.cells_frees.traverse(tracer_fn);
+        self.locals.traverse(tracer_fn);
+        self.globals.traverse(tracer_fn);
+        self.builtins.traverse(tracer_fn);
+        self.trace.traverse(tracer_fn);
+        self.state.traverse(tracer_fn);
+        self.temporary_refs.traverse(tracer_fn);
     }
 }
 

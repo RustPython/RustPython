@@ -51,6 +51,70 @@ unsafe impl Traverse for PyFunction {
             closure.as_untyped().traverse(tracer_fn);
         }
         self.defaults_and_kwdefaults.traverse(tracer_fn);
+        // Traverse additional fields that may contain references
+        self.type_params.lock().traverse(tracer_fn);
+        self.annotations.lock().traverse(tracer_fn);
+        self.module.lock().traverse(tracer_fn);
+        self.doc.lock().traverse(tracer_fn);
+    }
+
+    fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+        // Pop closure if present (equivalent to Py_CLEAR(func_closure))
+        if let Some(closure) = self.closure.take() {
+            out.push(closure.into());
+        }
+
+        // Pop defaults and kwdefaults
+        if let Some(mut guard) = self.defaults_and_kwdefaults.try_lock() {
+            if let Some(defaults) = guard.0.take() {
+                out.push(defaults.into());
+            }
+            if let Some(kwdefaults) = guard.1.take() {
+                out.push(kwdefaults.into());
+            }
+        }
+
+        // Clear annotations and annotate (Py_CLEAR)
+        if let Some(mut guard) = self.annotations.try_lock()
+            && let Some(annotations) = guard.take()
+        {
+            out.push(annotations.into());
+        }
+        if let Some(mut guard) = self.annotate.try_lock()
+            && let Some(annotate) = guard.take()
+        {
+            out.push(annotate);
+        }
+
+        // Clear module, doc, and type_params (Py_CLEAR)
+        if let Some(mut guard) = self.module.try_lock() {
+            let old_module =
+                std::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+            out.push(old_module);
+        }
+        if let Some(mut guard) = self.doc.try_lock() {
+            let old_doc = std::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+            out.push(old_doc);
+        }
+        if let Some(mut guard) = self.type_params.try_lock() {
+            let old_type_params =
+                std::mem::replace(&mut *guard, Context::genesis().empty_tuple.to_owned());
+            out.push(old_type_params.into());
+        }
+
+        // Replace name and qualname with empty string to break potential str subclass cycles
+        // name and qualname could be str subclasses, so they could have reference cycles
+        if let Some(mut guard) = self.name.try_lock() {
+            let old_name = std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
+            out.push(old_name.into());
+        }
+        if let Some(mut guard) = self.qualname.try_lock() {
+            let old_qualname =
+                std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
+            out.push(old_qualname.into());
+        }
+
+        // Note: globals, builtins, code are NOT cleared (required to be non-NULL)
     }
 }
 

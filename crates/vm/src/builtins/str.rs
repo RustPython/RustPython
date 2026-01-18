@@ -1924,8 +1924,15 @@ impl fmt::Display for PyUtf8Str {
 }
 
 impl MaybeTraverse for PyUtf8Str {
+    const HAS_TRAVERSE: bool = true;
+    const HAS_CLEAR: bool = false;
+
     fn try_traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         self.0.try_traverse(traverse_fn);
+    }
+
+    fn try_clear(&mut self, _out: &mut Vec<PyObjectRef>) {
+        // No clear needed for PyUtf8Str
     }
 }
 
