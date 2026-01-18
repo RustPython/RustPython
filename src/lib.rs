@@ -208,6 +208,12 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 
     let scope = vm.new_scope_with_main()?;
 
+    // Initialize warnings module to process sys.warnoptions
+    // _PyWarnings_Init()
+    if vm.import("warnings", 0).is_err() {
+        warn!("Failed to import warnings module");
+    }
+
     // Import site first, before setting sys.path[0]
     // This matches CPython's behavior where site.removeduppaths() runs
     // before sys.path[0] is set, preventing '' from being converted to cwd
@@ -217,12 +223,6 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
             "Failed to import site, consider adding the Lib directory to your RUSTPYTHONPATH \
              environment variable",
         );
-    }
-
-    // Initialize warnings module to process sys.warnoptions
-    // _PyWarnings_Init()
-    if vm.import("warnings", 0).is_err() {
-        warn!("Failed to import warnings module");
     }
 
     // _PyPathConfig_ComputeSysPath0 - set sys.path[0] after site import
