@@ -165,7 +165,6 @@ class TestMain(unittest.TestCase):
         self.assertEqual(process.stdout, self.jsonlines_expect)
         self.assertEqual(process.stderr, '')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_help_flag(self):
         rc, out, err = assert_python_ok('-m', self.module, '-h',
                                         PYTHON_COLORS='0')

@@ -99,8 +99,6 @@ class TestFail:
                 'keys must be str, int, float, bool or None, not tuple'):
             self.dumps(data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_not_serializable(self):
         import sys
         with self.assertRaisesRegex(TypeError,

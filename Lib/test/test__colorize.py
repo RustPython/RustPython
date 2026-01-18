@@ -24,7 +24,6 @@ def supports_virtual_terminal():
 
 class TestTheme(unittest.TestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_attributes(self):
         # only theme configurations attributes by default
         for field in dataclasses.fields(_colorize.Theme):

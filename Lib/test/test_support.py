@@ -460,6 +460,7 @@ class TestSupport(unittest.TestCase):
                 self.OtherClass, self.RefClass, ignore=ignore)
         self.assertEqual(set(), missing_items)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_check__all__(self):
         extra = {'tempdir'}
         not_exported = {'template'}
@@ -615,6 +616,7 @@ class TestSupport(unittest.TestCase):
         self.check_print_warning("a\nb",
                                  'Warning -- a\nWarning -- b\n')
 
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; no has_strftime_extensions yet")
     def test_has_strftime_extensions(self):
         if sys.platform == "win32":
             self.assertFalse(support.has_strftime_extensions)

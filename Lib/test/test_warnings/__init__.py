@@ -101,7 +101,6 @@ class PublicAPITests(BaseTest):
     public API.
     """
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON 'PyPublicAPITests' object has no attribute 'assertHasAttr'
     def test_module_all_attribute(self):
         self.assertHasAttr(self.module, '__all__')
         target_api = ["warn", "warn_explicit", "showwarning",
@@ -851,7 +850,6 @@ class PyWarnTests(WarnTests, unittest.TestCase):
 
     # As an early adopter, we sanity check the
     # test.import_helper.import_fresh_module utility function
-    @unittest.expectedFailure # TODO: RUSTPYTHON 'PyWarnTests' object has no attribute 'assertHasAttr'
     def test_pure_python(self):
         self.assertIsNot(original_warnings, self.module)
         self.assertHasAttr(self.module.warn, '__code__')
