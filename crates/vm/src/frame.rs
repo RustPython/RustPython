@@ -785,9 +785,9 @@ impl ExecutingFrame<'_> {
                 let args = self.collect_keyword_args(nargs.get(arg));
                 self.execute_call(args, vm)
             }
-            Instruction::CallFunctionEx { has_kwargs } => {
-                // Stack: [callable, self_or_null, args_tuple, (kwargs_dict)?]
-                let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
+            Instruction::CallFunctionEx => {
+                // Stack: [callable, self_or_null, args_tuple, kwargs_or_null]
+                let args = self.collect_ex_args(vm)?;
                 self.execute_call(args, vm)
             }
             Instruction::CallIntrinsic1 { func } => {
@@ -2150,9 +2150,9 @@ impl ExecutingFrame<'_> {
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
-    fn collect_ex_args(&mut self, vm: &VirtualMachine, has_kwargs: bool) -> PyResult<FuncArgs> {
-        let kwargs = if has_kwargs {
-            let kw_obj = self.pop_value();
+    fn collect_ex_args(&mut self, vm: &VirtualMachine) -> PyResult<FuncArgs> {
+        let kwargs_or_null = self.pop_value_opt();
+        let kwargs = if let Some(kw_obj) = kwargs_or_null {
             let mut kwargs = IndexMap::new();
 
             // Use keys() method for all mapping objects to preserve order

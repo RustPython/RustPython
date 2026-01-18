@@ -4423,11 +4423,12 @@ impl Compiler {
                 }
 
                 // Build kwargs if needed
-                let has_kwargs = arguments.is_some_and(|args| !args.keywords.is_empty());
-                if has_kwargs {
+                if arguments.is_some_and(|args| !args.keywords.is_empty()) {
                     self.compile_keywords(&arguments.unwrap().keywords)?;
+                } else {
+                    emit!(self, Instruction::PushNull);
                 }
-                emit!(self, Instruction::CallFunctionEx { has_kwargs });
+                emit!(self, Instruction::CallFunctionEx);
             } else {
                 // Simple case: no starred bases, no **kwargs
                 // Compile bases normally
@@ -6961,11 +6962,12 @@ impl Compiler {
             }
 
             // Create an optional map with kw-args:
-            let has_kwargs = !arguments.keywords.is_empty();
-            if has_kwargs {
+            if !arguments.keywords.is_empty() {
                 self.compile_keywords(&arguments.keywords)?;
+            } else {
+                emit!(self, Instruction::PushNull);
             }
-            emit!(self, Instruction::CallFunctionEx { has_kwargs });
+            emit!(self, Instruction::CallFunctionEx);
         } else if !arguments.keywords.is_empty() {
             // No **kwargs in this branch (has_double_star is false),
             // so all keywords have arg.is_some()
