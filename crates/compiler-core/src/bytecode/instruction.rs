@@ -95,9 +95,7 @@ pub enum Instruction {
     Call {
         nargs: Arg<u32>,
     } = 53,
-    CallFunctionEx {
-        has_kwargs: Arg<bool>,
-    } = 54,
+    CallFunctionEx = 54,
     CallIntrinsic1 {
         func: Arg<IntrinsicFunction1>,
     } = 55,
@@ -575,8 +573,8 @@ impl InstructionMetadata for Instruction {
             Self::Call { nargs } => -(nargs.get(arg) as i32) - 2 + 1,
             // CallKw: pops kw_names_tuple + nargs + self_or_null + callable, pushes result
             Self::CallKw { nargs } => -1 - (nargs.get(arg) as i32) - 2 + 1,
-            // CallFunctionEx: pops kwargs(if any) + args_tuple + self_or_null + callable, pushes result
-            Self::CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 2 + 1,
+            // CallFunctionEx: always pops kwargs_or_null + args_tuple + self_or_null + callable, pushes result
+            Self::CallFunctionEx => -4 + 1,
             Self::CheckEgMatch => 0, // pops 2 (exc, type), pushes 2 (rest, match)
             Self::ConvertValue { .. } => 0,
             Self::FormatSimple => 0,
@@ -880,7 +878,7 @@ impl InstructionMetadata for Instruction {
             Self::BuildTupleFromIter => w!(BUILD_TUPLE_FROM_ITER),
             Self::BuildTupleFromTuples { size } => w!(BUILD_TUPLE_FROM_TUPLES, size),
             Self::Call { nargs } => w!(CALL, nargs),
-            Self::CallFunctionEx { has_kwargs } => w!(CALL_FUNCTION_EX, has_kwargs),
+            Self::CallFunctionEx => w!(CALL_FUNCTION_EX),
             Self::CallKw { nargs } => w!(CALL_KW, nargs),
             Self::CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
             Self::CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
