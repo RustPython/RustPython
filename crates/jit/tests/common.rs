@@ -102,46 +102,33 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
                             // Value can be a name (type ref) or a const string (forward ref)
                             let type_name = if val_is_const {
                                 match code.constants.get(val_idx) {
-                                    Some(ConstantData::Str { value }) => {
-                                        Some(value.as_str().map(|s| s.to_owned()).unwrap_or_else(
-                                            |_| value.to_string_lossy().into_owned(),
-                                        ))
-                                    }
-                                    Some(other) => {
-                                        eprintln!(
-                                            "Warning: Malformed annotation for '{:?}': expected string constant at index {}, got {:?}",
-                                            param_name, val_idx, other
-                                        );
-                                        None
-                                    }
-                                    None => {
-                                        eprintln!(
-                                            "Warning: Malformed annotation for '{:?}': constant index {} out of bounds (len={})",
-                                            param_name,
-                                            val_idx,
-                                            code.constants.len()
-                                        );
-                                        None
-                                    }
+                                    Some(ConstantData::Str { value }) => value
+                                        .as_str()
+                                        .map(|s| s.to_owned())
+                                        .unwrap_or_else(|_| value.to_string_lossy().into_owned()),
+                                    Some(other) => panic!(
+                                        "Unsupported annotation const for '{:?}' at idx {}: {:?}",
+                                        param_name, val_idx, other
+                                    ),
+                                    None => panic!(
+                                        "Annotation const idx out of bounds for '{:?}': {} (len={})",
+                                        param_name,
+                                        val_idx,
+                                        code.constants.len()
+                                    ),
                                 }
                             } else {
                                 match code.names.get(val_idx) {
-                                    Some(name) => Some(name.clone()),
-                                    None => {
-                                        eprintln!(
-                                            "Warning: Malformed annotation for '{}': name index {} out of bounds (len={})",
-                                            param_name,
-                                            val_idx,
-                                            code.names.len()
-                                        );
-                                        None
-                                    }
+                                    Some(name) => name.clone(),
+                                    None => panic!(
+                                        "Annotation name idx out of bounds for '{:?}': {} (len={})",
+                                        param_name,
+                                        val_idx,
+                                        code.names.len()
+                                    ),
                                 }
                             };
-                            if let Some(type_name) = type_name {
-                                annotations
-                                    .insert(param_name.clone(), StackValue::String(type_name));
-                            }
+                            annotations.insert(param_name.clone(), StackValue::String(type_name));
                         }
                     }
                 }
