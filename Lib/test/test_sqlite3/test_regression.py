@@ -469,6 +469,7 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
             self.assertEqual(steps, values)
 
 
+@unittest.skip('TODO: RUSTPYTHON; recursive cursor use causes lock contention')
 class RecursiveUseOfCursors(unittest.TestCase):
     # GH-80254: sqlite3 should not segfault for recursive use of cursors.
     msg = "Recursive use of cursors not allowed"
@@ -485,7 +486,6 @@ class RecursiveUseOfCursors(unittest.TestCase):
         self.cur.close()
         self.con.close()
 
-    @unittest.skip('TODO: RUSTPYTHON; recursive cursor use causes lock contention')
     def test_recursive_cursor_init(self):
         conv = lambda x: self.cur.__init__(self.con)
         with patch.dict(sqlite.converters, {"INIT": conv}):
@@ -493,7 +493,6 @@ class RecursiveUseOfCursors(unittest.TestCase):
             self.assertRaisesRegex(sqlite.ProgrammingError, self.msg,
                                    self.cur.fetchall)
 
-    @unittest.skip('TODO: RUSTPYTHON; recursive cursor use causes lock contention')
     def test_recursive_cursor_close(self):
         conv = lambda x: self.cur.close()
         with patch.dict(sqlite.converters, {"CLOSE": conv}):
@@ -501,7 +500,6 @@ class RecursiveUseOfCursors(unittest.TestCase):
             self.assertRaisesRegex(sqlite.ProgrammingError, self.msg,
                                    self.cur.fetchall)
 
-    @unittest.skip('TODO: RUSTPYTHON; recursive cursor use causes lock contention')
     def test_recursive_cursor_iter(self):
         conv = lambda x, l=[]: self.cur.fetchone() if l else l.append(None)
         with patch.dict(sqlite.converters, {"ITER": conv}):

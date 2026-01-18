@@ -325,7 +325,7 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
                 cx.execute("create table t(t)")
                 cx.executemany("insert into t values(?)", ((v,) for v in range(3)))
 
-    @unittest.skip("TODO: RUSTPYTHON unraisable exception handling not implemented")
+    @unittest.expectedFailure # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(
         sqlite.DataError,
         regex="Expanded SQL string exceeds the maximum string length"
