@@ -4,6 +4,30 @@ pub(crate) use sys::{
     __module_def, DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, multiarch,
 };
 
+#[pymodule(name = "_jit")]
+mod sys_jit {
+    /// Return True if the current Python executable supports JIT compilation,
+    /// and False otherwise.
+    #[pyfunction]
+    const fn is_available() -> bool {
+        false // RustPython has no JIT
+    }
+
+    /// Return True if JIT compilation is enabled for the current Python process,
+    /// and False otherwise.
+    #[pyfunction]
+    const fn is_enabled() -> bool {
+        false // RustPython has no JIT
+    }
+
+    /// Return True if the topmost Python frame is currently executing JIT code,
+    /// and False otherwise.
+    #[pyfunction]
+    const fn is_active() -> bool {
+        false // RustPython has no JIT
+    }
+}
+
 #[pymodule]
 mod sys {
     use crate::{
@@ -1554,9 +1578,14 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
     modules
         .set_item("builtins", builtins.to_owned().into(), vm)
         .unwrap();
+
+    // Create sys._jit submodule
+    let jit_module = sys_jit::make_module(vm);
+
     extend_module!(vm, module, {
         "__doc__" => sys::DOC.to_owned().to_pyobject(vm),
         "modules" => modules,
+        "_jit" => jit_module,
     });
 }
 

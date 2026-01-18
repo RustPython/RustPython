@@ -2783,9 +2783,7 @@ skip_on_s390x = unittest.skipIf(is_s390x, 'skipped on s390x')
 
 Py_TRACE_REFS = hasattr(sys, 'getobjects')
 
-# XXX: RUSTPYTHON; we don't have sys._jit yet
-# _JIT_ENABLED = sys._jit.is_enabled()
-_JIT_ENABLED = False
+_JIT_ENABLED = sys._jit.is_enabled()
 requires_jit_enabled = unittest.skipUnless(_JIT_ENABLED, "requires JIT enabled")
 requires_jit_disabled = unittest.skipIf(_JIT_ENABLED, "requires JIT disabled")
 
