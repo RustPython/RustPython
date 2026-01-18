@@ -1043,6 +1043,8 @@ class UrlParseTestCase(unittest.TestCase):
         self.assertEqual(p1.path, '863-1234')
         self.assertEqual(p1.params, 'phone-context=+1-914-555')
 
+    # TODO: RUSTPYTHON; urllib.parse.Quoter has removed in Python 3.14.
+    @unittest.expectedFailure
     def test_Quoter_repr(self):
         quoter = urllib.parse.Quoter(urllib.parse._ALWAYS_SAFE)
         self.assertIn('Quoter', repr(quoter))
