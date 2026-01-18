@@ -2,7 +2,7 @@ use super::*;
 use rustpython_codegen::compile::ruff_int_to_bigint;
 use rustpython_compiler_core::SourceFile;
 
-impl Node for ruff::Identifier {
+impl Node for ast::Identifier {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let id = self.as_str();
         vm.ctx.new_str(id).into()
@@ -18,7 +18,7 @@ impl Node for ruff::Identifier {
     }
 }
 
-impl Node for ruff::Int {
+impl Node for ast::Int {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         vm.ctx.new_int(ruff_int_to_bigint(&self).unwrap()).into()
     }

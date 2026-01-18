@@ -3,7 +3,7 @@ use rustpython_compiler_core::SourceFile;
 
 pub(super) struct PositionalArguments {
     pub range: TextRange,
-    pub args: Box<[ruff::Expr]>,
+    pub args: Box<[ast::Expr]>,
 }
 
 impl Node for PositionalArguments {
@@ -27,7 +27,7 @@ impl Node for PositionalArguments {
 
 pub(super) struct KeywordArguments {
     pub range: TextRange,
-    pub keywords: Box<[ruff::Keyword]>,
+    pub keywords: Box<[ast::Keyword]>,
 }
 
 impl Node for KeywordArguments {
@@ -53,10 +53,10 @@ impl Node for KeywordArguments {
 pub(super) fn merge_function_call_arguments(
     pos_args: PositionalArguments,
     key_args: KeywordArguments,
-) -> ruff::Arguments {
+) -> ast::Arguments {
     let range = pos_args.range.cover(key_args.range);
 
-    ruff::Arguments {
+    ast::Arguments {
         node_index: Default::default(),
         range,
         args: pos_args.args,
@@ -65,9 +65,9 @@ pub(super) fn merge_function_call_arguments(
 }
 
 pub(super) fn split_function_call_arguments(
-    args: ruff::Arguments,
+    args: ast::Arguments,
 ) -> (PositionalArguments, KeywordArguments) {
-    let ruff::Arguments {
+    let ast::Arguments {
         node_index: _,
         range: _,
         args,
@@ -100,13 +100,13 @@ pub(super) fn split_function_call_arguments(
 }
 
 pub(super) fn split_class_def_args(
-    args: Option<Box<ruff::Arguments>>,
+    args: Option<Box<ast::Arguments>>,
 ) -> (Option<PositionalArguments>, Option<KeywordArguments>) {
     let args = match args {
         None => return (None, None),
         Some(args) => *args,
     };
-    let ruff::Arguments {
+    let ast::Arguments {
         node_index: _,
         range: _,
         args,
@@ -141,7 +141,7 @@ pub(super) fn split_class_def_args(
 pub(super) fn merge_class_def_args(
     positional_arguments: Option<PositionalArguments>,
     keyword_arguments: Option<KeywordArguments>,
-) -> Option<Box<ruff::Arguments>> {
+) -> Option<Box<ast::Arguments>> {
     if positional_arguments.is_none() && keyword_arguments.is_none() {
         return None;
     }
@@ -157,7 +157,7 @@ pub(super) fn merge_class_def_args(
         vec![].into_boxed_slice()
     };
 
-    Some(Box::new(ruff::Arguments {
+    Some(Box::new(ast::Arguments {
         node_index: Default::default(),
         range: Default::default(), // TODO
         args,

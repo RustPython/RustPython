@@ -1,7 +1,7 @@
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
-impl Node for ruff::ConversionFlag {
+impl Node for ast::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         vm.ctx.new_int(self as u8).into()
     }
@@ -24,7 +24,7 @@ impl Node for ruff::ConversionFlag {
 }
 
 // /// This is just a string, not strictly an AST node. But it makes AST conversions easier.
-impl Node for ruff::name::Name {
+impl Node for ast::name::Name {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         vm.ctx.new_str(self.as_str()).to_pyobject(vm)
     }
@@ -41,9 +41,9 @@ impl Node for ruff::name::Name {
     }
 }
 
-impl Node for ruff::Decorator {
+impl Node for ast::Decorator {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        ruff::Expr::ast_to_object(self.expression, vm, source_file)
+        ast::Expr::ast_to_object(self.expression, vm, source_file)
     }
 
     fn ast_from_object(
@@ -51,7 +51,7 @@ impl Node for ruff::Decorator {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let expression = ruff::Expr::ast_from_object(vm, source_file, object)?;
+        let expression = ast::Expr::ast_from_object(vm, source_file, object)?;
         let range = expression.range();
         Ok(Self {
             node_index: Default::default(),
@@ -62,7 +62,7 @@ impl Node for ruff::Decorator {
 }
 
 // product
-impl Node for ruff::Alias {
+impl Node for ast::Alias {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -103,7 +103,7 @@ impl Node for ruff::Alias {
 }
 
 // product
-impl Node for ruff::WithItem {
+impl Node for ast::WithItem {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,

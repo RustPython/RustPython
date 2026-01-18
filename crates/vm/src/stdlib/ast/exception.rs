@@ -2,7 +2,7 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 // sum
-impl Node for ruff::ExceptHandler {
+impl Node for ast::ExceptHandler {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         match self {
             Self::ExceptHandler(cons) => cons.ast_to_object(vm, source_file),
@@ -16,7 +16,7 @@ impl Node for ruff::ExceptHandler {
         let _cls = _object.class();
         Ok(
             if _cls.is(pyast::NodeExceptHandlerExceptHandler::static_type()) {
-                Self::ExceptHandler(ruff::ExceptHandlerExceptHandler::ast_from_object(
+                Self::ExceptHandler(ast::ExceptHandlerExceptHandler::ast_from_object(
                     _vm,
                     source_file,
                     _object,
@@ -32,7 +32,7 @@ impl Node for ruff::ExceptHandler {
 }
 
 // constructor
-impl Node for ruff::ExceptHandlerExceptHandler {
+impl Node for ast::ExceptHandlerExceptHandler {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,

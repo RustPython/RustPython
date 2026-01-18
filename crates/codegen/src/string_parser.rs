@@ -7,7 +7,7 @@
 
 use core::convert::Infallible;
 
-use ruff_python_ast::{AnyStringFlags, StringFlags};
+use ruff_python_ast::{self as ast, StringFlags as _};
 use rustpython_wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
 // use ruff_python_parser::{LexicalError, LexicalErrorType};
@@ -24,11 +24,11 @@ struct StringParser {
     /// Current position of the parser in the source.
     cursor: usize,
     /// Flags that can be used to query information about the string.
-    flags: AnyStringFlags,
+    flags: ast::AnyStringFlags,
 }
 
 impl StringParser {
-    const fn new(source: Box<str>, flags: AnyStringFlags) -> Self {
+    const fn new(source: Box<str>, flags: ast::AnyStringFlags) -> Self {
         Self {
             source,
             cursor: 0,
@@ -272,7 +272,7 @@ impl StringParser {
     }
 }
 
-pub(crate) fn parse_string_literal(source: &str, flags: AnyStringFlags) -> Box<Wtf8> {
+pub(crate) fn parse_string_literal(source: &str, flags: ast::AnyStringFlags) -> Box<Wtf8> {
     let source = &source[flags.opener_len().to_usize()..];
     let source = &source[..source.len() - flags.quote_len().to_usize()];
     StringParser::new(source.into(), flags)
@@ -280,7 +280,10 @@ pub(crate) fn parse_string_literal(source: &str, flags: AnyStringFlags) -> Box<W
         .unwrap_or_else(|x| match x {})
 }
 
-pub(crate) fn parse_fstring_literal_element(source: Box<str>, flags: AnyStringFlags) -> Box<Wtf8> {
+pub(crate) fn parse_fstring_literal_element(
+    source: Box<str>,
+    flags: ast::AnyStringFlags,
+) -> Box<Wtf8> {
     StringParser::new(source, flags)
         .parse_fstring_middle()
         .unwrap_or_else(|x| match x {})

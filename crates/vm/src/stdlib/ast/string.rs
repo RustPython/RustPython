@@ -2,14 +2,13 @@ use super::constant::{Constant, ConstantLiteral};
 use super::*;
 
 fn ruff_fstring_element_into_iter(
-    mut fstring_element: ruff::InterpolatedStringElements,
-) -> impl Iterator<Item = ruff::InterpolatedStringElement> {
-    let default =
-        ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
-            node_index: Default::default(),
-            range: Default::default(),
-            value: Default::default(),
-        });
+    mut fstring_element: ast::InterpolatedStringElements,
+) -> impl Iterator<Item = ast::InterpolatedStringElement> {
+    let default = ast::InterpolatedStringElement::Literal(ast::InterpolatedStringLiteralElement {
+        node_index: Default::default(),
+        range: Default::default(),
+        value: Default::default(),
+    });
     fstring_element
         .iter_mut()
         .map(move |elem| core::mem::replace(elem, default.clone()))
@@ -18,19 +17,19 @@ fn ruff_fstring_element_into_iter(
 }
 
 fn ruff_fstring_element_to_joined_str_part(
-    element: ruff::InterpolatedStringElement,
+    element: ast::InterpolatedStringElement,
 ) -> JoinedStrPart {
     match element {
-        ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
+        ast::InterpolatedStringElement::Literal(ast::InterpolatedStringLiteralElement {
             range,
             value,
             node_index: _,
         }) => JoinedStrPart::Constant(Constant::new_str(
             value,
-            ruff::str_prefix::StringLiteralPrefix::Empty,
+            ast::str_prefix::StringLiteralPrefix::Empty,
             range,
         )),
-        ruff::InterpolatedStringElement::Interpolation(ruff::InterpolatedElement {
+        ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
             range,
             expression,
             debug_text: _, // TODO: What is this?
@@ -47,12 +46,12 @@ fn ruff_fstring_element_to_joined_str_part(
 }
 
 fn ruff_format_spec_to_joined_str(
-    format_spec: Option<Box<ruff::InterpolatedStringFormatSpec>>,
+    format_spec: Option<Box<ast::InterpolatedStringFormatSpec>>,
 ) -> Option<Box<JoinedStr>> {
     match format_spec {
         None => None,
         Some(format_spec) => {
-            let ruff::InterpolatedStringFormatSpec {
+            let ast::InterpolatedStringFormatSpec {
                 range,
                 elements,
                 node_index: _,
@@ -67,36 +66,36 @@ fn ruff_format_spec_to_joined_str(
 }
 
 fn ruff_fstring_element_to_ruff_fstring_part(
-    element: ruff::InterpolatedStringElement,
-) -> ruff::FStringPart {
+    element: ast::InterpolatedStringElement,
+) -> ast::FStringPart {
     match element {
-        ruff::InterpolatedStringElement::Literal(value) => {
-            let ruff::InterpolatedStringLiteralElement {
+        ast::InterpolatedStringElement::Literal(value) => {
+            let ast::InterpolatedStringLiteralElement {
                 node_index,
                 range,
                 value,
             } = value;
-            ruff::FStringPart::Literal(ruff::StringLiteral {
+            ast::FStringPart::Literal(ast::StringLiteral {
                 node_index,
                 range,
                 value,
-                flags: ruff::StringLiteralFlags::empty(),
+                flags: ast::StringLiteralFlags::empty(),
             })
         }
-        ruff::InterpolatedStringElement::Interpolation(ruff::InterpolatedElement {
+        ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
             range, ..
-        }) => ruff::FStringPart::FString(ruff::FString {
+        }) => ast::FStringPart::FString(ast::FString {
             node_index: Default::default(),
             range,
             elements: vec![element].into(),
-            flags: ruff::FStringFlags::empty(),
+            flags: ast::FStringFlags::empty(),
         }),
     }
 }
 
 fn joined_str_to_ruff_format_spec(
     joined_str: Option<Box<JoinedStr>>,
-) -> Option<Box<ruff::InterpolatedStringFormatSpec>> {
+) -> Option<Box<ast::InterpolatedStringFormatSpec>> {
     match joined_str {
         None => None,
         Some(joined_str) => {
@@ -104,7 +103,7 @@ fn joined_str_to_ruff_format_spec(
             let elements: Vec<_> = Box::into_iter(values)
                 .map(joined_str_part_to_ruff_fstring_element)
                 .collect();
-            let format_spec = ruff::InterpolatedStringFormatSpec {
+            let format_spec = ast::InterpolatedStringFormatSpec {
                 node_index: Default::default(),
                 range,
                 elements: elements.into(),
@@ -121,32 +120,32 @@ pub(super) struct JoinedStr {
 }
 
 impl JoinedStr {
-    pub(super) fn into_expr(self) -> ruff::Expr {
+    pub(super) fn into_expr(self) -> ast::Expr {
         let Self { range, values } = self;
-        ruff::Expr::FString(ruff::ExprFString {
+        ast::Expr::FString(ast::ExprFString {
             node_index: Default::default(),
             range: Default::default(),
             value: match values.len() {
                 // ruff represents an empty fstring like this:
-                0 => ruff::FStringValue::single(ruff::FString {
+                0 => ast::FStringValue::single(ast::FString {
                     node_index: Default::default(),
                     range,
                     elements: vec![].into(),
-                    flags: ruff::FStringFlags::empty(),
+                    flags: ast::FStringFlags::empty(),
                 }),
-                1 => ruff::FStringValue::single(
+                1 => ast::FStringValue::single(
                     Box::<[_]>::into_iter(values)
                         .map(joined_str_part_to_ruff_fstring_element)
-                        .map(|element| ruff::FString {
+                        .map(|element| ast::FString {
                             node_index: Default::default(),
                             range,
                             elements: vec![element].into(),
-                            flags: ruff::FStringFlags::empty(),
+                            flags: ast::FStringFlags::empty(),
                         })
                         .next()
                         .expect("FString has exactly one part"),
                 ),
-                _ => ruff::FStringValue::concatenated(
+                _ => ast::FStringValue::concatenated(
                     Box::<[_]>::into_iter(values)
                         .map(joined_str_part_to_ruff_fstring_element)
                         .map(ruff_fstring_element_to_ruff_fstring_part)
@@ -157,10 +156,10 @@ impl JoinedStr {
     }
 }
 
-fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::InterpolatedStringElement {
+fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ast::InterpolatedStringElement {
     match part {
         JoinedStrPart::FormattedValue(value) => {
-            ruff::InterpolatedStringElement::Interpolation(ruff::InterpolatedElement {
+            ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
                 node_index: Default::default(),
                 range: value.range,
                 expression: value.value.clone(),
@@ -170,7 +169,7 @@ fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::Interpo
             })
         }
         JoinedStrPart::Constant(value) => {
-            ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
+            ast::InterpolatedStringElement::Literal(ast::InterpolatedStringLiteralElement {
                 node_index: Default::default(),
                 range: value.range,
                 value: match value.value {
@@ -254,8 +253,8 @@ impl Node for JoinedStrPart {
 
 #[derive(Debug)]
 pub(super) struct FormattedValue {
-    value: Box<ruff::Expr>,
-    conversion: ruff::ConversionFlag,
+    value: Box<ast::Expr>,
+    conversion: ast::ConversionFlag,
     format_spec: Option<Box<JoinedStr>>,
     range: TextRange,
 }
@@ -313,24 +312,24 @@ impl Node for FormattedValue {
 pub(super) fn fstring_to_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    expression: ruff::ExprFString,
+    expression: ast::ExprFString,
 ) -> PyObjectRef {
-    let ruff::ExprFString {
+    let ast::ExprFString {
         range,
         mut value,
         node_index: _,
     } = expression;
-    let default_part = ruff::FStringPart::FString(ruff::FString {
+    let default_part = ast::FStringPart::FString(ast::FString {
         node_index: Default::default(),
         range: Default::default(),
         elements: Default::default(),
-        flags: ruff::FStringFlags::empty(),
+        flags: ast::FStringFlags::empty(),
     });
     let mut values = Vec::new();
     for i in 0..value.as_slice().len() {
         let part = core::mem::replace(value.iter_mut().nth(i).unwrap(), default_part.clone());
         match part {
-            ruff::FStringPart::Literal(ruff::StringLiteral {
+            ast::FStringPart::Literal(ast::StringLiteral {
                 range,
                 value,
                 flags,
@@ -342,7 +341,7 @@ pub(super) fn fstring_to_object(
                     range,
                 )));
             }
-            ruff::FStringPart::FString(ruff::FString {
+            ast::FStringPart::FString(ast::FString {
                 range: _,
                 elements,
                 flags: _,
@@ -364,20 +363,20 @@ pub(super) fn fstring_to_object(
 // ===== TString (Template String) Support =====
 
 fn ruff_tstring_element_to_template_str_part(
-    element: ruff::InterpolatedStringElement,
+    element: ast::InterpolatedStringElement,
     source_file: &SourceFile,
 ) -> TemplateStrPart {
     match element {
-        ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
+        ast::InterpolatedStringElement::Literal(ast::InterpolatedStringLiteralElement {
             range,
             value,
             node_index: _,
         }) => TemplateStrPart::Constant(Constant::new_str(
             value,
-            ruff::str_prefix::StringLiteralPrefix::Empty,
+            ast::str_prefix::StringLiteralPrefix::Empty,
             range,
         )),
-        ruff::InterpolatedStringElement::Interpolation(ruff::InterpolatedElement {
+        ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
             range,
             expression,
             debug_text,
@@ -401,13 +400,13 @@ fn ruff_tstring_element_to_template_str_part(
 }
 
 fn ruff_format_spec_to_template_str(
-    format_spec: Option<Box<ruff::InterpolatedStringFormatSpec>>,
+    format_spec: Option<Box<ast::InterpolatedStringFormatSpec>>,
     source_file: &SourceFile,
 ) -> Option<Box<TemplateStr>> {
     match format_spec {
         None => None,
         Some(format_spec) => {
-            let ruff::InterpolatedStringFormatSpec {
+            let ast::InterpolatedStringFormatSpec {
                 range,
                 elements,
                 node_index: _,
@@ -499,9 +498,9 @@ impl Node for TemplateStrPart {
 
 #[derive(Debug)]
 pub(super) struct TStringInterpolation {
-    value: Box<ruff::Expr>,
+    value: Box<ast::Expr>,
     str: String,
-    conversion: ruff::ConversionFlag,
+    conversion: ast::ConversionFlag,
     format_spec: Option<Box<TemplateStr>>,
     range: TextRange,
 }
@@ -565,18 +564,18 @@ impl Node for TStringInterpolation {
 pub(super) fn tstring_to_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    expression: ruff::ExprTString,
+    expression: ast::ExprTString,
 ) -> PyObjectRef {
-    let ruff::ExprTString {
+    let ast::ExprTString {
         range,
         mut value,
         node_index: _,
     } = expression;
-    let default_tstring = ruff::TString {
+    let default_tstring = ast::TString {
         node_index: Default::default(),
         range: Default::default(),
         elements: Default::default(),
-        flags: ruff::TStringFlags::empty(),
+        flags: ast::TStringFlags::empty(),
     };
     let mut values = Vec::new();
     for i in 0..value.as_slice().len() {

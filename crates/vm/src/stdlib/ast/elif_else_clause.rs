@@ -2,12 +2,12 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 pub(super) fn ast_to_object(
-    clause: ruff::ElifElseClause,
-    mut rest: alloc::vec::IntoIter<ruff::ElifElseClause>,
+    clause: ast::ElifElseClause,
+    mut rest: alloc::vec::IntoIter<ast::ElifElseClause>,
     vm: &VirtualMachine,
     source_file: &SourceFile,
 ) -> PyObjectRef {
-    let ruff::ElifElseClause {
+    let ast::ElifElseClause {
         node_index: _,
         range,
         test,
@@ -48,18 +48,18 @@ pub(super) fn ast_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
-) -> PyResult<ruff::StmtIf> {
+) -> PyResult<ast::StmtIf> {
     let test = Node::ast_from_object(vm, source_file, get_node_field(vm, &object, "test", "If")?)?;
     let body = Node::ast_from_object(vm, source_file, get_node_field(vm, &object, "body", "If")?)?;
-    let orelse: Vec<ruff::Stmt> = Node::ast_from_object(
+    let orelse: Vec<ast::Stmt> = Node::ast_from_object(
         vm,
         source_file,
         get_node_field(vm, &object, "orelse", "If")?,
     )?;
     let range = range_from_object(vm, source_file, object, "If")?;
 
-    let elif_else_clauses = if let [ruff::Stmt::If(_)] = &*orelse {
-        let Some(ruff::Stmt::If(ruff::StmtIf {
+    let elif_else_clauses = if let [ast::Stmt::If(_)] = &*orelse {
+        let Some(ast::Stmt::If(ast::StmtIf {
             node_index: _,
             range,
             test,
@@ -71,7 +71,7 @@ pub(super) fn ast_from_object(
         };
         elif_else_clauses.insert(
             0,
-            ruff::ElifElseClause {
+            ast::ElifElseClause {
                 node_index: Default::default(),
                 range,
                 test: Some(*test),
@@ -80,7 +80,7 @@ pub(super) fn ast_from_object(
         );
         elif_else_clauses
     } else {
-        vec![ruff::ElifElseClause {
+        vec![ast::ElifElseClause {
             node_index: Default::default(),
             range,
             test: None,
@@ -88,7 +88,7 @@ pub(super) fn ast_from_object(
         }]
     };
 
-    Ok(ruff::StmtIf {
+    Ok(ast::StmtIf {
         node_index: Default::default(),
         test,
         body,

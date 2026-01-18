@@ -2,7 +2,7 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 // product
-impl Node for ruff::Parameters {
+impl Node for ast::Parameters {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -101,7 +101,7 @@ impl Node for ruff::Parameters {
 }
 
 // product
-impl Node for ruff::Parameter {
+impl Node for ast::Parameter {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -156,7 +156,7 @@ impl Node for ruff::Parameter {
 }
 
 // product
-impl Node for ruff::Keyword {
+impl Node for ast::Keyword {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -197,7 +197,7 @@ impl Node for ruff::Keyword {
 
 struct PositionalParameters {
     pub _range: TextRange, // TODO: Use this
-    pub args: Box<[ruff::Parameter]>,
+    pub args: Box<[ast::Parameter]>,
 }
 
 impl Node for PositionalParameters {
@@ -220,7 +220,7 @@ impl Node for PositionalParameters {
 
 struct KeywordParameters {
     pub _range: TextRange, // TODO: Use this
-    pub keywords: Box<[ruff::Parameter]>,
+    pub keywords: Box<[ast::Parameter]>,
 }
 
 impl Node for KeywordParameters {
@@ -243,7 +243,7 @@ impl Node for KeywordParameters {
 
 struct ParameterDefaults {
     pub _range: TextRange, // TODO: Use this
-    defaults: Box<[Option<Box<ruff::Expr>>]>,
+    defaults: Box<[Option<Box<ast::Expr>>]>,
 }
 
 impl Node for ParameterDefaults {
@@ -265,8 +265,8 @@ impl Node for ParameterDefaults {
 }
 
 fn extract_positional_parameter_defaults(
-    pos_only_args: Vec<ruff::ParameterWithDefault>,
-    args: Vec<ruff::ParameterWithDefault>,
+    pos_only_args: Vec<ast::ParameterWithDefault>,
+    args: Vec<ast::ParameterWithDefault>,
 ) -> (
     PositionalParameters,
     PositionalParameters,
@@ -325,15 +325,15 @@ fn merge_positional_parameter_defaults(
     args: PositionalParameters,
     defaults: ParameterDefaults,
 ) -> (
-    Vec<ruff::ParameterWithDefault>,
-    Vec<ruff::ParameterWithDefault>,
+    Vec<ast::ParameterWithDefault>,
+    Vec<ast::ParameterWithDefault>,
 ) {
     let posonlyargs = posonlyargs.args;
     let args = args.args;
     let defaults = defaults.defaults;
 
     let mut posonlyargs: Vec<_> = <Box<[_]> as IntoIterator>::into_iter(posonlyargs)
-        .map(|parameter| ruff::ParameterWithDefault {
+        .map(|parameter| ast::ParameterWithDefault {
             node_index: Default::default(),
             range: Default::default(),
             parameter,
@@ -341,7 +341,7 @@ fn merge_positional_parameter_defaults(
         })
         .collect();
     let mut args: Vec<_> = <Box<[_]> as IntoIterator>::into_iter(args)
-        .map(|parameter| ruff::ParameterWithDefault {
+        .map(|parameter| ast::ParameterWithDefault {
             node_index: Default::default(),
             range: Default::default(),
             parameter,
@@ -366,7 +366,7 @@ fn merge_positional_parameter_defaults(
 }
 
 fn extract_keyword_parameter_defaults(
-    kw_only_args: Vec<ruff::ParameterWithDefault>,
+    kw_only_args: Vec<ast::ParameterWithDefault>,
 ) -> (KeywordParameters, ParameterDefaults) {
     let mut defaults = vec![];
     defaults.extend(kw_only_args.iter().map(|item| item.default.clone()));
@@ -402,9 +402,9 @@ fn extract_keyword_parameter_defaults(
 fn merge_keyword_parameter_defaults(
     kw_only_args: KeywordParameters,
     defaults: ParameterDefaults,
-) -> Vec<ruff::ParameterWithDefault> {
+) -> Vec<ast::ParameterWithDefault> {
     core::iter::zip(kw_only_args.keywords, defaults.defaults)
-        .map(|(parameter, default)| ruff::ParameterWithDefault {
+        .map(|(parameter, default)| ast::ParameterWithDefault {
             node_index: Default::default(),
             parameter,
             default,

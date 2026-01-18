@@ -19,7 +19,7 @@ use crate::{
     convert::ToPyObject,
 };
 use node::Node;
-use ruff_python_ast as ruff;
+use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use rustpython_compiler_core::{
     LineIndex, OneIndexed, PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation,
@@ -283,8 +283,8 @@ pub(crate) fn parse(
         })?
         .into_syntax();
     let top = match top {
-        ruff::Mod::Module(m) => Mod::Module(m),
-        ruff::Mod::Expression(e) => Mod::Expression(e),
+        ast::Mod::Module(m) => Mod::Module(m),
+        ast::Mod::Expression(e) => Mod::Expression(e),
     };
     Ok(top.ast_to_object(vm, &source_file))
 }
@@ -305,13 +305,13 @@ pub(crate) fn compile(
     let source_file = SourceFileBuilder::new(filename.to_owned(), "".to_owned()).finish();
     let ast: Mod = Node::ast_from_object(vm, &source_file, object)?;
     let ast = match ast {
-        Mod::Module(m) => ruff::Mod::Module(m),
-        Mod::Interactive(ModInteractive { range, body }) => ruff::Mod::Module(ruff::ModModule {
+        Mod::Module(m) => ast::Mod::Module(m),
+        Mod::Interactive(ModInteractive { range, body }) => ast::Mod::Module(ast::ModModule {
             node_index: Default::default(),
             range,
             body,
         }),
-        Mod::Expression(e) => ruff::Mod::Expression(e),
+        Mod::Expression(e) => ast::Mod::Expression(e),
         Mod::FunctionType(_) => todo!(),
     };
     // TODO: create a textual representation of the ast
