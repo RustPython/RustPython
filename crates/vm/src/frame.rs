@@ -672,7 +672,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::BuildList { size } => {
-                let elements = self.pop_multiple(size.get(arg) as usize).collect();
+                let sz = size.get(arg) as usize;
+                let elements = self.pop_multiple(sz).collect();
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
@@ -947,6 +948,48 @@ impl ExecutingFrame<'_> {
                 dict.merge_object(source, vm)?;
                 Ok(None)
             }
+            Instruction::DictMerge { index } => {
+                let source = self.pop_value();
+                let idx = index.get(arg);
+
+                // Get the dict to merge into (same logic as DICT_UPDATE)
+                let dict_ref = if idx <= 1 {
+                    self.top_value()
+                } else {
+                    self.nth_value(idx - 1)
+                };
+
+                let dict: &Py<PyDict> = unsafe { dict_ref.downcast_unchecked_ref() };
+
+                // Check if source is a mapping
+                if vm
+                    .get_method(source.clone(), vm.ctx.intern_str("keys"))
+                    .is_none()
+                {
+                    return Err(vm.new_type_error(format!(
+                        "'{}' object is not a mapping",
+                        source.class().name()
+                    )));
+                }
+
+                // Check for duplicate keys
+                let keys_iter = vm.call_method(&source, "keys", ())?;
+                for key in keys_iter.try_to_value::<Vec<PyObjectRef>>(vm)? {
+                    if key.downcast_ref::<PyStr>().is_none() {
+                        return Err(vm.new_type_error("keywords must be strings".to_owned()));
+                    }
+                    if dict.contains_key(&*key, vm) {
+                        let key_repr = key.repr(vm)?;
+                        return Err(vm.new_type_error(format!(
+                            "got multiple values for keyword argument {}",
+                            key_repr.as_str()
+                        )));
+                    }
+                    let value = vm.call_method(&source, "__getitem__", (key.clone(),))?;
+                    dict.set_item(&*key, value, vm)?;
+                }
+                Ok(None)
+            }
             Instruction::EndAsyncFor => {
                 // END_ASYNC_FOR pops (awaitable, exc) from stack
                 // Stack: [awaitable, exc] -> []
@@ -1184,6 +1227,16 @@ impl ExecutingFrame<'_> {
                 list.append(item);
                 Ok(None)
             }
+            Instruction::ListExtend { i } => {
+                let iterable = self.pop_value();
+                let obj = self.nth_value(i.get(arg));
+                let list: &Py<PyList> = unsafe {
+                    // SAFETY: compiler guarantees correct type
+                    obj.downcast_unchecked_ref()
+                };
+                list.extend(iterable, vm)?;
+                Ok(None)
+            }
             Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
             Instruction::LoadSuperAttr { arg: idx } => self.load_super_attr(vm, idx.get(arg)),
             Instruction::LoadBuildClass => {
@@ -1234,10 +1287,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadDeref(i) => {
-                let i = i.get(arg) as usize;
-                let x = self.cells_frees[i]
+                let idx = i.get(arg) as usize;
+                let x = self.cells_frees[idx]
                     .get()
-                    .ok_or_else(|| self.unbound_cell_exception(i, vm))?;
+                    .ok_or_else(|| self.unbound_cell_exception(idx, vm))?;
                 self.push_value(x);
                 Ok(None)
             }
@@ -1568,6 +1621,19 @@ impl ExecutingFrame<'_> {
                     obj.downcast_unchecked_ref()
                 };
                 set.add(item, vm)?;
+                Ok(None)
+            }
+            Instruction::SetUpdate { i } => {
+                let iterable = self.pop_value();
+                let obj = self.nth_value(i.get(arg));
+                let set: &Py<PySet> = unsafe {
+                    // SAFETY: compiler guarantees correct type
+                    obj.downcast_unchecked_ref()
+                };
+                let iter = PyIter::try_from_object(vm, iterable)?;
+                while let PyIterReturn::Return(item) = iter.next(vm)? {
+                    set.add(item, vm)?;
+                }
                 Ok(None)
             }
             Instruction::SetExcInfo => {

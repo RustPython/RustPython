@@ -34,6 +34,7 @@ IMMUTABLETYPE
 ismine
 Itertool
 keeped
+kwnames
 kwonlyarg
 kwonlyargs
 lasti
@@ -44,6 +45,7 @@ mult
 multibytecodec
 newsemlockobject
 nkwargs
+nkwelts
 noraise
 numer
 orelse
@@ -65,6 +67,7 @@ stackdepth
 stginfo
 stringlib
 structseq
+subkwargs
 subparams
 swappedbytes
 ticketer

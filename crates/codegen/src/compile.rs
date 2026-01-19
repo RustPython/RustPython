@@ -29,8 +29,8 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
-        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, Invert, OpArg, OpArgType,
-        PseudoInstruction, UnpackExArgs,
+        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, IntrinsicFunction1,
+        Invert, OpArg, OpArgType, PseudoInstruction, UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -531,38 +531,115 @@ impl Compiler {
         pushed: u32,
         collection_type: CollectionType,
     ) -> CompileResult<()> {
-        // Use RustPython's existing approach with BuildXFromTuples
-        let (size, unpack) = self.gather_elements(pushed, elts)?;
+        let n = elts.len().to_u32();
+        let seen_star = elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)));
 
-        if unpack {
-            // Has starred elements
+        // Determine collection size threshold for optimization
+        let big = match collection_type {
+            CollectionType::Set => n > 8,
+            _ => n > 4,
+        };
+
+        // If no stars and not too big, compile all elements and build once
+        if !seen_star && !big {
+            for elt in elts {
+                self.compile_expression(elt)?;
+            }
+            let total_size = n + pushed;
             match collection_type {
+                CollectionType::List => {
+                    emit!(self, Instruction::BuildList { size: total_size });
+                }
+                CollectionType::Set => {
+                    emit!(self, Instruction::BuildSet { size: total_size });
+                }
                 CollectionType::Tuple => {
-                    if size > 1 || pushed > 0 {
-                        emit!(self, Instruction::BuildTupleFromTuples { size });
+                    emit!(self, Instruction::BuildTuple { size: total_size });
+                }
+            }
+            return Ok(());
+        }
+
+        // Has stars or too big: use streaming approach
+        let mut sequence_built = false;
+        let mut i = 0u32;
+
+        for elt in elts.iter() {
+            if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = elt {
+                // When we hit first star, build sequence with elements so far
+                if !sequence_built {
+                    match collection_type {
+                        CollectionType::List => {
+                            emit!(self, Instruction::BuildList { size: i + pushed });
+                        }
+                        CollectionType::Set => {
+                            emit!(self, Instruction::BuildSet { size: i + pushed });
+                        }
+                        CollectionType::Tuple => {
+                            emit!(self, Instruction::BuildList { size: i + pushed });
+                        }
                     }
-                    // If size == 1 and pushed == 0, the single tuple is already on the stack
+                    sequence_built = true;
                 }
-                CollectionType::List => {
-                    emit!(self, Instruction::BuildListFromTuples { size });
+
+                // Compile the starred expression and extend
+                self.compile_expression(value)?;
+                match collection_type {
+                    CollectionType::List => {
+                        emit!(self, Instruction::ListExtend { i: 0 });
+                    }
+                    CollectionType::Set => {
+                        emit!(self, Instruction::SetUpdate { i: 0 });
+                    }
+                    CollectionType::Tuple => {
+                        emit!(self, Instruction::ListExtend { i: 0 });
+                    }
                 }
-                CollectionType::Set => {
-                    emit!(self, Instruction::BuildSetFromTuples { size });
+            } else {
+                // Non-starred element
+                self.compile_expression(elt)?;
+
+                if sequence_built {
+                    // Sequence already exists, append to it
+                    match collection_type {
+                        CollectionType::List => {
+                            emit!(self, Instruction::ListAppend { i: 0 });
+                        }
+                        CollectionType::Set => {
+                            emit!(self, Instruction::SetAdd { i: 0 });
+                        }
+                        CollectionType::Tuple => {
+                            emit!(self, Instruction::ListAppend { i: 0 });
+                        }
+                    }
+                } else {
+                    // Still collecting elements before first star
+                    i += 1;
                 }
             }
-        } else {
-            // No starred elements
+        }
+
+        // If we never built sequence (all non-starred), build it now
+        if !sequence_built {
             match collection_type {
-                CollectionType::Tuple => {
-                    emit!(self, Instruction::BuildTuple { size });
-                }
                 CollectionType::List => {
-                    emit!(self, Instruction::BuildList { size });
+                    emit!(self, Instruction::BuildList { size: i + pushed });
                 }
                 CollectionType::Set => {
-                    emit!(self, Instruction::BuildSet { size });
+                    emit!(self, Instruction::BuildSet { size: i + pushed });
+                }
+                CollectionType::Tuple => {
+                    emit!(self, Instruction::BuildTuple { size: i + pushed });
                 }
             }
+        } else if collection_type == CollectionType::Tuple {
+            // For tuples, convert the list to tuple
+            emit!(
+                self,
+                Instruction::CallIntrinsic1 {
+                    func: IntrinsicFunction1::ListToTuple
+                }
+            );
         }
 
         Ok(())
@@ -4400,27 +4477,35 @@ impl Compiler {
                 // Stack has: [__build_class__, NULL, class_func, name]
                 // Need to build: args tuple = (class_func, name, *bases, .generic_base)
 
-                // Compile bases with gather_elements (handles starred)
-                let (size, unpack) = if let Some(arguments) = arguments {
-                    self.gather_elements(2, &arguments.args)? // 2 = class_func + name already on stack
-                } else {
-                    // Just class_func and name (no bases)
-                    (2, false)
-                };
+                // Build a list starting with class_func and name (2 elements already on stack)
+                emit!(self, Instruction::BuildList { size: 2 });
 
-                // Add .generic_base as final base
-                emit!(self, Instruction::LoadName(dot_generic_base));
-
-                // Build args tuple
-                if unpack {
-                    // Starred: gather_elements produced tuples on stack
-                    emit!(self, Instruction::BuildTuple { size: 1 }); // (.generic_base,)
-                    emit!(self, Instruction::BuildTupleFromTuples { size: size + 1 });
-                } else {
-                    // No starred: individual elements on stack
-                    // size includes class_func + name + bases count, +1 for .generic_base
-                    emit!(self, Instruction::BuildTuple { size: size + 1 });
+                // Add bases to the list
+                if let Some(arguments) = arguments {
+                    for arg in &arguments.args {
+                        if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = arg {
+                            // Starred: compile and extend
+                            self.compile_expression(value)?;
+                            emit!(self, Instruction::ListExtend { i: 0 });
+                        } else {
+                            // Non-starred: compile and append
+                            self.compile_expression(arg)?;
+                            emit!(self, Instruction::ListAppend { i: 0 });
+                        }
+                    }
                 }
+
+                // Add .generic_base as final element
+                emit!(self, Instruction::LoadName(dot_generic_base));
+                emit!(self, Instruction::ListAppend { i: 0 });
+
+                // Convert list to tuple
+                emit!(
+                    self,
+                    Instruction::CallIntrinsic1 {
+                        func: IntrinsicFunction1::ListToTuple
+                    }
+                );
 
                 // Build kwargs if needed
                 if arguments.is_some_and(|args| !args.keywords.is_empty()) {
@@ -4496,7 +4581,7 @@ impl Compiler {
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             if let Some(arguments) = arguments {
-                self.compile_call_helper(2, arguments)?;
+                self.codegen_call_helper(2, arguments)?;
             } else {
                 emit!(self, Instruction::Call { nargs: 2 });
             }
@@ -6895,7 +6980,10 @@ impl Compiler {
             }
         }
         if size > 1 {
-            emit!(self, Instruction::BuildMapForCall { size });
+            // Merge all dicts: first dict is accumulator, merge rest into it
+            for _ in 1..size {
+                emit!(self, Instruction::DictMerge { index: 1 });
+            }
         }
         Ok(())
     }
@@ -6918,143 +7006,198 @@ impl Compiler {
                         emit!(self, PseudoInstruction::LoadZeroSuperMethod { idx });
                     }
                 }
-                self.compile_call_helper(0, args)?;
+                self.codegen_call_helper(0, args)?;
             } else {
                 // Normal method call: compile object, then LOAD_ATTR_METHOD
                 // LOAD_ATTR_METHOD pushes [method, self_or_null] on stack
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
                 emit!(self, PseudoInstruction::LoadAttrMethod { idx });
-                self.compile_call_helper(0, args)?;
+                self.codegen_call_helper(0, args)?;
             }
         } else {
             // Regular call: push func, then NULL for self_or_null slot
             // Stack layout: [func, NULL, args...] - same as method call [func, self, args...]
             self.compile_expression(func)?;
             emit!(self, Instruction::PushNull);
-            self.compile_call_helper(0, args)?;
+            self.codegen_call_helper(0, args)?;
         }
+        Ok(())
+    }
+
+    /// Compile subkwargs: emit key-value pairs for BUILD_MAP
+    fn codegen_subkwargs(
+        &mut self,
+        keywords: &[ast::Keyword],
+        begin: usize,
+        end: usize,
+    ) -> CompileResult<()> {
+        let n = end - begin;
+        assert!(n > 0);
+
+        // For large kwargs, use BUILD_MAP(0) + MAP_ADD to avoid stack overflow
+        let big = n * 2 > 8; // STACK_USE_GUIDELINE approximation
+
+        if big {
+            emit!(self, Instruction::BuildMap { size: 0 });
+        }
+
+        for kw in &keywords[begin..end] {
+            // Key first, then value - this is critical!
+            self.emit_load_const(ConstantData::Str {
+                value: kw.arg.as_ref().unwrap().as_str().into(),
+            });
+            self.compile_expression(&kw.value)?;
+
+            if big {
+                emit!(self, Instruction::MapAdd { i: 0 });
+            }
+        }
+
+        if !big {
+            emit!(self, Instruction::BuildMap { size: n.to_u32() });
+        }
+
         Ok(())
     }
 
     /// Compile call arguments and emit the appropriate CALL instruction.
-    /// This is shared between compiler_call and compiler_class.
-    fn compile_call_helper(
+    fn codegen_call_helper(
         &mut self,
         additional_positional: u32,
         arguments: &ast::Arguments,
     ) -> CompileResult<()> {
-        let args_count = u32::try_from(arguments.len()).expect("too many arguments");
-        let count = args_count
-            .checked_add(additional_positional)
-            .expect("too many arguments");
+        let nelts = arguments.args.len();
+        let nkwelts = arguments.keywords.len();
 
-        // Normal arguments:
-        let (size, unpack) = self.gather_elements(additional_positional, &arguments.args)?;
+        // Check if we have starred args or **kwargs
+        let has_starred = arguments
+            .args
+            .iter()
+            .any(|arg| matches!(arg, ast::Expr::Starred(_)));
         let has_double_star = arguments.keywords.iter().any(|k| k.arg.is_none());
 
-        if unpack || has_double_star {
-            // Create a tuple with positional args:
-            if unpack {
-                emit!(self, Instruction::BuildTupleFromTuples { size });
-            } else {
-                emit!(self, Instruction::BuildTuple { size });
+        // Check if exceeds stack guideline
+        let too_big = nelts + nkwelts * 2 > 8;
+
+        if !has_starred && !has_double_star && !too_big {
+            // Simple call path: no * or ** args
+            for arg in &arguments.args {
+                self.compile_expression(arg)?;
             }
 
-            // Create an optional map with kw-args:
-            if !arguments.keywords.is_empty() {
-                self.compile_keywords(&arguments.keywords)?;
+            if nkwelts > 0 {
+                // Compile keyword values and build kwnames tuple
+                let mut kwarg_names = Vec::with_capacity(nkwelts);
+                for keyword in &arguments.keywords {
+                    kwarg_names.push(ConstantData::Str {
+                        value: keyword.arg.as_ref().unwrap().as_str().into(),
+                    });
+                    self.compile_expression(&keyword.value)?;
+                }
+
+                self.emit_load_const(ConstantData::Tuple {
+                    elements: kwarg_names,
+                });
+
+                let nargs = additional_positional + nelts.to_u32() + nkwelts.to_u32();
+                emit!(self, Instruction::CallKw { nargs });
+            } else {
+                let nargs = additional_positional + nelts.to_u32();
+                emit!(self, Instruction::Call { nargs });
+            }
+        } else {
+            // ex_call path: has * or ** args
+
+            // Compile positional arguments
+            if additional_positional == 0
+                && nelts == 1
+                && matches!(arguments.args[0], ast::Expr::Starred(_))
+            {
+                // Special case: single starred arg
+                // Even in this case, we need to ensure it's a tuple for CallFunctionEx
+                if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = &arguments.args[0] {
+                    // Check if the value is already a tuple expression
+                    if matches!(value.as_ref(), ast::Expr::Tuple(_)) {
+                        // Tuple literals can be used directly
+                        self.compile_expression(value)?;
+                    } else {
+                        // For all other cases (including variables that might be lists),
+                        // build a list and convert to tuple to ensure correct type
+                        emit!(self, Instruction::BuildList { size: 0 });
+                        self.compile_expression(value)?;
+                        emit!(self, Instruction::ListExtend { i: 0 });
+                        emit!(
+                            self,
+                            Instruction::CallIntrinsic1 {
+                                func: IntrinsicFunction1::ListToTuple
+                            }
+                        );
+                    }
+                }
+            } else {
+                // Use starunpack_helper to build a list, then convert to tuple
+                self.starunpack_helper(
+                    &arguments.args,
+                    additional_positional,
+                    CollectionType::List,
+                )?;
+                emit!(
+                    self,
+                    Instruction::CallIntrinsic1 {
+                        func: IntrinsicFunction1::ListToTuple
+                    }
+                );
+            }
+
+            // Compile keyword arguments
+            if nkwelts > 0 {
+                let mut have_dict = false;
+                let mut nseen = 0usize;
+
+                for (i, keyword) in arguments.keywords.iter().enumerate() {
+                    if keyword.arg.is_none() {
+                        // **kwargs unpacking
+                        if nseen > 0 {
+                            // Pack up preceding keywords using codegen_subkwargs
+                            self.codegen_subkwargs(&arguments.keywords, i - nseen, i)?;
+                            if have_dict {
+                                emit!(self, Instruction::DictMerge { index: 1 });
+                            }
+                            have_dict = true;
+                            nseen = 0;
+                        }
+
+                        if !have_dict {
+                            emit!(self, Instruction::BuildMap { size: 0 });
+                            have_dict = true;
+                        }
+
+                        self.compile_expression(&keyword.value)?;
+                        emit!(self, Instruction::DictMerge { index: 1 });
+                    } else {
+                        nseen += 1;
+                    }
+                }
+
+                // Pack up any trailing keyword arguments
+                if nseen > 0 {
+                    self.codegen_subkwargs(&arguments.keywords, nkwelts - nseen, nkwelts)?;
+                    if have_dict {
+                        emit!(self, Instruction::DictMerge { index: 1 });
+                    }
+                    have_dict = true;
+                }
+
+                assert!(have_dict);
             } else {
                 emit!(self, Instruction::PushNull);
             }
-            emit!(self, Instruction::CallFunctionEx);
-        } else if !arguments.keywords.is_empty() {
-            // No **kwargs in this branch (has_double_star is false),
-            // so all keywords have arg.is_some()
-            let mut kwarg_names = Vec::with_capacity(arguments.keywords.len());
-            for keyword in &arguments.keywords {
-                let name = keyword
-                    .arg
-                    .as_ref()
-                    .expect("has_double_star is false, so arg must be Some");
-                kwarg_names.push(ConstantData::Str {
-                    value: name.as_str().into(),
-                });
-                self.compile_expression(&keyword.value)?;
-            }
 
-            self.emit_load_const(ConstantData::Tuple {
-                elements: kwarg_names,
-            });
-            // nargs = positional args + keyword args
-            let positional = additional_positional
-                .checked_add(u32::try_from(arguments.args.len()).expect("too many positional args"))
-                .expect("too many positional args");
-            let keyword_count =
-                u32::try_from(arguments.keywords.len()).expect("too many keyword args");
-            let nargs = positional
-                .checked_add(keyword_count)
-                .expect("too many arguments");
-            emit!(self, Instruction::CallKw { nargs });
-        } else {
-            emit!(self, Instruction::Call { nargs: count });
+            emit!(self, Instruction::CallFunctionEx);
         }
 
         Ok(())
-    }
-
-    // Given a vector of expr / star expr generate code which gives either
-    // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(
-        &mut self,
-        before: u32,
-        elements: &[ast::Expr],
-    ) -> CompileResult<(u32, bool)> {
-        // First determine if we have starred elements:
-        let has_stars = elements.iter().any(|e| matches!(e, ast::Expr::Starred(_)));
-
-        let size = if has_stars {
-            let mut size = 0;
-            let mut iter = elements.iter().peekable();
-            let mut run_size = before;
-
-            loop {
-                if iter
-                    .peek()
-                    .is_none_or(|e| matches!(e, ast::Expr::Starred(_)))
-                {
-                    emit!(self, Instruction::BuildTuple { size: run_size });
-                    run_size = 0;
-                    size += 1;
-                }
-
-                match iter.next() {
-                    Some(ast::Expr::Starred(ast::ExprStarred { value, .. })) => {
-                        self.compile_expression(value)?;
-                        // We need to collect each unpacked element into a
-                        // tuple, since any side-effects during the conversion
-                        // should be made visible before evaluating remaining
-                        // expressions.
-                        emit!(self, Instruction::BuildTupleFromIter);
-                        size += 1;
-                    }
-                    Some(element) => {
-                        self.compile_expression(element)?;
-                        run_size += 1;
-                    }
-                    None => break,
-                }
-            }
-
-            size
-        } else {
-            for element in elements {
-                self.compile_expression(element)?;
-            }
-            before + elements.len().to_u32()
-        };
-
-        Ok((size, has_stars))
     }
 
     fn compile_comprehension_element(&mut self, element: &ast::Expr) -> CompileResult<()> {
