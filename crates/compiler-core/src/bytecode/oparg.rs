@@ -327,6 +327,8 @@ bitflags! {
         const KW_ONLY_DEFAULTS = 0x04;
         const DEFAULTS = 0x08;
         const TYPE_PARAMS = 0x10;
+        /// PEP 649: __annotate__ function closure (instead of __annotations__ dict)
+        const ANNOTATE = 0x20;
     }
 }
 

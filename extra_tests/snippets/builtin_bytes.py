@@ -137,16 +137,41 @@ assert b"AaBbCc123'@/".swapcase() == b"aAbBcC123'@/"
 # hex from hex
 assert bytes([0, 1, 9, 23, 90, 234]).hex() == "000109175aea"
 
-bytes.fromhex("62 6c7a 34350a ") == b"blz45\n"
+# fromhex with str
+assert bytes.fromhex("62 6c7a 34350a ") == b"blz45\n"
+
+# fromhex with bytes
+assert bytes.fromhex(b"62 6c7a 34350a ") == b"blz45\n"
+assert bytes.fromhex(b"B9 01EF") == b"\xb9\x01\xef"
+
+# fromhex with bytearray (bytes-like object)
+assert bytes.fromhex(bytearray(b"4142")) == b"AB"
+
+# fromhex with memoryview (bytes-like object)
+assert bytes.fromhex(memoryview(b"4142")) == b"AB"
+
+# fromhex error: non-hexadecimal character
 try:
     bytes.fromhex("62 a 21")
 except ValueError as e:
-    str(e) == "non-hexadecimal number found in fromhex() arg at position 4"
+    assert str(e) == "non-hexadecimal number found in fromhex() arg at position 4"
 try:
     bytes.fromhex("6Z2")
 except ValueError as e:
-    str(e) == "non-hexadecimal number found in fromhex() arg at position 1"
+    assert str(e) == "non-hexadecimal number found in fromhex() arg at position 1"
+
+# fromhex error: odd number of hex digits
+try:
+    bytes.fromhex("abc")
+except ValueError as e:
+    assert str(e) == "fromhex() arg must contain an even number of hexadecimal digits"
+
+# fromhex error: wrong type
 with assert_raises(TypeError):
+    bytes.fromhex(123)
+
+# fromhex with bytes containing invalid hex raises ValueError
+with assert_raises(ValueError):
     bytes.fromhex(b"hhjjk")
 # center
 assert [b"koki".center(i, b"|") for i in range(3, 10)] == [

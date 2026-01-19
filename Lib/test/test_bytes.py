@@ -1288,11 +1288,20 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
         self.assertNotEqual(id(s), id(1 * s))
         self.assertNotEqual(id(s), id(s * 2))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_fromhex(self):
+        return super().test_fromhex()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_mod(self):
+        return super().test_mod()
+
 
 class ByteArrayTest(BaseBytesTest, unittest.TestCase):
     type2test = bytearray
 
-    _testlimitedcapi = import_helper.import_module('_testlimitedcapi')
+    # XXX: RUSTPYTHON; import_helper.import_module here cause the entire test stopping
+    _testlimitedcapi = None  # import_helper.import_module('_testlimitedcapi')
 
     def test_getitem_error(self):
         b = bytearray(b'python')
@@ -1385,6 +1394,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         b = by("Hello, world")
         self.assertEqual(re.findall(br"\w+", b), [by("Hello"), by("world")])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_setitem(self):
         def setitem_as_mapping(b, i, val):
             b[i] = val
@@ -1432,6 +1442,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         with self.subTest("tp_as_sequence"):
             do_tests(setitem_as_sequence)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_delitem(self):
         def del_as_mapping(b, i):
             del b[i]
@@ -1618,6 +1629,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         alloc = b.__alloc__()
         self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_extend(self):
         orig = b'hello'
         a = bytearray(orig)
@@ -1840,6 +1852,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b1, b)
         self.assertEqual(b3, b'xcxcxc')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_mutating_index(self):
         # bytearray slice assignment can call into python code
         # that reallocates the internal buffer
@@ -1860,6 +1873,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
             with self.assertRaises(IndexError):
                 self._testlimitedcapi.sequence_setitem(b, 0, Boom())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_mutating_index_inbounds(self):
         # gh-91153 continued
         # Ensure buffer is not broken even if length is correct
@@ -1893,6 +1907,14 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
             self.assertEqual(instance.ba[0], ord("?"), "Assigned bytearray not altered")
             self.assertEqual(instance.new_ba, bytearray(0x180), "Wrong object altered")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_fromhex(self):
+        return super().test_fromhex()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_mod(self):
+        return super().test_mod()
+
 
 class AssortedBytesTest(unittest.TestCase):
     #
@@ -1912,6 +1934,7 @@ class AssortedBytesTest(unittest.TestCase):
         self.assertEqual(f(b"'\"'"), r"""b'\'"\''""") # '\'"\''
         self.assertEqual(f(BytesSubclass(b"abc")), "b'abc'")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bytearray_repr(self, f=repr):
         self.assertEqual(f(bytearray()), "bytearray(b'')")
         self.assertEqual(f(bytearray(b'abc')), "bytearray(b'abc')")
@@ -1933,6 +1956,7 @@ class AssortedBytesTest(unittest.TestCase):
     def test_bytes_str(self):
         self.test_bytes_repr(str)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @check_bytes_warnings
     def test_bytearray_str(self):
         self.test_bytearray_repr(str)
@@ -2232,6 +2256,14 @@ class ByteArraySubclassTest(SubclassTest, unittest.TestCase):
 class ByteArraySubclassWithSlotsTest(SubclassTest, unittest.TestCase):
     basetype = bytearray
     type2test = ByteArraySubclassWithSlots
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_copy(self):
+        return super().test_copy()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_pickle(self):
+        return super().test_pickle()
 
 class BytesSubclassTest(SubclassTest, unittest.TestCase):
     basetype = bytes

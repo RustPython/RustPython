@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, \
      SimpleHTTPRequestHandler, CGIHTTPRequestHandler
 from http import server, HTTPStatus
 
+import contextlib
 import os
 import socket
 import sys
@@ -26,13 +27,16 @@ import time
 import datetime
 import threading
 from unittest import mock
-from io import BytesIO
+from io import BytesIO, StringIO
 
 import unittest
 from test import support
-from test.support import os_helper
-from test.support import threading_helper
+from test.support import (
+    is_apple, os_helper, requires_subprocess, threading_helper
+)
+from test.support.testcase import ExtraAssertions
 
+support.requires_working_socket(module=True)
 
 class NoLogRequestHandler:
     def log_message(self, *args):
@@ -64,7 +68,7 @@ class TestServerThread(threading.Thread):
         self.join()
 
 
-class BaseTestCase(unittest.TestCase):
+class BaseTestCase(unittest.TestCase, ExtraAssertions):
     def setUp(self):
         self._threads = threading_helper.threading_setup()
         os.environ = os_helper.EnvironmentVarGuard()
@@ -158,6 +162,27 @@ class BaseHTTPServerTestCase(BaseTestCase):
 
     def test_version_digits(self):
         self.con._http_vsn_str = 'HTTP/9.9.9'
+        self.con.putrequest('GET', '/')
+        self.con.endheaders()
+        res = self.con.getresponse()
+        self.assertEqual(res.status, HTTPStatus.BAD_REQUEST)
+
+    def test_version_signs_and_underscores(self):
+        self.con._http_vsn_str = 'HTTP/-9_9_9.+9_9_9'
+        self.con.putrequest('GET', '/')
+        self.con.endheaders()
+        res = self.con.getresponse()
+        self.assertEqual(res.status, HTTPStatus.BAD_REQUEST)
+
+    def test_major_version_number_too_long(self):
+        self.con._http_vsn_str = 'HTTP/909876543210.0'
+        self.con.putrequest('GET', '/')
+        self.con.endheaders()
+        res = self.con.getresponse()
+        self.assertEqual(res.status, HTTPStatus.BAD_REQUEST)
+
+    def test_minor_version_number_too_long(self):
+        self.con._http_vsn_str = 'HTTP/1.909876543210'
         self.con.putrequest('GET', '/')
         self.con.endheaders()
         res = self.con.getresponse()
@@ -292,6 +317,44 @@ class BaseHTTPServerTestCase(BaseTestCase):
             self.assertEqual(b'', data)
 
 
+class HTTP09ServerTestCase(BaseTestCase):
+
+    class request_handler(NoLogRequestHandler, BaseHTTPRequestHandler):
+        """Request handler for HTTP/0.9 server."""
+
+        def do_GET(self):
+            self.wfile.write(f'OK: here is {self.path}\r\n'.encode())
+
+    def setUp(self):
+        super().setUp()
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock = self.enterContext(self.sock)
+        self.sock.connect((self.HOST, self.PORT))
+
+    def test_simple_get(self):
+        self.sock.send(b'GET /index.html\r\n')
+        res = self.sock.recv(1024)
+        self.assertEqual(res, b"OK: here is /index.html\r\n")
+
+    def test_invalid_request(self):
+        self.sock.send(b'POST /index.html\r\n')
+        res = self.sock.recv(1024)
+        self.assertIn(b"Bad HTTP/0.9 request type ('POST')", res)
+
+    def test_single_request(self):
+        self.sock.send(b'GET /foo.html\r\n')
+        res = self.sock.recv(1024)
+        self.assertEqual(res, b"OK: here is /foo.html\r\n")
+
+        # Ignore errors if the connection is already closed,
+        # as this is the expected behavior of HTTP/0.9.
+        with contextlib.suppress(OSError):
+            self.sock.send(b'GET /bar.html\r\n')
+            res = self.sock.recv(1024)
+            # The server should not process our request.
+            self.assertEqual(res, b'')
+
+
 class RequestHandlerLoggingTestCase(BaseTestCase):
     class request_handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -312,8 +375,7 @@ class RequestHandlerLoggingTestCase(BaseTestCase):
             self.con.request('GET', '/')
             self.con.getresponse()
 
-        self.assertTrue(
-            err.getvalue().endswith('"GET / HTTP/1.1" 200 -\n'))
+        self.assertEndsWith(err.getvalue(), '"GET / HTTP/1.1" 200 -\n')
 
     def test_err(self):
         self.con = http.client.HTTPConnection(self.HOST, self.PORT)
@@ -324,8 +386,8 @@ class RequestHandlerLoggingTestCase(BaseTestCase):
             self.con.getresponse()
 
         lines = err.getvalue().split('\n')
-        self.assertTrue(lines[0].endswith('code 404, message File not found'))
-        self.assertTrue(lines[1].endswith('"ERROR / HTTP/1.1" 404 -'))
+        self.assertEndsWith(lines[0], 'code 404, message File not found')
+        self.assertEndsWith(lines[1], '"ERROR / HTTP/1.1" 404 -')
 
 
 class SimpleHTTPServerTestCase(BaseTestCase):
@@ -333,7 +395,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         pass
 
     def setUp(self):
-        BaseTestCase.setUp(self)
+        super().setUp()
         self.cwd = os.getcwd()
         basetempdir = tempfile.gettempdir()
         os.chdir(basetempdir)
@@ -361,7 +423,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
             except:
                 pass
         finally:
-            BaseTestCase.tearDown(self)
+            super().tearDown()
 
     def check_status_and_reason(self, response, status, data=None):
         def close_conn():
@@ -388,35 +450,175 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         reader.close()
         return body
 
-    @unittest.skipIf(sys.platform == 'darwin',
-                     'undecodable name cannot always be decoded on macOS')
+    def check_list_dir_dirname(self, dirname, quotedname=None):
+        fullpath = os.path.join(self.tempdir, dirname)
+        try:
+            os.mkdir(os.path.join(self.tempdir, dirname))
+        except (OSError, UnicodeEncodeError):
+            self.skipTest(f'Can not create directory {dirname!a} '
+                          f'on current file system')
+
+        if quotedname is None:
+            quotedname = urllib.parse.quote(dirname, errors='surrogatepass')
+        response = self.request(self.base_url + '/' + quotedname + '/')
+        body = self.check_status_and_reason(response, HTTPStatus.OK)
+        displaypath = html.escape(f'{self.base_url}/{dirname}/', quote=False)
+        enc = sys.getfilesystemencoding()
+        prefix = f'listing for {displaypath}</'.encode(enc, 'surrogateescape')
+        self.assertIn(prefix + b'title>', body)
+        self.assertIn(prefix + b'h1>', body)
+
+    def check_list_dir_filename(self, filename):
+        fullpath = os.path.join(self.tempdir, filename)
+        content = ascii(fullpath).encode() + (os_helper.TESTFN_UNDECODABLE or b'\xff')
+        try:
+            with open(fullpath, 'wb') as f:
+                f.write(content)
+        except OSError:
+            self.skipTest(f'Can not create file {filename!a} '
+                          f'on current file system')
+
+        response = self.request(self.base_url + '/')
+        body = self.check_status_and_reason(response, HTTPStatus.OK)
+        quotedname = urllib.parse.quote(filename, errors='surrogatepass')
+        enc = response.headers.get_content_charset()
+        self.assertIsNotNone(enc)
+        self.assertIn((f'href="{quotedname}"').encode('ascii'), body)
+        displayname = html.escape(filename, quote=False)
+        self.assertIn(f'>{displayname}<'.encode(enc, 'surrogateescape'), body)
+
+        response = self.request(self.base_url + '/' + quotedname)
+        self.check_status_and_reason(response, HTTPStatus.OK, data=content)
+
+    @unittest.skipUnless(os_helper.TESTFN_NONASCII,
+                         'need os_helper.TESTFN_NONASCII')
+    def test_list_dir_nonascii_dirname(self):
+        dirname = os_helper.TESTFN_NONASCII + '.dir'
+        self.check_list_dir_dirname(dirname)
+
+    @unittest.skipUnless(os_helper.TESTFN_NONASCII,
+                         'need os_helper.TESTFN_NONASCII')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
+    def test_list_dir_nonascii_filename(self):
+        filename = os_helper.TESTFN_NONASCII + '.txt'
+        self.check_list_dir_filename(filename)
+
+    @unittest.skipIf(is_apple,
+                     'undecodable name cannot always be decoded on Apple platforms')
     @unittest.skipIf(sys.platform == 'win32',
                      'undecodable name cannot be decoded on win32')
     @unittest.skipUnless(os_helper.TESTFN_UNDECODABLE,
                          'need os_helper.TESTFN_UNDECODABLE')
-    def test_undecodable_filename(self):
-        enc = sys.getfilesystemencoding()
-        filename = os.fsdecode(os_helper.TESTFN_UNDECODABLE) + '.txt'
-        with open(os.path.join(self.tempdir, filename), 'wb') as f:
-            f.write(os_helper.TESTFN_UNDECODABLE)
-        response = self.request(self.base_url + '/')
-        if sys.platform == 'darwin':
-            # On Mac OS the HFS+ filesystem replaces bytes that aren't valid
-            # UTF-8 into a percent-encoded value.
-            for name in os.listdir(self.tempdir):
-                if name != 'test': # Ignore a filename created in setUp().
-                    filename = name
-                    break
-        body = self.check_status_and_reason(response, HTTPStatus.OK)
-        quotedname = urllib.parse.quote(filename, errors='surrogatepass')
-        self.assertIn(('href="%s"' % quotedname)
-                      .encode(enc, 'surrogateescape'), body)
-        self.assertIn(('>%s<' % html.escape(filename, quote=False))
-                      .encode(enc, 'surrogateescape'), body)
-        response = self.request(self.base_url + '/' + quotedname)
-        self.check_status_and_reason(response, HTTPStatus.OK,
-                                     data=os_helper.TESTFN_UNDECODABLE)
+    def test_list_dir_undecodable_dirname(self):
+        dirname = os.fsdecode(os_helper.TESTFN_UNDECODABLE) + '.dir'
+        self.check_list_dir_dirname(dirname)
 
+    @unittest.skipIf(is_apple,
+                     'undecodable name cannot always be decoded on Apple platforms')
+    @unittest.skipIf(sys.platform == 'win32',
+                     'undecodable name cannot be decoded on win32')
+    @unittest.skipUnless(os_helper.TESTFN_UNDECODABLE,
+                         'need os_helper.TESTFN_UNDECODABLE')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
+    def test_list_dir_undecodable_filename(self):
+        filename = os.fsdecode(os_helper.TESTFN_UNDECODABLE) + '.txt'
+        self.check_list_dir_filename(filename)
+
+    def test_list_dir_undecodable_dirname2(self):
+        dirname = '\ufffd.dir'
+        self.check_list_dir_dirname(dirname, quotedname='%ff.dir')
+
+    @unittest.skipUnless(os_helper.TESTFN_UNENCODABLE,
+                         'need os_helper.TESTFN_UNENCODABLE')
+    def test_list_dir_unencodable_dirname(self):
+        dirname = os_helper.TESTFN_UNENCODABLE + '.dir'
+        self.check_list_dir_dirname(dirname)
+
+    @unittest.skipUnless(os_helper.TESTFN_UNENCODABLE,
+                         'need os_helper.TESTFN_UNENCODABLE')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
+    def test_list_dir_unencodable_filename(self):
+        filename = os_helper.TESTFN_UNENCODABLE + '.txt'
+        self.check_list_dir_filename(filename)
+
+    def test_list_dir_escape_dirname(self):
+        # Characters that need special treating in URL or HTML.
+        for name in ('q?', 'f#', '&amp;', '&amp', '<i>', '"dq"', "'sq'",
+                     '%A4', '%E2%82%AC'):
+            with self.subTest(name=name):
+                dirname = name + '.dir'
+                self.check_list_dir_dirname(dirname,
+                        quotedname=urllib.parse.quote(dirname, safe='&<>\'"'))
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
+    def test_list_dir_escape_filename(self):
+        # Characters that need special treating in URL or HTML.
+        for name in ('q?', 'f#', '&amp;', '&amp', '<i>', '"dq"', "'sq'",
+                     '%A4', '%E2%82%AC'):
+            with self.subTest(name=name):
+                filename = name + '.txt'
+                self.check_list_dir_filename(filename)
+                os_helper.unlink(os.path.join(self.tempdir, filename))
+
+    def test_list_dir_with_query_and_fragment(self):
+        prefix = f'listing for {self.base_url}/</'.encode('latin1')
+        response = self.request(self.base_url + '/#123').read()
+        self.assertIn(prefix + b'title>', response)
+        self.assertIn(prefix + b'h1>', response)
+        response = self.request(self.base_url + '/?x=123').read()
+        self.assertIn(prefix + b'title>', response)
+        self.assertIn(prefix + b'h1>', response)
+
+    def test_get_dir_redirect_location_domain_injection_bug(self):
+        """Ensure //evil.co/..%2f../../X does not put //evil.co/ in Location.
+
+        //netloc/ in a Location header is a redirect to a new host.
+        https://github.com/python/cpython/issues/87389
+
+        This checks that a path resolving to a directory on our server cannot
+        resolve into a redirect to another server.
+        """
+        os.mkdir(os.path.join(self.tempdir, 'existing_directory'))
+        url = f'/python.org/..%2f..%2f..%2f..%2f..%2f../%0a%0d/../{self.tempdir_name}/existing_directory'
+        expected_location = f'{url}/'  # /python.org.../ single slash single prefix, trailing slash
+        # Canonicalizes to /tmp/tempdir_name/existing_directory which does
+        # exist and is a dir, triggering the 301 redirect logic.
+        response = self.request(url)
+        self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
+        location = response.getheader('Location')
+        self.assertEqual(location, expected_location, msg='non-attack failed!')
+
+        # //python.org... multi-slash prefix, no trailing slash
+        attack_url = f'/{url}'
+        response = self.request(attack_url)
+        self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
+        location = response.getheader('Location')
+        self.assertNotStartsWith(location, '//')
+        self.assertEqual(location, expected_location,
+                msg='Expected Location header to start with a single / and '
+                'end with a / as this is a directory redirect.')
+
+        # ///python.org... triple-slash prefix, no trailing slash
+        attack3_url = f'//{url}'
+        response = self.request(attack3_url)
+        self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
+        self.assertEqual(response.getheader('Location'), expected_location)
+
+        # If the second word in the http request (Request-URI for the http
+        # method) is a full URI, we don't worry about it, as that'll be parsed
+        # and reassembled as a full URI within BaseHTTPRequestHandler.send_head
+        # so no errant scheme-less //netloc//evil.co/ domain mixup can happen.
+        attack_scheme_netloc_2slash_url = f'https://pypi.org/{url}'
+        expected_scheme_netloc_location = f'{attack_scheme_netloc_2slash_url}/'
+        response = self.request(attack_scheme_netloc_2slash_url)
+        self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
+        location = response.getheader('Location')
+        # We're just ensuring that the scheme and domain make it through, if
+        # there are or aren't multiple slashes at the start of the path that
+        # follows that isn't important in this Location: header.
+        self.assertStartsWith(location, 'https://pypi.org/')
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_get(self):
         #constructs the path relative to the root directory of the HTTPServer
         response = self.request(self.base_url + '/test')
@@ -424,10 +626,19 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         # check for trailing "/" which should return 404. See Issue17324
         response = self.request(self.base_url + '/test/')
         self.check_status_and_reason(response, HTTPStatus.NOT_FOUND)
+        response = self.request(self.base_url + '/test%2f')
+        self.check_status_and_reason(response, HTTPStatus.NOT_FOUND)
+        response = self.request(self.base_url + '/test%2F')
+        self.check_status_and_reason(response, HTTPStatus.NOT_FOUND)
         response = self.request(self.base_url + '/')
+        self.check_status_and_reason(response, HTTPStatus.OK)
+        response = self.request(self.base_url + '%2f')
+        self.check_status_and_reason(response, HTTPStatus.OK)
+        response = self.request(self.base_url + '%2F')
         self.check_status_and_reason(response, HTTPStatus.OK)
         response = self.request(self.base_url)
         self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
+        self.assertEqual(response.getheader("Location"), self.base_url + "/")
         self.assertEqual(response.getheader("Content-Length"), "0")
         response = self.request(self.base_url + '/?hi=2')
         self.check_status_and_reason(response, HTTPStatus.OK)
@@ -439,6 +650,9 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         self.check_status_and_reason(response, HTTPStatus.NOT_FOUND)
         response = self.request('/' + 'ThisDoesNotExist' + '/')
         self.check_status_and_reason(response, HTTPStatus.NOT_FOUND)
+        os.makedirs(os.path.join(self.tempdir, 'spam', 'index.html'))
+        response = self.request(self.base_url + '/spam/')
+        self.check_status_and_reason(response, HTTPStatus.OK)
 
         data = b"Dummy index file\r\n"
         with open(os.path.join(self.tempdir_name, 'index.html'), 'wb') as f:
@@ -456,6 +670,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
             finally:
                 os.chmod(self.tempdir, 0o755)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     def test_head(self):
         response = self.request(
             self.base_url + '/test', method='HEAD')
@@ -465,6 +680,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         self.assertEqual(response.getheader('content-type'),
                          'application/octet-stream')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     def test_browser_cache(self):
         """Check that when a request to /test is sent with the request header
         If-Modified-Since set to date of last modification, the server returns
@@ -483,6 +699,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         response = self.request(self.base_url + '/test', headers=headers)
         self.check_status_and_reason(response, HTTPStatus.NOT_MODIFIED)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     def test_browser_cache_file_changed(self):
         # with If-Modified-Since earlier than Last-Modified, must return 200
         dt = self.last_modif_datetime
@@ -494,6 +711,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         response = self.request(self.base_url + '/test', headers=headers)
         self.check_status_and_reason(response, HTTPStatus.OK)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     def test_browser_cache_with_If_None_Match_header(self):
         # if If-None-Match header is present, ignore If-Modified-Since
 
@@ -512,6 +730,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         response = self.request('/', method='GETs')
         self.check_status_and_reason(response, HTTPStatus.NOT_IMPLEMENTED)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     def test_last_modified(self):
         """Checks that the datetime returned in Last-Modified response header
         is the actual datetime of last modification, rounded to the second
@@ -521,6 +740,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         last_modif_header = response.headers['Last-modified']
         self.assertEqual(last_modif_header, self.last_modif_header)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     def test_path_without_leading_slash(self):
         response = self.request(self.tempdir_name + '/test')
         self.check_status_and_reason(response, HTTPStatus.OK, data=self.data)
@@ -530,33 +750,14 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         self.check_status_and_reason(response, HTTPStatus.OK)
         response = self.request(self.tempdir_name)
         self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
+        self.assertEqual(response.getheader("Location"),
+                         self.tempdir_name + "/")
         response = self.request(self.tempdir_name + '/?hi=2')
         self.check_status_and_reason(response, HTTPStatus.OK)
         response = self.request(self.tempdir_name + '?hi=1')
         self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
         self.assertEqual(response.getheader("Location"),
                          self.tempdir_name + "/?hi=1")
-
-    def test_html_escape_filename(self):
-        filename = '<test&>.txt'
-        fullpath = os.path.join(self.tempdir, filename)
-
-        try:
-            open(fullpath, 'wb').close()
-        except OSError:
-            raise unittest.SkipTest('Can not create file %s on current file '
-                                    'system' % filename)
-
-        try:
-            response = self.request(self.base_url + '/')
-            body = self.check_status_and_reason(response, HTTPStatus.OK)
-            enc = response.headers.get_content_charset()
-        finally:
-            os.unlink(fullpath)  # avoid affecting test_undecodable_filename
-
-        self.assertIsNotNone(enc)
-        html_text = '>%s<' % html.escape(filename, quote=False)
-        self.assertIn(html_text.encode(enc), body)
 
 
 cgi_file1 = """\
@@ -569,14 +770,19 @@ print("Hello World")
 
 cgi_file2 = """\
 #!%s
-import cgi
+import os
+import sys
+import urllib.parse
 
 print("Content-type: text/html")
 print()
 
-form = cgi.FieldStorage()
-print("%%s, %%s, %%s" %% (form.getfirst("spam"), form.getfirst("eggs"),
-                          form.getfirst("bacon")))
+content_length = int(os.environ["CONTENT_LENGTH"])
+query_string = sys.stdin.buffer.read(content_length)
+params = {key.decode("utf-8"): val.decode("utf-8")
+            for key, val in urllib.parse.parse_qsl(query_string)}
+
+print("%%s, %%s, %%s" %% (params["spam"], params["eggs"], params["bacon"]))
 """
 
 cgi_file4 = """\
@@ -607,17 +813,40 @@ for k, v in os.environ.items():
 print("</pre>")
 """
 
-@unittest.skipIf(not hasattr(os, '_exit'),
-        "TODO: RUSTPYTHON, run_cgi in http/server.py gets stuck as os._exit(127) doesn't currently kill forked processes")
+cgi_file7 = """\
+#!%s
+import os
+import sys
+
+print("Content-type: text/plain")
+print()
+
+content_length = int(os.environ["CONTENT_LENGTH"])
+body = sys.stdin.buffer.read(content_length)
+
+print(f"{content_length} {len(body)}")
+"""
+
+
 @unittest.skipIf(hasattr(os, 'geteuid') and os.geteuid() == 0,
         "This test can't be run reliably as root (issue #13308).")
+@requires_subprocess()
 class CGIHTTPServerTestCase(BaseTestCase):
     class request_handler(NoLogRequestHandler, CGIHTTPRequestHandler):
-        pass
+        _test_case_self = None  # populated by each setUp() method call.
+
+        def __init__(self, *args, **kwargs):
+            with self._test_case_self.assertWarnsRegex(
+                    DeprecationWarning,
+                    r'http\.server\.CGIHTTPRequestHandler'):
+                # This context also happens to catch and silence the
+                # threading DeprecationWarning from os.fork().
+                super().__init__(*args, **kwargs)
 
     linesep = os.linesep.encode('ascii')
 
     def setUp(self):
+        self.request_handler._test_case_self = self  # practical, but yuck.
         BaseTestCase.setUp(self)
         self.cwd = os.getcwd()
         self.parent_dir = tempfile.mkdtemp()
@@ -637,12 +866,13 @@ class CGIHTTPServerTestCase(BaseTestCase):
         self.file3_path = None
         self.file4_path = None
         self.file5_path = None
+        self.file6_path = None
+        self.file7_path = None
 
         # The shebang line should be pure ASCII: use symlink if possible.
         # See issue #7668.
         self._pythonexe_symlink = None
-        # TODO: RUSTPYTHON; dl_nt not supported yet
-        if os_helper.can_symlink() and sys.platform != 'win32':
+        if os_helper.can_symlink():
             self.pythonexe = os.path.join(self.parent_dir, 'python')
             self._pythonexe_symlink = support.PythonSymlink(self.pythonexe).__enter__()
         else:
@@ -692,9 +922,15 @@ class CGIHTTPServerTestCase(BaseTestCase):
             file6.write(cgi_file6 % self.pythonexe)
         os.chmod(self.file6_path, 0o777)
 
+        self.file7_path = os.path.join(self.cgi_dir, 'file7.py')
+        with open(self.file7_path, 'w', encoding='utf-8') as file7:
+            file7.write(cgi_file7 % self.pythonexe)
+        os.chmod(self.file7_path, 0o777)
+
         os.chdir(self.parent_dir)
 
     def tearDown(self):
+        self.request_handler._test_case_self = None
         try:
             os.chdir(self.cwd)
             if self._pythonexe_symlink:
@@ -713,11 +949,16 @@ class CGIHTTPServerTestCase(BaseTestCase):
                 os.remove(self.file5_path)
             if self.file6_path:
                 os.remove(self.file6_path)
+            if self.file7_path:
+                os.remove(self.file7_path)
             os.rmdir(self.cgi_child_dir)
             os.rmdir(self.cgi_dir)
             os.rmdir(self.cgi_dir_in_sub_dir)
             os.rmdir(self.sub_dir_2)
             os.rmdir(self.sub_dir_1)
+            # The 'gmon.out' file can be written in the current working
+            # directory if C-level code profiling with gprof is enabled.
+            os_helper.unlink(os.path.join(self.parent_dir, 'gmon.out'))
             os.rmdir(self.parent_dir)
         finally:
             BaseTestCase.tearDown(self)
@@ -764,8 +1005,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
                                  msg='path = %r\nGot:    %r\nWanted: %r' %
                                  (path, actual, expected))
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"", None, 200) != (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>)')
     def test_headers_and_content(self):
         res = self.request('/cgi-bin/file1.py')
         self.assertEqual(
@@ -776,9 +1016,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         res = self.request('///////////nocgi.py/../cgi-bin/nothere.sh')
         self.assertEqual(res.status, HTTPStatus.NOT_FOUND)
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
-    @unittest.expectedFailure
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; b"" != b"1, python, 123456\n"')
     def test_post(self):
         params = urllib.parse.urlencode(
             {'spam' : 1, 'eggs' : 'python', 'bacon' : 123456})
@@ -787,13 +1025,30 @@ class CGIHTTPServerTestCase(BaseTestCase):
 
         self.assertEqual(res.read(), b'1, python, 123456' + self.linesep)
 
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"" != b"32768 32768\n"')
+    def test_large_content_length(self):
+        for w in range(15, 25):
+            size = 1 << w
+            body = b'X' * size
+            headers = {'Content-Length' : str(size)}
+            res = self.request('/cgi-bin/file7.py', 'POST', body, headers)
+            self.assertEqual(res.read(), b'%d %d' % (size, size) + self.linesep)
+
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"" != b"Hello World\n"')
+    def test_large_content_length_truncated(self):
+        with support.swap_attr(self.request_handler, 'timeout', 0.001):
+            for w in range(18, 65):
+                size = 1 << w
+                headers = {'Content-Length' : str(size)}
+                res = self.request('/cgi-bin/file1.py', 'POST', b'x', headers)
+                self.assertEqual(res.read(), b'Hello World' + self.linesep)
+
     def test_invaliduri(self):
         res = self.request('/cgi-bin/invalid')
         res.read()
         self.assertEqual(res.status, HTTPStatus.NOT_FOUND)
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
     def test_authorization(self):
         headers = {b'Authorization' : b'Basic ' +
                    base64.b64encode(b'username:pass')}
@@ -802,8 +1057,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
     def test_no_leading_slash(self):
         # http://bugs.python.org/issue2254
         res = self.request('cgi-bin/file1.py')
@@ -811,8 +1065,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; ValueError: signal only works in main thread')
     def test_os_environ_is_not_altered(self):
         signature = "Test CGI Server"
         os.environ['SERVER_SOFTWARE'] = signature
@@ -822,32 +1075,28 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (res.read(), res.getheader('Content-type'), res.status))
         self.assertEqual(os.environ['SERVER_SOFTWARE'], signature)
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; ValueError: signal only works in main thread')
     def test_urlquote_decoding_in_cgi_check(self):
         res = self.request('/cgi-bin%2ffile1.py')
         self.assertEqual(
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
     def test_nested_cgi_path_issue21323(self):
         res = self.request('/cgi-bin/child-dir/file3.py')
         self.assertEqual(
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; ValueError: signal only works in main thread')
     def test_query_with_multiple_question_mark(self):
         res = self.request('/cgi-bin/file4.py?a=b?c=d')
         self.assertEqual(
             (b'a=b?c=d' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"k=aa%2F%2Fbb&//q//p//=//a//b//\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
     def test_query_with_continuous_slashes(self):
         res = self.request('/cgi-bin/file4.py?k=aa%2F%2Fbb&//q//p//=//a//b//')
         self.assertEqual(
@@ -855,8 +1104,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
              'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; Tuples differ: (b"", None, 200) != (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>)')
     def test_cgi_path_in_sub_directories(self):
         try:
             CGIHTTPRequestHandler.cgi_directories.append('/sub/dir/cgi-bin')
@@ -867,8 +1115,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         finally:
             CGIHTTPRequestHandler.cgi_directories.remove('/sub/dir/cgi-bin')
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"HTTP_ACCEPT=text/html,text/plain" not found in b""')
     def test_accept(self):
         browser_accept = \
                     'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
@@ -929,7 +1176,7 @@ class AuditableBytesIO:
         return len(self.datas)
 
 
-class BaseHTTPRequestHandlerTestCase(unittest.TestCase):
+class BaseHTTPRequestHandlerTestCase(unittest.TestCase, ExtraAssertions):
     """Test the functionality of the BaseHTTPServer.
 
        Test the support for the Expect 100-continue header.
@@ -959,6 +1206,27 @@ class BaseHTTPRequestHandlerTestCase(unittest.TestCase):
     def verify_http_server_response(self, response):
         match = self.HTTPResponseMatch.search(response)
         self.assertIsNotNone(match)
+
+    def test_unprintable_not_logged(self):
+        # We call the method from the class directly as our Socketless
+        # Handler subclass overrode it... nice for everything BUT this test.
+        self.handler.client_address = ('127.0.0.1', 1337)
+        log_message = BaseHTTPRequestHandler.log_message
+        with mock.patch.object(sys, 'stderr', StringIO()) as fake_stderr:
+            log_message(self.handler, '/foo')
+            log_message(self.handler, '/\033bar\000\033')
+            log_message(self.handler, '/spam %s.', 'a')
+            log_message(self.handler, '/spam %s.', '\033\x7f\x9f\xa0beans')
+            log_message(self.handler, '"GET /foo\\b"ar\007 HTTP/1.0"')
+        stderr = fake_stderr.getvalue()
+        self.assertNotIn('\033', stderr)  # non-printable chars are caught.
+        self.assertNotIn('\000', stderr)  # non-printable chars are caught.
+        lines = stderr.splitlines()
+        self.assertIn('/foo', lines[0])
+        self.assertIn(r'/\x1bbar\x00\x1b', lines[1])
+        self.assertIn('/spam a.', lines[2])
+        self.assertIn('/spam \\x1b\\x7f\\x9f\xa0beans.', lines[3])
+        self.assertIn(r'"GET /foo\\b"ar\x07 HTTP/1.0"', lines[4])
 
     def test_http_1_1(self):
         result = self.send_typical_request(b'GET / HTTP/1.1\r\n\r\n')
@@ -996,7 +1264,7 @@ class BaseHTTPRequestHandlerTestCase(unittest.TestCase):
             b'Host: dummy\r\n'
             b'\r\n'
         )
-        self.assertTrue(result[0].startswith(b'HTTP/1.1 400 '))
+        self.assertStartsWith(result[0], b'HTTP/1.1 400 ')
         self.verify_expected_headers(result[1:result.index(b'\r\n')])
         self.assertFalse(self.handler.get_called)
 
@@ -1110,7 +1378,7 @@ class BaseHTTPRequestHandlerTestCase(unittest.TestCase):
         # Issue #10714: huge request lines are discarded, to avoid Denial
         # of Service attacks.
         result = self.send_typical_request(b'GET ' + b'x' * 65537)
-        self.assertEqual(result[0], b'HTTP/1.1 414 Request-URI Too Long\r\n')
+        self.assertEqual(result[0], b'HTTP/1.1 414 URI Too Long\r\n')
         self.assertFalse(self.handler.get_called)
         self.assertIsInstance(self.handler.requestline, str)
 

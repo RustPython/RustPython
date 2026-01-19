@@ -21,6 +21,12 @@ raisesSyntaxError("", "__debug__ := 1")
 raisesSyntaxError("", "del __debug__")
 raisesSyntaxError("", "(a, __debug__, c) = (1, 2, 3)")
 raisesSyntaxError("", "(a, *__debug__, c) = (1, 2, 3)")
+raisesSyntaxError("", "__debug__ : int")
+raisesSyntaxError("", "__debug__ : int = 1")
 
-# TODO:
-#  raisesSyntaxError("", "__debug__ : int")
+# Import statements
+raisesSyntaxError("import sys as __debug__")
+raisesSyntaxError("from sys import path as __debug__")
+
+# Comprehension iteration targets
+raisesSyntaxError("[x for __debug__ in range(5)]")

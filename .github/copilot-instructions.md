@@ -4,7 +4,7 @@ This document provides guidelines for working with GitHub Copilot when contribut
 
 ## Project Overview
 
-RustPython is a Python 3 interpreter written in Rust, implementing Python 3.13.0+ compatibility. The project aims to provide:
+RustPython is a Python 3 interpreter written in Rust, implementing Python 3.14.0+ compatibility. The project aims to provide:
 
 - A complete Python-3 environment entirely in Rust (not CPython bindings)
 - A clean implementation without compatibility hacks
@@ -106,7 +106,7 @@ cargo run --release -- -m test test_unicode -k test_unicode_escape
 
 ### Determining What to Implement
 
-Run `./whats_left.py` to get a list of unimplemented methods, which is helpful when looking for contribution opportunities.
+Run `./scripts/whats_left.py` to get a list of unimplemented methods, which is helpful when looking for contribution opportunities.
 
 ## Coding Guidelines
 

@@ -14,273 +14,388 @@ use crate::{
 
 /// A Single bytecode instruction that are executed by the VM.
 ///
-/// Currently aligned with CPython 3.13.
+/// Currently aligned with CPython 3.14.
 ///
 /// ## See also
-/// - [CPython opcode IDs](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Include/opcode_ids.h)
+/// - [CPython opcode IDs](https://github.com/python/cpython/blob/v3.14.2/Include/opcode_ids.h)
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum Instruction {
-    // ==================== No-argument instructions (opcode < 44) ====================
-    Cache = 0, // Placeholder
-    BeforeAsyncWith = 1,
-    BeforeWith = 2,
+    // No-argument instructions (opcode < HAVE_ARGUMENT=44)
+    Cache = 0,       // Placeholder
+    BinarySlice = 1, // Placeholder
+    BuildTemplate = 2,
     BinaryOpInplaceAddUnicode = 3, // Placeholder
-    BinarySlice = 4,               // Placeholder
-    BinarySubscr = 5,
-    CheckEgMatch = 6,
-    CheckExcMatch = 7,
-    CleanupThrow = 8,
-    DeleteSubscr = 9,
-    EndAsyncFor = 10,
-    EndFor = 11, // Placeholder
-    EndSend = 12,
-    ExitInitCheck = 13, // Placeholder
-    FormatSimple = 14,
-    FormatWithSpec = 15,
-    GetAIter = 16,
+    CallFunctionEx = 4,
+    CheckEgMatch = 5,
+    CheckExcMatch = 6,
+    CleanupThrow = 7,
+    DeleteSubscr = 8,
+    EndFor = 9, // Placeholder
+    EndSend = 10,
+    ExitInitCheck = 11, // Placeholder
+    FormatSimple = 12,
+    FormatWithSpec = 13,
+    GetAIter = 14,
+    GetANext = 15,
+    GetIter = 16,
     Reserved = 17,
-    GetANext = 18,
-    GetIter = 19,
-    GetLen = 20,
-    GetYieldFromIter = 21,
-    InterpreterExit = 22,    // Placeholder
-    LoadAssertionError = 23, // Placeholder
-    LoadBuildClass = 24,
-    LoadLocals = 25, // Placeholder
-    MakeFunction = 26,
-    MatchKeys = 27,
-    MatchMapping = 28,
-    MatchSequence = 29,
-    Nop = 30,
-    PopExcept = 31,
-    PopTop = 32,
-    PushExcInfo = 33,
-    PushNull = 34,        // Placeholder
-    ReturnGenerator = 35, // Placeholder
-    ReturnValue = 36,
-    SetupAnnotations = 37,
-    StoreSlice = 38, // Placeholder
-    StoreSubscr = 39,
-    ToBool = 40,
-    UnaryInvert = 41,
-    UnaryNegative = 42,
-    UnaryNot = 43,
-    WithExceptStart = 44,
-    // ==================== With-argument instructions (opcode > 44) ====================
+    GetLen = 18,
+    GetYieldFromIter = 19,
+    InterpreterExit = 20, // Placeholder
+    LoadBuildClass = 21,
+    LoadLocals = 22, // Placeholder
+    MakeFunction = 23,
+    MatchKeys = 24,
+    MatchMapping = 25,
+    MatchSequence = 26,
+    Nop = 27,
+    NotTaken = 28, // Placeholder
+    PopExcept = 29,
+    PopIter = 30, // Placeholder
+    PopTop = 31,
+    PushExcInfo = 32,
+    PushNull = 33,
+    ReturnGenerator = 34, // Placeholder
+    ReturnValue = 35,
+    SetupAnnotations = 36,
+    StoreSlice = 37, // Placeholder
+    StoreSubscr = 38,
+    ToBool = 39,
+    UnaryInvert = 40,
+    UnaryNegative = 41,
+    UnaryNot = 42,
+    WithExceptStart = 43,
+    // CPython 3.14 opcodes with arguments (44-120)
     BinaryOp {
         op: Arg<BinaryOperator>,
+    } = 44,
+    /// Build an Interpolation from value, expression string, and optional format_spec on stack.
+    ///
+    /// oparg encoding: (conversion << 2) | has_format_spec
+    /// - has_format_spec (bit 0): if 1, format_spec is on stack
+    /// - conversion (bits 2+): 0=None, 1=Str, 2=Repr, 3=Ascii
+    ///
+    /// Stack: [value, expression_str, format_spec?] -> [interpolation]
+    BuildInterpolation {
+        oparg: Arg<u32>,
     } = 45,
-    BuildConstKeyMap {
-        size: Arg<u32>,
-    } = 46, // Placeholder
     BuildList {
         size: Arg<u32>,
-    } = 47,
+    } = 46,
     BuildMap {
         size: Arg<u32>,
-    } = 48,
+    } = 47,
     BuildSet {
         size: Arg<u32>,
-    } = 49,
+    } = 48,
     BuildSlice {
         argc: Arg<BuildSliceArgCount>,
-    } = 50,
+    } = 49,
     BuildString {
         size: Arg<u32>,
-    } = 51,
+    } = 50,
     BuildTuple {
         size: Arg<u32>,
-    } = 52,
+    } = 51,
     Call {
         nargs: Arg<u32>,
-    } = 53,
-    CallFunctionEx {
-        has_kwargs: Arg<bool>,
-    } = 54,
+    } = 52,
     CallIntrinsic1 {
         func: Arg<IntrinsicFunction1>,
-    } = 55,
+    } = 53,
     CallIntrinsic2 {
         func: Arg<IntrinsicFunction2>,
-    } = 56,
+    } = 54,
     CallKw {
         nargs: Arg<u32>,
-    } = 57,
+    } = 55,
     CompareOp {
         op: Arg<ComparisonOperator>,
-    } = 58,
-    ContainsOp(Arg<Invert>) = 59,
+    } = 56,
+    ContainsOp(Arg<Invert>) = 57,
     ConvertValue {
         oparg: Arg<ConvertValueOparg>,
-    } = 60,
+    } = 58,
     Copy {
         index: Arg<u32>,
-    } = 61,
+    } = 59,
     CopyFreeVars {
         count: Arg<u32>,
-    } = 62, // Placeholder
+    } = 60, // Placeholder
     DeleteAttr {
         idx: Arg<NameIdx>,
-    } = 63,
-    DeleteDeref(Arg<NameIdx>) = 64,
-    DeleteFast(Arg<NameIdx>) = 65,
-    DeleteGlobal(Arg<NameIdx>) = 66,
-    DeleteName(Arg<NameIdx>) = 67,
+    } = 61,
+    DeleteDeref(Arg<NameIdx>) = 62,
+    DeleteFast(Arg<NameIdx>) = 63,
+    DeleteGlobal(Arg<NameIdx>) = 64,
+    DeleteName(Arg<NameIdx>) = 65,
     DictMerge {
         index: Arg<u32>,
-    } = 68, // Placeholder
+    } = 66,
     DictUpdate {
         index: Arg<u32>,
-    } = 69,
-    EnterExecutor = 70, // Placeholder
-    ExtendedArg = 71,
+    } = 67,
+    EndAsyncFor = 68,
+    ExtendedArg = 69,
     ForIter {
         target: Arg<Label>,
-    } = 72,
-    GetAwaitable = 73, // TODO: Make this instruction to hold an oparg
+    } = 70,
+    GetAwaitable = 71, // TODO: Make this instruction to hold an oparg
     ImportFrom {
         idx: Arg<NameIdx>,
-    } = 74,
+    } = 72,
     ImportName {
         idx: Arg<NameIdx>,
-    } = 75,
-    IsOp(Arg<Invert>) = 76,
+    } = 73,
+    IsOp(Arg<Invert>) = 74,
     JumpBackward {
         target: Arg<Label>,
-    } = 77, // Placeholder
+    } = 75,
     JumpBackwardNoInterrupt {
         target: Arg<Label>,
-    } = 78, // Placeholder
+    } = 76, // Placeholder
     JumpForward {
         target: Arg<Label>,
-    } = 79, // Placeholder
+    } = 77,
     ListAppend {
         i: Arg<u32>,
-    } = 80,
+    } = 78,
     ListExtend {
         i: Arg<u32>,
-    } = 81, // Placeholder
+    } = 79,
     LoadAttr {
         idx: Arg<NameIdx>,
-    } = 82,
+    } = 80,
+    LoadCommonConstant {
+        idx: Arg<u32>,
+    } = 81, // Placeholder
     LoadConst {
         idx: Arg<u32>,
-    } = 83,
-    LoadDeref(Arg<NameIdx>) = 84,
-    LoadFast(Arg<NameIdx>) = 85,
-    LoadFastAndClear(Arg<NameIdx>) = 86,
-    LoadFastCheck(Arg<NameIdx>) = 87, // Placeholder
+    } = 82,
+    LoadDeref(Arg<NameIdx>) = 83,
+    LoadFast(Arg<NameIdx>) = 84,
+    LoadFastAndClear(Arg<NameIdx>) = 85,
+    LoadFastBorrow(Arg<NameIdx>) = 86, // Placeholder
+    LoadFastBorrowLoadFastBorrow {
+        arg: Arg<u32>,
+    } = 87, // Placeholder
+    LoadFastCheck(Arg<NameIdx>) = 88,  // Placeholder
     LoadFastLoadFast {
         arg: Arg<u32>,
-    } = 88, // Placeholder
-    LoadFromDictOrDeref(Arg<NameIdx>) = 89,
-    LoadFromDictOrGlobals(Arg<NameIdx>) = 90, // Placeholder
-    LoadGlobal(Arg<NameIdx>) = 91,
-    LoadName(Arg<NameIdx>) = 92,
+    } = 89, // Placeholder
+    LoadFromDictOrDeref(Arg<NameIdx>) = 90,
+    LoadFromDictOrGlobals(Arg<NameIdx>) = 91, // Placeholder
+    LoadGlobal(Arg<NameIdx>) = 92,
+    LoadName(Arg<NameIdx>) = 93,
+    LoadSmallInt {
+        idx: Arg<u32>,
+    } = 94, // Placeholder
+    LoadSpecial {
+        arg: Arg<u32>,
+    } = 95, // Placeholder
     LoadSuperAttr {
         arg: Arg<u32>,
-    } = 93,
-    MakeCell(Arg<NameIdx>) = 94, // Placeholder
+    } = 96,
+    MakeCell(Arg<NameIdx>) = 97, // Placeholder
     MapAdd {
         i: Arg<u32>,
-    } = 95,
-    MatchClass(Arg<u32>) = 96,
+    } = 98,
+    MatchClass(Arg<u32>) = 99,
     PopJumpIfFalse {
         target: Arg<Label>,
-    } = 97,
+    } = 100,
     PopJumpIfNone {
         target: Arg<Label>,
-    } = 98, // Placeholder
+    } = 101, // Placeholder
     PopJumpIfNotNone {
         target: Arg<Label>,
-    } = 99, // Placeholder
+    } = 102, // Placeholder
     PopJumpIfTrue {
         target: Arg<Label>,
-    } = 100,
+    } = 103,
     RaiseVarargs {
         kind: Arg<RaiseKind>,
-    } = 101,
+    } = 104,
     Reraise {
         depth: Arg<u32>,
-    } = 102,
-    ReturnConst {
-        idx: Arg<u32>,
-    } = 103,
+    } = 105,
     Send {
         target: Arg<Label>,
-    } = 104,
+    } = 106,
     SetAdd {
         i: Arg<u32>,
-    } = 105,
+    } = 107,
     SetFunctionAttribute {
         attr: Arg<MakeFunctionFlags>,
-    } = 106,
+    } = 108,
     SetUpdate {
         i: Arg<u32>,
-    } = 107, // Placeholder
+    } = 109,
     StoreAttr {
         idx: Arg<NameIdx>,
-    } = 108,
-    StoreDeref(Arg<NameIdx>) = 109,
-    StoreFast(Arg<NameIdx>) = 110,
+    } = 110,
+    StoreDeref(Arg<NameIdx>) = 111,
+    StoreFast(Arg<NameIdx>) = 112,
     StoreFastLoadFast {
         store_idx: Arg<NameIdx>,
         load_idx: Arg<NameIdx>,
-    } = 111,
+    } = 113,
     StoreFastStoreFast {
         arg: Arg<u32>,
-    } = 112, // Placeholder
-    StoreGlobal(Arg<NameIdx>) = 113,
-    StoreName(Arg<NameIdx>) = 114,
+    } = 114, // Placeholder
+    StoreGlobal(Arg<NameIdx>) = 115,
+    StoreName(Arg<NameIdx>) = 116,
     Swap {
         index: Arg<u32>,
-    } = 115,
+    } = 117,
     UnpackEx {
         args: Arg<UnpackExArgs>,
-    } = 116,
+    } = 118,
     UnpackSequence {
         size: Arg<u32>,
-    } = 117,
+    } = 119,
     YieldValue {
         arg: Arg<u32>,
-    } = 118,
-    Resume {
-        arg: Arg<u32>,
-    } = 149,
-    // ==================== RustPython-only instructions (119-135) ====================
-    // Ideally, we want to be fully aligned with CPython opcodes, but we still have some leftovers.
-    // So we assign random IDs to these opcodes.
+    } = 120,
+    // RustPython-only instructions (212-225)
+    // These either don't exist in CPython 3.14 or are RustPython-specific.
+    BeforeAsyncWith = 212,
+    BeforeWith = 213,
+    BinarySubscr = 214,
+    BuildConstKeyMap {
+        size: Arg<u32>,
+    } = 215, // Placeholder
     Break {
         target: Arg<Label>,
-    } = 119,
-    BuildListFromTuples {
-        size: Arg<u32>,
-    } = 120,
-    BuildMapForCall {
-        size: Arg<u32>,
-    } = 121,
-    BuildSetFromTuples {
-        size: Arg<u32>,
-    } = 122,
-    BuildTupleFromIter = 123,
-    BuildTupleFromTuples {
-        size: Arg<u32>,
-    } = 124,
+    } = 216,
     Continue {
         target: Arg<Label>,
-    } = 128,
+    } = 217,
     JumpIfFalseOrPop {
         target: Arg<Label>,
-    } = 129,
+    } = 218,
     JumpIfTrueOrPop {
         target: Arg<Label>,
-    } = 130,
-    JumpIfNotExcMatch(Arg<Label>) = 131,
-    SetExcInfo = 134,
-    Subscript = 135,
-    // Pseudos (needs to be moved to `PseudoInstruction` enum.
-    LoadClosure(Arg<NameIdx>) = 253, // TODO: Move to pseudos
+    } = 219,
+    JumpIfNotExcMatch(Arg<Label>) = 220,
+    LoadAssertionError = 221, // Placeholder
+    ReturnConst {
+        idx: Arg<u32>,
+    } = 222,
+    SetExcInfo = 223,
+    Subscript = 224,
+    // CPython 3.14 RESUME (128)
+    Resume {
+        arg: Arg<u32>,
+    } = 128,
+    // CPython 3.14 specialized opcodes (129-211)
+    BinaryOpAddFloat = 129,                     // Placeholder
+    BinaryOpAddInt = 130,                       // Placeholder
+    BinaryOpAddUnicode = 131,                   // Placeholder
+    BinaryOpExtend = 132,                       // Placeholder
+    BinaryOpMultiplyFloat = 133,                // Placeholder
+    BinaryOpMultiplyInt = 134,                  // Placeholder
+    BinarySubscrDict = 135,                     // Placeholder
+    BinarySubscrGetitem = 136,                  // Placeholder
+    BinarySubscrListInt = 137,                  // Placeholder
+    BinarySubscrListSlice = 138,                // Placeholder
+    BinarySubscrStrInt = 139,                   // Placeholder
+    BinarySubscrTupleInt = 140,                 // Placeholder
+    BinaryOpSubtractFloat = 141,                // Placeholder
+    BinaryOpSubtractInt = 142,                  // Placeholder
+    CallAllocAndEnterInit = 143,                // Placeholder
+    CallBoundMethodExactArgs = 144,             // Placeholder
+    CallBoundMethodGeneral = 145,               // Placeholder
+    CallBuiltinClass = 146,                     // Placeholder
+    CallBuiltinFast = 147,                      // Placeholder
+    CallBuiltinFastWithKeywords = 148,          // Placeholder
+    CallBuiltinO = 149,                         // Placeholder
+    CallIsinstance = 150,                       // Placeholder
+    CallKwBoundMethod = 151,                    // Placeholder
+    CallKwNonPy = 152,                          // Placeholder
+    CallKwPy = 153,                             // Placeholder
+    CallLen = 154,                              // Placeholder
+    CallListAppend = 155,                       // Placeholder
+    CallMethodDescriptorFast = 156,             // Placeholder
+    CallMethodDescriptorFastWithKeywords = 157, // Placeholder
+    CallMethodDescriptorNoargs = 158,           // Placeholder
+    CallMethodDescriptorO = 159,                // Placeholder
+    CallNonPyGeneral = 160,                     // Placeholder
+    CallPyExactArgs = 161,                      // Placeholder
+    CallPyGeneral = 162,                        // Placeholder
+    CallStr1 = 163,                             // Placeholder
+    CallTuple1 = 164,                           // Placeholder
+    CallType1 = 165,                            // Placeholder
+    CompareOpFloat = 166,                       // Placeholder
+    CompareOpInt = 167,                         // Placeholder
+    CompareOpStr = 168,                         // Placeholder
+    ContainsOpDict = 169,                       // Placeholder
+    ContainsOpSet = 170,                        // Placeholder
+    ForIterGen = 171,                           // Placeholder
+    ForIterList = 172,                          // Placeholder
+    ForIterRange = 173,                         // Placeholder
+    ForIterTuple = 174,                         // Placeholder
+    JumpBackwardJit = 175,                      // Placeholder
+    JumpBackwardNoJit = 176,                    // Placeholder
+    LoadAttrClass = 177,                        // Placeholder
+    LoadAttrClassWithMetaclassCheck = 178,      // Placeholder
+    LoadAttrGetattributeOverridden = 179,       // Placeholder
+    LoadAttrInstanceValue = 180,                // Placeholder
+    LoadAttrMethodLazyDict = 181,               // Placeholder
+    LoadAttrMethodNoDict = 182,                 // Placeholder
+    LoadAttrMethodWithValues = 183,             // Placeholder
+    LoadAttrModule = 184,                       // Placeholder
+    LoadAttrNondescriptorNoDict = 185,          // Placeholder
+    LoadAttrNondescriptorWithValues = 186,      // Placeholder
+    LoadAttrProperty = 187,                     // Placeholder
+    LoadAttrSlot = 188,                         // Placeholder
+    LoadAttrWithHint = 189,                     // Placeholder
+    LoadConstImmortal = 190,                    // Placeholder
+    LoadConstMortal = 191,                      // Placeholder
+    LoadGlobalBuiltin = 192,                    // Placeholder
+    LoadGlobalModule = 193,                     // Placeholder
+    LoadSuperAttrAttr = 194,                    // Placeholder
+    LoadSuperAttrMethod = 195,                  // Placeholder
+    ResumeCheck = 196,                          // Placeholder
+    SendGen = 197,                              // Placeholder
+    StoreAttrInstanceValue = 198,               // Placeholder
+    StoreAttrSlot = 199,                        // Placeholder
+    StoreAttrWithHint = 200,                    // Placeholder
+    StoreSubscrDict = 201,                      // Placeholder
+    StoreSubscrListInt = 202,                   // Placeholder
+    ToBoolAlwaysTrue = 203,                     // Placeholder
+    ToBoolBool = 204,                           // Placeholder
+    ToBoolInt = 205,                            // Placeholder
+    ToBoolList = 206,                           // Placeholder
+    ToBoolNone = 207,                           // Placeholder
+    ToBoolStr = 208,                            // Placeholder
+    UnpackSequenceList = 209,                   // Placeholder
+    UnpackSequenceTuple = 210,                  // Placeholder
+    UnpackSequenceTwoTuple = 211,               // Placeholder
+    // CPython 3.14 instrumented opcodes (234-254)
+    InstrumentedEndFor = 234,           // Placeholder
+    InstrumentedPopIter = 235,          // Placeholder
+    InstrumentedEndSend = 236,          // Placeholder
+    InstrumentedForIter = 237,          // Placeholder
+    InstrumentedInstruction = 238,      // Placeholder
+    InstrumentedJumpForward = 239,      // Placeholder
+    InstrumentedNotTaken = 240,         // Placeholder
+    InstrumentedPopJumpIfTrue = 241,    // Placeholder
+    InstrumentedPopJumpIfFalse = 242,   // Placeholder
+    InstrumentedPopJumpIfNone = 243,    // Placeholder
+    InstrumentedPopJumpIfNotNone = 244, // Placeholder
+    InstrumentedResume = 245,           // Placeholder
+    InstrumentedReturnValue = 246,      // Placeholder
+    InstrumentedYieldValue = 247,       // Placeholder
+    InstrumentedEndAsyncFor = 248,      // Placeholder
+    InstrumentedLoadSuperAttr = 249,    // Placeholder
+    InstrumentedCall = 250,             // Placeholder
+    InstrumentedCallKw = 251,           // Placeholder
+    InstrumentedCallFunctionEx = 252,   // Placeholder
+    InstrumentedJumpBackward = 253,     // Placeholder
+    InstrumentedLine = 254,             // Placeholder
+    EnterExecutor = 255,                // Placeholder
 }
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
@@ -298,35 +413,31 @@ impl TryFrom<u8> for Instruction {
 
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
-        // CPython-compatible opcodes (0-118)
+        // CPython-compatible opcodes (0-120)
         let cpython_start = u8::from(Self::Cache);
         let cpython_end = u8::from(Self::YieldValue { arg: Arg::marker() });
 
-        // Resume has a non-contiguous opcode (149)
+        // Resume has a non-contiguous opcode (128)
         let resume_id = u8::from(Self::Resume { arg: Arg::marker() });
+        let enter_executor_id = u8::from(Self::EnterExecutor);
 
-        // TODO: Remove this; This instruction needs to be pseudo
-        let load_closure = u8::from(Self::LoadClosure(Arg::marker()));
+        let specialized_start = u8::from(Self::BinaryOpAddFloat);
+        let specialized_end = u8::from(Self::UnpackSequenceTwoTuple);
 
-        // RustPython-only opcodes (explicit list to avoid gaps like 125-127)
+        let instrumented_start = u8::from(Self::InstrumentedEndFor);
+        let instrumented_end = u8::from(Self::InstrumentedLine);
+
+        // RustPython-only opcodes (explicit list to avoid gaps)
         let custom_ops: &[u8] = &[
+            u8::from(Self::BeforeAsyncWith),
+            u8::from(Self::BeforeWith),
+            u8::from(Self::BinarySubscr),
+            u8::from(Self::BuildConstKeyMap {
+                size: Arg::marker(),
+            }),
             u8::from(Self::Break {
                 target: Arg::marker(),
             }),
-            u8::from(Self::BuildListFromTuples {
-                size: Arg::marker(),
-            }),
-            u8::from(Self::BuildMapForCall {
-                size: Arg::marker(),
-            }),
-            u8::from(Self::BuildSetFromTuples {
-                size: Arg::marker(),
-            }),
-            u8::from(Self::BuildTupleFromIter),
-            u8::from(Self::BuildTupleFromTuples {
-                size: Arg::marker(),
-            }),
-            // 125, 126, 127 are unused
             u8::from(Self::Continue {
                 target: Arg::marker(),
             }),
@@ -337,14 +448,18 @@ impl TryFrom<u8> for Instruction {
                 target: Arg::marker(),
             }),
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
+            u8::from(Self::LoadAssertionError),
+            u8::from(Self::ReturnConst { idx: Arg::marker() }),
             u8::from(Self::SetExcInfo),
             u8::from(Self::Subscript),
         ];
 
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
-            || value == load_closure
+            || value == enter_executor_id
             || custom_ops.contains(&value)
+            || (specialized_start..=specialized_end).contains(&value)
+            || (instrumented_start..=instrumented_end).contains(&value)
         {
             Ok(unsafe { mem::transmute::<u8, Self>(value) })
         } else {
@@ -391,9 +506,11 @@ impl InstructionMetadata for Instruction {
     fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             Self::Nop => 0,
+            Self::NotTaken => 0,
             Self::ImportName { .. } => -1,
             Self::ImportFrom { .. } => 1,
             Self::LoadFast(_) => 1,
+            Self::LoadFastBorrow(_) => 1,
             Self::LoadFastAndClear(_) => 1,
             Self::LoadName(_) => 1,
             Self::LoadGlobal(_) => 1,
@@ -414,7 +531,10 @@ impl InstructionMetadata for Instruction {
             Self::LoadAttr { .. } => 0,
             Self::StoreAttr { .. } => -2,
             Self::DeleteAttr { .. } => -1,
+            Self::LoadCommonConstant { .. } => 1,
             Self::LoadConst { .. } => 1,
+            Self::LoadSmallInt { .. } => 1,
+            Self::LoadSpecial { .. } => 0,
             Self::Reserved => 0,
             Self::BinaryOp { .. } => -1,
             Self::CompareOp { .. } => -1,
@@ -446,7 +566,7 @@ impl InstructionMetadata for Instruction {
                 }
             }
             Self::MakeFunction => {
-                // CPython 3.13 style: MakeFunction only pops code object
+                // CPython 3.14 style: MakeFunction only pops code object
                 -1 + 1 // pop code, push function
             }
             Self::SetFunctionAttribute { .. } => {
@@ -457,8 +577,8 @@ impl InstructionMetadata for Instruction {
             Self::Call { nargs } => -(nargs.get(arg) as i32) - 2 + 1,
             // CallKw: pops kw_names_tuple + nargs + self_or_null + callable, pushes result
             Self::CallKw { nargs } => -1 - (nargs.get(arg) as i32) - 2 + 1,
-            // CallFunctionEx: pops kwargs(if any) + args_tuple + self_or_null + callable, pushes result
-            Self::CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 2 + 1,
+            // CallFunctionEx: always pops kwargs_or_null + args_tuple + self_or_null + callable, pushes result
+            Self::CallFunctionEx => -4 + 1,
             Self::CheckEgMatch => 0, // pops 2 (exc, type), pushes 2 (rest, match)
             Self::ConvertValue { .. } => 0,
             Self::FormatSimple => 0,
@@ -505,21 +625,14 @@ impl InstructionMetadata for Instruction {
             }
             Self::BuildString { size } => -(size.get(arg) as i32) + 1,
             Self::BuildTuple { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildTupleFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
             Self::BuildList { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildListFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
             Self::BuildSet { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildSetFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildTupleFromIter => 0,
             Self::BuildMap { size } => {
                 let nargs = size.get(arg) * 2;
                 -(nargs as i32) + 1
             }
-            Self::BuildMapForCall { size } => {
-                let nargs = size.get(arg);
-                -(nargs as i32) + 1
-            }
             Self::DictUpdate { .. } => -1,
+            Self::DictMerge { .. } => -1,
             Self::BuildSlice { argc } => {
                 // push 1
                 // pops either 2/3
@@ -531,7 +644,9 @@ impl InstructionMetadata for Instruction {
                     .get() as i32)
             }
             Self::ListAppend { .. } => -1,
+            Self::ListExtend { .. } => -1,
             Self::SetAdd { .. } => -1,
+            Self::SetUpdate { .. } => -1,
             Self::MapAdd { .. } => -2,
             Self::LoadBuildClass => 1,
             Self::UnpackSequence { size } => -1 + size.get(arg) as i32,
@@ -540,6 +655,7 @@ impl InstructionMetadata for Instruction {
                 -1 + before as i32 + 1 + after as i32
             }
             Self::PopExcept => 0,
+            Self::PopIter => -1,
             Self::GetAwaitable => 0,
             Self::BeforeAsyncWith => 1,
             Self::GetAIter => 0,
@@ -572,23 +688,132 @@ impl InstructionMetadata for Instruction {
             Self::LoadLocals => 0,
             Self::ReturnGenerator => 0,
             Self::StoreSlice => 0,
-            Self::DictMerge { .. } => 0,
             Self::BuildConstKeyMap { .. } => 0,
             Self::CopyFreeVars { .. } => 0,
             Self::EnterExecutor => 0,
             Self::JumpBackwardNoInterrupt { .. } => 0,
             Self::JumpBackward { .. } => 0,
             Self::JumpForward { .. } => 0,
-            Self::ListExtend { .. } => 0,
             Self::LoadFastCheck(_) => 0,
-            Self::LoadFastLoadFast { .. } => 0,
+            Self::LoadFastLoadFast { .. } => 2,
+            Self::LoadFastBorrowLoadFastBorrow { .. } => 2,
             Self::LoadFromDictOrGlobals(_) => 0,
-            Self::SetUpdate { .. } => 0,
             Self::MakeCell(_) => 0,
             Self::StoreFastStoreFast { .. } => 0,
             Self::PopJumpIfNone { .. } => 0,
             Self::PopJumpIfNotNone { .. } => 0,
-            Self::LoadClosure(_) => 1,
+            Self::BinaryOpAddFloat => 0,
+            Self::BinaryOpAddInt => 0,
+            Self::BinaryOpAddUnicode => 0,
+            Self::BinaryOpExtend => 0,
+            Self::BinaryOpMultiplyFloat => 0,
+            Self::BinaryOpMultiplyInt => 0,
+            Self::BinaryOpSubtractFloat => 0,
+            Self::BinaryOpSubtractInt => 0,
+            Self::BinarySubscrDict => 0,
+            Self::BinarySubscrGetitem => 0,
+            Self::BinarySubscrListInt => 0,
+            Self::BinarySubscrListSlice => 0,
+            Self::BinarySubscrStrInt => 0,
+            Self::BinarySubscrTupleInt => 0,
+            Self::CallAllocAndEnterInit => 0,
+            Self::CallBoundMethodExactArgs => 0,
+            Self::CallBoundMethodGeneral => 0,
+            Self::CallBuiltinClass => 0,
+            Self::CallBuiltinFast => 0,
+            Self::CallBuiltinFastWithKeywords => 0,
+            Self::CallBuiltinO => 0,
+            Self::CallIsinstance => 0,
+            Self::CallKwBoundMethod => 0,
+            Self::CallKwNonPy => 0,
+            Self::CallKwPy => 0,
+            Self::CallLen => 0,
+            Self::CallListAppend => 0,
+            Self::CallMethodDescriptorFast => 0,
+            Self::CallMethodDescriptorFastWithKeywords => 0,
+            Self::CallMethodDescriptorNoargs => 0,
+            Self::CallMethodDescriptorO => 0,
+            Self::CallNonPyGeneral => 0,
+            Self::CallPyExactArgs => 0,
+            Self::CallPyGeneral => 0,
+            Self::CallStr1 => 0,
+            Self::CallTuple1 => 0,
+            Self::CallType1 => 0,
+            Self::CompareOpFloat => 0,
+            Self::CompareOpInt => 0,
+            Self::CompareOpStr => 0,
+            Self::ContainsOpDict => 0,
+            Self::ContainsOpSet => 0,
+            Self::ForIterGen => 0,
+            Self::ForIterList => 0,
+            Self::ForIterRange => 0,
+            Self::ForIterTuple => 0,
+            Self::JumpBackwardJit => 0,
+            Self::JumpBackwardNoJit => 0,
+            Self::LoadAttrClass => 0,
+            Self::LoadAttrClassWithMetaclassCheck => 0,
+            Self::LoadAttrGetattributeOverridden => 0,
+            Self::LoadAttrInstanceValue => 0,
+            Self::LoadAttrMethodLazyDict => 0,
+            Self::LoadAttrMethodNoDict => 0,
+            Self::LoadAttrMethodWithValues => 0,
+            Self::LoadAttrModule => 0,
+            Self::LoadAttrNondescriptorNoDict => 0,
+            Self::LoadAttrNondescriptorWithValues => 0,
+            Self::LoadAttrProperty => 0,
+            Self::LoadAttrSlot => 0,
+            Self::LoadAttrWithHint => 0,
+            Self::LoadConstImmortal => 0,
+            Self::LoadConstMortal => 0,
+            Self::LoadGlobalBuiltin => 0,
+            Self::LoadGlobalModule => 0,
+            Self::LoadSuperAttrAttr => 0,
+            Self::LoadSuperAttrMethod => 0,
+            Self::ResumeCheck => 0,
+            Self::SendGen => 0,
+            Self::StoreAttrInstanceValue => 0,
+            Self::StoreAttrSlot => 0,
+            Self::StoreAttrWithHint => 0,
+            Self::StoreSubscrDict => 0,
+            Self::StoreSubscrListInt => 0,
+            Self::ToBoolAlwaysTrue => 0,
+            Self::ToBoolBool => 0,
+            Self::ToBoolInt => 0,
+            Self::ToBoolList => 0,
+            Self::ToBoolNone => 0,
+            Self::ToBoolStr => 0,
+            Self::UnpackSequenceList => 0,
+            Self::UnpackSequenceTuple => 0,
+            Self::UnpackSequenceTwoTuple => 0,
+            Self::InstrumentedEndFor => 0,
+            Self::InstrumentedPopIter => -1,
+            Self::InstrumentedEndSend => 0,
+            Self::InstrumentedForIter => 0,
+            Self::InstrumentedInstruction => 0,
+            Self::InstrumentedJumpForward => 0,
+            Self::InstrumentedNotTaken => 0,
+            Self::InstrumentedJumpBackward => 0,
+            Self::InstrumentedPopJumpIfTrue => 0,
+            Self::InstrumentedPopJumpIfFalse => 0,
+            Self::InstrumentedPopJumpIfNone => 0,
+            Self::InstrumentedPopJumpIfNotNone => 0,
+            Self::InstrumentedResume => 0,
+            Self::InstrumentedReturnValue => 0,
+            Self::InstrumentedYieldValue => 0,
+            Self::InstrumentedEndAsyncFor => -2,
+            Self::InstrumentedLoadSuperAttr => 0,
+            Self::InstrumentedCall => 0,
+            Self::InstrumentedCallKw => 0,
+            Self::InstrumentedCallFunctionEx => 0,
+            Self::InstrumentedLine => 0,
+            // BuildTemplate: pops [strings_tuple, interpolations_tuple], pushes [template]
+            Self::BuildTemplate => -1,
+            // BuildInterpolation: pops [value, expr_str, format_spec?], pushes [interpolation]
+            // has_format_spec is bit 0 of oparg
+            Self::BuildInterpolation { oparg } => {
+                let has_format_spec = oparg.get(arg) & 1 != 0;
+                if has_format_spec { -2 } else { -1 }
+            }
         }
     }
 
@@ -651,18 +876,13 @@ impl InstructionMetadata for Instruction {
             Self::BinarySubscr => w!(BINARY_SUBSCR),
             Self::Break { target } => w!(BREAK, target),
             Self::BuildList { size } => w!(BUILD_LIST, size),
-            Self::BuildListFromTuples { size } => w!(BUILD_LIST_FROM_TUPLES, size),
             Self::BuildMap { size } => w!(BUILD_MAP, size),
-            Self::BuildMapForCall { size } => w!(BUILD_MAP_FOR_CALL, size),
             Self::BuildSet { size } => w!(BUILD_SET, size),
-            Self::BuildSetFromTuples { size } => w!(BUILD_SET_FROM_TUPLES, size),
             Self::BuildSlice { argc } => w!(BUILD_SLICE, ?argc),
             Self::BuildString { size } => w!(BUILD_STRING, size),
             Self::BuildTuple { size } => w!(BUILD_TUPLE, size),
-            Self::BuildTupleFromIter => w!(BUILD_TUPLE_FROM_ITER),
-            Self::BuildTupleFromTuples { size } => w!(BUILD_TUPLE_FROM_TUPLES, size),
             Self::Call { nargs } => w!(CALL, nargs),
-            Self::CallFunctionEx { has_kwargs } => w!(CALL_FUNCTION_EX, has_kwargs),
+            Self::CallFunctionEx => w!(CALL_FUNCTION_EX),
             Self::CallKw { nargs } => w!(CALL_KW, nargs),
             Self::CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
             Self::CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
@@ -680,6 +900,7 @@ impl InstructionMetadata for Instruction {
             Self::DeleteGlobal(idx) => w!(DELETE_GLOBAL, name = idx),
             Self::DeleteName(idx) => w!(DELETE_NAME, name = idx),
             Self::DeleteSubscr => w!(DELETE_SUBSCR),
+            Self::DictMerge { index } => w!(DICT_MERGE, index),
             Self::DictUpdate { index } => w!(DICT_UPDATE, index),
             Self::EndAsyncFor => w!(END_ASYNC_FOR),
             Self::EndSend => w!(END_SEND),
@@ -703,6 +924,7 @@ impl InstructionMetadata for Instruction {
             Self::JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
             Self::JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
             Self::ListAppend { i } => w!(LIST_APPEND, i),
+            Self::ListExtend { i } => w!(LIST_EXTEND, i),
             Self::LoadAttr { idx } => {
                 let encoded = idx.get(arg);
                 let (name_idx, is_method) = decode_load_attr_arg(encoded);
@@ -719,7 +941,6 @@ impl InstructionMetadata for Instruction {
             }
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
             Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
-            Self::LoadClosure(i) => w!(LOAD_CLOSURE, cell_name = i),
             Self::LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
             Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             Self::LoadFast(idx) => w!(LOAD_FAST, varname = idx),
@@ -759,6 +980,7 @@ impl InstructionMetadata for Instruction {
             Self::SetExcInfo => w!(SET_EXC_INFO),
             Self::SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
             Self::SetupAnnotations => w!(SETUP_ANNOTATIONS),
+            Self::SetUpdate { i } => w!(SET_UPDATE, i),
             Self::StoreAttr { idx } => w!(STORE_ATTR, name = idx),
             Self::StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
             Self::StoreFast(idx) => w!(STORE_FAST, varname = idx),
@@ -783,6 +1005,8 @@ impl InstructionMetadata for Instruction {
             Self::UnaryNot => w!(UNARY_NOT),
             Self::YieldValue { arg } => w!(YIELD_VALUE, arg),
             Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
+            Self::BuildTemplate => w!(BUILD_TEMPLATE),
+            Self::BuildInterpolation { oparg } => w!(BUILD_INTERPOLATION, oparg),
             _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
     }
@@ -819,6 +1043,7 @@ pub enum PseudoInstruction {
     SetupFinally = 265,       // Placeholder
     SetupWith = 266,          // Placeholder
     StoreFastMaybeNull = 267, // Placeholder
+    LoadClosure(Arg<NameIdx>) = 268,
 }
 
 const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
@@ -839,7 +1064,7 @@ impl TryFrom<u16> for PseudoInstruction {
         let start = u16::from(Self::Jump {
             target: Arg::marker(),
         });
-        let end = u16::from(Self::StoreFastMaybeNull);
+        let end = u16::from(Self::LoadClosure(Arg::marker()));
 
         if (start..=end).contains(&value) {
             Ok(unsafe { mem::transmute::<u16, Self>(value) })
@@ -875,6 +1100,7 @@ impl InstructionMetadata for PseudoInstruction {
             Self::SetupWith => 0,
             Self::StoreFastMaybeNull => 0,
             Self::Reserved258 => 0,
+            Self::LoadClosure(_) => 1,
         }
     }
 

@@ -54,6 +54,7 @@ rustyline = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 pyo3 = { version = "0.27", features = ["auto-initialize"] }
+rustpython-stdlib = { workspace = true }
 
 [[bench]]
 name = "execution"
@@ -155,7 +156,7 @@ ascii = "1.1"
 bitflags = "2.9.4"
 bstr = "1"
 cfg-if = "1.0"
-chrono = { version = "0.4.42", default-features = false, features = ["clock", "oldtime", "std"] }
+chrono = { version = "0.4.43", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
@@ -167,7 +168,7 @@ indexmap = { version = "2.13.0", features = ["std"] }
 insta = "1.46"
 itertools = "0.14.0"
 is-macro = "0.3.7"
-junction = "1.3.0"
+junction = "1.4.1"
 libc = "0.2.180"
 libffi = "5"
 log = "0.4.29"

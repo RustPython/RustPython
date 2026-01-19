@@ -134,7 +134,6 @@ class IntegrationTests(TestCase):
             b"Python test,Python test 2;query=test;/path/"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; http library needs to be updated
     def test_request_length(self):
         out, err = run_amock(data=b"GET " + (b"x" * 65537) + b" HTTP/1.0\n\n")
         self.assertEqual(out.splitlines()[0],

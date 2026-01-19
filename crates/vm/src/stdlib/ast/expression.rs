@@ -7,7 +7,7 @@ use crate::stdlib::ast::{
 use rustpython_compiler_core::SourceFile;
 
 // sum
-impl Node for ruff::Expr {
+impl Node for ast::Expr {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         match self {
             Self::BoolOp(cons) => cons.ast_to_object(vm, source_file),
@@ -36,7 +36,7 @@ impl Node for ruff::Expr {
             Self::NumberLiteral(cons) => constant::number_literal_to_object(vm, source_file, cons),
             Self::StringLiteral(cons) => constant::string_literal_to_object(vm, source_file, cons),
             Self::FString(cons) => string::fstring_to_object(vm, source_file, cons),
-            Self::TString(_) => unimplemented!(),
+            Self::TString(cons) => string::tstring_to_object(vm, source_file, cons),
             Self::BytesLiteral(cons) => constant::bytes_literal_to_object(vm, source_file, cons),
             Self::BooleanLiteral(cons) => {
                 constant::boolean_literal_to_object(vm, source_file, cons)
@@ -59,77 +59,69 @@ impl Node for ruff::Expr {
     ) -> PyResult<Self> {
         let cls = object.class();
         Ok(if cls.is(pyast::NodeExprBoolOp::static_type()) {
-            Self::BoolOp(ruff::ExprBoolOp::ast_from_object(vm, source_file, object)?)
+            Self::BoolOp(ast::ExprBoolOp::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprNamedExpr::static_type()) {
-            Self::Named(ruff::ExprNamed::ast_from_object(vm, source_file, object)?)
+            Self::Named(ast::ExprNamed::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprBinOp::static_type()) {
-            Self::BinOp(ruff::ExprBinOp::ast_from_object(vm, source_file, object)?)
+            Self::BinOp(ast::ExprBinOp::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprUnaryOp::static_type()) {
-            Self::UnaryOp(ruff::ExprUnaryOp::ast_from_object(vm, source_file, object)?)
+            Self::UnaryOp(ast::ExprUnaryOp::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprLambda::static_type()) {
-            Self::Lambda(ruff::ExprLambda::ast_from_object(vm, source_file, object)?)
+            Self::Lambda(ast::ExprLambda::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprIfExp::static_type()) {
-            Self::If(ruff::ExprIf::ast_from_object(vm, source_file, object)?)
+            Self::If(ast::ExprIf::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprDict::static_type()) {
-            Self::Dict(ruff::ExprDict::ast_from_object(vm, source_file, object)?)
+            Self::Dict(ast::ExprDict::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprSet::static_type()) {
-            Self::Set(ruff::ExprSet::ast_from_object(vm, source_file, object)?)
+            Self::Set(ast::ExprSet::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprListComp::static_type()) {
-            Self::ListComp(ruff::ExprListComp::ast_from_object(
-                vm,
-                source_file,
-                object,
-            )?)
+            Self::ListComp(ast::ExprListComp::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprSetComp::static_type()) {
-            Self::SetComp(ruff::ExprSetComp::ast_from_object(vm, source_file, object)?)
+            Self::SetComp(ast::ExprSetComp::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprDictComp::static_type()) {
-            Self::DictComp(ruff::ExprDictComp::ast_from_object(
-                vm,
-                source_file,
-                object,
-            )?)
+            Self::DictComp(ast::ExprDictComp::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprGeneratorExp::static_type()) {
-            Self::Generator(ruff::ExprGenerator::ast_from_object(
+            Self::Generator(ast::ExprGenerator::ast_from_object(
                 vm,
                 source_file,
                 object,
             )?)
         } else if cls.is(pyast::NodeExprAwait::static_type()) {
-            Self::Await(ruff::ExprAwait::ast_from_object(vm, source_file, object)?)
+            Self::Await(ast::ExprAwait::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprYield::static_type()) {
-            Self::Yield(ruff::ExprYield::ast_from_object(vm, source_file, object)?)
+            Self::Yield(ast::ExprYield::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprYieldFrom::static_type()) {
-            Self::YieldFrom(ruff::ExprYieldFrom::ast_from_object(
+            Self::YieldFrom(ast::ExprYieldFrom::ast_from_object(
                 vm,
                 source_file,
                 object,
             )?)
         } else if cls.is(pyast::NodeExprCompare::static_type()) {
-            Self::Compare(ruff::ExprCompare::ast_from_object(vm, source_file, object)?)
+            Self::Compare(ast::ExprCompare::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprCall::static_type()) {
-            Self::Call(ruff::ExprCall::ast_from_object(vm, source_file, object)?)
+            Self::Call(ast::ExprCall::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprAttribute::static_type()) {
-            Self::Attribute(ruff::ExprAttribute::ast_from_object(
+            Self::Attribute(ast::ExprAttribute::ast_from_object(
                 vm,
                 source_file,
                 object,
             )?)
         } else if cls.is(pyast::NodeExprSubscript::static_type()) {
-            Self::Subscript(ruff::ExprSubscript::ast_from_object(
+            Self::Subscript(ast::ExprSubscript::ast_from_object(
                 vm,
                 source_file,
                 object,
             )?)
         } else if cls.is(pyast::NodeExprStarred::static_type()) {
-            Self::Starred(ruff::ExprStarred::ast_from_object(vm, source_file, object)?)
+            Self::Starred(ast::ExprStarred::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprName::static_type()) {
-            Self::Name(ruff::ExprName::ast_from_object(vm, source_file, object)?)
+            Self::Name(ast::ExprName::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprList::static_type()) {
-            Self::List(ruff::ExprList::ast_from_object(vm, source_file, object)?)
+            Self::List(ast::ExprList::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprTuple::static_type()) {
-            Self::Tuple(ruff::ExprTuple::ast_from_object(vm, source_file, object)?)
+            Self::Tuple(ast::ExprTuple::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprSlice::static_type()) {
-            Self::Slice(ruff::ExprSlice::ast_from_object(vm, source_file, object)?)
+            Self::Slice(ast::ExprSlice::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeExprConstant::static_type()) {
             Constant::ast_from_object(vm, source_file, object)?.into_expr()
         } else if cls.is(pyast::NodeExprJoinedStr::static_type()) {
@@ -144,7 +136,7 @@ impl Node for ruff::Expr {
 }
 
 // constructor
-impl Node for ruff::ExprBoolOp {
+impl Node for ast::ExprBoolOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -187,7 +179,7 @@ impl Node for ruff::ExprBoolOp {
 }
 
 // constructor
-impl Node for ruff::ExprNamed {
+impl Node for ast::ExprNamed {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -230,7 +222,7 @@ impl Node for ruff::ExprNamed {
 }
 
 // constructor
-impl Node for ruff::ExprBinOp {
+impl Node for ast::ExprBinOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -281,7 +273,7 @@ impl Node for ruff::ExprBinOp {
 }
 
 // constructor
-impl Node for ruff::ExprUnaryOp {
+impl Node for ast::ExprUnaryOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -323,7 +315,7 @@ impl Node for ruff::ExprUnaryOp {
 }
 
 // constructor
-impl Node for ruff::ExprLambda {
+impl Node for ast::ExprLambda {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -366,7 +358,7 @@ impl Node for ruff::ExprLambda {
 }
 
 // constructor
-impl Node for ruff::ExprIf {
+impl Node for ast::ExprIf {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -417,7 +409,7 @@ impl Node for ruff::ExprIf {
 }
 
 // constructor
-impl Node for ruff::ExprDict {
+impl Node for ast::ExprDict {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -449,7 +441,7 @@ impl Node for ruff::ExprDict {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let keys: Vec<Option<ruff::Expr>> = Node::ast_from_object(
+        let keys: Vec<Option<ast::Expr>> = Node::ast_from_object(
             vm,
             source_file,
             get_node_field(vm, &object, "keys", "Dict")?,
@@ -462,7 +454,7 @@ impl Node for ruff::ExprDict {
         let items = keys
             .into_iter()
             .zip(values)
-            .map(|(key, value)| ruff::DictItem { key, value })
+            .map(|(key, value)| ast::DictItem { key, value })
             .collect();
         Ok(Self {
             node_index: Default::default(),
@@ -473,7 +465,7 @@ impl Node for ruff::ExprDict {
 }
 
 // constructor
-impl Node for ruff::ExprSet {
+impl Node for ast::ExprSet {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -507,7 +499,7 @@ impl Node for ruff::ExprSet {
 }
 
 // constructor
-impl Node for ruff::ExprListComp {
+impl Node for ast::ExprListComp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -550,7 +542,7 @@ impl Node for ruff::ExprListComp {
 }
 
 // constructor
-impl Node for ruff::ExprSetComp {
+impl Node for ast::ExprSetComp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -593,7 +585,7 @@ impl Node for ruff::ExprSetComp {
 }
 
 // constructor
-impl Node for ruff::ExprDictComp {
+impl Node for ast::ExprDictComp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -644,7 +636,7 @@ impl Node for ruff::ExprDictComp {
 }
 
 // constructor
-impl Node for ruff::ExprGenerator {
+impl Node for ast::ExprGenerator {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -690,7 +682,7 @@ impl Node for ruff::ExprGenerator {
 }
 
 // constructor
-impl Node for ruff::ExprAwait {
+impl Node for ast::ExprAwait {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -724,7 +716,7 @@ impl Node for ruff::ExprAwait {
 }
 
 // constructor
-impl Node for ruff::ExprYield {
+impl Node for ast::ExprYield {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -757,7 +749,7 @@ impl Node for ruff::ExprYield {
 }
 
 // constructor
-impl Node for ruff::ExprYieldFrom {
+impl Node for ast::ExprYieldFrom {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -792,7 +784,7 @@ impl Node for ruff::ExprYieldFrom {
 }
 
 // constructor
-impl Node for ruff::ExprCompare {
+impl Node for ast::ExprCompare {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -853,7 +845,7 @@ impl Node for ruff::ExprCompare {
 }
 
 // constructor
-impl Node for ruff::ExprCall {
+impl Node for ast::ExprCall {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -914,7 +906,7 @@ impl Node for ruff::ExprCall {
 }
 
 // constructor
-impl Node for ruff::ExprAttribute {
+impl Node for ast::ExprAttribute {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -965,7 +957,7 @@ impl Node for ruff::ExprAttribute {
 }
 
 // constructor
-impl Node for ruff::ExprSubscript {
+impl Node for ast::ExprSubscript {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1015,7 +1007,7 @@ impl Node for ruff::ExprSubscript {
 }
 
 // constructor
-impl Node for ruff::ExprStarred {
+impl Node for ast::ExprStarred {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1057,7 +1049,7 @@ impl Node for ruff::ExprStarred {
 }
 
 // constructor
-impl Node for ruff::ExprName {
+impl Node for ast::ExprName {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1095,7 +1087,7 @@ impl Node for ruff::ExprName {
 }
 
 // constructor
-impl Node for ruff::ExprList {
+impl Node for ast::ExprList {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1138,7 +1130,7 @@ impl Node for ruff::ExprList {
 }
 
 // constructor
-impl Node for ruff::ExprTuple {
+impl Node for ast::ExprTuple {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1183,7 +1175,7 @@ impl Node for ruff::ExprTuple {
 }
 
 // constructor
-impl Node for ruff::ExprSlice {
+impl Node for ast::ExprSlice {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -1228,7 +1220,7 @@ impl Node for ruff::ExprSlice {
 }
 
 // sum
-impl Node for ruff::ExprContext {
+impl Node for ast::ExprContext {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
             Self::Load => pyast::NodeExprContextLoad::static_type(),
@@ -1266,7 +1258,7 @@ impl Node for ruff::ExprContext {
 }
 
 // product
-impl Node for ruff::Comprehension {
+impl Node for ast::Comprehension {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,

@@ -5,6 +5,7 @@ import io
 import logging
 import os
 import shutil
+import signal
 import socket
 import stat
 import subprocess
@@ -16,12 +17,13 @@ import unittest
 import warnings
 
 from test import support
-from test.support import import_helper
-from test.support import os_helper
-from test.support import script_helper
-from test.support import socket_helper
-from test.support import warnings_helper
-from test.support.testcase import ExtraAssertions
+from test.support import (
+    import_helper,
+    os_helper,
+    script_helper,
+    socket_helper,
+    warnings_helper,
+)
 
 TESTFN = os_helper.TESTFN
 
@@ -51,26 +53,26 @@ def _caplog():
         root_logger.removeHandler(handler)
 
 
-class TestSupport(unittest.TestCase, ExtraAssertions):
+class TestSupport(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        orig_filter_len = len(warnings.filters)
+        orig_filter_len = len(warnings._get_filters())
         cls._warnings_helper_token = support.ignore_deprecations_from(
             "test.support.warnings_helper", like=".*used in test_support.*"
         )
         cls._test_support_token = support.ignore_deprecations_from(
             __name__, like=".*You should NOT be seeing this.*"
         )
-        assert len(warnings.filters) == orig_filter_len + 2
+        assert len(warnings._get_filters()) == orig_filter_len + 2
 
     @classmethod
     def tearDownClass(cls):
-        orig_filter_len = len(warnings.filters)
+        orig_filter_len = len(warnings._get_filters())
         support.clear_ignored_deprecations(
             cls._warnings_helper_token,
             cls._test_support_token,
         )
-        assert len(warnings.filters) == orig_filter_len - 2
+        assert len(warnings._get_filters()) == orig_filter_len - 2
 
     def test_ignored_deprecations_are_silent(self):
         """Test support.ignore_deprecations_from() silences warnings"""
@@ -98,7 +100,7 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
         self.assertEqual(support.get_original_stdout(), sys.stdout)
 
     def test_unload(self):
-        import sched
+        import sched  # noqa: F401
         self.assertIn("sched", sys.modules)
         import_helper.unload("sched")
         self.assertNotIn("sched", sys.modules)
@@ -407,10 +409,10 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
         with support.swap_attr(obj, "y", 5) as y:
             self.assertEqual(obj.y, 5)
             self.assertIsNone(y)
-        self.assertFalse(hasattr(obj, 'y'))
+        self.assertNotHasAttr(obj, 'y')
         with support.swap_attr(obj, "y", 5):
             del obj.y
-        self.assertFalse(hasattr(obj, 'y'))
+        self.assertNotHasAttr(obj, 'y')
 
     def test_swap_item(self):
         D = {"x":1}
@@ -458,6 +460,7 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
                 self.OtherClass, self.RefClass, ignore=ignore)
         self.assertEqual(set(), missing_items)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_check__all__(self):
         extra = {'tempdir'}
         not_exported = {'template'}
@@ -469,7 +472,6 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
         extra = {
             'TextTestResult',
             'installHandler',
-            'IsolatedAsyncioTestCase',
         }
         not_exported = {'load_tests', "TestProgram", "BaseTestSuite"}
         support.check__all__(self,
@@ -562,6 +564,7 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
             ['-Wignore', '-X', 'dev'],
             ['-X', 'faulthandler'],
             ['-X', 'importtime'],
+            ['-X', 'importtime=2'],
             ['-X', 'showrefcount'],
             ['-X', 'tracemalloc'],
             ['-X', 'tracemalloc=3'],
@@ -586,7 +589,6 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
                 self.check_options(opts, 'optim_args_from_interpreter_flags')
 
     @unittest.skipIf(support.is_apple_mobile, "Unstable on Apple Mobile")
-    @unittest.skipIf(support.is_emscripten, "Unstable in Emscripten")
     @unittest.skipIf(support.is_wasi, "Unavailable on WASI")
     def test_fd_count(self):
         # We cannot test the absolute value of fd_count(): on old Linux kernel
@@ -614,17 +616,14 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
         self.check_print_warning("a\nb",
                                  'Warning -- a\nWarning -- b\n')
 
-    # TODO: RUSTPYTHON - strftime extension not fully supported on non-Windows
-    @unittest.skipUnless(sys.platform == "win32" or support.is_emscripten,
-                         "strftime extension not fully supported on non-Windows")
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; no has_strftime_extensions yet")
     def test_has_strftime_extensions(self):
-        if support.is_emscripten or sys.platform == "win32":
+        if sys.platform == "win32":
             self.assertFalse(support.has_strftime_extensions)
         else:
             self.assertTrue(support.has_strftime_extensions)
 
-    # TODO: RUSTPYTHON - _testinternalcapi module not available
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; - _testinternalcapi module not available
     def test_get_recursion_depth(self):
         # test support.get_recursion_depth()
         code = textwrap.dedent("""
@@ -668,8 +667,7 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
         """)
         script_helper.assert_python_ok("-c", code)
 
-    # TODO: RUSTPYTHON - stack overflow in debug mode with deep recursion
-    @unittest.skip("TODO: RUSTPYTHON - causes segfault in debug builds")
+    @unittest.skip('TODO: RUSTPYTHON; - causes segfault in debug builds')
     def test_recursion(self):
         # Test infinite_recursion() and get_recursion_available() functions.
         def recursive_function(depth):
@@ -778,9 +776,31 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
         self.assertEqual(support.copy_python_src_ignore(path, os.listdir(path)),
                          ignored)
 
+    def test_get_signal_name(self):
+        for exitcode, expected in (
+            (-int(signal.SIGINT), 'SIGINT'),
+            (-int(signal.SIGSEGV), 'SIGSEGV'),
+            (128 + int(signal.SIGABRT), 'SIGABRT'),
+            (3221225477, "STATUS_ACCESS_VIOLATION"),
+            (0xC00000FD, "STATUS_STACK_OVERFLOW"),
+        ):
+            self.assertEqual(support.get_signal_name(exitcode), expected,
+                             exitcode)
+
     def test_linked_to_musl(self):
         linked = support.linked_to_musl()
-        self.assertIsInstance(linked, bool)
+        self.assertIsNotNone(linked)
+        if support.is_wasm32:
+            self.assertTrue(linked)
+        # The value is cached, so make sure it returns the same value again.
+        self.assertIs(linked, support.linked_to_musl())
+        # The musl version is either triple or just a major version number.
+        if linked:
+            self.assertIsInstance(linked, tuple)
+            self.assertIn(len(linked), (1, 3))
+            for v in linked:
+                self.assertIsInstance(v, int)
+
 
     # XXX -follows a list of untested API
     # make_legacy_pyc

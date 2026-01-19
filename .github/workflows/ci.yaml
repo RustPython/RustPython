@@ -115,7 +115,7 @@ env:
     test.test_multiprocessing_spawn.test_processes
   ENV_POLLUTING_TESTS_WINDOWS: >-
   # Python version targeted by the CI.
-  PYTHON_VERSION: "3.13.1"
+  PYTHON_VERSION: "3.14.2"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
 
@@ -210,8 +210,19 @@ jobs:
         with:
           target: aarch64-linux-android
 
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+          add-to-path: true
+
       - name: Check compilation for android
         run: cargo check --target aarch64-linux-android ${{ env.CARGO_ARGS_NO_SSL }}
+        env:
+          CC_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          AR_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -412,7 +423,7 @@ jobs:
           target/release/rustpython -m venv testvenv
           testvenv/bin/rustpython -m pip install wheel
       - name: Check whats_left is not broken
-        run: python -I whats_left.py
+        run: python -I scripts/whats_left.py
 
   lint:
     name: Check Rust code with clippy

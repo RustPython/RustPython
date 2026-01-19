@@ -14,7 +14,6 @@ concurrency:
 
 jobs:
   auto_format:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     permissions:
       contents: write
       pull-requests: write

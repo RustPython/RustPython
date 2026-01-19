@@ -220,13 +220,26 @@ def get_annotations(obj, *, globals=None, locals=None, eval_str=False):
     """
     if isinstance(obj, type):
         # class
-        obj_dict = getattr(obj, '__dict__', None)
-        if obj_dict and hasattr(obj_dict, 'get'):
-            ann = obj_dict.get('__annotations__', None)
-            if isinstance(ann, types.GetSetDescriptorType):
-                ann = None
-        else:
+        # XXX: RUSTPYTHON
+        # PEP 649: Use descriptor access to get __annotations__
+        # The __annotations__ attribute is now provided via a descriptor
+        # that calls __annotate__ to compute the annotations lazily
+        try:
+            ann = obj.__annotations__
+        except AttributeError:
             ann = None
+        # Ensure we got this class's own annotations, not inherited
+        if ann is not None:
+            # Check if __annotations__ is in this class's __dict__
+            # or is computed by a descriptor (both are valid)
+            obj_dict = getattr(obj, '__dict__', None)
+            if obj_dict is not None:
+                dict_ann = obj_dict.get('__annotations__', None)
+                # If it's a descriptor or cached dict, use what we got from attribute access
+                # If it's inherited (not in __dict__ at all and no __annotate__), return empty
+                # XXX: RUSTPYTHON - also check __annotate_func__ (PEP 649 descriptor)
+                if dict_ann is None and '__annotate__' not in obj_dict and '__annotations_cache__' not in obj_dict and not hasattr(obj, '__annotate_func__'):
+                    ann = None
 
         obj_globals = None
         module_name = getattr(obj, '__module__', None)

@@ -3,6 +3,7 @@ use crate::common::{
     hash::{PyHash, PyUHash},
     lock::PyMutex,
 };
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
@@ -24,7 +25,7 @@ use crate::{
 use alloc::fmt;
 use std::sync::LazyLock;
 
-#[pyclass(module = false, name = "tuple", traverse)]
+#[pyclass(module = false, name = "tuple", traverse = "manual")]
 pub struct PyTuple<R = PyObjectRef> {
     elements: Box<[R]>,
 }
@@ -33,6 +34,19 @@ impl<R> fmt::Debug for PyTuple<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more informational, non-recursive Debug formatter
         f.write_str("tuple")
+    }
+}
+
+// SAFETY: Traverse properly visits all owned PyObjectRefs
+// Note: Only impl for PyTuple<PyObjectRef> (the default)
+unsafe impl Traverse for PyTuple {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        self.elements.traverse(traverse_fn);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        let elements = std::mem::take(&mut self.elements);
+        out.extend(elements.into_vec());
     }
 }
 

@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/vscode/devcontainers/rust:1-bullseye
+FROM rust:bullseye
 
 # Install clang
 RUN apt-get update \

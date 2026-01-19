@@ -145,6 +145,14 @@ pub struct CodeInfo {
 
     // Reference to the symbol table for this scope
     pub symbol_table_index: usize,
+
+    // PEP 649: Track nesting depth inside conditional blocks (if/for/while/etc.)
+    // u_in_conditional_block
+    pub in_conditional_block: u32,
+
+    // PEP 649: Next index for conditional annotation tracking
+    // u_next_conditional_annotation_index
+    pub next_conditional_annotation_index: u32,
 }
 
 impl CodeInfo {
@@ -171,6 +179,8 @@ impl CodeInfo {
             in_inlined_comp: _,
             fblock: _,
             symbol_table_index: _,
+            in_conditional_block: _,
+            next_conditional_annotation_index: _,
         } = self;
 
         let CodeUnitMetadata {
@@ -252,6 +262,13 @@ impl CodeInfo {
                         let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, false);
                         info.arg = OpArg(encoded);
                         info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() }.into();
+                    }
+                    // LOAD_CLOSURE pseudo → LOAD_FAST (with varnames offset)
+                    PseudoInstruction::LoadClosure(idx) => {
+                        let varnames_len = varname_cache.len() as u32;
+                        let new_idx = varnames_len + idx.get(info.arg);
+                        info.arg = OpArg(new_idx);
+                        info.instr = Instruction::LoadFast(Arg::marker()).into();
                     }
                     PseudoInstruction::Jump { .. } => {
                         // PseudoInstruction::Jump instructions are handled later

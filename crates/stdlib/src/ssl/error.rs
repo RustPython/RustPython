@@ -7,7 +7,7 @@ pub(crate) mod ssl_error {
     use crate::vm::{
         Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseException, PyOSError, PyStrRef},
-        types::{Constructor, Initializer},
+        types::Constructor,
     };
 
     // Error type constants - exposed as pyattr and available for internal use
@@ -130,6 +130,17 @@ pub(crate) mod ssl_error {
             PySSLZeroReturnError::class(&vm.ctx).to_owned(),
             Some(SSL_ERROR_ZERO_RETURN),
             "TLS/SSL connection has been closed (EOF)",
+        )
+    }
+
+    pub fn create_ssl_syscall_error(
+        vm: &VirtualMachine,
+        msg: impl Into<String>,
+    ) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(
+            PySSLSyscallError::class(&vm.ctx).to_owned(),
+            Some(SSL_ERROR_SYSCALL),
+            msg.into(),
         )
     }
 }

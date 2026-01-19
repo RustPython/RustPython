@@ -9,14 +9,21 @@ use crate::{
     coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameRef,
     function::OptionalArg,
+    object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
     types::{IterNext, Iterable, Representable, SelfIter},
 };
 
-#[pyclass(module = false, name = "generator")]
+#[pyclass(module = false, name = "generator", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyGenerator {
     inner: Coro,
+}
+
+unsafe impl Traverse for PyGenerator {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.inner.traverse(tracer_fn);
+    }
 }
 
 impl PyPayload for PyGenerator {

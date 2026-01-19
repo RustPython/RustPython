@@ -200,6 +200,23 @@ mod decl {
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
+    fn altzone(_vm: &VirtualMachine) -> core::ffi::c_long {
+        // TODO: RUSTPYTHON; Add support for using the C altzone
+        unsafe { super::c_timezone - 3600 }
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn altzone(_vm: &VirtualMachine) -> i32 {
+        let info = get_tz_info();
+        // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
+        (info.Bias + info.StandardBias) * 60 - 3600
+    }
+
+    #[cfg(not(target_env = "msvc"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
     fn timezone(_vm: &VirtualMachine) -> core::ffi::c_long {
         unsafe { super::c_timezone }
     }

@@ -184,15 +184,12 @@ fn type_slot_names(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<sup
     Ok(result)
 }
 
-// object_getstate_default in CPython
+// object_getstate_default
 fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyResult {
-    // TODO: itemsize
-    // if required && obj.class().slots.itemsize > 0 {
-    //     return vm.new_type_error(format!(
-    //         "cannot pickle {:.200} objects",
-    //         obj.class().name()
-    //     ));
-    // }
+    // Check itemsize
+    if required && obj.class().slots.itemsize > 0 {
+        return Err(vm.new_type_error(format!("cannot pickle {:.200} objects", obj.class().name())));
+    }
 
     let state = if obj.dict().is_none_or(|d| d.is_empty()) {
         vm.ctx.none()
@@ -208,22 +205,36 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         type_slot_names(obj.class(), vm).map_err(|_| vm.new_type_error("cannot pickle object"))?;
 
     if required {
-        let mut basicsize = obj.class().slots.basicsize;
-        // if obj.class().slots.dict_offset > 0
-        //     && !obj.class().slots.flags.has_feature(PyTypeFlags::MANAGED_DICT)
-        // {
-        //     basicsize += std::mem::size_of::<PyObjectRef>();
-        // }
-        // if obj.class().slots.weaklist_offset > 0 {
-        //     basicsize += std::mem::size_of::<PyObjectRef>();
-        // }
+        // Start with PyBaseObject_Type's basicsize
+        let mut basicsize = vm.ctx.types.object_type.slots.basicsize;
+
+        // Add __dict__ size if type has dict
+        if obj.class().slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+            basicsize += core::mem::size_of::<PyObjectRef>();
+        }
+
+        // Add __weakref__ size if type has weakref support
+        let has_weakref = if let Some(ref ext) = obj.class().heaptype_ext {
+            match &ext.slots {
+                None => true, // Heap type without __slots__ has automatic weakref
+                Some(slots) => slots.iter().any(|s| s.as_str() == "__weakref__"),
+            }
+        } else {
+            let weakref_name = vm.ctx.intern_str("__weakref__");
+            obj.class().attributes.read().contains_key(weakref_name)
+        };
+        if has_weakref {
+            basicsize += core::mem::size_of::<PyObjectRef>();
+        }
+
+        // Add slots size
         if let Some(ref slot_names) = slot_names {
             basicsize += core::mem::size_of::<PyObjectRef>() * slot_names.__len__();
         }
+
+        // Fail if actual type's basicsize > expected basicsize
         if obj.class().slots.basicsize > basicsize {
-            return Err(
-                vm.new_type_error(format!("cannot pickle {:.200} object", obj.class().name()))
-            );
+            return Err(vm.new_type_error(format!("cannot pickle '{}' object", obj.class().name())));
         }
     }
 
@@ -233,6 +244,12 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
             let slots = vm.ctx.new_dict();
             for i in 0..slot_names_len {
                 let borrowed_names = slot_names.borrow_vec();
+                // Check if slotnames changed during iteration
+                if borrowed_names.len() != slot_names_len {
+                    return Err(vm.new_runtime_error(
+                        "__slotnames__ changed size during iteration".to_owned(),
+                    ));
+                }
                 let name = borrowed_names[i].downcast_ref::<PyStr>().unwrap();
                 let Ok(value) = obj.get_attr(name, vm) else {
                     continue;
@@ -249,7 +266,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
     Ok(state)
 }
 
-// object_getstate in CPython
+// object_getstate
 // fn object_getstate(
 //     obj: &PyObject,
 //     required: bool,
@@ -550,11 +567,183 @@ pub fn init(ctx: &Context) {
     PyBaseObject::extend_class(ctx, ctx.types.object_type);
 }
 
+/// Get arguments for __new__ from __getnewargs_ex__ or __getnewargs__
+/// Returns (args, kwargs) tuple where either can be None
+fn get_new_arguments(
+    obj: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<(Option<super::PyTupleRef>, Option<super::PyDictRef>)> {
+    // First try __getnewargs_ex__
+    if let Some(getnewargs_ex) = vm.get_special_method(obj, identifier!(vm, __getnewargs_ex__))? {
+        let newargs = getnewargs_ex.invoke((), vm)?;
+
+        let newargs_tuple: PyRef<super::PyTuple> = newargs.downcast().map_err(|obj| {
+            vm.new_type_error(format!(
+                "__getnewargs_ex__ should return a tuple, not '{}'",
+                obj.class().name()
+            ))
+        })?;
+
+        if newargs_tuple.len() != 2 {
+            return Err(vm.new_value_error(format!(
+                "__getnewargs_ex__ should return a tuple of length 2, not {}",
+                newargs_tuple.len()
+            )));
+        }
+
+        let args = newargs_tuple.as_slice()[0].clone();
+        let kwargs = newargs_tuple.as_slice()[1].clone();
+
+        let args_tuple: PyRef<super::PyTuple> = args.downcast().map_err(|obj| {
+            vm.new_type_error(format!(
+                "first item of the tuple returned by __getnewargs_ex__ must be a tuple, not '{}'",
+                obj.class().name()
+            ))
+        })?;
+
+        let kwargs_dict: PyRef<super::PyDict> = kwargs.downcast().map_err(|obj| {
+            vm.new_type_error(format!(
+                "second item of the tuple returned by __getnewargs_ex__ must be a dict, not '{}'",
+                obj.class().name()
+            ))
+        })?;
+
+        return Ok((Some(args_tuple), Some(kwargs_dict)));
+    }
+
+    // Fall back to __getnewargs__
+    if let Some(getnewargs) = vm.get_special_method(obj, identifier!(vm, __getnewargs__))? {
+        let args = getnewargs.invoke((), vm)?;
+
+        let args_tuple: PyRef<super::PyTuple> = args.downcast().map_err(|obj| {
+            vm.new_type_error(format!(
+                "__getnewargs__ should return a tuple, not '{}'",
+                obj.class().name()
+            ))
+        })?;
+
+        return Ok((Some(args_tuple), None));
+    }
+
+    // No __getnewargs_ex__ or __getnewargs__
+    Ok((None, None))
+}
+
+/// Check if __getstate__ is overridden by comparing with object.__getstate__
+fn is_getstate_overridden(obj: &PyObject, vm: &VirtualMachine) -> bool {
+    let obj_cls = obj.class();
+    let object_type = vm.ctx.types.object_type;
+
+    // If the class is object itself, not overridden
+    if obj_cls.is(object_type) {
+        return false;
+    }
+
+    // Check if __getstate__ in the MRO comes from object or elsewhere
+    // If the type has its own __getstate__, it's overridden
+    if let Some(getstate) = obj_cls.get_attr(identifier!(vm, __getstate__))
+        && let Some(obj_getstate) = object_type.get_attr(identifier!(vm, __getstate__))
+    {
+        return !getstate.is(&obj_getstate);
+    }
+    false
+}
+
+/// object_getstate - calls __getstate__ method or default implementation
+fn object_getstate(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyResult {
+    // If __getstate__ is not overridden, use the default implementation with required flag
+    if !is_getstate_overridden(obj, vm) {
+        return object_getstate_default(obj, required, vm);
+    }
+
+    // __getstate__ is overridden, call it without required
+    let getstate = obj.get_attr(identifier!(vm, __getstate__), vm)?;
+    getstate.call((), vm)
+}
+
+/// Get list items iterator if obj is a list (or subclass), None iterator otherwise
+fn get_items_iter(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+    let listitems: PyObjectRef = if obj.fast_isinstance(vm.ctx.types.list_type) {
+        obj.get_iter(vm)?.into()
+    } else {
+        vm.ctx.none()
+    };
+
+    let dictitems: PyObjectRef = if obj.fast_isinstance(vm.ctx.types.dict_type) {
+        let items = vm.call_method(obj, "items", ())?;
+        items.get_iter(vm)?.into()
+    } else {
+        vm.ctx.none()
+    };
+
+    Ok((listitems, dictitems))
+}
+
+/// reduce_newobj - creates reduce tuple for protocol >= 2
+fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    // Check if type has tp_new
+    let cls = obj.class();
+    if cls.slots.new.load().is_none() {
+        return Err(vm.new_type_error(format!("cannot pickle '{}' object", cls.name())));
+    }
+
+    let (args, kwargs) = get_new_arguments(&obj, vm)?;
+
+    let copyreg = vm.import("copyreg", 0)?;
+
+    let has_args = args.is_some();
+
+    let (newobj, newargs): (PyObjectRef, PyObjectRef) = if kwargs.is_none()
+        || kwargs.as_ref().is_some_and(|k| k.is_empty())
+    {
+        // Use copyreg.__newobj__
+        let newobj = copyreg.get_attr("__newobj__", vm)?;
+
+        let args_vec: Vec<PyObjectRef> = args.map(|a| a.as_slice().to_vec()).unwrap_or_default();
+
+        // Create (cls, *args) tuple
+        let mut newargs_vec: Vec<PyObjectRef> = vec![cls.to_owned().into()];
+        newargs_vec.extend(args_vec);
+        let newargs = vm.ctx.new_tuple(newargs_vec);
+
+        (newobj, newargs.into())
+    } else {
+        // args == NULL with non-empty kwargs is BadInternalCall
+        let Some(args) = args else {
+            return Err(vm.new_system_error("bad internal call".to_owned()));
+        };
+        // Use copyreg.__newobj_ex__
+        let newobj = copyreg.get_attr("__newobj_ex__", vm)?;
+        let args_tuple: PyObjectRef = args.into();
+        let kwargs_dict: PyObjectRef = kwargs
+            .map(|k| k.into())
+            .unwrap_or_else(|| vm.ctx.new_dict().into());
+
+        let newargs = vm
+            .ctx
+            .new_tuple(vec![cls.to_owned().into(), args_tuple, kwargs_dict]);
+        (newobj, newargs.into())
+    };
+
+    // Determine if state is required
+    // required = !(has_args || is_list || is_dict)
+    let is_list = obj.fast_isinstance(vm.ctx.types.list_type);
+    let is_dict = obj.fast_isinstance(vm.ctx.types.dict_type);
+    let required = !(has_args || is_list || is_dict);
+
+    let state = object_getstate(&obj, required, vm)?;
+
+    let (listitems, dictitems) = get_items_iter(&obj, vm)?;
+
+    let result = vm
+        .ctx
+        .new_tuple(vec![newobj, newargs, state, listitems, dictitems]);
+    Ok(result.into())
+}
+
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
     if proto >= 2 {
-        let reducelib = vm.import("__reducelib", 0)?;
-        let reduce_2 = reducelib.get_attr("reduce_2", vm)?;
-        reduce_2.call((obj,), vm)
+        reduce_newobj(obj, vm)
     } else {
         let copyreg = vm.import("copyreg", 0)?;
         let reduce_ex = copyreg.get_attr("_reduce_ex", vm)?;

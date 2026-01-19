@@ -1,5 +1,6 @@
 import ast
 
+
 class ASTTestMixin:
     """Test mixing to have basic assertions for AST nodes."""
 
@@ -16,6 +17,9 @@ class ASTTestMixin:
                 self.fail(f"{type(a)!r} is not {type(b)!r}")
             if isinstance(a, ast.AST):
                 for field in a._fields:
+                    if isinstance(a, ast.Constant) and field == "kind":
+                        # Skip the 'kind' field for ast.Constant
+                        continue
                     value1 = getattr(a, field, missing)
                     value2 = getattr(b, field, missing)
                     # Singletons are equal by definition, so further

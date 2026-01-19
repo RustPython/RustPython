@@ -86,6 +86,8 @@ pub struct VirtualMachine {
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
     recursion_depth: Cell<usize>,
+    /// C stack soft limit for detecting stack overflow (like c_stack_soft_limit)
+    c_stack_soft_limit: Cell<usize>,
     /// Async generator firstiter hook (per-thread, set via sys.set_asyncgen_hooks)
     pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
     /// Async generator finalizer hook (per-thread, set via sys.set_asyncgen_hooks)
@@ -228,6 +230,7 @@ impl VirtualMachine {
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
+            c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
             async_gen_finalizer: RefCell::new(None),
         };
@@ -523,7 +526,7 @@ impl VirtualMachine {
     /// ```no_run
     /// use rustpython_vm::Interpreter;
     /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
-    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-313.pyc").unwrap();
+    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-314.pyc").unwrap();
     ///     let main_scope = vm.new_scope_with_main().unwrap();
     ///     vm.run_pyc_bytes(&bytes, main_scope);
     /// });
@@ -550,6 +553,18 @@ impl VirtualMachine {
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
+        // During interpreter finalization, sys.unraisablehook may not be available,
+        // but we still need to report exceptions (especially from atexit callbacks).
+        // Write directly to stderr like PyErr_FormatUnraisable.
+        if self
+            .state
+            .finalizing
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);
+            return;
+        }
+
         let sys_module = self.import("sys", 0).unwrap();
         let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
 
@@ -565,6 +580,57 @@ impl VirtualMachine {
         };
         if let Err(e) = unraisablehook.call((args,), self) {
             println!("{}", e.as_object().repr(self).unwrap());
+        }
+    }
+
+    /// Write unraisable exception to stderr during finalization.
+    /// Similar to _PyErr_WriteUnraisableDefaultHook in CPython.
+    fn write_unraisable_to_stderr(
+        &self,
+        e: &PyBaseExceptionRef,
+        msg: Option<&str>,
+        object: &PyObjectRef,
+    ) {
+        // Get stderr once and reuse it
+        let stderr = crate::stdlib::sys::get_stderr(self).ok();
+
+        let write_to_stderr = |s: &str, stderr: &Option<PyObjectRef>, vm: &VirtualMachine| {
+            if let Some(stderr) = stderr {
+                let _ = vm.call_method(stderr, "write", (s.to_owned(),));
+            } else {
+                eprint!("{}", s);
+            }
+        };
+
+        // Format: "Exception ignored {msg} {object_repr}\n"
+        if let Some(msg) = msg {
+            write_to_stderr(&format!("Exception ignored {}", msg), &stderr, self);
+        } else {
+            write_to_stderr("Exception ignored in: ", &stderr, self);
+        }
+
+        if let Ok(repr) = object.repr(self) {
+            write_to_stderr(&format!("{}\n", repr.as_str()), &stderr, self);
+        } else {
+            write_to_stderr("<object repr failed>\n", &stderr, self);
+        }
+
+        // Write exception type and message
+        let exc_type_name = e.class().name();
+        if let Ok(exc_str) = e.as_object().str(self) {
+            let exc_str = exc_str.as_str();
+            if exc_str.is_empty() {
+                write_to_stderr(&format!("{}\n", exc_type_name), &stderr, self);
+            } else {
+                write_to_stderr(&format!("{}: {}\n", exc_type_name, exc_str), &stderr, self);
+            }
+        } else {
+            write_to_stderr(&format!("{}\n", exc_type_name), &stderr, self);
+        }
+
+        // Flush stderr to ensure output is visible
+        if let Some(ref stderr) = stderr {
+            let _ = self.call_method(stderr, "flush", ());
         }
     }
 
@@ -626,11 +692,127 @@ impl VirtualMachine {
         self.recursion_depth.get()
     }
 
+    /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
+    /// 2048 * sizeof(void*) = 16KB for 64-bit.
+    const STACK_MARGIN_BYTES: usize = 2048 * std::mem::size_of::<usize>();
+
+    /// Get the stack boundaries using platform-specific APIs.
+    /// Returns (base, top) where base is the lowest address and top is the highest.
+    #[cfg(all(not(miri), windows))]
+    fn get_stack_bounds() -> (usize, usize) {
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentThreadStackLimits, SetThreadStackGuarantee,
+        };
+        let mut low: usize = 0;
+        let mut high: usize = 0;
+        unsafe {
+            GetCurrentThreadStackLimits(&mut low as *mut usize, &mut high as *mut usize);
+            // Add the guaranteed stack space (reserved for exception handling)
+            let mut guarantee: u32 = 0;
+            SetThreadStackGuarantee(&mut guarantee);
+            low += guarantee as usize;
+        }
+        (low, high)
+    }
+
+    /// Get stack boundaries on non-Windows platforms.
+    /// Falls back to estimating based on current stack pointer.
+    #[cfg(all(not(miri), not(windows)))]
+    fn get_stack_bounds() -> (usize, usize) {
+        // Use pthread_attr_getstack on platforms that support it
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            use libc::{
+                pthread_attr_destroy, pthread_attr_getstack, pthread_attr_t, pthread_getattr_np,
+                pthread_self,
+            };
+            let mut attr: pthread_attr_t = unsafe { std::mem::zeroed() };
+            unsafe {
+                if pthread_getattr_np(pthread_self(), &mut attr) == 0 {
+                    let mut stack_addr: *mut libc::c_void = std::ptr::null_mut();
+                    let mut stack_size: libc::size_t = 0;
+                    if pthread_attr_getstack(&attr, &mut stack_addr, &mut stack_size) == 0 {
+                        pthread_attr_destroy(&mut attr);
+                        let base = stack_addr as usize;
+                        let top = base + stack_size;
+                        return (base, top);
+                    }
+                    pthread_attr_destroy(&mut attr);
+                }
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            use libc::{pthread_get_stackaddr_np, pthread_get_stacksize_np, pthread_self};
+            unsafe {
+                let thread = pthread_self();
+                let stack_top = pthread_get_stackaddr_np(thread) as usize;
+                let stack_size = pthread_get_stacksize_np(thread);
+                let stack_base = stack_top - stack_size;
+                return (stack_base, stack_top);
+            }
+        }
+
+        // Fallback: estimate based on current SP and a default stack size
+        #[allow(unreachable_code)]
+        {
+            let current_sp = psm::stack_pointer() as usize;
+            // Assume 8MB stack, estimate base
+            let estimated_size = 8 * 1024 * 1024;
+            let base = current_sp.saturating_sub(estimated_size);
+            let top = current_sp + 1024 * 1024; // Assume we're not at the very top
+            (base, top)
+        }
+    }
+
+    /// Calculate the C stack soft limit based on actual stack boundaries.
+    /// soft_limit = base + 2 * margin (for downward-growing stacks)
+    #[cfg(not(miri))]
+    fn calculate_c_stack_soft_limit() -> usize {
+        let (base, _top) = Self::get_stack_bounds();
+        // Soft limit is 2 margins above the base
+        base + Self::STACK_MARGIN_BYTES * 2
+    }
+
+    /// Miri doesn't support inline assembly, so disable C stack checking.
+    #[cfg(miri)]
+    fn calculate_c_stack_soft_limit() -> usize {
+        0
+    }
+
+    /// Check if we're near the C stack limit (like _Py_MakeRecCheck).
+    /// Returns true only when stack pointer is in the "danger zone" between
+    /// soft_limit and hard_limit (soft_limit - 2*margin).
+    #[cfg(not(miri))]
+    #[inline(always)]
+    fn check_c_stack_overflow(&self) -> bool {
+        let current_sp = psm::stack_pointer() as usize;
+        let soft_limit = self.c_stack_soft_limit.get();
+        // Stack grows downward: check if we're below soft limit but above hard limit
+        // This matches CPython's _Py_MakeRecCheck behavior
+        current_sp < soft_limit
+            && current_sp >= soft_limit.saturating_sub(Self::STACK_MARGIN_BYTES * 2)
+    }
+
+    /// Miri doesn't support inline assembly, so always return false.
+    #[cfg(miri)]
+    #[inline(always)]
+    fn check_c_stack_overflow(&self) -> bool {
+        false
+    }
+
     /// Used to run the body of a (possibly) recursive function. It will raise a
     /// RecursionError if recursive functions are nested far too many times,
     /// preventing a stack overflow.
     pub fn with_recursion<R, F: FnOnce() -> PyResult<R>>(&self, _where: &str, f: F) -> PyResult<R> {
         self.check_recursive_call(_where)?;
+
+        // Native stack guard: check C stack like _Py_MakeRecCheck
+        if self.check_c_stack_overflow() {
+            return Err(self.new_recursion_error(_where.to_string()));
+        }
+
         self.recursion_depth.set(self.recursion_depth.get() + 1);
         let result = f();
         self.recursion_depth.set(self.recursion_depth.get() - 1);

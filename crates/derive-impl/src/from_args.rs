@@ -37,6 +37,7 @@ struct ArgAttribute {
     name: Option<String>,
     kind: ParameterKind,
     default: Option<DefaultValue>,
+    error_msg: Option<String>,
 }
 
 impl ArgAttribute {
@@ -63,6 +64,7 @@ impl ArgAttribute {
                         name: None,
                         kind,
                         default: None,
+                        error_msg: None,
                     });
                     return Ok(());
                 };
@@ -94,6 +96,12 @@ impl ArgAttribute {
             }
             let val = meta.value()?.parse::<syn::LitStr>()?;
             self.name = Some(val.value())
+        } else if meta.path.is_ident("error_msg") {
+            if self.error_msg.is_some() {
+                return Err(meta.error("already have an error_msg"));
+            }
+            let val = meta.value()?.parse::<syn::LitStr>()?;
+            self.error_msg = Some(val.value())
         } else {
             return Err(meta.error("Unrecognized pyarg attribute"));
         }
@@ -146,8 +154,15 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
         .or(name_string)
         .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
 
-    let middle = quote! {
-        .map(|x| ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)).transpose()?
+    let middle = if let Some(error_msg) = &attr.error_msg {
+        quote! {
+            .map(|x| ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)
+                .map_err(|_| vm.new_type_error(#error_msg))).transpose()?
+        }
+    } else {
+        quote! {
+            .map(|x| ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)).transpose()?
+        }
     };
 
     let ending = if let Some(default) = attr.default {

@@ -4,7 +4,7 @@ use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use rustpython_wtf8::Wtf8;
 
-pub const FORMAT_VERSION: u32 = 4;
+pub const FORMAT_VERSION: u32 = 5;
 
 #[derive(Debug)]
 pub enum MarshalError {
@@ -65,6 +65,7 @@ enum Type {
     // Unknown = b'?',
     Set = b'<',
     FrozenSet = b'>',
+    Slice = b':', // Added in version 5
     Ascii = b'a',
     // AsciiInterned = b'A',
     // SmallTuple = b')',
@@ -101,6 +102,7 @@ impl TryFrom<u8> for Type {
             // b'?' => Unknown,
             b'<' => Set,
             b'>' => FrozenSet,
+            b':' => Slice,
             b'a' => Ascii,
             // b'A' => AsciiInterned,
             // b')' => SmallTuple,
@@ -202,7 +204,7 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
         })
         .collect::<Result<Box<[(SourceLocation, SourceLocation)]>>>()?;
 
-    let flags = CodeFlags::from_bits_truncate(rdr.read_u16()?);
+    let flags = CodeFlags::from_bits_truncate(rdr.read_u32()?);
 
     let posonlyarg_count = rdr.read_u32()?;
     let arg_count = rdr.read_u32()?;
@@ -466,6 +468,12 @@ pub fn deserialize_value<R: Read, Bag: MarshalBag>(rdr: &mut R, bag: Bag) -> Res
             bag.make_bytes(value)
         }
         Type::Code => bag.make_code(deserialize_code(rdr, bag.constant_bag())?),
+        Type::Slice => {
+            // Slice constants are not yet supported in RustPython
+            // This would require adding a Slice variant to ConstantData enum
+            // For now, return an error if we encounter a slice in marshal data
+            return Err(MarshalError::BadType);
+        }
     };
     Ok(value)
 }
@@ -660,7 +668,7 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
         buf.write_u32(end.character_offset.to_zero_indexed() as _);
     }
 
-    buf.write_u16(code.flags.bits());
+    buf.write_u32(code.flags.bits());
 
     buf.write_u32(code.posonlyarg_count);
     buf.write_u32(code.arg_count);

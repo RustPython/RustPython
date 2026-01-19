@@ -77,6 +77,7 @@ memchr = { workspace = true }
 caseless = "0.2.2"
 flamer = { version = "0.5", optional = true }
 half = "2"
+psm = "0.1"
 optional = { workspace = true }
 result-like = "0.5.0"
 timsort = "0.1.2"

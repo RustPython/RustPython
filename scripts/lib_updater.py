@@ -236,11 +236,14 @@ def build_patch_dict(it: "Iterator[PatchEntry]") -> Patches:
 
 
 def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int, str]]":
-    cache = {}  # Used in phase 2. Stores the end line location of a class name.
+    # Build cache of all classes (for Phase 2 to find classes without methods)
+    cache = {}
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            cache[node.name] = node.end_lineno
 
     # Phase 1: Iterate and mark existing tests
     for cls_node, fn_node in iter_tests(tree):
-        cache[cls_node.name] = cls_node.end_lineno
         specs = patches.get(cls_node.name, {}).pop(fn_node.name, None)
         if not specs:
             continue
@@ -270,11 +273,42 @@ def {test_name}(self):
             yield (lineno, textwrap.indent(patch_lines, DEFAULT_INDENT))
 
 
+def has_unittest_import(tree: ast.Module) -> bool:
+    """Check if 'import unittest' is already present in the file."""
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == UT and alias.asname is None:
+                    return True
+    return False
+
+
+def find_import_insert_line(tree: ast.Module) -> int:
+    """Find the line number after the last import statement."""
+    last_import_line = None
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            last_import_line = node.end_lineno or node.lineno
+    assert last_import_line is not None
+    return last_import_line
+
+
 def apply_patches(contents: str, patches: Patches) -> str:
     tree = ast.parse(contents)
     lines = contents.splitlines()
 
     modifications = list(iter_patch_lines(tree, patches))
+
+    # If we have modifications and unittest is not imported, add it
+    if modifications and not has_unittest_import(tree):
+        import_line = find_import_insert_line(tree)
+        modifications.append(
+            (
+                import_line,
+                "\nimport unittest # XXX: RUSTPYTHON; importing to be able to skip tests",
+            )
+        )
+
     # Going in reverse to not distrupt the line offset
     for lineno, patch in sorted(modifications, reverse=True):
         lines.insert(lineno, patch)

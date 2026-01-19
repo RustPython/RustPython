@@ -2,7 +2,7 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 // sum
-impl Node for ruff::BoolOp {
+impl Node for ast::BoolOp {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
             Self::And => pyast::NodeBoolOpAnd::static_type(),
@@ -34,7 +34,7 @@ impl Node for ruff::BoolOp {
 }
 
 // sum
-impl Node for ruff::Operator {
+impl Node for ast::Operator {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
             Self::Add => pyast::NodeOperatorAdd::static_type(),
@@ -99,7 +99,7 @@ impl Node for ruff::Operator {
 }
 
 // sum
-impl Node for ruff::UnaryOp {
+impl Node for ast::UnaryOp {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
             Self::Invert => pyast::NodeUnaryOpInvert::static_type(),
@@ -137,7 +137,7 @@ impl Node for ruff::UnaryOp {
 }
 
 // sum
-impl Node for ruff::CmpOp {
+impl Node for ast::CmpOp {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
             Self::Eq => pyast::NodeCmpOpEq::static_type(),

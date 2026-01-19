@@ -2130,7 +2130,6 @@ class TestSpecial(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, NEI.y)
         test_pickle_dump_load(self.assertIs, NEI)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; fails on pickle
     def test_subclasses_with_getnewargs_ex(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'       # needed for pickle protocol 4

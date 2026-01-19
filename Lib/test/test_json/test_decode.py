@@ -18,8 +18,7 @@ class TestDecode:
         self.assertIsInstance(rval, float)
         self.assertEqual(rval, 1.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON; called `Result::unwrap()` on an `Err` value: ParseFloatError { kind: Invalid }")
+    @unittest.skip('TODO: RUSTPYTHON; called `Result::unwrap()` on an `Err` value: ParseFloatError { kind: Invalid }')
     def test_nonascii_digits_rejected(self):
         # JSON specifies only ascii digits, see gh-125687
         for num in ["1\uff10", "0.\uff10", "0e\uff10"]:
@@ -138,9 +137,6 @@ class TestDecode:
 class TestPyDecode(TestDecode, PyTest): pass
 
 class TestCDecode(TestDecode, CTest):
-    def test_keys_reuse(self):
-        return super().test_keys_reuse()
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_limit_int(self):

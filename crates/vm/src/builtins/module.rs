@@ -4,7 +4,7 @@ use crate::{
     builtins::{PyStrInterned, pystr::AsPyStr},
     class::PyClassImpl,
     convert::ToPyObject,
-    function::{FuncArgs, PyMethodDef},
+    function::{FuncArgs, PyMethodDef, PySetterValue},
     types::{GetAttr, Initializer, Representable},
 };
 
@@ -181,6 +181,116 @@ impl PyModule {
             .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
         Ok(attrs)
+    }
+
+    #[pygetset]
+    fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let dict = zelf.dict();
+        // Get __annotate__ from dict; if not present, insert None and return it
+        // See: module_get_annotate()
+        if let Some(annotate) = dict.get_item_opt(identifier!(vm, __annotate__), vm)? {
+            Ok(annotate)
+        } else {
+            let none = vm.ctx.none();
+            dict.set_item(identifier!(vm, __annotate__), none.clone(), vm)?;
+            Ok(none)
+        }
+    }
+
+    #[pygetset(setter)]
+    fn set___annotate__(
+        zelf: &Py<Self>,
+        value: PySetterValue,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match value {
+            PySetterValue::Assign(value) => {
+                if !vm.is_none(&value) && !value.is_callable() {
+                    return Err(vm.new_type_error("__annotate__ must be callable or None"));
+                }
+                let dict = zelf.dict();
+                dict.set_item(identifier!(vm, __annotate__), value.clone(), vm)?;
+                // Clear __annotations__ if value is not None
+                if !vm.is_none(&value) {
+                    dict.del_item(identifier!(vm, __annotations__), vm).ok();
+                }
+                Ok(())
+            }
+            PySetterValue::Delete => Err(vm.new_type_error("cannot delete __annotate__ attribute")),
+        }
+    }
+
+    #[pygetset]
+    fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let dict = zelf.dict();
+
+        // Check if __annotations__ is already in dict (explicitly set)
+        if let Some(annotations) = dict.get_item_opt(identifier!(vm, __annotations__), vm)? {
+            return Ok(annotations);
+        }
+
+        // Check if module is initializing
+        let is_initializing = Self::is_initializing(&dict, vm);
+
+        // PEP 649: Get __annotate__ and call it if callable
+        let annotations = if let Some(annotate) =
+            dict.get_item_opt(identifier!(vm, __annotate__), vm)?
+            && annotate.is_callable()
+        {
+            // Call __annotate__(1) where 1 is FORMAT_VALUE
+            let result = annotate.call((1i32,), vm)?;
+            if !result.class().is(vm.ctx.types.dict_type) {
+                return Err(vm.new_type_error(format!(
+                    "__annotate__ returned non-dict of type '{}'",
+                    result.class().name()
+                )));
+            }
+            result
+        } else {
+            vm.ctx.new_dict().into()
+        };
+
+        // Cache result unless module is initializing
+        if !is_initializing {
+            dict.set_item(identifier!(vm, __annotations__), annotations.clone(), vm)?;
+        }
+
+        Ok(annotations)
+    }
+
+    /// Check if module is initializing via __spec__._initializing
+    fn is_initializing(dict: &PyDictRef, vm: &VirtualMachine) -> bool {
+        if let Ok(Some(spec)) = dict.get_item_opt(vm.ctx.intern_str("__spec__"), vm)
+            && let Ok(initializing) = spec.get_attr(vm.ctx.intern_str("_initializing"), vm)
+        {
+            return initializing.try_to_bool(vm).unwrap_or(false);
+        }
+        false
+    }
+
+    #[pygetset(setter)]
+    fn set___annotations__(
+        zelf: &Py<Self>,
+        value: PySetterValue,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let dict = zelf.dict();
+        match value {
+            PySetterValue::Assign(value) => {
+                dict.set_item(identifier!(vm, __annotations__), value, vm)?;
+                // Clear __annotate__ from dict
+                dict.del_item(identifier!(vm, __annotate__), vm).ok();
+                Ok(())
+            }
+            PySetterValue::Delete => {
+                if dict.del_item(identifier!(vm, __annotations__), vm).is_err() {
+                    return Err(vm.new_attribute_error("__annotations__".to_owned()));
+                }
+                // Also clear __annotate__
+                dict.del_item(identifier!(vm, __annotate__), vm).ok();
+                Ok(())
+            }
+        }
     }
 }
 

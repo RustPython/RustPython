@@ -1,7 +1,7 @@
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
-impl Node for ruff::TypeParams {
+impl Node for ast::TypeParams {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         self.type_params.ast_to_object(vm, source_file)
     }
@@ -11,7 +11,7 @@ impl Node for ruff::TypeParams {
         _source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        let type_params: Vec<ruff::TypeParam> = Node::ast_from_object(_vm, _source_file, _object)?;
+        let type_params: Vec<ast::TypeParam> = Node::ast_from_object(_vm, _source_file, _object)?;
         let range = Option::zip(type_params.first(), type_params.last())
             .map(|(first, last)| first.range().cover(last.range()))
             .unwrap_or_default();
@@ -28,7 +28,7 @@ impl Node for ruff::TypeParams {
 }
 
 // sum
-impl Node for ruff::TypeParam {
+impl Node for ast::TypeParam {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         match self {
             Self::TypeVar(cons) => cons.ast_to_object(vm, source_file),
@@ -44,19 +44,19 @@ impl Node for ruff::TypeParam {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(pyast::NodeTypeParamTypeVar::static_type()) {
-            Self::TypeVar(ruff::TypeParamTypeVar::ast_from_object(
+            Self::TypeVar(ast::TypeParamTypeVar::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeTypeParamParamSpec::static_type()) {
-            Self::ParamSpec(ruff::TypeParamParamSpec::ast_from_object(
+            Self::ParamSpec(ast::TypeParamParamSpec::ast_from_object(
                 _vm,
                 source_file,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeTypeParamTypeVarTuple::static_type()) {
-            Self::TypeVarTuple(ruff::TypeParamTypeVarTuple::ast_from_object(
+            Self::TypeVarTuple(ast::TypeParamTypeVarTuple::ast_from_object(
                 _vm,
                 source_file,
                 _object,
@@ -71,7 +71,7 @@ impl Node for ruff::TypeParam {
 }
 
 // constructor
-impl Node for ruff::TypeParamTypeVar {
+impl Node for ast::TypeParamTypeVar {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -118,7 +118,7 @@ impl Node for ruff::TypeParamTypeVar {
 }
 
 // constructor
-impl Node for ruff::TypeParamParamSpec {
+impl Node for ast::TypeParamParamSpec {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
@@ -165,7 +165,7 @@ impl Node for ruff::TypeParamParamSpec {
 }
 
 // constructor
-impl Node for ruff::TypeParamTypeVarTuple {
+impl Node for ast::TypeParamTypeVarTuple {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,

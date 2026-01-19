@@ -91,7 +91,10 @@ declare_const_name! {
     __all__,
     __and__,
     __anext__,
+    __annotate__,
+    __annotate_func__,
     __annotations__,
+    __annotations_cache__,
     __args__,
     __await__,
     __bases__,
@@ -135,6 +138,7 @@ declare_const_name! {
     __getformat__,
     __getitem__,
     __getnewargs__,
+    __getnewargs_ex__,
     __getstate__,
     __gt__,
     __hash__,
@@ -230,6 +234,7 @@ declare_const_name! {
     __typing_is_unpacked_typevartuple__,
     __typing_prepare_subst__,
     __typing_unpacked_tuple_args__,
+    __weakref__,
     __xor__,
 
     // common names

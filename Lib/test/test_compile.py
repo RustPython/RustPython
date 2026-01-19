@@ -1422,8 +1422,6 @@ class TestExpressionStackSize(unittest.TestCase):
     def test_func_args(self):
         self.check_stack_size("f(" + "x, " * self.N + ")")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_func_kwargs(self):
         kwargs = (f'a{i}=x' for i in range(self.N))
         self.check_stack_size("f(" +  ", ".join(kwargs) + ")")
@@ -1433,8 +1431,6 @@ class TestExpressionStackSize(unittest.TestCase):
     def test_meth_args(self):
         self.check_stack_size("o.m(" + "x, " * self.N + ")")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_meth_kwargs(self):
         kwargs = (f'a{i}=x' for i in range(self.N))
         self.check_stack_size("o.m(" +  ", ".join(kwargs) + ")")

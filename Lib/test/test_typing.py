@@ -3803,6 +3803,7 @@ class ProtocolTests(BaseTestCase):
         self.assertNotIsInstance(B(), P)
         self.assertNotIsInstance(C(), P)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; test doesn't include PEP 649 attrs
     def test_non_protocol_subclasses(self):
         class P(Protocol):
             x = 1
@@ -6868,6 +6869,7 @@ class GetTypeHintTests(BaseTestCase):
                      'default_b': Optional[mod_generics_cache.B]}
         self.assertEqual(gth(mod_generics_cache), mgc_hints)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; test expects outdated result
     def test_get_type_hints_classes(self):
         self.assertEqual(gth(ann_module.C),  # gth will find the right globalns
                          {'y': Optional[ann_module.C]})
@@ -10328,7 +10330,6 @@ class SpecialAttrsTests(BaseTestCase):
 
     TypeName = typing.NewType('SpecialAttrsTests.TypeName', Any)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_special_attrs2(self):
         # Forward refs provide a different introspection API. __name__ and
         # __qualname__ make little sense for forward refs as they can store

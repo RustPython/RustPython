@@ -1,5 +1,5 @@
 # TODO: This module was deprecated and removed from CPython 3.12
-# Now it is a test-only helper. Any attempts to rewrite exising tests that
+# Now it is a test-only helper. Any attempts to rewrite existing tests that
 # are using this module and remove it completely are appreciated!
 # See: https://github.com/python/cpython/issues/72719
 
@@ -51,17 +51,27 @@ many of the difficult problems for you, making the task of building
 sophisticated high-performance network servers and clients a snap.
 """
 
+import os
 import select
 import socket
 import sys
 import time
 import warnings
-
-import os
-from errno import EALREADY, EINPROGRESS, EWOULDBLOCK, ECONNRESET, EINVAL, \
-     ENOTCONN, ESHUTDOWN, EISCONN, EBADF, ECONNABORTED, EPIPE, EAGAIN, \
-     errorcode
-
+from errno import (
+    EAGAIN,
+    EALREADY,
+    EBADF,
+    ECONNABORTED,
+    ECONNRESET,
+    EINPROGRESS,
+    EINVAL,
+    EISCONN,
+    ENOTCONN,
+    EPIPE,
+    ESHUTDOWN,
+    EWOULDBLOCK,
+    errorcode,
+)
 
 _DISCONNECTED = frozenset({ECONNRESET, ENOTCONN, ESHUTDOWN, ECONNABORTED, EPIPE,
                            EBADF})

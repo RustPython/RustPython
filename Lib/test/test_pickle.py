@@ -97,10 +97,6 @@ class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
     def test_picklebuffer_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_picklebuffer_error()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bad_getattr(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_bad_getattr()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -134,16 +130,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     @unittest.expectedFailure
     def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_c_methods()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_complex_newobj_ex(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_complex_newobj_ex()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_py_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_py_methods()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -241,11 +227,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_complex_newobj_ex(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_complex_newobj_ex()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_badly_escaped_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_badly_escaped_string()
 
@@ -258,11 +239,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     @unittest.expectedFailure
     def test_load_python2_str_as_bytes(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_load_python2_str_as_bytes()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_py_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_py_methods()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure

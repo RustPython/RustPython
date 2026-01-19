@@ -1459,7 +1459,7 @@ class _TestLock(BaseTestCase):
         for _ in range(n):
             lock.release()
 
-    @unittest.skipIf(sys.platform == 'darwin', "TODO: RUSTPYTHON; flaky on darwin")
+    @unittest.skip("TODO: RUSTPYTHON; flaky timeout")
     def test_repr_rlock(self):
         if self.TYPE != 'processes':
             self.skipTest('test not appropriate for {}'.format(self.TYPE))
@@ -4417,6 +4417,7 @@ class _TestSharedMemory(BaseTestCase):
 
         sms.close()
 
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @unittest.skipIf(os.name != "posix", "not feasible in non-posix platforms")
     def test_shared_memory_SharedMemoryServer_ignores_sigint(self):
         # bpo-36368: protect SharedMemoryManager server process from

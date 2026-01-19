@@ -8,6 +8,7 @@ import unittest
 import test.support
 from test import support
 from test.support.script_helper import assert_python_ok
+from test.support import import_helper
 from test.support import os_helper
 from test.support import socket_helper
 from test.support import captured_stderr
@@ -308,8 +309,7 @@ class HelperFunctionsTests(unittest.TestCase):
 
         with EnvironmentVarGuard() as environ:
             environ['PYTHONUSERBASE'] = 'xoxo'
-            self.assertTrue(site.getuserbase().startswith('xoxo'),
-                            site.getuserbase())
+            self.assertTrue(site.getuserbase().startswith('xoxo'))
 
     @unittest.skipUnless(HAS_USER_SITE, 'need user site')
     def test_getusersitepackages(self):
@@ -319,7 +319,7 @@ class HelperFunctionsTests(unittest.TestCase):
 
         # the call sets USER_BASE *and* USER_SITE
         self.assertEqual(site.USER_SITE, user_site)
-        self.assertTrue(user_site.startswith(site.USER_BASE), user_site)
+        self.assertTrue(user_site.startswith(site.USER_BASE))
         self.assertEqual(site.USER_BASE, site.getuserbase())
 
     def test_getsitepackages(self):
@@ -362,11 +362,10 @@ class HelperFunctionsTests(unittest.TestCase):
             environ.unset('PYTHONUSERBASE', 'APPDATA')
 
             user_base = site.getuserbase()
-            self.assertTrue(user_base.startswith('~' + os.sep),
-                            user_base)
+            self.assertTrue(user_base.startswith('~' + os.sep))
 
             user_site = site.getusersitepackages()
-            self.assertTrue(user_site.startswith(user_base), user_site)
+            self.assertTrue(user_site.startswith(user_base))
 
         with mock.patch('os.path.isdir', return_value=False) as mock_isdir, \
              mock.patch.object(site, 'addsitedir') as mock_addsitedir, \
@@ -515,7 +514,7 @@ class ImportSideEffectTests(unittest.TestCase):
         # If sitecustomize is available, it should have been imported.
         if "sitecustomize" not in sys.modules:
             try:
-                import sitecustomize
+                import sitecustomize  # noqa: F401
             except ImportError:
                 pass
             else:
@@ -577,6 +576,17 @@ class ImportSideEffectTests(unittest.TestCase):
         except urllib.error.HTTPError as e:
             code = e.code
         self.assertEqual(code, 200, msg="Can't find " + url)
+
+    @support.cpython_only
+    def test_lazy_imports(self):
+        import_helper.ensure_lazy_imports("site", [
+            "io",
+            "locale",
+            "traceback",
+            "atexit",
+            "warnings",
+            "textwrap",
+        ])
 
 
 class StartupImportTests(unittest.TestCase):
@@ -843,12 +853,15 @@ class CommandLineTests(unittest.TestCase):
             return 10, None
 
     def invoke_command_line(self, *args):
-        args = ["-m", "site", *args]
+        cmd_args = []
+        if sys.flags.no_user_site:
+            cmd_args.append("-s")
+        cmd_args.extend(["-m", "site", *args])
 
         with EnvironmentVarGuard() as env:
             env["PYTHONUTF8"] = "1"
             env["PYTHONIOENCODING"] = "utf-8"
-            proc = spawn_python(*args, text=True, env=env,
+            proc = spawn_python(*cmd_args, text=True, env=env,
                                 encoding='utf-8', errors='replace')
 
         output = kill_python(proc)

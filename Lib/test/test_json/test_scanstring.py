@@ -3,6 +3,7 @@ from test.test_json import PyTest, CTest
 
 import unittest # XXX: RUSTPYTHON; importing to be able to skip tests
 
+
 class TestScanstring:
     def test_scanstring(self):
         scanstring = self.json.decoder.scanstring
@@ -143,11 +144,10 @@ class TestScanstring:
             with self.assertRaises(self.JSONDecodeError, msg=s):
                 scanstring(s, 1, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_overflow(self):
         with self.assertRaises(OverflowError):
-            self.json.decoder.scanstring(b"xxx", sys.maxsize+1)
+            self.json.decoder.scanstring("xxx", sys.maxsize+1)
 
 
 class TestPyScanstring(TestScanstring, PyTest): pass

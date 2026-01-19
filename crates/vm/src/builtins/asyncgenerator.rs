@@ -7,13 +7,14 @@ use crate::{
     coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameRef,
     function::OptionalArg,
+    object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
     types::{Destructor, IterNext, Iterable, Representable, SelfIter},
 };
 
 use crossbeam_utils::atomic::AtomicCell;
 
-#[pyclass(name = "async_generator", module = false)]
+#[pyclass(name = "async_generator", module = false, traverse = "manual")]
 #[derive(Debug)]
 pub struct PyAsyncGen {
     inner: Coro,
@@ -22,6 +23,13 @@ pub struct PyAsyncGen {
     ag_hooks_inited: AtomicCell<bool>,
     // ag_origin_or_finalizer - stores the finalizer callback
     ag_finalizer: PyMutex<Option<PyObjectRef>>,
+}
+
+unsafe impl Traverse for PyAsyncGen {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.inner.traverse(tracer_fn);
+        self.ag_finalizer.traverse(tracer_fn);
+    }
 }
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
@@ -79,9 +87,14 @@ impl PyAsyncGen {
         if let Some(finalizer) = finalizer
             && !zelf.inner.closed.load()
         {
-            // Ignore any errors (PyErr_WriteUnraisable)
+            // Create a strong reference for the finalizer call.
+            // This keeps the object alive during the finalizer execution.
             let obj: PyObjectRef = zelf.to_owned().into();
-            let _ = finalizer.call((obj,), vm);
+
+            // Call the finalizer. Any exceptions are handled as unraisable.
+            if let Err(e) = finalizer.call((obj,), vm) {
+                vm.run_unraisable(e, Some("async generator finalizer".to_owned()), finalizer);
+            }
         }
     }
 
@@ -199,9 +212,20 @@ impl Representable for PyAsyncGen {
     }
 }
 
-#[pyclass(module = false, name = "async_generator_wrapped_value")]
+#[pyclass(
+    module = false,
+    name = "async_generator_wrapped_value",
+    traverse = "manual"
+)]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
+
+unsafe impl Traverse for PyAsyncGenWrappedValue {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.0.traverse(tracer_fn);
+    }
+}
+
 impl PyPayload for PyAsyncGenWrappedValue {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
@@ -244,12 +268,19 @@ enum AwaitableState {
     Closed,
 }
 
-#[pyclass(module = false, name = "async_generator_asend")]
+#[pyclass(module = false, name = "async_generator_asend", traverse = "manual")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenASend {
     ag: PyAsyncGenRef,
     state: AtomicCell<AwaitableState>,
     value: PyObjectRef,
+}
+
+unsafe impl Traverse for PyAsyncGenASend {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.ag.traverse(tracer_fn);
+        self.value.traverse(tracer_fn);
+    }
 }
 
 impl PyPayload for PyAsyncGenASend {
@@ -338,13 +369,20 @@ impl IterNext for PyAsyncGenASend {
     }
 }
 
-#[pyclass(module = false, name = "async_generator_athrow")]
+#[pyclass(module = false, name = "async_generator_athrow", traverse = "manual")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenAThrow {
     ag: PyAsyncGenRef,
     aclose: bool,
     state: AtomicCell<AwaitableState>,
     value: (PyObjectRef, PyObjectRef, PyObjectRef),
+}
+
+unsafe impl Traverse for PyAsyncGenAThrow {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.ag.traverse(tracer_fn);
+        self.value.traverse(tracer_fn);
+    }
 }
 
 impl PyPayload for PyAsyncGenAThrow {
@@ -463,11 +501,13 @@ impl PyAsyncGenAThrow {
     }
     fn yield_close(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.ag.running_async.store(false);
+        self.ag.inner.closed.store(true);
         self.state.store(AwaitableState::Closed);
         vm.new_runtime_error("async generator ignored GeneratorExit")
     }
     fn check_error(&self, exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.ag.running_async.store(false);
+        self.ag.inner.closed.store(true);
         self.state.store(AwaitableState::Closed);
         if self.aclose
             && (exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
@@ -489,12 +529,19 @@ impl IterNext for PyAsyncGenAThrow {
 
 /// Awaitable wrapper for anext() builtin with default value.
 /// When StopAsyncIteration is raised, it converts it to StopIteration(default).
-#[pyclass(module = false, name = "anext_awaitable")]
+#[pyclass(module = false, name = "anext_awaitable", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyAnextAwaitable {
     wrapped: PyObjectRef,
     default_value: PyObjectRef,
     state: AtomicCell<AwaitableState>,
+}
+
+unsafe impl Traverse for PyAnextAwaitable {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.wrapped.traverse(tracer_fn);
+        self.default_value.traverse(tracer_fn);
+    }
 }
 
 impl PyPayload for PyAnextAwaitable {
@@ -647,12 +694,14 @@ impl IterNext for PyAnextAwaitable {
 /// _PyGen_Finalize for async generators
 impl Destructor for PyAsyncGen {
     fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        // Generator isn't paused, so no need to close
+        // Generator is already closed, nothing to do
         if zelf.inner.closed.load() {
             return Ok(());
         }
 
+        // Call the async generator finalizer hook if set.
         Self::call_finalizer(zelf, vm);
+
         Ok(())
     }
 }

@@ -239,12 +239,10 @@ try:
     raise e
 except MyError as exc:
     # It was a segmentation fault before, will print info to stdout:
-    if platform.python_implementation() == "RustPython":
-        # For some reason `CPython` hangs on this code:
-        sys.excepthook(type(exc), exc, exc.__traceback__)
-        assert isinstance(exc, MyError)
-        assert exc.__cause__ is None
-        assert exc.__context__ is e
+    sys.excepthook(type(exc), exc, exc.__traceback__)
+    assert isinstance(exc, MyError)
+    assert exc.__cause__ is None
+    assert exc.__context__ is e
 
 
 # Regression to
@@ -255,26 +253,42 @@ assert BaseException.__new__.__qualname__ == "BaseException.__new__"
 assert BaseException.__init__.__qualname__ == "BaseException.__init__"
 assert BaseException().__dict__ == {}
 
+# Exception inherits __init__ from BaseException
 assert Exception.__new__.__qualname__ == "Exception.__new__", (
     Exception.__new__.__qualname__
 )
-assert Exception.__init__.__qualname__ == "Exception.__init__", (
+assert Exception.__init__.__qualname__ == "BaseException.__init__", (
     Exception.__init__.__qualname__
 )
 assert Exception().__dict__ == {}
 
 
-# Extends `BaseException`, simple:
+# Extends `BaseException`, simple - inherits __init__ from BaseException:
 assert KeyboardInterrupt.__new__.__qualname__ == "KeyboardInterrupt.__new__", (
     KeyboardInterrupt.__new__.__qualname__
 )
-assert KeyboardInterrupt.__init__.__qualname__ == "KeyboardInterrupt.__init__"
+assert KeyboardInterrupt.__init__.__qualname__ == "BaseException.__init__"
 assert KeyboardInterrupt().__dict__ == {}
 
 
-# Extends `Exception`, simple:
+# Extends `BaseException`, complex - has its own __init__:
+# SystemExit_init sets self.code based on args length
+assert SystemExit.__init__.__qualname__ == "SystemExit.__init__"
+assert SystemExit.__dict__.get("__init__") is not None, (
+    "SystemExit must have its own __init__"
+)
+assert SystemExit.__init__ is not BaseException.__init__
+assert SystemExit().__dict__ == {}
+# SystemExit.code behavior:
+assert SystemExit().code is None
+assert SystemExit(1).code == 1
+assert SystemExit(1, 2).code == (1, 2)
+assert SystemExit(1, 2, 3).code == (1, 2, 3)
+
+
+# Extends `Exception`, simple - inherits __init__ from BaseException:
 assert TypeError.__new__.__qualname__ == "TypeError.__new__"
-assert TypeError.__init__.__qualname__ == "TypeError.__init__"
+assert TypeError.__init__.__qualname__ == "BaseException.__init__"
 assert TypeError().__dict__ == {}
 
 
@@ -356,7 +370,8 @@ assert str(x) == "('a', 'b', 'c', 'd', 'e', 'f')"
 # Custom `__new__` and `__init__`:
 assert ImportError.__init__.__qualname__ == "ImportError.__init__"
 assert ImportError(name="a").name == "a"
-assert ModuleNotFoundError.__init__.__qualname__ == "ModuleNotFoundError.__init__"
+# ModuleNotFoundError inherits __init__ from ImportError via MRO (MiddlingExtendsException)
+assert ModuleNotFoundError.__init__.__qualname__ == "ImportError.__init__"
 assert ModuleNotFoundError(name="a").name == "a"
 
 
