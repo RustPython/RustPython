@@ -1,22 +1,3 @@
-# TODO: RUSTPYTHON
-try:
-    nonlocal_ex = """\
-def f():
-    x = 1
-    def g():
-        nonlocal x
-        x = 2
-        y = 7
-        def h():
-            nonlocal x, y
-"""
-    import ast
-    import unittest
-    ast1 = ast.parse(nonlocal_ex)
-    code2 = ast.unparse(ast1)
-except AttributeError:
-    raise unittest.SkipTest('TODO: RUSTPYTHON; type_comment attribute not implemented. FunctionDef, AsyncFunctionDef, For, AsyncFor, With and AsyncWith should have attribute')
-
 """Tests for ast.unparse."""
 
 import unittest
@@ -178,6 +159,7 @@ class ASTTestCase(ASTTestMixin, unittest.TestCase):
 class UnparseTestCase(ASTTestCase):
     # Tests for specific bugs found in earlier versions of unparse
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; f'{a!ÿ}' - SyntaxError: invalid syntax: f-string: invalid conversion character
     def test_fstrings(self):
         self.check_ast_roundtrip("f'a'")
         self.check_ast_roundtrip("f'{{}}'")
@@ -199,6 +181,7 @@ class UnparseTestCase(ASTTestCase):
                 "{j!s:{a}b}{k!s:a{b}c}{l!a:{b}c{d}}{x+y=}'"
         )
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; f"{f'{y!ÿ}' * 3!ÿ}" - SyntaxError: invalid syntax: f-string: invalid conversion character
     def test_fstrings_special_chars(self):
         # See issue 25180
         self.check_ast_roundtrip(r"""f'{f"{0}"*3}'""")
@@ -206,6 +189,7 @@ class UnparseTestCase(ASTTestCase):
         self.check_ast_roundtrip("""f''""")
         self.check_ast_roundtrip('''f"""'end' "quote\\""""''')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; f"""{"'"!ÿ}""" - SyntaxError: invalid syntax: f-string: invalid conversion character
     def test_fstrings_complicated(self):
         # See issue 28002
         self.check_ast_roundtrip("""f'''{"'"}'''""")
@@ -216,6 +200,7 @@ class UnparseTestCase(ASTTestCase):
         self.check_ast_roundtrip('''f"a\\r\\nb"''')
         self.check_ast_roundtrip('''f"\\u2028{'x'}"''')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; SyntaxError: invalid syntax: f-string: invalid conversion character
     def test_fstrings_pep701(self):
         self.check_ast_roundtrip('f" something { my_dict["key"] } something else "')
         self.check_ast_roundtrip('f"{f"{f"{f"{f"{f"{1+1}"}"}"}"}"}"')
@@ -232,9 +217,11 @@ class UnparseTestCase(ASTTestCase):
         self.check_ast_roundtrip("45 << 2")
         self.check_ast_roundtrip("13 >> 7")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; type_comment attribute not implemented. FunctionDef should have attribute
     def test_for_else(self):
         self.check_ast_roundtrip(for_else)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'FunctionDef' object has no attribute 'type_comment'
     def test_while_else(self):
         self.check_ast_roundtrip(while_else)
 
@@ -254,6 +241,7 @@ class UnparseTestCase(ASTTestCase):
         self.check_ast_roundtrip("1e1000j")
         self.check_ast_roundtrip("-1e1000j")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; if node.kind == "u": - AttributeError: 'Constant' object has no attribute 'kind'
     def test_nan(self):
         self.assertASTEqual(
             ast.parse(ast.unparse(ast.Constant(value=float('nan')))),
@@ -270,6 +258,7 @@ class UnparseTestCase(ASTTestCase):
         self.check_ast_roundtrip("0j")
         self.check_ast_roundtrip("-0j")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; for field in node._fields: - AttributeError: 'NoneType' object has no attribute '_fields'
     def test_lambda_parentheses(self):
         self.check_ast_roundtrip("(lambda: int)()")
 
@@ -277,6 +266,7 @@ class UnparseTestCase(ASTTestCase):
         self.check_ast_roundtrip("1 < 4 <= 5")
         self.check_ast_roundtrip("a is b is c is not d")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; type_comment attribute not implemented. FunctionDef should have attribute
     def test_function_arguments(self):
         self.check_ast_roundtrip("def f(): pass")
         self.check_ast_roundtrip("def f(a): pass")
@@ -294,6 +284,7 @@ class UnparseTestCase(ASTTestCase):
     def test_relative_import(self):
         self.check_ast_roundtrip(relative_import)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'FunctionDef' object has no attribute 'type_comment'
     def test_nonlocal(self):
         self.check_ast_roundtrip(nonlocal_ex)
 
@@ -303,6 +294,7 @@ class UnparseTestCase(ASTTestCase):
     def test_bytes(self):
         self.check_ast_roundtrip("b'123'")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; type_comment attribute not implemented. FunctionDef should have attribute
     def test_annotations(self):
         self.check_ast_roundtrip("def f(a : int): pass")
         self.check_ast_roundtrip("def f(a: int = 5): pass")
@@ -325,6 +317,7 @@ class UnparseTestCase(ASTTestCase):
     def test_dict_comprehension(self):
         self.check_ast_roundtrip("{x: x*x for x in range(10)}")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; for e in node.bases: - TypeError: 'NoneType' object is not iterable
     def test_class_decorators(self):
         self.check_ast_roundtrip(class_decorator)
 
@@ -347,12 +340,15 @@ class UnparseTestCase(ASTTestCase):
         self.check_ast_roundtrip("a, *b[0], c = seq")
         self.check_ast_roundtrip("a, *(b, c) = seq")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'With' object has no attribute 'type_comment'
     def test_with_simple(self):
         self.check_ast_roundtrip(with_simple)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'With' object has no attribute 'type_comment'
     def test_with_as(self):
         self.check_ast_roundtrip(with_as)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'With' object has no attribute 'type_comment'
     def test_with_two_items(self):
         self.check_ast_roundtrip(with_two_items)
 
@@ -401,6 +397,7 @@ class UnparseTestCase(ASTTestCase):
             )
         )
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; if node.kind == "u": - AttributeError: 'Constant' object has no attribute 'kind'
     def test_fstring_backslash(self):
         # valid since Python 3.12
         self.assertEqual(ast.unparse(
@@ -414,6 +411,7 @@ class UnparseTestCase(ASTTestCase):
     def test_invalid_yield_from(self):
         self.check_invalid(ast.YieldFrom(value=None))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.write("." * (node.level or 0)) - AttributeError: 'ImportFrom' object has no attribute 'level'
     def test_import_from_level_none(self):
         tree = ast.ImportFrom(module='mod', names=[ast.alias(name='x')])
         self.assertEqual(ast.unparse(tree), "from mod import x")
@@ -440,12 +438,14 @@ class UnparseTestCase(ASTTestCase):
             # check as Module docstrings for easy testing
             self.check_ast_roundtrip(f"'''{docstring}'''")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; _feature_version=feature_version, optimize=optimize) - TypeError: expected some sort of mod, but got <_ast.Constant object at 0x55810cf9a2a0>
     def test_constant_tuples(self):
         self.check_src_roundtrip(ast.Constant(value=(1,), kind=None), "(1,)")
         self.check_src_roundtrip(
             ast.Constant(value=(1, 2, 3), kind=None), "(1, 2, 3)"
         )
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; _feature_version=feature_version, optimize=optimize) - ValueError: mode must be "exec", "eval", "ipython", or "single"
     def test_function_type(self):
         for function_type in (
             "() -> int",
@@ -454,6 +454,7 @@ class UnparseTestCase(ASTTestCase):
         ):
             self.check_ast_roundtrip(function_type, mode="func_type")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'FunctionDef' object has no attribute 'type_comment'
     def test_type_comments(self):
         for statement in (
             "a = 5 # type:",
@@ -470,6 +471,7 @@ class UnparseTestCase(ASTTestCase):
         ):
             self.check_ast_roundtrip(statement, type_comments=True)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'FunctionDef' object has no attribute 'type_comment'
     def test_type_ignore(self):
         for statement in (
             "a = 5 # type: ignore",
@@ -519,6 +521,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_src_roundtrip("call((yield x))")
         self.check_src_roundtrip("return x + (yield x)")
 
+    @unittest.skip('TODO: RUSTPYTHON; self.write("." * (node.level or 0)) - AttributeError: "ImportFrom" object has no attribute "level"')
     def test_class_bases_and_keywords(self):
         self.check_src_roundtrip("class X:\n    pass")
         self.check_src_roundtrip("class X(A):\n    pass")
@@ -531,7 +534,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_src_roundtrip("class X(*args):\n    pass")
         self.check_src_roundtrip("class X(*args, **kwargs):\n    pass")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; f"{f'{x!ÿ}\n'!ÿ}\n"
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 'f\'\'\'-{f"""*{f"+{f\'.{x}.\'}+"}*"""}-\'\'\'' != 'f\'\'\'-{f"""*{f"+{f\'.{x!ÿ}.\'!ÿ}+"!ÿ}*"""!ÿ}-\'\'\''
     def test_fstrings(self):
         self.check_src_roundtrip('''f\'\'\'-{f"""*{f"+{f'.{x}.'}+"}*"""}-\'\'\'''')
         self.check_src_roundtrip('''f\'-{f\'\'\'*{f"""+{f".{f'{x}'}."}+"""}*\'\'\'}-\'''')
@@ -541,6 +544,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_src_roundtrip('''f"{'\\n'}\\n"''')
         self.check_src_roundtrip('''f"{f'{x}\\n'}\\n"''')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; for e in node.bases: - TypeError: 'NoneType' object is not iterable
     def test_docstrings(self):
         docstrings = (
             '"""simple doc string"""',
@@ -565,6 +569,7 @@ class CosmeticTestCase(ASTTestCase):
             for docstring in docstrings:
                 self.check_src_roundtrip(f"{prefix}{docstring}")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; for e in node.bases: - TypeError: 'NoneType' object is not iterable
     def test_docstrings_negative_cases(self):
         # Test some cases that involve strings in the children of the
         # first node but aren't docstrings to make sure we don't have
@@ -608,6 +613,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_src_roundtrip("a[1:2, *a]")
         self.check_src_roundtrip("a[*a, 1:2]")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; for field in node._fields: - AttributeError: 'NoneType' object has no attribute '_fields'
     def test_lambda_parameters(self):
         self.check_src_roundtrip("lambda: something")
         self.check_src_roundtrip("four = lambda: 2 + 2")
@@ -618,6 +624,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_src_roundtrip("lambda x, y, /, z, q, *, u: None")
         self.check_src_roundtrip("lambda x, *y, **z: None")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'For' object has no attribute 'type_comment'
     def test_star_expr_assign_target(self):
         for source_type, source in [
             ("single assignment", "{target} = foo"),
@@ -657,6 +664,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_src_roundtrip("[a, b] = [c, d] = [e, f] = g")
         self.check_src_roundtrip("a, b = [c, d] = e, f = g")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; f"""'''{1!ÿ}\"""" - SyntaxError: invalid syntax: f-string: invalid conversion character
     def test_multiquote_joined_string(self):
         self.check_ast_roundtrip("f\"'''{1}\\\"\\\"\\\"\" ")
         self.check_ast_roundtrip("""f"'''{1}""\\"" """)
@@ -671,7 +679,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_ast_roundtrip("""f'''""\"''\\'{"\\n\\"'"}''' """)
         self.check_ast_roundtrip("""f'''""\"''\\'{""\"\\n\\"'''""\" '''\\n'''}''' """)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: SyntaxWarning not triggered
+    @unittest.expectedFailure # TODO: RUSTPYTHON; f'{x!ÿ:\\ }' - SyntaxError: invalid syntax: f-string: invalid conversion character
     def test_backslash_in_format_spec(self):
         import re
         msg = re.escape("invalid escape sequence '\\ '")
@@ -687,6 +695,7 @@ class CosmeticTestCase(ASTTestCase):
 
         self.check_ast_roundtrip("""f"{x:\\\\\\\\ }" """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; f"{x!ÿ:\'}" - SyntaxError: invalid syntax: f-string: invalid conversion character
     def test_quote_in_format_spec(self):
         self.check_ast_roundtrip("""f"{x:'}" """)
         self.check_ast_roundtrip("""f"{x:\\'}" """)
@@ -696,6 +705,7 @@ class CosmeticTestCase(ASTTestCase):
         self.check_ast_roundtrip("""f'\\'{x:\\"}' """)
         self.check_ast_roundtrip("""f'\\'{x:\\\\"}' """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; if node.default_value: - AttributeError: 'TypeVar' object has no attribute 'default_value'
     def test_type_params(self):
         self.check_ast_roundtrip("type A = int")
         self.check_ast_roundtrip("type A[T] = int")
@@ -719,12 +729,14 @@ class ManualASTCreationTestCase(unittest.TestCase):
         ast.fix_missing_locations(node)
         self.assertEqual(ast.unparse(node), "class X:\n    pass")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; if node.bound: - AttributeError: 'TypeVar' object has no attribute 'bound'
     def test_class_with_type_params(self):
         node = ast.ClassDef(name="X", bases=[], keywords=[], body=[ast.Pass()], decorator_list=[],
                              type_params=[ast.TypeVar("T")])
         ast.fix_missing_locations(node)
         self.assertEqual(ast.unparse(node), "class X[T]:\n    pass")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'FunctionDef' object has no attribute 'type_comment'
     def test_function(self):
         node = ast.FunctionDef(
             name="f",
@@ -736,6 +748,7 @@ class ManualASTCreationTestCase(unittest.TestCase):
         ast.fix_missing_locations(node)
         self.assertEqual(ast.unparse(node), "def f():\n    pass")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; if node.default_value: - if node.bound: - AttributeError: 'TypeVar' object has no attribute 'bound'
     def test_function_with_type_params(self):
         node = ast.FunctionDef(
             name="f",
@@ -748,6 +761,7 @@ class ManualASTCreationTestCase(unittest.TestCase):
         ast.fix_missing_locations(node)
         self.assertEqual(ast.unparse(node), "def f[T]():\n    pass")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; if node.default_value: - AttributeError: 'TypeVar' object has no attribute 'default_value'
     def test_function_with_type_params_and_bound(self):
         node = ast.FunctionDef(
             name="f",
@@ -760,6 +774,7 @@ class ManualASTCreationTestCase(unittest.TestCase):
         ast.fix_missing_locations(node)
         self.assertEqual(ast.unparse(node), "def f[T: int]():\n    pass")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; for deco in node.decorator_list: - AttributeError: 'FunctionDef' object has no attribute 'decorator_list'
     def test_function_with_type_params_and_default(self):
         node = ast.FunctionDef(
             name="f",
@@ -774,6 +789,7 @@ class ManualASTCreationTestCase(unittest.TestCase):
         ast.fix_missing_locations(node)
         self.assertEqual(ast.unparse(node), "def f[T = 1, *Ts = *1, **P = 1]():\n    pass")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; if node.bound: - comment = self._type_ignores.get(node.lineno) or node.type_comment - AttributeError: 'AsyncFunctionDef' object has no attribute 'type_comment'
     def test_async_function(self):
         node = ast.AsyncFunctionDef(
             name="f",
@@ -785,6 +801,7 @@ class ManualASTCreationTestCase(unittest.TestCase):
         ast.fix_missing_locations(node)
         self.assertEqual(ast.unparse(node), "async def f():\n    pass")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; if node.bound: - AttributeError: 'TypeVar' object has no attribute 'bound'
     def test_async_function_with_type_params(self):
         node = ast.AsyncFunctionDef(
             name="f",
@@ -797,6 +814,7 @@ class ManualASTCreationTestCase(unittest.TestCase):
         ast.fix_missing_locations(node)
         self.assertEqual(ast.unparse(node), "async def f[T]():\n    pass")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'AsyncFunctionDef' object has no attribute 'decorator_list'
     def test_async_function_with_type_params_and_default(self):
         node = ast.AsyncFunctionDef(
             name="f",
@@ -811,7 +829,7 @@ class ManualASTCreationTestCase(unittest.TestCase):
         ast.fix_missing_locations(node)
         self.assertEqual(ast.unparse(node), "async def f[T = 1, *Ts = *1, **P = 1]():\n    pass")
 
-
+@unittest.expectedFailure # TODO: RUSTPYTHON; type_comment attribute not implemented. FunctionDef, AsyncFunctionDef, For, AsyncFor, With and AsyncWith should have attribute
 class DirectoryTestCase(ASTTestCase):
     """Test roundtrip behaviour on all files in Lib and Lib/test."""
 
