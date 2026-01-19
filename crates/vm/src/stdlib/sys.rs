@@ -1216,6 +1216,32 @@ mod sys {
     }
 
     #[pyfunction]
+    fn _clear_type_descriptors(type_obj: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
+        use crate::types::PyTypeFlags;
+
+        // Check if type is immutable
+        if type_obj.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error("argument is immutable".to_owned()));
+        }
+
+        let mut attributes = type_obj.attributes.write();
+
+        // Remove __dict__ descriptor if present
+        attributes.swap_remove(identifier!(vm, __dict__));
+
+        // Remove __weakref__ descriptor if present
+        attributes.swap_remove(identifier!(vm, __weakref__));
+
+        drop(attributes);
+
+        // Update slots to notify subclasses and recalculate cached values
+        type_obj.update_slot::<true>(identifier!(vm, __dict__), &vm.ctx);
+        type_obj.update_slot::<true>(identifier!(vm, __weakref__), &vm.ctx);
+
+        Ok(())
+    }
+
+    #[pyfunction]
     fn getswitchinterval(vm: &VirtualMachine) -> f64 {
         // Return the stored switch interval
         vm.state.switch_interval.load()
