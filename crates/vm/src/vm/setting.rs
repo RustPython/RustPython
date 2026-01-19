@@ -16,6 +16,8 @@ pub struct Paths {
     pub exec_prefix: String,
     /// sys.base_exec_prefix
     pub base_exec_prefix: String,
+    /// sys._stdlib_dir
+    pub stdlib_dir: Option<String>,
     /// Computed module_search_paths (complete sys.path)
     pub module_search_paths: Vec<String>,
 }

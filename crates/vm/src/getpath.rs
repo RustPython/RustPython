@@ -174,6 +174,9 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     paths.module_search_paths =
         build_module_search_paths(settings, &paths.prefix, &paths.exec_prefix);
 
+    // Step 9: Calculate stdlib_dir
+    paths.stdlib_dir = calculate_stdlib_dir(&paths.prefix);
+
     paths
 }
 
@@ -299,6 +302,22 @@ fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: &Option<Pat
     executable
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// Calculate stdlib_dir (sys._stdlib_dir)
+/// Returns None if the stdlib directory doesn't exist
+fn calculate_stdlib_dir(prefix: &str) -> Option<String> {
+    #[cfg(not(windows))]
+    let stdlib_dir = PathBuf::from(prefix).join(platform::stdlib_subdir());
+
+    #[cfg(windows)]
+    let stdlib_dir = PathBuf::from(prefix).join(platform::STDLIB_SUBDIR);
+
+    if stdlib_dir.is_dir() {
+        Some(stdlib_dir.to_string_lossy().into_owned())
+    } else {
+        None
+    }
 }
 
 /// Build the complete module_search_paths (sys.path)

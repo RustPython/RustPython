@@ -52,7 +52,7 @@ class OpenDiskTests(FilesTests, unittest.TestCase):
     def setUp(self):
         self.data = data01
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON, line ending issue")
     def test_read_bytes(self):
         super().test_read_bytes()
 
@@ -67,9 +67,10 @@ class OpenNamespaceTests(FilesTests, unittest.TestCase):
 
         self.data = namespacedata01
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON, line ending issue")
     def test_read_bytes(self):
         super().test_read_bytes()
+
 
 class SiteDir:
     def setUp(self):
