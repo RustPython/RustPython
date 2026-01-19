@@ -99,12 +99,14 @@ impl Initializer for PyNamespace {
 
             // Validate keys are strings and set attributes
             for (key, value) in dict.into_iter() {
-                let key_str = key.downcast_ref::<crate::builtins::PyStr>().ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "keywords must be strings, not '{}'",
-                        key.class().name()
-                    ))
-                })?;
+                let key_str = key
+                    .downcast_ref::<crate::builtins::PyStr>()
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "keywords must be strings, not '{}'",
+                            key.class().name()
+                        ))
+                    })?;
                 zelf.as_object().set_attr(key_str, value, vm)?;
             }
         }
