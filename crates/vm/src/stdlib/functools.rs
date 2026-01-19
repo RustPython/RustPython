@@ -4,14 +4,14 @@ pub(crate) use _functools::make_module;
 mod _functools {
     use crate::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDict, PyGenericAlias, PyTuple, PyTypeRef},
+        builtins::{PyBoundMethod, PyDict, PyGenericAlias, PyTuple, PyTypeRef},
         common::lock::PyRwLock,
         function::{FuncArgs, KwArgs, OptionalArg},
         object::AsObject,
         protocol::PyIter,
         pyclass,
         recursion::ReprGuard,
-        types::{Callable, Constructor, Representable},
+        types::{Callable, Constructor, GetDescriptor, Representable},
     };
     use indexmap::IndexMap;
 
@@ -56,7 +56,10 @@ mod _functools {
         keywords: PyRef<PyDict>,
     }
 
-    #[pyclass(with(Constructor, Callable, Representable), flags(BASETYPE, HAS_DICT))]
+    #[pyclass(
+        with(Constructor, Callable, GetDescriptor, Representable),
+        flags(BASETYPE, HAS_DICT)
+    )]
     impl PyPartial {
         #[pygetset]
         fn func(&self) -> PyObjectRef {
@@ -278,6 +281,21 @@ mod _functools {
             }
 
             func.call(FuncArgs::new(combined_args, KwArgs::new(final_kwargs)), vm)
+        }
+    }
+
+    impl GetDescriptor for PyPartial {
+        fn descr_get(
+            zelf: PyObjectRef,
+            obj: Option<PyObjectRef>,
+            _cls: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let obj = match obj {
+                Some(obj) if !vm.is_none(&obj) => obj,
+                _ => return Ok(zelf),
+            };
+            Ok(PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into())
         }
     }
 
