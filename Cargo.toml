@@ -33,7 +33,7 @@ winresource = "0.1"
 rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
-rustpython-vm = { workspace = true, features = ["compiler"] }
+rustpython-vm = { workspace = true, features = ["compiler", "gc"] }
 ruff_python_parser = { workspace = true }
 
 cfg-if = { workspace = true }

@@ -5,7 +5,7 @@ use crate::{
     PyObject, PyObjectRef,
     object::{
         Erased, InstanceDict, MaybeTraverse, PyInner, PyObjectPayload, debug_obj, drop_dealloc_obj,
-        try_clear_obj, try_trace_obj,
+        try_clear_obj, try_traverse_obj,
     },
 };
 
@@ -29,7 +29,7 @@ impl PyObjVTable {
             debug: debug_obj::<T>,
             trace: const {
                 if T::HAS_TRAVERSE {
-                    Some(try_trace_obj::<T>)
+                    Some(try_traverse_obj::<T>)
                 } else {
                     None
                 }
