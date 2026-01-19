@@ -1,47 +1,14 @@
-#!/usr/bin/env python
-__doc__ = """
-This tool helps with updating test files from CPython.
+"""
+Low-level module for converting between test files and JSON patches.
 
-Quick Upgrade
--------------
-    ./{fname} --quick-upgrade cpython/Lib/test/test_threading.py
-    ./{fname} --quick-upgrade ../somewhere/Lib/threading.py
+This module handles:
+- Extracting patches from test files (file -> JSON)
+- Applying patches to test files (JSON -> file)
+"""
 
-    Any path containing `/Lib/` will auto-detect the target:
-    -> Extracts patches from Lib/... (auto-detected from path)
-    -> Applies them to the source file
-    -> Writes result to Lib/...
-
-Examples
---------
-To move the patches found in `Lib/test/foo.py` to `~/cpython/Lib/test/foo.py` then write the contents back to `Lib/test/foo.py`
-
->>> ./{fname} --from Lib/test/foo.py --to ~/cpython/Lib/test/foo.py -o Lib/test/foo.py
-
-You can run the same command without `-o` to override the `--from` path:
-
->>> ./{fname} --from Lib/test/foo.py --to ~/cpython/Lib/test/foo.py
-
-To get a baseline of patches, you can alter the patches file with your favorite tool/script/etc and then reapply it with:
-
->>> ./{fname} --from Lib/test/foo.py --show-patches -o my_patches.json
-
-(By default the output is set to print to stdout).
-
-When you want to apply your own patches:
-
->>> ./{fname} -p my_patches.json --to Lib/test/foo.py
-""".format(fname=__import__("os").path.basename(__file__))
-
-
-import argparse
 import ast
 import collections
 import enum
-import json
-import pathlib
-import re
-import sys
 import textwrap
 import typing
 
@@ -115,11 +82,41 @@ class PatchSpec(typing.NamedTuple):
 
     def as_decorator(self) -> str:
         unparsed = ast.unparse(self.as_ast_node())
+        # ast.unparse uses single quotes; convert to double quotes for ruff compatibility
+        unparsed = _single_to_double_quotes(unparsed)
 
         if not self.ut_method.has_args():
-            unparsed = f"{unparsed} # {self._reason}"
+            unparsed = f"{unparsed}  # {self._reason}"
 
         return f"@{unparsed}"
+
+
+def _single_to_double_quotes(s: str) -> str:
+    """Convert single-quoted strings to double-quoted strings.
+
+    Falls back to original if conversion breaks the AST equivalence.
+    """
+    import re
+
+    def replace_string(match: re.Match) -> str:
+        content = match.group(1)
+        # Unescape single quotes and escape double quotes
+        content = content.replace("\\'", "'").replace('"', '\\"')
+        return f'"{content}"'
+
+    # Match single-quoted strings (handles escaped single quotes inside)
+    converted = re.sub(r"'((?:[^'\\]|\\.)*)'", replace_string, s)
+
+    # Verify: parse converted and unparse should equal original
+    try:
+        converted_ast = ast.parse(converted, mode="eval")
+        if ast.unparse(converted_ast) == s:
+            return converted
+    except SyntaxError:
+        pass
+
+    # Fall back to original if conversion failed
+    return s
 
 
 class PatchEntry(typing.NamedTuple):
@@ -141,9 +138,12 @@ class PatchEntry(typing.NamedTuple):
     spec: PatchSpec
 
     @classmethod
-    def iter_patch_entires(
+    def iter_patch_entries(
         cls, tree: ast.Module, lines: list[str]
     ) -> "Iterator[typing.Self]":
+        import re
+        import sys
+
         for cls_node, fn_node in iter_tests(tree):
             parent_class = cls_node.name
             for dec_node in fn_node.decorator_list:
@@ -224,7 +224,7 @@ def iter_tests(
 def iter_patches(contents: str) -> "Iterator[PatchEntry]":
     lines = contents.splitlines()
     tree = ast.parse(contents)
-    yield from PatchEntry.iter_patch_entires(tree, lines)
+    yield from PatchEntry.iter_patch_entries(tree, lines)
 
 
 def build_patch_dict(it: "Iterator[PatchEntry]") -> Patches:
@@ -235,7 +235,16 @@ def build_patch_dict(it: "Iterator[PatchEntry]") -> Patches:
     return {k: dict(v) for k, v in patches.items()}
 
 
-def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int, str]]":
+def extract_patches(contents: str) -> Patches:
+    """Extract patches from file contents and return as dict."""
+    return build_patch_dict(iter_patches(contents))
+
+
+def _iter_patch_lines(
+    tree: ast.Module, patches: Patches
+) -> "Iterator[tuple[int, str]]":
+    import sys
+
     # Build cache of all classes (for Phase 2 to find classes without methods)
     cache = {}
     for node in tree.body:
@@ -256,7 +265,7 @@ def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int,
         patch_lines = "\n".join(spec.as_decorator() for spec in specs)
         yield (lineno - 1, textwrap.indent(patch_lines, indent))
 
-    # Phase 2: Iterate and mark inhereted tests
+    # Phase 2: Iterate and mark inherited tests
     for cls_name, tests in patches.items():
         lineno = cache.get(cls_name)
         if not lineno:
@@ -273,7 +282,7 @@ def {test_name}(self):
             yield (lineno, textwrap.indent(patch_lines, DEFAULT_INDENT))
 
 
-def has_unittest_import(tree: ast.Module) -> bool:
+def _has_unittest_import(tree: ast.Module) -> bool:
     """Check if 'import unittest' is already present in the file."""
     for node in tree.body:
         if isinstance(node, ast.Import):
@@ -283,7 +292,7 @@ def has_unittest_import(tree: ast.Module) -> bool:
     return False
 
 
-def find_import_insert_line(tree: ast.Module) -> int:
+def _find_import_insert_line(tree: ast.Module) -> int:
     """Find the line number after the last import statement."""
     last_import_line = None
     for node in tree.body:
@@ -294,22 +303,23 @@ def find_import_insert_line(tree: ast.Module) -> int:
 
 
 def apply_patches(contents: str, patches: Patches) -> str:
+    """Apply patches to file contents and return modified contents."""
     tree = ast.parse(contents)
     lines = contents.splitlines()
 
-    modifications = list(iter_patch_lines(tree, patches))
+    modifications = list(_iter_patch_lines(tree, patches))
 
     # If we have modifications and unittest is not imported, add it
-    if modifications and not has_unittest_import(tree):
-        import_line = find_import_insert_line(tree)
+    if modifications and not _has_unittest_import(tree):
+        import_line = _find_import_insert_line(tree)
         modifications.append(
             (
                 import_line,
-                "\nimport unittest # XXX: RUSTPYTHON; importing to be able to skip tests",
+                "\nimport unittest  # XXX: RUSTPYTHON; importing to be able to skip tests",
             )
         )
 
-    # Going in reverse to not distrupt the line offset
+    # Going in reverse to not disrupt the line offset
     for lineno, patch in sorted(modifications, reverse=True):
         lines.insert(lineno, patch)
 
@@ -317,111 +327,26 @@ def apply_patches(contents: str, patches: Patches) -> str:
     return f"{joined}\n"
 
 
-def write_output(data: str, dest: str) -> None:
-    if dest == "-":
-        print(data, end="")
-        return
-
-    with open(dest, "w") as fd:
-        fd.write(data)
-
-
-def build_argparse() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-
-    patches_group = parser.add_mutually_exclusive_group(required=True)
-    patches_group.add_argument(
-        "--quick-upgrade",
-        help="Quick upgrade: path containing /Lib/ (e.g., cpython/Lib/test/foo.py)",
-        type=pathlib.Path,
-        metavar="PATH",
-    )
-    patches_group.add_argument(
-        "-p",
-        "--patches",
-        help="File path to file containing patches in a JSON format",
-        type=pathlib.Path,
-    )
-    patches_group.add_argument(
-        "--from",
-        help="File to gather patches from",
-        dest="gather_from",
-        type=pathlib.Path,
-    )
-
-    group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument(
-        "--to",
-        help="File to apply patches to",
-        type=pathlib.Path,
-    )
-    group.add_argument(
-        "--show-patches", action="store_true", help="Show the patches and exit"
-    )
-
-    parser.add_argument(
-        "-o", "--output", default="-", help="Output file. Set to '-' for stdout"
-    )
-
-    return parser
-
-
-if __name__ == "__main__":
-    parser = build_argparse()
-    args = parser.parse_args()
-
-    # Quick upgrade: auto-fill --from, --to, -o from path
-    if args.quick_upgrade is not None:
-        # Normalize path separators to forward slashes for cross-platform support
-        path_str = str(args.quick_upgrade).replace("\\", "/")
-        lib_marker = "/Lib/"
-
-        if lib_marker not in path_str:
-            parser.error(
-                f"--quick-upgrade path must contain '/Lib/' or '\\Lib\\' (got: {args.quick_upgrade})"
-            )
-
-        idx = path_str.index(lib_marker)
-        lib_path = pathlib.Path(path_str[idx + 1 :])
-
-        args.gather_from = lib_path
-        args.to = args.quick_upgrade
-        if args.output == "-":
-            args.output = str(lib_path)
-
-    # Validate required arguments
-    if args.patches is None and args.gather_from is None:
-        parser.error("--from or --patches is required (or use --quick-upgrade)")
-    if args.to is None and not args.show_patches:
-        parser.error("--to or --show-patches is required")
-
-    if args.patches:
-        patches = {
-            cls_name: {
-                test_name: [
-                    PatchSpec(**spec)._replace(ut_method=UtMethod(spec["ut_method"]))
-                    for spec in specs
-                ]
-                for test_name, specs in tests.items()
-            }
-            for cls_name, tests in json.loads(args.patches.read_text()).items()
+def patches_to_json(patches: Patches) -> dict:
+    """Convert patches to JSON-serializable dict."""
+    return {
+        cls_name: {
+            test_name: [spec._asdict() for spec in specs]
+            for test_name, specs in tests.items()
         }
-    else:
-        patches = build_patch_dict(iter_patches(args.gather_from.read_text()))
+        for cls_name, tests in patches.items()
+    }
 
-    if args.show_patches:
-        patches = {
-            cls_name: {
-                test_name: [spec._asdict() for spec in specs]
-                for test_name, specs in tests.items()
-            }
-            for cls_name, tests in patches.items()
+
+def patches_from_json(data: dict) -> Patches:
+    """Convert JSON dict back to Patches."""
+    return {
+        cls_name: {
+            test_name: [
+                PatchSpec(**spec)._replace(ut_method=UtMethod(spec["ut_method"]))
+                for spec in specs
+            ]
+            for test_name, specs in tests.items()
         }
-        output = json.dumps(patches, indent=4) + "\n"
-        write_output(output, args.output)
-        sys.exit(0)
-
-    patched = apply_patches(args.to.read_text(), patches)
-    write_output(patched, args.output)
+        for cls_name, tests in data.items()
+    }

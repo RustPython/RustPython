@@ -5,6 +5,22 @@ Upgrade a Python standard library module from CPython to RustPython.
 ## Arguments
 - `$ARGUMENTS`: Library name to upgrade (e.g., `inspect`, `asyncio`, `json`)
 
+## Important: Report Tool Issues First
+
+If during the upgrade process you encounter any of the following issues with `scripts/update_lib`:
+- A feature that should be automated but isn't supported
+- A bug or unexpected behavior in the tool
+- Missing functionality that would make the upgrade easier
+
+**STOP the upgrade and report the issue first.** Describe:
+1. What you were trying to do
+  - Library name
+  - The full command executed (e.g. python scripts/update_lib quick cpython/Lib/$ARGUMENTS.py)
+2. What went wrong or what's missing
+3. Expected vs actual behavior
+
+This helps improve the tooling for future upgrades.
+
 ## Steps
 
 1. **Delete existing library in Lib/**
@@ -15,18 +31,14 @@ Upgrade a Python standard library module from CPython to RustPython.
    - If `cpython/Lib/$ARGUMENTS.py` exists, copy it to `Lib/$ARGUMENTS.py`
    - If `cpython/Lib/$ARGUMENTS/` directory exists, copy it to `Lib/$ARGUMENTS/`
 
-3. **Upgrade tests (quick upgrade with lib_updater)**
-   - If `cpython/Lib/test/test_$ARGUMENTS.py` is a single file:
-     - Run: `python3 scripts/lib_updater.py --quick-upgrade cpython/Lib/test/test_$ARGUMENTS.py`
-   - If `cpython/Lib/test/test_$ARGUMENTS/` is a directory:
-     - Run the script for each `.py` file in the directory:
-       ```bash
-       for f in cpython/Lib/test/test_$ARGUMENTS/*.py; do
-           python3 scripts/lib_updater.py --quick-upgrade "$f"
-       done
-       ```
-   - This will update the test files with basic RustPython markers (`@unittest.expectedFailure`, `@unittest.skip`, etc.)
-   - **Handle lib_updater warnings**: If you see warnings like `WARNING: TestCFoo does not exist in remote file`, it means the class structure changed between versions and markers couldn't be transferred automatically. These need to be manually restored in step 4 or added in step 5.
+3. **Upgrade tests (quick upgrade with update_lib)**
+   - Run: `python3 scripts/update_lib quick cpython/Lib/test/test_$ARGUMENTS.py` (single file)
+   - Or: `python3 scripts/update_lib quick cpython/Lib/test/test_$ARGUMENTS/` (directory)
+   - This will:
+     - Patch test files preserving existing RustPython markers
+     - Run tests and auto-mark new test failures (not regressions)
+     - Remove `@unittest.expectedFailure` from tests that now pass
+   - **Handle warnings**: If you see warnings like `WARNING: TestCFoo does not exist in remote file`, it means the class structure changed and markers couldn't be transferred automatically. These need to be manually restored in step 4 or added in step 5.
 
 4. **Review git diff and restore RUSTPYTHON-specific changes**
    - Run `git diff Lib/test/test_$ARGUMENTS` to review all changes
@@ -96,10 +108,19 @@ cjson = import_helper.import_fresh_module('json') #, fresh=['_json'])
 
 ## Notes
 - The cpython/ directory should contain the CPython source that we're syncing from
-- `scripts/lib_updater.py` handles basic patching:
+- `scripts/update_lib` package handles patching and auto-marking:
+  - `quick` - Combined patch + auto-mark (recommended)
+  - `migrate` - Only migrate (patch), no test running
+  - `auto-mark` - Only run tests and mark failures
+  - `copy-lib` - Copy library files (not tests)
+- The patching:
   - Transfers `@unittest.expectedFailure` and `@unittest.skip` decorators with `TODO: RUSTPYTHON` markers
   - Adds `import unittest # XXX: RUSTPYTHON` if needed for the decorators
-  - **Limitation**: If a class was restructured (e.g., method overrides removed), lib_updater will warn and skip those markers
+  - **Limitation**: If a class was restructured (e.g., method overrides removed), update_lib will warn and skip those markers
+- The smart auto-mark:
+  - Marks NEW test failures automatically (tests that didn't exist before)
+  - Does NOT mark regressions (existing tests that now fail) - these are warnings
+  - Removes `@unittest.expectedFailure` from tests that now pass
 - The script does NOT preserve all RustPython-specific changes - you must review `git diff` and restore them
 - Common RustPython markers to look for:
   - `# XXX: RUSTPYTHON` or `# XXX RUSTPYTHON` - Inline comments for code modifications
