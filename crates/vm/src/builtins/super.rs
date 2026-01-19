@@ -60,8 +60,8 @@ impl Constructor for PySuper {
 
 #[derive(FromArgs)]
 pub struct InitArgs {
-    #[pyarg(positional, optional)]
-    py_type: OptionalArg<PyObjectRef>,
+    #[pyarg(positional, optional, error_msg = "super() argument 1 must be a type")]
+    py_type: OptionalArg<PyTypeRef>,
     #[pyarg(positional, optional)]
     py_obj: OptionalArg<PyObjectRef>,
 }
@@ -75,10 +75,7 @@ impl Initializer for PySuper {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Get the type:
-        let (typ, obj) = if let OptionalArg::Present(ty_obj) = py_type {
-            let ty = ty_obj
-                .downcast::<PyType>()
-                .map_err(|_| vm.new_type_error("super() argument 1 must be a type"))?;
+        let (typ, obj) = if let OptionalArg::Present(ty) = py_type {
             (ty, py_obj.unwrap_or_none(vm))
         } else {
             let frame = vm
