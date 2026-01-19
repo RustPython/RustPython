@@ -775,6 +775,31 @@ class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
     OrderedDict = c_coll.OrderedDict
     check_sizeof = support.check_sizeof
 
+    # TODO: RUSTPYTHON - RustPython shares dict storage, no separate order tracking
+    @unittest.expectedFailure
+    def test_dict_delitem(self):
+        super().test_dict_delitem()
+
+    # TODO: RUSTPYTHON - RustPython shares dict storage, no separate order tracking
+    @unittest.expectedFailure
+    def test_dict_pop(self):
+        super().test_dict_pop()
+
+    # TODO: RUSTPYTHON - RustPython shares dict storage, no separate order tracking
+    @unittest.expectedFailure
+    def test_dict_popitem(self):
+        super().test_dict_popitem()
+
+    # TODO: RUSTPYTHON - RustPython shares dict storage, no separate order tracking
+    @unittest.expectedFailure
+    def test_issue24347(self):
+        super().test_issue24347()
+
+    # TODO: RUSTPYTHON - RecursionError with self-referencing OrderedDict
+    @unittest.expectedFailure
+    def test_pickle_recursive(self):
+        super().test_pickle_recursive()
+
     @support.cpython_only
     def test_sizeof_exact(self):
         OrderedDict = self.OrderedDict
@@ -808,8 +833,6 @@ class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
         check(iter(od.items()), itersize)
         check(iter(od.values()), itersize)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_key_change_during_iteration(self):
         OrderedDict = self.OrderedDict
 

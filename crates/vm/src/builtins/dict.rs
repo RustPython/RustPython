@@ -325,8 +325,11 @@ impl PyDict {
     }
 
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other_dict: Result<PyDictRef, _> = other.downcast();
-        if let Ok(other) = other_dict {
+        // Only accept exact dict type, not subclasses
+        // This allows subclasses like OrderedDict to handle the operation via __ror__
+        if other.class().is(vm.ctx.types.dict_type)
+            && let Ok(other) = other.downcast::<PyDict>()
+        {
             let self_cp = self.copy();
             self_cp.merge_dict(other, vm)?;
             return Ok(self_cp.into_pyobject(vm));
