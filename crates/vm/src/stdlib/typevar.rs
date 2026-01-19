@@ -251,7 +251,7 @@ impl AsNumber for TypeVar {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|a, b, vm| {
                 let args = PyTuple::new_ref(vec![a.to_owned(), b.to_owned()], &vm.ctx);
-                Ok(make_union(&args, vm))
+                make_union(&args, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -527,7 +527,7 @@ impl AsNumber for ParamSpec {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|a, b, vm| {
                 let args = PyTuple::new_ref(vec![a.to_owned(), b.to_owned()], &vm.ctx);
-                Ok(make_union(&args, vm))
+                make_union(&args, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };

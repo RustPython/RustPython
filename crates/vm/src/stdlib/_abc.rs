@@ -149,29 +149,24 @@ mod _abc {
         let items = vm.call_method(&ns, "items", ())?;
         let iter = items.get_iter(vm)?;
 
-        loop {
-            match iter.next(vm)? {
-                PyIterReturn::Return(item) => {
-                    let tuple: PyTupleRef = item
-                        .downcast()
-                        .map_err(|_| vm.new_type_error("items() returned non-tuple".to_owned()))?;
-                    let elements = tuple.as_slice();
-                    if elements.len() != 2 {
-                        return Err(vm.new_type_error(
-                            "items() returned item which size is not 2".to_owned(),
-                        ));
-                    }
-                    let key = &elements[0];
-                    let value = &elements[1];
+        while let PyIterReturn::Return(item) = iter.next(vm)? {
+            let tuple: PyTupleRef = item
+                .downcast()
+                .map_err(|_| vm.new_type_error("items() returned non-tuple".to_owned()))?;
+            let elements = tuple.as_slice();
+            if elements.len() != 2 {
+                return Err(
+                    vm.new_type_error("items() returned item which size is not 2".to_owned())
+                );
+            }
+            let key = &elements[0];
+            let value = &elements[1];
 
-                    // Check if value has __isabstractmethod__ = True
-                    if let Ok(is_abstract) = value.get_attr("__isabstractmethod__", vm) {
-                        if is_abstract.try_to_bool(vm)? {
-                            abstracts.push(key.clone());
-                        }
-                    }
-                }
-                PyIterReturn::StopIteration(_) => break,
+            // Check if value has __isabstractmethod__ = True
+            if let Ok(is_abstract) = value.get_attr("__isabstractmethod__", vm)
+                && is_abstract.try_to_bool(vm)?
+            {
+                abstracts.push(key.clone());
             }
         }
 
@@ -184,25 +179,14 @@ mod _abc {
         for base in bases.iter() {
             if let Ok(base_abstracts) = base.get_attr("__abstractmethods__", vm) {
                 let iter = base_abstracts.get_iter(vm)?;
-                loop {
-                    match iter.next(vm)? {
-                        PyIterReturn::Return(key) => {
-                            // Try to get the attribute from cls - key should be a string
-                            if let Some(key_str) = key.downcast_ref::<PyStr>() {
-                                if let Some(value) =
-                                    vm.get_attribute_opt(cls.to_owned(), key_str)?
-                                {
-                                    if let Ok(is_abstract) =
-                                        value.get_attr("__isabstractmethod__", vm)
-                                    {
-                                        if is_abstract.try_to_bool(vm)? {
-                                            abstracts.push(key);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        PyIterReturn::StopIteration(_) => break,
+                while let PyIterReturn::Return(key) = iter.next(vm)? {
+                    // Try to get the attribute from cls - key should be a string
+                    if let Some(key_str) = key.downcast_ref::<PyStr>()
+                        && let Some(value) = vm.get_attribute_opt(cls.to_owned(), key_str)?
+                        && let Ok(is_abstract) = value.get_attr("__isabstractmethod__", vm)
+                        && is_abstract.try_to_bool(vm)?
+                    {
+                        abstracts.push(key);
                     }
                 }
             }
@@ -279,10 +263,10 @@ mod _abc {
         let subtype: PyObjectRef = instance.class().to_owned().into();
         if subtype.is(&subclass) {
             let invalidation_counter = get_invalidation_counter();
-            if impl_data.get_cache_version() == invalidation_counter {
-                if in_weak_set(&impl_data.negative_cache, &subclass, vm)? {
-                    return Ok(vm.ctx.false_value.clone().into());
-                }
+            if impl_data.get_cache_version() == invalidation_counter
+                && in_weak_set(&impl_data.negative_cache, &subclass, vm)?
+            {
+                return Ok(vm.ctx.false_value.clone().into());
             }
             // Fall back to __subclasscheck__
             return vm.call_method(&cls, "__subclasscheck__", (subclass,));
@@ -323,13 +307,12 @@ mod _abc {
         let registry_copy = PyFrozenSet::from_iter(vm, registry.elements().into_iter())?;
 
         for weak_ref_obj in registry_copy.elements() {
-            if let Ok(weak_ref) = weak_ref_obj.downcast::<PyWeak>() {
-                if let Some(rkey) = weak_ref.upgrade() {
-                    if subclass.to_owned().is_subclass(&rkey, vm)? {
-                        add_to_weak_set(&impl_data.cache, subclass, vm)?;
-                        return Ok(Some(true));
-                    }
-                }
+            if let Ok(weak_ref) = weak_ref_obj.downcast::<PyWeak>()
+                && let Some(rkey) = weak_ref.upgrade()
+                && subclass.to_owned().is_subclass(&rkey, vm)?
+            {
+                add_to_weak_set(&impl_data.cache, subclass, vm)?;
+                return Ok(Some(true));
             }
         }
 
