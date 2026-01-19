@@ -665,6 +665,7 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(int.from_bytes, types.BuiltinMethodType)
         self.assertIsInstance(int.__new__, types.BuiltinMethodType)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ModuleNotFoundError: No module named '_queue'
     def test_method_descriptor_crash(self):
         # gh-132747: The default __get__() implementation in C was unable
         # to handle a second argument of None when called from Python
@@ -1888,6 +1889,7 @@ class ClassCreationTests(unittest.TestCase):
         D.__getitem__ = dict.__getitem__
         self.assertIs(d[None], None)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'tuple'> != <class 'test.test_types.ClassCreationTests.test_tu[41 chars]ass'>
     def test_tuple_subclass_as_bases(self):
         # gh-132176: it used to crash on using
         # tuple subclass for as base classes.
@@ -2493,6 +2495,7 @@ class FunctionTests(unittest.TestCase):
             )
 
 
+@unittest.skip("TODO: RUSTPYTHON; no subinterpreters yet")
 class SubinterpreterTests(unittest.TestCase):
 
     NUMERIC_METHODS = {

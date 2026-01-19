@@ -2028,6 +2028,7 @@ class TestClassesAndFunctions(unittest.TestCase):
 
 
 class TestFormatAnnotation(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_typing_replacement(self):
         from test.typinganndata.ann_module9 import A, ann, ann1
         self.assertEqual(inspect.formatannotation(ann), 'Union[List[str], int]')
@@ -2040,6 +2041,7 @@ class TestFormatAnnotation(unittest.TestCase):
             'Union[List[testModule.typing.A], int]',
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_formatannotationrelativeto(self):
         from test.typinganndata.ann_module9 import A, ann1
 

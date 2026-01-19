@@ -2922,6 +2922,7 @@ class TestSingleDispatch(unittest.TestCase):
             'decorated_classmethod'
         )
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_registrations(self):
         msg_prefix = "Invalid first argument to `register()`: "
         msg_suffix = (
