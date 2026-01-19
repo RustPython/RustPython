@@ -28,6 +28,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
         "ParamSpecArgs" => ParamSpecArgs::class(&vm.ctx).to_owned(),
         "ParamSpecKwargs" => ParamSpecKwargs::class(&vm.ctx).to_owned(),
         "Generic" => Generic::class(&vm.ctx).to_owned(),
+        "Union" => vm.ctx.types.union_type.to_owned(),
     });
     module
 }
@@ -37,7 +38,6 @@ pub(crate) mod decl {
     use crate::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyTupleRef, PyType, PyTypeRef, pystr::AsPyStr, type_},
-        convert::ToPyResult,
         function::{FuncArgs, IntoFuncArgs},
         protocol::PyNumberMethods,
         types::{AsNumber, Constructor, Representable},
@@ -188,7 +188,7 @@ pub(crate) mod decl {
     impl AsNumber for TypeAliasType {
         fn as_number() -> &'static PyNumberMethods {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-                or: Some(|a, b, vm| type_::or_(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+                or: Some(|a, b, vm| type_::or_(a.to_owned(), b.to_owned(), vm)),
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER

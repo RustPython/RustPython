@@ -235,11 +235,11 @@ impl PyGenericAlias {
         Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
     }
 
-    fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         type_::or_(other, zelf, vm)
     }
 
-    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         type_::or_(zelf, other, vm)
     }
 }
@@ -509,7 +509,7 @@ impl AsMapping for PyGenericAlias {
 impl AsNumber for PyGenericAlias {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|a, b, vm| Ok(PyGenericAlias::__or__(a.to_owned(), b.to_owned(), vm))),
+            or: Some(|a, b, vm| PyGenericAlias::__or__(a.to_owned(), b.to_owned(), vm)),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER

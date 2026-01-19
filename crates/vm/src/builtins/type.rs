@@ -20,7 +20,6 @@ use crate::{
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    convert::ToPyResult,
     function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
@@ -1038,11 +1037,11 @@ impl PyType {
         )
     }
 
-    pub fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         or_(other, zelf, vm)
     }
 
-    pub fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         or_(zelf, other, vm)
     }
 
@@ -1850,7 +1849,7 @@ impl Callable for PyType {
 impl AsNumber for PyType {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|a, b, vm| or_(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            or: Some(|a, b, vm| or_(a.to_owned(), b.to_owned(), vm)),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
@@ -2013,9 +2012,9 @@ pub(crate) fn call_slot_new(
     slot_new(subtype, args, vm)
 }
 
-pub(crate) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
-        return vm.ctx.not_implemented();
+        return Ok(vm.ctx.not_implemented());
     }
 
     let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
