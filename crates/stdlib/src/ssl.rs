@@ -42,7 +42,9 @@ mod _ssl {
             VirtualMachine,
             builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef},
             convert::IntoPyException,
-            function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, PyComparisonValue},
+            function::{
+                ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, PyComparisonValue,
+            },
             stdlib::warnings,
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
         },
@@ -821,20 +823,20 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
-        #[pyarg(any, optional)]
-        cafile: OptionalArg<Option<PyObjectRef>>,
-        #[pyarg(any, optional)]
-        capath: OptionalArg<Option<PyObjectRef>>,
-        #[pyarg(any, optional)]
-        cadata: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
+        cafile: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
+        capath: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        #[pyarg(any, optional, error_msg = "cadata should be a str or bytes")]
+        cadata: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
     }
 
     #[derive(FromArgs)]
     struct LoadCertChainArgs {
-        #[pyarg(any)]
-        certfile: PyObjectRef,
-        #[pyarg(any, optional)]
-        keyfile: OptionalArg<Option<PyObjectRef>>,
+        #[pyarg(any, error_msg = "path should be a str or bytes")]
+        certfile: Either<PyStrRef, ArgBytesLike>,
+        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
+        keyfile: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
         #[pyarg(any, optional)]
         password: OptionalArg<PyObjectRef>,
     }
@@ -1229,7 +1231,7 @@ mod _ssl {
             // Check that at least one argument is provided
             let has_cafile = matches!(&args.cafile, OptionalArg::Present(Some(_)));
             let has_capath = matches!(&args.capath, OptionalArg::Present(Some(_)));
-            let has_cadata = matches!(&args.cadata, OptionalArg::Present(obj) if !vm.is_none(obj));
+            let has_cadata = matches!(&args.cadata, OptionalArg::Present(Some(_)));
 
             if !has_cafile && !has_capath && !has_cadata {
                 return Err(
@@ -1250,10 +1252,8 @@ mod _ssl {
                 None
             };
 
-            let cadata_parsed = if let OptionalArg::Present(ref cadata_obj) = args.cadata
-                && !vm.is_none(cadata_obj)
-            {
-                let is_string = PyStrRef::try_from_object(vm, cadata_obj.clone()).is_ok();
+            let cadata_parsed = if let OptionalArg::Present(Some(ref cadata_obj)) = args.cadata {
+                let is_string = matches!(cadata_obj, Either::A(_));
                 let data_vec = self.parse_cadata_arg(cadata_obj, vm)?;
                 Some((data_vec, is_string))
             } else {
@@ -1989,14 +1989,14 @@ mod _ssl {
         // Helper functions (private):
 
         /// Parse path argument (str or bytes) to string
-        fn parse_path_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
-            if let Ok(s) = PyStrRef::try_from_object(vm, arg.to_owned()) {
-                Ok(s.as_str().to_owned())
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.to_owned()) {
-                String::from_utf8(b.borrow_buf().to_vec())
-                    .map_err(|_| vm.new_value_error("path contains invalid UTF-8".to_owned()))
-            } else {
-                Err(vm.new_type_error("path should be a str or bytes".to_owned()))
+        fn parse_path_arg(
+            arg: &Either<PyStrRef, ArgBytesLike>,
+            vm: &VirtualMachine,
+        ) -> PyResult<String> {
+            match arg {
+                Either::A(s) => Ok(s.as_str().to_owned()),
+                Either::B(b) => String::from_utf8(b.borrow_buf().to_vec())
+                    .map_err(|_| vm.new_value_error("path contains invalid UTF-8".to_owned())),
             }
         }
 
@@ -2167,13 +2167,14 @@ mod _ssl {
         }
 
         /// Helper: Parse cadata argument (str or bytes)
-        fn parse_cadata_arg(&self, arg: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            if let Ok(s) = PyStrRef::try_from_object(vm, arg.to_owned()) {
-                Ok(s.as_str().as_bytes().to_vec())
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.to_owned()) {
-                Ok(b.borrow_buf().to_vec())
-            } else {
-                Err(vm.new_type_error("cadata should be a str or bytes".to_owned()))
+        fn parse_cadata_arg(
+            &self,
+            arg: &Either<PyStrRef, ArgBytesLike>,
+            _vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
+            match arg {
+                Either::A(s) => Ok(s.as_str().as_bytes().to_vec()),
+                Either::B(b) => Ok(b.borrow_buf().to_vec()),
             }
         }
 

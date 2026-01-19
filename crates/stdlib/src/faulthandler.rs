@@ -4,8 +4,10 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "faulthandler")]
 mod decl {
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine, builtins::PyFloat, frame::Frame,
-        function::OptionalArg, py_io::Write,
+        PyObjectRef, PyResult, VirtualMachine,
+        frame::Frame,
+        function::{ArgIntoFloat, OptionalArg},
+        py_io::Write,
     };
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -762,8 +764,8 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct DumpTracebackLaterArgs {
-        #[pyarg(positional)]
-        timeout: PyObjectRef,
+        #[pyarg(positional, error_msg = "timeout must be a number (int or float)")]
+        timeout: ArgIntoFloat,
         #[pyarg(any, default = false)]
         repeat: bool,
         #[pyarg(any, default)]
@@ -774,18 +776,7 @@ mod decl {
 
     #[pyfunction]
     fn dump_traceback_later(args: DumpTracebackLaterArgs, vm: &VirtualMachine) -> PyResult<()> {
-        use num_traits::ToPrimitive;
-        // Convert timeout to f64 (accepting int or float)
-        let timeout: f64 = if let Some(float) = args.timeout.downcast_ref::<PyFloat>() {
-            float.to_f64()
-        } else if let Some(int) = args.timeout.try_index_opt(vm).transpose()? {
-            int.as_bigint()
-                .to_i64()
-                .ok_or_else(|| vm.new_overflow_error("timeout value is too large".to_owned()))?
-                as f64
-        } else {
-            return Err(vm.new_type_error("timeout must be a number (int or float)".to_owned()));
-        };
+        let timeout: f64 = args.timeout.into_float();
 
         if timeout <= 0.0 {
             return Err(vm.new_value_error("timeout must be greater than 0".to_owned()));
