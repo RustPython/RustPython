@@ -148,6 +148,10 @@ mod sys {
     fn platlibdir(_vm: &VirtualMachine) -> &'static str {
         option_env!("RUSTPYTHON_PLATLIBDIR").unwrap_or("lib")
     }
+    #[pyattr]
+    fn _stdlib_dir(vm: &VirtualMachine) -> PyObjectRef {
+        vm.state.config.paths.stdlib_dir.clone().to_pyobject(vm)
+    }
 
     // alphabetical order with segments of pyattr and others
 

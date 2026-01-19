@@ -113,18 +113,13 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
 /// Setup frozen standard library (compiled into the binary)
 #[cfg(all(feature = "stdlib", feature = "freeze-stdlib"))]
 fn setup_frozen_stdlib(vm: &mut VirtualMachine) {
+    use rustpython_vm::common::rc::PyRc;
+
     vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
 
-    // FIXME: Remove this hack once sys._stdlib_dir is properly implemented
-    // or _frozen_importlib doesn't depend on it anymore.
-    assert!(vm.sys_module.get_attr("_stdlib_dir", vm).is_err());
-    vm.sys_module
-        .set_attr(
-            "_stdlib_dir",
-            vm.new_pyobj(rustpython_pylib::LIB_PATH.to_owned()),
-            vm,
-        )
-        .unwrap();
+    // Set stdlib_dir to the frozen stdlib path
+    let state = PyRc::get_mut(&mut vm.state).unwrap();
+    state.config.paths.stdlib_dir = Some(rustpython_pylib::LIB_PATH.to_owned());
 }
 
 /// Setup dynamic standard library loading from filesystem
@@ -134,6 +129,11 @@ fn setup_dynamic_stdlib(vm: &mut VirtualMachine) {
 
     let state = PyRc::get_mut(&mut vm.state).unwrap();
     let paths = collect_stdlib_paths();
+
+    // Set stdlib_dir to the first stdlib path if available
+    if let Some(first_path) = paths.first() {
+        state.config.paths.stdlib_dir = Some(first_path.clone());
+    }
 
     // Insert at the beginning so stdlib comes before user paths
     for path in paths.into_iter().rev() {

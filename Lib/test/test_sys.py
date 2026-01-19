@@ -1310,7 +1310,6 @@ class SysModuleTest(unittest.TestCase):
         for name in sys.stdlib_module_names:
             self.assertIsInstance(name, str)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute '_stdlib_dir'
     def test_stdlib_dir(self):
         os = import_helper.import_fresh_module('os')
         marker = getattr(os, '__file__', None)
