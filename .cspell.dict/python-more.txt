@@ -67,6 +67,7 @@ fnctl
 frombytes
 fromhex
 fromunicode
+frozensets
 fset
 fspath
 fstring
