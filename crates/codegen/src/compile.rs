@@ -4929,6 +4929,9 @@ impl Compiler {
 
         if is_async {
             emit!(self, Instruction::EndAsyncFor);
+        } else {
+            // Pop the iterator after loop ends
+            emit!(self, Instruction::PopTop);
         }
         self.compile_statements(orelse)?;
 
@@ -7366,6 +7369,8 @@ impl Compiler {
             self.switch_to_block(after_block);
             if is_async {
                 emit!(self, Instruction::EndAsyncFor);
+                emit!(self, Instruction::PopTop);
+            } else {
                 emit!(self, Instruction::PopTop);
             }
         }

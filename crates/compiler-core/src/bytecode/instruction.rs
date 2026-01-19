@@ -584,11 +584,9 @@ impl InstructionMetadata for Instruction {
             Self::FormatSimple => 0,
             Self::FormatWithSpec => -1,
             Self::ForIter { .. } => {
-                if jump {
-                    -1
-                } else {
-                    1
-                }
+                // jump=False: push next value (+1)
+                // jump=True: iterator stays on stack, no change (0)
+                if jump { 0 } else { 1 }
             }
             Self::IsOp(_) => -1,
             Self::ContainsOp(_) => -1,

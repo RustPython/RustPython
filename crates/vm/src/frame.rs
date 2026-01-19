@@ -2380,15 +2380,13 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Ok(PyIterReturn::StopIteration(_)) => {
-                // Pop iterator from stack:
-                self.pop_value();
-
-                // End of for loop
+                // CPython 3.14: Do NOT pop iterator here
+                // POP_ITER instruction will handle cleanup after the loop
                 self.jump(target);
                 Ok(None)
             }
             Err(next_error) => {
-                // Pop iterator from stack:
+                // On error, pop iterator and propagate
                 self.pop_value();
                 Err(next_error)
             }
