@@ -170,7 +170,7 @@ def _parse_error_details(test_results: TestResult, lines: list[str]) -> None:
                     # Collect lines until the next separator or end
                     while i < len(lines):
                         current = lines[i]
-                        if current.startswith("====="):
+                        if current.startswith("=====") or current.startswith("-----"):
                             break
                         error_lines.append(current)
                         i += 1
