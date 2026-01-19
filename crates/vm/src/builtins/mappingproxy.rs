@@ -3,13 +3,14 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
     class::PyClassImpl,
+    common::hash,
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
     object::{Traverse, TraverseFn},
     protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
-        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
-        Representable,
+        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, Iterable,
+        PyComparisonOp, Representable,
     },
 };
 use std::sync::LazyLock;
@@ -83,6 +84,7 @@ impl Constructor for PyMappingProxy {
     Constructor,
     AsSequence,
     Comparable,
+    Hashable,
     AsNumber,
     Representable
 ))]
@@ -212,6 +214,15 @@ impl Comparable for PyMappingProxy {
         Ok(PyComparisonValue::Implemented(
             obj.rich_compare_bool(other, op, vm)?,
         ))
+    }
+}
+
+impl Hashable for PyMappingProxy {
+    #[inline]
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+        // Delegate hash to the underlying mapping
+        let obj = zelf.to_object(vm)?;
+        obj.hash(vm)
     }
 }
 
