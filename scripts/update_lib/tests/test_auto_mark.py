@@ -32,20 +32,20 @@ class TestParseResults(unittest.TestCase):
         """Test parsing a failing test."""
         stdout = """
 Run 1 tests sequentially
-test_foo (test.test_example.TestClass) ... FAIL
+test_foo (test.test_example.TestClass.test_foo) ... FAIL
 -----------
 """
         result = parse_results(self._make_result(stdout))
         self.assertEqual(len(result.tests), 1)
         self.assertEqual(result.tests[0].name, "test_foo")
-        self.assertEqual(result.tests[0].path, "test.test_example.TestClass")
+        self.assertEqual(result.tests[0].path, "test.test_example.TestClass.test_foo")
         self.assertEqual(result.tests[0].result, "fail")
 
     def test_parse_error_test(self):
         """Test parsing an error test."""
         stdout = """
 Run 1 tests sequentially
-test_bar (test.test_example.TestClass) ... ERROR
+test_bar (test.test_example.TestClass.test_bar) ... ERROR
 -----------
 """
         result = parse_results(self._make_result(stdout))
@@ -56,7 +56,7 @@ test_bar (test.test_example.TestClass) ... ERROR
         """Test that passing tests are ignored."""
         stdout = """
 Run 1 tests sequentially
-test_foo (test.test_example.TestClass) ... ok
+test_foo (test.test_example.TestClass.test_foo) ... ok
 -----------
 """
         result = parse_results(self._make_result(stdout))
@@ -66,15 +66,15 @@ test_foo (test.test_example.TestClass) ... ok
         """Test parsing unexpected success."""
         stdout = """
 Run 1 tests sequentially
-test_foo (test.test_example.TestClass) ... unexpected success
+test_foo (test.test_example.TestClass.test_foo) ... unexpected success
 -----------
-UNEXPECTED SUCCESS: test_foo (test.test_example.TestClass)
+UNEXPECTED SUCCESS: test_foo (test.test_example.TestClass.test_foo)
 """
         result = parse_results(self._make_result(stdout))
         self.assertEqual(len(result.unexpected_successes), 1)
         self.assertEqual(result.unexpected_successes[0].name, "test_foo")
         self.assertEqual(
-            result.unexpected_successes[0].path, "test.test_example.TestClass"
+            result.unexpected_successes[0].path, "test.test_example.TestClass.test_foo"
         )
 
     def test_parse_tests_result(self):
@@ -89,9 +89,9 @@ UNEXPECTED SUCCESS: test_foo (test.test_example.TestClass)
         """Test parsing multiple test results."""
         stdout = """
 Run 3 tests sequentially
-test_one (test.test_example.TestA) ... FAIL
-test_two (test.test_example.TestA) ... ok
-test_three (test.test_example.TestB) ... ERROR
+test_one (test.test_example.TestA.test_one) ... FAIL
+test_two (test.test_example.TestA.test_two) ... ok
+test_three (test.test_example.TestB.test_three) ... ERROR
 -----------
 """
         result = parse_results(self._make_result(stdout))
@@ -101,10 +101,10 @@ test_three (test.test_example.TestB) ... ERROR
         """Test parsing error message from traceback."""
         stdout = """
 Run 1 tests sequentially
-test_foo (test.test_example.TestClass) ... FAIL
+test_foo (test.test_example.TestClass.test_foo) ... FAIL
 -----------
 ======================================================================
-FAIL: test_foo (test.test_example.TestClass)
+FAIL: test_foo (test.test_example.TestClass.test_foo)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
   File "test.py", line 10, in test_foo
@@ -121,11 +121,11 @@ AssertionError: 1 != 2
         """Test parsing multiple error messages."""
         stdout = """
 Run 2 tests sequentially
-test_foo (test.test_example.TestClass) ... FAIL
-test_bar (test.test_example.TestClass) ... ERROR
+test_foo (test.test_example.TestClass.test_foo) ... FAIL
+test_bar (test.test_example.TestClass.test_bar) ... ERROR
 -----------
 ======================================================================
-FAIL: test_foo (test.test_example.TestClass)
+FAIL: test_foo (test.test_example.TestClass.test_foo)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
   File "test.py", line 10, in test_foo
@@ -133,7 +133,7 @@ Traceback (most recent call last):
 AssertionError: 1 != 2
 
 ======================================================================
-ERROR: test_bar (test.test_example.TestClass)
+ERROR: test_bar (test.test_example.TestClass.test_bar)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
   File "test.py", line 20, in test_bar
