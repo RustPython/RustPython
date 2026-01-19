@@ -1,3 +1,4 @@
+mod _abc;
 #[cfg(feature = "ast")]
 pub(crate) mod ast;
 pub mod atexit;
@@ -87,6 +88,7 @@ pub fn get_module_inits() -> StdlibMap {
     modules! {
         #[cfg(all())]
         {
+            "_abc" => _abc::make_module,
             "atexit" => atexit::make_module,
             "_codecs" => codecs::make_module,
             "_collections" => collections::make_module,

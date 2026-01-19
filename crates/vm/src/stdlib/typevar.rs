@@ -1,7 +1,7 @@
 // spell-checker:ignore typevarobject funcobj
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyTupleRef, PyType, PyTypeRef, pystr::AsPyStr},
+    builtins::{PyTuple, PyTupleRef, PyType, PyTypeRef, make_union, pystr::AsPyStr},
     common::lock::PyMutex,
     function::{FuncArgs, IntoFuncArgs, PyComparisonValue},
     protocol::PyNumberMethods,
@@ -250,7 +250,8 @@ impl AsNumber for TypeVar {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|a, b, vm| {
-                _call_typing_func_object(vm, "_make_union", (a.to_owned(), b.to_owned()))
+                let args = PyTuple::new_ref(vec![a.to_owned(), b.to_owned()], &vm.ctx);
+                Ok(make_union(&args, vm))
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -525,7 +526,8 @@ impl AsNumber for ParamSpec {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|a, b, vm| {
-                _call_typing_func_object(vm, "_make_union", (a.to_owned(), b.to_owned()))
+                let args = PyTuple::new_ref(vec![a.to_owned(), b.to_owned()], &vm.ctx);
+                Ok(make_union(&args, vm))
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
