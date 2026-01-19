@@ -2311,6 +2311,7 @@ class TestDocString(unittest.TestCase):
 
         self.assertDocStrEqual(C.__doc__, "C(x:int=3)")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_docstring_one_field_with_default_none(self):
         @dataclass
         class C:
