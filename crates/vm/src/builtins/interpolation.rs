@@ -59,26 +59,16 @@ impl Constructor for PyInterpolation {
     type Args = InterpolationArgs;
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        let conversion = match args.conversion {
-            OptionalArg::Present(c) => {
-                if vm.is_none(&c) {
-                    vm.ctx.none()
-                } else {
-                    let s = c.downcast::<PyStr>().map_err(|_| {
-                        vm.new_type_error(
-                            "Interpolation() argument 'conversion' must be str or None",
-                        )
-                    })?;
-                    let s_str = s.as_str();
-                    if s_str.len() != 1 || !matches!(s_str.chars().next(), Some('s' | 'r' | 'a')) {
-                        return Err(vm.new_value_error(
-                            "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'",
-                        ));
-                    }
-                    s.into()
-                }
+        let conversion: PyObjectRef = if let Some(s) = args.conversion {
+            let s_str = s.as_str();
+            if s_str.len() != 1 || !matches!(s_str.chars().next(), Some('s' | 'r' | 'a')) {
+                return Err(vm.new_value_error(
+                    "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'",
+                ));
             }
-            OptionalArg::Missing => vm.ctx.none(),
+            s.into()
+        } else {
+            vm.ctx.none()
         };
 
         let expression = args
@@ -103,8 +93,12 @@ pub struct InterpolationArgs {
     value: PyObjectRef,
     #[pyarg(any, optional)]
     expression: OptionalArg<PyStrRef>,
-    #[pyarg(any, optional)]
-    conversion: OptionalArg<PyObjectRef>,
+    #[pyarg(
+        any,
+        optional,
+        error_msg = "Interpolation() argument 'conversion' must be str or None"
+    )]
+    conversion: Option<PyStrRef>,
     #[pyarg(any, optional)]
     format_spec: OptionalArg<PyStrRef>,
 }

@@ -855,13 +855,13 @@ pub struct PyFunctionNewArgs {
     code: PyRef<PyCode>,
     #[pyarg(positional)]
     globals: PyDictRef,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, error_msg = "arg 3 (name) must be None or string")]
     name: OptionalArg<PyStrRef>,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, error_msg = "arg 4 (defaults) must be None or tuple")]
     argdefs: Option<PyTupleRef>,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, error_msg = "arg 5 (closure) must be None or tuple")]
     closure: Option<PyTupleRef>,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, error_msg = "arg 6 (kwdefaults) must be None or dict")]
     kwdefaults: Option<PyDictRef>,
 }
 
