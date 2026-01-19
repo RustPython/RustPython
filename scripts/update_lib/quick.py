@@ -271,19 +271,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Source path (file or directory)",
     )
     parser.add_argument(
-        "--no-copy",
-        action="store_true",
-        help="Skip copy-lib step (implied if path is a test path)",
+        "--copy",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Copy library file (default: enabled, implied disabled if test path)",
     )
     parser.add_argument(
-        "--no-migrate",
-        action="store_true",
-        help="Skip migration step (implied if path starts with Lib/)",
+        "--migrate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Migrate test file (default: enabled, implied disabled if Lib/ path)",
     )
     parser.add_argument(
-        "--no-auto-mark",
-        action="store_true",
-        help="Skip auto-mark step",
+        "--auto-mark",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Auto-mark test failures (default: enabled)",
     )
     parser.add_argument(
         "--mark-failure",
@@ -291,21 +294,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Add @expectedFailure to failing tests",
     )
     parser.add_argument(
-        "--no-commit",
-        action="store_true",
-        help="Skip git commit step",
+        "--commit",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Create git commit (default: enabled)",
     )
     parser.add_argument(
-        "--skip-build",
-        action="store_true",
-        help="Skip cargo build, use pre-built binary",
+        "--build",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Build with cargo (default: enabled)",
     )
 
     args = parser.parse_args(argv)
 
     try:
         src_path = args.path
-        no_copy = args.no_copy
 
         # Shortcut: expand simple name to cpython/Lib path
         src_path = _expand_shortcut(src_path)
@@ -320,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
             # Get library destination path for commit
             lib_file_path = parse_lib_path(src_path)
 
-            if not no_copy:
+            if args.copy:
                 from update_lib.copy_lib import copy_lib
 
                 copy_lib(src_path)
@@ -336,14 +340,14 @@ def main(argv: list[str] | None = None) -> int:
         # Process the test path
         quick(
             src_path,
-            no_migrate=args.no_migrate,
-            no_auto_mark=args.no_auto_mark,
+            no_migrate=not args.migrate,
+            no_auto_mark=not args.auto_mark,
             mark_failure=args.mark_failure,
-            skip_build=args.skip_build,
+            skip_build=not args.build,
         )
 
         # Step 3: Git commit
-        if not args.no_commit:
+        if args.commit:
             # Extract module name from path
             name = original_src.stem
             if name == "__init__":

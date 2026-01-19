@@ -675,9 +675,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Also add @expectedFailure to failing tests (default: only remove unexpected successes)",
     )
     parser.add_argument(
-        "--skip-build",
-        action="store_true",
-        help="Skip cargo build, use pre-built binary",
+        "--build",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Build with cargo (default: enabled)",
     )
 
     args = parser.parse_args(argv)
@@ -685,11 +686,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.path.is_dir():
             num_added, num_removed, _ = auto_mark_directory(
-                args.path, mark_failure=args.mark_failure, skip_build=args.skip_build
+                args.path, mark_failure=args.mark_failure, skip_build=not args.build
             )
         else:
             num_added, num_removed, _ = auto_mark_file(
-                args.path, mark_failure=args.mark_failure, skip_build=args.skip_build
+                args.path, mark_failure=args.mark_failure, skip_build=not args.build
             )
         if args.mark_failure:
             print(f"Added expectedFailure to {num_added} tests")
