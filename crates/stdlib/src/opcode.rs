@@ -107,9 +107,7 @@ mod opcode {
                     Instruction::Break { .. }
                         | Instruction::Continue { .. }
                         | Instruction::ForIter { .. }
-                        | Instruction::JumpIfFalseOrPop { .. }
                         | Instruction::JumpIfNotExcMatch(_)
-                        | Instruction::JumpIfTrueOrPop { .. }
                         | Instruction::PopJumpIfFalse { .. }
                         | Instruction::PopJumpIfTrue { .. }
                         | Instruction::Send { .. }

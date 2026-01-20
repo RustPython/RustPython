@@ -1139,9 +1139,6 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
             }
-            Instruction::JumpIfFalseOrPop { target } => {
-                self.jump_if_or_pop(vm, target.get(arg), false)
-            }
             Instruction::JumpIfNotExcMatch(target) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
@@ -1164,9 +1161,6 @@ impl ExecutingFrame<'_> {
                 let value = a.is_instance(&b, vm)?;
                 self.push_value(vm.ctx.new_bool(value).into());
                 self.pop_jump_if(vm, target.get(arg), false)
-            }
-            Instruction::JumpIfTrueOrPop { target } => {
-                self.jump_if_or_pop(vm, target.get(arg), true)
             }
             Instruction::JumpForward { target } => {
                 self.jump(target.get(arg));
@@ -1734,7 +1728,6 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::StoreSubscr => self.execute_store_subscript(vm),
-            Instruction::Subscript => self.execute_subscript(vm),
             Instruction::Swap { index } => {
                 let len = self.state.stack.len();
                 debug_assert!(len > 0, "stack underflow in SWAP");
@@ -2074,14 +2067,6 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn execute_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
-        let b_ref = self.pop_value();
-        let a_ref = self.pop_value();
-        let value = a_ref.get_item(&*b_ref, vm)?;
-        self.push_value(value);
-        Ok(None)
-    }
-
     fn execute_store_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
@@ -2351,23 +2336,6 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    #[inline]
-    fn jump_if_or_pop(
-        &mut self,
-        vm: &VirtualMachine,
-        target: bytecode::Label,
-        flag: bool,
-    ) -> FrameResult {
-        let obj = self.top_value();
-        let value = obj.to_owned().try_to_bool(vm)?;
-        if value == flag {
-            self.jump(target);
-        } else {
-            self.pop_value();
-        }
-        Ok(None)
-    }
-
     /// The top of stack contains the iterator, lets push it forward
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
         let top_of_stack = PyIter::new(self.top_value());
@@ -2380,15 +2348,13 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Ok(PyIterReturn::StopIteration(_)) => {
-                // Pop iterator from stack:
-                self.pop_value();
-
-                // End of for loop
+                // CPython 3.14: Do NOT pop iterator here
+                // POP_ITER instruction will handle cleanup after the loop
                 self.jump(target);
                 Ok(None)
             }
             Err(next_error) => {
-                // Pop iterator from stack:
+                // On error, pop iterator and propagate
                 self.pop_value();
                 Err(next_error)
             }
