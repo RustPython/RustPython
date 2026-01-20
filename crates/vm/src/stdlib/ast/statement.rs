@@ -260,10 +260,22 @@ impl Node for ast::StmtClassDef {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(_vm, source_file), _vm)
             .unwrap();
-        dict.set_item("bases", bases.ast_to_object(_vm, source_file), _vm)
-            .unwrap();
-        dict.set_item("keywords", keywords.ast_to_object(_vm, source_file), _vm)
-            .unwrap();
+        dict.set_item(
+            "bases",
+            bases
+                .map(|b| b.ast_to_object(_vm, source_file))
+                .unwrap_or_else(|| _vm.ctx.new_list(vec![]).into()),
+            _vm,
+        )
+        .unwrap();
+        dict.set_item(
+            "keywords",
+            keywords
+                .map(|k| k.ast_to_object(_vm, source_file))
+                .unwrap_or_else(|| _vm.ctx.new_list(vec![]).into()),
+            _vm,
+        )
+        .unwrap();
         dict.set_item("body", body.ast_to_object(_vm, source_file), _vm)
             .unwrap();
         dict.set_item(
