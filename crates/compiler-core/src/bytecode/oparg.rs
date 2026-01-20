@@ -428,6 +428,8 @@ op_arg_enum!(
         InplaceTrueDivide = 24,
         /// `^=`
         InplaceXor = 25,
+        /// `[]` subscript
+        Subscr = 26,
     }
 );
 
@@ -493,6 +495,7 @@ impl fmt::Display for BinaryOperator {
             Self::InplaceSubtract => "-=",
             Self::InplaceTrueDivide => "/=",
             Self::InplaceXor => "^=",
+            Self::Subscr => "[]",
         };
         write!(f, "{op}")
     }
@@ -515,6 +518,34 @@ op_arg_enum!(
         Yes = 1,
     }
 );
+
+op_arg_enum!(
+    /// Special method for LOAD_SPECIAL opcode (context managers).
+    #[repr(u8)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum SpecialMethod {
+        /// `__enter__` for sync context manager
+        Enter = 0,
+        /// `__exit__` for sync context manager
+        Exit = 1,
+        /// `__aenter__` for async context manager
+        AEnter = 2,
+        /// `__aexit__` for async context manager
+        AExit = 3,
+    }
+);
+
+impl fmt::Display for SpecialMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let method_name = match self {
+            Self::Enter => "__enter__",
+            Self::Exit => "__exit__",
+            Self::AEnter => "__aenter__",
+            Self::AExit => "__aexit__",
+        };
+        write!(f, "{method_name}")
+    }
+}
 
 /// Specifies if a slice is built with either 2 or 3 arguments.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -617,39 +617,7 @@ impl ExecutingFrame<'_> {
         }
 
         match instruction {
-            Instruction::BeforeAsyncWith => {
-                let mgr = self.pop_value();
-                let error_string = || -> String {
-                    format!(
-                        "'{:.200}' object does not support the asynchronous context manager protocol",
-                        mgr.class().name(),
-                    )
-                };
-
-                let aenter_res = vm
-                    .get_special_method(&mgr, identifier!(vm, __aenter__))?
-                    .ok_or_else(|| vm.new_type_error(error_string()))?
-                    .invoke((), vm)?;
-                let aexit = mgr
-                    .get_attr(identifier!(vm, __aexit__), vm)
-                    .map_err(|_exc| {
-                        vm.new_type_error({
-                            format!("{} (missed __aexit__ method)", error_string())
-                        })
-                    })?;
-                self.push_value(aexit);
-                self.push_value(aenter_res);
-
-                Ok(None)
-            }
             Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
-            Instruction::BinarySubscr => {
-                let key = self.pop_value();
-                let container = self.pop_value();
-                let result = container.get_item(key.as_object(), vm)?;
-                self.push_value(result);
-                Ok(None)
-            }
 
             Instruction::BuildList { size } => {
                 let sz = size.get(arg) as usize;
@@ -1263,6 +1231,40 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
+            Instruction::LoadSpecial { method } => {
+                // Stack effect: 0 (replaces TOS with bound method)
+                // Input: [..., obj]
+                // Output: [..., bound_method]
+                use crate::vm::PyMethod;
+                use bytecode::SpecialMethod;
+
+                let obj = self.pop_value();
+                let method_name = match method.get(arg) {
+                    SpecialMethod::Enter => identifier!(vm, __enter__),
+                    SpecialMethod::Exit => identifier!(vm, __exit__),
+                    SpecialMethod::AEnter => identifier!(vm, __aenter__),
+                    SpecialMethod::AExit => identifier!(vm, __aexit__),
+                };
+
+                let bound = match vm.get_special_method(&obj, method_name)? {
+                    Some(PyMethod::Function { target, func }) => {
+                        // Create bound method: PyBoundMethod(object=target, function=func)
+                        crate::builtins::PyBoundMethod::new(target, func)
+                            .into_ref(&vm.ctx)
+                            .into()
+                    }
+                    Some(PyMethod::Attribute(bound)) => bound,
+                    None => {
+                        return Err(vm.new_type_error(format!(
+                            "'{}' object does not support the context manager protocol (missed {} method)",
+                            obj.class().name(),
+                            method_name
+                        )));
+                    }
+                };
+                self.push_value(bound);
+                Ok(None)
+            }
             Instruction::MakeFunction => self.execute_make_function(vm),
             Instruction::MapAdd { i } => {
                 let value = self.pop_value();
@@ -1629,35 +1631,6 @@ impl ExecutingFrame<'_> {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
             Instruction::SetupAnnotations => self.setup_annotations(vm),
-            Instruction::BeforeWith => {
-                // TOS: context_manager
-                // Result: [..., __exit__, __enter__ result]
-                let context_manager = self.pop_value();
-                let error_string = || -> String {
-                    format!(
-                        "'{:.200}' object does not support the context manager protocol",
-                        context_manager.class().name(),
-                    )
-                };
-
-                // Get __exit__ first (before calling __enter__)
-                let exit = context_manager
-                    .get_attr(identifier!(vm, __exit__), vm)
-                    .map_err(|_exc| {
-                        vm.new_type_error(format!("{} (missed __exit__ method)", error_string()))
-                    })?;
-
-                // Get and call __enter__
-                let enter_res = vm
-                    .get_special_method(&context_manager, identifier!(vm, __enter__))?
-                    .ok_or_else(|| vm.new_type_error(error_string()))?
-                    .invoke((), vm)?;
-
-                // Push __exit__ first, then enter result
-                self.push_value(exit);
-                self.push_value(enter_res);
-                Ok(None)
-            }
             Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
             Instruction::StoreDeref(i) => {
                 let value = self.pop_value();
@@ -2400,6 +2373,7 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::InplaceXor => vm._ixor(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceOr => vm._ior(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceAnd => vm._iand(a_ref, b_ref),
+            bytecode::BinaryOperator::Subscr => a_ref.get_item(b_ref.as_object(), vm),
         }?;
 
         self.push_value(value);

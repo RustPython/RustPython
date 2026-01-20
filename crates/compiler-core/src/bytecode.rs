@@ -23,7 +23,7 @@ pub use crate::bytecode::{
     oparg::{
         BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
         IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx, OpArg,
-        OpArgByte, OpArgState, OpArgType, RaiseKind, ResumeType, UnpackExArgs,
+        OpArgByte, OpArgState, OpArgType, RaiseKind, ResumeType, SpecialMethod, UnpackExArgs,
     },
 };
 
