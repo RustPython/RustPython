@@ -273,9 +273,6 @@ pub enum Instruction {
         target: Arg<Label>,
     } = 217,
     JumpIfNotExcMatch(Arg<Label>) = 220,
-    ReturnConst {
-        idx: Arg<u32>,
-    } = 222,
     SetExcInfo = 223,
     // CPython 3.14 RESUME (128)
     Resume {
@@ -434,7 +431,6 @@ impl TryFrom<u8> for Instruction {
                 target: Arg::marker(),
             }),
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
-            u8::from(Self::ReturnConst { idx: Arg::marker() }),
             u8::from(Self::SetExcInfo),
         ];
 
@@ -479,7 +475,6 @@ impl InstructionMetadata for Instruction {
                 | Self::Continue { .. }
                 | Self::Break { .. }
                 | Self::ReturnValue
-                | Self::ReturnConst { .. }
                 | Self::RaiseVarargs { .. }
                 | Self::Reraise { .. }
         )
@@ -559,7 +554,6 @@ impl InstructionMetadata for Instruction {
             Self::ContainsOp(_) => -1,
             Self::JumpIfNotExcMatch(_) => -2,
             Self::ReturnValue => -1,
-            Self::ReturnConst { .. } => 0,
             Self::Resume { .. } => 0,
             Self::YieldValue { .. } => 0,
             // SEND: (receiver, val) -> (receiver, retval) - no change, both paths keep same depth
@@ -935,7 +929,6 @@ impl InstructionMetadata for Instruction {
             Self::RaiseVarargs { kind } => w!(RAISE_VARARGS, ?kind),
             Self::Reraise { depth } => w!(RERAISE, depth),
             Self::Resume { arg } => w!(RESUME, arg),
-            Self::ReturnConst { idx } => fmt_const("RETURN_CONST", arg, f, idx),
             Self::ReturnValue => w!(RETURN_VALUE),
             Self::Send { target } => w!(SEND, target),
             Self::SetAdd { i } => w!(SET_ADD, i),

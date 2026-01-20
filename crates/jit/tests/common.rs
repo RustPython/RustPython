@@ -141,7 +141,7 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
             | Instruction::ExtendedArg => {
                 // Ignore these instructions for annotation extraction
             }
-            Instruction::ReturnValue | Instruction::ReturnConst { .. } => {
+            Instruction::ReturnValue => {
                 // End of function - return what we have
                 return annotations;
             }
@@ -275,11 +275,6 @@ impl StackMachine {
                     // For other attributes, just push the function back unchanged
                     self.stack.push(StackValue::Function(func));
                 }
-            }
-            Instruction::ReturnConst { idx } => {
-                let idx = idx.get(arg);
-                self.stack.push(constants[idx as usize].clone().into());
-                return ControlFlow::Break(());
             }
             Instruction::ReturnValue => return ControlFlow::Break(()),
             Instruction::ExtendedArg => {}

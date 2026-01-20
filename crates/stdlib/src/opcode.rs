@@ -71,9 +71,7 @@ mod opcode {
         pub fn has_const(opcode: i32) -> bool {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::LoadConst { .. } | Instruction::ReturnConst { .. }
-                ))
+                Ok(AnyInstruction::Real(Instruction::LoadConst { .. }))
             )
         }
 

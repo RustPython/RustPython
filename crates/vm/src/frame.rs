@@ -1562,10 +1562,6 @@ impl ExecutingFrame<'_> {
                 // }
                 Ok(None)
             }
-            Instruction::ReturnConst { idx } => {
-                let value = self.code.constants[idx.get(arg) as usize].clone().into();
-                self.unwind_blocks(vm, UnwindReason::Returning { value })
-            }
             Instruction::ReturnValue => {
                 let value = self.pop_value();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })

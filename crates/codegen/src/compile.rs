@@ -7688,17 +7688,11 @@ impl Compiler {
     }
 
     fn emit_return_const(&mut self, constant: ConstantData) {
-        let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| Instruction::ReturnConst { idx })
+        self.emit_load_const(constant);
+        emit!(self, Instruction::ReturnValue)
     }
 
     fn emit_return_value(&mut self) {
-        if let Some(inst) = self.current_block().instructions.last_mut()
-            && let AnyInstruction::Real(Instruction::LoadConst { idx }) = inst.instr
-        {
-            inst.instr = Instruction::ReturnConst { idx }.into();
-            return;
-        }
         emit!(self, Instruction::ReturnValue)
     }
 
