@@ -31,6 +31,8 @@ fromlist
 heaptype
 HIGHRES
 IMMUTABLETYPE
+INCREF
+inplace
 ismine
 Itertool
 keeped
@@ -39,6 +41,7 @@ kwonlyarg
 kwonlyargs
 lasti
 linearise
+Lshift
 lsprof
 maxdepth
 mult
@@ -62,12 +65,15 @@ pyrepl
 pythonw
 PYTHREAD_NAME
 releasebuffer
+repr
+Rshift
 SA_ONSTACK
 SOABI
 stackdepth
 stginfo
 stringlib
 structseq
+subscr
 subkwargs
 subparams
 swappedbytes

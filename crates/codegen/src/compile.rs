@@ -30,7 +30,7 @@ use rustpython_compiler_core::{
     bytecode::{
         self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
         ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, IntrinsicFunction1,
-        Invert, OpArg, OpArgType, PseudoInstruction, UnpackExArgs,
+        Invert, OpArg, OpArgType, PseudoInstruction, SpecialMethod, UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -489,7 +489,12 @@ impl Compiler {
             match ctx {
                 ast::ExprContext::Load => {
                     emit!(self, Instruction::BuildSlice { argc });
-                    emit!(self, Instruction::BinarySubscr);
+                    emit!(
+                        self,
+                        Instruction::BinaryOp {
+                            op: BinaryOperator::Subscr
+                        }
+                    );
                 }
                 ast::ExprContext::Store => {
                     emit!(self, Instruction::BuildSlice { argc });
@@ -503,7 +508,12 @@ impl Compiler {
 
             // Emit appropriate instruction based on context
             match ctx {
-                ast::ExprContext::Load => emit!(self, Instruction::BinarySubscr),
+                ast::ExprContext::Load => emit!(
+                    self,
+                    Instruction::BinaryOp {
+                        op: BinaryOperator::Subscr
+                    }
+                ),
                 ast::ExprContext::Store => emit!(self, Instruction::StoreSubscr),
                 ast::ExprContext::Del => emit!(self, Instruction::DeleteSubscr),
                 ast::ExprContext::Invalid => {
@@ -4680,20 +4690,55 @@ impl Compiler {
         let exc_handler_block = self.new_block();
         let after_block = self.new_block();
 
-        // Compile context expression and BEFORE_WITH
+        // Compile context expression and load __enter__/__exit__ methods
         self.compile_expression(&item.context_expr)?;
         self.set_source_range(with_range);
+
+        // Stack: [cm]
+        emit!(self, Instruction::Copy { index: 1_u32 }); // [cm, cm]
 
         if is_async {
             if self.ctx.func != FunctionContext::AsyncFunction {
                 return Err(self.error(CodegenErrorType::InvalidAsyncWith));
             }
-            emit!(self, Instruction::BeforeAsyncWith);
+            // Load __aexit__ and __aenter__, then call __aenter__
+            emit!(
+                self,
+                Instruction::LoadSpecial {
+                    method: SpecialMethod::AExit
+                }
+            ); // [cm, bound_aexit]
+            emit!(self, Instruction::Swap { index: 2_u32 }); // [bound_aexit, cm]
+            emit!(
+                self,
+                Instruction::LoadSpecial {
+                    method: SpecialMethod::AEnter
+                }
+            ); // [bound_aexit, bound_aenter]
+            // bound_aenter is already bound, call with NULL self_or_null
+            emit!(self, Instruction::PushNull); // [bound_aexit, bound_aenter, NULL]
+            emit!(self, Instruction::Call { nargs: 0 }); // [bound_aexit, awaitable]
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         } else {
-            emit!(self, Instruction::BeforeWith);
+            // Load __exit__ and __enter__, then call __enter__
+            emit!(
+                self,
+                Instruction::LoadSpecial {
+                    method: SpecialMethod::Exit
+                }
+            ); // [cm, bound_exit]
+            emit!(self, Instruction::Swap { index: 2_u32 }); // [bound_exit, cm]
+            emit!(
+                self,
+                Instruction::LoadSpecial {
+                    method: SpecialMethod::Enter
+                }
+            ); // [bound_exit, bound_enter]
+            // bound_enter is already bound, call with NULL self_or_null
+            emit!(self, Instruction::PushNull); // [bound_exit, bound_enter, NULL]
+            emit!(self, Instruction::Call { nargs: 0 }); // [bound_exit, enter_result]
         }
 
         // Stack: [..., __exit__, enter_result]
@@ -5179,7 +5224,12 @@ impl Compiler {
                 );
             }
             // Use BINARY_OP/NB_SUBSCR to extract the element.
-            emit!(self, Instruction::BinarySubscr);
+            emit!(
+                self,
+                Instruction::BinaryOp {
+                    op: BinaryOperator::Subscr
+                }
+            );
             // Compile the subpattern in irrefutable mode.
             self.compile_pattern_subpattern(pattern, pc)?;
         }
@@ -6206,7 +6256,12 @@ impl Compiler {
                 self.compile_expression(slice)?;
                 emit!(self, Instruction::Copy { index: 2_u32 });
                 emit!(self, Instruction::Copy { index: 2_u32 });
-                emit!(self, Instruction::BinarySubscr);
+                emit!(
+                    self,
+                    Instruction::BinaryOp {
+                        op: BinaryOperator::Subscr
+                    }
+                );
                 AugAssignKind::Subscript
             }
             ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {

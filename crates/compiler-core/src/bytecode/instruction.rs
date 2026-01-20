@@ -6,7 +6,7 @@ use crate::{
         oparg::{
             BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
             IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx,
-            OpArg, OpArgByte, OpArgType, RaiseKind, UnpackExArgs,
+            OpArg, OpArgByte, OpArgType, RaiseKind, SpecialMethod, UnpackExArgs,
         },
     },
     marshal::MarshalError,
@@ -192,8 +192,8 @@ pub enum Instruction {
         idx: Arg<u32>,
     } = 94, // Placeholder
     LoadSpecial {
-        arg: Arg<u32>,
-    } = 95, // Placeholder
+        method: Arg<SpecialMethod>,
+    } = 95,
     LoadSuperAttr {
         arg: Arg<u32>,
     } = 96,
@@ -258,14 +258,6 @@ pub enum Instruction {
     YieldValue {
         arg: Arg<u32>,
     } = 120,
-    // RustPython-only instructions (212-225)
-    // These either don't exist in CPython 3.14 or are RustPython-specific.
-    BeforeAsyncWith = 212,
-    BeforeWith = 213,
-    BinarySubscr = 214,
-    BuildConstKeyMap {
-        size: Arg<u32>,
-    } = 215, // Placeholder
     // CPython 3.14 RESUME (128)
     Resume {
         arg: Arg<u32>,
@@ -408,15 +400,8 @@ impl TryFrom<u8> for Instruction {
         let instrumented_start = u8::from(Self::InstrumentedEndFor);
         let instrumented_end = u8::from(Self::InstrumentedLine);
 
-        // RustPython-only opcodes (explicit list to avoid gaps)
-        let custom_ops: &[u8] = &[
-            u8::from(Self::BeforeAsyncWith),
-            u8::from(Self::BeforeWith),
-            u8::from(Self::BinarySubscr),
-            u8::from(Self::BuildConstKeyMap {
-                size: Arg::marker(),
-            }),
-        ];
+        // No RustPython-only opcodes anymore - all opcodes match CPython 3.14
+        let custom_ops: &[u8] = &[];
 
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
@@ -493,7 +478,6 @@ impl InstructionMetadata for Instruction {
             Self::Reserved => 0,
             Self::BinaryOp { .. } => -1,
             Self::CompareOp { .. } => -1,
-            Self::BinarySubscr => -1,
             Self::Copy { .. } => 1,
             Self::PopTop => -1,
             Self::Swap { .. } => 0,
@@ -542,7 +526,6 @@ impl InstructionMetadata for Instruction {
             Self::CheckExcMatch => 0,  // [exc, type] -> [exc, bool] (pops type, pushes bool)
             Self::Reraise { .. } => 0, // Exception raised, stack effect doesn't matter
             Self::SetupAnnotations => 0,
-            Self::BeforeWith => 1, // push __exit__, then replace ctx_mgr with __enter__ result
             Self::WithExceptStart => 1, // push __exit__ result
             Self::RaiseVarargs { kind } => {
                 // Stack effects for different raise kinds:
@@ -591,7 +574,6 @@ impl InstructionMetadata for Instruction {
             Self::PopExcept => 0,
             Self::PopIter => -1,
             Self::GetAwaitable => 0,
-            Self::BeforeAsyncWith => 1,
             Self::GetAIter => 0,
             Self::GetANext => 1,
             Self::EndAsyncFor => -2,  // pops (awaitable, exc) from stack
@@ -621,7 +603,6 @@ impl InstructionMetadata for Instruction {
             Self::LoadLocals => 0,
             Self::ReturnGenerator => 0,
             Self::StoreSlice => 0,
-            Self::BuildConstKeyMap { .. } => 0,
             Self::CopyFreeVars { .. } => 0,
             Self::EnterExecutor => 0,
             Self::JumpBackwardNoInterrupt { .. } => 0,
@@ -803,10 +784,7 @@ impl InstructionMetadata for Instruction {
             };
 
         match self {
-            Self::BeforeAsyncWith => w!(BEFORE_ASYNC_WITH),
-            Self::BeforeWith => w!(BEFORE_WITH),
             Self::BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
-            Self::BinarySubscr => w!(BINARY_SUBSCR),
             Self::BuildList { size } => w!(BUILD_LIST, size),
             Self::BuildMap { size } => w!(BUILD_MAP, size),
             Self::BuildSet { size } => w!(BUILD_SET, size),
@@ -875,6 +853,7 @@ impl InstructionMetadata for Instruction {
             Self::LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
             Self::LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
             Self::LoadName(idx) => w!(LOAD_NAME, name = idx),
+            Self::LoadSpecial { method } => w!(LOAD_SPECIAL, method),
             Self::LoadSuperAttr { arg: idx } => {
                 let encoded = idx.get(arg);
                 let (name_idx, load_method, has_class) = decode_load_super_attr_arg(encoded);
