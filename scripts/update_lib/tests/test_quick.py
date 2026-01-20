@@ -6,7 +6,12 @@ import unittest
 from unittest.mock import patch
 
 from update_lib.path import lib_to_test_path
-from update_lib.quick import _expand_shortcut, collect_original_methods, get_cpython_dir, git_commit
+from update_lib.quick import (
+    _expand_shortcut,
+    collect_original_methods,
+    get_cpython_dir,
+    git_commit,
+)
 
 
 class TestGetCpythonDir(unittest.TestCase):
