@@ -14,8 +14,8 @@ If during the upgrade process you encounter any of the following issues with `sc
 
 **STOP the upgrade and report the issue first.** Describe:
 1. What you were trying to do
-  - Library name
-  - The full command executed (e.g. python scripts/update_lib quick cpython/Lib/$ARGUMENTS.py)
+    - Library name
+    - The full command executed (e.g. python scripts/update_lib quick cpython/Lib/$ARGUMENTS.py)
 2. What went wrong or what's missing
 3. Expected vs actual behavior
 

@@ -136,6 +136,29 @@ class TestLibToTestPath(unittest.TestCase):
         result = lib_to_test_path(pathlib.Path("Lib/nonexistent_module.py"))
         self.assertEqual(result, pathlib.Path("Lib/test/test_nonexistent_module/"))
 
+    def test_init_py_uses_parent_name(self):
+        """Test __init__.py uses parent directory name."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            # Create structure: tmpdir/Lib/json/__init__.py
+            lib_dir = tmpdir / "Lib"
+            lib_dir.mkdir()
+            json_dir = lib_dir / "json"
+            json_dir.mkdir()
+            (json_dir / "__init__.py").write_text("# json init")
+            test_dir = lib_dir / "test"
+            test_dir.mkdir()
+
+            result = lib_to_test_path(tmpdir / "Lib" / "json" / "__init__.py")
+            # Should use "json" not "__init__"
+            self.assertEqual(result, tmpdir / "Lib" / "test" / "test_json/")
+
+    def test_init_py_lib_path_uses_parent_name(self):
+        """Test __init__.py with Lib/ path uses parent directory name."""
+        result = lib_to_test_path(pathlib.Path("Lib/json/__init__.py"))
+        # Should use "json" not "__init__"
+        self.assertEqual(result, pathlib.Path("Lib/test/test_json/"))
+
 
 class TestGetTestFiles(unittest.TestCase):
     """Tests for get_test_files function."""

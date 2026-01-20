@@ -298,8 +298,17 @@ def _find_import_insert_line(tree: ast.Module) -> int:
     for node in tree.body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             last_import_line = node.end_lineno or node.lineno
-    assert last_import_line is not None
-    return last_import_line
+    if last_import_line is not None:
+        return last_import_line
+    # No imports found - insert after module docstring if present, else at top
+    if (
+        tree.body
+        and isinstance(tree.body[0], ast.Expr)
+        and isinstance(tree.body[0].value, ast.Constant)
+        and isinstance(tree.body[0].value.value, str)
+    ):
+        return tree.body[0].end_lineno or tree.body[0].lineno
+    return 0
 
 
 def apply_patches(contents: str, patches: Patches) -> str:

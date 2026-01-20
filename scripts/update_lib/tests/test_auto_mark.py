@@ -6,6 +6,7 @@ import unittest
 from update_lib.auto_mark import (
     Test,
     TestResult,
+    _is_super_call_only,
     apply_test_changes,
     collect_test_changes,
     extract_test_methods,
@@ -587,6 +588,61 @@ class TestSmartAutoMarkFiltering(unittest.TestCase):
 
         self.assertEqual(to_mark, set())
         self.assertEqual(regressions, {("TestFoo", "test_one")})
+
+
+class TestIsSuperCallOnly(unittest.TestCase):
+    """Tests for _is_super_call_only function."""
+
+    def _parse_method(self, code: str):
+        """Parse code and return the first method."""
+        import ast
+
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return node
+        return None
+
+    def test_matching_super_call(self):
+        """Test method that calls super().same_name()."""
+        code = """
+class Foo:
+    def test_one(self):
+        return super().test_one()
+"""
+        method = self._parse_method(code)
+        self.assertTrue(_is_super_call_only(method))
+
+    def test_mismatched_super_call(self):
+        """Test method that calls super().different_name()."""
+        code = """
+class Foo:
+    def test_one(self):
+        return super().test_two()
+"""
+        method = self._parse_method(code)
+        self.assertFalse(_is_super_call_only(method))
+
+    def test_not_super_call(self):
+        """Test method with regular body."""
+        code = """
+class Foo:
+    def test_one(self):
+        pass
+"""
+        method = self._parse_method(code)
+        self.assertFalse(_is_super_call_only(method))
+
+    def test_multiple_statements(self):
+        """Test method with multiple statements."""
+        code = """
+class Foo:
+    def test_one(self):
+        x = 1
+        return super().test_one()
+"""
+        method = self._parse_method(code)
+        self.assertFalse(_is_super_call_only(method))
 
 
 if __name__ == "__main__":

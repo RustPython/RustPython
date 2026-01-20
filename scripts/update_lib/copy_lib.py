@@ -46,6 +46,7 @@ def copy_lib(
     if src_path.is_dir():
         if verbose:
             print(f"Copying directory: {src_path} -> {lib_path}")
+        lib_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src_path, lib_path)
     else:
         if verbose:

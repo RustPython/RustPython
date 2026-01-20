@@ -7,6 +7,7 @@ from update_lib.patch_spec import (
     COMMENT,
     PatchSpec,
     UtMethod,
+    _find_import_insert_line,
     apply_patches,
     extract_patches,
     iter_tests,
@@ -319,6 +320,42 @@ class TestFoo(unittest.TestCase):
         # Should have the decorator
         self.assertIn("@unittest.expectedFailure", result)
         self.assertIn(COMMENT, result)
+
+
+class TestFindImportInsertLine(unittest.TestCase):
+    """Tests for _find_import_insert_line function."""
+
+    def test_with_imports(self):
+        """Test finding line after imports."""
+        code = """import os
+import sys
+
+class Foo:
+    pass
+"""
+        tree = ast.parse(code)
+        line = _find_import_insert_line(tree)
+        self.assertEqual(line, 2)
+
+    def test_no_imports_with_docstring(self):
+        """Test fallback to after docstring when no imports."""
+        code = '''"""Module docstring."""
+
+class Foo:
+    pass
+'''
+        tree = ast.parse(code)
+        line = _find_import_insert_line(tree)
+        self.assertEqual(line, 1)
+
+    def test_no_imports_no_docstring(self):
+        """Test fallback to line 0 when no imports and no docstring."""
+        code = """class Foo:
+    pass
+"""
+        tree = ast.parse(code)
+        line = _find_import_insert_line(tree)
+        self.assertEqual(line, 0)
 
 
 if __name__ == "__main__":

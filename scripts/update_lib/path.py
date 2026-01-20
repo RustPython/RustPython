@@ -47,6 +47,7 @@ def lib_to_test_path(src_path: pathlib.Path) -> pathlib.Path:
         cpython/Lib/dataclasses.py -> cpython/Lib/test/test_dataclasses/ (if dir exists)
         cpython/Lib/typing.py -> cpython/Lib/test/test_typing.py (if file exists)
         cpython/Lib/json/ -> cpython/Lib/test/test_json/
+        cpython/Lib/json/__init__.py -> cpython/Lib/test/test_json/
         Lib/dataclasses.py -> Lib/test/test_dataclasses/
     """
     path_str = str(src_path).replace("\\", "/")
@@ -55,6 +56,9 @@ def lib_to_test_path(src_path: pathlib.Path) -> pathlib.Path:
     if lib_marker in path_str:
         lib_path = parse_lib_path(src_path)
         lib_name = lib_path.stem if lib_path.suffix == ".py" else lib_path.name
+        # Handle __init__.py: use parent directory name
+        if lib_name == "__init__":
+            lib_name = lib_path.parent.name
         prefix = path_str[: path_str.index(lib_marker)]
         # Try directory first, then file
         dir_path = pathlib.Path(f"{prefix}/Lib/test/test_{lib_name}/")
@@ -68,6 +72,9 @@ def lib_to_test_path(src_path: pathlib.Path) -> pathlib.Path:
     else:
         # Path starts with Lib/ - extract name directly
         lib_name = src_path.stem if src_path.suffix == ".py" else src_path.name
+        # Handle __init__.py: use parent directory name
+        if lib_name == "__init__":
+            lib_name = src_path.parent.name
         # Try directory first, then file
         dir_path = pathlib.Path(f"Lib/test/test_{lib_name}/")
         if dir_path.exists():

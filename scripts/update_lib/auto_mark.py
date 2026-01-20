@@ -236,6 +236,9 @@ def _is_super_call_only(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bo
         return False
     if not isinstance(call.func, ast.Attribute):
         return False
+    # Verify the method name matches
+    if call.func.attr != func_node.name:
+        return False
     super_call = call.func.value
     if not isinstance(super_call, ast.Call):
         return False
