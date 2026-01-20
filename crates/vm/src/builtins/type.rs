@@ -876,11 +876,13 @@ impl PyType {
     }
 
     #[pygetset(setter)]
-    fn set___annotate__(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-        if value.is_none() {
-            return Err(vm.new_type_error("cannot delete __annotate__ attribute".to_owned()));
-        }
-        let value = value.unwrap();
+    fn set___annotate__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let value = match value {
+            PySetterValue::Delete => {
+                return Err(vm.new_type_error("cannot delete __annotate__ attribute".to_owned()));
+            }
+            PySetterValue::Assign(v) => v,
+        };
 
         if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
