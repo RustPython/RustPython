@@ -54,6 +54,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Show dependency information for a module",
         add_help=False,
     )
+    subparsers.add_parser(
+        "todo",
+        help="Show prioritized list of modules to update",
+        add_help=False,
+    )
 
     args, remaining = parser.parse_known_args(argv)
 
@@ -86,6 +91,11 @@ def main(argv: list[str] | None = None) -> int:
         from update_lib.show_deps import main as show_deps_main
 
         return show_deps_main(remaining)
+
+    if args.command == "todo":
+        from update_lib.show_todo import main as show_todo_main
+
+        return show_todo_main(remaining)
 
     return 0
 

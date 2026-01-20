@@ -82,7 +82,7 @@ class TestGetLibPaths(unittest.TestCase):
             (lib_dir / "foo.py").write_text("# foo")
 
             paths = get_lib_paths("foo", str(tmpdir))
-            self.assertEqual(paths, [tmpdir / "Lib" / "foo.py"])
+            self.assertEqual(paths, (tmpdir / "Lib" / "foo.py",))
 
     def test_default_directory(self):
         """Test default to directory when file doesn't exist."""
@@ -93,7 +93,7 @@ class TestGetLibPaths(unittest.TestCase):
             (lib_dir / "foo").mkdir()
 
             paths = get_lib_paths("foo", str(tmpdir))
-            self.assertEqual(paths, [tmpdir / "Lib" / "foo"])
+            self.assertEqual(paths, (tmpdir / "Lib" / "foo",))
 
 
 class TestGetTestPaths(unittest.TestCase):
@@ -114,7 +114,7 @@ class TestGetTestPaths(unittest.TestCase):
             (test_dir / "test_foo").mkdir()
 
             paths = get_test_paths("foo", str(tmpdir))
-            self.assertEqual(paths, [tmpdir / "Lib" / "test" / "test_foo"])
+            self.assertEqual(paths, (tmpdir / "Lib" / "test" / "test_foo",))
 
     def test_default_file(self):
         """Test fallback to test_name.py file."""
@@ -125,7 +125,7 @@ class TestGetTestPaths(unittest.TestCase):
             (test_dir / "test_foo.py").write_text("# test")
 
             paths = get_test_paths("foo", str(tmpdir))
-            self.assertEqual(paths, [tmpdir / "Lib" / "test" / "test_foo.py"])
+            self.assertEqual(paths, (tmpdir / "Lib" / "test" / "test_foo.py",))
 
 
 class TestGetDataPaths(unittest.TestCase):
@@ -140,7 +140,7 @@ class TestGetDataPaths(unittest.TestCase):
     def test_no_data(self):
         """Test module without data paths."""
         paths = get_data_paths("datetime", "cpython")
-        self.assertEqual(paths, [])
+        self.assertEqual(paths, ())
 
 
 class TestGetTestDependencies(unittest.TestCase):

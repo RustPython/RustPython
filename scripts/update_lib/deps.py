@@ -7,6 +7,7 @@ Handles:
 - Test dependencies (auto-detected from 'from test import ...')
 """
 
+import functools
 import pathlib
 
 from update_lib.io_utils import read_python_files, safe_parse_ast, safe_read_text
@@ -145,7 +146,10 @@ TEST_DEPENDENCIES = {
 }
 
 
-def get_lib_paths(name: str, cpython_prefix: str = "cpython") -> list[pathlib.Path]:
+@functools.cache
+def get_lib_paths(
+    name: str, cpython_prefix: str = "cpython"
+) -> tuple[pathlib.Path, ...]:
     """Get all library paths for a module.
 
     Args:
@@ -153,7 +157,7 @@ def get_lib_paths(name: str, cpython_prefix: str = "cpython") -> list[pathlib.Pa
         cpython_prefix: CPython directory prefix
 
     Returns:
-        List of paths to copy
+        Tuple of paths to copy
     """
     dep_info = DEPENDENCIES.get(name, {})
 
@@ -168,10 +172,13 @@ def get_lib_paths(name: str, cpython_prefix: str = "cpython") -> list[pathlib.Pa
     for dep in dep_info.get("hard_deps", []):
         paths.append(construct_lib_path(cpython_prefix, dep))
 
-    return paths
+    return tuple(paths)
 
 
-def get_test_paths(name: str, cpython_prefix: str = "cpython") -> list[pathlib.Path]:
+@functools.cache
+def get_test_paths(
+    name: str, cpython_prefix: str = "cpython"
+) -> tuple[pathlib.Path, ...]:
     """Get all test paths for a module.
 
     Args:
@@ -179,18 +186,21 @@ def get_test_paths(name: str, cpython_prefix: str = "cpython") -> list[pathlib.P
         cpython_prefix: CPython directory prefix
 
     Returns:
-        List of test paths
+        Tuple of test paths
     """
     if name in DEPENDENCIES and "test" in DEPENDENCIES[name]:
-        return [
+        return tuple(
             construct_lib_path(cpython_prefix, p) for p in DEPENDENCIES[name]["test"]
-        ]
+        )
 
     # Default: try directory first, then file
-    return [resolve_module_path(f"test/test_{name}", cpython_prefix, prefer="dir")]
+    return (resolve_module_path(f"test/test_{name}", cpython_prefix, prefer="dir"),)
 
 
-def get_data_paths(name: str, cpython_prefix: str = "cpython") -> list[pathlib.Path]:
+@functools.cache
+def get_data_paths(
+    name: str, cpython_prefix: str = "cpython"
+) -> tuple[pathlib.Path, ...]:
     """Get additional data paths for a module.
 
     Args:
@@ -198,13 +208,13 @@ def get_data_paths(name: str, cpython_prefix: str = "cpython") -> list[pathlib.P
         cpython_prefix: CPython directory prefix
 
     Returns:
-        List of data paths (may be empty)
+        Tuple of data paths (may be empty)
     """
     if name in DEPENDENCIES and "data" in DEPENDENCIES[name]:
-        return [
+        return tuple(
             construct_lib_path(cpython_prefix, p) for p in DEPENDENCIES[name]["data"]
-        ]
-    return []
+        )
+    return ()
 
 
 def parse_test_imports(content: str) -> set[str]:
@@ -272,7 +282,8 @@ def parse_lib_imports(content: str) -> set[str]:
     return imports
 
 
-def get_all_imports(name: str, cpython_prefix: str = "cpython") -> set[str]:
+@functools.cache
+def get_all_imports(name: str, cpython_prefix: str = "cpython") -> frozenset[str]:
     """Get all imports from a library file.
 
     Args:
@@ -280,7 +291,7 @@ def get_all_imports(name: str, cpython_prefix: str = "cpython") -> set[str]:
         cpython_prefix: CPython directory prefix
 
     Returns:
-        Set of all imported module names
+        Frozenset of all imported module names
     """
     all_imports = set()
     for lib_path in get_lib_paths(name, cpython_prefix):
@@ -290,10 +301,11 @@ def get_all_imports(name: str, cpython_prefix: str = "cpython") -> set[str]:
 
     # Remove self
     all_imports.discard(name)
-    return all_imports
+    return frozenset(all_imports)
 
 
-def get_soft_deps(name: str, cpython_prefix: str = "cpython") -> set[str]:
+@functools.cache
+def get_soft_deps(name: str, cpython_prefix: str = "cpython") -> frozenset[str]:
     """Get soft dependencies by parsing imports from library file.
 
     Args:
@@ -301,7 +313,7 @@ def get_soft_deps(name: str, cpython_prefix: str = "cpython") -> set[str]:
         cpython_prefix: CPython directory prefix
 
     Returns:
-        Set of imported stdlib module names (those that exist in cpython/Lib/)
+        Frozenset of imported stdlib module names (those that exist in cpython/Lib/)
     """
     all_imports = get_all_imports(name, cpython_prefix)
 
@@ -312,10 +324,11 @@ def get_soft_deps(name: str, cpython_prefix: str = "cpython") -> set[str]:
         if module_path.exists():
             stdlib_deps.add(imp)
 
-    return stdlib_deps
+    return frozenset(stdlib_deps)
 
 
-def get_rust_deps(name: str, cpython_prefix: str = "cpython") -> set[str]:
+@functools.cache
+def get_rust_deps(name: str, cpython_prefix: str = "cpython") -> frozenset[str]:
     """Get Rust/C dependencies (imports that don't exist in cpython/Lib/).
 
     Args:
@@ -323,11 +336,11 @@ def get_rust_deps(name: str, cpython_prefix: str = "cpython") -> set[str]:
         cpython_prefix: CPython directory prefix
 
     Returns:
-        Set of imported module names that are built-in or C extensions
+        Frozenset of imported module names that are built-in or C extensions
     """
     all_imports = get_all_imports(name, cpython_prefix)
     soft_deps = get_soft_deps(name, cpython_prefix)
-    return all_imports - soft_deps
+    return frozenset(all_imports - soft_deps)
 
 
 def _dircmp_is_same(dcmp) -> bool:
@@ -350,6 +363,7 @@ def _dircmp_is_same(dcmp) -> bool:
     return True
 
 
+@functools.cache
 def is_up_to_date(
     name: str, cpython_prefix: str = "cpython", lib_prefix: str = "Lib"
 ) -> bool:
@@ -472,9 +486,9 @@ def resolve_all_paths(
         Dict with "lib", "test", "data", "test_deps" keys
     """
     result = {
-        "lib": get_lib_paths(name, cpython_prefix),
-        "test": get_test_paths(name, cpython_prefix),
-        "data": get_data_paths(name, cpython_prefix),
+        "lib": list(get_lib_paths(name, cpython_prefix)),
+        "test": list(get_test_paths(name, cpython_prefix)),
+        "data": list(get_data_paths(name, cpython_prefix)),
         "test_deps": [],
     }
 
