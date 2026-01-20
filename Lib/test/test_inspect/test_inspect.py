@@ -1377,6 +1377,7 @@ class TestClassesAndFunctions(unittest.TestCase):
         spec = inspect.getfullargspec(test)
         self.assertEqual(test.__annotations__, spec.annotations)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_pickle' is not defined. Did you mean: 'pickle'? Or did you forget to import '_pickle'?
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_getfullargspec_builtin_methods(self):
@@ -1798,7 +1799,6 @@ class TestClassesAndFunctions(unittest.TestCase):
 
 
 class TestFormatAnnotation(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_typing_replacement(self):
         from test.typinganndata.ann_module9 import A, ann, ann1
         self.assertEqual(inspect.formatannotation(ann), 'List[str] | int')
@@ -2720,6 +2720,7 @@ class TestGetattrStatic(unittest.TestCase):
 
         self.assertFalse(test.called)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'test.test_inspect.test_inspect.TestGetattrStatic.test_cache_does_not_cause_classes_to_persist.<locals>.Foo'> is not None
     def test_cache_does_not_cause_classes_to_persist(self):
         # regression test for gh-118013:
         # check that the internal _shadowed_dict cache does not cause
@@ -4411,7 +4412,6 @@ class TestSignatureObject(unittest.TestCase):
             self.assertEqual(self.signature(C.__new__, follow_wrapped=False),
                              varargs_signature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_class_with_init(self):
         class C:
             def __init__(self, b):
@@ -4637,6 +4637,7 @@ class TestSignatureObject(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "callable.*is not supported"):
             self.assertEqual(inspect.signature(D), None)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_pickle' is not defined. Did you mean: 'pickle'? Or did you forget to import '_pickle'?
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_signature_on_builtin_class(self):
@@ -5180,6 +5181,7 @@ class TestSignatureObject(unittest.TestCase):
         foo_sig = MySignature.from_callable(foo)
         self.assertIsInstance(foo_sig, MySignature)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_pickle' is not defined. Did you mean: 'pickle'? Or did you forget to import '_pickle'?
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_signature_from_callable_builtin_obj(self):
@@ -6518,7 +6520,6 @@ def foo():
                 inspected_src.splitlines(True)
             )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_getsource_reload(self):
         # see issue 1218234
         with ready_to_import('reload_bug', self.src_before) as (name, path):
