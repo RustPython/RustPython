@@ -288,7 +288,9 @@ impl Node for ast::StmtClassDef {
         .unwrap();
         dict.set_item(
             "type_params",
-            type_params.ast_to_object(_vm, source_file),
+            type_params
+                .map(|tp| tp.ast_to_object(_vm, source_file))
+                .unwrap_or_else(|| _vm.ctx.new_list(vec![]).into()),
             _vm,
         )
         .unwrap();
