@@ -142,8 +142,6 @@ class PyclbrTest(TestCase, ExtraAssertions):
                 if defined_in(item, module):
                     self.assertHaskey(dict, name, ignore)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_easy(self):
         self.checkModule('pyclbr')
         # XXX: Metaclasses are not supported
@@ -158,8 +156,6 @@ class PyclbrTest(TestCase, ExtraAssertions):
         # see test.pyclbr_input for the rationale behind the ignored symbols
         self.checkModule('test.pyclbr_input', ignore=['om', 'f'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nested(self):
         mb = pyclbr
         # Set arguments for descriptor creation and _creat_tree call.
