@@ -1,0 +1,117 @@
+name: Lib Dependencies Check
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'Lib/**'
+
+concurrency:
+  group: lib-deps-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check_deps:
+    permissions:
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v6.0.1
+        with:
+          # Use base branch for scripts (security: don't run PR code with elevated permissions)
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+
+      - name: Fetch PR head
+        run: |
+          git fetch origin ${{ github.event.pull_request.head.sha }}
+
+      - name: Checkout CPython
+        run: |
+          git clone --depth 1 --branch v3.14.2 https://github.com/python/cpython.git cpython
+
+      - name: Get changed Lib files
+        id: changed-files
+        run: |
+          # Get the list of changed files under Lib/
+          changed=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py' | head -50)
+          echo "Changed files:"
+          echo "$changed"
+
+          # Extract unique module names (top-level only, skip test/)
+          modules=""
+          for file in $changed; do
+            # Skip test files
+            if [[ "$file" == Lib/test/* ]]; then
+              continue
+            fi
+            # Extract module name: Lib/foo.py -> foo, Lib/foo/__init__.py -> foo
+            module=$(echo "$file" | sed -E 's|^Lib/||; s|/__init__\.py$||; s|\.py$||; s|/.*||')
+            if [[ -n "$module" && ! " $modules " =~ " $module " ]]; then
+              modules="$modules $module"
+            fi
+          done
+
+          modules=$(echo "$modules" | xargs)  # trim whitespace
+          echo "Detected modules: $modules"
+          echo "modules=$modules" >> $GITHUB_OUTPUT
+
+      - name: Setup Python
+        if: steps.changed-files.outputs.modules != ''
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Run deps check
+        if: steps.changed-files.outputs.modules != ''
+        id: deps-check
+        run: |
+          # Run deps for all modules at once
+          python scripts/update_lib deps ${{ steps.changed-files.outputs.modules }} --depth 2 > /tmp/deps_output.txt 2>&1 || true
+
+          # Read output for GitHub Actions
+          echo "deps_output<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/deps_output.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Check if there's any meaningful output
+          if [ -s /tmp/deps_output.txt ]; then
+            echo "has_output=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_output=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post comment
+        if: steps.deps-check.outputs.has_output == 'true'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: lib-deps-check
+          number: ${{ github.event.pull_request.number }}
+          message: |
+            ## 📦 Library Dependencies
+
+            The following Lib/ modules were modified. Here are their dependencies:
+
+            <details>
+            <summary>Click to expand dependency information</summary>
+
+            ```
+            ${{ steps.deps-check.outputs.deps_output }}
+            ```
+
+            </details>
+
+            **Legend:**
+            - `[+]` path exists, `[-]` path missing
+            - `[x]` up-to-date, `[ ]` outdated
+            - `native:` Rust/C extension modules
+
+      - name: Remove comment if no Lib changes
+        if: steps.changed-files.outputs.modules == ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: lib-deps-check
+          number: ${{ github.event.pull_request.number }}
+          delete: true
