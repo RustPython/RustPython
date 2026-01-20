@@ -158,10 +158,7 @@ def get_lib_paths(name: str, cpython_prefix: str = "cpython") -> list[pathlib.Pa
 
     # Get main lib path (override or default)
     if "lib" in dep_info:
-        paths = [
-            pathlib.Path(f"{cpython_prefix}/Lib/{p}")
-            for p in dep_info["lib"]
-        ]
+        paths = [pathlib.Path(f"{cpython_prefix}/Lib/{p}") for p in dep_info["lib"]]
     else:
         # Default: try file first, then directory
         file_path = pathlib.Path(f"{cpython_prefix}/Lib/{name}.py")

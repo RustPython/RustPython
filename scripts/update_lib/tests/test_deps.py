@@ -200,7 +200,9 @@ class TestKR:
 
             # Should find multibytecodec_support.py as a hard_dep
             self.assertEqual(len(result["hard_deps"]), 1)
-            self.assertEqual(result["hard_deps"][0], test_dir / "multibytecodec_support.py")
+            self.assertEqual(
+                result["hard_deps"][0], test_dir / "multibytecodec_support.py"
+            )
 
             # Should find cjkencodings as data (from multibytecodec_support's TEST_DEPENDENCIES)
             self.assertEqual(len(result["data"]), 1)
@@ -221,8 +223,12 @@ class TestResolveAllPaths(unittest.TestCase):
         """Test resolving regrtest module."""
         result = resolve_all_paths("regrtest", include_deps=False)
         self.assertEqual(result["lib"], [pathlib.Path("cpython/Lib/test/libregrtest")])
-        self.assertEqual(result["test"], [pathlib.Path("cpython/Lib/test/test_regrtest")])
-        self.assertEqual(result["data"], [pathlib.Path("cpython/Lib/test/regrtestdata")])
+        self.assertEqual(
+            result["test"], [pathlib.Path("cpython/Lib/test/test_regrtest")]
+        )
+        self.assertEqual(
+            result["data"], [pathlib.Path("cpython/Lib/test/regrtestdata")]
+        )
 
 
 if __name__ == "__main__":

@@ -107,7 +107,9 @@ class TestExpandShortcut(unittest.TestCase):
         # Only test expansion if cpython checkout exists
         if expected.exists():
             result = _expand_shortcut(path)
-            self.assertEqual(result, expected, "_expand_shortcut should expand 'regrtest'")
+            self.assertEqual(
+                result, expected, "_expand_shortcut should expand 'regrtest'"
+            )
 
 
 class TestCollectOriginalMethods(unittest.TestCase):
@@ -207,7 +209,9 @@ class TestQuickTestRunFailure(unittest.TestCase):
         from update_lib.auto_mark import TestResult, TestRunError, auto_mark_file
 
         # Simulate test runner crash (empty tests_result)
-        mock_run_test.return_value = TestResult(tests_result="", tests=[], stdout="crash")
+        mock_run_test.return_value = TestResult(
+            tests_result="", tests=[], stdout="crash"
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a fake test file with Lib/test structure
