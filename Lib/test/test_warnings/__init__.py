@@ -241,7 +241,6 @@ class FilterTests(BaseTest):
                                     42)
             self.assertEqual(len(w), 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON re.PatternError: bad escape \z at position 15
     def test_filter_module(self):
         MS_WINDOWS = (sys.platform == 'win32')
         with self.module.catch_warnings(record=True) as w:
