@@ -266,12 +266,6 @@ pub enum Instruction {
     BuildConstKeyMap {
         size: Arg<u32>,
     } = 215, // Placeholder
-    Break {
-        target: Arg<Label>,
-    } = 216,
-    Continue {
-        target: Arg<Label>,
-    } = 217,
     JumpIfNotExcMatch(Arg<Label>) = 220,
     SetExcInfo = 223,
     // CPython 3.14 RESUME (128)
@@ -424,12 +418,6 @@ impl TryFrom<u8> for Instruction {
             u8::from(Self::BuildConstKeyMap {
                 size: Arg::marker(),
             }),
-            u8::from(Self::Break {
-                target: Arg::marker(),
-            }),
-            u8::from(Self::Continue {
-                target: Arg::marker(),
-            }),
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
             u8::from(Self::SetExcInfo),
         ];
@@ -459,8 +447,6 @@ impl InstructionMetadata for Instruction {
             | Self::PopJumpIfTrue { target: l }
             | Self::PopJumpIfFalse { target: l }
             | Self::ForIter { target: l }
-            | Self::Break { target: l }
-            | Self::Continue { target: l }
             | Self::Send { target: l } => Some(*l),
             _ => None,
         }
@@ -472,8 +458,6 @@ impl InstructionMetadata for Instruction {
             Self::JumpForward { .. }
                 | Self::JumpBackward { .. }
                 | Self::JumpBackwardNoInterrupt { .. }
-                | Self::Continue { .. }
-                | Self::Break { .. }
                 | Self::ReturnValue
                 | Self::RaiseVarargs { .. }
                 | Self::Reraise { .. }
@@ -523,8 +507,6 @@ impl InstructionMetadata for Instruction {
             Self::GetLen => 1,
             Self::CallIntrinsic1 { .. } => 0,  // Takes 1, pushes 1
             Self::CallIntrinsic2 { .. } => -1, // Takes 2, pushes 1
-            Self::Continue { .. } => 0,
-            Self::Break { .. } => 0,
             Self::PopJumpIfTrue { .. } => -1,
             Self::PopJumpIfFalse { .. } => -1,
             Self::MakeFunction => {
@@ -832,7 +814,6 @@ impl InstructionMetadata for Instruction {
             Self::BeforeWith => w!(BEFORE_WITH),
             Self::BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
             Self::BinarySubscr => w!(BINARY_SUBSCR),
-            Self::Break { target } => w!(BREAK, target),
             Self::BuildList { size } => w!(BUILD_LIST, size),
             Self::BuildMap { size } => w!(BUILD_MAP, size),
             Self::BuildSet { size } => w!(BUILD_SET, size),
@@ -849,7 +830,6 @@ impl InstructionMetadata for Instruction {
             Self::CleanupThrow => w!(CLEANUP_THROW),
             Self::CompareOp { op } => w!(COMPARE_OP, ?op),
             Self::ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
-            Self::Continue { target } => w!(CONTINUE, target),
             Self::ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
             Self::Copy { index } => w!(COPY, index),
             Self::DeleteAttr { idx } => w!(DELETE_ATTR, name = idx),

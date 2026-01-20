@@ -7870,11 +7870,8 @@ impl Compiler {
         }
 
         // Jump to target
-        if is_break {
-            emit!(self, Instruction::Break { target: exit_block });
-        } else {
-            emit!(self, Instruction::Continue { target: loop_block });
-        }
+        let target = if is_break { exit_block } else { loop_block };
+        emit!(self, PseudoInstruction::Jump { target });
 
         Ok(())
     }
