@@ -6,7 +6,7 @@ mod _functools {
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBoundMethod, PyDict, PyGenericAlias, PyTuple, PyType, PyTypeRef},
         common::lock::PyRwLock,
-        function::{FuncArgs, KwArgs, OptionalArg},
+        function::{FuncArgs, KwArgs, OptionalOption},
         object::AsObject,
         protocol::PyIter,
         pyclass,
@@ -15,17 +15,31 @@ mod _functools {
     };
     use indexmap::IndexMap;
 
-    #[pyfunction]
-    fn reduce(
+    #[derive(FromArgs)]
+    struct ReduceArgs {
         function: PyObjectRef,
         iterator: PyIter,
-        start_value: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+        #[pyarg(any, optional, name = "initial")]
+        initial: OptionalOption<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn reduce(args: ReduceArgs, vm: &VirtualMachine) -> PyResult {
+        let ReduceArgs {
+            function,
+            iterator,
+            initial,
+        } = args;
         let mut iter = iterator.iter_without_hint(vm)?;
-        let start_value = if let OptionalArg::Present(val) = start_value {
-            val
+        // OptionalOption distinguishes between:
+        // - Missing: no argument provided → use first element from iterator
+        // - Present(None): explicitly passed None → use None as initial value
+        // - Present(Some(v)): passed a value → use that value
+        let start_value = if let Some(val) = initial.into_option() {
+            // initial was provided (could be None or Some value)
+            val.unwrap_or_else(|| vm.ctx.none())
         } else {
+            // initial was not provided at all
             iter.next().transpose()?.ok_or_else(|| {
                 let exc_type = vm.ctx.exceptions.type_error.to_owned();
                 vm.new_exception_msg(
