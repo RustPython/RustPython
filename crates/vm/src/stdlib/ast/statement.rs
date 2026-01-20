@@ -187,7 +187,9 @@ impl Node for ast::StmtFunctionDef {
         //     .unwrap();
         dict.set_item(
             "type_params",
-            type_params.ast_to_object(vm, source_file),
+            type_params
+                .map(|tp| tp.ast_to_object(vm, source_file))
+                .unwrap_or_else(|| vm.ctx.new_list(vec![]).into()),
             vm,
         )
         .unwrap();
