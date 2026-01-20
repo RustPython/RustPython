@@ -58,5 +58,18 @@ class TestCopySingle(unittest.TestCase):
             self.assertEqual(dst.read_text(), "new content")
 
 
+class TestCopyLib(unittest.TestCase):
+    """Tests for copy_lib function."""
+
+    def test_raises_on_path_without_lib(self):
+        """Test that copy_lib raises ValueError when path doesn't contain /Lib/."""
+        from update_lib.copy_lib import copy_lib
+
+        with self.assertRaises(ValueError) as ctx:
+            copy_lib(pathlib.Path("some/path/without/lib.py"))
+
+        self.assertIn("/Lib/", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

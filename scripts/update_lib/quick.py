@@ -31,12 +31,16 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
+from update_lib.io_utils import safe_read_text
 from update_lib.path import (
+    construct_lib_path,
+    get_module_name,
     get_test_files,
     is_lib_path,
     is_test_path,
     lib_to_test_path,
     parse_lib_path,
+    resolve_module_path,
 )
 
 
@@ -56,11 +60,14 @@ def collect_original_methods(
         return None
 
     if lib_path.is_file():
-        return extract_test_methods(lib_path.read_text())
+        content = safe_read_text(lib_path)
+        return extract_test_methods(content) if content else set()
     else:
         result = {}
         for lib_file in get_test_files(lib_path):
-            result[lib_file.resolve()] = extract_test_methods(lib_file.read_text())
+            content = safe_read_text(lib_file)
+            if content:
+                result[lib_file.resolve()] = extract_test_methods(content)
         return result
 
 
@@ -128,8 +135,15 @@ def quick(
             if verbose:
                 print(f"Copying data: {data_src.name}")
             if data_lib.exists():
-                shutil.rmtree(data_lib)
-            shutil.copytree(data_src, data_lib)
+                if data_lib.is_dir():
+                    shutil.rmtree(data_lib)
+                else:
+                    data_lib.unlink()
+            if data_src.is_dir():
+                shutil.copytree(data_src, data_lib)
+            else:
+                data_lib.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(data_src, data_lib)
 
     # Step 2: Auto-mark
     if not no_auto_mark:
@@ -272,26 +286,20 @@ def _expand_shortcut(path: pathlib.Path) -> pathlib.Path:
     if name in DEPENDENCIES and "lib" in DEPENDENCIES[name]:
         lib_paths = DEPENDENCIES[name]["lib"]
         if lib_paths:
-            override_path = pathlib.Path(f"cpython/Lib/{lib_paths[0]}")
+            override_path = construct_lib_path("cpython", lib_paths[0])
             if override_path.exists():
                 return override_path
 
     # Test shortcut: test_foo -> cpython/Lib/test/test_foo
     if name.startswith("test_"):
-        dir_path = pathlib.Path(f"cpython/Lib/test/{name}")
-        if dir_path.exists():
-            return dir_path
-        file_path = pathlib.Path(f"cpython/Lib/test/{name}.py")
-        if file_path.exists():
-            return file_path
+        resolved = resolve_module_path(f"test/{name}", "cpython", prefer="dir")
+        if resolved.exists():
+            return resolved
 
     # Library shortcut: foo -> cpython/Lib/foo
-    file_path = pathlib.Path(f"cpython/Lib/{name}.py")
-    if file_path.exists():
-        return file_path
-    dir_path = pathlib.Path(f"cpython/Lib/{name}")
-    if dir_path.exists():
-        return dir_path
+    resolved = resolve_module_path(name, "cpython", prefer="file")
+    if resolved.exists():
+        return resolved
 
     # Return original (will likely fail later with a clear error)
     return path
@@ -369,29 +377,30 @@ def main(argv: list[str] | None = None) -> int:
             # Convert to test path
             src_path = lib_to_test_path(original_src)
             if not src_path.exists():
-                print(f"Test path does not exist: {src_path}")
-                return 1
+                print(f"Warning: Test path does not exist: {src_path}")
+                # Skip test processing, but continue with commit
+                src_path = None
 
-        test_path = parse_lib_path(src_path) if not is_lib_path(src_path) else src_path
+        if src_path is not None:
+            test_path = (
+                parse_lib_path(src_path) if not is_lib_path(src_path) else src_path
+            )
 
-        # Process the test path
-        quick(
-            src_path,
-            no_migrate=not args.migrate,
-            no_auto_mark=not args.auto_mark,
-            mark_failure=args.mark_failure,
-            skip_build=not args.build,
-        )
+            # Process the test path
+            quick(
+                src_path,
+                no_migrate=not args.migrate,
+                no_auto_mark=not args.auto_mark,
+                mark_failure=args.mark_failure,
+                skip_build=not args.build,
+            )
 
         # Step 3: Git commit
         if args.commit:
-            # Extract module name from path
-            name = original_src.stem
-            if name == "__init__":
-                name = original_src.parent.name
-
             cpython_dir = get_cpython_dir(original_src)
-            git_commit(name, lib_file_path, test_path, cpython_dir)
+            git_commit(
+                get_module_name(original_src), lib_file_path, test_path, cpython_dir
+            )
 
         return 0
     except ValueError as e:

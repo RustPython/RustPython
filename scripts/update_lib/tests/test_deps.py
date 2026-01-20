@@ -342,5 +342,85 @@ import nonexistent
             self.assertEqual(soft_deps, {"bar"})
 
 
+class TestDircmpIsSame(unittest.TestCase):
+    """Tests for _dircmp_is_same function."""
+
+    def test_identical_directories(self):
+        """Test that identical directories return True."""
+        import filecmp
+
+        from update_lib.deps import _dircmp_is_same
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            dir1 = tmpdir / "dir1"
+            dir2 = tmpdir / "dir2"
+            dir1.mkdir()
+            dir2.mkdir()
+
+            (dir1 / "file.py").write_text("content")
+            (dir2 / "file.py").write_text("content")
+
+            dcmp = filecmp.dircmp(dir1, dir2)
+            self.assertTrue(_dircmp_is_same(dcmp))
+
+    def test_different_files(self):
+        """Test that directories with different files return False."""
+        import filecmp
+
+        from update_lib.deps import _dircmp_is_same
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            dir1 = tmpdir / "dir1"
+            dir2 = tmpdir / "dir2"
+            dir1.mkdir()
+            dir2.mkdir()
+
+            (dir1 / "file.py").write_text("content1")
+            (dir2 / "file.py").write_text("content2")
+
+            dcmp = filecmp.dircmp(dir1, dir2)
+            self.assertFalse(_dircmp_is_same(dcmp))
+
+    def test_nested_identical(self):
+        """Test that nested identical directories return True."""
+        import filecmp
+
+        from update_lib.deps import _dircmp_is_same
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            dir1 = tmpdir / "dir1"
+            dir2 = tmpdir / "dir2"
+            (dir1 / "sub").mkdir(parents=True)
+            (dir2 / "sub").mkdir(parents=True)
+
+            (dir1 / "sub" / "file.py").write_text("content")
+            (dir2 / "sub" / "file.py").write_text("content")
+
+            dcmp = filecmp.dircmp(dir1, dir2)
+            self.assertTrue(_dircmp_is_same(dcmp))
+
+    def test_nested_different(self):
+        """Test that nested directories with differences return False."""
+        import filecmp
+
+        from update_lib.deps import _dircmp_is_same
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            dir1 = tmpdir / "dir1"
+            dir2 = tmpdir / "dir2"
+            (dir1 / "sub").mkdir(parents=True)
+            (dir2 / "sub").mkdir(parents=True)
+
+            (dir1 / "sub" / "file.py").write_text("content1")
+            (dir2 / "sub" / "file.py").write_text("content2")
+
+            dcmp = filecmp.dircmp(dir1, dir2)
+            self.assertFalse(_dircmp_is_same(dcmp))
+
+
 if __name__ == "__main__":
     unittest.main()

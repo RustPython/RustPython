@@ -104,3 +104,84 @@ def test_name_from_path(test_path: pathlib.Path) -> str:
     if test_path.parent.name.startswith("test_"):
         return f"{test_path.parent.name}.{test_path.stem}"
     return test_path.stem
+
+
+# --- Utility functions for reducing duplication ---
+
+
+def resolve_module_path(
+    name: str, prefix: str = "cpython", prefer: str = "file"
+) -> pathlib.Path:
+    """
+    Resolve module path, trying file or directory.
+
+    Args:
+        name: Module name (e.g., "dataclasses", "json")
+        prefix: CPython directory prefix
+        prefer: "file" to try .py first, "dir" to try directory first
+
+    Returns:
+        Path to the module (file or directory)
+
+    Examples:
+        resolve_module_path("dataclasses") -> cpython/Lib/dataclasses.py
+        resolve_module_path("json") -> cpython/Lib/json/
+    """
+    file_path = pathlib.Path(f"{prefix}/Lib/{name}.py")
+    dir_path = pathlib.Path(f"{prefix}/Lib/{name}")
+
+    if prefer == "file":
+        if file_path.exists():
+            return file_path
+        if dir_path.exists():
+            return dir_path
+        return file_path  # Default to file
+    else:
+        if dir_path.exists():
+            return dir_path
+        if file_path.exists():
+            return file_path
+        return dir_path  # Default to dir
+
+
+def construct_lib_path(prefix: str, *parts: str) -> pathlib.Path:
+    """
+    Build a path under prefix/Lib/.
+
+    Args:
+        prefix: Directory prefix (e.g., "cpython")
+        *parts: Path components after Lib/
+
+    Returns:
+        Combined path
+
+    Examples:
+        construct_lib_path("cpython", "test", "test_foo.py")
+            -> cpython/Lib/test/test_foo.py
+        construct_lib_path("cpython", "dataclasses.py")
+            -> cpython/Lib/dataclasses.py
+    """
+    return pathlib.Path(prefix) / "Lib" / pathlib.Path(*parts)
+
+
+def get_module_name(path: pathlib.Path) -> str:
+    """
+    Extract module name from path, handling __init__.py.
+
+    Args:
+        path: Path to a Python file or directory
+
+    Returns:
+        Module name
+
+    Examples:
+        get_module_name(Path("cpython/Lib/dataclasses.py")) -> "dataclasses"
+        get_module_name(Path("cpython/Lib/json/__init__.py")) -> "json"
+        get_module_name(Path("cpython/Lib/json/")) -> "json"
+    """
+    if path.suffix == ".py":
+        name = path.stem
+        if name == "__init__":
+            return path.parent.name
+        return name
+    return path.name

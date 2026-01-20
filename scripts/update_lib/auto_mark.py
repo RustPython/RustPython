@@ -455,14 +455,12 @@ def extract_test_methods(contents: str) -> set[tuple[str, str]]:
     Returns:
         Set of (class_name, method_name) tuples
     """
-    import ast
-
-    try:
-        tree = ast.parse(contents)
-    except SyntaxError:
-        return set()
-
+    from update_lib.io_utils import safe_parse_ast
     from update_lib.patch_spec import iter_tests
+
+    tree = safe_parse_ast(contents)
+    if tree is None:
+        return set()
 
     return {(cls_node.name, fn_node.name) for cls_node, fn_node in iter_tests(tree)}
 
