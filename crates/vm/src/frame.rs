@@ -775,6 +775,15 @@ impl ExecutingFrame<'_> {
                 let exc_value = self.pop_value();
                 let (rest, matched) =
                     crate::exceptions::exception_group_match(&exc_value, &match_type, vm)?;
+
+                // Set matched exception as current exception (if not None)
+                // This mirrors CPython's PyErr_SetHandledException(match_o) in CHECK_EG_MATCH
+                if !vm.is_none(&matched)
+                    && let Some(exc) = matched.downcast_ref::<PyBaseException>()
+                {
+                    vm.set_exception(Some(exc.to_owned()));
+                }
+
                 self.push_value(rest);
                 self.push_value(matched);
                 Ok(None)
@@ -1118,29 +1127,6 @@ impl ExecutingFrame<'_> {
                 };
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
-            }
-            Instruction::JumpIfNotExcMatch(target) => {
-                let b = self.pop_value();
-                let a = self.pop_value();
-                if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
-                    for exception in tuple_of_exceptions {
-                        if !exception
-                            .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
-                        {
-                            return Err(vm.new_type_error(
-                                "catching classes that do not inherit from BaseException is not allowed",
-                            ));
-                        }
-                    }
-                } else if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
-                    return Err(vm.new_type_error(
-                        "catching classes that do not inherit from BaseException is not allowed",
-                    ));
-                }
-
-                let value = a.is_instance(&b, vm)?;
-                self.push_value(vm.ctx.new_bool(value).into());
-                self.pop_jump_if(vm, target.get(arg), false)
             }
             Instruction::JumpForward { target } => {
                 self.jump(target.get(arg));
@@ -1569,15 +1555,6 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            Instruction::SetExcInfo => {
-                // Set the current exception to TOS (for except* handlers)
-                // This updates sys.exc_info() so bare 'raise' will reraise the matched exception
-                let exc = self.top_value();
-                if let Some(exc) = exc.downcast_ref::<PyBaseException>() {
-                    vm.set_exception(Some(exc.to_owned()));
-                }
-                Ok(None)
-            }
             Instruction::PushExcInfo => {
                 // Stack: [exc] -> [prev_exc, exc]
                 let exc = self.pop_value();
@@ -1600,7 +1577,23 @@ impl ExecutingFrame<'_> {
                 let exc_type = self.pop_value();
                 let exc = self.top_value();
 
-                // Validate that exc_type is valid for exception matching
+                // Validate that exc_type inherits from BaseException
+                if let Some(tuple_of_exceptions) = exc_type.downcast_ref::<PyTuple>() {
+                    for exception in tuple_of_exceptions {
+                        if !exception
+                            .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
+                        {
+                            return Err(vm.new_type_error(
+                                "catching classes that do not inherit from BaseException is not allowed",
+                            ));
+                        }
+                    }
+                } else if !exc_type.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
+                    return Err(vm.new_type_error(
+                        "catching classes that do not inherit from BaseException is not allowed",
+                    ));
+                }
+
                 let result = exc.is_instance(&exc_type, vm)?;
                 self.push_value(vm.ctx.new_bool(result).into());
                 Ok(None)

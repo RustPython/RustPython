@@ -266,8 +266,6 @@ pub enum Instruction {
     BuildConstKeyMap {
         size: Arg<u32>,
     } = 215, // Placeholder
-    JumpIfNotExcMatch(Arg<Label>) = 220,
-    SetExcInfo = 223,
     // CPython 3.14 RESUME (128)
     Resume {
         arg: Arg<u32>,
@@ -418,8 +416,6 @@ impl TryFrom<u8> for Instruction {
             u8::from(Self::BuildConstKeyMap {
                 size: Arg::marker(),
             }),
-            u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
-            u8::from(Self::SetExcInfo),
         ];
 
         if (cpython_start..=cpython_end).contains(&value)
@@ -443,7 +439,6 @@ impl InstructionMetadata for Instruction {
             Self::JumpBackward { target: l }
             | Self::JumpBackwardNoInterrupt { target: l }
             | Self::JumpForward { target: l }
-            | Self::JumpIfNotExcMatch(l)
             | Self::PopJumpIfTrue { target: l }
             | Self::PopJumpIfFalse { target: l }
             | Self::ForIter { target: l }
@@ -534,7 +529,6 @@ impl InstructionMetadata for Instruction {
             }
             Self::IsOp(_) => -1,
             Self::ContainsOp(_) => -1,
-            Self::JumpIfNotExcMatch(_) => -2,
             Self::ReturnValue => -1,
             Self::Resume { .. } => 0,
             Self::YieldValue { .. } => 0,
@@ -544,7 +538,6 @@ impl InstructionMetadata for Instruction {
             Self::EndSend => -1,
             // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) = 3 pop, 2 push = -1
             Self::CleanupThrow => -1,
-            Self::SetExcInfo => 0,
             Self::PushExcInfo => 1,    // [exc] -> [prev_exc, exc]
             Self::CheckExcMatch => 0,  // [exc, type] -> [exc, bool] (pops type, pushes bool)
             Self::Reraise { .. } => 0, // Exception raised, stack effect doesn't matter
@@ -858,7 +851,6 @@ impl InstructionMetadata for Instruction {
             Self::JumpBackward { target } => w!(JUMP_BACKWARD, target),
             Self::JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
             Self::JumpForward { target } => w!(JUMP_FORWARD, target),
-            Self::JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
             Self::ListAppend { i } => w!(LIST_APPEND, i),
             Self::ListExtend { i } => w!(LIST_EXTEND, i),
             Self::LoadAttr { idx } => {
@@ -912,7 +904,6 @@ impl InstructionMetadata for Instruction {
             Self::ReturnValue => w!(RETURN_VALUE),
             Self::Send { target } => w!(SEND, target),
             Self::SetAdd { i } => w!(SET_ADD, i),
-            Self::SetExcInfo => w!(SET_EXC_INFO),
             Self::SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
             Self::SetupAnnotations => w!(SETUP_ANNOTATIONS),
             Self::SetUpdate { i } => w!(SET_UPDATE, i),

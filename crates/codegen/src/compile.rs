@@ -2925,12 +2925,19 @@ impl Compiler {
             // If we gave a typ,
             // check if this handler can handle the exception:
             if let Some(exc_type) = type_ {
-                // Duplicate exception for test:
-                emit!(self, Instruction::Copy { index: 1_u32 });
-
                 // Check exception type:
+                // Stack: [prev_exc, exc]
                 self.compile_expression(exc_type)?;
-                emit!(self, Instruction::JumpIfNotExcMatch(next_handler));
+                // Stack: [prev_exc, exc, type]
+                emit!(self, Instruction::CheckExcMatch);
+                // Stack: [prev_exc, exc, bool]
+                emit!(
+                    self,
+                    Instruction::PopJumpIfFalse {
+                        target: next_handler
+                    }
+                );
+                // Stack: [prev_exc, exc]
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
@@ -3308,12 +3315,8 @@ impl Compiler {
 
             // Handler matched
             // Stack: [prev_exc, orig, list, new_rest, match]
+            // Note: CheckEgMatch already sets the matched exception as current exception
             let handler_except_block = self.new_block();
-
-            // Set matched exception as current exception (for __context__ in handler body)
-            // This ensures that exceptions raised in the handler get the matched part
-            // as their __context__, not the original full exception group
-            emit!(self, Instruction::SetExcInfo);
 
             // Store match to name or pop
             if let Some(alias) = name {
