@@ -425,11 +425,11 @@ jobs:
       - if: runner.os != 'macOS'
         name: Check whats_left is not broken
         shell: bash
-        run: python -I scripts/whats_left.py --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading,jit"
+        run: python -I scripts/whats_left.py --no-default-features --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading,jit"
       - if: runner.os == 'macOS' # TODO fix jit on macOS
         name: Check whats_left is not broken (macOS)
         shell: bash
-        run: python -I scripts/whats_left.py --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading" # no jit on macOS for now
+        run: python -I scripts/whats_left.py --no-default-features --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading" # no jit on macOS for now
 
   lint:
     name: Check Rust code with clippy
