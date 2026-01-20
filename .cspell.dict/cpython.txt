@@ -51,6 +51,7 @@ numer
 orelse
 pathconfig
 patma
+phcount
 platstdlib
 posonlyarg
 posonlyargs
