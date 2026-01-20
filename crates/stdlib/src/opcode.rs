@@ -103,7 +103,6 @@ mod opcode {
                 Self::try_from(opcode).map(|op| op.inner()),
                 Ok(AnyInstruction::Real(
                     Instruction::ForIter { .. }
-                        | Instruction::JumpIfNotExcMatch(_)
                         | Instruction::PopJumpIfFalse { .. }
                         | Instruction::PopJumpIfTrue { .. }
                         | Instruction::Send { .. }

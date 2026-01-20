@@ -83,10 +83,10 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  73 RERAISE              (1)
             >>   74 JUMP_FORWARD         (100)
                  75 PUSH_EXC_INFO
-                 76 COPY                 (1)
 
-  7              77 LOAD_GLOBAL          (6, Exception)
-                 78 JUMP_IF_NOT_EXC_MATCH(96)
+  7              76 LOAD_GLOBAL          (6, Exception)
+                 77 CHECK_EXC_MATCH
+                 78 POP_JUMP_IF_FALSE    (96)
                  79 STORE_FAST           (1, ex)
 
   8              80 LOAD_GLOBAL          (2, self)
