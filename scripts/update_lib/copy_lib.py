@@ -64,17 +64,14 @@ def copy_lib(
 
     # Extract module name and cpython prefix from path
     path_str = str(src_path).replace("\\", "/")
-    if "/Lib/" in path_str:
-        cpython_prefix, after_lib = path_str.split("/Lib/", 1)
-        # Get module name (first component, without .py)
-        name = after_lib.split("/")[0]
-        if name.endswith(".py"):
-            name = name[:-3]
-    else:
-        # Fallback: just copy the single file
-        lib_path = parse_lib_path(src_path)
-        _copy_single(src_path, lib_path, verbose)
-        return
+    if "/Lib/" not in path_str:
+        raise ValueError(f"Path must contain '/Lib/' (got: {src_path})")
+
+    cpython_prefix, after_lib = path_str.split("/Lib/", 1)
+    # Get module name (first component, without .py)
+    name = after_lib.split("/")[0]
+    if name.endswith(".py"):
+        name = name[:-3]
 
     # Get all paths to copy from DEPENDENCIES table
     all_src_paths = get_lib_paths(name, cpython_prefix)

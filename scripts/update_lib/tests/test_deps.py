@@ -7,8 +7,10 @@ import unittest
 from update_lib.deps import (
     get_data_paths,
     get_lib_paths,
+    get_soft_deps,
     get_test_dependencies,
     get_test_paths,
+    parse_lib_imports,
     parse_test_imports,
     resolve_all_paths,
 )
@@ -229,6 +231,195 @@ class TestResolveAllPaths(unittest.TestCase):
         self.assertEqual(
             result["data"], [pathlib.Path("cpython/Lib/test/regrtestdata")]
         )
+
+
+class TestParseLibImports(unittest.TestCase):
+    """Tests for parse_lib_imports function."""
+
+    def test_import_statement(self):
+        """Test parsing 'import foo'."""
+        code = """
+import os
+import sys
+import collections.abc
+"""
+        imports = parse_lib_imports(code)
+        self.assertEqual(imports, {"os", "sys", "collections"})
+
+    def test_from_import(self):
+        """Test parsing 'from foo import bar'."""
+        code = """
+from os import path
+from collections.abc import Mapping
+from typing import Optional
+"""
+        imports = parse_lib_imports(code)
+        self.assertEqual(imports, {"os", "collections", "typing"})
+
+    def test_mixed_imports(self):
+        """Test mixed import styles."""
+        code = """
+import sys
+from os import path
+from collections import defaultdict
+import functools
+"""
+        imports = parse_lib_imports(code)
+        self.assertEqual(imports, {"sys", "os", "collections", "functools"})
+
+    def test_syntax_error_returns_empty(self):
+        """Test that syntax errors return empty set."""
+        code = "this is not valid python {"
+        imports = parse_lib_imports(code)
+        self.assertEqual(imports, set())
+
+    def test_relative_import_skipped(self):
+        """Test that relative imports (no module) are skipped."""
+        code = """
+from . import foo
+from .. import bar
+"""
+        imports = parse_lib_imports(code)
+        self.assertEqual(imports, set())
+
+
+class TestGetSoftDeps(unittest.TestCase):
+    """Tests for get_soft_deps function."""
+
+    def test_with_temp_files(self):
+        """Test soft deps detection with temp files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            lib_dir.mkdir()
+
+            # Create a module that imports another module
+            (lib_dir / "foo.py").write_text("""
+import bar
+from baz import something
+""")
+            # Create the imported modules
+            (lib_dir / "bar.py").write_text("# bar module")
+            (lib_dir / "baz.py").write_text("# baz module")
+
+            soft_deps = get_soft_deps("foo", str(tmpdir))
+            self.assertEqual(soft_deps, {"bar", "baz"})
+
+    def test_skips_self(self):
+        """Test that module doesn't include itself in soft_deps."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            lib_dir.mkdir()
+
+            # Create a module that imports itself (circular)
+            (lib_dir / "foo.py").write_text("""
+import foo
+import bar
+""")
+            (lib_dir / "bar.py").write_text("# bar module")
+
+            soft_deps = get_soft_deps("foo", str(tmpdir))
+            self.assertNotIn("foo", soft_deps)
+            self.assertIn("bar", soft_deps)
+
+    def test_filters_nonexistent(self):
+        """Test that nonexistent modules are filtered out."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            lib_dir.mkdir()
+
+            # Create a module that imports nonexistent module
+            (lib_dir / "foo.py").write_text("""
+import bar
+import nonexistent
+""")
+            (lib_dir / "bar.py").write_text("# bar module")
+            # nonexistent.py is NOT created
+
+            soft_deps = get_soft_deps("foo", str(tmpdir))
+            self.assertEqual(soft_deps, {"bar"})
+
+
+class TestDircmpIsSame(unittest.TestCase):
+    """Tests for _dircmp_is_same function."""
+
+    def test_identical_directories(self):
+        """Test that identical directories return True."""
+        import filecmp
+
+        from update_lib.deps import _dircmp_is_same
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            dir1 = tmpdir / "dir1"
+            dir2 = tmpdir / "dir2"
+            dir1.mkdir()
+            dir2.mkdir()
+
+            (dir1 / "file.py").write_text("content")
+            (dir2 / "file.py").write_text("content")
+
+            dcmp = filecmp.dircmp(dir1, dir2)
+            self.assertTrue(_dircmp_is_same(dcmp))
+
+    def test_different_files(self):
+        """Test that directories with different files return False."""
+        import filecmp
+
+        from update_lib.deps import _dircmp_is_same
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            dir1 = tmpdir / "dir1"
+            dir2 = tmpdir / "dir2"
+            dir1.mkdir()
+            dir2.mkdir()
+
+            (dir1 / "file.py").write_text("content1")
+            (dir2 / "file.py").write_text("content2")
+
+            dcmp = filecmp.dircmp(dir1, dir2)
+            self.assertFalse(_dircmp_is_same(dcmp))
+
+    def test_nested_identical(self):
+        """Test that nested identical directories return True."""
+        import filecmp
+
+        from update_lib.deps import _dircmp_is_same
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            dir1 = tmpdir / "dir1"
+            dir2 = tmpdir / "dir2"
+            (dir1 / "sub").mkdir(parents=True)
+            (dir2 / "sub").mkdir(parents=True)
+
+            (dir1 / "sub" / "file.py").write_text("content")
+            (dir2 / "sub" / "file.py").write_text("content")
+
+            dcmp = filecmp.dircmp(dir1, dir2)
+            self.assertTrue(_dircmp_is_same(dcmp))
+
+    def test_nested_different(self):
+        """Test that nested directories with differences return False."""
+        import filecmp
+
+        from update_lib.deps import _dircmp_is_same
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            dir1 = tmpdir / "dir1"
+            dir2 = tmpdir / "dir2"
+            (dir1 / "sub").mkdir(parents=True)
+            (dir2 / "sub").mkdir(parents=True)
+
+            (dir1 / "sub" / "file.py").write_text("content1")
+            (dir2 / "sub" / "file.py").write_text("content2")
+
+            dcmp = filecmp.dircmp(dir1, dir2)
+            self.assertFalse(_dircmp_is_same(dcmp))
 
 
 if __name__ == "__main__":
