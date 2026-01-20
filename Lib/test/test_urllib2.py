@@ -727,7 +727,6 @@ def sanepathname2url(path):
 
 class HandlerTests(unittest.TestCase, ExtraAssertions):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None != 'image/gif'
     def test_ftp(self):
         class MockFTPWrapper:
             def __init__(self, data):
