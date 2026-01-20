@@ -489,7 +489,7 @@ impl Compiler {
             match ctx {
                 ast::ExprContext::Load => {
                     emit!(self, Instruction::BuildSlice { argc });
-                    emit!(self, Instruction::Subscript);
+                    emit!(self, Instruction::BinarySubscr);
                 }
                 ast::ExprContext::Store => {
                     emit!(self, Instruction::BuildSlice { argc });
@@ -503,7 +503,7 @@ impl Compiler {
 
             // Emit appropriate instruction based on context
             match ctx {
-                ast::ExprContext::Load => emit!(self, Instruction::Subscript),
+                ast::ExprContext::Load => emit!(self, Instruction::BinarySubscr),
                 ast::ExprContext::Store => emit!(self, Instruction::StoreSubscr),
                 ast::ExprContext::Del => emit!(self, Instruction::DeleteSubscr),
                 ast::ExprContext::Invalid => {
@@ -5990,14 +5990,9 @@ impl Compiler {
             self.compile_addcompare(op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
-            /*
             emit!(self, Instruction::Copy { index: 1 });
-            // emit!(self, Instruction::ToBool); // TODO: Uncomment this
             emit!(self, Instruction::PopJumpIfFalse { target: cleanup });
             emit!(self, Instruction::PopTop);
-            */
-
-            emit!(self, Instruction::JumpIfFalseOrPop { target: cleanup });
         }
 
         self.compile_expression(last_comparator)?;
@@ -6208,7 +6203,7 @@ impl Compiler {
                 self.compile_expression(slice)?;
                 emit!(self, Instruction::Copy { index: 2_u32 });
                 emit!(self, Instruction::Copy { index: 2_u32 });
-                emit!(self, Instruction::Subscript);
+                emit!(self, Instruction::BinarySubscr);
                 AugAssignKind::Subscript
             }
             ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {

@@ -272,19 +272,12 @@ pub enum Instruction {
     Continue {
         target: Arg<Label>,
     } = 217,
-    JumpIfFalseOrPop {
-        target: Arg<Label>,
-    } = 218,
-    JumpIfTrueOrPop {
-        target: Arg<Label>,
-    } = 219,
     JumpIfNotExcMatch(Arg<Label>) = 220,
     LoadAssertionError = 221, // Placeholder
     ReturnConst {
         idx: Arg<u32>,
     } = 222,
     SetExcInfo = 223,
-    Subscript = 224,
     // CPython 3.14 RESUME (128)
     Resume {
         arg: Arg<u32>,
@@ -441,17 +434,10 @@ impl TryFrom<u8> for Instruction {
             u8::from(Self::Continue {
                 target: Arg::marker(),
             }),
-            u8::from(Self::JumpIfFalseOrPop {
-                target: Arg::marker(),
-            }),
-            u8::from(Self::JumpIfTrueOrPop {
-                target: Arg::marker(),
-            }),
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
             u8::from(Self::LoadAssertionError),
             u8::from(Self::ReturnConst { idx: Arg::marker() }),
             u8::from(Self::SetExcInfo),
-            u8::from(Self::Subscript),
         ];
 
         if (cpython_start..=cpython_end).contains(&value)
@@ -478,8 +464,6 @@ impl InstructionMetadata for Instruction {
             | Self::JumpIfNotExcMatch(l)
             | Self::PopJumpIfTrue { target: l }
             | Self::PopJumpIfFalse { target: l }
-            | Self::JumpIfTrueOrPop { target: l }
-            | Self::JumpIfFalseOrPop { target: l }
             | Self::ForIter { target: l }
             | Self::Break { target: l }
             | Self::Continue { target: l }
@@ -525,7 +509,6 @@ impl InstructionMetadata for Instruction {
             Self::DeleteGlobal(_) => 0,
             Self::DeleteDeref(_) => 0,
             Self::LoadFromDictOrDeref(_) => 1,
-            Self::Subscript => -1,
             Self::StoreSubscr => -3,
             Self::DeleteSubscr => -2,
             Self::LoadAttr { .. } => 0,
@@ -551,20 +534,6 @@ impl InstructionMetadata for Instruction {
             Self::Break { .. } => 0,
             Self::PopJumpIfTrue { .. } => -1,
             Self::PopJumpIfFalse { .. } => -1,
-            Self::JumpIfTrueOrPop { .. } => {
-                if jump {
-                    0
-                } else {
-                    -1
-                }
-            }
-            Self::JumpIfFalseOrPop { .. } => {
-                if jump {
-                    0
-                } else {
-                    -1
-                }
-            }
             Self::MakeFunction => {
                 // CPython 3.14 style: MakeFunction only pops code object
                 -1 + 1 // pop code, push function
@@ -918,9 +887,7 @@ impl InstructionMetadata for Instruction {
             Self::JumpBackward { target } => w!(JUMP_BACKWARD, target),
             Self::JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
             Self::JumpForward { target } => w!(JUMP_FORWARD, target),
-            Self::JumpIfFalseOrPop { target } => w!(JUMP_IF_FALSE_OR_POP, target),
             Self::JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
-            Self::JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
             Self::ListAppend { i } => w!(LIST_APPEND, i),
             Self::ListExtend { i } => w!(LIST_EXTEND, i),
             Self::LoadAttr { idx } => {
@@ -992,7 +959,6 @@ impl InstructionMetadata for Instruction {
             Self::StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
             Self::StoreName(idx) => w!(STORE_NAME, name = idx),
             Self::StoreSubscr => w!(STORE_SUBSCR),
-            Self::Subscript => w!(SUBSCRIPT),
             Self::Swap { index } => w!(SWAP, index),
             Self::ToBool => w!(TO_BOOL),
             Self::UnpackEx { args } => w!(UNPACK_EX, args),
