@@ -495,7 +495,6 @@ class TestAsyncCase(unittest.TestCase):
         result = test.run()
         self.assertTrue(result.wasSuccessful())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; asyncio.events._set_event_loop_policy is not implemented
     def test_loop_factory(self):
         asyncio.events._set_event_loop_policy(None)
 

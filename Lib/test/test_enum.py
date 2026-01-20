@@ -5186,6 +5186,7 @@ class TestStdLib(unittest.TestCase):
         if failed:
             self.fail("result does not equal expected, see print above")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Enum.__signature__ is @classmethod instead of @property
     def test_inspect_signatures(self):
         from inspect import signature, Signature, Parameter
         self.assertEqual(

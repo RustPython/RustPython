@@ -801,7 +801,7 @@ def get_event_loop_policy():
     return _event_loop_policy
 
 
-def set_event_loop_policy(policy):
+def _set_event_loop_policy(policy):
     """Set the current event loop policy.
 
     If policy is None, the default policy is restored."""
@@ -809,6 +809,13 @@ def set_event_loop_policy(policy):
     if policy is not None and not isinstance(policy, AbstractEventLoopPolicy):
         raise TypeError(f"policy must be an instance of AbstractEventLoopPolicy or None, not '{type(policy).__name__}'")
     _event_loop_policy = policy
+
+
+def set_event_loop_policy(policy):
+    """Set the current event loop policy.
+
+    If policy is None, the default policy is restored."""
+    _set_event_loop_policy(policy)
 
 
 def get_event_loop():
