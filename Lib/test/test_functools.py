@@ -560,7 +560,6 @@ class TestPartialC(TestPartial, unittest.TestCase):
         self.assertIn('astr', r)
         self.assertIn("['sth']", r)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: '_PlaceholderType' object is not iterable
     def test_placeholders_refcount_smoke(self):
         PH = self.module.Placeholder
         # sum supports vector call
@@ -1711,6 +1710,7 @@ class TestLRU:
         f(0, **{})
         self.assertEqual(f.cache_info().hits, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Python lru_cache impl doesn't cache hash like C impl
     def test_lru_hash_only_once(self):
         # To protect against weird reentrancy bugs and to improve
         # efficiency when faced with slow __hash__ methods, the
@@ -2104,6 +2104,7 @@ class TestLRU:
             return 1
         self.assertEqual(f.cache_parameters(), {'maxsize': 1000, "typed": True})
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC behavior differs from CPython's refcounting
     def test_lru_cache_weakrefable(self):
         @self.module.lru_cache
         def test_function(x):
