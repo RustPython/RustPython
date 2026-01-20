@@ -45,13 +45,6 @@ enum UnwindReason {
     /// We hit an exception, so unwind any try-except and finally blocks. The exception should be
     /// on top of the vm exception stack.
     Raising { exception: PyBaseExceptionRef },
-
-    // NoWorries,
-    /// We are unwinding blocks, since we hit break
-    Break { target: bytecode::Label },
-
-    /// We are unwinding blocks since we hit a continue statements.
-    Continue { target: bytecode::Label },
 }
 
 #[derive(Debug)]
@@ -658,12 +651,6 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
 
-            Instruction::Break { target } => self.unwind_blocks(
-                vm,
-                UnwindReason::Break {
-                    target: target.get(arg),
-                },
-            ),
             Instruction::BuildList { size } => {
                 let sz = size.get(arg) as usize;
                 let elements = self.pop_multiple(sz).collect();
@@ -804,13 +791,6 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
             }
-            Instruction::Continue { target } => self.unwind_blocks(
-                vm,
-                UnwindReason::Continue {
-                    target: target.get(arg),
-                },
-            ),
-
             Instruction::ConvertValue { oparg: conversion } => {
                 self.convert_value(conversion.get(arg), vm)
             }
@@ -1562,10 +1542,6 @@ impl ExecutingFrame<'_> {
                 // }
                 Ok(None)
             }
-            Instruction::ReturnConst { idx } => {
-                let value = self.code.constants[idx.get(arg) as usize].clone().into();
-                self.unwind_blocks(vm, UnwindReason::Returning { value })
-            }
             Instruction::ReturnValue => {
                 let value = self.pop_value();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
@@ -2058,11 +2034,6 @@ impl ExecutingFrame<'_> {
                 }
                 drop(fastlocals);
                 Ok(Some(ExecutionResult::Return(value)))
-            }
-            UnwindReason::Break { target } | UnwindReason::Continue { target } => {
-                // Break/continue: jump to the target label
-                self.jump(target);
-                Ok(None)
             }
         }
     }

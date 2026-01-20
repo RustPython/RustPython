@@ -117,7 +117,7 @@ class TestTranforms(BytecodeTestCase):
             return None
 
         self.assertNotInBytecode(f, 'LOAD_GLOBAL')
-        self.assertInBytecode(f, 'RETURN_CONST', None)
+        self.assertInBytecode(f, 'LOAD_CONST', None)
         self.check_lnotab(f)
 
     @unittest.expectedFailure # TODO: RUSTPYTHON

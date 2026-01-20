@@ -34,7 +34,6 @@ FUNCTION_ATTR_FLAGS = ('defaults', 'kwdefaults', 'annotations', 'closure')
 
 ENTER_EXECUTOR = opmap['ENTER_EXECUTOR']
 LOAD_CONST = opmap['LOAD_CONST']
-RETURN_CONST = opmap['RETURN_CONST']
 LOAD_GLOBAL = opmap['LOAD_GLOBAL']
 BINARY_OP = opmap['BINARY_OP']
 JUMP_BACKWARD = opmap['JUMP_BACKWARD']

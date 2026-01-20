@@ -211,7 +211,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             // If that was an unconditional branch or return, mark future instructions unreachable
             match instruction {
                 Instruction::ReturnValue
-                | Instruction::ReturnConst { .. }
                 | Instruction::JumpBackward { .. }
                 | Instruction::JumpBackwardNoInterrupt { .. }
                 | Instruction::JumpForward { .. } => {
@@ -627,11 +626,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::Resume { arg: _resume_arg } => {
                 // TODO: Implement the resume instruction
                 Ok(())
-            }
-            Instruction::ReturnConst { idx } => {
-                let val = self
-                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
-                self.return_value(val)
             }
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;

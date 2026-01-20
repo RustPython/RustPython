@@ -210,7 +210,8 @@ bug42562.__code__ = bug42562.__code__.replace(co_linetable=b'\xf8')
 
 dis_bug42562 = """\
           RESUME                   0
-          RETURN_CONST             0 (None)
+          LOAD_CONST               0 (None)
+          RETURN_VALUE
 """
 
 # Extended arg followed by NOP
