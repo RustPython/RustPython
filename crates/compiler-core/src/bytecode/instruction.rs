@@ -273,7 +273,6 @@ pub enum Instruction {
         target: Arg<Label>,
     } = 217,
     JumpIfNotExcMatch(Arg<Label>) = 220,
-    LoadAssertionError = 221, // Placeholder
     ReturnConst {
         idx: Arg<u32>,
     } = 222,
@@ -435,7 +434,6 @@ impl TryFrom<u8> for Instruction {
                 target: Arg::marker(),
             }),
             u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
-            u8::from(Self::LoadAssertionError),
             u8::from(Self::ReturnConst { idx: Arg::marker() }),
             u8::from(Self::SetExcInfo),
         ];
@@ -651,7 +649,6 @@ impl InstructionMetadata for Instruction {
             Self::EndFor => 0,
             Self::ExitInitCheck => 0,
             Self::InterpreterExit => 0,
-            Self::LoadAssertionError => 0,
             Self::LoadLocals => 0,
             Self::ReturnGenerator => 0,
             Self::StoreSlice => 0,
