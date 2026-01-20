@@ -49,6 +49,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Copy library file/directory from CPython (delete existing first)",
         add_help=False,
     )
+    subparsers.add_parser(
+        "deps",
+        help="Show dependency information for a module",
+        add_help=False,
+    )
 
     args, remaining = parser.parse_known_args(argv)
 
@@ -76,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
         from update_lib.auto_mark import main as auto_mark_main
 
         return auto_mark_main(remaining)
+
+    if args.command == "deps":
+        from update_lib.show_deps import main as show_deps_main
+
+        return show_deps_main(remaining)
 
     return 0
 

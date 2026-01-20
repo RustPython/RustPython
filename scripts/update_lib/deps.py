@@ -258,6 +258,77 @@ def parse_test_imports(content: str) -> set[str]:
     return imports
 
 
+def parse_lib_imports(content: str) -> set[str]:
+    """Parse library file and extract all imported module names.
+
+    Args:
+        content: Python file content
+
+    Returns:
+        Set of imported module names (top-level only)
+    """
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return set()
+
+    imports = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            # import foo, bar
+            for alias in node.names:
+                imports.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            # from foo import bar
+            if node.module:
+                imports.add(node.module.split(".")[0])
+
+    return imports
+
+
+def get_soft_deps(name: str, cpython_prefix: str = "cpython") -> set[str]:
+    """Get soft dependencies by parsing imports from library file.
+
+    Args:
+        name: Module name
+        cpython_prefix: CPython directory prefix
+
+    Returns:
+        Set of imported stdlib module names
+    """
+    lib_paths = get_lib_paths(name, cpython_prefix)
+
+    all_imports = set()
+    for lib_path in lib_paths:
+        if lib_path.exists():
+            if lib_path.is_file():
+                try:
+                    content = lib_path.read_text(encoding="utf-8")
+                    all_imports.update(parse_lib_imports(content))
+                except (OSError, UnicodeDecodeError):
+                    continue
+            else:
+                # Directory - parse all .py files
+                for py_file in lib_path.glob("**/*.py"):
+                    try:
+                        content = py_file.read_text(encoding="utf-8")
+                        all_imports.update(parse_lib_imports(content))
+                    except (OSError, UnicodeDecodeError):
+                        continue
+
+    # Filter: only include modules that exist in cpython/Lib/
+    stdlib_deps = set()
+    for imp in all_imports:
+        if imp == name:
+            continue  # Skip self
+        file_path = pathlib.Path(f"{cpython_prefix}/Lib/{imp}.py")
+        dir_path = pathlib.Path(f"{cpython_prefix}/Lib/{imp}")
+        if file_path.exists() or dir_path.exists():
+            stdlib_deps.add(imp)
+
+    return stdlib_deps
+
+
 def get_test_dependencies(
     test_path: pathlib.Path,
 ) -> dict[str, list[pathlib.Path]]:
