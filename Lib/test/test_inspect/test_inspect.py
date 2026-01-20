@@ -902,7 +902,6 @@ class TestRetrievingSourceCode(GetSourceBase):
 class TestGetsourceStdlib(unittest.TestCase):
     # Test Python implementations of the stdlib modules
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_getsource_stdlib_collections_abc(self):
         import collections.abc
         lines, lineno = inspect.getsourcelines(collections.abc.Sequence)
