@@ -105,6 +105,32 @@ def quick(
         else:
             patch_file(src_path, lib_path, verbose=verbose)
 
+        # Step 1.5: Handle test dependencies
+        from update_lib.deps import get_test_dependencies
+
+        test_deps = get_test_dependencies(src_path)
+
+        # Migrate dependency files
+        for dep_src in test_deps["hard_deps"]:
+            dep_lib = parse_lib_path(dep_src)
+            if verbose:
+                print(f"Migrating dependency: {dep_src.name}")
+            if dep_src.is_dir():
+                patch_directory(dep_src, dep_lib, verbose=False)
+            else:
+                patch_file(dep_src, dep_lib, verbose=False)
+
+        # Copy data directories (no migration)
+        import shutil
+
+        for data_src in test_deps["data"]:
+            data_lib = parse_lib_path(data_src)
+            if verbose:
+                print(f"Copying data: {data_src.name}")
+            if data_lib.exists():
+                shutil.rmtree(data_lib)
+            shutil.copytree(data_src, data_lib)
+
     # Step 2: Auto-mark
     if not no_auto_mark:
         if not lib_path.exists():
@@ -232,12 +258,23 @@ def _expand_shortcut(path: pathlib.Path) -> pathlib.Path:
         dataclasses -> cpython/Lib/dataclasses.py (if exists)
         json -> cpython/Lib/json/ (if exists)
         test_types -> cpython/Lib/test/test_types.py (if exists)
+        regrtest -> cpython/Lib/test/libregrtest (from DEPENDENCIES)
     """
     # Only expand if it's a simple name (no path separators) and doesn't exist
     if "/" in str(path) or path.exists():
         return path
 
     name = str(path)
+
+    # Check DEPENDENCIES table for path overrides (e.g., regrtest)
+    from update_lib.deps import DEPENDENCIES
+
+    if name in DEPENDENCIES and "lib" in DEPENDENCIES[name]:
+        lib_paths = DEPENDENCIES[name]["lib"]
+        if lib_paths:
+            override_path = pathlib.Path(f"cpython/Lib/{lib_paths[0]}")
+            if override_path.exists():
+                return override_path
 
     # Test shortcut: test_foo -> cpython/Lib/test/test_foo
     if name.startswith("test_"):
@@ -363,6 +400,14 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+    except Exception as e:
+        # Handle TestRunError with a clean message
+        from update_lib.auto_mark import TestRunError
+
+        if isinstance(e, TestRunError):
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        raise
 
 
 if __name__ == "__main__":

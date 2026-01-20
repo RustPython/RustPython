@@ -92,6 +92,25 @@ class TestExpandShortcut(unittest.TestCase):
         result = _expand_shortcut(path)
         self.assertEqual(result, path)
 
+    def test_expand_shortcut_uses_dependencies_table(self):
+        """Test that _expand_shortcut uses DEPENDENCIES table for overrides."""
+        from update_lib.deps import DEPENDENCIES
+
+        # regrtest has lib override in DEPENDENCIES
+        self.assertIn("regrtest", DEPENDENCIES)
+        self.assertIn("lib", DEPENDENCIES["regrtest"])
+
+        # _expand_shortcut should use this override when path exists
+        path = pathlib.Path("regrtest")
+        expected = pathlib.Path("cpython/Lib/test/libregrtest")
+
+        # Only test expansion if cpython checkout exists
+        if expected.exists():
+            result = _expand_shortcut(path)
+            self.assertEqual(
+                result, expected, "_expand_shortcut should expand 'regrtest'"
+            )
+
 
 class TestCollectOriginalMethods(unittest.TestCase):
     """Tests for collect_original_methods function."""
@@ -179,6 +198,31 @@ class TestGitCommit(unittest.TestCase):
         # No mocking needed - should return early before any subprocess calls
         result = git_commit("test", None, None, pathlib.Path("cpython"), verbose=False)
         self.assertFalse(result)
+
+
+class TestQuickTestRunFailure(unittest.TestCase):
+    """Tests for quick() behavior when test run fails."""
+
+    @patch("update_lib.auto_mark.run_test")
+    def test_auto_mark_raises_on_test_run_failure(self, mock_run_test):
+        """Test that auto_mark_file raises when test run fails entirely."""
+        from update_lib.auto_mark import TestResult, TestRunError, auto_mark_file
+
+        # Simulate test runner crash (empty tests_result)
+        mock_run_test.return_value = TestResult(
+            tests_result="", tests=[], stdout="crash"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a fake test file with Lib/test structure
+            lib_test_dir = pathlib.Path(tmpdir) / "Lib" / "test"
+            lib_test_dir.mkdir(parents=True)
+            test_file = lib_test_dir / "test_foo.py"
+            test_file.write_text("import unittest\nclass Test(unittest.TestCase): pass")
+
+            # auto_mark_file should raise TestRunError
+            with self.assertRaises(TestRunError):
+                auto_mark_file(test_file)
 
 
 if __name__ == "__main__":

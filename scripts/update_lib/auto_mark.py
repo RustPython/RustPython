@@ -22,6 +22,12 @@ from update_lib import COMMENT, PatchSpec, UtMethod, apply_patches
 from update_lib.path import test_name_from_path
 
 
+class TestRunError(Exception):
+    """Raised when test run fails entirely (e.g., import error, crash)."""
+
+    pass
+
+
 @dataclass
 class Test:
     name: str = ""
@@ -58,7 +64,8 @@ def run_test(test_name: str, skip_build: bool = False) -> TestResult:
 
     result = subprocess.run(
         cmd + ["-m", "test", "-v", "-u", "all", "--slowest", test_name],
-        capture_output=True,
+        stdout=subprocess.PIPE,  # Capture stdout for parsing
+        stderr=None,  # Let stderr pass through to terminal
         text=True,
     )
     return parse_results(result)
@@ -235,6 +242,9 @@ def _is_super_call_only(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bo
     if not isinstance(call, ast.Call):
         return False
     if not isinstance(call.func, ast.Attribute):
+        return False
+    # Verify the method name matches
+    if call.func.attr != func_node.name:
         return False
     super_call = call.func.value
     if not isinstance(super_call, ast.Call):
@@ -487,6 +497,14 @@ def auto_mark_file(
         print(f"Running test: {test_name}")
 
     results = run_test(test_name, skip_build=skip_build)
+
+    # Check if test run failed entirely (e.g., import error, crash)
+    if not results.tests_result:
+        raise TestRunError(
+            f"Test run failed for {test_name}. "
+            f"Output: {results.stdout[-500:] if results.stdout else '(no output)'}"
+        )
+
     contents = test_path.read_text(encoding="utf-8")
 
     all_failing_tests, unexpected_successes, error_messages = collect_test_changes(
@@ -576,6 +594,13 @@ def auto_mark_directory(
         print(f"Running test: {test_name}")
 
     results = run_test(test_name, skip_build=skip_build)
+
+    # Check if test run failed entirely (e.g., import error, crash)
+    if not results.tests_result:
+        raise TestRunError(
+            f"Test run failed for {test_name}. "
+            f"Output: {results.stdout[-500:] if results.stdout else '(no output)'}"
+        )
 
     total_added = 0
     total_removed = 0
