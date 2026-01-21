@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(python3 scripts/update_lib auto-mark:*)
+allowed-tools: Bash(git add:*), Bash(git commit:*), Bash(python3 scripts/update_lib quick:*), Bash(python3 scripts/update_lib auto-mark:*)
 ---
 
 # Upgrade Python Library from CPython
