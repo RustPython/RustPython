@@ -220,8 +220,14 @@ def show_deps(
     lib_prefix: str = "Lib",
     max_depth: int = 10,
     show_impact: bool = False,
+    impact_only: bool = False,
 ) -> None:
     """Show all dependency information for modules."""
+    from update_lib.deps import (
+        consolidate_test_paths,
+        find_tests_importing_module,
+    )
+
     # Expand "all" to all module names
     expanded_names = []
     for name in names:
@@ -229,6 +235,18 @@ def show_deps(
             expanded_names.extend(get_all_modules(cpython_prefix))
         else:
             expanded_names.append(name)
+
+    # Handle impact-only mode: output only space-separated test names
+    if impact_only:
+        all_tests: set[str] = set()
+        for name in expanded_names:
+            impacted = find_tests_importing_module(name, lib_prefix)
+            test_dir = pathlib.Path(lib_prefix) / "test"
+            consolidated = consolidate_test_paths(impacted, test_dir)
+            all_tests.update(consolidated)
+        if all_tests:
+            print(" ".join(sorted(all_tests)))
+        return
 
     # Shared visited set across all modules
     visited: set[str] = set()
@@ -273,11 +291,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Show tests that import this module (reverse dependencies)",
     )
+    parser.add_argument(
+        "--impact-only",
+        action="store_true",
+        help="Output only impact test names, space-separated (for use with python3 -m test)",
+    )
 
     args = parser.parse_args(argv)
 
     try:
-        show_deps(args.names, args.cpython, args.lib, args.depth, args.impact)
+        show_deps(args.names, args.cpython, args.lib, args.depth, args.impact, args.impact_only)
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
