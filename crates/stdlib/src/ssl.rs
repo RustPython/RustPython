@@ -4406,15 +4406,14 @@ mod _ssl {
     // Clean up SSL socket resources on drop
     impl Drop for PySSLSocket {
         fn drop(&mut self) {
-            // Clear connection state
+            // Only clear connection state.
+            // Do NOT clear pending_tls_output - it may contain data that hasn't
+            // been flushed to the socket yet. SSLSocket._real_close() in Python
+            // doesn't call shutdown(), so when the socket is closed, pending TLS
+            // data would be lost if we clear it here.
+            // All fields (Vec, primitives) are automatically freed when the
+            // struct is dropped, so explicit clearing is unnecessary.
             let _ = self.connection.lock().take();
-
-            // Clear pending buffers
-            self.pending_tls_output.lock().clear();
-            *self.write_buffered_len.lock() = 0;
-
-            // Reset shutdown state
-            *self.shutdown_state.lock() = ShutdownState::NotStarted;
         }
     }
 
