@@ -31,7 +31,7 @@ pub enum Instruction {
     CheckExcMatch = 6,
     CleanupThrow = 7,
     DeleteSubscr = 8,
-    EndFor = 9, // Placeholder
+    EndFor = 9,
     EndSend = 10,
     ExitInitCheck = 11, // Placeholder
     FormatSimple = 12,
@@ -52,7 +52,7 @@ pub enum Instruction {
     Nop = 27,
     NotTaken = 28, // Placeholder
     PopExcept = 29,
-    PopIter = 30, // Placeholder
+    PopIter = 30,
     PopTop = 31,
     PushExcInfo = 32,
     PushNull = 33,
@@ -190,7 +190,7 @@ pub enum Instruction {
     LoadName(Arg<NameIdx>) = 93,
     LoadSmallInt {
         idx: Arg<u32>,
-    } = 94, // Placeholder
+    } = 94,
     LoadSpecial {
         method: Arg<SpecialMethod>,
     } = 95,
@@ -844,6 +844,7 @@ impl InstructionMetadata for Instruction {
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
             Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
             Self::LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
+            Self::LoadSmallInt { idx } => w!(LOAD_SMALL_INT, idx),
             Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             Self::LoadFast(idx) => w!(LOAD_FAST, varname = idx),
             Self::LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),

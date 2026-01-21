@@ -572,6 +572,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(val);
                 Ok(())
             }
+            Instruction::LoadSmallInt { idx } => {
+                let small_int = idx.get(arg) as i64;
+                let val = self.builder.ins().iconst(types::I64, small_int);
+                self.stack.push(JitValue::Int(val));
+                Ok(())
+            }
             Instruction::LoadFast(idx) => {
                 let local = self.variables[idx.get(arg) as usize]
                     .as_ref()

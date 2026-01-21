@@ -1177,6 +1177,12 @@ impl ExecutingFrame<'_> {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
                 Ok(None)
             }
+            Instruction::LoadSmallInt { idx } => {
+                // Push small integer (-5..=256) directly without constant table lookup
+                let value = vm.ctx.new_int(idx.get(arg) as i32);
+                self.push_value(value.into());
+                Ok(None)
+            }
             Instruction::LoadDeref(i) => {
                 let idx = i.get(arg) as usize;
                 let x = self.cells_frees[idx]
