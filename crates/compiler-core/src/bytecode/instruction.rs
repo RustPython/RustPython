@@ -444,7 +444,7 @@ impl InstructionMetadata for Instruction {
         )
     }
 
-    fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
+    fn stack_effect(&self, arg: OpArg, _jump: bool) -> i32 {
         match self {
             Self::Nop => 0,
             Self::NotTaken => 0,
@@ -506,11 +506,7 @@ impl InstructionMetadata for Instruction {
             Self::ConvertValue { .. } => 0,
             Self::FormatSimple => 0,
             Self::FormatWithSpec => -1,
-            Self::ForIter { .. } => {
-                // jump=False: push next value (+1)
-                // jump=True: iterator stays on stack, no change (0)
-                if jump { 0 } else { 1 }
-            }
+            Self::ForIter { .. } => 1, // push next value
             Self::IsOp(_) => -1,
             Self::ContainsOp(_) => -1,
             Self::ReturnValue => -1,
@@ -597,7 +593,7 @@ impl InstructionMetadata for Instruction {
             Self::Cache => 0,
             Self::BinarySlice => 0,
             Self::BinaryOpInplaceAddUnicode => 0,
-            Self::EndFor => 0,
+            Self::EndFor => -1, // pop next value at end of loop iteration
             Self::ExitInitCheck => 0,
             Self::InterpreterExit => 0,
             Self::LoadLocals => 0,
@@ -875,6 +871,8 @@ impl InstructionMetadata for Instruction {
             Self::PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
             Self::PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
             Self::PopTop => w!(POP_TOP),
+            Self::EndFor => w!(END_FOR),
+            Self::PopIter => w!(POP_ITER),
             Self::PushExcInfo => w!(PUSH_EXC_INFO),
             Self::PushNull => w!(PUSH_NULL),
             Self::RaiseVarargs { kind } => w!(RAISE_VARARGS, ?kind),

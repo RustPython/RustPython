@@ -1512,6 +1512,16 @@ impl ExecutingFrame<'_> {
                 self.pop_value();
                 Ok(None)
             }
+            Instruction::EndFor => {
+                // Pop the next value from stack (cleanup after loop body)
+                self.pop_value();
+                Ok(None)
+            }
+            Instruction::PopIter => {
+                // Pop the iterator from stack (end of for loop)
+                self.pop_value();
+                Ok(None)
+            }
             Instruction::PushNull => {
                 // Push NULL for self_or_null slot in call protocol
                 self.push_null();
@@ -2285,9 +2295,21 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Ok(PyIterReturn::StopIteration(_)) => {
-                // CPython 3.14: Do NOT pop iterator here
-                // POP_ITER instruction will handle cleanup after the loop
-                self.jump(target);
+                // Check if target instruction is END_FOR (CPython 3.14 pattern)
+                // If so, skip it and jump to target + 1 instruction (POP_ITER)
+                let target_idx = target.0 as usize;
+                let jump_target = if let Some(unit) = self.code.instructions.get(target_idx) {
+                    if matches!(unit.op, bytecode::Instruction::EndFor) {
+                        // Skip END_FOR, jump to next instruction
+                        bytecode::Label(target.0 + 1)
+                    } else {
+                        // Legacy pattern: jump directly to target (POP_TOP/POP_ITER)
+                        target
+                    }
+                } else {
+                    target
+                };
+                self.jump(jump_target);
                 Ok(None)
             }
             Err(next_error) => {

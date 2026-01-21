@@ -1371,7 +1371,7 @@ impl Compiler {
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopTop);
+                emit!(self, Instruction::PopIter);
             }
 
             FBlockType::TryExcept => {
@@ -4978,8 +4978,10 @@ impl Compiler {
         if is_async {
             emit!(self, Instruction::EndAsyncFor);
         } else {
-            // Pop the iterator after loop ends
-            emit!(self, Instruction::PopTop);
+            // END_FOR + POP_ITER pattern (CPython 3.14)
+            // FOR_ITER jumps to END_FOR, but VM skips it (+1) to reach POP_ITER
+            emit!(self, Instruction::EndFor);
+            emit!(self, Instruction::PopIter);
         }
         self.compile_statements(orelse)?;
 
@@ -7424,7 +7426,9 @@ impl Compiler {
                 emit!(self, Instruction::EndAsyncFor);
                 emit!(self, Instruction::PopTop);
             } else {
-                emit!(self, Instruction::PopTop);
+                // END_FOR + POP_ITER pattern (CPython 3.14)
+                emit!(self, Instruction::EndFor);
+                emit!(self, Instruction::PopIter);
             }
         }
 
@@ -7621,9 +7625,13 @@ impl Compiler {
             self.switch_to_block(after_block);
             if is_async {
                 emit!(self, Instruction::EndAsyncFor);
+                // Pop the iterator
+                emit!(self, Instruction::PopTop);
+            } else {
+                // END_FOR + POP_ITER pattern (CPython 3.14)
+                emit!(self, Instruction::EndFor);
+                emit!(self, Instruction::PopIter);
             }
-            // Pop the iterator
-            emit!(self, Instruction::PopTop);
         }
 
         // Step 8: Clean up - restore saved locals
@@ -7924,7 +7932,7 @@ impl Compiler {
 
         // For break in a for loop, pop the iterator
         if is_break && is_for_loop {
-            emit!(self, Instruction::PopTop);
+            emit!(self, Instruction::PopIter);
         }
 
         // Jump to target
