@@ -25,6 +25,7 @@ ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
+pyo3 = ["dep:rustpython-module_pyo3"]
 
 [build-dependencies]
 winresource = "0.1"
@@ -34,6 +35,7 @@ rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler"] }
+rustpython-module_pyo3 = { workspace = true, optional = true }
 ruff_python_parser = { workspace = true }
 
 cfg-if = { workspace = true }
@@ -142,6 +144,7 @@ rustpython-stdlib = { path = "crates/stdlib", default-features = false, version 
 rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.4.0" }
 rustpython-doc = { path = "crates/doc", version = "0.4.0" }
+rustpython-module_pyo3 = { path = "crates/module_pyo3", version = "0.4.0" }
 
 # Ruff tag 0.14.10 is based on commit 45bbb4cbffe73cf925d4579c2e3eb413e0539390
 # at the time of this capture. We use the commit hash to ensure reproducible builds.
