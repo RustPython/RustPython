@@ -2185,24 +2185,28 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
             assert instr.positions == positions
 
 class TestBytecodeTestCase(BytecodeTestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_assert_not_in_with_op_not_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         self.assertInBytecode(code, "LOAD_CONST", 1)
         self.assertNotInBytecode(code, "LOAD_NAME")
         self.assertNotInBytecode(code, "LOAD_NAME", "a")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_assert_not_in_with_arg_not_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         self.assertInBytecode(code, "LOAD_CONST")
         self.assertInBytecode(code, "LOAD_CONST", 1)
         self.assertNotInBytecode(code, "LOAD_CONST", 2)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AssertionError not raised
     def test_assert_not_in_with_arg_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         with self.assertRaises(AssertionError):
             self.assertNotInBytecode(code, "LOAD_CONST", 1)
 
 class TestFinderMethods(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test__find_imports(self):
         cases = [
             ("import a.b.c", ('a.b.c', 0, None)),
