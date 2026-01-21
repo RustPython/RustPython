@@ -1,3 +1,7 @@
+---
+allowed-tools: Bash(python3 scripts/update_lib auto-mark:*)
+---
+
 # Upgrade Python Library from CPython
 
 Upgrade a Python standard library module from CPython to RustPython.
@@ -44,13 +48,25 @@ This helps improve the tooling for future upgrades.
    - **Do NOT restore other diff changes** - these are likely upstream CPython changes, not RustPython-specific modifications
    - When restoring, preserve the original context and formatting
 
-3. **Verify tests**
-   - Run: `cargo run --release -- -m test test_$ARGUMENTS -v`
-   - The `-v` flag shows detailed output to identify which tests fail and why
-   - For each new failure, add appropriate markers based on the failure type:
-     - **Test assertion failure** → `@unittest.expectedFailure` with `# TODO: RUSTPYTHON` comment
-     - **Panic/crash** → `@unittest.skip("TODO: RUSTPYTHON; <panic message>")`
-   - **Class-specific markers**: If a test fails only in the C implementation (TestCFoo) but passes in the Python implementation (TestPyFoo), or vice versa, add the marker to the specific subclass, not the base class:
+3. **Mark remaining test failures with auto-mark**
+   - Run: `python3 scripts/update_lib auto-mark Lib/test/test_$ARGUMENTS.py --mark-failure`
+   - Or for directory: `python3 scripts/update_lib auto-mark Lib/test/test_$ARGUMENTS/ --mark-failure`
+   - This will:
+     - Run tests and mark ALL failing tests with `@unittest.expectedFailure`
+     - Remove `@unittest.expectedFailure` from tests that now pass
+   - **Note**: The `--mark-failure` flag marks all failures including regressions. Review the changes before committing.
+
+4. **Handle panics manually**
+   - If any tests cause panics/crashes (not just assertion failures), they need `@unittest.skip` instead:
+     ```python
+     @unittest.skip("TODO: RUSTPYTHON; panics with 'index out of bounds'")
+     def test_crashes(self):
+         ...
+     ```
+   - auto-mark cannot detect panics automatically - check the test output for crash messages
+
+5. **Handle class-specific failures**
+   - If a test fails only in the C implementation (TestCFoo) but passes in the Python implementation (TestPyFoo), or vice versa, move the marker to the specific subclass:
      ```python
      # Base class - no marker here
      class TestFoo:
@@ -64,19 +80,6 @@ This helps improve the tooling for future upgrades.
          @unittest.expectedFailure
          def test_something(self):
              return super().test_something()
-     ```
-   - **New tests from CPython**: The upgrade may bring in entirely new tests that didn't exist before. These won't have any RUSTPYTHON markers in the diff - they just need to be tested and marked if they fail.
-   - Example markers:
-     ```python
-     # TODO: RUSTPYTHON
-     @unittest.expectedFailure
-     def test_something(self):
-         ...
-
-     # TODO: RUSTPYTHON
-     @unittest.skip("TODO: RUSTPYTHON; panics with 'index out of bounds'")
-     def test_crashes(self):
-         ...
      ```
 
 ## Example Usage
