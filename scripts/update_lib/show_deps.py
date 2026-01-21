@@ -202,7 +202,9 @@ def format_deps(
     consolidated = consolidate_test_paths(impacted_tests, test_dir)
 
     if consolidated:
-        lines.append(f"[+] dependent tests: ({len(consolidated)} tests depend on {name})")
+        lines.append(
+            f"[+] dependent tests: ({len(consolidated)} tests depend on {name})"
+        )
         for test_name in sorted(consolidated):
             lines.append(f"  - {test_name}")
     else:
@@ -250,9 +252,7 @@ def show_deps(
     for i, name in enumerate(expanded_names):
         if i > 0:
             print()  # blank line between modules
-        for line in format_deps(
-            name, cpython_prefix, lib_prefix, max_depth, visited
-        ):
+        for line in format_deps(name, cpython_prefix, lib_prefix, max_depth, visited):
             print(line)
 
 
@@ -291,7 +291,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        show_deps(args.names, args.cpython, args.lib, args.depth, args.dependent_tests_only)
+        show_deps(
+            args.names, args.cpython, args.lib, args.depth, args.dependent_tests_only
+        )
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

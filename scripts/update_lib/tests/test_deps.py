@@ -764,7 +764,9 @@ class TestConsolidateTestPaths(unittest.TestCase):
             (module_dir / "test_backup.py").write_text("# test")
 
             result = consolidate_test_paths(
-                frozenset({module_dir / "test_dbapi.py", module_dir / "test_backup.py"}),
+                frozenset(
+                    {module_dir / "test_dbapi.py", module_dir / "test_backup.py"}
+                ),
                 test_dir,
             )
             self.assertEqual(result, frozenset({"test_sqlite3"}))
@@ -782,11 +784,13 @@ class TestConsolidateTestPaths(unittest.TestCase):
             (module_dir / "test_backup.py").write_text("# test")
 
             result = consolidate_test_paths(
-                frozenset({
-                    test_dir / "test_foo.py",
-                    module_dir / "test_dbapi.py",
-                    module_dir / "test_backup.py",
-                }),
+                frozenset(
+                    {
+                        test_dir / "test_foo.py",
+                        module_dir / "test_dbapi.py",
+                        module_dir / "test_backup.py",
+                    }
+                ),
                 test_dir,
             )
             self.assertEqual(result, frozenset({"test_foo", "test_sqlite3"}))
