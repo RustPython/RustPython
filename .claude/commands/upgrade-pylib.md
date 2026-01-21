@@ -48,7 +48,19 @@ This helps improve the tooling for future upgrades.
    - **Do NOT restore other diff changes** - these are likely upstream CPython changes, not RustPython-specific modifications
    - When restoring, preserve the original context and formatting
 
-3. **Mark remaining test failures with auto-mark**
+3. **Investigate test failures with subagent**
+   - First, run tests to collect the list of failures:
+     ```
+     cargo run --release -- -m unittest test.$ARGUMENTS -v 2>&1 | grep -E "^(FAIL|ERROR):"
+     ```
+   - For each failure, use the Task tool with `general-purpose` subagent to investigate:
+     - Subagent should follow the `/investigate-test-failure` skill workflow
+     - Pass the failed test identifier as the argument (e.g., `test_inspect.TestGetSourceBase.test_getsource_reload`)
+   - If subagent can fix the issue easily: fix and commit
+   - If complex issue: subagent collects issue info and reports back (issue creation on user request only)
+   - Using subagent prevents context pollution in the main conversation
+
+4. **Mark remaining test failures with auto-mark**
    - Run: `python3 scripts/update_lib auto-mark Lib/test/test_$ARGUMENTS.py --mark-failure`
    - Or for directory: `python3 scripts/update_lib auto-mark Lib/test/test_$ARGUMENTS/ --mark-failure`
    - This will:
@@ -56,7 +68,7 @@ This helps improve the tooling for future upgrades.
      - Remove `@unittest.expectedFailure` from tests that now pass
    - **Note**: The `--mark-failure` flag marks all failures including regressions. Review the changes before committing.
 
-4. **Handle panics manually**
+5. **Handle panics manually**
    - If any tests cause panics/crashes (not just assertion failures), they need `@unittest.skip` instead:
      ```python
      @unittest.skip("TODO: RUSTPYTHON; panics with 'index out of bounds'")
@@ -65,7 +77,7 @@ This helps improve the tooling for future upgrades.
      ```
    - auto-mark cannot detect panics automatically - check the test output for crash messages
 
-5. **Handle class-specific failures**
+6. **Handle class-specific failures**
    - If a test fails only in the C implementation (TestCFoo) but passes in the Python implementation (TestPyFoo), or vice versa, move the marker to the specific subclass:
      ```python
      # Base class - no marker here
@@ -82,9 +94,9 @@ This helps improve the tooling for future upgrades.
              return super().test_something()
      ```
 
-6. **Commit the test fixes**
+7. **Commit the test fixes**
    - Run: `git add -u && git commit -m "Mark failing tests"`
-   - This creates a separate commit for the test markers added in steps 2-5
+   - This creates a separate commit for the test markers added in steps 2-6
 
 ## Example Usage
 ```
