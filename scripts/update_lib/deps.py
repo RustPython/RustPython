@@ -600,6 +600,37 @@ def get_transitive_imports(
     return frozenset(visited)
 
 
+def _build_test_import_graph(test_dir: pathlib.Path) -> dict[str, set[str]]:
+    """Build import graph for files within test directory.
+
+    Args:
+        test_dir: Path to Lib/test/ directory
+
+    Returns:
+        Dict mapping filename (stem) -> set of test modules it imports
+    """
+    import_graph: dict[str, set[str]] = {}
+
+    for py_file in test_dir.glob("*.py"):
+        content = safe_read_text(py_file)
+        if content is None:
+            continue
+
+        imports = set()
+        # Parse "from test import X" style imports
+        imports.update(parse_test_imports(content))
+        # Also check direct imports of test modules
+        all_imports = parse_lib_imports(content)
+        # Filter to only test modules that exist in test_dir
+        for imp in all_imports:
+            if (test_dir / f"{imp}.py").exists():
+                imports.add(imp)
+
+        import_graph[py_file.stem] = imports
+
+    return import_graph
+
+
 @functools.cache
 def find_tests_importing_module(
     module_name: str,
@@ -609,6 +640,9 @@ def find_tests_importing_module(
 ) -> frozenset[pathlib.Path]:
     """Find all test files that import the given module (directly or transitively).
 
+    Only returns test_*.py files. Support files (like pickletester.py, string_tests.py)
+    are used for transitive dependency calculation but not included in the result.
+
     Args:
         module_name: Module to search for (e.g., "datetime")
         lib_prefix: RustPython Lib directory (default: "Lib")
@@ -616,7 +650,7 @@ def find_tests_importing_module(
         exclude_imports: Modules to exclude from test file imports when checking
 
     Returns:
-        Frozenset of test file paths that depend on this module
+        Frozenset of test_*.py file paths that depend on this module
     """
     lib_dir = pathlib.Path(lib_prefix)
     test_dir = lib_dir / "test"
@@ -624,31 +658,40 @@ def find_tests_importing_module(
     if not test_dir.exists():
         return frozenset()
 
-    # Build set of modules to search for
+    # Build set of modules to search for (Lib/ modules)
     target_modules = {module_name}
     if include_transitive:
         # Add all modules that transitively depend on module_name
         target_modules.update(get_transitive_imports(module_name, lib_prefix))
 
-    # Excluded test file for this module (test_<module>.py)
-    excluded_test = f"test_{module_name}.py"
+    # Build test directory import graph for transitive analysis within test/
+    test_import_graph = _build_test_import_graph(test_dir)
 
-    # Scan test directory for files that import any of the target modules
-    result: set[pathlib.Path] = set()
-
-    for test_file in test_dir.glob("*.py"):
-        if test_file.name == excluded_test:
-            continue
-
-        content = safe_read_text(test_file)
+    # First pass: find all files (by stem) that directly import target modules
+    directly_importing: set[str] = set()
+    for py_file in test_dir.glob("*.py"):
+        content = safe_read_text(py_file)
         if content is None:
             continue
-
-        imports = parse_lib_imports(content)
-        # Remove excluded modules from imports
-        imports = imports - exclude_imports
-        # Check if any target module is imported
+        imports = parse_lib_imports(content) - exclude_imports
         if imports & target_modules:
-            result.add(test_file)
+            directly_importing.add(py_file.stem)
+
+    # Second pass: find files that transitively import via support files within test/
+    # BFS to find all files that import any file in all_importing
+    all_importing = set(directly_importing)
+    queue = list(directly_importing)
+    while queue:
+        current = queue.pop(0)
+        for file_stem, imports in test_import_graph.items():
+            if current in imports and file_stem not in all_importing:
+                all_importing.add(file_stem)
+                queue.append(file_stem)
+
+    # Filter to only test_*.py files and build result paths
+    result: set[pathlib.Path] = set()
+    for file_stem in all_importing:
+        if file_stem.startswith("test_"):
+            result.add(test_dir / f"{file_stem}.py")
 
     return frozenset(result)

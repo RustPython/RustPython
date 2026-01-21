@@ -495,8 +495,8 @@ class TestFindTestsImportingModule(unittest.TestCase):
             result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
             self.assertIn(test_dir / "test_foo.py", result)
 
-    def test_excludes_test_module_itself(self):
-        """Test that test_<module>.py is excluded from results."""
+    def test_includes_test_module_itself(self):
+        """Test that test_<module>.py IS included in results."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = pathlib.Path(tmpdir)
             lib_dir = tmpdir / "Lib"
@@ -509,8 +509,8 @@ class TestFindTestsImportingModule(unittest.TestCase):
             get_transitive_imports.cache_clear()
             find_tests_importing_module.cache_clear()
             result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-            # test_bar.py should NOT be in results (it's the primary test)
-            self.assertNotIn(test_dir / "test_bar.py", result)
+            # test_bar.py IS now included (module's own test is part of impact)
+            self.assertIn(test_dir / "test_bar.py", result)
 
     def test_transitive_import(self):
         """Test finding tests with transitive (indirect) imports."""
@@ -651,6 +651,98 @@ class TestFindTestsImportingModuleExclude(unittest.TestCase):
             )
 
             self.assertEqual(result_default, result_empty)
+
+
+class TestFindTestsOnlyTestFiles(unittest.TestCase):
+    """Tests for filtering to only test_*.py files in output."""
+
+    def test_support_file_not_in_output(self):
+        """Support files should not appear in output even if they import target."""
+        # Given:
+        #   bar.py (target module in Lib/)
+        #   helper.py (support file in test/, imports bar)
+        #   test_foo.py (test file, imports bar)
+        # When: find_tests_importing_module("bar")
+        # Then: test_foo.py is included, helper.py is NOT included
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            # helper.py imports bar directly but doesn't start with test_
+            (test_dir / "helper.py").write_text("import bar\n")
+            # test_foo.py also imports bar
+            (test_dir / "test_foo.py").write_text("import bar\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+
+            # Only test_foo.py should be in results
+            self.assertIn(test_dir / "test_foo.py", result)
+            # helper.py should be excluded
+            self.assertNotIn(test_dir / "helper.py", result)
+
+    def test_transitive_via_support_file(self):
+        """Test file importing support file that imports target should be included."""
+        # Given:
+        #   bar.py (target module in Lib/)
+        #   helper.py (support file in test/, imports bar)
+        #   test_foo.py (test file, imports helper - NOT bar directly)
+        # When: find_tests_importing_module("bar")
+        # Then: test_foo.py IS included (via helper.py), helper.py is NOT
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            # helper.py imports bar
+            (test_dir / "helper.py").write_text("import bar\n")
+            # test_foo.py imports only helper (not bar directly)
+            (test_dir / "test_foo.py").write_text("from test import helper\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+
+            # test_foo.py depends on bar via helper, so it should be included
+            self.assertIn(test_dir / "test_foo.py", result)
+            # helper.py should be excluded from output
+            self.assertNotIn(test_dir / "helper.py", result)
+
+    def test_chain_through_multiple_support_files(self):
+        """Test transitive chain through multiple support files."""
+        # Given:
+        #   bar.py (target)
+        #   helper_a.py imports bar
+        #   helper_b.py imports helper_a
+        #   test_foo.py imports helper_b
+        # Then: test_foo.py IS included, helper_a/b are NOT
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            (test_dir / "helper_a.py").write_text("import bar\n")
+            (test_dir / "helper_b.py").write_text("from test import helper_a\n")
+            (test_dir / "test_foo.py").write_text("from test import helper_b\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+
+            self.assertIn(test_dir / "test_foo.py", result)
+            self.assertNotIn(test_dir / "helper_a.py", result)
+            self.assertNotIn(test_dir / "helper_b.py", result)
 
 
 if __name__ == "__main__":
