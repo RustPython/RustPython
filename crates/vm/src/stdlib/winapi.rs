@@ -466,7 +466,15 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn WaitForSingleObject(h: WinHandle, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
+    fn WaitForSingleObject(h: WinHandle, ms: i64, vm: &VirtualMachine) -> PyResult<u32> {
+        // Negative values (e.g., -1) map to INFINITE (0xFFFFFFFF)
+        let ms = if ms < 0 {
+            windows_sys::Win32::System::Threading::INFINITE
+        } else if ms > u32::MAX as i64 {
+            return Err(vm.new_overflow_error("timeout value is too large".to_owned()));
+        } else {
+            ms as u32
+        };
         let ret = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0, ms) };
         if ret == windows_sys::Win32::Foundation::WAIT_FAILED {
             Err(vm.new_last_os_error())

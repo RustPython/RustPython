@@ -129,9 +129,9 @@ def runtest_refleak(test_name, test_func,
     xml_filename = 'refleak-xml.tmp'
     result = None
     dash_R_cleanup(fs, ps, pic, zdc, abcs, linecache_data)
-    support.gc_collect()
 
     for i in rep_range:
+        support.gc_collect()
         current = refleak_helper._hunting_for_refleaks
         refleak_helper._hunting_for_refleaks = True
         try:
@@ -253,7 +253,6 @@ def dash_R_cleanup(fs, ps, pic, zdc, abcs, linecache_data):
         zipimport._zip_directory_cache.update(zdc)
 
     # Clear ABC registries, restoring previously saved ABC registries.
-    # ignore deprecation warning for collections.abc.ByteString
     abs_classes = [getattr(collections.abc, a) for a in collections.abc.__all__]
     abs_classes = filter(isabstract, abs_classes)
     for abc in abs_classes:

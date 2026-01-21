@@ -4,6 +4,7 @@ Tests of regrtest.py.
 Note: test_regrtest cannot be run twice in parallel.
 """
 
+import _colorize
 import contextlib
 import dataclasses
 import glob
@@ -21,10 +22,12 @@ import sysconfig
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from xml.etree import ElementTree
 
 from test import support
-from test.support import os_helper, requires_jit_disabled
+from test.support import import_helper
+from test.support import os_helper
 from test.libregrtest import cmdline
 from test.libregrtest import main
 from test.libregrtest import setup
@@ -818,7 +821,6 @@ class BaseTestCase(unittest.TestCase):
 
 
 class CheckActualTests(BaseTestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_finds_expected_number_of_tests(self):
         """
         Check that regrtest appears to find the expected set of tests.
@@ -875,7 +877,6 @@ class ProgramsTestCase(BaseTestCase):
         output = self.run_python(args, env=env, isolated=isolated)
         self.check_output(output)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_script_regrtest(self):
         # Lib/test/regrtest.py
         script = os.path.join(self.testdir, 'regrtest.py')
@@ -883,28 +884,27 @@ class ProgramsTestCase(BaseTestCase):
         args = [*self.python_args, script, *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip('TODO: RUSTPYTHON flaky')
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_test(self):
         # -m test
         args = [*self.python_args, '-m', 'test',
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_module_regrtest(self):
         # -m test.regrtest
         args = [*self.python_args, '-m', 'test.regrtest',
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip('TODO: RUSTPYTHON flaky')
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_autotest(self):
         # -m test.autotest
         args = [*self.python_args, '-m', 'test.autotest',
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip('TODO: RUSTPYTHON flaky')
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_from_test_autotest(self):
         # from test import autotest
         code = 'from test import autotest'
@@ -912,7 +912,7 @@ class ProgramsTestCase(BaseTestCase):
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip('TODO: RUSTPYTHON flaky')
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_script_autotest(self):
         # Lib/test/autotest.py
         script = os.path.join(self.testdir, 'autotest.py')
@@ -1202,7 +1202,7 @@ class ArgsTestCase(BaseTestCase):
         output = self.run_tests("--coverage", test)
         self.check_executed_tests(output, [test], stats=1)
         regex = (r'lines +cov% +module +\(path\)\n'
-                 r'(?: *[0-9]+ *[0-9]{1,2}% *[^ ]+ +\([^)]+\)+)+')
+                 r'(?: *[0-9]+ *[0-9]{1,2}\.[0-9]% *[^ ]+ +\([^)]+\)+)+')
         self.check_line(output, regex)
 
     def test_wait(self):
@@ -1245,7 +1245,7 @@ class ArgsTestCase(BaseTestCase):
                                   stats=TestStats(4, 1),
                                   forever=True)
 
-    @requires_jit_disabled
+    @support.requires_jit_disabled
     def check_leak(self, code, what, *, run_workers=False):
         test = self.create_test('huntrleaks', code=code)
 
@@ -1813,10 +1813,9 @@ class ArgsTestCase(BaseTestCase):
 
     @support.cpython_only
     def test_uncollectable(self):
-        try:
-            import _testcapi
-        except ImportError:
-            raise unittest.SkipTest("requires _testcapi")
+        # Skip test if _testcapi is missing
+        import_helper.import_module('_testcapi')
+
         code = textwrap.dedent(r"""
             import _testcapi
             import gc
@@ -2004,7 +2003,7 @@ class ArgsTestCase(BaseTestCase):
         for name in names:
             self.assertFalse(os.path.exists(name), name)
 
-    @unittest.skip('TODO: RUSTPYTHON flaky')
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @unittest.skipIf(support.is_wasi,
                      'checking temp files is not implemented on WASI')
     def test_leak_tmp_file(self):
@@ -2156,11 +2155,11 @@ class ArgsTestCase(BaseTestCase):
     def test_random_seed(self):
         self._check_random_seed(run_workers=False)
 
-    @unittest.skip('TODO: RUSTPYTHON flaky')
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_random_seed_workers(self):
         self._check_random_seed(run_workers=True)
 
-    @unittest.skip('TODO: RUSTPYTHON flaky')
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_python_command(self):
         code = textwrap.dedent(r"""
             import sys
@@ -2182,7 +2181,6 @@ class ArgsTestCase(BaseTestCase):
         self.check_executed_tests(output, tests,
                                   stats=len(tests), parallel=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unload_tests(self):
         # Test that unloading test modules does not break tests
         # that import from other tests.
@@ -2204,34 +2202,34 @@ class ArgsTestCase(BaseTestCase):
 
     def check_add_python_opts(self, option):
         # --fast-ci and --slow-ci add "-u -W default -bb -E" options to Python
-        try:
-            import _testinternalcapi
-        except ImportError:
-            raise unittest.SkipTest("requires _testinternalcapi")
+
+        # Skip test if _testinternalcapi is missing
+        import_helper.import_module('_testinternalcapi')
+
         code = textwrap.dedent(r"""
             import sys
             import unittest
             from test import support
             try:
-                from _testinternalcapi import get_config
+                from _testcapi import config_get
             except ImportError:
-                get_config = None
+                config_get = None
 
             # WASI/WASM buildbots don't use -E option
             use_environment = (support.is_emscripten or support.is_wasi)
 
             class WorkerTests(unittest.TestCase):
-                @unittest.skipUnless(get_config is None, 'need get_config()')
+                @unittest.skipUnless(config_get is None, 'need config_get()')
                 def test_config(self):
-                    config = get_config()['config']
+                    config = config_get()
                     # -u option
-                    self.assertEqual(config['buffered_stdio'], 0)
+                    self.assertEqual(config_get('buffered_stdio'), 0)
                     # -W default option
-                    self.assertTrue(config['warnoptions'], ['default'])
+                    self.assertTrue(config_get('warnoptions'), ['default'])
                     # -bb option
-                    self.assertTrue(config['bytes_warning'], 2)
+                    self.assertTrue(config_get('bytes_warning'), 2)
                     # -E option
-                    self.assertTrue(config['use_environment'], use_environment)
+                    self.assertTrue(config_get('use_environment'), use_environment)
 
                 def test_python_opts(self):
                     # -u option
@@ -2270,10 +2268,8 @@ class ArgsTestCase(BaseTestCase):
     @unittest.skipIf(support.is_android,
                      'raising SIGSEGV on Android is unreliable')
     def test_worker_output_on_failure(self):
-        try:
-            from faulthandler import _sigsegv
-        except ImportError:
-            self.skipTest("need faulthandler._sigsegv")
+        # Skip test if faulthandler is missing
+        import_helper.import_module('faulthandler')
 
         code = textwrap.dedent(r"""
             import faulthandler
@@ -2446,16 +2442,6 @@ class TestUtils(unittest.TestCase):
         self.assertIsNone(normalize('setUpModule (test.test_x)', is_error=True))
         self.assertIsNone(normalize('tearDownModule (test.test_module)', is_error=True))
 
-    def test_get_signal_name(self):
-        for exitcode, expected in (
-            (-int(signal.SIGINT), 'SIGINT'),
-            (-int(signal.SIGSEGV), 'SIGSEGV'),
-            (128 + int(signal.SIGABRT), 'SIGABRT'),
-            (3221225477, "STATUS_ACCESS_VIOLATION"),
-            (0xC00000FD, "STATUS_STACK_OVERFLOW"),
-        ):
-            self.assertEqual(utils.get_signal_name(exitcode), expected, exitcode)
-
     def test_format_resources(self):
         format_resources = utils.format_resources
         ALL_RESOURCES = utils.ALL_RESOURCES
@@ -2614,5 +2600,50 @@ class TestUtils(unittest.TestCase):
                          'valid t\xe9xt \u20ac')
 
 
+from test.libregrtest.results import TestResults
+
+
+class TestColorized(unittest.TestCase):
+    def test_test_result_get_state(self):
+        # Arrange
+        green = _colorize.ANSIColors.GREEN
+        red = _colorize.ANSIColors.BOLD_RED
+        reset = _colorize.ANSIColors.RESET
+        yellow = _colorize.ANSIColors.YELLOW
+
+        good_results = TestResults()
+        good_results.good = ["good1", "good2"]
+        bad_results = TestResults()
+        bad_results.bad = ["bad1", "bad2"]
+        no_results = TestResults()
+        no_results.bad = []
+        interrupted_results = TestResults()
+        interrupted_results.interrupted = True
+        interrupted_worker_bug = TestResults()
+        interrupted_worker_bug.interrupted = True
+        interrupted_worker_bug.worker_bug = True
+
+        for results, expected in (
+            (good_results, f"{green}SUCCESS{reset}"),
+            (bad_results, f"{red}FAILURE{reset}"),
+            (no_results, f"{yellow}NO TESTS RAN{reset}"),
+            (interrupted_results, f"{yellow}INTERRUPTED{reset}"),
+            (
+                interrupted_worker_bug,
+                f"{yellow}INTERRUPTED{reset}, {red}WORKER BUG{reset}",
+            ),
+        ):
+            with self.subTest(results=results, expected=expected):
+                # Act
+                with unittest.mock.patch(
+                    "_colorize.can_colorize", return_value=True
+                ):
+                    result = results.get_state(fail_env_changed=False)
+
+                # Assert
+                self.assertEqual(result, expected)
+
+
 if __name__ == '__main__':
+    setup.setup_process()
     unittest.main()
