@@ -906,9 +906,11 @@ pub(super) mod _os {
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_blocks: i64,
+        #[cfg(windows)]
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_reparse_tag: u32,
+        #[cfg(windows)]
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_file_attributes: u32,
@@ -943,13 +945,8 @@ pub(super) mod _os {
 
             #[cfg(windows)]
             let st_reparse_tag = stat.st_reparse_tag;
-            #[cfg(not(windows))]
-            let st_reparse_tag = 0;
-
             #[cfg(windows)]
             let st_file_attributes = stat.st_file_attributes;
-            #[cfg(not(windows))]
-            let st_file_attributes = 0;
 
             // On Windows, combine st_ino and st_ino_high into a 128-bit value
             // like _pystat_l128_from_l64_l64
@@ -986,7 +983,9 @@ pub(super) mod _os {
                 st_blksize,
                 #[cfg(not(windows))]
                 st_blocks,
+                #[cfg(windows)]
                 st_reparse_tag,
+                #[cfg(windows)]
                 st_file_attributes,
             }
         }
