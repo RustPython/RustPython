@@ -552,5 +552,106 @@ class TestFindTestsImportingModule(unittest.TestCase):
             self.assertEqual(result, frozenset())
 
 
+class TestFindTestsImportingModuleExclude(unittest.TestCase):
+    """Tests for exclude_imports parameter."""
+
+    def test_exclude_single_module(self):
+        """Test excluding a single module from import analysis."""
+        # Given:
+        #   bar.py (target module)
+        #   unittest.py (module to exclude)
+        #   test_foo.py imports: bar, unittest
+        #   test_qux.py imports: unittest (only)
+        # When: find_tests_importing_module("bar", exclude_imports=frozenset({"unittest"}))
+        # Then: test_foo.py is included (bar matches), test_qux.py is excluded
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            (lib_dir / "unittest.py").write_text("# unittest module")
+
+            # test_foo imports both bar and unittest
+            (test_dir / "test_foo.py").write_text("import bar\nimport unittest\n")
+            # test_qux imports only unittest
+            (test_dir / "test_qux.py").write_text("import unittest\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module(
+                "bar",
+                lib_prefix=str(lib_dir),
+                exclude_imports=frozenset({"unittest"})
+            )
+
+            # test_foo.py should be included (imports bar)
+            self.assertIn(test_dir / "test_foo.py", result)
+            # test_qux.py should be excluded (only imports unittest)
+            self.assertNotIn(test_dir / "test_qux.py", result)
+
+    def test_exclude_transitive_via_excluded_module(self):
+        """Test that transitive dependencies via excluded modules are also excluded."""
+        # Given:
+        #   bar.py (target)
+        #   baz.py imports bar
+        #   unittest.py imports baz  (so unittest transitively depends on bar)
+        #   test_foo.py imports unittest (only)
+        # When: find_tests_importing_module("bar", exclude_imports=frozenset({"unittest"}))
+        # Then: test_foo.py is NOT included (unittest is excluded, no other path to bar)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            (lib_dir / "baz.py").write_text("import bar\n")
+            (lib_dir / "unittest.py").write_text("import baz\n")  # unittest -> baz -> bar
+
+            # test_foo imports only unittest
+            (test_dir / "test_foo.py").write_text("import unittest\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module(
+                "bar",
+                lib_prefix=str(lib_dir),
+                exclude_imports=frozenset({"unittest"})
+            )
+
+            # test_foo.py should NOT be included
+            # (even though unittest -> baz -> bar, unittest is excluded)
+            self.assertNotIn(test_dir / "test_foo.py", result)
+
+    def test_exclude_empty_set_same_as_default(self):
+        """Test that empty exclude set behaves same as no exclusion."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            (test_dir / "test_foo.py").write_text("import bar\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+
+            result_default = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+
+            find_tests_importing_module.cache_clear()
+            result_empty = find_tests_importing_module(
+                "bar",
+                lib_prefix=str(lib_dir),
+                exclude_imports=frozenset()
+            )
+
+            self.assertEqual(result_default, result_empty)
+
+
 if __name__ == "__main__":
     unittest.main()

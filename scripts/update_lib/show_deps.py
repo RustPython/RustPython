@@ -146,6 +146,7 @@ def format_deps(
     max_depth: int = 10,
     _visited: set[str] | None = None,
     show_impact: bool = False,
+    exclude_imports: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Format all dependency information for a module.
 
@@ -156,6 +157,7 @@ def format_deps(
         max_depth: Maximum recursion depth
         _visited: Shared visited set for deduplication across modules
         show_impact: Whether to show reverse dependencies (tests that import this module)
+        exclude_imports: Modules to exclude from impact analysis
 
     Returns:
         List of formatted lines
@@ -200,7 +202,7 @@ def format_deps(
 
     # Show impact (reverse dependencies) if requested
     if show_impact:
-        impacted_tests = find_tests_importing_module(name, lib_prefix)
+        impacted_tests = find_tests_importing_module(name, lib_prefix, exclude_imports=exclude_imports)
         transitive_importers = get_transitive_imports(name, lib_prefix)
 
         if impacted_tests:
@@ -212,6 +214,8 @@ def format_deps(
                 from update_lib.deps import parse_lib_imports
 
                 test_imports = parse_lib_imports(test_content)
+                # Remove excluded modules from display (consistent with matching)
+                test_imports = test_imports - exclude_imports
                 if name in test_imports:
                     lines.append(f"  - {test_path.name} (direct)")
                 else:
@@ -234,6 +238,7 @@ def show_deps(
     lib_prefix: str = "Lib",
     max_depth: int = 10,
     show_impact: bool = False,
+    exclude_imports: frozenset[str] = frozenset(),
 ) -> None:
     """Show all dependency information for modules."""
     # Expand "all" to all module names
@@ -251,7 +256,7 @@ def show_deps(
         if i > 0:
             print()  # blank line between modules
         for line in format_deps(
-            name, cpython_prefix, lib_prefix, max_depth, visited, show_impact
+            name, cpython_prefix, lib_prefix, max_depth, visited, show_impact, exclude_imports
         ):
             print(line)
 
@@ -287,11 +292,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Show tests that import this module (reverse dependencies)",
     )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help="Modules to exclude from impact analysis (can be repeated: --exclude unittest --exclude doctest)",
+    )
 
     args = parser.parse_args(argv)
 
     try:
-        show_deps(args.names, args.cpython, args.lib, args.depth, args.impact)
+        exclude_imports = frozenset(args.exclude)
+        show_deps(args.names, args.cpython, args.lib, args.depth, args.impact, exclude_imports)
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
