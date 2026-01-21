@@ -28,6 +28,11 @@ jobs:
         run: |
           git fetch origin ${{ github.event.pull_request.head.sha }}
 
+      - name: Checkout PR Lib files
+        run: |
+          # Checkout only Lib/ directory from PR head for accurate comparison
+          git checkout ${{ github.event.pull_request.head.sha }} -- Lib/
+
       - name: Checkout CPython
         run: |
           git clone --depth 1 --branch v3.14.2 https://github.com/python/cpython.git cpython
@@ -104,7 +109,7 @@ jobs:
             </details>
 
             **Legend:**
-            - `[+]` path exists, `[-]` path missing
+            - `[+]` path exists in CPython
             - `[x]` up-to-date, `[ ]` outdated
             - `native:` Rust/C extension modules
 

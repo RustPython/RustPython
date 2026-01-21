@@ -169,17 +169,17 @@ def format_deps(
 
     lines = []
 
-    # lib paths
+    # lib paths (only show existing)
     lib_paths = get_lib_paths(name, cpython_prefix)
     for p in lib_paths:
-        exists = "+" if p.exists() else "-"
-        lines.append(f"[{exists}] lib: {p}")
+        if p.exists():
+            lines.append(f"[+] lib: {p}")
 
-    # test paths
+    # test paths (only show existing)
     test_paths = get_test_paths(name, cpython_prefix)
     for p in test_paths:
-        exists = "+" if p.exists() else "-"
-        lines.append(f"[{exists}] test: {p}")
+        if p.exists():
+            lines.append(f"[+] test: {p}")
 
     # hard_deps (from DEPENDENCIES table)
     dep_info = DEPENDENCIES.get(name, {})
