@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git add:*), Bash(git commit:*), Bash(python3 scripts/update_lib quick:*), Skill(upgrade-pylib)
+allowed-tools: Skill(upgrade-pylib)
 ---
 
 # Upgrade Next Python Library
