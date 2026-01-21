@@ -82,6 +82,10 @@ This helps improve the tooling for future upgrades.
              return super().test_something()
      ```
 
+6. **Commit the test fixes**
+   - Run: `git add -u && git commit -m "Mark failing tests"`
+   - This creates a separate commit for the test markers added in steps 2-5
+
 ## Example Usage
 ```
 # Using module names (recommended)
