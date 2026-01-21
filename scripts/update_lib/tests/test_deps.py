@@ -5,11 +5,13 @@ import tempfile
 import unittest
 
 from update_lib.deps import (
+    find_tests_importing_module,
     get_data_paths,
     get_lib_paths,
     get_soft_deps,
     get_test_dependencies,
     get_test_paths,
+    get_transitive_imports,
     parse_lib_imports,
     parse_test_imports,
     resolve_all_paths,
@@ -420,6 +422,134 @@ class TestDircmpIsSame(unittest.TestCase):
 
             dcmp = filecmp.dircmp(dir1, dir2)
             self.assertFalse(_dircmp_is_same(dcmp))
+
+
+class TestGetTransitiveImports(unittest.TestCase):
+    """Tests for get_transitive_imports function."""
+
+    def test_direct_dependency(self):
+        """A imports B → B's transitive importers include A."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            lib_dir.mkdir()
+
+            (lib_dir / "a.py").write_text("import b\n")
+            (lib_dir / "b.py").write_text("# b module")
+
+            get_transitive_imports.cache_clear()
+            result = get_transitive_imports("b", lib_prefix=str(lib_dir))
+            self.assertIn("a", result)
+
+    def test_chain_dependency(self):
+        """A imports B, B imports C → C's transitive importers include A and B."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            lib_dir.mkdir()
+
+            (lib_dir / "a.py").write_text("import b\n")
+            (lib_dir / "b.py").write_text("import c\n")
+            (lib_dir / "c.py").write_text("# c module")
+
+            get_transitive_imports.cache_clear()
+            result = get_transitive_imports("c", lib_prefix=str(lib_dir))
+            self.assertIn("a", result)
+            self.assertIn("b", result)
+
+    def test_cycle_handling(self):
+        """Handle circular imports without infinite loop."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            lib_dir.mkdir()
+
+            (lib_dir / "a.py").write_text("import b\n")
+            (lib_dir / "b.py").write_text("import a\n")  # cycle
+
+            get_transitive_imports.cache_clear()
+            # Should not hang or raise
+            result = get_transitive_imports("a", lib_prefix=str(lib_dir))
+            self.assertIn("b", result)
+
+
+class TestFindTestsImportingModule(unittest.TestCase):
+    """Tests for find_tests_importing_module function."""
+
+    def test_direct_import(self):
+        """Test finding tests that directly import a module."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            # Create target module
+            (lib_dir / "bar.py").write_text("# bar module")
+
+            # Create test that imports bar
+            (test_dir / "test_foo.py").write_text("import bar\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+            self.assertIn(test_dir / "test_foo.py", result)
+
+    def test_excludes_test_module_itself(self):
+        """Test that test_<module>.py is excluded from results."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            (test_dir / "test_bar.py").write_text("import bar\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+            # test_bar.py should NOT be in results (it's the primary test)
+            self.assertNotIn(test_dir / "test_bar.py", result)
+
+    def test_transitive_import(self):
+        """Test finding tests with transitive (indirect) imports."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            # bar.py (target module)
+            (lib_dir / "bar.py").write_text("# bar module")
+
+            # baz.py imports bar
+            (lib_dir / "baz.py").write_text("import bar\n")
+
+            # test_foo.py imports baz (not bar directly)
+            (test_dir / "test_foo.py").write_text("import baz\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+            # test_foo.py should be found via transitive dependency
+            self.assertIn(test_dir / "test_foo.py", result)
+
+    def test_empty_when_no_importers(self):
+        """Test returns empty when no tests import the module."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            (test_dir / "test_unrelated.py").write_text("import os\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+            self.assertEqual(result, frozenset())
 
 
 if __name__ == "__main__":

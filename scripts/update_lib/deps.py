@@ -504,3 +504,147 @@ def resolve_all_paths(
                     result["data"].append(data_path)
 
     return result
+
+
+def _build_import_graph(lib_prefix: str = "Lib") -> dict[str, set[str]]:
+    """Build a graph of module imports from lib_prefix directory.
+
+    Args:
+        lib_prefix: RustPython Lib directory (default: "Lib")
+
+    Returns:
+        Dict mapping module_name -> set of modules it imports
+    """
+    lib_dir = pathlib.Path(lib_prefix)
+    if not lib_dir.exists():
+        return {}
+
+    import_graph: dict[str, set[str]] = {}
+
+    # Scan all .py files in lib_prefix (excluding test/ directory for module imports)
+    for entry in lib_dir.iterdir():
+        if entry.name.startswith(("_", ".")):
+            continue
+        if entry.name == "test":
+            continue
+
+        module_name = None
+        if entry.is_file() and entry.suffix == ".py":
+            module_name = entry.stem
+        elif entry.is_dir() and (entry / "__init__.py").exists():
+            module_name = entry.name
+
+        if module_name:
+            # Parse imports from this module
+            imports = set()
+            for _, content in read_python_files(entry):
+                imports.update(parse_lib_imports(content))
+            # Remove self-imports
+            imports.discard(module_name)
+            import_graph[module_name] = imports
+
+    return import_graph
+
+
+def _build_reverse_graph(import_graph: dict[str, set[str]]) -> dict[str, set[str]]:
+    """Build reverse dependency graph (who imports this module).
+
+    Args:
+        import_graph: Forward import graph (module -> imports)
+
+    Returns:
+        Reverse graph (module -> imported_by)
+    """
+    reverse_graph: dict[str, set[str]] = {}
+
+    for module, imports in import_graph.items():
+        for imported in imports:
+            if imported not in reverse_graph:
+                reverse_graph[imported] = set()
+            reverse_graph[imported].add(module)
+
+    return reverse_graph
+
+
+@functools.cache
+def get_transitive_imports(
+    module_name: str,
+    lib_prefix: str = "Lib",
+) -> frozenset[str]:
+    """Get all modules that transitively depend on module_name.
+
+    Args:
+        module_name: Target module
+        lib_prefix: RustPython Lib directory (default: "Lib")
+
+    Returns:
+        Frozenset of module names that import module_name (directly or indirectly)
+    """
+    import_graph = _build_import_graph(lib_prefix)
+    reverse_graph = _build_reverse_graph(import_graph)
+
+    # BFS from module_name following reverse edges
+    visited: set[str] = set()
+    queue = list(reverse_graph.get(module_name, set()))
+
+    while queue:
+        current = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        # Add modules that import current module
+        for importer in reverse_graph.get(current, set()):
+            if importer not in visited:
+                queue.append(importer)
+
+    return frozenset(visited)
+
+
+@functools.cache
+def find_tests_importing_module(
+    module_name: str,
+    lib_prefix: str = "Lib",
+    include_transitive: bool = True,
+) -> frozenset[pathlib.Path]:
+    """Find all test files that import the given module (directly or transitively).
+
+    Args:
+        module_name: Module to search for (e.g., "datetime")
+        lib_prefix: RustPython Lib directory (default: "Lib")
+        include_transitive: Whether to include transitive dependencies
+
+    Returns:
+        Frozenset of test file paths that depend on this module
+    """
+    lib_dir = pathlib.Path(lib_prefix)
+    test_dir = lib_dir / "test"
+
+    if not test_dir.exists():
+        return frozenset()
+
+    # Build set of modules to search for
+    target_modules = {module_name}
+    if include_transitive:
+        # Add all modules that transitively depend on module_name
+        target_modules.update(get_transitive_imports(module_name, lib_prefix))
+
+    # Excluded test file for this module (test_<module>.py)
+    excluded_test = f"test_{module_name}.py"
+
+    # Scan test directory for files that import any of the target modules
+    result: set[pathlib.Path] = set()
+
+    for test_file in test_dir.glob("*.py"):
+        if test_file.name == excluded_test:
+            continue
+
+        content = safe_read_text(test_file)
+        if content is None:
+            continue
+
+        imports = parse_lib_imports(content)
+        # Check if any target module is imported
+        if imports & target_modules:
+            result.add(test_file)
+
+    return frozenset(result)
