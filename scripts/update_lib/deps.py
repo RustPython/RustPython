@@ -600,18 +600,51 @@ def get_transitive_imports(
     return frozenset(visited)
 
 
+def _parse_test_submodule_imports(content: str) -> dict[str, set[str]]:
+    """Parse 'from test.X import Y' to get submodule imports.
+
+    Args:
+        content: Python file content
+
+    Returns:
+        Dict mapping submodule (e.g., "test_bar") -> set of imported names (e.g., {"helper"})
+    """
+    import ast
+
+    tree = safe_parse_ast(content)
+    if tree is None:
+        return {}
+
+    result: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module and node.module.startswith("test."):
+                # from test.test_bar import helper -> test_bar: {helper}
+                parts = node.module.split(".")
+                if len(parts) >= 2:
+                    submodule = parts[1]
+                    if submodule not in ("support", "__init__"):
+                        if submodule not in result:
+                            result[submodule] = set()
+                        for alias in node.names:
+                            result[submodule].add(alias.name)
+
+    return result
+
+
 def _build_test_import_graph(test_dir: pathlib.Path) -> dict[str, set[str]]:
-    """Build import graph for files within test directory.
+    """Build import graph for files within test directory (recursive).
 
     Args:
         test_dir: Path to Lib/test/ directory
 
     Returns:
-        Dict mapping filename (stem) -> set of test modules it imports
+        Dict mapping relative path (without .py) -> set of test modules it imports
     """
     import_graph: dict[str, set[str]] = {}
 
-    for py_file in test_dir.glob("*.py"):
+    # Use **/*.py to recursively find all Python files
+    for py_file in test_dir.glob("**/*.py"):
         content = safe_read_text(py_file)
         if content is None:
             continue
@@ -621,12 +654,30 @@ def _build_test_import_graph(test_dir: pathlib.Path) -> dict[str, set[str]]:
         imports.update(parse_test_imports(content))
         # Also check direct imports of test modules
         all_imports = parse_lib_imports(content)
-        # Filter to only test modules that exist in test_dir
+
+        # Check for files at same level or in test_dir
         for imp in all_imports:
+            # Check in same directory
+            if (py_file.parent / f"{imp}.py").exists():
+                imports.add(imp)
+            # Check in test_dir root
             if (test_dir / f"{imp}.py").exists():
                 imports.add(imp)
 
-        import_graph[py_file.stem] = imports
+        # Handle "from test.X import Y" where Y is a file in test_dir/X/
+        submodule_imports = _parse_test_submodule_imports(content)
+        for submodule, imported_names in submodule_imports.items():
+            submodule_dir = test_dir / submodule
+            if submodule_dir.is_dir():
+                for name in imported_names:
+                    # Check if it's a file in the submodule directory
+                    if (submodule_dir / f"{name}.py").exists():
+                        imports.add(name)
+
+        # Use relative path from test_dir as key (without .py)
+        rel_path = py_file.relative_to(test_dir)
+        key = str(rel_path.with_suffix(""))
+        import_graph[key] = imports
 
     return import_graph
 
@@ -667,15 +718,16 @@ def find_tests_importing_module(
     # Build test directory import graph for transitive analysis within test/
     test_import_graph = _build_test_import_graph(test_dir)
 
-    # First pass: find all files (by stem) that directly import target modules
+    # First pass: find all files (by relative path) that directly import target modules
     directly_importing: set[str] = set()
-    for py_file in test_dir.glob("*.py"):
+    for py_file in test_dir.glob("**/*.py"):  # Recursive glob
         content = safe_read_text(py_file)
         if content is None:
             continue
         imports = parse_lib_imports(content) - exclude_imports
         if imports & target_modules:
-            directly_importing.add(py_file.stem)
+            rel_path = py_file.relative_to(test_dir)
+            directly_importing.add(str(rel_path.with_suffix("")))
 
     # Second pass: find files that transitively import via support files within test/
     # BFS to find all files that import any file in all_importing
@@ -683,15 +735,25 @@ def find_tests_importing_module(
     queue = list(directly_importing)
     while queue:
         current = queue.pop(0)
-        for file_stem, imports in test_import_graph.items():
-            if current in imports and file_stem not in all_importing:
-                all_importing.add(file_stem)
-                queue.append(file_stem)
+        # Extract the filename (stem) from the relative path for matching
+        current_path = pathlib.Path(current)
+        current_stem = current_path.name
+        # For __init__.py, the import name is the parent directory name
+        # e.g., "test_json/__init__" -> can be imported as "test_json"
+        if current_stem == "__init__":
+            current_stem = current_path.parent.name
+        for file_key, imports in test_import_graph.items():
+            if current_stem in imports and file_key not in all_importing:
+                all_importing.add(file_key)
+                queue.append(file_key)
 
     # Filter to only test_*.py files and build result paths
     result: set[pathlib.Path] = set()
-    for file_stem in all_importing:
-        if file_stem.startswith("test_"):
-            result.add(test_dir / f"{file_stem}.py")
+    for file_key in all_importing:
+        # file_key is like "test_foo" or "test_bar/test_sub"
+        path_parts = pathlib.Path(file_key)
+        filename = path_parts.name  # Get just the filename part
+        if filename.startswith("test_"):
+            result.add(test_dir / f"{file_key}.py")
 
     return frozenset(result)

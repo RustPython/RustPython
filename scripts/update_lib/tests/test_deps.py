@@ -745,5 +745,101 @@ class TestFindTestsOnlyTestFiles(unittest.TestCase):
             self.assertNotIn(test_dir / "helper_b.py", result)
 
 
+class TestFindTestsInModuleDirectories(unittest.TestCase):
+    """Tests for finding tests inside test_*/ module directories."""
+
+    def test_finds_test_in_module_directory(self):
+        """Test files inside test_*/ directories should be found."""
+        # Given:
+        #   bar.py (target module in Lib/)
+        #   test_bar/
+        #     __init__.py
+        #     test_sub.py (imports bar)
+        # When: find_tests_importing_module("bar")
+        # Then: test_bar/test_sub.py IS included
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_bar_dir = test_dir / "test_bar"
+            test_bar_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            (test_bar_dir / "__init__.py").write_text("")
+            (test_bar_dir / "test_sub.py").write_text("import bar\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+
+            # test_bar/test_sub.py should be in results
+            self.assertIn(test_bar_dir / "test_sub.py", result)
+
+    def test_finds_nested_test_via_support_in_module_directory(self):
+        """Transitive deps through support files in module directories."""
+        # Given:
+        #   bar.py (target)
+        #   test_bar/
+        #     __init__.py
+        #     helper.py (imports bar)
+        #     test_sub.py (imports helper via "from test.test_bar import helper")
+        # When: find_tests_importing_module("bar")
+        # Then: test_bar/test_sub.py IS included, helper.py is NOT
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_bar_dir = test_dir / "test_bar"
+            test_bar_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            (test_bar_dir / "__init__.py").write_text("")
+            (test_bar_dir / "helper.py").write_text("import bar\n")
+            (test_bar_dir / "test_sub.py").write_text(
+                "from test.test_bar import helper\n"
+            )
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+
+            # test_sub.py should be included (via helper)
+            self.assertIn(test_bar_dir / "test_sub.py", result)
+            # helper.py should NOT be in results (not a test file)
+            self.assertNotIn(test_bar_dir / "helper.py", result)
+
+    def test_both_top_level_and_module_directory_tests_found(self):
+        """Both top-level test_*.py and test_*/test_*.py should be found."""
+        # Given:
+        #   bar.py (target)
+        #   test_bar.py (top-level, imports bar)
+        #   test_bar/
+        #     test_sub.py (imports bar)
+        # When: find_tests_importing_module("bar")
+        # Then: BOTH test_bar.py AND test_bar/test_sub.py are included
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            test_dir = lib_dir / "test"
+            test_bar_dir = test_dir / "test_bar"
+            test_bar_dir.mkdir(parents=True)
+
+            (lib_dir / "bar.py").write_text("# bar module")
+            (test_dir / "test_bar.py").write_text("import bar\n")
+            (test_bar_dir / "__init__.py").write_text("")
+            (test_bar_dir / "test_sub.py").write_text("import bar\n")
+
+            get_transitive_imports.cache_clear()
+            find_tests_importing_module.cache_clear()
+            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
+
+            # Both should be included
+            self.assertIn(test_dir / "test_bar.py", result)
+            self.assertIn(test_bar_dir / "test_sub.py", result)
+
+
 if __name__ == "__main__":
     unittest.main()
