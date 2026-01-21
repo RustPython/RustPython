@@ -7,8 +7,10 @@ Handles:
 - Test dependencies (auto-detected from 'from test import ...')
 """
 
+import ast
 import functools
 import pathlib
+from collections import deque
 
 from update_lib.io_utils import read_python_files, safe_parse_ast, safe_read_text
 from update_lib.path import construct_lib_path, resolve_module_path
@@ -226,8 +228,6 @@ def parse_test_imports(content: str) -> set[str]:
     Returns:
         Set of module names imported from test package
     """
-    import ast
-
     tree = safe_parse_ast(content)
     if tree is None:
         return set()
@@ -262,8 +262,6 @@ def parse_lib_imports(content: str) -> set[str]:
     Returns:
         Set of imported module names (top-level only)
     """
-    import ast
-
     tree = safe_parse_ast(content)
     if tree is None:
         return set()
@@ -506,6 +504,7 @@ def resolve_all_paths(
     return result
 
 
+@functools.cache
 def _build_import_graph(lib_prefix: str = "Lib") -> dict[str, set[str]]:
     """Build a graph of module imports from lib_prefix directory.
 
@@ -585,10 +584,10 @@ def get_transitive_imports(
 
     # BFS from module_name following reverse edges
     visited: set[str] = set()
-    queue = list(reverse_graph.get(module_name, set()))
+    queue = deque(reverse_graph.get(module_name, set()))
 
     while queue:
-        current = queue.pop(0)
+        current = queue.popleft()
         if current in visited:
             continue
         visited.add(current)
@@ -609,8 +608,6 @@ def _parse_test_submodule_imports(content: str) -> dict[str, set[str]]:
     Returns:
         Dict mapping submodule (e.g., "test_bar") -> set of imported names (e.g., {"helper"})
     """
-    import ast
-
     tree = safe_parse_ast(content)
     if tree is None:
         return {}
@@ -730,9 +727,9 @@ def find_tests_importing_module(
     # Second pass: find files that transitively import via support files within test/
     # BFS to find all files that import any file in all_importing
     all_importing = set(directly_importing)
-    queue = list(directly_importing)
+    queue = deque(directly_importing)
     while queue:
-        current = queue.pop(0)
+        current = queue.popleft()
         # Extract the filename (stem) from the relative path for matching
         current_path = pathlib.Path(current)
         current_stem = current_path.name
