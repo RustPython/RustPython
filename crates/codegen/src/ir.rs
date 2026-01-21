@@ -273,12 +273,14 @@ impl CodeInfo {
                     PseudoInstruction::Jump { .. } => {
                         // PseudoInstruction::Jump instructions are handled later
                     }
-                    PseudoInstruction::JumpNoInterrupt { .. }
-                    | PseudoInstruction::Reserved258
+                    PseudoInstruction::AnnotationsPlaceholder
+                    | PseudoInstruction::JumpIfFalse { .. }
+                    | PseudoInstruction::JumpIfTrue { .. }
+                    | PseudoInstruction::JumpNoInterrupt { .. }
                     | PseudoInstruction::SetupCleanup
                     | PseudoInstruction::SetupFinally
                     | PseudoInstruction::SetupWith
-                    | PseudoInstruction::StoreFastMaybeNull => {
+                    | PseudoInstruction::StoreFastMaybeNull(_) => {
                         unimplemented!("Got a placeholder pseudo instruction ({instr:?})")
                     }
                 }
