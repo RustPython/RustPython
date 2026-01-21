@@ -61,6 +61,11 @@ def parse_args():
         help="print output as JSON (instead of line by line)",
     )
     parser.add_argument(
+        "--no-default-features",
+        action="store_true",
+        help="disable default features when building RustPython",
+    )
+    parser.add_argument(
         "--features",
         action="store",
         help="which features to enable when building RustPython (default: ssl)",
@@ -441,19 +446,23 @@ with open(GENERATED_FILE, "w", encoding="utf-8") as f:
     f.write(output + "\n")
 
 
-subprocess.run(
-    ["cargo", "build", "--release", f"--features={args.features}"], check=True
-)
+cargo_build_command = ["cargo", "build", "--release"]
+if args.no_default_features:
+    cargo_build_command.append("--no-default-features")
+if args.features:
+    cargo_build_command.extend(["--features", args.features])
+
+subprocess.run(cargo_build_command, check=True)
+
+cargo_run_command = ["cargo", "run", "--release"]
+if args.no_default_features:
+    cargo_run_command.append("--no-default-features")
+if args.features:
+    cargo_run_command.extend(["--features", args.features])
+cargo_run_command.extend(["-q", "--", GENERATED_FILE])
+
 result = subprocess.run(
-    [
-        "cargo",
-        "run",
-        "--release",
-        f"--features={args.features}",
-        "-q",
-        "--",
-        GENERATED_FILE,
-    ],
+    cargo_run_command,
     env={**os.environ.copy(), "RUSTPYTHONPATH": "Lib"},
     text=True,
     capture_output=True,
