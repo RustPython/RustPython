@@ -3525,7 +3525,7 @@ class ThreadedTests(unittest.TestCase):
             else:
                 s.close()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_socketserver(self):
         """Using socketserver to create and manage SSL connections."""
         server = make_https_server(self, certfile=SIGNED_CERTFILE)
