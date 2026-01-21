@@ -687,7 +687,6 @@ def find_tests_importing_module(
     module_name: str,
     lib_prefix: str = "Lib",
     include_transitive: bool = True,
-    exclude_imports: frozenset[str] = frozenset(),
 ) -> frozenset[pathlib.Path]:
     """Find all test files that import the given module (directly or transitively).
 
@@ -698,7 +697,6 @@ def find_tests_importing_module(
         module_name: Module to search for (e.g., "datetime")
         lib_prefix: RustPython Lib directory (default: "Lib")
         include_transitive: Whether to include transitive dependencies
-        exclude_imports: Modules to exclude from test file imports when checking
 
     Returns:
         Frozenset of test_*.py file paths that depend on this module
@@ -724,7 +722,7 @@ def find_tests_importing_module(
         content = safe_read_text(py_file)
         if content is None:
             continue
-        imports = parse_lib_imports(content) - exclude_imports
+        imports = parse_lib_imports(content)
         if imports & target_modules:
             rel_path = py_file.relative_to(test_dir)
             directly_importing.add(str(rel_path.with_suffix("")))
