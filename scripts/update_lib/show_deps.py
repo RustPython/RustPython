@@ -162,10 +162,10 @@ def format_deps(
     """
     from update_lib.deps import (
         DEPENDENCIES,
+        consolidate_test_paths,
         find_tests_importing_module,
         get_lib_paths,
         get_test_paths,
-        get_transitive_imports,
     )
 
     if _visited is None:
@@ -201,33 +201,13 @@ def format_deps(
     # Show impact (reverse dependencies) if requested
     if show_impact:
         impacted_tests = find_tests_importing_module(name, lib_prefix)
-        transitive_importers = get_transitive_imports(name, lib_prefix)
+        test_dir = pathlib.Path(lib_prefix) / "test"
+        consolidated = consolidate_test_paths(impacted_tests, test_dir)
 
-        if impacted_tests:
-            lines.append(f"[+] impact: ({len(impacted_tests)} tests depend on {name})")
-            # Sort tests and show with dependency info
-            test_dir = pathlib.Path(lib_prefix) / "test"
-            for test_path in sorted(impacted_tests, key=lambda p: str(p)):
-                # Get relative path from test directory for display
-                try:
-                    display_name = str(test_path.relative_to(test_dir))
-                except ValueError:
-                    display_name = test_path.name
-                # Determine if direct or via which module
-                test_content = test_path.read_text(errors="ignore")
-                from update_lib.deps import parse_lib_imports
-
-                test_imports = parse_lib_imports(test_content)
-                if name in test_imports:
-                    lines.append(f"  - {display_name} (direct)")
-                else:
-                    # Find which transitive module is imported
-                    via_modules = test_imports & transitive_importers
-                    if via_modules:
-                        via_str = ", ".join(sorted(via_modules))
-                        lines.append(f"  - {display_name} (via {via_str})")
-                    else:
-                        lines.append(f"  - {display_name}")
+        if consolidated:
+            lines.append(f"[+] impact: ({len(consolidated)} tests depend on {name})")
+            for test_name in sorted(consolidated):
+                lines.append(f"  - {test_name}")
         else:
             lines.append(f"[+] impact: (no tests depend on {name})")
 

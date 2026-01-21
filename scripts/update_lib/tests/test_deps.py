@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 from update_lib.deps import (
+    consolidate_test_paths,
     find_tests_importing_module,
     get_data_paths,
     get_lib_paths,
@@ -738,6 +739,64 @@ class TestFindTestsInModuleDirectories(unittest.TestCase):
             # Both should be included
             self.assertIn(test_dir / "test_bar.py", result)
             self.assertIn(test_bar_dir / "test_sub.py", result)
+
+
+class TestConsolidateTestPaths(unittest.TestCase):
+    """Tests for consolidate_test_paths function."""
+
+    def test_top_level_test_file(self):
+        """Top-level test_*.py -> test_* (without .py)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir)
+            test_file = test_dir / "test_foo.py"
+            test_file.write_text("# test")
+
+            result = consolidate_test_paths(frozenset({test_file}), test_dir)
+            self.assertEqual(result, frozenset({"test_foo"}))
+
+    def test_module_directory_tests_consolidated(self):
+        """Multiple files in test_*/ directory -> single directory name."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir)
+            module_dir = test_dir / "test_sqlite3"
+            module_dir.mkdir()
+            (module_dir / "test_dbapi.py").write_text("# test")
+            (module_dir / "test_backup.py").write_text("# test")
+
+            result = consolidate_test_paths(
+                frozenset({module_dir / "test_dbapi.py", module_dir / "test_backup.py"}),
+                test_dir,
+            )
+            self.assertEqual(result, frozenset({"test_sqlite3"}))
+
+    def test_mixed_top_level_and_module_directory(self):
+        """Both top-level and module directory tests handled correctly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir)
+            # Top-level test
+            (test_dir / "test_foo.py").write_text("# test")
+            # Module directory tests
+            module_dir = test_dir / "test_sqlite3"
+            module_dir.mkdir()
+            (module_dir / "test_dbapi.py").write_text("# test")
+            (module_dir / "test_backup.py").write_text("# test")
+
+            result = consolidate_test_paths(
+                frozenset({
+                    test_dir / "test_foo.py",
+                    module_dir / "test_dbapi.py",
+                    module_dir / "test_backup.py",
+                }),
+                test_dir,
+            )
+            self.assertEqual(result, frozenset({"test_foo", "test_sqlite3"}))
+
+    def test_empty_input(self):
+        """Empty input -> empty frozenset."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir)
+            result = consolidate_test_paths(frozenset(), test_dir)
+            self.assertEqual(result, frozenset())
 
 
 if __name__ == "__main__":

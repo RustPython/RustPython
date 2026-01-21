@@ -755,3 +755,38 @@ def find_tests_importing_module(
             result.add(test_dir / f"{file_key}.py")
 
     return frozenset(result)
+
+
+def consolidate_test_paths(
+    test_paths: frozenset[pathlib.Path],
+    test_dir: pathlib.Path,
+) -> frozenset[str]:
+    """Consolidate test paths by grouping test_*/ directory contents into a single entry.
+
+    Args:
+        test_paths: Frozenset of absolute paths to test files
+        test_dir: Path to the test directory (e.g., Lib/test)
+
+    Returns:
+        Frozenset of consolidated test names:
+        - "test_foo" for Lib/test/test_foo.py
+        - "test_sqlite3" for any file in Lib/test/test_sqlite3/
+    """
+    consolidated: set[str] = set()
+
+    for path in test_paths:
+        try:
+            rel_path = path.relative_to(test_dir)
+            parts = rel_path.parts
+
+            if len(parts) == 1:
+                # test_foo.py -> test_foo
+                consolidated.add(rel_path.stem)
+            else:
+                # test_sqlite3/test_dbapi.py -> test_sqlite3
+                consolidated.add(parts[0])
+        except ValueError:
+            # Path not relative to test_dir, use stem
+            consolidated.add(path.stem)
+
+    return frozenset(consolidated)
