@@ -145,7 +145,6 @@ def format_deps(
     lib_prefix: str = "Lib",
     max_depth: int = 10,
     _visited: set[str] | None = None,
-    show_impact: bool = False,
 ) -> list[str]:
     """Format all dependency information for a module.
 
@@ -155,7 +154,6 @@ def format_deps(
         lib_prefix: Local Lib directory prefix
         max_depth: Maximum recursion depth
         _visited: Shared visited set for deduplication across modules
-        show_impact: Whether to show reverse dependencies (tests that import this module)
 
     Returns:
         List of formatted lines
@@ -198,18 +196,17 @@ def format_deps(
         )
     )
 
-    # Show impact (reverse dependencies) if requested
-    if show_impact:
-        impacted_tests = find_tests_importing_module(name, lib_prefix)
-        test_dir = pathlib.Path(lib_prefix) / "test"
-        consolidated = consolidate_test_paths(impacted_tests, test_dir)
+    # Show dependent tests (reverse dependencies)
+    impacted_tests = find_tests_importing_module(name, lib_prefix)
+    test_dir = pathlib.Path(lib_prefix) / "test"
+    consolidated = consolidate_test_paths(impacted_tests, test_dir)
 
-        if consolidated:
-            lines.append(f"[+] impact: ({len(consolidated)} tests depend on {name})")
-            for test_name in sorted(consolidated):
-                lines.append(f"  - {test_name}")
-        else:
-            lines.append(f"[+] impact: (no tests depend on {name})")
+    if consolidated:
+        lines.append(f"[+] dependent tests: ({len(consolidated)} tests depend on {name})")
+        for test_name in sorted(consolidated):
+            lines.append(f"  - {test_name}")
+    else:
+        lines.append(f"[+] dependent tests: (no tests depend on {name})")
 
     return lines
 
@@ -219,8 +216,7 @@ def show_deps(
     cpython_prefix: str = "cpython",
     lib_prefix: str = "Lib",
     max_depth: int = 10,
-    show_impact: bool = False,
-    impact_only: bool = False,
+    dependent_tests_only: bool = False,
 ) -> None:
     """Show all dependency information for modules."""
     from update_lib.deps import (
@@ -236,8 +232,8 @@ def show_deps(
         else:
             expanded_names.append(name)
 
-    # Handle impact-only mode: output only space-separated test names
-    if impact_only:
+    # Handle dependent-tests-only mode: output only space-separated test names
+    if dependent_tests_only:
         all_tests: set[str] = set()
         for name in expanded_names:
             impacted = find_tests_importing_module(name, lib_prefix)
@@ -255,7 +251,7 @@ def show_deps(
         if i > 0:
             print()  # blank line between modules
         for line in format_deps(
-            name, cpython_prefix, lib_prefix, max_depth, visited, show_impact
+            name, cpython_prefix, lib_prefix, max_depth, visited
         ):
             print(line)
 
@@ -287,20 +283,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Maximum recursion depth for soft_deps tree (default: 10)",
     )
     parser.add_argument(
-        "--impact",
+        "--dependent-tests-only",
         action="store_true",
-        help="Show tests that import this module (reverse dependencies)",
-    )
-    parser.add_argument(
-        "--impact-only",
-        action="store_true",
-        help="Output only impact test names, space-separated (for use with python3 -m test)",
+        help="Output only dependent test names, space-separated (for use with python3 -m test)",
     )
 
     args = parser.parse_args(argv)
 
     try:
-        show_deps(args.names, args.cpython, args.lib, args.depth, args.impact, args.impact_only)
+        show_deps(args.names, args.cpython, args.lib, args.depth, args.dependent_tests_only)
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
