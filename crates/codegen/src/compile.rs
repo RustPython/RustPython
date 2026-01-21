@@ -4356,10 +4356,7 @@ impl Compiler {
 
         // PEP 649: Initialize __classdict__ cell for class annotation scope
         if self.current_symbol_table().needs_classdict {
-            let locals_name = self.name("locals");
-            emit!(self, Instruction::LoadName(locals_name));
-            emit!(self, Instruction::PushNull);
-            emit!(self, Instruction::Call { nargs: 0 });
+            emit!(self, Instruction::LoadLocals);
             let classdict_idx = self.get_cell_var_index("__classdict__")?;
             emit!(self, Instruction::StoreDeref(classdict_idx));
         }

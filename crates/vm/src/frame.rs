@@ -1134,6 +1134,12 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
                 Ok(None)
             }
+            Instruction::LoadLocals => {
+                // Push the locals dict onto the stack
+                let locals = self.locals.clone().into_object();
+                self.push_value(locals);
+                Ok(None)
+            }
             Instruction::LoadFromDictOrDeref(i) => {
                 let i = i.get(arg) as usize;
                 let name = if i < self.code.cellvars.len() {
@@ -1522,6 +1528,20 @@ impl ExecutingFrame<'_> {
             }
             Instruction::PopJumpIfFalse { target } => self.pop_jump_if(vm, target.get(arg), false),
             Instruction::PopJumpIfTrue { target } => self.pop_jump_if(vm, target.get(arg), true),
+            Instruction::PopJumpIfNone { target } => {
+                let value = self.pop_value();
+                if vm.is_none(&value) {
+                    self.jump(target.get(arg));
+                }
+                Ok(None)
+            }
+            Instruction::PopJumpIfNotNone { target } => {
+                let value = self.pop_value();
+                if !vm.is_none(&value) {
+                    self.jump(target.get(arg));
+                }
+                Ok(None)
+            }
             Instruction::PopTop => {
                 // Pop value from stack and ignore.
                 self.pop_value();
@@ -1788,6 +1808,17 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 self.pop_value(); // discard receiver
                 self.push_value(value);
+                Ok(None)
+            }
+            Instruction::ExitInitCheck => {
+                // Check that __init__ returned None
+                let should_be_none = self.pop_value();
+                if !vm.is_none(&should_be_none) {
+                    return Err(vm.new_type_error(format!(
+                        "__init__() should return None, not '{}'",
+                        should_be_none.class().name()
+                    )));
+                }
                 Ok(None)
             }
             Instruction::CleanupThrow => {

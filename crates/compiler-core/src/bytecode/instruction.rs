@@ -591,14 +591,14 @@ impl InstructionMetadata for Instruction {
             }
             // Pseudo instructions (calculated before conversion)
             Self::Cache => 0,
-            Self::BinarySlice => 0,
+            Self::BinarySlice => -2, // (container, start, stop -- res)
             Self::BinaryOpInplaceAddUnicode => 0,
-            Self::EndFor => -1, // pop next value at end of loop iteration
-            Self::ExitInitCheck => 0,
+            Self::EndFor => -1,        // pop next value at end of loop iteration
+            Self::ExitInitCheck => -1, // (should_be_none -- )
             Self::InterpreterExit => 0,
-            Self::LoadLocals => 0,
+            Self::LoadLocals => 1,      // ( -- locals)
             Self::ReturnGenerator => 1, // pushes None for POP_TOP to consume
-            Self::StoreSlice => 0,
+            Self::StoreSlice => -4,     // (v, container, start, stop -- )
             Self::CopyFreeVars { .. } => 0,
             Self::EnterExecutor => 0,
             Self::JumpBackwardNoInterrupt { .. } => 0,
@@ -610,8 +610,8 @@ impl InstructionMetadata for Instruction {
             Self::LoadFromDictOrGlobals(_) => 0,
             Self::MakeCell(_) => 0,
             Self::StoreFastStoreFast { .. } => 0,
-            Self::PopJumpIfNone { .. } => 0,
-            Self::PopJumpIfNotNone { .. } => 0,
+            Self::PopJumpIfNone { .. } => -1,    // (value -- )
+            Self::PopJumpIfNotNone { .. } => -1, // (value -- )
             Self::BinaryOpAddFloat => 0,
             Self::BinaryOpAddInt => 0,
             Self::BinaryOpAddUnicode => 0,
