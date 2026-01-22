@@ -80,6 +80,7 @@ pub(crate) mod _ast {
                 }
                 zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
             }
+
             Ok(())
         }
 
