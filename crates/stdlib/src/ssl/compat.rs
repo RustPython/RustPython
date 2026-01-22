@@ -1740,17 +1740,40 @@ pub(super) fn ssl_write(
     let already_buffered = *socket.write_buffered_len.lock();
 
     // Only write plaintext if not already buffered
+    // Track how much we wrote for partial write handling
+    let mut bytes_written_to_rustls = 0usize;
+
     if already_buffered == 0 {
         // Write plaintext to rustls (= SSL_write_ex internal buffer write)
-        {
+        bytes_written_to_rustls = {
             let mut writer = conn.writer();
             use std::io::Write;
-            writer
-                .write_all(data)
-                .map_err(|e| SslError::Syscall(format!("Write failed: {e}")))?;
-        }
-        // Mark data as buffered
-        *socket.write_buffered_len.lock() = data.len();
+            // Use write() instead of write_all() to support partial writes.
+            // In BIO mode (asyncio), when the internal buffer is full,
+            // we want to write as much as possible and return that count,
+            // rather than failing completely.
+            match writer.write(data) {
+                Ok(0) if !data.is_empty() => {
+                    // Buffer is full and nothing could be written.
+                    // In BIO mode, return WantWrite so the caller can
+                    // drain the outgoing BIO and retry.
+                    if is_bio {
+                        return Err(SslError::WantWrite);
+                    }
+                    return Err(SslError::Syscall("Write failed: buffer full".to_string()));
+                }
+                Ok(n) => n,
+                Err(e) => {
+                    if is_bio {
+                        // In BIO mode, treat write errors as WantWrite
+                        return Err(SslError::WantWrite);
+                    }
+                    return Err(SslError::Syscall(format!("Write failed: {e}")));
+                }
+            }
+        };
+        // Mark data as buffered (only the portion we actually wrote)
+        *socket.write_buffered_len.lock() = bytes_written_to_rustls;
     } else if already_buffered != data.len() {
         // Caller is retrying with different data - this is a protocol error
         // Clear the buffer state and return an SSL error (bad write retry)
@@ -1826,10 +1849,21 @@ pub(super) fn ssl_write(
             .map_err(SslError::Py)?;
     }
 
+    // Determine how many bytes we actually wrote
+    let actual_written = if bytes_written_to_rustls > 0 {
+        // Fresh write: return what we wrote to rustls
+        bytes_written_to_rustls
+    } else if already_buffered > 0 {
+        // Retry of previous write: return the full buffered amount
+        already_buffered
+    } else {
+        data.len()
+    };
+
     // Write completed successfully - clear buffer state
     *socket.write_buffered_len.lock() = 0;
 
-    Ok(data.len())
+    Ok(actual_written)
 }
 
 // Helper functions (private-ish, used by public SSL functions)

@@ -15,7 +15,10 @@ mod _socket {
         },
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
-        function::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath, OptionalArg, OptionalOption},
+        function::{
+            ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath, OptionalArg,
+            OptionalOption,
+        },
         types::{Constructor, DefaultConstructor, Initializer, Representable},
         utils::ToCString,
     };
@@ -2822,8 +2825,9 @@ mod _socket {
             }
             Some(ArgStrOrBytesLike::Buf(b)) => {
                 let bytes = b.borrow_buf();
-                let host_str = core::str::from_utf8(&bytes)
-                    .map_err(|_| vm.new_unicode_decode_error("host bytes is not utf8".to_owned()))?;
+                let host_str = core::str::from_utf8(&bytes).map_err(|_| {
+                    vm.new_unicode_decode_error("host bytes is not utf8".to_owned())
+                })?;
                 Some(host_str.to_owned())
             }
             None => None,
