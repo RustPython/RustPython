@@ -1552,6 +1552,11 @@ pub(super) fn ssl_read(
 
         // Try to read plaintext from rustls buffer
         if let Some(n) = try_read_plaintext(conn, buf)? {
+            if n == 0 {
+                // EOF from TLS - close_notify received
+                // Return ZeroReturn so Python raises SSLZeroReturnError
+                return Err(SslError::ZeroReturn);
+            }
             return Ok(n);
         }
 
