@@ -13,9 +13,7 @@ class MyException(Exception):
 
 
 def tearDownModule():
-    # XXX: RUSTPYTHON; asyncio.events._set_event_loop_policy is not implemented
-    # asyncio.events._set_event_loop_policy(None)
-    pass
+    asyncio.events._set_event_loop_policy(None)
 
 
 class TestCM:
@@ -52,7 +50,6 @@ class TestAsyncCase(unittest.TestCase):
         # starting a new event loop
         self.addCleanup(support.gc_collect)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_full_cycle(self):
         expected = ['setUp',
                     'asyncSetUp',
