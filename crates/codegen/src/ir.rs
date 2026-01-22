@@ -270,15 +270,16 @@ impl CodeInfo {
                         info.arg = OpArg(new_idx);
                         info.instr = Instruction::LoadFast(Arg::marker()).into();
                     }
-                    PseudoInstruction::Jump { .. } => {
-                        // PseudoInstruction::Jump instructions are handled later
+                    PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. } => {
+                        // Jump pseudo instructions are handled later
                     }
-                    PseudoInstruction::JumpNoInterrupt { .. }
-                    | PseudoInstruction::Reserved258
+                    PseudoInstruction::AnnotationsPlaceholder
+                    | PseudoInstruction::JumpIfFalse { .. }
+                    | PseudoInstruction::JumpIfTrue { .. }
                     | PseudoInstruction::SetupCleanup
                     | PseudoInstruction::SetupFinally
                     | PseudoInstruction::SetupWith
-                    | PseudoInstruction::StoreFastMaybeNull => {
+                    | PseudoInstruction::StoreFastMaybeNull(_) => {
                         unimplemented!("Got a placeholder pseudo instruction ({instr:?})")
                     }
                 }
@@ -333,6 +334,14 @@ impl CodeInfo {
                                 Instruction::JumpBackward {
                                     target: Arg::marker(),
                                 }
+                            }
+                        }
+                        AnyInstruction::Pseudo(PseudoInstruction::JumpNoInterrupt { .. })
+                            if target != BlockIdx::NULL =>
+                        {
+                            // JumpNoInterrupt is always backward (used in yield-from/await loops)
+                            Instruction::JumpBackwardNoInterrupt {
+                                target: Arg::marker(),
                             }
                         }
                         other => other.expect_real(),
@@ -468,7 +477,7 @@ impl CodeInfo {
             let block = &self.blocks[block_idx];
             for ins in &block.instructions {
                 let instr = &ins.instr;
-                let effect = instr.stack_effect(ins.arg, false);
+                let effect = instr.stack_effect(ins.arg);
                 if DEBUG {
                     let display_arg = if ins.target == BlockIdx::NULL {
                         ins.arg
@@ -493,7 +502,7 @@ impl CodeInfo {
                 }
                 // Process target blocks for branching instructions
                 if ins.target != BlockIdx::NULL {
-                    let effect = instr.stack_effect(ins.arg, true);
+                    // Both jump and non-jump paths have the same stack effect
                     let target_depth = depth.checked_add_signed(effect).ok_or({
                         if effect < 0 {
                             InternalError::StackUnderflow

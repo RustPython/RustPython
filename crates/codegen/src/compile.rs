@@ -1136,6 +1136,13 @@ impl Compiler {
         // Set the source range for the RESUME instruction
         // For now, just use an empty range at the beginning
         self.current_source_range = TextRange::default();
+
+        // For async functions/coroutines, emit RETURN_GENERATOR + POP_TOP before RESUME
+        if scope_type == CompilerScope::AsyncFunction {
+            emit!(self, Instruction::ReturnGenerator);
+            emit!(self, Instruction::PopTop);
+        }
+
         emit!(
             self,
             Instruction::Resume {
@@ -1371,7 +1378,7 @@ impl Compiler {
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopTop);
+                emit!(self, Instruction::PopIter);
             }
 
             FBlockType::TryExcept => {
@@ -3623,6 +3630,7 @@ impl Compiler {
             self.current_code_info().flags |= bytecode::CodeFlags::HAS_DOCSTRING;
         }
         // If no docstring, don't add None to co_consts
+        // Note: RETURN_GENERATOR + POP_TOP for async functions is emitted in enter_scope()
 
         // Compile body statements
         self.compile_statements(body)?;
@@ -4348,10 +4356,7 @@ impl Compiler {
 
         // PEP 649: Initialize __classdict__ cell for class annotation scope
         if self.current_symbol_table().needs_classdict {
-            let locals_name = self.name("locals");
-            emit!(self, Instruction::LoadName(locals_name));
-            emit!(self, Instruction::PushNull);
-            emit!(self, Instruction::Call { nargs: 0 });
+            emit!(self, Instruction::LoadLocals);
             let classdict_idx = self.get_cell_var_index("__classdict__")?;
             emit!(self, Instruction::StoreDeref(classdict_idx));
         }
@@ -4978,8 +4983,10 @@ impl Compiler {
         if is_async {
             emit!(self, Instruction::EndAsyncFor);
         } else {
-            // Pop the iterator after loop ends
-            emit!(self, Instruction::PopTop);
+            // END_FOR + POP_ITER pattern (CPython 3.14)
+            // FOR_ITER jumps to END_FOR, but VM skips it (+1) to reach POP_ITER
+            emit!(self, Instruction::EndFor);
+            emit!(self, Instruction::PopIter);
         }
         self.compile_statements(orelse)?;
 
@@ -6527,8 +6534,11 @@ impl Compiler {
             }
         );
 
-        // JUMP_NO_INTERRUPT send (regular JUMP in RustPython)
-        emit!(self, PseudoInstruction::Jump { target: send_block });
+        // JUMP_BACKWARD_NO_INTERRUPT send
+        emit!(
+            self,
+            PseudoInstruction::JumpNoInterrupt { target: send_block }
+        );
 
         // fail: CLEANUP_THROW
         // Stack when exception: [receiver, yielded_value, exc]
@@ -7424,7 +7434,9 @@ impl Compiler {
                 emit!(self, Instruction::EndAsyncFor);
                 emit!(self, Instruction::PopTop);
             } else {
-                emit!(self, Instruction::PopTop);
+                // END_FOR + POP_ITER pattern (CPython 3.14)
+                emit!(self, Instruction::EndFor);
+                emit!(self, Instruction::PopIter);
             }
         }
 
@@ -7621,9 +7633,13 @@ impl Compiler {
             self.switch_to_block(after_block);
             if is_async {
                 emit!(self, Instruction::EndAsyncFor);
+                // Pop the iterator
+                emit!(self, Instruction::PopTop);
+            } else {
+                // END_FOR + POP_ITER pattern (CPython 3.14)
+                emit!(self, Instruction::EndFor);
+                emit!(self, Instruction::PopIter);
             }
-            // Pop the iterator
-            emit!(self, Instruction::PopTop);
         }
 
         // Step 8: Clean up - restore saved locals
@@ -7741,6 +7757,18 @@ impl Compiler {
     }
 
     fn emit_load_const(&mut self, constant: ConstantData) {
+        // Use LOAD_SMALL_INT for integers in small int cache range (-5..=256)
+        // Still add to co_consts for compatibility (CPython does this too)
+        if let ConstantData::Integer { ref value } = constant
+            && let Some(small_int) = value.to_i32()
+            && (-5..=256).contains(&small_int)
+        {
+            // Add to co_consts even though we use LOAD_SMALL_INT
+            let _idx = self.arg_constant(constant);
+            // Store as u32 (two's complement for negative values)
+            self.emit_arg(small_int as u32, |idx| Instruction::LoadSmallInt { idx });
+            return;
+        }
         let idx = self.arg_constant(constant);
         self.emit_arg(idx, |idx| Instruction::LoadConst { idx })
     }
@@ -7924,7 +7952,7 @@ impl Compiler {
 
         // For break in a for loop, pop the iterator
         if is_break && is_for_loop {
-            emit!(self, Instruction::PopTop);
+            emit!(self, Instruction::PopIter);
         }
 
         // Jump to target

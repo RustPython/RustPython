@@ -290,8 +290,9 @@ op_arg_enum!(
         Print = 1,
         /// Import * operation
         ImportStar = 2,
-        // StopIterationError = 3,
-        // AsyncGenWrap = 4,
+        /// Convert StopIteration to RuntimeError in async context
+        StopIterationError = 3,
+        AsyncGenWrap = 4,
         UnaryPositive = 5,
         /// Convert list to tuple
         ListToTuple = 6,

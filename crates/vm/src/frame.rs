@@ -1134,6 +1134,12 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
                 Ok(None)
             }
+            Instruction::LoadLocals => {
+                // Push the locals dict onto the stack
+                let locals = self.locals.clone().into_object();
+                self.push_value(locals);
+                Ok(None)
+            }
             Instruction::LoadFromDictOrDeref(i) => {
                 let i = i.get(arg) as usize;
                 let name = if i < self.code.cellvars.len() {
@@ -1175,6 +1181,12 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadConst { idx } => {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
+                Ok(None)
+            }
+            Instruction::LoadSmallInt { idx } => {
+                // Push small integer (-5..=256) directly without constant table lookup
+                let value = vm.ctx.new_int(idx.get(arg) as i32);
+                self.push_value(value.into());
                 Ok(None)
             }
             Instruction::LoadDeref(i) => {
@@ -1487,6 +1499,15 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::Nop => Ok(None),
+            Instruction::ReturnGenerator => {
+                // In RustPython, generators/coroutines are created in function.rs
+                // before the frame starts executing. The RETURN_GENERATOR instruction
+                // pushes None so that the following POP_TOP has something to consume.
+                // This matches CPython's semantics where the sent value (None for first call)
+                // is on the stack when the generator resumes.
+                self.push_value(vm.ctx.none());
+                Ok(None)
+            }
             Instruction::PopExcept => {
                 // Pop prev_exc from value stack and restore it
                 let prev_exc = self.pop_value();
@@ -1507,8 +1528,32 @@ impl ExecutingFrame<'_> {
             }
             Instruction::PopJumpIfFalse { target } => self.pop_jump_if(vm, target.get(arg), false),
             Instruction::PopJumpIfTrue { target } => self.pop_jump_if(vm, target.get(arg), true),
+            Instruction::PopJumpIfNone { target } => {
+                let value = self.pop_value();
+                if vm.is_none(&value) {
+                    self.jump(target.get(arg));
+                }
+                Ok(None)
+            }
+            Instruction::PopJumpIfNotNone { target } => {
+                let value = self.pop_value();
+                if !vm.is_none(&value) {
+                    self.jump(target.get(arg));
+                }
+                Ok(None)
+            }
             Instruction::PopTop => {
                 // Pop value from stack and ignore.
+                self.pop_value();
+                Ok(None)
+            }
+            Instruction::EndFor => {
+                // Pop the next value from stack (cleanup after loop body)
+                self.pop_value();
+                Ok(None)
+            }
+            Instruction::PopIter => {
+                // Pop the iterator from stack (end of for loop)
                 self.pop_value();
                 Ok(None)
             }
@@ -1763,6 +1808,17 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 self.pop_value(); // discard receiver
                 self.push_value(value);
+                Ok(None)
+            }
+            Instruction::ExitInitCheck => {
+                // Check that __init__ returned None
+                let should_be_none = self.pop_value();
+                if !vm.is_none(&should_be_none) {
+                    return Err(vm.new_type_error(format!(
+                        "__init__() should return None, not '{}'",
+                        should_be_none.class().name()
+                    )));
+                }
                 Ok(None)
             }
             Instruction::CleanupThrow => {
@@ -2285,9 +2341,26 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Ok(PyIterReturn::StopIteration(_)) => {
-                // CPython 3.14: Do NOT pop iterator here
-                // POP_ITER instruction will handle cleanup after the loop
-                self.jump(target);
+                // Check if target instruction is END_FOR (CPython 3.14 pattern)
+                // If so, skip it and jump to target + 1 instruction (POP_ITER)
+                let target_idx = target.0 as usize;
+                let jump_target = if let Some(unit) = self.code.instructions.get(target_idx) {
+                    if matches!(unit.op, bytecode::Instruction::EndFor)
+                        && matches!(
+                            self.code.instructions.get(target_idx + 1).map(|u| &u.op),
+                            Some(bytecode::Instruction::PopIter)
+                        )
+                    {
+                        // Skip END_FOR, jump to POP_ITER
+                        bytecode::Label(target.0 + 1)
+                    } else {
+                        // Legacy pattern: jump directly to target (POP_TOP/POP_ITER)
+                        target
+                    }
+                } else {
+                    target
+                };
+                self.jump(jump_target);
                 Ok(None)
             }
             Err(next_error) => {
@@ -2683,6 +2756,30 @@ impl ExecutingFrame<'_> {
                     .downcast::<PyList>()
                     .map_err(|_| vm.new_type_error("LIST_TO_TUPLE expects a list"))?;
                 Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into())
+            }
+            bytecode::IntrinsicFunction1::StopIterationError => {
+                // Convert StopIteration to RuntimeError
+                // Used to ensure async generators don't raise StopIteration directly
+                // _PyGen_FetchStopIterationValue
+                // Use fast_isinstance to handle subclasses of StopIteration
+                if arg.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
+                    Err(vm.new_runtime_error("coroutine raised StopIteration"))
+                } else {
+                    // If not StopIteration, just re-raise the original exception
+                    Err(arg.downcast().unwrap_or_else(|obj| {
+                        vm.new_runtime_error(format!(
+                            "unexpected exception type: {:?}",
+                            obj.class()
+                        ))
+                    }))
+                }
+            }
+            bytecode::IntrinsicFunction1::AsyncGenWrap => {
+                // Wrap value for async generator
+                // Creates an AsyncGenWrappedValue
+                Ok(crate::builtins::asyncgenerator::PyAsyncGenWrappedValue(arg)
+                    .into_ref(&vm.ctx)
+                    .into())
             }
         }
     }
