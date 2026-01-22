@@ -249,7 +249,11 @@ def _format_dependent_tests_tree(
     # Format children
     child_indent = indent + "  " if indent else "    "
     for child in children:
-        lines.extend(_format_dependent_tests_tree(child, cpython_prefix, lib_prefix, child_indent))
+        lines.extend(
+            _format_dependent_tests_tree(
+                child, cpython_prefix, lib_prefix, child_indent
+            )
+        )
 
     return lines
 
