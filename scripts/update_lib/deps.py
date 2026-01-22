@@ -17,7 +17,6 @@ from collections import deque
 
 from update_lib.io_utils import read_python_files, safe_parse_ast, safe_read_text
 
-
 # === Cross-process cache using shelve ===
 
 
