@@ -937,7 +937,10 @@ mod decl {
                 libc::signal(signum, user.previous);
                 libc::raise(signum);
                 // Re-register our handler
-                libc::signal(signum, faulthandler_user_signal as *const () as libc::sighandler_t);
+                libc::signal(
+                    signum,
+                    faulthandler_user_signal as *const () as libc::sighandler_t,
+                );
             }
         }
     }
@@ -988,7 +991,10 @@ mod decl {
         let previous = if !user_signals::is_enabled(signum) {
             // Install signal handler
             let prev = unsafe {
-                libc::signal(args.signum, faulthandler_user_signal as *const () as libc::sighandler_t)
+                libc::signal(
+                    args.signum,
+                    faulthandler_user_signal as *const () as libc::sighandler_t,
+                )
             };
             if prev == libc::SIG_ERR {
                 return Err(vm.new_os_error(format!(
