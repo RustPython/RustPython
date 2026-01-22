@@ -964,13 +964,13 @@ pub(crate) mod _ctypes {
     #[pyattr]
     fn _memmove_addr(_vm: &VirtualMachine) -> usize {
         let f = libc::memmove;
-        f as usize
+        f as *const () as usize
     }
 
     #[pyattr]
     fn _memset_addr(_vm: &VirtualMachine) -> usize {
         let f = libc::memset;
-        f as usize
+        f as *const () as usize
     }
 
     #[pyattr]
