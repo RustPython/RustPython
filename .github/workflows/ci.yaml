@@ -173,6 +173,12 @@ jobs:
           cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
         if: runner.os == 'Linux'
 
+      - name: run update_lib tests
+        run: cargo run -- -m unittest discover -s scripts/update_lib/tests -v
+        env:
+          PYTHONPATH: scripts
+        if: runner.os == 'Linux'
+
       - name: prepare Intel MacOS build
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -462,11 +468,6 @@ jobs:
       - run: ruff check --diff
 
       - run: ruff format --check
-
-      - name: run update_lib tests
-        run: cargo run -- -m unittest discover -s scripts/update_lib/tests -v
-        env:
-          PYTHONPATH: scripts
 
       - name: install prettier
         run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH

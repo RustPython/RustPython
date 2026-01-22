@@ -160,6 +160,7 @@ def format_deps(
     """
     from update_lib.deps import (
         DEPENDENCIES,
+        find_dependent_tests_tree,
         get_lib_paths,
         get_test_paths,
     )
@@ -185,14 +186,74 @@ def format_deps(
     dep_info = DEPENDENCIES.get(name, {})
     hard_deps = dep_info.get("hard_deps", [])
     if hard_deps:
-        lines.append(f"hard_deps: {hard_deps}")
+        lines.append(f"packages: {hard_deps}")
 
-    lines.append("soft_deps:")
+    lines.append("dependencies:")
     lines.extend(
         format_deps_tree(
             cpython_prefix, lib_prefix, max_depth, soft_deps={name}, _visited=_visited
         )
     )
+
+    # Show dependent tests as tree (depth 2: module + direct importers + their importers)
+    tree = find_dependent_tests_tree(name, lib_prefix=lib_prefix, max_depth=2)
+    lines.extend(_format_dependent_tests_tree(tree, cpython_prefix, lib_prefix))
+
+    return lines
+
+
+def _format_dependent_tests_tree(
+    tree: dict,
+    cpython_prefix: str = "cpython",
+    lib_prefix: str = "Lib",
+    indent: str = "",
+) -> list[str]:
+    """Format dependent tests tree for display."""
+    from update_lib.deps import is_up_to_date
+
+    lines = []
+    module = tree["module"]
+    tests = tree["tests"]
+    children = tree["children"]
+
+    if indent == "":
+        # Root level
+        # Count total tests in tree
+        def count_tests(t: dict) -> int:
+            total = len(t.get("tests", []))
+            for c in t.get("children", []):
+                total += count_tests(c)
+            return total
+
+        total = count_tests(tree)
+        if total == 0 and not children:
+            lines.append(f"dependent tests: (no tests depend on {module})")
+            return lines
+        lines.append(f"dependent tests: ({total} tests)")
+
+    # Check if module is up-to-date
+    synced = is_up_to_date(module.split(".")[0], cpython_prefix, lib_prefix)
+    marker = "[x]" if synced else "[ ]"
+
+    # Format this node
+    if tests:
+        test_str = " ".join(tests)
+        if indent == "":
+            lines.append(f"- {marker} {module}: {test_str}")
+        else:
+            lines.append(f"{indent}- {marker} {module}: {test_str}")
+    elif indent != "" and children:
+        # Has children but no direct tests
+        lines.append(f"{indent}- {marker} {module}:")
+
+    # Format children
+    child_indent = indent + "  " if indent else "    "
+    for child in children:
+        lines.extend(
+            _format_dependent_tests_tree(
+                child, cpython_prefix, lib_prefix, child_indent
+            )
+        )
 
     return lines
 

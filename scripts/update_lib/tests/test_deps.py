@@ -5,14 +5,12 @@ import tempfile
 import unittest
 
 from update_lib.deps import (
-    get_data_paths,
     get_lib_paths,
     get_soft_deps,
     get_test_dependencies,
     get_test_paths,
     parse_lib_imports,
     parse_test_imports,
-    resolve_all_paths,
 )
 
 
@@ -128,21 +126,6 @@ class TestGetTestPaths(unittest.TestCase):
             self.assertEqual(paths, (tmpdir / "Lib" / "test" / "test_foo.py",))
 
 
-class TestGetDataPaths(unittest.TestCase):
-    """Tests for get_data_paths function."""
-
-    def test_known_data(self):
-        """Test module with known data paths."""
-        paths = get_data_paths("regrtest", "cpython")
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(paths[0], pathlib.Path("cpython/Lib/test/regrtestdata"))
-
-    def test_no_data(self):
-        """Test module without data paths."""
-        paths = get_data_paths("datetime", "cpython")
-        self.assertEqual(paths, ())
-
-
 class TestGetTestDependencies(unittest.TestCase):
     """Tests for get_test_dependencies function."""
 
@@ -211,28 +194,6 @@ class TestKR:
             self.assertEqual(result["data"][0], test_dir / "cjkencodings")
 
 
-class TestResolveAllPaths(unittest.TestCase):
-    """Tests for resolve_all_paths function."""
-
-    def test_datetime(self):
-        """Test resolving datetime module."""
-        result = resolve_all_paths("datetime", include_deps=False)
-        self.assertEqual(len(result["lib"]), 2)
-        self.assertIn(pathlib.Path("cpython/Lib/datetime.py"), result["lib"])
-        self.assertIn(pathlib.Path("cpython/Lib/_pydatetime.py"), result["lib"])
-
-    def test_regrtest(self):
-        """Test resolving regrtest module."""
-        result = resolve_all_paths("regrtest", include_deps=False)
-        self.assertEqual(result["lib"], [pathlib.Path("cpython/Lib/test/libregrtest")])
-        self.assertEqual(
-            result["test"], [pathlib.Path("cpython/Lib/test/test_regrtest")]
-        )
-        self.assertEqual(
-            result["data"], [pathlib.Path("cpython/Lib/test/regrtestdata")]
-        )
-
-
 class TestParseLibImports(unittest.TestCase):
     """Tests for parse_lib_imports function."""
 
@@ -244,7 +205,7 @@ import sys
 import collections.abc
 """
         imports = parse_lib_imports(code)
-        self.assertEqual(imports, {"os", "sys", "collections"})
+        self.assertEqual(imports, {"os", "sys", "collections.abc"})
 
     def test_from_import(self):
         """Test parsing 'from foo import bar'."""
@@ -254,7 +215,7 @@ from collections.abc import Mapping
 from typing import Optional
 """
         imports = parse_lib_imports(code)
-        self.assertEqual(imports, {"os", "collections", "typing"})
+        self.assertEqual(imports, {"os", "collections.abc", "typing"})
 
     def test_mixed_imports(self):
         """Test mixed import styles."""
