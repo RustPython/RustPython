@@ -13,7 +13,6 @@ import pathlib
 import re
 import shelve
 import subprocess
-from collections import deque
 
 from update_lib.io_utils import read_python_files, safe_parse_ast, safe_read_text
 
@@ -38,14 +37,13 @@ def _get_cpython_version(cpython_prefix: str = "cpython") -> str:
 
 def _get_cache_path() -> str:
     """Get cache file path (without extension - shelve adds its own)."""
-    cache_dir = pathlib.Path.home() / ".cache" / "rustpython-update-lib"
+    cache_dir = pathlib.Path(__file__).parent / ".cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return str(cache_dir / "import_graph_cache")
 
 
 def clear_import_graph_caches() -> None:
     """Clear in-process import graph caches (for testing)."""
-    global _test_import_graph_cache, _lib_import_graph_cache
     if "_test_import_graph_cache" in globals():
         globals()["_test_import_graph_cache"].clear()
     if "_lib_import_graph_cache" in globals():
@@ -328,7 +326,8 @@ def parse_lib_imports(content: str) -> set[str]:
     Returns:
         Set of imported module names (full paths)
     """
-    content = _extract_top_level_code(content)
+    # Note: Don't truncate content here - some stdlib files have imports after
+    # the first def/class (e.g., _pydecimal.py has `import contextvars` at line 343)
     imports = set()
 
     # Match "import foo.bar" at line start
