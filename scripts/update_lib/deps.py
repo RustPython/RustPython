@@ -20,6 +20,7 @@ from update_lib.io_utils import read_python_files, safe_parse_ast, safe_read_tex
 
 # === Cross-process cache using shelve ===
 
+
 def _get_cpython_version(cpython_prefix: str = "cpython") -> str:
     """Get CPython version from git tag for cache namespace."""
     try:
@@ -50,6 +51,8 @@ def clear_import_graph_caches() -> None:
         globals()["_test_import_graph_cache"].clear()
     if "_lib_import_graph_cache" in globals():
         globals()["_lib_import_graph_cache"].clear()
+
+
 from update_lib.path import construct_lib_path, resolve_module_path
 
 # Manual dependency table for irregular cases
@@ -594,14 +597,21 @@ def _parse_test_submodule_imports(content: str) -> dict[str, set[str]]:
     return result
 
 
-_test_import_graph_cache: dict[str, tuple[dict[str, set[str]], dict[str, set[str]]]] = {}
+_test_import_graph_cache: dict[
+    str, tuple[dict[str, set[str]], dict[str, set[str]]]
+] = {}
 
 
 def _is_standard_lib_path(path: str) -> bool:
     """Check if path is the standard Lib directory (not a temp dir)."""
     if "/tmp" in path.lower() or "/var/folders" in path.lower():
         return False
-    return path == "Lib/test" or path.endswith("/Lib/test") or path == "Lib" or path.endswith("/Lib")
+    return (
+        path == "Lib/test"
+        or path.endswith("/Lib/test")
+        or path == "Lib"
+        or path.endswith("/Lib")
+    )
 
 
 def _build_test_import_graph(
@@ -633,7 +643,10 @@ def _build_test_import_graph(
             with shelve.open(_get_cache_path()) as db:
                 if shelve_key in db:
                     import_graph, lib_imports_graph = db[shelve_key]
-                    _test_import_graph_cache[cache_key] = (import_graph, lib_imports_graph)
+                    _test_import_graph_cache[cache_key] = (
+                        import_graph,
+                        lib_imports_graph,
+                    )
                     return import_graph, lib_imports_graph
         except Exception:
             pass
@@ -787,8 +800,7 @@ def _get_lib_modules_importing(
         # Match if module imports target OR any submodule of target
         # e.g., for "xml": match imports of "xml", "xml.parsers", "xml.etree.ElementTree"
         matches = any(
-            imp == module_name or imp.startswith(module_name + ".")
-            for imp in imports
+            imp == module_name or imp.startswith(module_name + ".") for imp in imports
         )
         if matches:
             importers.add(full_path)
@@ -796,7 +808,9 @@ def _get_lib_modules_importing(
     return importers
 
 
-def _consolidate_submodules(modules: set[str], threshold: int = 3) -> dict[str, set[str]]:
+def _consolidate_submodules(
+    modules: set[str], threshold: int = 3
+) -> dict[str, set[str]]:
     """Consolidate submodules if count exceeds threshold.
 
     Args:
@@ -830,26 +844,28 @@ def _consolidate_submodules(modules: set[str], threshold: int = 3) -> dict[str, 
 
 
 # Modules that are used everywhere - show but don't expand their dependents
-_BLOCKLIST_MODULES = frozenset({
-    "unittest",
-    "test.support",
-    "support",
-    "doctest",
-    "typing",
-    "abc",
-    "collections.abc",
-    "functools",
-    "itertools",
-    "operator",
-    "contextlib",
-    "warnings",
-    "types",
-    "enum",
-    "re",
-    "io",
-    "os",
-    "sys",
-})
+_BLOCKLIST_MODULES = frozenset(
+    {
+        "unittest",
+        "test.support",
+        "support",
+        "doctest",
+        "typing",
+        "abc",
+        "collections.abc",
+        "functools",
+        "itertools",
+        "operator",
+        "contextlib",
+        "warnings",
+        "types",
+        "enum",
+        "re",
+        "io",
+        "os",
+        "sys",
+    }
+)
 
 
 def find_dependent_tests_tree(
@@ -900,8 +916,7 @@ def find_dependent_tests_tree(
         # e.g., "xml" matches imports of "xml", "xml.parsers", "xml.etree.ElementTree"
         # but "collections._defaultdict" only matches "collections._defaultdict" (no children)
         matches = any(
-            imp == module_name or imp.startswith(module_name + ".")
-            for imp in imports
+            imp == module_name or imp.startswith(module_name + ".") for imp in imports
         )
         if matches:
             # Check if it's a test file
@@ -930,7 +945,8 @@ def find_dependent_tests_tree(
 
         # Skip already visited modules (cycle detection) and blocklisted modules
         lib_importers = {
-            m for m in lib_importers
+            m
+            for m in lib_importers
             if m not in _visited_modules
             and m.split(".")[0] not in _visited_modules
             and m not in _BLOCKLIST_MODULES

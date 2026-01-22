@@ -515,6 +515,7 @@ class TestFindTestsOnlyTestFiles(unittest.TestCase):
             # helper.py should be excluded
             self.assertNotIn(test_dir / "helper.py", result)
 
+
 class TestFindTestsInModuleDirectories(unittest.TestCase):
     """Tests for finding tests inside test_*/ module directories."""
 
