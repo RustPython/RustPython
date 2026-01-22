@@ -1051,7 +1051,9 @@ impl ExecutingFrame<'_> {
                 let iterable = self.pop_value();
                 let iter = if iterable.class().is(vm.ctx.types.coroutine_type) {
                     // Coroutine requires CO_COROUTINE or CO_ITERABLE_COROUTINE flag
-                    if !self.code.flags.intersects(bytecode::CodeFlags::COROUTINE) {
+                    if !self.code.flags.intersects(
+                        bytecode::CodeFlags::COROUTINE | bytecode::CodeFlags::ITERABLE_COROUTINE,
+                    ) {
                         return Err(vm.new_type_error(
                             "cannot 'yield from' a coroutine object in a non-coroutine generator"
                                 .to_owned(),

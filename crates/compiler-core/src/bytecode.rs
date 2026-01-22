@@ -297,6 +297,7 @@ bitflags! {
         const VARKEYWORDS = 0x0008;
         const GENERATOR = 0x0020;
         const COROUTINE = 0x0080;
+        const ITERABLE_COROUTINE = 0x0100;
         /// If a code object represents a function and has a docstring,
         /// this bit is set and the first item in co_consts is the docstring.
         const HAS_DOCSTRING = 0x4000000;

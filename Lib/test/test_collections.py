@@ -787,7 +787,6 @@ def _test_gen():
 
 class TestOneTrickPonyABCs(ABCTestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_Awaitable(self):
         def gen():
             yield
@@ -840,7 +839,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         CoroLike = None
         support.gc_collect() # Kill CoroLike to clean-up ABCMeta cache
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_Coroutine(self):
         def gen():
             yield

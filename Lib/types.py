@@ -292,8 +292,7 @@ def coroutine(func):
     if not callable(func):
         raise TypeError('types.coroutine() expects a callable')
 
-    # XXX RUSTPYTHON TODO: iterable coroutine
-    if (False and func.__class__ is FunctionType and
+    if (func.__class__ is FunctionType and
         getattr(func, '__code__', None).__class__ is CodeType):
 
         co_flags = func.__code__.co_flags

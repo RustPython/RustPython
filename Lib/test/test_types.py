@@ -2174,7 +2174,6 @@ class CoroutineTests(unittest.TestCase):
         foo = types.coroutine(foo)
         self.assertIs(aw, foo())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_async_def(self):
         # Test that types.coroutine passes 'async def' coroutines
         # without modification
@@ -2431,7 +2430,6 @@ class CoroutineTests(unittest.TestCase):
         foo = types.coroutine(foo)
         self.assertIs(foo(), gencoro)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_genfunc(self):
         def gen(): yield
         self.assertIs(types.coroutine(gen), gen)
