@@ -10,9 +10,46 @@ Handles:
 import ast
 import functools
 import pathlib
+import re
+import shelve
+import subprocess
 from collections import deque
 
 from update_lib.io_utils import read_python_files, safe_parse_ast, safe_read_text
+
+
+# === Cross-process cache using shelve ===
+
+def _get_cpython_version(cpython_prefix: str = "cpython") -> str:
+    """Get CPython version from git tag for cache namespace."""
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=cpython_prefix,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _get_cache_path() -> str:
+    """Get cache file path (without extension - shelve adds its own)."""
+    cache_dir = pathlib.Path.home() / ".cache" / "rustpython-update-lib"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return str(cache_dir / "import_graph_cache")
+
+
+def clear_import_graph_caches() -> None:
+    """Clear in-process import graph caches (for testing)."""
+    global _test_import_graph_cache, _lib_import_graph_cache
+    if "_test_import_graph_cache" in globals():
+        globals()["_test_import_graph_cache"].clear()
+    if "_lib_import_graph_cache" in globals():
+        globals()["_lib_import_graph_cache"].clear()
 from update_lib.path import construct_lib_path, resolve_module_path
 
 # Manual dependency table for irregular cases
@@ -219,8 +256,30 @@ def get_data_paths(
     return ()
 
 
+def _extract_top_level_code(content: str) -> str:
+    """Extract only top-level code from Python content for faster parsing.
+
+    Cuts at first function/class definition since imports come before them.
+    """
+    # Find first function or class definition
+    def_idx = content.find("\ndef ")
+    class_idx = content.find("\nclass ")
+
+    # Use the earlier of the two (if found)
+    indices = [i for i in (def_idx, class_idx) if i != -1]
+    if indices:
+        content = content[: min(indices)]
+    return content.rstrip("\n")
+
+
+_FROM_TEST_IMPORT_RE = re.compile(r"^from test import (.+)", re.MULTILINE)
+_FROM_TEST_DOT_RE = re.compile(r"^from test\.(\w+)", re.MULTILINE)
+
+
 def parse_test_imports(content: str) -> set[str]:
     """Parse test file content and extract 'from test import ...' dependencies.
+
+    Uses regex for speed - only matches top-level imports.
 
     Args:
         content: Python file content
@@ -228,54 +287,55 @@ def parse_test_imports(content: str) -> set[str]:
     Returns:
         Set of module names imported from test package
     """
-    tree = safe_parse_ast(content)
-    if tree is None:
-        return set()
-
+    content = _extract_top_level_code(content)
     imports = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            if node.module == "test":
-                # from test import foo, bar
-                for alias in node.names:
-                    name = alias.name
-                    # Skip support modules and common imports
-                    if name not in ("support", "__init__"):
-                        imports.add(name)
-            elif node.module and node.module.startswith("test."):
-                # from test.foo import bar -> depends on foo
-                parts = node.module.split(".")
-                if len(parts) >= 2:
-                    dep = parts[1]
-                    if dep not in ("support", "__init__"):
-                        imports.add(dep)
+
+    # Match "from test import foo, bar, baz"
+    for match in _FROM_TEST_IMPORT_RE.finditer(content):
+        import_list = match.group(1)
+        # Parse "foo, bar as b, baz" -> ["foo", "bar", "baz"]
+        for part in import_list.split(","):
+            name = part.split()[0].strip()  # Handle "foo as f"
+            if name and name not in ("support", "__init__"):
+                imports.add(name)
+
+    # Match "from test.foo import ..." -> depends on foo
+    for match in _FROM_TEST_DOT_RE.finditer(content):
+        dep = match.group(1)
+        if dep not in ("support", "__init__"):
+            imports.add(dep)
 
     return imports
+
+
+# Match "import foo.bar" - module name must start with word char (not dot)
+_IMPORT_RE = re.compile(r"^import\s+(\w[\w.]*)", re.MULTILINE)
+# Match "from foo.bar import" - exclude relative imports (from . or from ..)
+_FROM_IMPORT_RE = re.compile(r"^from\s+(\w[\w.]*)\s+import", re.MULTILINE)
 
 
 def parse_lib_imports(content: str) -> set[str]:
     """Parse library file and extract all imported module names.
 
+    Uses regex for speed - only matches top-level imports (no leading whitespace).
+    Returns full module paths (e.g., "collections.abc" not just "collections").
+
     Args:
         content: Python file content
 
     Returns:
-        Set of imported module names (top-level only)
+        Set of imported module names (full paths)
     """
-    tree = safe_parse_ast(content)
-    if tree is None:
-        return set()
-
+    content = _extract_top_level_code(content)
     imports = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            # import foo, bar
-            for alias in node.names:
-                imports.add(alias.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom):
-            # from foo import bar
-            if node.module:
-                imports.add(node.module.split(".")[0])
+
+    # Match "import foo.bar" at line start
+    for match in _IMPORT_RE.finditer(content):
+        imports.add(match.group(1))
+
+    # Match "from foo.bar import ..." at line start
+    for match in _FROM_IMPORT_RE.finditer(content):
+        imports.add(match.group(1))
 
     return imports
 
@@ -504,101 +564,6 @@ def resolve_all_paths(
     return result
 
 
-@functools.cache
-def _build_import_graph(lib_prefix: str = "Lib") -> dict[str, set[str]]:
-    """Build a graph of module imports from lib_prefix directory.
-
-    Args:
-        lib_prefix: RustPython Lib directory (default: "Lib")
-
-    Returns:
-        Dict mapping module_name -> set of modules it imports
-    """
-    lib_dir = pathlib.Path(lib_prefix)
-    if not lib_dir.exists():
-        return {}
-
-    import_graph: dict[str, set[str]] = {}
-
-    # Scan all .py files in lib_prefix (excluding test/ directory for module imports)
-    for entry in lib_dir.iterdir():
-        if entry.name.startswith(("_", ".")):
-            continue
-        if entry.name == "test":
-            continue
-
-        module_name = None
-        if entry.is_file() and entry.suffix == ".py":
-            module_name = entry.stem
-        elif entry.is_dir() and (entry / "__init__.py").exists():
-            module_name = entry.name
-
-        if module_name:
-            # Parse imports from this module
-            imports = set()
-            for _, content in read_python_files(entry):
-                imports.update(parse_lib_imports(content))
-            # Remove self-imports
-            imports.discard(module_name)
-            import_graph[module_name] = imports
-
-    return import_graph
-
-
-def _build_reverse_graph(import_graph: dict[str, set[str]]) -> dict[str, set[str]]:
-    """Build reverse dependency graph (who imports this module).
-
-    Args:
-        import_graph: Forward import graph (module -> imports)
-
-    Returns:
-        Reverse graph (module -> imported_by)
-    """
-    reverse_graph: dict[str, set[str]] = {}
-
-    for module, imports in import_graph.items():
-        for imported in imports:
-            if imported not in reverse_graph:
-                reverse_graph[imported] = set()
-            reverse_graph[imported].add(module)
-
-    return reverse_graph
-
-
-@functools.cache
-def get_transitive_imports(
-    module_name: str,
-    lib_prefix: str = "Lib",
-) -> frozenset[str]:
-    """Get all modules that transitively depend on module_name.
-
-    Args:
-        module_name: Target module
-        lib_prefix: RustPython Lib directory (default: "Lib")
-
-    Returns:
-        Frozenset of module names that import module_name (directly or indirectly)
-    """
-    import_graph = _build_import_graph(lib_prefix)
-    reverse_graph = _build_reverse_graph(import_graph)
-
-    # BFS from module_name following reverse edges
-    visited: set[str] = set()
-    queue = deque(reverse_graph.get(module_name, set()))
-
-    while queue:
-        current = queue.popleft()
-        if current in visited:
-            continue
-        visited.add(current)
-        # Add modules that import current module
-        for importer in reverse_graph.get(current, set()):
-            if importer not in visited:
-                queue.append(importer)
-
-    return frozenset(visited)
-
-
 def _parse_test_submodule_imports(content: str) -> dict[str, set[str]]:
     """Parse 'from test.X import Y' to get submodule imports.
 
@@ -629,54 +594,397 @@ def _parse_test_submodule_imports(content: str) -> dict[str, set[str]]:
     return result
 
 
-def _build_test_import_graph(test_dir: pathlib.Path) -> dict[str, set[str]]:
-    """Build import graph for files within test directory (recursive).
+_test_import_graph_cache: dict[str, tuple[dict[str, set[str]], dict[str, set[str]]]] = {}
+
+
+def _is_standard_lib_path(path: str) -> bool:
+    """Check if path is the standard Lib directory (not a temp dir)."""
+    if "/tmp" in path.lower() or "/var/folders" in path.lower():
+        return False
+    return path == "Lib/test" or path.endswith("/Lib/test") or path == "Lib" or path.endswith("/Lib")
+
+
+def _build_test_import_graph(
+    test_dir: pathlib.Path,
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Build import graphs for files within test directory (recursive).
+
+    Uses cross-process shelve cache based on CPython version.
 
     Args:
         test_dir: Path to Lib/test/ directory
 
     Returns:
-        Dict mapping relative path (without .py) -> set of test modules it imports
+        Tuple of:
+        - Dict mapping relative path (without .py) -> set of test modules it imports
+        - Dict mapping relative path (without .py) -> set of all lib imports
     """
-    import_graph: dict[str, set[str]] = {}
+    # In-process cache
+    cache_key = str(test_dir)
+    if cache_key in _test_import_graph_cache:
+        return _test_import_graph_cache[cache_key]
 
-    # Use **/*.py to recursively find all Python files
+    # Cross-process cache (only for standard Lib/test directory)
+    use_file_cache = _is_standard_lib_path(cache_key)
+    if use_file_cache:
+        version = _get_cpython_version()
+        shelve_key = f"test_import_graph:{version}"
+        try:
+            with shelve.open(_get_cache_path()) as db:
+                if shelve_key in db:
+                    import_graph, lib_imports_graph = db[shelve_key]
+                    _test_import_graph_cache[cache_key] = (import_graph, lib_imports_graph)
+                    return import_graph, lib_imports_graph
+        except Exception:
+            pass
+
+    # Build from scratch
+    import_graph: dict[str, set[str]] = {}
+    lib_imports_graph: dict[str, set[str]] = {}
+
     for py_file in test_dir.glob("**/*.py"):
         content = safe_read_text(py_file)
         if content is None:
             continue
 
         imports = set()
-        # Parse "from test import X" style imports
         imports.update(parse_test_imports(content))
-        # Also check direct imports of test modules
         all_imports = parse_lib_imports(content)
 
-        # Check for files at same level or in test_dir
         for imp in all_imports:
-            # Check in same directory
             if (py_file.parent / f"{imp}.py").exists():
                 imports.add(imp)
-            # Check in test_dir root
             if (test_dir / f"{imp}.py").exists():
                 imports.add(imp)
 
-        # Handle "from test.X import Y" where Y is a file in test_dir/X/
         submodule_imports = _parse_test_submodule_imports(content)
         for submodule, imported_names in submodule_imports.items():
             submodule_dir = test_dir / submodule
             if submodule_dir.is_dir():
                 for name in imported_names:
-                    # Check if it's a file in the submodule directory
                     if (submodule_dir / f"{name}.py").exists():
                         imports.add(name)
 
-        # Use relative path from test_dir as key (without .py)
         rel_path = py_file.relative_to(test_dir)
         key = str(rel_path.with_suffix(""))
         import_graph[key] = imports
+        lib_imports_graph[key] = all_imports
+
+    # Save to cross-process cache
+    if use_file_cache:
+        try:
+            with shelve.open(_get_cache_path()) as db:
+                db[shelve_key] = (import_graph, lib_imports_graph)
+        except Exception:
+            pass
+    _test_import_graph_cache[cache_key] = (import_graph, lib_imports_graph)
+
+    return import_graph, lib_imports_graph
+
+
+def _get_import_name(file_key: str) -> str:
+    """Get the import name from a file key.
+
+    Args:
+        file_key: Relative path without .py (e.g., "test_foo", "test_bar/helper")
+
+    Returns:
+        Import name (e.g., "test_foo", "helper", or parent dir name for __init__)
+    """
+    path = pathlib.Path(file_key)
+    stem = path.name
+    if stem == "__init__":
+        return path.parent.name
+    return stem
+
+
+_lib_import_graph_cache: dict[str, dict[str, set[str]]] = {}
+
+
+def _build_lib_import_graph(lib_prefix: str = "Lib") -> dict[str, set[str]]:
+    """Build import graph for Lib modules (full module paths like urllib.request).
+
+    Uses cross-process shelve cache based on CPython version.
+
+    Args:
+        lib_prefix: RustPython Lib directory
+
+    Returns:
+        Dict mapping full_module_path -> set of modules it imports
+    """
+    # In-process cache
+    if lib_prefix in _lib_import_graph_cache:
+        return _lib_import_graph_cache[lib_prefix]
+
+    # Cross-process cache (only for standard Lib directory)
+    use_file_cache = _is_standard_lib_path(lib_prefix)
+    if use_file_cache:
+        version = _get_cpython_version()
+        shelve_key = f"lib_import_graph:{version}"
+        try:
+            with shelve.open(_get_cache_path()) as db:
+                if shelve_key in db:
+                    import_graph = db[shelve_key]
+                    _lib_import_graph_cache[lib_prefix] = import_graph
+                    return import_graph
+        except Exception:
+            pass
+
+    # Build from scratch
+    lib_dir = pathlib.Path(lib_prefix)
+    if not lib_dir.exists():
+        return {}
+
+    import_graph: dict[str, set[str]] = {}
+
+    for entry in lib_dir.iterdir():
+        if entry.name.startswith(("_", ".")):
+            continue
+        if entry.name == "test":
+            continue
+
+        if entry.is_file() and entry.suffix == ".py":
+            content = safe_read_text(entry)
+            if content:
+                imports = parse_lib_imports(content)
+                imports.discard(entry.stem)
+                import_graph[entry.stem] = imports
+        elif entry.is_dir() and (entry / "__init__.py").exists():
+            for py_file in entry.glob("**/*.py"):
+                content = safe_read_text(py_file)
+                if content:
+                    imports = parse_lib_imports(content)
+                    rel_path = py_file.relative_to(lib_dir)
+                    if rel_path.name == "__init__.py":
+                        full_name = str(rel_path.parent).replace("/", ".")
+                    else:
+                        full_name = str(rel_path.with_suffix("")).replace("/", ".")
+                    imports.discard(full_name.split(".")[0])
+                    import_graph[full_name] = imports
+
+    # Save to cross-process cache
+    if use_file_cache:
+        try:
+            with shelve.open(_get_cache_path()) as db:
+                db[shelve_key] = import_graph
+        except Exception:
+            pass
+    _lib_import_graph_cache[lib_prefix] = import_graph
 
     return import_graph
+
+
+def _get_lib_modules_importing(
+    module_name: str, lib_import_graph: dict[str, set[str]]
+) -> set[str]:
+    """Find Lib modules (full paths) that import module_name or any of its submodules."""
+    importers: set[str] = set()
+    target_top = module_name.split(".")[0]
+
+    for full_path, imports in lib_import_graph.items():
+        if full_path.split(".")[0] == target_top:
+            continue  # Skip same package
+        # Match if module imports target OR any submodule of target
+        # e.g., for "xml": match imports of "xml", "xml.parsers", "xml.etree.ElementTree"
+        matches = any(
+            imp == module_name or imp.startswith(module_name + ".")
+            for imp in imports
+        )
+        if matches:
+            importers.add(full_path)
+
+    return importers
+
+
+def _consolidate_submodules(modules: set[str], threshold: int = 3) -> dict[str, set[str]]:
+    """Consolidate submodules if count exceeds threshold.
+
+    Args:
+        modules: Set of full module paths (e.g., {"urllib.request", "urllib.parse", "xml.dom", "xml.sax"})
+        threshold: If submodules > threshold, consolidate to parent
+
+    Returns:
+        Dict mapping display_name -> set of original module paths
+        e.g., {"urllib.request": {"urllib.request"}, "xml": {"xml.dom", "xml.sax", "xml.etree", "xml.parsers"}}
+    """
+    # Group by top-level package
+    by_package: dict[str, set[str]] = {}
+    for mod in modules:
+        parts = mod.split(".")
+        top = parts[0]
+        if top not in by_package:
+            by_package[top] = set()
+        by_package[top].add(mod)
+
+    result: dict[str, set[str]] = {}
+    for top, submods in by_package.items():
+        if len(submods) > threshold:
+            # Consolidate to top-level
+            result[top] = submods
+        else:
+            # Keep individual
+            for mod in submods:
+                result[mod] = {mod}
+
+    return result
+
+
+# Modules that are used everywhere - show but don't expand their dependents
+_BLOCKLIST_MODULES = frozenset({
+    "unittest",
+    "test.support",
+    "support",
+    "doctest",
+    "typing",
+    "abc",
+    "collections.abc",
+    "functools",
+    "itertools",
+    "operator",
+    "contextlib",
+    "warnings",
+    "types",
+    "enum",
+    "re",
+    "io",
+    "os",
+    "sys",
+})
+
+
+def find_dependent_tests_tree(
+    module_name: str,
+    lib_prefix: str = "Lib",
+    max_depth: int = 1,
+    _depth: int = 0,
+    _visited_tests: set[str] | None = None,
+    _visited_modules: set[str] | None = None,
+) -> dict:
+    """Find dependent tests in a tree structure.
+
+    Args:
+        module_name: Module to search for (e.g., "ftplib")
+        lib_prefix: RustPython Lib directory
+        max_depth: Maximum depth to recurse (default 1 = show direct + 1 level of Lib deps)
+
+    Returns:
+        Dict with structure:
+        {
+            "module": "ftplib",
+            "tests": ["test_ftplib", "test_urllib2"],  # Direct importers
+            "children": [
+                {"module": "urllib.request", "tests": [...], "children": []},
+                ...
+            ]
+        }
+    """
+    lib_dir = pathlib.Path(lib_prefix)
+    test_dir = lib_dir / "test"
+
+    if _visited_tests is None:
+        _visited_tests = set()
+    if _visited_modules is None:
+        _visited_modules = set()
+
+    # Build graphs
+    test_import_graph, test_lib_imports = _build_test_import_graph(test_dir)
+    lib_import_graph = _build_lib_import_graph(lib_prefix)
+
+    # Find tests that directly import this module
+    target_top = module_name.split(".")[0]
+    direct_tests: set[str] = set()
+    for file_key, imports in test_lib_imports.items():
+        if file_key in _visited_tests:
+            continue
+        # Match exact module OR any child submodule
+        # e.g., "xml" matches imports of "xml", "xml.parsers", "xml.etree.ElementTree"
+        # but "collections._defaultdict" only matches "collections._defaultdict" (no children)
+        matches = any(
+            imp == module_name or imp.startswith(module_name + ".")
+            for imp in imports
+        )
+        if matches:
+            # Check if it's a test file
+            if pathlib.Path(file_key).name.startswith("test_"):
+                direct_tests.add(file_key)
+                _visited_tests.add(file_key)
+
+    # Consolidate test names (test_sqlite3/test_dbapi -> test_sqlite3)
+    consolidated_tests = {_consolidate_file_key(t) for t in direct_tests}
+
+    # Mark this module as visited (cycle detection)
+    _visited_modules.add(module_name)
+    _visited_modules.add(target_top)
+
+    children = []
+    # Check blocklist and depth limit
+    should_expand = (
+        _depth < max_depth
+        and module_name not in _BLOCKLIST_MODULES
+        and target_top not in _BLOCKLIST_MODULES
+    )
+
+    if should_expand:
+        # Find Lib modules that import this module
+        lib_importers = _get_lib_modules_importing(module_name, lib_import_graph)
+
+        # Skip already visited modules (cycle detection) and blocklisted modules
+        lib_importers = {
+            m for m in lib_importers
+            if m not in _visited_modules
+            and m.split(".")[0] not in _visited_modules
+            and m not in _BLOCKLIST_MODULES
+            and m.split(".")[0] not in _BLOCKLIST_MODULES
+        }
+
+        # Consolidate submodules (xml.dom, xml.sax, xml.etree -> xml if > 3)
+        consolidated_libs = _consolidate_submodules(lib_importers, threshold=3)
+
+        # Build children
+        for display_name, original_mods in sorted(consolidated_libs.items()):
+            child = find_dependent_tests_tree(
+                display_name,
+                lib_prefix,
+                max_depth,
+                _depth + 1,
+                _visited_tests,
+                _visited_modules,
+            )
+            if child["tests"] or child["children"]:
+                children.append(child)
+
+    return {
+        "module": module_name,
+        "tests": sorted(consolidated_tests),
+        "children": children,
+    }
+
+
+def _filter_test_files(
+    depth_map: dict[int, dict[str, list[str]]],
+) -> dict[int, dict[str, list[str]]]:
+    """Filter to only include test_*.py files in the result."""
+    filtered: dict[int, dict[str, list[str]]] = {}
+    for depth, files in depth_map.items():
+        test_files = {
+            k: v for k, v in files.items() if pathlib.Path(k).name.startswith("test_")
+        }
+        if test_files:
+            filtered[depth] = test_files
+    return filtered
+
+
+def _collect_test_file_keys_from_tree(tree: dict) -> set[str]:
+    """Recursively collect all test file_keys from a dependency tree."""
+    # Note: tree["tests"] are already consolidated names, not file_keys
+    # We need the original file_keys for path construction
+    # This is used for backward compatibility
+    result: set[str] = set()
+    for test_name in tree.get("tests", []):
+        result.add(test_name)
+    for child in tree.get("children", []):
+        result.update(_collect_test_file_keys_from_tree(child))
+    return result
 
 
 @functools.cache
@@ -693,7 +1001,7 @@ def find_tests_importing_module(
     Args:
         module_name: Module to search for (e.g., "datetime")
         lib_prefix: RustPython Lib directory (default: "Lib")
-        include_transitive: Whether to include transitive dependencies
+        include_transitive: Whether to include transitive dependencies within test/
 
     Returns:
         Frozenset of test_*.py file paths that depend on this module
@@ -704,54 +1012,54 @@ def find_tests_importing_module(
     if not test_dir.exists():
         return frozenset()
 
-    # Build set of modules to search for (Lib/ modules)
-    target_modules = {module_name}
-    if include_transitive:
-        # Add all modules that transitively depend on module_name
-        target_modules.update(get_transitive_imports(module_name, lib_prefix))
+    _, test_lib_imports = _build_test_import_graph(test_dir)
 
-    # Build test directory import graph for transitive analysis within test/
-    test_import_graph = _build_test_import_graph(test_dir)
-
-    # First pass: find all files (by relative path) that directly import target modules
-    directly_importing: set[str] = set()
-    for py_file in test_dir.glob("**/*.py"):  # Recursive glob
-        content = safe_read_text(py_file)
-        if content is None:
-            continue
-        imports = parse_lib_imports(content)
-        if imports & target_modules:
-            rel_path = py_file.relative_to(test_dir)
-            directly_importing.add(str(rel_path.with_suffix("")))
-
-    # Second pass: find files that transitively import via support files within test/
-    # BFS to find all files that import any file in all_importing
-    all_importing = set(directly_importing)
-    queue = deque(directly_importing)
-    while queue:
-        current = queue.popleft()
-        # Extract the filename (stem) from the relative path for matching
-        current_path = pathlib.Path(current)
-        current_stem = current_path.name
-        # For __init__.py, the import name is the parent directory name
-        # e.g., "test_json/__init__" -> can be imported as "test_json"
-        if current_stem == "__init__":
-            current_stem = current_path.parent.name
-        for file_key, imports in test_import_graph.items():
-            if current_stem in imports and file_key not in all_importing:
-                all_importing.add(file_key)
-                queue.append(file_key)
-
-    # Filter to only test_*.py files and build result paths
+    # Find tests that directly import module_name
+    target_top = module_name.split(".")[0]
     result: set[pathlib.Path] = set()
-    for file_key in all_importing:
-        # file_key is like "test_foo" or "test_bar/test_sub"
-        path_parts = pathlib.Path(file_key)
-        filename = path_parts.name  # Get just the filename part
-        if filename.startswith("test_"):
-            result.add(test_dir / f"{file_key}.py")
+
+    for file_key, imports in test_lib_imports.items():
+        if module_name in imports or target_top in imports:
+            if pathlib.Path(file_key).name.startswith("test_"):
+                result.add(test_dir / f"{file_key}.py")
+
+    if not include_transitive:
+        return frozenset(result)
+
+    # For transitive, use the tree function
+    tree = find_dependent_tests_tree(module_name, lib_prefix, max_depth=10)
+    test_names = _collect_test_file_keys_from_tree(tree)
+
+    # Convert test names back to paths (best effort)
+    for test_name in test_names:
+        # Try as file
+        path = test_dir / f"{test_name}.py"
+        if path.exists():
+            result.add(path)
+        # Try as directory
+        dir_path = test_dir / test_name
+        if dir_path.is_dir():
+            for py_file in dir_path.glob("test_*.py"):
+                result.add(py_file)
 
     return frozenset(result)
+
+
+def _consolidate_file_key(file_key: str) -> str:
+    """Consolidate file_key to test name.
+
+    Args:
+        file_key: Relative path without .py (e.g., "test_foo", "test_bar/test_sub")
+
+    Returns:
+        Consolidated test name:
+        - "test_foo" for "test_foo"
+        - "test_sqlite3" for "test_sqlite3/test_dbapi"
+    """
+    parts = pathlib.Path(file_key).parts
+    if len(parts) == 1:
+        return parts[0]
+    return parts[0]
 
 
 def consolidate_test_paths(
@@ -772,7 +1080,7 @@ def consolidate_test_paths(
     consolidated: set[str] = set()
 
     for path in test_paths:
-        try:
+        if path.is_relative_to(test_dir):
             rel_path = path.relative_to(test_dir)
             parts = rel_path.parts
 
@@ -782,8 +1090,16 @@ def consolidate_test_paths(
             else:
                 # test_sqlite3/test_dbapi.py -> test_sqlite3
                 consolidated.add(parts[0])
-        except ValueError:
+        else:
             # Path not relative to test_dir, use stem
             consolidated.add(path.stem)
 
     return frozenset(consolidated)
+
+
+def _collect_all_tests_from_tree(tree: dict) -> set[str]:
+    """Recursively collect all test names from a dependency tree."""
+    tests = set(tree.get("tests", []))
+    for child in tree.get("children", []):
+        tests.update(_collect_all_tests_from_tree(child))
+    return tests

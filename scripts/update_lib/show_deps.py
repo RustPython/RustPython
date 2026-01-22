@@ -160,8 +160,7 @@ def format_deps(
     """
     from update_lib.deps import (
         DEPENDENCIES,
-        consolidate_test_paths,
-        find_tests_importing_module,
+        find_dependent_tests_tree,
         get_lib_paths,
         get_test_paths,
     )
@@ -196,19 +195,50 @@ def format_deps(
         )
     )
 
-    # Show dependent tests (reverse dependencies)
-    impacted_tests = find_tests_importing_module(name, lib_prefix)
-    test_dir = pathlib.Path(lib_prefix) / "test"
-    consolidated = consolidate_test_paths(impacted_tests, test_dir)
+    # Show dependent tests as tree (depth 2: module + direct importers + their importers)
+    tree = find_dependent_tests_tree(name, lib_prefix=lib_prefix, max_depth=2)
+    lines.extend(_format_dependent_tests_tree(tree))
 
-    if consolidated:
-        lines.append(
-            f"[+] dependent tests: ({len(consolidated)} tests depend on {name})"
-        )
-        for test_name in sorted(consolidated):
-            lines.append(f"  - {test_name}")
-    else:
-        lines.append(f"[+] dependent tests: (no tests depend on {name})")
+    return lines
+
+
+def _format_dependent_tests_tree(tree: dict, indent: str = "") -> list[str]:
+    """Format dependent tests tree for display."""
+    lines = []
+    module = tree["module"]
+    tests = tree["tests"]
+    children = tree["children"]
+
+    if indent == "":
+        # Root level
+        # Count total tests in tree
+        def count_tests(t: dict) -> int:
+            total = len(t.get("tests", []))
+            for c in t.get("children", []):
+                total += count_tests(c)
+            return total
+
+        total = count_tests(tree)
+        if total == 0 and not children:
+            lines.append(f"dependent tests: (no tests depend on {module})")
+            return lines
+        lines.append(f"dependent tests: ({total} tests)")
+
+    # Format this node
+    if tests:
+        test_str = " ".join(tests)
+        if indent == "":
+            lines.append(f"- {module}: {test_str}")
+        else:
+            lines.append(f"{indent}- {module}: {test_str}")
+    elif indent != "" and children:
+        # Has children but no direct tests
+        lines.append(f"{indent}- {module}:")
+
+    # Format children
+    child_indent = indent + "  " if indent else "    "
+    for child in children:
+        lines.extend(_format_dependent_tests_tree(child, child_indent))
 
     return lines
 
@@ -218,14 +248,8 @@ def show_deps(
     cpython_prefix: str = "cpython",
     lib_prefix: str = "Lib",
     max_depth: int = 10,
-    dependent_tests_only: bool = False,
 ) -> None:
     """Show all dependency information for modules."""
-    from update_lib.deps import (
-        consolidate_test_paths,
-        find_tests_importing_module,
-    )
-
     # Expand "all" to all module names
     expanded_names = []
     for name in names:
@@ -233,18 +257,6 @@ def show_deps(
             expanded_names.extend(get_all_modules(cpython_prefix))
         else:
             expanded_names.append(name)
-
-    # Handle dependent-tests-only mode: output only space-separated test names
-    if dependent_tests_only:
-        all_tests: set[str] = set()
-        for name in expanded_names:
-            impacted = find_tests_importing_module(name, lib_prefix)
-            test_dir = pathlib.Path(lib_prefix) / "test"
-            consolidated = consolidate_test_paths(impacted, test_dir)
-            all_tests.update(consolidated)
-        if all_tests:
-            print(" ".join(sorted(all_tests)))
-        return
 
     # Shared visited set across all modules
     visited: set[str] = set()
@@ -282,18 +294,11 @@ def main(argv: list[str] | None = None) -> int:
         default=10,
         help="Maximum recursion depth for soft_deps tree (default: 10)",
     )
-    parser.add_argument(
-        "--dependent-tests-only",
-        action="store_true",
-        help="Output only dependent test names, space-separated (for use with python3 -m test)",
-    )
 
     args = parser.parse_args(argv)
 
     try:
-        show_deps(
-            args.names, args.cpython, args.lib, args.depth, args.dependent_tests_only
-        )
+        show_deps(args.names, args.cpython, args.lib, args.depth)
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

@@ -5,14 +5,15 @@ import tempfile
 import unittest
 
 from update_lib.deps import (
+    clear_import_graph_caches,
     consolidate_test_paths,
+    find_dependent_tests_tree,
     find_tests_importing_module,
     get_data_paths,
     get_lib_paths,
     get_soft_deps,
     get_test_dependencies,
     get_test_paths,
-    get_transitive_imports,
     parse_lib_imports,
     parse_test_imports,
     resolve_all_paths,
@@ -247,7 +248,7 @@ import sys
 import collections.abc
 """
         imports = parse_lib_imports(code)
-        self.assertEqual(imports, {"os", "sys", "collections"})
+        self.assertEqual(imports, {"os", "sys", "collections.abc"})
 
     def test_from_import(self):
         """Test parsing 'from foo import bar'."""
@@ -257,7 +258,7 @@ from collections.abc import Mapping
 from typing import Optional
 """
         imports = parse_lib_imports(code)
-        self.assertEqual(imports, {"os", "collections", "typing"})
+        self.assertEqual(imports, {"os", "collections.abc", "typing"})
 
     def test_mixed_imports(self):
         """Test mixed import styles."""
@@ -425,55 +426,6 @@ class TestDircmpIsSame(unittest.TestCase):
             self.assertFalse(_dircmp_is_same(dcmp))
 
 
-class TestGetTransitiveImports(unittest.TestCase):
-    """Tests for get_transitive_imports function."""
-
-    def test_direct_dependency(self):
-        """A imports B → B's transitive importers include A."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            lib_dir.mkdir()
-
-            (lib_dir / "a.py").write_text("import b\n")
-            (lib_dir / "b.py").write_text("# b module")
-
-            get_transitive_imports.cache_clear()
-            result = get_transitive_imports("b", lib_prefix=str(lib_dir))
-            self.assertIn("a", result)
-
-    def test_chain_dependency(self):
-        """A imports B, B imports C → C's transitive importers include A and B."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            lib_dir.mkdir()
-
-            (lib_dir / "a.py").write_text("import b\n")
-            (lib_dir / "b.py").write_text("import c\n")
-            (lib_dir / "c.py").write_text("# c module")
-
-            get_transitive_imports.cache_clear()
-            result = get_transitive_imports("c", lib_prefix=str(lib_dir))
-            self.assertIn("a", result)
-            self.assertIn("b", result)
-
-    def test_cycle_handling(self):
-        """Handle circular imports without infinite loop."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            lib_dir.mkdir()
-
-            (lib_dir / "a.py").write_text("import b\n")
-            (lib_dir / "b.py").write_text("import a\n")  # cycle
-
-            get_transitive_imports.cache_clear()
-            # Should not hang or raise
-            result = get_transitive_imports("a", lib_prefix=str(lib_dir))
-            self.assertIn("b", result)
-
-
 class TestFindTestsImportingModule(unittest.TestCase):
     """Tests for find_tests_importing_module function."""
 
@@ -491,7 +443,7 @@ class TestFindTestsImportingModule(unittest.TestCase):
             # Create test that imports bar
             (test_dir / "test_foo.py").write_text("import bar\n")
 
-            get_transitive_imports.cache_clear()
+            clear_import_graph_caches()
             find_tests_importing_module.cache_clear()
             result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
             self.assertIn(test_dir / "test_foo.py", result)
@@ -507,34 +459,11 @@ class TestFindTestsImportingModule(unittest.TestCase):
             (lib_dir / "bar.py").write_text("# bar module")
             (test_dir / "test_bar.py").write_text("import bar\n")
 
-            get_transitive_imports.cache_clear()
+            clear_import_graph_caches()
             find_tests_importing_module.cache_clear()
             result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
             # test_bar.py IS now included (module's own test is part of impact)
             self.assertIn(test_dir / "test_bar.py", result)
-
-    def test_transitive_import(self):
-        """Test finding tests with transitive (indirect) imports."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_dir.mkdir(parents=True)
-
-            # bar.py (target module)
-            (lib_dir / "bar.py").write_text("# bar module")
-
-            # baz.py imports bar
-            (lib_dir / "baz.py").write_text("import bar\n")
-
-            # test_foo.py imports baz (not bar directly)
-            (test_dir / "test_foo.py").write_text("import baz\n")
-
-            get_transitive_imports.cache_clear()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-            # test_foo.py should be found via transitive dependency
-            self.assertIn(test_dir / "test_foo.py", result)
 
     def test_empty_when_no_importers(self):
         """Test returns empty when no tests import the module."""
@@ -547,7 +476,7 @@ class TestFindTestsImportingModule(unittest.TestCase):
             (lib_dir / "bar.py").write_text("# bar module")
             (test_dir / "test_unrelated.py").write_text("import os\n")
 
-            get_transitive_imports.cache_clear()
+            clear_import_graph_caches()
             find_tests_importing_module.cache_clear()
             result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
             self.assertEqual(result, frozenset())
@@ -577,7 +506,7 @@ class TestFindTestsOnlyTestFiles(unittest.TestCase):
             # test_foo.py also imports bar
             (test_dir / "test_foo.py").write_text("import bar\n")
 
-            get_transitive_imports.cache_clear()
+            clear_import_graph_caches()
             find_tests_importing_module.cache_clear()
             result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
 
@@ -585,65 +514,6 @@ class TestFindTestsOnlyTestFiles(unittest.TestCase):
             self.assertIn(test_dir / "test_foo.py", result)
             # helper.py should be excluded
             self.assertNotIn(test_dir / "helper.py", result)
-
-    def test_transitive_via_support_file(self):
-        """Test file importing support file that imports target should be included."""
-        # Given:
-        #   bar.py (target module in Lib/)
-        #   helper.py (support file in test/, imports bar)
-        #   test_foo.py (test file, imports helper - NOT bar directly)
-        # When: find_tests_importing_module("bar")
-        # Then: test_foo.py IS included (via helper.py), helper.py is NOT
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_dir.mkdir(parents=True)
-
-            (lib_dir / "bar.py").write_text("# bar module")
-            # helper.py imports bar
-            (test_dir / "helper.py").write_text("import bar\n")
-            # test_foo.py imports only helper (not bar directly)
-            (test_dir / "test_foo.py").write_text("from test import helper\n")
-
-            get_transitive_imports.cache_clear()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-
-            # test_foo.py depends on bar via helper, so it should be included
-            self.assertIn(test_dir / "test_foo.py", result)
-            # helper.py should be excluded from output
-            self.assertNotIn(test_dir / "helper.py", result)
-
-    def test_chain_through_multiple_support_files(self):
-        """Test transitive chain through multiple support files."""
-        # Given:
-        #   bar.py (target)
-        #   helper_a.py imports bar
-        #   helper_b.py imports helper_a
-        #   test_foo.py imports helper_b
-        # Then: test_foo.py IS included, helper_a/b are NOT
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_dir.mkdir(parents=True)
-
-            (lib_dir / "bar.py").write_text("# bar module")
-            (test_dir / "helper_a.py").write_text("import bar\n")
-            (test_dir / "helper_b.py").write_text("from test import helper_a\n")
-            (test_dir / "test_foo.py").write_text("from test import helper_b\n")
-
-            get_transitive_imports.cache_clear()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-
-            self.assertIn(test_dir / "test_foo.py", result)
-            self.assertNotIn(test_dir / "helper_a.py", result)
-            self.assertNotIn(test_dir / "helper_b.py", result)
-
 
 class TestFindTestsInModuleDirectories(unittest.TestCase):
     """Tests for finding tests inside test_*/ module directories."""
@@ -669,46 +539,12 @@ class TestFindTestsInModuleDirectories(unittest.TestCase):
             (test_bar_dir / "__init__.py").write_text("")
             (test_bar_dir / "test_sub.py").write_text("import bar\n")
 
-            get_transitive_imports.cache_clear()
+            clear_import_graph_caches()
             find_tests_importing_module.cache_clear()
             result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
 
             # test_bar/test_sub.py should be in results
             self.assertIn(test_bar_dir / "test_sub.py", result)
-
-    def test_finds_nested_test_via_support_in_module_directory(self):
-        """Transitive deps through support files in module directories."""
-        # Given:
-        #   bar.py (target)
-        #   test_bar/
-        #     __init__.py
-        #     helper.py (imports bar)
-        #     test_sub.py (imports helper via "from test.test_bar import helper")
-        # When: find_tests_importing_module("bar")
-        # Then: test_bar/test_sub.py IS included, helper.py is NOT
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_bar_dir = test_dir / "test_bar"
-            test_bar_dir.mkdir(parents=True)
-
-            (lib_dir / "bar.py").write_text("# bar module")
-            (test_bar_dir / "__init__.py").write_text("")
-            (test_bar_dir / "helper.py").write_text("import bar\n")
-            (test_bar_dir / "test_sub.py").write_text(
-                "from test.test_bar import helper\n"
-            )
-
-            get_transitive_imports.cache_clear()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-
-            # test_sub.py should be included (via helper)
-            self.assertIn(test_bar_dir / "test_sub.py", result)
-            # helper.py should NOT be in results (not a test file)
-            self.assertNotIn(test_bar_dir / "helper.py", result)
 
     def test_both_top_level_and_module_directory_tests_found(self):
         """Both top-level test_*.py and test_*/test_*.py should be found."""
@@ -732,7 +568,7 @@ class TestFindTestsInModuleDirectories(unittest.TestCase):
             (test_bar_dir / "__init__.py").write_text("")
             (test_bar_dir / "test_sub.py").write_text("import bar\n")
 
-            get_transitive_imports.cache_clear()
+            clear_import_graph_caches()
             find_tests_importing_module.cache_clear()
             result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
 
