@@ -1,7 +1,7 @@
 // spell-checker:disable
 
 #![allow(non_snake_case)]
-pub(crate) use _winapi::make_module;
+pub(crate) use _winapi::module_def;
 
 #[pymodule]
 mod _winapi {

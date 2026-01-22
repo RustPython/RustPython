@@ -1,7 +1,8 @@
 // spell-checker:disable
 
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
 use std::os::fd::BorrowedFd;
+
+pub(crate) use module::module_def;
 
 pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()> {
     use nix::fcntl;
@@ -12,12 +13,6 @@ pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()>
         fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFD(new_flags))?;
     }
     Ok(())
-}
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = module::make_module(vm);
-    super::os::extend_module(vm, &module);
-    module
 }
 
 #[pymodule(name = "posix", with(super::os::_os))]
@@ -2605,5 +2600,14 @@ pub mod module {
             buf.set_len(len);
         }
         Ok(buf)
+    }
+
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::builtins::PyModule>,
+    ) -> PyResult<()> {
+        __module_exec(vm, module);
+        super::super::os::module_exec(vm, module)?;
+        Ok(())
     }
 }

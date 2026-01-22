@@ -42,9 +42,9 @@ gen()
 }
 
 fn main() -> ExitCode {
-    let interp = vm::Interpreter::with_init(Default::default(), |vm| {
-        vm.add_native_modules(rustpython_stdlib::get_module_inits());
-    });
+    let builder = vm::Interpreter::builder(Default::default());
+    let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+    let interp = builder.add_native_modules(&defs).build();
     let result = py_main(&interp);
     vm::common::os::exit_code(interp.run(|_vm| result))
 }

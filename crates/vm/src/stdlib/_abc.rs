@@ -3,7 +3,7 @@
 //! This module provides the C implementation of Abstract Base Classes (ABCs)
 //! as defined in PEP 3119.
 
-pub(crate) use _abc::make_module;
+pub(crate) use _abc::module_def;
 
 #[pymodule]
 mod _abc {

@@ -4,7 +4,7 @@ pub(crate) use _thread::after_fork_child;
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
     CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames, get_ident,
-    init_main_thread_ident, make_module,
+    init_main_thread_ident, module_def,
 };
 
 #[pymodule]

@@ -87,16 +87,36 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    let make_module_func = vm.state.module_inits.get(module_name).ok_or_else(|| {
-        vm.new_import_error(
-            format!("Cannot import builtin module {module_name}"),
-            vm.ctx.new_str(module_name),
-        )
-    })?;
-    let module = make_module_func(vm);
     let sys_modules = vm.sys_module.get_attr("modules", vm)?;
-    sys_modules.set_item(module_name, module.as_object().to_owned(), vm)?;
-    Ok(module.into())
+
+    // Check if already in sys.modules (handles recursive imports)
+    if let Ok(module) = sys_modules.get_item(module_name, vm) {
+        return Ok(module);
+    }
+
+    // Try multi-phase init first (preferred for modules that import other modules)
+    if let Some(&def) = vm.state.module_defs.get(module_name) {
+        // Phase 1: Create and initialize module
+        let module = def.create_module(vm)?;
+
+        // Add to sys.modules BEFORE exec (critical for circular import handling)
+        sys_modules.set_item(module_name, module.clone().into(), vm)?;
+
+        // Phase 2: Call exec slot (can safely import other modules now)
+        // If exec fails, remove the partially-initialized module from sys.modules
+        if let Err(e) = def.exec_module(vm, &module) {
+            let _ = sys_modules.del_item(module_name, vm);
+            return Err(e);
+        }
+
+        return Ok(module.into());
+    }
+
+    // Module not found in module_defs
+    Err(vm.new_import_error(
+        format!("Cannot import builtin module {module_name}"),
+        vm.ctx.new_str(module_name),
+    ))
 }
 
 #[cfg(feature = "rustpython-compiler")]

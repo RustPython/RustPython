@@ -1,6 +1,6 @@
 // spell-checker:ignore compresslevel
 
-pub(crate) use _bz2::make_module;
+pub(crate) use _bz2::module_def;
 
 #[pymodule]
 mod _bz2 {

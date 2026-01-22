@@ -1,6 +1,6 @@
 // spell-checker:ignore compressobj decompressobj zdict chunksize zlibmodule miniz chunker
 
-pub(crate) use zlib::make_module;
+pub(crate) use zlib::module_def;
 
 #[pymodule]
 mod zlib {

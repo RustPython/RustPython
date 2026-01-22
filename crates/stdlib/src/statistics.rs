@@ -1,4 +1,4 @@
-pub(crate) use _statistics::make_module;
+pub(crate) use _statistics::module_def;
 
 #[pymodule]
 mod _statistics {

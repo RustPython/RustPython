@@ -1,24 +1,12 @@
 // spell-checker:disable
 
+pub(crate) use decl::module_def;
+
 use crate::vm::{
-    PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
-    builtins::PyModule,
+    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
 };
 use core::mem;
 use std::io;
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    #[cfg(windows)]
-    crate::vm::windows::init_winsock();
-
-    #[cfg(unix)]
-    {
-        use crate::vm::class::PyClassImpl;
-        decl::poll::PyPoll::make_class(&vm.ctx);
-    }
-
-    decl::make_module(vm)
-}
 
 #[cfg(unix)]
 mod platform {
@@ -221,12 +209,26 @@ fn sec_to_timeval(sec: f64) -> timeval {
 mod decl {
     use super::*;
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine,
-        builtins::PyTypeRef,
+        Py, PyObjectRef, PyResult, VirtualMachine,
+        builtins::{PyModule, PyTypeRef},
         convert::ToPyException,
         function::{Either, OptionalOption},
         stdlib::time,
     };
+
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        #[cfg(windows)]
+        crate::vm::windows::init_winsock();
+
+        #[cfg(unix)]
+        {
+            use crate::vm::class::PyClassImpl;
+            poll::PyPoll::make_class(&vm.ctx);
+        }
+
+        __module_exec(vm, module);
+        Ok(())
+    }
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
@@ -545,7 +547,7 @@ mod decl {
     pub(super) mod epoll {
         use super::*;
         use crate::vm::{
-            Py, PyPayload,
+            Py, PyPayload, PyRef,
             builtins::PyType,
             common::lock::{PyRwLock, PyRwLockReadGuard},
             convert::{IntoPyException, ToPyObject},

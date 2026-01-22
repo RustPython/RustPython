@@ -1,6 +1,6 @@
 // spell-checker:disable
 
-pub(crate) use fcntl::make_module;
+pub(crate) use fcntl::module_def;
 
 #[pymodule]
 mod fcntl {

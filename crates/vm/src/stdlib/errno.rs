@@ -1,25 +1,26 @@
 // spell-checker:disable
 
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
+pub(crate) use errno_mod::module_def;
 
-#[pymodule]
-mod errno {}
+#[pymodule(name = "errno")]
+mod errno_mod {
+    use crate::{Py, PyResult, VirtualMachine, builtins::PyModule};
 
-pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = errno::make_module(vm);
-    let errorcode = vm.ctx.new_dict();
-    extend_module!(vm, &module, {
-        "errorcode" => errorcode.clone(),
-    });
-    for (name, code) in ERROR_CODES {
-        let name = vm.ctx.intern_str(*name);
-        let code = vm.new_pyobj(*code);
-        errorcode
-            .set_item(&*code, name.to_owned().into(), vm)
-            .unwrap();
-        module.set_attr(name, code, vm).unwrap();
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+
+        let errorcode = vm.ctx.new_dict();
+        extend_module!(vm, module, {
+            "errorcode" => errorcode.clone(),
+        });
+        for (name, code) in super::ERROR_CODES {
+            let name = vm.ctx.intern_str(*name);
+            let code = vm.new_pyobj(*code);
+            errorcode.set_item(&*code, name.to_owned().into(), vm)?;
+            module.set_attr(name, code, vm)?;
+        }
+        Ok(())
     }
-    module
 }
 
 #[cfg(any(unix, windows, target_os = "wasi"))]

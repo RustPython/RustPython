@@ -1,14 +1,16 @@
 //! `ast` standard module for abstract syntax trees.
+
 //!
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
+
+pub(crate) use python::_ast::module_def;
 
 mod pyast;
 
 use crate::builtins::{PyInt, PyStr};
 use crate::stdlib::ast::module::{Mod, ModInteractive};
 use crate::stdlib::ast::node::BoxedSlice;
-use crate::stdlib::ast::python::_ast;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, VirtualMachine,
@@ -365,9 +367,3 @@ pub const PY_COMPILE_FLAGS_MASK: i32 = PY_COMPILE_FLAG_AST_ONLY
     | CO_FUTURE_BARRY_AS_BDFL
     | CO_FUTURE_GENERATOR_STOP
     | CO_FUTURE_ANNOTATIONS;
-
-pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = _ast::make_module(vm);
-    pyast::extend_module_nodes(vm, &module);
-    module
-}

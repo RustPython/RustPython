@@ -41,6 +41,46 @@ impl core::fmt::Debug for PyModuleSlots {
     }
 }
 
+impl PyModuleDef {
+    /// Create a module from this definition (Phase 1 of multi-phase init).
+    ///
+    /// This performs:
+    /// 1. Create module object (using create slot if provided)
+    /// 2. Initialize module dict from def
+    /// 3. Add methods to module
+    ///
+    /// Does NOT add to sys.modules or call exec slot.
+    pub fn create_module(&'static self, vm: &VirtualMachine) -> PyResult<PyRef<PyModule>> {
+        use crate::PyPayload;
+
+        // Create module (use create slot if provided, else default creation)
+        let module = if let Some(create) = self.slots.create {
+            // Custom module creation
+            let spec = vm.ctx.new_str(self.name.as_str());
+            create(vm, spec.as_object(), self)?
+        } else {
+            // Default module creation
+            PyModule::from_def(self).into_ref(&vm.ctx)
+        };
+
+        // Initialize module dict and methods
+        PyModule::__init_dict_from_def(vm, &module);
+        module.__init_methods(vm)?;
+
+        Ok(module)
+    }
+
+    /// Execute the module's exec slot (Phase 2 of multi-phase init).
+    ///
+    /// Calls the exec slot if present. Returns Ok(()) if no exec slot.
+    pub fn exec_module(&'static self, vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        if let Some(exec) = self.slots.exec {
+            exec(vm, module)?;
+        }
+        Ok(())
+    }
+}
+
 #[allow(clippy::new_without_default)] // avoid Default implementation
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]

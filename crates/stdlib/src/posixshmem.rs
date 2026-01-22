@@ -1,5 +1,5 @@
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
-pub(crate) use _posixshmem::make_module;
+pub(crate) use _posixshmem::module_def;
 
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
 #[pymodule]

@@ -1,4 +1,4 @@
-pub(crate) use _csv::make_module;
+pub(crate) use _csv::module_def;
 
 #[pymodule]
 mod _csv {

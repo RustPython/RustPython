@@ -1,18 +1,13 @@
 // spell-checker:disable
 
 //! `posix` compatible module for `not(any(unix, windows))`
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = module::make_module(vm);
-    super::os::extend_module(vm, &module);
-    module
-}
+pub(crate) use module::module_def;
 
 #[pymodule(name = "posix", with(super::os::_os))]
 pub(crate) mod module {
     use crate::{
-        PyObjectRef, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyStrRef,
         convert::IntoPyException,
         ospath::OsPath,
@@ -70,5 +65,14 @@ pub(crate) mod module {
 
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
         Vec::new()
+    }
+
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::builtins::PyModule>,
+    ) -> PyResult<()> {
+        __module_exec(vm, module);
+        super::super::os::module_exec(vm, module)?;
+        Ok(())
     }
 }

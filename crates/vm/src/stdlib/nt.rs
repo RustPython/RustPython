@@ -1,19 +1,12 @@
 // spell-checker:disable
 
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
-
+pub(crate) use module::module_def;
 pub use module::raw_set_handle_inheritable;
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = module::make_module(vm);
-    super::os::extend_module(vm, &module);
-    module
-}
 
 #[pymodule(name = "nt", with(super::os::_os))]
 pub(crate) mod module {
     use crate::{
-        PyResult, TryFromObject, VirtualMachine,
+        Py, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyTupleRef},
         common::{crt_fd, suppress_iph, windows::ToWideString},
         convert::ToPyException,
@@ -1922,5 +1915,14 @@ pub(crate) mod module {
 
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
         Vec::new()
+    }
+
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::builtins::PyModule>,
+    ) -> PyResult<()> {
+        __module_exec(vm, module);
+        super::super::os::module_exec(vm, module)?;
+        Ok(())
     }
 }

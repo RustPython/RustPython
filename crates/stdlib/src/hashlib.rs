@@ -1,6 +1,6 @@
 // spell-checker:ignore usedforsecurity HASHXOF
 
-pub(crate) use _hashlib::make_module;
+pub(crate) use _hashlib::module_def;
 
 #[pymodule]
 pub mod _hashlib {

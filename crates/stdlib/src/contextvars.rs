@@ -1,19 +1,8 @@
-use crate::vm::{PyRef, VirtualMachine, builtins::PyModule, class::StaticType};
+pub(crate) use _contextvars::module_def;
+
+use crate::vm::PyRef;
 use _contextvars::PyContext;
 use core::cell::RefCell;
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = _contextvars::make_module(vm);
-    let token_type = module.get_attr("Token", vm).unwrap();
-    token_type
-        .set_attr(
-            "MISSING",
-            _contextvars::ContextTokenMissing::static_type().to_owned(),
-            vm,
-        )
-        .unwrap();
-    module
-}
 
 thread_local! {
     // TODO: Vec doesn't seem to match copy behavior
@@ -642,5 +631,18 @@ mod _contextvars {
     #[pyfunction]
     fn copy_context(vm: &VirtualMachine) -> PyContext {
         PyContext::current(vm).copy()
+    }
+
+    // Set Token.MISSING attribute
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::vm::builtins::PyModule>,
+    ) -> PyResult<()> {
+        __module_exec(vm, module);
+
+        let token_type = module.get_attr("Token", vm)?;
+        token_type.set_attr("MISSING", ContextTokenMissing::static_type().to_owned(), vm)?;
+
+        Ok(())
     }
 }

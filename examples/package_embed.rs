@@ -19,9 +19,9 @@ fn main() -> ExitCode {
     // Add standard library path
     let mut settings = vm::Settings::default();
     settings.path_list.push("Lib".to_owned());
-    let interp = vm::Interpreter::with_init(settings, |vm| {
-        vm.add_native_modules(rustpython_stdlib::get_module_inits());
-    });
+    let builder = vm::Interpreter::builder(settings);
+    let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+    let interp = builder.add_native_modules(&defs).build();
     let result = py_main(&interp);
     let result = result.map(|result| {
         println!("name: {result}");

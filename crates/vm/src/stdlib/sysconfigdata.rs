@@ -1,11 +1,29 @@
 // spell-checker: words LDSHARED ARFLAGS CPPFLAGS CCSHARED BASECFLAGS BLDSHARED
 
-pub(crate) use _sysconfigdata::make_module;
+pub(crate) use _sysconfigdata::module_def;
 
 #[pymodule]
-pub(crate) mod _sysconfigdata {
-    use crate::stdlib::sys::{RUST_MULTIARCH, multiarch};
-    use crate::{VirtualMachine, builtins::PyDictRef, convert::ToPyObject};
+mod _sysconfigdata {
+    use crate::stdlib::sys::{RUST_MULTIARCH, multiarch, sysconfigdata_name};
+    use crate::{
+        Py, PyResult, VirtualMachine,
+        builtins::{PyDictRef, PyModule},
+        convert::ToPyObject,
+    };
+
+    fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        // Set build_time_vars attribute
+        let build_time_vars = build_time_vars(vm);
+        module.set_attr("build_time_vars", build_time_vars, vm)?;
+
+        // Ensure the module is registered under the platform-specific name
+        // (import_builtin() already handles this, but double-check for safety)
+        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        let sysconfigdata_name = sysconfigdata_name();
+        sys_modules.set_item(sysconfigdata_name.as_str(), module.to_owned().into(), vm)?;
+
+        Ok(())
+    }
 
     #[pyattr]
     fn build_time_vars(vm: &VirtualMachine) -> PyDictRef {

@@ -62,95 +62,66 @@ mod winapi;
 #[cfg(windows)]
 mod winreg;
 
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
-use alloc::borrow::Cow;
-use std::collections::HashMap;
+use crate::{Context, builtins::PyModuleDef};
 
-pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyRef<PyModule>)>;
-pub type StdlibMap = HashMap<Cow<'static, str>, StdlibInitFunc, ahash::RandomState>;
-
-pub fn get_module_inits() -> StdlibMap {
-    macro_rules! modules {
-        {
-            $(
-                #[cfg($cfg:meta)]
-                { $( $key:expr => $val:expr),* $(,)? }
-            )*
-        } => {{
-            let modules = [
-                $(
-                    $(#[cfg($cfg)] (Cow::<'static, str>::from($key), Box::new($val) as StdlibInitFunc),)*
-                )*
-            ];
-            modules.into_iter().collect()
-        }};
-    }
-    modules! {
-        #[cfg(all())]
-        {
-            "_abc" => _abc::make_module,
-            "atexit" => atexit::make_module,
-            "_codecs" => codecs::make_module,
-            "_collections" => collections::make_module,
-            "errno" => errno::make_module,
-            "_functools" => functools::make_module,
-            "itertools" => itertools::make_module,
-            "_io" => io::make_module,
-            "marshal" => marshal::make_module,
-            "_operator" => operator::make_module,
-            "_signal" => signal::make_module,
-            "_sre" => sre::make_module,
-            "_stat" => stat::make_module,
-            "_sysconfig" => sysconfig::make_module,
-            "_string" => string::make_module,
-            "time" => time::make_module,
-            "_typing" => typing::make_module,
-            "_weakref" => weakref::make_module,
-            "_imp" => imp::make_module,
-            "_warnings" => warnings::make_module,
-            sys::sysconfigdata_name() => sysconfigdata::make_module,
-        }
-        // parser related modules:
+/// Returns module definitions for multi-phase init modules.
+///
+/// These modules use multi-phase initialization pattern:
+/// 1. Create module from def and add to sys.modules
+/// 2. Call exec slot (can safely import other modules without circular import issues)
+pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
+    vec![
+        _abc::module_def(ctx),
         #[cfg(feature = "ast")]
-        {
-            "_ast" => ast::make_module,
-        }
-        // compiler related modules:
-        #[cfg(feature = "compiler")]
-        {
-            "_symtable" => symtable::make_module,
-        }
-        #[cfg(any(unix, target_os = "wasi"))]
-        {
-            "posix" => posix::make_module,
-            // "fcntl" => fcntl::make_module,
-        }
-        #[cfg(feature = "threading")]
-        {
-            "_thread" => thread::make_module,
-        }
-        // Unix-only
-        #[cfg(all(
-            unix,
-            not(any(target_os = "ios", target_os = "wasi", target_os = "redox"))
-        ))]
-        {
-            "pwd" => pwd::make_module,
-        }
-        // Windows-only
-        #[cfg(windows)]
-        {
-            "nt" => nt::make_module,
-            "msvcrt" => msvcrt::make_module,
-            "_winapi" => winapi::make_module,
-            "winreg" => winreg::make_module,
-        }
+        ast::module_def(ctx),
+        atexit::module_def(ctx),
+        codecs::module_def(ctx),
+        collections::module_def(ctx),
         #[cfg(all(
             any(target_os = "linux", target_os = "macos", target_os = "windows"),
             not(any(target_env = "musl", target_env = "sgx"))
         ))]
-        {
-            "_ctypes" => ctypes::make_module,
-        }
-    }
+        ctypes::module_def(ctx),
+        errno::module_def(ctx),
+        functools::module_def(ctx),
+        imp::module_def(ctx),
+        io::module_def(ctx),
+        itertools::module_def(ctx),
+        marshal::module_def(ctx),
+        #[cfg(windows)]
+        msvcrt::module_def(ctx),
+        #[cfg(windows)]
+        nt::module_def(ctx),
+        operator::module_def(ctx),
+        #[cfg(any(unix, target_os = "wasi"))]
+        posix::module_def(ctx),
+        #[cfg(all(
+            any(not(target_arch = "wasm32"), target_os = "wasi"),
+            not(any(unix, windows))
+        ))]
+        posix::module_def(ctx),
+        #[cfg(all(
+            unix,
+            not(any(target_os = "ios", target_os = "wasi", target_os = "redox"))
+        ))]
+        pwd::module_def(ctx),
+        signal::module_def(ctx),
+        sre::module_def(ctx),
+        stat::module_def(ctx),
+        string::module_def(ctx),
+        #[cfg(feature = "compiler")]
+        symtable::module_def(ctx),
+        sysconfigdata::module_def(ctx),
+        sysconfig::module_def(ctx),
+        #[cfg(feature = "threading")]
+        thread::module_def(ctx),
+        time::module_def(ctx),
+        typing::module_def(ctx),
+        warnings::module_def(ctx),
+        weakref::module_def(ctx),
+        #[cfg(windows)]
+        winapi::module_def(ctx),
+        #[cfg(windows)]
+        winreg::module_def(ctx),
+    ]
 }

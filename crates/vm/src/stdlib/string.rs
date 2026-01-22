@@ -1,7 +1,7 @@
 /* String builtin module
  */
 
-pub(crate) use _string::make_module;
+pub(crate) use _string::module_def;
 
 #[pymodule]
 mod _string {

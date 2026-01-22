@@ -1,4 +1,4 @@
-pub(crate) use _sre::make_module;
+pub(crate) use _sre::module_def;
 
 #[pymodule]
 mod _sre {

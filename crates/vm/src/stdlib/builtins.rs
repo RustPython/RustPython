@@ -2,7 +2,7 @@
 //!
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
 use crate::{Py, VirtualMachine, builtins::PyModule, class::PyClassImpl};
-pub(crate) use builtins::{__module_def, DOC};
+pub(crate) use builtins::{DOC, module_def};
 pub use builtins::{ascii, print, reversed};
 
 #[pymodule]
@@ -1100,7 +1100,8 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
 
     crate::protocol::VecBuffer::make_class(&vm.ctx);
 
-    builtins::extend_module(vm, module).unwrap();
+    module.__init_methods(vm).unwrap();
+    builtins::module_exec(vm, module).unwrap();
 
     let debug_mode: bool = vm.state.config.settings.optimize == 0;
     // Create dynamic ExceptionGroup with multiple inheritance (BaseExceptionGroup + Exception)

@@ -1,6 +1,8 @@
 /*
  * I/O core tools.
  */
+pub(crate) use _io::module_def;
+
 cfg_if::cfg_if! {
     if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
         use crate::common::crt_fd::Offset;
@@ -19,7 +21,7 @@ cfg_if::cfg_if! {
 }
 
 use crate::{
-    PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyModule},
     common::os::ErrorExt,
     convert::{IntoPyException, ToPyException},
@@ -87,23 +89,6 @@ impl IntoPyException for std::io::Error {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.to_pyexception(vm)
     }
-}
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let ctx = &vm.ctx;
-
-    let module = _io::make_module(vm);
-
-    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-    fileio::extend_module(vm, &module).unwrap();
-
-    let unsupported_operation = _io::unsupported_operation().to_owned();
-    extend_module!(vm, &module, {
-        "UnsupportedOperation" => unsupported_operation,
-        "BlockingIOError" => ctx.exceptions.blocking_io_error.to_owned(),
-    });
-
-    module
 }
 
 // not used on all platforms
@@ -4743,8 +4728,23 @@ mod _io {
             assert_eq!(buffered.getvalue(), data);
         }
     }
-}
 
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        // Call auto-generated initialization first
+        __module_exec(vm, module);
+
+        // Initialize FileIO types on non-WASM platforms
+        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+        super::fileio::module_exec(vm, module)?;
+
+        let unsupported_operation = unsupported_operation().to_owned();
+        extend_module!(vm, module, {
+            "UnsupportedOperation" => unsupported_operation,
+            "BlockingIOError" => vm.ctx.exceptions.blocking_io_error.to_owned(),
+        });
+        Ok(())
+    }
+}
 // disable FileIO on WASM
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[pymodule]

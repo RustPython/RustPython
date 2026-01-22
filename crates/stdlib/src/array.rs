@@ -1,33 +1,6 @@
 // spell-checker:ignore typecode tofile tolist fromfile
 
-use rustpython_vm::{PyRef, VirtualMachine, builtins::PyModule};
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = array::make_module(vm);
-
-    let array = module
-        .get_attr("array", vm)
-        .expect("Expect array has array type.");
-
-    let collections_abc = vm
-        .import("collections.abc", 0)
-        .expect("Expect collections exist.");
-    let abc = collections_abc
-        .get_attr("abc", vm)
-        .expect("Expect collections has abc submodule.");
-    let mutable_sequence = abc
-        .get_attr("MutableSequence", vm)
-        .expect("Expect collections.abc has MutableSequence type.");
-
-    let register = &mutable_sequence
-        .get_attr("register", vm)
-        .expect("Expect collections.abc.MutableSequence has register method.");
-    register
-        .call((array,), vm)
-        .expect("Expect collections.abc.MutableSequence.register(array.array) not fail.");
-
-    module
-}
+pub(crate) use array::module_def;
 
 #[pymodule(name = "array")]
 mod array {
@@ -1657,5 +1630,26 @@ mod array {
             }
         };
         PyArray::from(array).into_ref_with_type(vm, cls)
+    }
+
+    // Register array.array as collections.abc.MutableSequence
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::vm::builtins::PyModule>,
+    ) -> PyResult<()> {
+        __module_exec(vm, module);
+
+        let array_type = module
+            .get_attr("array", vm)
+            .expect("array module has array type");
+
+        // vm.import returns the top-level module, so we need to get abc submodule
+        let collections_abc = vm.import("collections.abc", 0)?;
+        let abc = collections_abc.get_attr("abc", vm)?;
+        let mutable_sequence = abc.get_attr("MutableSequence", vm)?;
+        let register = mutable_sequence.get_attr("register", vm)?;
+        register.call((array_type,), vm)?;
+
+        Ok(())
     }
 }

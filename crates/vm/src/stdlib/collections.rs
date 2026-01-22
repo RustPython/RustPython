@@ -1,4 +1,4 @@
-pub(crate) use _collections::make_module;
+pub(crate) use _collections::module_def;
 
 #[pymodule]
 mod _collections {

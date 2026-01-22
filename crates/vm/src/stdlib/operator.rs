@@ -1,4 +1,4 @@
-pub(crate) use _operator::make_module;
+pub(crate) use _operator::module_def;
 
 #[pymodule]
 mod _operator {

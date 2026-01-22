@@ -1,4 +1,4 @@
-pub(crate) use _bisect::make_module;
+pub(crate) use _bisect::module_def;
 
 #[pymodule]
 mod _bisect {

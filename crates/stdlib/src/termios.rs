@@ -1,6 +1,6 @@
 // spell-checker:disable
 
-pub(crate) use self::termios::make_module;
+pub(crate) use self::termios::module_def;
 
 #[pymodule]
 mod termios {

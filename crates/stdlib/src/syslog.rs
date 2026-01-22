@@ -1,6 +1,6 @@
 // spell-checker:ignore logoption openlog setlogmask upto NDELAY ODELAY
 
-pub(crate) use syslog::make_module;
+pub(crate) use syslog::module_def;
 
 #[pymodule(name = "syslog")]
 mod syslog {

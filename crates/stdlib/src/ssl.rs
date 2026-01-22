@@ -25,7 +25,7 @@ mod compat;
 // SSL exception types (shared with openssl backend)
 mod error;
 
-pub(crate) use _ssl::make_module;
+pub(crate) use _ssl::module_def;
 
 #[allow(non_snake_case)]
 #[allow(non_upper_case_globals)]

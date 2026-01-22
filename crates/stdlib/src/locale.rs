@@ -1,6 +1,6 @@
 // spell-checker:ignore abday abmon yesexpr noexpr CRNCYSTR RADIXCHAR AMPM THOUSEP
 
-pub(crate) use _locale::make_module;
+pub(crate) use _locale::module_def;
 
 #[cfg(windows)]
 #[repr(C)]
