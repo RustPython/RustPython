@@ -5,18 +5,12 @@ import tempfile
 import unittest
 
 from update_lib.deps import (
-    clear_import_graph_caches,
-    consolidate_test_paths,
-    find_dependent_tests_tree,
-    find_tests_importing_module,
-    get_data_paths,
     get_lib_paths,
     get_soft_deps,
     get_test_dependencies,
     get_test_paths,
     parse_lib_imports,
     parse_test_imports,
-    resolve_all_paths,
 )
 
 
@@ -132,21 +126,6 @@ class TestGetTestPaths(unittest.TestCase):
             self.assertEqual(paths, (tmpdir / "Lib" / "test" / "test_foo.py",))
 
 
-class TestGetDataPaths(unittest.TestCase):
-    """Tests for get_data_paths function."""
-
-    def test_known_data(self):
-        """Test module with known data paths."""
-        paths = get_data_paths("regrtest", "cpython")
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(paths[0], pathlib.Path("cpython/Lib/test/regrtestdata"))
-
-    def test_no_data(self):
-        """Test module without data paths."""
-        paths = get_data_paths("datetime", "cpython")
-        self.assertEqual(paths, ())
-
-
 class TestGetTestDependencies(unittest.TestCase):
     """Tests for get_test_dependencies function."""
 
@@ -213,28 +192,6 @@ class TestKR:
             # Should find cjkencodings as data (from multibytecodec_support's TEST_DEPENDENCIES)
             self.assertEqual(len(result["data"]), 1)
             self.assertEqual(result["data"][0], test_dir / "cjkencodings")
-
-
-class TestResolveAllPaths(unittest.TestCase):
-    """Tests for resolve_all_paths function."""
-
-    def test_datetime(self):
-        """Test resolving datetime module."""
-        result = resolve_all_paths("datetime", include_deps=False)
-        self.assertEqual(len(result["lib"]), 2)
-        self.assertIn(pathlib.Path("cpython/Lib/datetime.py"), result["lib"])
-        self.assertIn(pathlib.Path("cpython/Lib/_pydatetime.py"), result["lib"])
-
-    def test_regrtest(self):
-        """Test resolving regrtest module."""
-        result = resolve_all_paths("regrtest", include_deps=False)
-        self.assertEqual(result["lib"], [pathlib.Path("cpython/Lib/test/libregrtest")])
-        self.assertEqual(
-            result["test"], [pathlib.Path("cpython/Lib/test/test_regrtest")]
-        )
-        self.assertEqual(
-            result["data"], [pathlib.Path("cpython/Lib/test/regrtestdata")]
-        )
 
 
 class TestParseLibImports(unittest.TestCase):
@@ -424,220 +381,6 @@ class TestDircmpIsSame(unittest.TestCase):
 
             dcmp = filecmp.dircmp(dir1, dir2)
             self.assertFalse(_dircmp_is_same(dcmp))
-
-
-class TestFindTestsImportingModule(unittest.TestCase):
-    """Tests for find_tests_importing_module function."""
-
-    def test_direct_import(self):
-        """Test finding tests that directly import a module."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_dir.mkdir(parents=True)
-
-            # Create target module
-            (lib_dir / "bar.py").write_text("# bar module")
-
-            # Create test that imports bar
-            (test_dir / "test_foo.py").write_text("import bar\n")
-
-            clear_import_graph_caches()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-            self.assertIn(test_dir / "test_foo.py", result)
-
-    def test_includes_test_module_itself(self):
-        """Test that test_<module>.py IS included in results."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_dir.mkdir(parents=True)
-
-            (lib_dir / "bar.py").write_text("# bar module")
-            (test_dir / "test_bar.py").write_text("import bar\n")
-
-            clear_import_graph_caches()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-            # test_bar.py IS now included (module's own test is part of impact)
-            self.assertIn(test_dir / "test_bar.py", result)
-
-    def test_empty_when_no_importers(self):
-        """Test returns empty when no tests import the module."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_dir.mkdir(parents=True)
-
-            (lib_dir / "bar.py").write_text("# bar module")
-            (test_dir / "test_unrelated.py").write_text("import os\n")
-
-            clear_import_graph_caches()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-            self.assertEqual(result, frozenset())
-
-
-class TestFindTestsOnlyTestFiles(unittest.TestCase):
-    """Tests for filtering to only test_*.py files in output."""
-
-    def test_support_file_not_in_output(self):
-        """Support files should not appear in output even if they import target."""
-        # Given:
-        #   bar.py (target module in Lib/)
-        #   helper.py (support file in test/, imports bar)
-        #   test_foo.py (test file, imports bar)
-        # When: find_tests_importing_module("bar")
-        # Then: test_foo.py is included, helper.py is NOT included
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_dir.mkdir(parents=True)
-
-            (lib_dir / "bar.py").write_text("# bar module")
-            # helper.py imports bar directly but doesn't start with test_
-            (test_dir / "helper.py").write_text("import bar\n")
-            # test_foo.py also imports bar
-            (test_dir / "test_foo.py").write_text("import bar\n")
-
-            clear_import_graph_caches()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-
-            # Only test_foo.py should be in results
-            self.assertIn(test_dir / "test_foo.py", result)
-            # helper.py should be excluded
-            self.assertNotIn(test_dir / "helper.py", result)
-
-
-class TestFindTestsInModuleDirectories(unittest.TestCase):
-    """Tests for finding tests inside test_*/ module directories."""
-
-    def test_finds_test_in_module_directory(self):
-        """Test files inside test_*/ directories should be found."""
-        # Given:
-        #   bar.py (target module in Lib/)
-        #   test_bar/
-        #     __init__.py
-        #     test_sub.py (imports bar)
-        # When: find_tests_importing_module("bar")
-        # Then: test_bar/test_sub.py IS included
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_bar_dir = test_dir / "test_bar"
-            test_bar_dir.mkdir(parents=True)
-
-            (lib_dir / "bar.py").write_text("# bar module")
-            (test_bar_dir / "__init__.py").write_text("")
-            (test_bar_dir / "test_sub.py").write_text("import bar\n")
-
-            clear_import_graph_caches()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-
-            # test_bar/test_sub.py should be in results
-            self.assertIn(test_bar_dir / "test_sub.py", result)
-
-    def test_both_top_level_and_module_directory_tests_found(self):
-        """Both top-level test_*.py and test_*/test_*.py should be found."""
-        # Given:
-        #   bar.py (target)
-        #   test_bar.py (top-level, imports bar)
-        #   test_bar/
-        #     test_sub.py (imports bar)
-        # When: find_tests_importing_module("bar")
-        # Then: BOTH test_bar.py AND test_bar/test_sub.py are included
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            lib_dir = tmpdir / "Lib"
-            test_dir = lib_dir / "test"
-            test_bar_dir = test_dir / "test_bar"
-            test_bar_dir.mkdir(parents=True)
-
-            (lib_dir / "bar.py").write_text("# bar module")
-            (test_dir / "test_bar.py").write_text("import bar\n")
-            (test_bar_dir / "__init__.py").write_text("")
-            (test_bar_dir / "test_sub.py").write_text("import bar\n")
-
-            clear_import_graph_caches()
-            find_tests_importing_module.cache_clear()
-            result = find_tests_importing_module("bar", lib_prefix=str(lib_dir))
-
-            # Both should be included
-            self.assertIn(test_dir / "test_bar.py", result)
-            self.assertIn(test_bar_dir / "test_sub.py", result)
-
-
-class TestConsolidateTestPaths(unittest.TestCase):
-    """Tests for consolidate_test_paths function."""
-
-    def test_top_level_test_file(self):
-        """Top-level test_*.py -> test_* (without .py)."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_dir = pathlib.Path(tmpdir)
-            test_file = test_dir / "test_foo.py"
-            test_file.write_text("# test")
-
-            result = consolidate_test_paths(frozenset({test_file}), test_dir)
-            self.assertEqual(result, frozenset({"test_foo"}))
-
-    def test_module_directory_tests_consolidated(self):
-        """Multiple files in test_*/ directory -> single directory name."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_dir = pathlib.Path(tmpdir)
-            module_dir = test_dir / "test_sqlite3"
-            module_dir.mkdir()
-            (module_dir / "test_dbapi.py").write_text("# test")
-            (module_dir / "test_backup.py").write_text("# test")
-
-            result = consolidate_test_paths(
-                frozenset(
-                    {module_dir / "test_dbapi.py", module_dir / "test_backup.py"}
-                ),
-                test_dir,
-            )
-            self.assertEqual(result, frozenset({"test_sqlite3"}))
-
-    def test_mixed_top_level_and_module_directory(self):
-        """Both top-level and module directory tests handled correctly."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_dir = pathlib.Path(tmpdir)
-            # Top-level test
-            (test_dir / "test_foo.py").write_text("# test")
-            # Module directory tests
-            module_dir = test_dir / "test_sqlite3"
-            module_dir.mkdir()
-            (module_dir / "test_dbapi.py").write_text("# test")
-            (module_dir / "test_backup.py").write_text("# test")
-
-            result = consolidate_test_paths(
-                frozenset(
-                    {
-                        test_dir / "test_foo.py",
-                        module_dir / "test_dbapi.py",
-                        module_dir / "test_backup.py",
-                    }
-                ),
-                test_dir,
-            )
-            self.assertEqual(result, frozenset({"test_foo", "test_sqlite3"}))
-
-    def test_empty_input(self):
-        """Empty input -> empty frozenset."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_dir = pathlib.Path(tmpdir)
-            result = consolidate_test_paths(frozenset(), test_dir)
-            self.assertEqual(result, frozenset())
 
 
 if __name__ == "__main__":

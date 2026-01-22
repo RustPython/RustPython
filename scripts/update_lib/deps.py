@@ -236,26 +236,6 @@ def get_test_paths(
     return (resolve_module_path(f"test/test_{name}", cpython_prefix, prefer="dir"),)
 
 
-@functools.cache
-def get_data_paths(
-    name: str, cpython_prefix: str = "cpython"
-) -> tuple[pathlib.Path, ...]:
-    """Get additional data paths for a module.
-
-    Args:
-        name: Module name
-        cpython_prefix: CPython directory prefix
-
-    Returns:
-        Tuple of data paths (may be empty)
-    """
-    if name in DEPENDENCIES and "data" in DEPENDENCIES[name]:
-        return tuple(
-            construct_lib_path(cpython_prefix, p) for p in DEPENDENCIES[name]["data"]
-        )
-    return ()
-
-
 def _extract_top_level_code(content: str) -> str:
     """Extract only top-level code from Python content for faster parsing.
 
@@ -529,42 +509,6 @@ def get_test_dependencies(
     return result
 
 
-def resolve_all_paths(
-    name: str,
-    cpython_prefix: str = "cpython",
-    include_deps: bool = True,
-) -> dict[str, list[pathlib.Path]]:
-    """Resolve all paths for a module update.
-
-    Args:
-        name: Module name
-        cpython_prefix: CPython directory prefix
-        include_deps: Whether to include auto-detected dependencies
-
-    Returns:
-        Dict with "lib", "test", "data", "test_deps" keys
-    """
-    result = {
-        "lib": list(get_lib_paths(name, cpython_prefix)),
-        "test": list(get_test_paths(name, cpython_prefix)),
-        "data": list(get_data_paths(name, cpython_prefix)),
-        "test_deps": [],
-    }
-
-    if include_deps:
-        # Auto-detect test dependencies
-        for test_path in result["test"]:
-            deps = get_test_dependencies(test_path)
-            for dep_path in deps["hard_deps"]:
-                if dep_path not in result["test_deps"]:
-                    result["test_deps"].append(dep_path)
-            for data_path in deps["data"]:
-                if data_path not in result["data"]:
-                    result["data"].append(data_path)
-
-    return result
-
-
 def _parse_test_submodule_imports(content: str) -> dict[str, set[str]]:
     """Parse 'from test.X import Y' to get submodule imports.
 
@@ -691,22 +635,6 @@ def _build_test_import_graph(
     _test_import_graph_cache[cache_key] = (import_graph, lib_imports_graph)
 
     return import_graph, lib_imports_graph
-
-
-def _get_import_name(file_key: str) -> str:
-    """Get the import name from a file key.
-
-    Args:
-        file_key: Relative path without .py (e.g., "test_foo", "test_bar/helper")
-
-    Returns:
-        Import name (e.g., "test_foo", "helper", or parent dir name for __init__)
-    """
-    path = pathlib.Path(file_key)
-    stem = path.name
-    if stem == "__init__":
-        return path.parent.name
-    return stem
 
 
 _lib_import_graph_cache: dict[str, dict[str, set[str]]] = {}
@@ -974,91 +902,6 @@ def find_dependent_tests_tree(
     }
 
 
-def _filter_test_files(
-    depth_map: dict[int, dict[str, list[str]]],
-) -> dict[int, dict[str, list[str]]]:
-    """Filter to only include test_*.py files in the result."""
-    filtered: dict[int, dict[str, list[str]]] = {}
-    for depth, files in depth_map.items():
-        test_files = {
-            k: v for k, v in files.items() if pathlib.Path(k).name.startswith("test_")
-        }
-        if test_files:
-            filtered[depth] = test_files
-    return filtered
-
-
-def _collect_test_file_keys_from_tree(tree: dict) -> set[str]:
-    """Recursively collect all test file_keys from a dependency tree."""
-    # Note: tree["tests"] are already consolidated names, not file_keys
-    # We need the original file_keys for path construction
-    # This is used for backward compatibility
-    result: set[str] = set()
-    for test_name in tree.get("tests", []):
-        result.add(test_name)
-    for child in tree.get("children", []):
-        result.update(_collect_test_file_keys_from_tree(child))
-    return result
-
-
-@functools.cache
-def find_tests_importing_module(
-    module_name: str,
-    lib_prefix: str = "Lib",
-    include_transitive: bool = True,
-) -> frozenset[pathlib.Path]:
-    """Find all test files that import the given module (directly or transitively).
-
-    Only returns test_*.py files. Support files (like pickletester.py, string_tests.py)
-    are used for transitive dependency calculation but not included in the result.
-
-    Args:
-        module_name: Module to search for (e.g., "datetime")
-        lib_prefix: RustPython Lib directory (default: "Lib")
-        include_transitive: Whether to include transitive dependencies within test/
-
-    Returns:
-        Frozenset of test_*.py file paths that depend on this module
-    """
-    lib_dir = pathlib.Path(lib_prefix)
-    test_dir = lib_dir / "test"
-
-    if not test_dir.exists():
-        return frozenset()
-
-    _, test_lib_imports = _build_test_import_graph(test_dir)
-
-    # Find tests that directly import module_name
-    target_top = module_name.split(".")[0]
-    result: set[pathlib.Path] = set()
-
-    for file_key, imports in test_lib_imports.items():
-        if module_name in imports or target_top in imports:
-            if pathlib.Path(file_key).name.startswith("test_"):
-                result.add(test_dir / f"{file_key}.py")
-
-    if not include_transitive:
-        return frozenset(result)
-
-    # For transitive, use the tree function
-    tree = find_dependent_tests_tree(module_name, lib_prefix, max_depth=10)
-    test_names = _collect_test_file_keys_from_tree(tree)
-
-    # Convert test names back to paths (best effort)
-    for test_name in test_names:
-        # Try as file
-        path = test_dir / f"{test_name}.py"
-        if path.exists():
-            result.add(path)
-        # Try as directory
-        dir_path = test_dir / test_name
-        if dir_path.is_dir():
-            for py_file in dir_path.glob("test_*.py"):
-                result.add(py_file)
-
-    return frozenset(result)
-
-
 def _consolidate_file_key(file_key: str) -> str:
     """Consolidate file_key to test name.
 
@@ -1074,46 +917,3 @@ def _consolidate_file_key(file_key: str) -> str:
     if len(parts) == 1:
         return parts[0]
     return parts[0]
-
-
-def consolidate_test_paths(
-    test_paths: frozenset[pathlib.Path],
-    test_dir: pathlib.Path,
-) -> frozenset[str]:
-    """Consolidate test paths by grouping test_*/ directory contents into a single entry.
-
-    Args:
-        test_paths: Frozenset of absolute paths to test files
-        test_dir: Path to the test directory (e.g., Lib/test)
-
-    Returns:
-        Frozenset of consolidated test names:
-        - "test_foo" for Lib/test/test_foo.py
-        - "test_sqlite3" for any file in Lib/test/test_sqlite3/
-    """
-    consolidated: set[str] = set()
-
-    for path in test_paths:
-        if path.is_relative_to(test_dir):
-            rel_path = path.relative_to(test_dir)
-            parts = rel_path.parts
-
-            if len(parts) == 1:
-                # test_foo.py -> test_foo
-                consolidated.add(rel_path.stem)
-            else:
-                # test_sqlite3/test_dbapi.py -> test_sqlite3
-                consolidated.add(parts[0])
-        else:
-            # Path not relative to test_dir, use stem
-            consolidated.add(path.stem)
-
-    return frozenset(consolidated)
-
-
-def _collect_all_tests_from_tree(tree: dict) -> set[str]:
-    """Recursively collect all test names from a dependency tree."""
-    tests = set(tree.get("tests", []))
-    for child in tree.get("children", []):
-        tests.update(_collect_all_tests_from_tree(child))
-    return tests
