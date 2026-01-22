@@ -99,19 +99,11 @@ jobs:
 
             The following Lib/ modules were modified. Here are their dependencies:
 
-            <details>
-            <summary>Click to expand dependency information</summary>
-
-            ```
             ${{ steps.deps-check.outputs.deps_output }}
-            ```
-
-            </details>
 
             **Legend:**
             - `[+]` path exists in CPython
             - `[x]` up-to-date, `[ ]` outdated
-            - `native:` Rust/C extension modules
 
       - name: Remove comment if no Lib changes
         if: steps.changed-files.outputs.modules == ''
