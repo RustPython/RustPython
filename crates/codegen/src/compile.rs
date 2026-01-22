@@ -1528,27 +1528,30 @@ impl Compiler {
                     // Otherwise, if an exception occurs during the finally body, the stack
                     // will be unwound to the wrong depth and the return value will be lost.
                     if preserve_tos {
-                        // Get the handler info from the saved fblock (or current handler)
-                        // and create a new handler with stack_depth + 1
-                        let (handler, stack_depth, preserve_lasti) =
-                            if let Some(handler) = saved_fblock.fb_handler {
-                                (
-                                    Some(handler),
-                                    saved_fblock.fb_stack_depth + 1, // +1 for return value
-                                    saved_fblock.fb_preserve_lasti,
-                                )
-                            } else {
-                                // No handler in saved_fblock, check current handler
-                                if let Some(current_handler) = self.current_except_handler() {
-                                    (
-                                        Some(current_handler.handler_block),
-                                        current_handler.stack_depth + 1, // +1 for return value
-                                        current_handler.preserve_lasti,
-                                    )
-                                } else {
-                                    (None, 1, false) // No handler, but still track the return value
+                        // Find the outer handler, skipping ALL FinallyTry blocks.
+                        // During return unwinding, FinallyTry handlers (finally_except_block)
+                        // should NOT catch exceptions from the finally body - those exceptions
+                        // should propagate to the outer TryExcept handler instead.
+                        // FinallyTry's handler is only for the try body's exceptions.
+                        let (handler, stack_depth, preserve_lasti) = {
+                            let code = self.code_stack.last().unwrap();
+                            let mut found = None;
+                            for fblock in code.fblock.iter().rev() {
+                                // Skip FinallyTry blocks - their handlers are for exception path
+                                if matches!(fblock.fb_type, FBlockType::FinallyTry) {
+                                    continue;
                                 }
-                            };
+                                if let Some(handler) = fblock.fb_handler {
+                                    found = Some((
+                                        Some(handler),
+                                        fblock.fb_stack_depth + 1, // +1 for return value
+                                        fblock.fb_preserve_lasti,
+                                    ));
+                                    break;
+                                }
+                            }
+                            found.unwrap_or((None, 1, false))
+                        };
 
                         self.push_fblock_with_handler(
                             FBlockType::PopValue,
