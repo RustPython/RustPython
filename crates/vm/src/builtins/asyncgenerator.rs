@@ -604,6 +604,10 @@ impl PyAnextAwaitable {
             {
                 // Return the generator itself as the iterator
                 return Ok(wrapped.clone());
+            }
+            // Fall through: try to get __await__ method for generator subclasses
+            if let Some(await_method) = vm.get_method(wrapped.clone(), identifier!(vm, __await__)) {
+                await_method?.call((), vm)?
             } else {
                 return Err(vm.new_type_error(format!(
                     "object {} can't be used in 'await' expression",
