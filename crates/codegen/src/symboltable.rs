@@ -845,7 +845,13 @@ impl SymbolTableBuilder {
         let is_nested = self
             .tables
             .last()
-            .map(|table| table.is_nested || table.typ == CompilerScope::Function)
+            .map(|table| {
+                table.is_nested
+                    || matches!(
+                        table.typ,
+                        CompilerScope::Function | CompilerScope::AsyncFunction
+                    )
+            })
             .unwrap_or(false);
         let table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
         self.tables.push(table);
@@ -1103,6 +1109,7 @@ impl SymbolTableBuilder {
                 type_params,
                 returns,
                 range,
+                is_async,
                 ..
             }) => {
                 self.scan_decorators(decorator_list, ExpressionContext::Load)?;
@@ -1142,6 +1149,7 @@ impl SymbolTableBuilder {
                     parameters,
                     self.line_index_start(*range),
                     has_return_annotation,
+                    *is_async,
                 )?;
                 self.scan_statements(body)?;
                 self.leave_scope();
@@ -1709,7 +1717,10 @@ impl SymbolTableBuilder {
                 // Interesting stuff about the __class__ variable:
                 // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
                 if context == ExpressionContext::Load
-                    && self.tables.last().unwrap().typ == CompilerScope::Function
+                    && matches!(
+                        self.tables.last().unwrap().typ,
+                        CompilerScope::Function | CompilerScope::AsyncFunction
+                    )
                     && id == "super"
                 {
                     self.register_name("__class__", SymbolUsage::Used, *range)?;
@@ -1727,6 +1738,7 @@ impl SymbolTableBuilder {
                         parameters,
                         self.line_index_start(expression.range()),
                         false, // lambdas have no return annotation
+                        false, // lambdas are never async
                     )?;
                 } else {
                     self.enter_scope(
@@ -2093,6 +2105,7 @@ impl SymbolTableBuilder {
         parameters: &ast::Parameters,
         line_number: u32,
         has_return_annotation: bool,
+        is_async: bool,
     ) -> SymbolTableResult {
         // Evaluate eventual default parameters:
         for default in parameters
@@ -2157,7 +2170,12 @@ impl SymbolTableBuilder {
             None
         };
 
-        self.enter_scope(name, CompilerScope::Function, line_number);
+        let scope_type = if is_async {
+            CompilerScope::AsyncFunction
+        } else {
+            CompilerScope::Function
+        };
+        self.enter_scope(name, scope_type, line_number);
 
         // Move annotation_block to function scope only if we have one
         if let Some(block) = annotation_block {

@@ -1136,6 +1136,13 @@ impl Compiler {
         // Set the source range for the RESUME instruction
         // For now, just use an empty range at the beginning
         self.current_source_range = TextRange::default();
+
+        // For async functions/coroutines, emit RETURN_GENERATOR + POP_TOP before RESUME
+        if scope_type == CompilerScope::AsyncFunction {
+            emit!(self, Instruction::ReturnGenerator);
+            emit!(self, Instruction::PopTop);
+        }
+
         emit!(
             self,
             Instruction::Resume {
@@ -3623,6 +3630,7 @@ impl Compiler {
             self.current_code_info().flags |= bytecode::CodeFlags::HAS_DOCSTRING;
         }
         // If no docstring, don't add None to co_consts
+        // Note: RETURN_GENERATOR + POP_TOP for async functions is emitted in enter_scope()
 
         // Compile body statements
         self.compile_statements(body)?;
@@ -6529,8 +6537,11 @@ impl Compiler {
             }
         );
 
-        // JUMP_NO_INTERRUPT send (regular JUMP in RustPython)
-        emit!(self, PseudoInstruction::Jump { target: send_block });
+        // JUMP_BACKWARD_NO_INTERRUPT send
+        emit!(
+            self,
+            PseudoInstruction::JumpNoInterrupt { target: send_block }
+        );
 
         // fail: CLEANUP_THROW
         // Stack when exception: [receiver, yielded_value, exc]

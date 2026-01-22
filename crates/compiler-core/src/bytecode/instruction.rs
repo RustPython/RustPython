@@ -56,7 +56,7 @@ pub enum Instruction {
     PopTop = 31,
     PushExcInfo = 32,
     PushNull = 33,
-    ReturnGenerator = 34, // Placeholder
+    ReturnGenerator = 34,
     ReturnValue = 35,
     SetupAnnotations = 36,
     StoreSlice = 37, // Placeholder
@@ -444,7 +444,7 @@ impl InstructionMetadata for Instruction {
         )
     }
 
-    fn stack_effect(&self, arg: OpArg, _jump: bool) -> i32 {
+    fn stack_effect(&self, arg: OpArg) -> i32 {
         match self {
             Self::Nop => 0,
             Self::NotTaken => 0,
@@ -597,7 +597,7 @@ impl InstructionMetadata for Instruction {
             Self::ExitInitCheck => 0,
             Self::InterpreterExit => 0,
             Self::LoadLocals => 0,
-            Self::ReturnGenerator => 0,
+            Self::ReturnGenerator => 1, // pushes None for POP_TOP to consume
             Self::StoreSlice => 0,
             Self::CopyFreeVars { .. } => 0,
             Self::EnterExecutor => 0,
@@ -1001,7 +1001,7 @@ impl InstructionMetadata for PseudoInstruction {
         matches!(self, Self::Jump { .. } | Self::JumpNoInterrupt { .. })
     }
 
-    fn stack_effect(&self, _arg: OpArg, _jump: bool) -> i32 {
+    fn stack_effect(&self, _arg: OpArg) -> i32 {
         match self {
             Self::AnnotationsPlaceholder => 0,
             Self::Jump { .. } => 0,
@@ -1087,7 +1087,7 @@ impl InstructionMetadata for AnyInstruction {
 
     inst_either!(fn unconditional_branch(&self) -> bool);
 
-    inst_either!(fn stack_effect(&self, arg: OpArg, jump: bool) -> i32);
+    inst_either!(fn stack_effect(&self, arg: OpArg) -> i32);
 
     inst_either!(fn fmt_dis(
         &self,
@@ -1161,9 +1161,9 @@ pub trait InstructionMetadata {
     /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label, InstructionMetadata};
     /// let (target, jump_arg) = Arg::new(Label(0xF));
     /// let jump_instruction = Instruction::JumpForward { target };
-    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
+    /// assert_eq!(jump_instruction.stack_effect(jump_arg), 0);
     /// ```
-    fn stack_effect(&self, arg: OpArg, jump: bool) -> i32;
+    fn stack_effect(&self, arg: OpArg) -> i32;
 
     #[allow(clippy::too_many_arguments)]
     fn fmt_dis(
