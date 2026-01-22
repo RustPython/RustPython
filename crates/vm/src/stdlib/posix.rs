@@ -2574,7 +2574,14 @@ pub mod module {
             headers,
             trailers,
         );
-        res.map_err(|err| err.into_pyexception(vm))?;
+        // On macOS, sendfile can return EAGAIN even when some bytes were written.
+        // In that case, we should return the number of bytes written rather than
+        // raising an exception. Only raise an error if no bytes were written.
+        if let Err(err) = res
+            && written == 0
+        {
+            return Err(err.into_pyexception(vm));
+        }
         Ok(vm.ctx.new_int(written as u64).into())
     }
 
