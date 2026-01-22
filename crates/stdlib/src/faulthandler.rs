@@ -553,7 +553,7 @@ mod decl {
                 }
 
                 let mut action: libc::sigaction = core::mem::zeroed();
-                action.sa_sigaction = faulthandler_fatal_error as libc::sighandler_t;
+                action.sa_sigaction = faulthandler_fatal_error as *const () as libc::sighandler_t;
                 // SA_NODEFER flag
                 action.sa_flags = libc::SA_NODEFER;
 
@@ -583,7 +583,7 @@ mod decl {
 
                 handler.previous = libc::signal(
                     handler.signum,
-                    faulthandler_fatal_error as libc::sighandler_t,
+                    faulthandler_fatal_error as *const () as libc::sighandler_t,
                 );
 
                 // SIG_ERR is -1 as sighandler_t (which is usize on Windows)
@@ -937,7 +937,7 @@ mod decl {
                 libc::signal(signum, user.previous);
                 libc::raise(signum);
                 // Re-register our handler
-                libc::signal(signum, faulthandler_user_signal as libc::sighandler_t);
+                libc::signal(signum, faulthandler_user_signal as *const () as libc::sighandler_t);
             }
         }
     }
@@ -988,7 +988,7 @@ mod decl {
         let previous = if !user_signals::is_enabled(signum) {
             // Install signal handler
             let prev = unsafe {
-                libc::signal(args.signum, faulthandler_user_signal as libc::sighandler_t)
+                libc::signal(args.signum, faulthandler_user_signal as *const () as libc::sighandler_t)
             };
             if prev == libc::SIG_ERR {
                 return Err(vm.new_os_error(format!(

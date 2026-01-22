@@ -202,7 +202,7 @@ pub(crate) mod _signal {
             match usize::try_from_borrowed_object(vm, &handler).ok() {
                 Some(SIG_DFL) => SIG_DFL,
                 Some(SIG_IGN) => SIG_IGN,
-                None if handler.is_callable() => run_signal as sighandler_t,
+                None if handler.is_callable() => run_signal as *const () as sighandler_t,
                 _ => return Err(vm.new_type_error(
                     "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object",
                 )),
