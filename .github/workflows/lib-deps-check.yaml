@@ -45,15 +45,20 @@ jobs:
           echo "Changed files:"
           echo "$changed"
 
-          # Extract unique module names (top-level only, skip test/)
+          # Extract unique module names
           modules=""
           for file in $changed; do
-            # Skip test files
             if [[ "$file" == Lib/test/* ]]; then
-              continue
+              # Test files: Lib/test/test_pydoc.py -> test_pydoc, Lib/test/test_pydoc/foo.py -> test_pydoc
+              module=$(echo "$file" | sed -E 's|^Lib/test/||; s|\.py$||; s|/.*||')
+              # Skip non-test files in test/ (e.g., support.py, __init__.py)
+              if [[ ! "$module" == test_* ]]; then
+                continue
+              fi
+            else
+              # Lib files: Lib/foo.py -> foo, Lib/foo/__init__.py -> foo
+              module=$(echo "$file" | sed -E 's|^Lib/||; s|/__init__\.py$||; s|\.py$||; s|/.*||')
             fi
-            # Extract module name: Lib/foo.py -> foo, Lib/foo/__init__.py -> foo
-            module=$(echo "$file" | sed -E 's|^Lib/||; s|/__init__\.py$||; s|\.py$||; s|/.*||')
             if [[ -n "$module" && ! " $modules " =~ " $module " ]]; then
               modules="$modules $module"
             fi
@@ -94,6 +99,7 @@ jobs:
         with:
           header: lib-deps-check
           number: ${{ github.event.pull_request.number }}
+          recreate: true
           message: |
             ## 📦 Library Dependencies
 

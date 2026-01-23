@@ -143,7 +143,7 @@ def format_todo_list(
 
         rev_str = f"{rev_count} dependents" if rev_count else ""
 
-        parts = [done_mark, f"[{score_str}]", name]
+        parts = ["-", done_mark, f"[{score_str}]", name]
         if rev_str:
             parts.append(f"({rev_str})")
 
