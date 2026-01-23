@@ -1013,23 +1013,20 @@ impl ExecutingFrame<'_> {
                         );
                     }
                     awaited_obj
-                } else if let Some(generator) = awaited_obj.downcast_ref::<PyGenerator>() {
+                } else if awaited_obj
+                    .downcast_ref::<PyGenerator>()
+                    .is_some_and(|generator| {
+                        generator
+                            .as_coro()
+                            .frame()
+                            .code
+                            .flags
+                            .contains(bytecode::CodeFlags::ITERABLE_COROUTINE)
+                    })
+                {
                     // Generator with CO_ITERABLE_COROUTINE flag can be awaited
                     // (e.g., generators decorated with @types.coroutine)
-                    if generator
-                        .as_coro()
-                        .frame()
-                        .code
-                        .flags
-                        .contains(bytecode::CodeFlags::ITERABLE_COROUTINE)
-                    {
-                        awaited_obj
-                    } else {
-                        return Err(vm.new_type_error(format!(
-                            "object {} can't be used in 'await' expression",
-                            awaited_obj.class().name(),
-                        )));
-                    }
+                    awaited_obj
                 } else {
                     let await_method = vm.get_method_or_type_error(
                         awaited_obj.clone(),
