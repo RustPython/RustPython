@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(python3:*), Bash(cargo run:*), Read, Grep, Glob, Bash(git add:*), Bash(git commit:*)
+allowed-tools: Bash(python3:*), Bash(cargo run:*), Read, Grep, Glob, Bash(git add:*), Bash(git commit:*), Bash(cargo fmt:*), Bash(git diff:*), Task
 ---
 
 # Investigate Test Failure
@@ -21,8 +21,16 @@ Investigate why a specific test is failing and determine if it can be fixed or n
    - Document the expected output
 
 3. **Determine fix feasibility**
-   - **Simple fix** (import issues, small logic bugs): Fix and commit
+   - **Simple fix** (import issues, small logic bugs): Fix code → Run `cargo fmt --all` → Pre-commit review → Commit
    - **Complex fix** (major unimplemented features): Collect issue info and report to user
+
+   **Pre-commit review process**:
+   - Run `git diff` to see the changes
+   - Use Task tool with `general-purpose` subagent to review:
+     - Compare implementation against cpython/ source code
+     - Verify the fix aligns with CPython behavior
+     - Check for any missed edge cases
+   - Proceed to commit only after review passes
 
 4. **For complex issues - Collect issue information**
    Following `.github/ISSUE_TEMPLATE/report-incompatibility.md` format:
