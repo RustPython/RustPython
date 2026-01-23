@@ -49,9 +49,18 @@ This helps improve the tooling for future upgrades.
    - When restoring, preserve the original context and formatting
 
 3. **Investigate test failures with subagent**
-   - First, run tests to collect the list of failures:
+   - First, get dependent tests using the deps command:
      ```
-     cargo run --release -- -m unittest test.$ARGUMENTS -v 2>&1 | grep -E "^(FAIL|ERROR):"
+     cargo run --release -- scripts/update_lib deps $ARGUMENTS
+     ```
+   - Look for the line `- [ ] $ARGUMENTS: test_xxx test_yyy ...` to get the direct dependent tests
+   - Run those tests to collect failures:
+     ```
+     cargo run --release -- -m test test_xxx test_yyy ... 2>&1 | grep -E "^(FAIL|ERROR):"
+     ```
+   - For example, if deps output shows `- [ ] linecache: test_bdb test_inspect test_linecache test_traceback test_zipimport`, run:
+     ```
+     cargo run --release -- -m test test_bdb test_inspect test_linecache test_traceback test_zipimport 2>&1 | grep -E "^(FAIL|ERROR):"
      ```
    - For each failure, use the Task tool with `general-purpose` subagent to investigate:
      - Subagent should follow the `/investigate-test-failure` skill workflow
