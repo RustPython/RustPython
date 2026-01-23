@@ -439,7 +439,7 @@ impl CodeInfo {
         for block in &mut self.blocks {
             let mut last_instr = None;
             for (i, ins) in block.instructions.iter().enumerate() {
-                if ins.instr.unconditional_branch() {
+                if ins.instr.is_scope_exit() || ins.instr.is_unconditional_jump() {
                     last_instr = Some(i);
                     break;
                 }
@@ -545,7 +545,7 @@ impl CodeInfo {
                     );
                 }
                 depth = new_depth;
-                if instr.unconditional_branch() {
+                if instr.is_scope_exit() || instr.is_unconditional_jump() {
                     continue 'process_blocks;
                 }
             }
