@@ -1013,6 +1013,20 @@ impl ExecutingFrame<'_> {
                         );
                     }
                     awaited_obj
+                } else if awaited_obj
+                    .downcast_ref::<PyGenerator>()
+                    .is_some_and(|generator| {
+                        generator
+                            .as_coro()
+                            .frame()
+                            .code
+                            .flags
+                            .contains(bytecode::CodeFlags::ITERABLE_COROUTINE)
+                    })
+                {
+                    // Generator with CO_ITERABLE_COROUTINE flag can be awaited
+                    // (e.g., generators decorated with @types.coroutine)
+                    awaited_obj
                 } else {
                     let await_method = vm.get_method_or_type_error(
                         awaited_obj.clone(),
@@ -1051,7 +1065,9 @@ impl ExecutingFrame<'_> {
                 let iterable = self.pop_value();
                 let iter = if iterable.class().is(vm.ctx.types.coroutine_type) {
                     // Coroutine requires CO_COROUTINE or CO_ITERABLE_COROUTINE flag
-                    if !self.code.flags.intersects(bytecode::CodeFlags::COROUTINE) {
+                    if !self.code.flags.intersects(
+                        bytecode::CodeFlags::COROUTINE | bytecode::CodeFlags::ITERABLE_COROUTINE,
+                    ) {
                         return Err(vm.new_type_error(
                             "cannot 'yield from' a coroutine object in a non-coroutine generator"
                                 .to_owned(),
