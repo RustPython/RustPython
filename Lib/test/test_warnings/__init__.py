@@ -565,7 +565,7 @@ class WarnTests(BaseTest):
                 self.assertEqual(os.path.basename(w[-1].filename),
                                     "<sys>")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_stacklevel_import(self):
         # Issue #24305: With stacklevel=2, module-level warnings should work.
         import_helper.unload('test.test_warnings.data.import_warning')
@@ -807,40 +807,40 @@ class CWarnTests(WarnTests, unittest.TestCase):
 
     # As an early adopter, we sanity check the
     # test.import_helper.import_fresh_module utility function
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_accelerated(self):
         self.assertIsNot(original_warnings, self.module)
         self.assertNotHasAttr(self.module.warn, '__code__')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gh86298_loader_and_spec_loader_disagree(self):
         return super().test_gh86298_loader_and_spec_loader_disagree()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gh86298_loader_is_none_and_spec_is_none(self):
         return super().test_gh86298_loader_is_none_and_spec_is_none()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gh86298_loader_is_none_and_spec_loader_is_none(self):
         return super().test_gh86298_loader_is_none_and_spec_loader_is_none()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gh86298_no_loader_and_no_spec_loader(self):
         return super().test_gh86298_no_loader_and_no_spec_loader()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gh86298_no_loader_and_spec_is_none(self):
         return super().test_gh86298_no_loader_and_spec_is_none()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gh86298_no_spec(self):
         return super().test_gh86298_no_spec()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gh86298_no_spec_loader(self):
         return super().test_gh86298_no_spec_loader()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gh86298_spec_is_none(self):
         return super().test_gh86298_spec_is_none()
 
@@ -919,7 +919,7 @@ class _WarningsTests(BaseTest, unittest.TestCase):
 
     module = c_warnings
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_filter(self):
         # Everything should function even if 'filters' is not in warnings.
         with self.module.catch_warnings() as w:
@@ -930,7 +930,7 @@ class _WarningsTests(BaseTest, unittest.TestCase):
             self.assertRaises(UserWarning, self.module.warn,
                                 'convert to error')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_onceregistry(self):
         # Replacing or removing the onceregistry should be okay.
         global __warningregistry__
@@ -960,7 +960,7 @@ class _WarningsTests(BaseTest, unittest.TestCase):
         finally:
             self.module.onceregistry = original_registry
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_default_action(self):
         # Replacing or removing defaultaction should be okay.
         message = UserWarning("defaultaction test")
@@ -1012,7 +1012,7 @@ class _WarningsTests(BaseTest, unittest.TestCase):
                 result = stream.getvalue()
         self.assertIn(text, result)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_showwarnmsg_missing(self):
         # Test that _showwarnmsg() missing is okay.
         text = 'del _showwarnmsg test'
@@ -1092,7 +1092,7 @@ class _WarningsTests(BaseTest, unittest.TestCase):
         self.assertNotIn(b'Warning!', stderr)
         self.assertNotIn(b'Error', stderr)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_issue31285(self):
         # warn_explicit() should neither raise a SystemError nor cause an
         # assertion failure, in case the return value of get_source() has a
@@ -1245,7 +1245,7 @@ class CWarningsDisplayTests(WarningsDisplayTests, unittest.TestCase):
 class PyWarningsDisplayTests(WarningsDisplayTests, unittest.TestCase):
     module = py_warnings
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tracemalloc(self):
         self.addCleanup(os_helper.unlink, os_helper.TESTFN)
 
@@ -1458,7 +1458,7 @@ class PyCatchWarningTests(CatchWarningTests, unittest.TestCase):
 
 class EnvironmentVariableTests(BaseTest):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_single_warning(self):
         rc, stdout, stderr = assert_python_ok("-c",
             "import sys; sys.stdout.write(str(sys.warnoptions))",
@@ -1466,7 +1466,7 @@ class EnvironmentVariableTests(BaseTest):
             PYTHONDEVMODE="")
         self.assertEqual(stdout, b"['ignore::DeprecationWarning']")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_comma_separated_warnings(self):
         rc, stdout, stderr = assert_python_ok("-c",
             "import sys; sys.stdout.write(str(sys.warnoptions))",
@@ -1475,7 +1475,7 @@ class EnvironmentVariableTests(BaseTest):
         self.assertEqual(stdout,
             b"['ignore::DeprecationWarning', 'ignore::UnicodeWarning']")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @force_not_colorized
     def test_envvar_and_command_line(self):
         rc, stdout, stderr = assert_python_ok("-Wignore::UnicodeWarning", "-c",
@@ -1485,7 +1485,7 @@ class EnvironmentVariableTests(BaseTest):
         self.assertEqual(stdout,
             b"['ignore::DeprecationWarning', 'ignore::UnicodeWarning']")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @force_not_colorized
     def test_conflicting_envvar_and_command_line(self):
         rc, stdout, stderr = assert_python_failure("-Werror::DeprecationWarning", "-c",
@@ -1535,7 +1535,7 @@ class EnvironmentVariableTests(BaseTest):
         self.assertEqual(stdout_lines, expected_output)
 
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.getfilesystemencoding() != 'ascii',
                          'requires non-ascii filesystemencoding')
     def test_nonascii(self):
@@ -1549,8 +1549,10 @@ class EnvironmentVariableTests(BaseTest):
 
 class CEnvironmentVariableTests(EnvironmentVariableTests, unittest.TestCase):
     module = c_warnings
-    @unittest.expectedFailure # TODO: RUSTPYTHON Lists differ
-    def test_default_filter_configuration(self): super().test_default_filter_configuration()  # TODO: RUSTPYTHON
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Lists differ
+    def test_default_filter_configuration(self):
+        return super().test_default_filter_configuration()
 
 class PyEnvironmentVariableTests(EnvironmentVariableTests, unittest.TestCase):
     module = py_warnings
@@ -1621,7 +1623,7 @@ class BootstrapTest(unittest.TestCase):
 
 
 class FinalizationTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_finalization(self):
         # Issue #19421: warnings.warn() should not crash
         # during Python finalization
@@ -1639,7 +1641,7 @@ a=A()
         self.assertEqual(err.decode().rstrip(),
                          '<string>:7: UserWarning: test')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_late_resource_warning(self):
         # Issue #21925: Emitting a ResourceWarning late during the Python
         # shutdown must be logged.
@@ -1849,7 +1851,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertEqual(len(overloads), 2)
         self.assertEqual(overloads[0].__deprecated__, "no more ints")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_class(self):
         @deprecated("A will go away soon")
         class A:
@@ -1861,7 +1863,7 @@ class DeprecatedTests(PyPublicAPITests):
             with self.assertRaises(TypeError):
                 A(42)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_class_with_init(self):
         @deprecated("HasInit will go away soon")
         class HasInit:
@@ -1872,7 +1874,7 @@ class DeprecatedTests(PyPublicAPITests):
             instance = HasInit(42)
         self.assertEqual(instance.x, 42)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_class_with_new(self):
         has_new_called = False
 
@@ -1891,7 +1893,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertEqual(instance.x, 42)
         self.assertTrue(has_new_called)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_class_with_inherited_new(self):
         new_base_called = False
 
@@ -1913,7 +1915,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertEqual(instance.x, 42)
         self.assertTrue(new_base_called)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_class_with_new_but_no_init(self):
         new_called = False
 
@@ -1931,7 +1933,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertEqual(instance.x, 42)
         self.assertTrue(new_called)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_mixin_class(self):
         @deprecated("Mixin will go away soon")
         class Mixin:
@@ -1948,7 +1950,7 @@ class DeprecatedTests(PyPublicAPITests):
         instance = Child(42)
         self.assertEqual(instance.a, 42)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_do_not_shadow_user_arguments(self):
         new_called = False
         new_called_cls = None
@@ -1968,7 +1970,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertTrue(new_called)
         self.assertEqual(new_called_cls, 'haha')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_existing_init_subclass(self):
         @deprecated("C will go away soon")
         class C:
@@ -1985,7 +1987,7 @@ class DeprecatedTests(PyPublicAPITests):
         self.assertTrue(D.inited)
         self.assertIsInstance(D(), D)  # no deprecation
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_existing_init_subclass_in_base(self):
         class Base:
             def __init_subclass__(cls, x) -> None:
@@ -2006,7 +2008,7 @@ class DeprecatedTests(PyPublicAPITests):
 
         self.assertEqual(D.inited, 3)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_existing_init_subclass_in_sibling_base(self):
         @deprecated("A will go away soon")
         class A:
@@ -2026,7 +2028,7 @@ class DeprecatedTests(PyPublicAPITests):
                 pass
         self.assertEqual(D.inited, 42)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_init_subclass_has_correct_cls(self):
         init_subclass_saw = None
 
@@ -2044,7 +2046,7 @@ class DeprecatedTests(PyPublicAPITests):
 
         self.assertIs(init_subclass_saw, C)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_init_subclass_with_explicit_classmethod(self):
         init_subclass_saw = None
 
@@ -2063,7 +2065,7 @@ class DeprecatedTests(PyPublicAPITests):
 
         self.assertIs(init_subclass_saw, C)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_function(self):
         @deprecated("b will go away soon")
         def b():
@@ -2072,7 +2074,7 @@ class DeprecatedTests(PyPublicAPITests):
         with self.assertWarnsRegex(DeprecationWarning, "b will go away soon"):
             b()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_method(self):
         class Capybara:
             @deprecated("x will go away soon")
@@ -2083,7 +2085,7 @@ class DeprecatedTests(PyPublicAPITests):
         with self.assertWarnsRegex(DeprecationWarning, "x will go away soon"):
             instance.x()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON DeprecationWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_property(self):
         class Capybara:
             @property
@@ -2111,7 +2113,7 @@ class DeprecatedTests(PyPublicAPITests):
         with self.assertWarnsRegex(DeprecationWarning, "no more setting"):
             instance.no_more_setting = 42
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON RuntimeWarning not triggered
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeWarning not triggered
     def test_category(self):
         @deprecated("c will go away soon", category=RuntimeWarning)
         def c():
