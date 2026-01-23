@@ -53,6 +53,7 @@ mod _ssl {
     // Import error types used in this module (others are exposed via pymodule(with(...)))
     use super::error::{
         PySSLError, create_ssl_eof_error, create_ssl_want_read_error, create_ssl_want_write_error,
+        create_ssl_zero_return_error,
     };
     use alloc::sync::Arc;
     use core::{
@@ -3593,7 +3594,7 @@ mod _ssl {
                         let mut conn_guard = self.connection.lock();
                         let conn = match conn_guard.as_mut() {
                             Some(conn) => conn,
-                            None => return return_data(vec![], &buffer, vm),
+                            None => return Err(create_ssl_zero_return_error(vm).upcast()),
                         };
                         use std::io::BufRead;
                         let mut reader = conn.reader();
@@ -3613,8 +3614,20 @@ mod _ssl {
                             return return_data(buf, &buffer, vm);
                         }
                     }
-                    // Clean closure with close_notify - return empty data
-                    return_data(vec![], &buffer, vm)
+                    // Clean closure with close_notify
+                    // CPython behavior depends on whether we've sent our close_notify:
+                    // - If we've already sent close_notify (unwrap was called): raise SSLZeroReturnError
+                    // - If we haven't sent close_notify yet: return empty bytes
+                    let our_shutdown_state = *self.shutdown_state.lock();
+                    if our_shutdown_state == ShutdownState::SentCloseNotify
+                        || our_shutdown_state == ShutdownState::Completed
+                    {
+                        // We already sent close_notify, now receiving peer's → SSLZeroReturnError
+                        Err(create_ssl_zero_return_error(vm).upcast())
+                    } else {
+                        // We haven't sent close_notify yet → return empty bytes
+                        return_data(vec![], &buffer, vm)
+                    }
                 }
                 Err(crate::ssl::compat::SslError::WantRead) => {
                     // Non-blocking mode: would block

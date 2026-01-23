@@ -168,11 +168,15 @@ mod _contextvars {
         }
 
         #[pymethod]
-        fn copy(&self) -> Self {
+        fn copy(&self, vm: &VirtualMachine) -> Self {
+            // Deep copy the vars - clone the underlying Hamt data, not just the PyRef
+            let vars_copy = HamtObject {
+                hamt: RefCell::new(self.inner.vars.hamt.borrow().clone()),
+            };
             Self {
                 inner: ContextInner {
                     idx: Cell::new(usize::MAX),
-                    vars: self.inner.vars.clone(),
+                    vars: vars_copy.into_ref(&vm.ctx),
                     entered: Cell::new(false),
                 },
             }
@@ -630,7 +634,7 @@ mod _contextvars {
 
     #[pyfunction]
     fn copy_context(vm: &VirtualMachine) -> PyContext {
-        PyContext::current(vm).copy()
+        PyContext::current(vm).copy(vm)
     }
 
     // Set Token.MISSING attribute

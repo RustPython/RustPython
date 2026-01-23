@@ -1552,6 +1552,11 @@ pub(super) fn ssl_read(
 
         // Try to read plaintext from rustls buffer
         if let Some(n) = try_read_plaintext(conn, buf)? {
+            if n == 0 {
+                // EOF from TLS - close_notify received
+                // Return ZeroReturn so Python raises SSLZeroReturnError
+                return Err(SslError::ZeroReturn);
+            }
             return Ok(n);
         }
 
@@ -1740,17 +1745,40 @@ pub(super) fn ssl_write(
     let already_buffered = *socket.write_buffered_len.lock();
 
     // Only write plaintext if not already buffered
+    // Track how much we wrote for partial write handling
+    let mut bytes_written_to_rustls = 0usize;
+
     if already_buffered == 0 {
         // Write plaintext to rustls (= SSL_write_ex internal buffer write)
-        {
+        bytes_written_to_rustls = {
             let mut writer = conn.writer();
             use std::io::Write;
-            writer
-                .write_all(data)
-                .map_err(|e| SslError::Syscall(format!("Write failed: {e}")))?;
-        }
-        // Mark data as buffered
-        *socket.write_buffered_len.lock() = data.len();
+            // Use write() instead of write_all() to support partial writes.
+            // In BIO mode (asyncio), when the internal buffer is full,
+            // we want to write as much as possible and return that count,
+            // rather than failing completely.
+            match writer.write(data) {
+                Ok(0) if !data.is_empty() => {
+                    // Buffer is full and nothing could be written.
+                    // In BIO mode, return WantWrite so the caller can
+                    // drain the outgoing BIO and retry.
+                    if is_bio {
+                        return Err(SslError::WantWrite);
+                    }
+                    return Err(SslError::Syscall("Write failed: buffer full".to_string()));
+                }
+                Ok(n) => n,
+                Err(e) => {
+                    if is_bio {
+                        // In BIO mode, treat write errors as WantWrite
+                        return Err(SslError::WantWrite);
+                    }
+                    return Err(SslError::Syscall(format!("Write failed: {e}")));
+                }
+            }
+        };
+        // Mark data as buffered (only the portion we actually wrote)
+        *socket.write_buffered_len.lock() = bytes_written_to_rustls;
     } else if already_buffered != data.len() {
         // Caller is retrying with different data - this is a protocol error
         // Clear the buffer state and return an SSL error (bad write retry)
@@ -1790,13 +1818,23 @@ pub(super) fn ssl_write(
             }
             Err(SslError::WantWrite) => {
                 // Non-blocking socket would block - return WANT_WRITE
+                // If we had a partial write to rustls, return partial success
+                // instead of error to match OpenSSL partial-write semantics
+                if bytes_written_to_rustls > 0 && bytes_written_to_rustls < data.len() {
+                    *socket.write_buffered_len.lock() = 0;
+                    return Ok(bytes_written_to_rustls);
+                }
                 // Keep write_buffered_len set so we don't re-buffer on retry
                 return Err(SslError::WantWrite);
             }
             Err(SslError::WantRead) => {
                 // Need to read before write can complete (e.g., renegotiation)
-                // This matches CPython's handling of SSL_ERROR_WANT_READ in write
                 if is_bio {
+                    // If we had a partial write to rustls, return partial success
+                    if bytes_written_to_rustls > 0 && bytes_written_to_rustls < data.len() {
+                        *socket.write_buffered_len.lock() = 0;
+                        return Ok(bytes_written_to_rustls);
+                    }
                     // Keep write_buffered_len set so we don't re-buffer on retry
                     return Err(SslError::WantRead);
                 }
@@ -1807,6 +1845,11 @@ pub(super) fn ssl_write(
                 // Continue loop
             }
             Err(e @ SslError::Timeout(_)) => {
+                // If we had a partial write to rustls, return partial success
+                if bytes_written_to_rustls > 0 && bytes_written_to_rustls < data.len() {
+                    *socket.write_buffered_len.lock() = 0;
+                    return Ok(bytes_written_to_rustls);
+                }
                 // Preserve buffered state so retry doesn't duplicate data
                 // (send_all_bytes saved unsent TLS bytes to pending_tls_output)
                 return Err(e);
@@ -1826,10 +1869,21 @@ pub(super) fn ssl_write(
             .map_err(SslError::Py)?;
     }
 
+    // Determine how many bytes we actually wrote
+    let actual_written = if bytes_written_to_rustls > 0 {
+        // Fresh write: return what we wrote to rustls
+        bytes_written_to_rustls
+    } else if already_buffered > 0 {
+        // Retry of previous write: return the full buffered amount
+        already_buffered
+    } else {
+        data.len()
+    };
+
     // Write completed successfully - clear buffer state
     *socket.write_buffered_len.lock() = 0;
 
-    Ok(data.len())
+    Ok(actual_written)
 }
 
 // Helper functions (private-ish, used by public SSL functions)

@@ -15,7 +15,10 @@ mod _socket {
         },
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
-        function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, OptionalArg, OptionalOption},
+        function::{
+            ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath, OptionalArg,
+            OptionalOption,
+        },
         types::{Constructor, DefaultConstructor, Initializer, Representable},
         utils::ToCString,
     };
@@ -2783,9 +2786,9 @@ mod _socket {
     #[derive(FromArgs)]
     struct GAIOptions {
         #[pyarg(positional)]
-        host: Option<PyStrRef>,
+        host: Option<ArgStrOrBytesLike>,
         #[pyarg(positional)]
-        port: Option<Either<PyStrRef, i32>>,
+        port: Option<Either<ArgStrOrBytesLike, i32>>,
 
         #[pyarg(positional, default = c::AF_UNSPEC)]
         family: i32,
@@ -2809,9 +2812,9 @@ mod _socket {
             flags: opts.flags,
         };
 
-        // Encode host using IDNA encoding
+        // Encode host: str uses IDNA encoding, bytes must be valid UTF-8
         let host_encoded: Option<String> = match opts.host.as_ref() {
-            Some(s) => {
+            Some(ArgStrOrBytesLike::Str(s)) => {
                 let encoded =
                     vm.state
                         .codec_registry
@@ -2820,19 +2823,43 @@ mod _socket {
                     .map_err(|_| vm.new_runtime_error("idna output is not utf8".to_owned()))?;
                 Some(host_str.to_owned())
             }
+            Some(ArgStrOrBytesLike::Buf(b)) => {
+                let bytes = b.borrow_buf();
+                let host_str = core::str::from_utf8(&bytes).map_err(|_| {
+                    vm.new_unicode_decode_error("host bytes is not utf8".to_owned())
+                })?;
+                Some(host_str.to_owned())
+            }
             None => None,
         };
         let host = host_encoded.as_deref();
 
-        // Encode port using UTF-8
-        let port: Option<alloc::borrow::Cow<'_, str>> = match opts.port.as_ref() {
-            Some(Either::A(s)) => Some(alloc::borrow::Cow::Borrowed(s.to_str().ok_or_else(
-                || vm.new_unicode_encode_error("surrogates not allowed".to_owned()),
-            )?)),
-            Some(Either::B(i)) => Some(alloc::borrow::Cow::Owned(i.to_string())),
+        // Encode port: str/bytes as service name, int as port number
+        let port_encoded: Option<String> = match opts.port.as_ref() {
+            Some(Either::A(sb)) => {
+                let port_str = match sb {
+                    ArgStrOrBytesLike::Str(s) => {
+                        // For str, check for surrogates and raise UnicodeEncodeError if found
+                        s.to_str()
+                            .ok_or_else(|| vm.new_unicode_encode_error("surrogates not allowed"))?
+                            .to_owned()
+                    }
+                    ArgStrOrBytesLike::Buf(b) => {
+                        // For bytes, check if it's valid UTF-8
+                        let bytes = b.borrow_buf();
+                        core::str::from_utf8(&bytes)
+                            .map_err(|_| {
+                                vm.new_unicode_decode_error("port is not utf8".to_owned())
+                            })?
+                            .to_owned()
+                    }
+                };
+                Some(port_str)
+            }
+            Some(Either::B(i)) => Some(i.to_string()),
             None => None,
         };
-        let port = port.as_ref().map(|p| p.as_ref());
+        let port = port_encoded.as_deref();
 
         let addrs = dns_lookup::getaddrinfo(host, port, Some(hints))
             .map_err(|err| convert_socket_error(vm, err, SocketError::GaiError))?;

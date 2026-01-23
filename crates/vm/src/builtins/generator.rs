@@ -66,8 +66,12 @@ impl PyGenerator {
     }
 
     #[pygetset]
-    fn gi_frame(&self, _vm: &VirtualMachine) -> FrameRef {
-        self.inner.frame()
+    fn gi_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
+        if self.inner.closed() {
+            None
+        } else {
+            Some(self.inner.frame())
+        }
     }
 
     #[pygetset]

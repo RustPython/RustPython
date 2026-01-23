@@ -2797,7 +2797,6 @@ class TestGetGeneratorState(unittest.TestCase):
             self.assertIn(name, repr(state))
             self.assertIn(name, str(state))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_getgeneratorlocals(self):
         def each(lst, a=None):
             b=(1, 2, 3)
@@ -2985,7 +2984,6 @@ class TestGetAsyncGenState(unittest.IsolatedAsyncioTestCase):
             self.assertIn(name, repr(state))
             self.assertIn(name, str(state))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     async def test_getasyncgenlocals(self):
         async def each(lst, a=None):
             b=(1, 2, 3)
