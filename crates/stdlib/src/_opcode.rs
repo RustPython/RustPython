@@ -92,7 +92,7 @@ mod _opcode {
                         | Instruction::StoreAttr { .. }
                         | Instruction::StoreGlobal(_)
                         | Instruction::StoreName(_)
-                ) | AnyInstruction::Pseudo(PseudoInstruction::LoadAttrMethod { .. }))
+                ))
             )
         }
 
@@ -148,8 +148,11 @@ mod _opcode {
         }
     }
 
+    // prepare specialization
     #[pyattr]
     const ENABLE_SPECIALIZATION: i8 = 1;
+    #[allow(dead_code)]
+    const ENABLE_SPECIALIZATION_FT: i8 = 1;
 
     #[derive(FromArgs)]
     struct StackEffectArgs {
@@ -303,6 +306,7 @@ mod _opcode {
             ("NB_INPLACE_SUBTRACT", "-="),
             ("NB_INPLACE_TRUE_DIVIDE", "/="),
             ("NB_INPLACE_XOR", "^="),
+            ("NB_SUBSCR", "[]"),
         ]
         .into_iter()
         .map(|(a, b)| {
@@ -314,8 +318,19 @@ mod _opcode {
     }
 
     #[pyfunction]
-    fn get_executor(_code: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        // TODO
+    fn get_special_method_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        ["__enter__", "__exit__", "__aenter__", "__aexit__"]
+            .into_iter()
+            .map(|x| vm.ctx.new_str(x).into())
+            .collect()
+    }
+
+    #[pyfunction]
+    fn get_executor(
+        _code: PyObjectRef,
+        _offset: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         Ok(vm.ctx.none())
     }
 

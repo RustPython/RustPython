@@ -7,8 +7,7 @@ use rustpython_compiler_core::{
     bytecode::{
         AnyInstruction, Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData,
         ExceptionTableEntry, InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg,
-        PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table, encode_load_attr_arg,
-        encode_load_super_attr_arg,
+        PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -207,61 +206,15 @@ impl CodeInfo {
             .filter(|b| b.next != BlockIdx::NULL || !b.instructions.is_empty())
         {
             for info in &mut block.instructions {
-                // Special case for:
-                // - `Instruction::LoadAttr`
-                // - `Instruction::LoadSuperAttr`
-
-                if let Some(instr) = info.instr.real() {
-                    match instr {
-                        // LOAD_ATTR → encode with method flag=0
-                        Instruction::LoadAttr { idx } => {
-                            let encoded = encode_load_attr_arg(idx.get(info.arg), false);
-                            info.arg = OpArg(encoded);
-                            info.instr = Instruction::LoadAttr { idx: Arg::marker() }.into();
-                        }
-                        // LOAD_SUPER_ATTR → encode with flags=0b10 (method=0, class=1)
-                        Instruction::LoadSuperAttr { arg: idx } => {
-                            let encoded =
-                                encode_load_super_attr_arg(idx.get(info.arg), false, true);
-                            info.arg = OpArg(encoded);
-                            info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() }.into();
-                        }
-                        _ => {}
-                    }
-
+                // Real instructions are already encoded by compile.rs
+                let Some(instr) = info.instr.pseudo() else {
                     continue;
-                }
-
-                let instr = info.instr.expect_pseudo();
+                };
 
                 match instr {
-                    // LOAD_ATTR_METHOD pseudo → LOAD_ATTR (with method flag=1)
-                    PseudoInstruction::LoadAttrMethod { idx } => {
-                        let encoded = encode_load_attr_arg(idx.get(info.arg), true);
-                        info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadAttr { idx: Arg::marker() }.into();
-                    }
                     // POP_BLOCK pseudo → NOP
                     PseudoInstruction::PopBlock => {
                         info.instr = Instruction::Nop.into();
-                    }
-                    // LOAD_SUPER_METHOD pseudo → LOAD_SUPER_ATTR (flags=0b11: method=1, class=1)
-                    PseudoInstruction::LoadSuperMethod { idx } => {
-                        let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, true);
-                        info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() }.into();
-                    }
-                    // LOAD_ZERO_SUPER_ATTR pseudo → LOAD_SUPER_ATTR (flags=0b00: method=0, class=0)
-                    PseudoInstruction::LoadZeroSuperAttr { idx } => {
-                        let encoded = encode_load_super_attr_arg(idx.get(info.arg), false, false);
-                        info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() }.into();
-                    }
-                    // LOAD_ZERO_SUPER_METHOD pseudo → LOAD_SUPER_ATTR (flags=0b01: method=1, class=0)
-                    PseudoInstruction::LoadZeroSuperMethod { idx } => {
-                        let encoded = encode_load_super_attr_arg(idx.get(info.arg), true, false);
-                        info.arg = OpArg(encoded);
-                        info.instr = Instruction::LoadSuperAttr { arg: Arg::marker() }.into();
                     }
                     // LOAD_CLOSURE pseudo → LOAD_FAST (with varnames offset)
                     PseudoInstruction::LoadClosure(idx) => {

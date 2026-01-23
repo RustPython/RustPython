@@ -31,6 +31,7 @@ use rustpython_compiler_core::{
         self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
         ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, IntrinsicFunction1,
         Invert, OpArg, OpArgType, PseudoInstruction, SpecialMethod, UnpackExArgs,
+        encode_load_attr_arg, encode_load_super_attr_arg,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -2108,7 +2109,7 @@ impl Compiler {
                     if let Some(alias) = &name.asname {
                         for part in name.name.split('.').skip(1) {
                             let idx = self.name(part);
-                            emit!(self, Instruction::LoadAttr { idx });
+                            self.emit_load_attr(idx);
                         }
                         self.store_name(alias.as_str())?
                     } else {
@@ -6280,7 +6281,7 @@ impl Compiler {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Copy { index: 1_u32 });
                 let idx = self.name(attr);
-                emit!(self, Instruction::LoadAttr { idx });
+                self.emit_load_attr(idx);
                 AugAssignKind::Attr { idx }
             }
             _ => {
@@ -6615,19 +6616,17 @@ impl Compiler {
                     let idx = self.name(attr.as_str());
                     match super_type {
                         SuperCallType::TwoArg { .. } => {
-                            // LoadSuperAttr (pseudo) - will be converted to real LoadSuperAttr
-                            // with flags=0b10 (has_class=true, load_method=false) in ir.rs
-                            emit!(self, Instruction::LoadSuperAttr { arg: idx });
+                            self.emit_load_super_attr(idx);
                         }
                         SuperCallType::ZeroArg => {
-                            emit!(self, PseudoInstruction::LoadZeroSuperAttr { idx });
+                            self.emit_load_zero_super_attr(idx);
                         }
                     }
                 } else {
                     // Normal attribute access
                     self.compile_expression(value)?;
                     let idx = self.name(attr.as_str());
-                    emit!(self, Instruction::LoadAttr { idx });
+                    self.emit_load_attr(idx);
                 }
             }
             ast::Expr::Compare(ast::ExprCompare {
@@ -7070,19 +7069,19 @@ impl Compiler {
                 let idx = self.name(attr.as_str());
                 match super_type {
                     SuperCallType::TwoArg { .. } => {
-                        emit!(self, PseudoInstruction::LoadSuperMethod { idx });
+                        self.emit_load_super_method(idx);
                     }
                     SuperCallType::ZeroArg => {
-                        emit!(self, PseudoInstruction::LoadZeroSuperMethod { idx });
+                        self.emit_load_zero_super_method(idx);
                     }
                 }
                 self.codegen_call_helper(0, args)?;
             } else {
-                // Normal method call: compile object, then LOAD_ATTR_METHOD
-                // LOAD_ATTR_METHOD pushes [method, self_or_null] on stack
+                // Normal method call: compile object, then LOAD_ATTR with method flag
+                // LOAD_ATTR(method=1) pushes [method, self_or_null] on stack
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                emit!(self, PseudoInstruction::LoadAttrMethod { idx });
+                self.emit_load_attr_method(idx);
                 self.codegen_call_helper(0, args)?;
             }
         } else {
@@ -7780,6 +7779,48 @@ impl Compiler {
     fn emit_return_const(&mut self, constant: ConstantData) {
         self.emit_load_const(constant);
         emit!(self, Instruction::ReturnValue)
+    }
+
+    /// Emit LOAD_ATTR for attribute access (method=false).
+    /// Encodes: (name_idx << 1) | 0
+    fn emit_load_attr(&mut self, name_idx: u32) {
+        let encoded = encode_load_attr_arg(name_idx, false);
+        self.emit_arg(encoded, |arg| Instruction::LoadAttr { idx: arg })
+    }
+
+    /// Emit LOAD_ATTR with method flag set (for method calls).
+    /// Encodes: (name_idx << 1) | 1
+    fn emit_load_attr_method(&mut self, name_idx: u32) {
+        let encoded = encode_load_attr_arg(name_idx, true);
+        self.emit_arg(encoded, |arg| Instruction::LoadAttr { idx: arg })
+    }
+
+    /// Emit LOAD_SUPER_ATTR for 2-arg super().attr access.
+    /// Encodes: (name_idx << 2) | 0b10 (method=0, class=1)
+    fn emit_load_super_attr(&mut self, name_idx: u32) {
+        let encoded = encode_load_super_attr_arg(name_idx, false, true);
+        self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
+    }
+
+    /// Emit LOAD_SUPER_ATTR for 2-arg super().method() call.
+    /// Encodes: (name_idx << 2) | 0b11 (method=1, class=1)
+    fn emit_load_super_method(&mut self, name_idx: u32) {
+        let encoded = encode_load_super_attr_arg(name_idx, true, true);
+        self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
+    }
+
+    /// Emit LOAD_SUPER_ATTR for 0-arg super().attr access.
+    /// Encodes: (name_idx << 2) | 0b00 (method=0, class=0)
+    fn emit_load_zero_super_attr(&mut self, name_idx: u32) {
+        let encoded = encode_load_super_attr_arg(name_idx, false, false);
+        self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
+    }
+
+    /// Emit LOAD_SUPER_ATTR for 0-arg super().method() call.
+    /// Encodes: (name_idx << 2) | 0b01 (method=1, class=0)
+    fn emit_load_zero_super_method(&mut self, name_idx: u32) {
+        let encoded = encode_load_super_attr_arg(name_idx, true, false);
+        self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
     }
 
     fn emit_return_value(&mut self) {
