@@ -34,8 +34,8 @@ mod _opcode {
     }
 
     impl Opcode {
-        // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/opcode_ids.h#L238
-        const HAVE_ARGUMENT: i32 = 44;
+        // https://github.com/python/cpython/blob/v3.14.2/Include/opcode_ids.h#L252
+        const HAVE_ARGUMENT: i32 = 43;
 
         pub fn try_from_pyint(raw: PyIntRef, vm: &VirtualMachine) -> PyResult<Self> {
             let instruction = raw

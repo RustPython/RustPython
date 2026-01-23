@@ -426,6 +426,8 @@ impl InstructionMetadata for Instruction {
             | Self::JumpForward { target: l }
             | Self::PopJumpIfTrue { target: l }
             | Self::PopJumpIfFalse { target: l }
+            | Self::PopJumpIfNone { target: l }
+            | Self::PopJumpIfNotNone { target: l }
             | Self::ForIter { target: l }
             | Self::Send { target: l } => Some(*l),
             _ => None,
