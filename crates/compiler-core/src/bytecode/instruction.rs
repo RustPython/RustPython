@@ -1179,18 +1179,12 @@ pub trait InstructionMetadata {
         level: usize,
     ) -> fmt::Result;
 
-    fn display<'a>(
-        &'a self,
+    fn display(
+        &self,
         arg: OpArg,
-        ctx: &'a impl InstrDisplayContext,
-    ) -> impl fmt::Display + 'a {
-        struct FmtFn<F>(F);
-        impl<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for FmtFn<F> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                (self.0)(f)
-            }
-        }
-        FmtFn(move |f: &mut fmt::Formatter<'_>| self.fmt_dis(arg, f, ctx, false, 0, 0))
+        ctx: &impl InstrDisplayContext,
+    ) -> impl fmt::Display {
+        fmt::from_fn(move |f| self.fmt_dis(arg, f, ctx, false, 0, 0))
     }
 }
 

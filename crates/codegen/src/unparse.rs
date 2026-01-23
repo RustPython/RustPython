@@ -549,9 +549,9 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         conversion: ast::ConversionFlag,
         spec: Option<&ast::InterpolatedStringFormatSpec>,
     ) -> fmt::Result {
-        let buffered = to_string_fmt(|f| {
-            Unparser::new(f, self.source).unparse_expr(val, precedence::TEST + 1)
-        });
+        let buffered =
+            fmt::from_fn(|f| Unparser::new(f, self.source).unparse_expr(val, precedence::TEST + 1))
+                .to_string();
         if let Some(ast::DebugText { leading, trailing }) = debug_text {
             self.p(leading)?;
             self.p(self.source.slice(val.range()))?;
@@ -612,14 +612,15 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
 
     fn unparse_fstring(&mut self, value: &ast::FStringValue) -> fmt::Result {
         self.p("f")?;
-        let body = to_string_fmt(|f| {
+        let body = fmt::from_fn(|f| {
             value.iter().try_for_each(|part| match part {
                 ast::FStringPart::Literal(lit) => f.write_str(lit),
                 ast::FStringPart::FString(ast::FString { elements, .. }) => {
                     Unparser::new(f, self.source).unparse_fstring_body(elements)
                 }
             })
-        });
+        })
+        .to_string();
         // .unparse_fstring_body(elements));
         UnicodeEscape::new_repr(body.as_str().as_ref())
             .str_repr()
@@ -642,15 +643,4 @@ impl fmt::Display for UnparseExpr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Unparser::new(f, self.source).unparse_expr(self.expr, precedence::TEST)
     }
-}
-
-fn to_string_fmt(f: impl FnOnce(&mut fmt::Formatter<'_>) -> fmt::Result) -> String {
-    use core::cell::Cell;
-    struct Fmt<F>(Cell<Option<F>>);
-    impl<F: FnOnce(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for Fmt<F> {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            self.0.take().unwrap()(f)
-        }
-    }
-    Fmt(Cell::new(Some(f))).to_string()
 }
