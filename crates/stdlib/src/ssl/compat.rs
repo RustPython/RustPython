@@ -1818,13 +1818,23 @@ pub(super) fn ssl_write(
             }
             Err(SslError::WantWrite) => {
                 // Non-blocking socket would block - return WANT_WRITE
+                // If we had a partial write to rustls, return partial success
+                // instead of error to match OpenSSL partial-write semantics
+                if bytes_written_to_rustls > 0 && bytes_written_to_rustls < data.len() {
+                    *socket.write_buffered_len.lock() = 0;
+                    return Ok(bytes_written_to_rustls);
+                }
                 // Keep write_buffered_len set so we don't re-buffer on retry
                 return Err(SslError::WantWrite);
             }
             Err(SslError::WantRead) => {
                 // Need to read before write can complete (e.g., renegotiation)
-                // This matches CPython's handling of SSL_ERROR_WANT_READ in write
                 if is_bio {
+                    // If we had a partial write to rustls, return partial success
+                    if bytes_written_to_rustls > 0 && bytes_written_to_rustls < data.len() {
+                        *socket.write_buffered_len.lock() = 0;
+                        return Ok(bytes_written_to_rustls);
+                    }
                     // Keep write_buffered_len set so we don't re-buffer on retry
                     return Err(SslError::WantRead);
                 }
@@ -1835,6 +1845,11 @@ pub(super) fn ssl_write(
                 // Continue loop
             }
             Err(e @ SslError::Timeout(_)) => {
+                // If we had a partial write to rustls, return partial success
+                if bytes_written_to_rustls > 0 && bytes_written_to_rustls < data.len() {
+                    *socket.write_buffered_len.lock() = 0;
+                    return Ok(bytes_written_to_rustls);
+                }
                 // Preserve buffered state so retry doesn't duplicate data
                 // (send_all_bytes saved unsent TLS bytes to pending_tls_output)
                 return Err(e);

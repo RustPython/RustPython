@@ -1528,19 +1528,19 @@ impl Compiler {
                     // Otherwise, if an exception occurs during the finally body, the stack
                     // will be unwound to the wrong depth and the return value will be lost.
                     if preserve_tos {
-                        // Find the outer handler, skipping ALL FinallyTry blocks.
-                        // During return unwinding, FinallyTry handlers (finally_except_block)
-                        // should NOT catch exceptions from the finally body - those exceptions
-                        // should propagate to the outer TryExcept handler instead.
-                        // FinallyTry's handler is only for the try body's exceptions.
+                        // Find the outer handler for exceptions during finally body execution.
+                        // CRITICAL: Only search fblocks with index < fblock_idx (= outer fblocks).
+                        // Inner FinallyTry blocks may have been restored after their unwind
+                        // processing, and we must NOT use their handlers - that would cause
+                        // the inner finally body to execute again on exception.
                         let (handler, stack_depth, preserve_lasti) = {
                             let code = self.code_stack.last().unwrap();
                             let mut found = None;
-                            for fblock in code.fblock.iter().rev() {
-                                // Skip FinallyTry blocks - their handlers are for exception path
-                                if matches!(fblock.fb_type, FBlockType::FinallyTry) {
-                                    continue;
-                                }
+                            // Only search fblocks at indices 0..fblock_idx (outer fblocks)
+                            // After removal, fblock_idx now points to where saved_fblock was,
+                            // so indices 0..fblock_idx are the outer fblocks
+                            for i in (0..fblock_idx).rev() {
+                                let fblock = &code.fblock[i];
                                 if let Some(handler) = fblock.fb_handler {
                                     found = Some((
                                         Some(handler),

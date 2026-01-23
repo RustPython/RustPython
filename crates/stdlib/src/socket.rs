@@ -2812,7 +2812,7 @@ mod _socket {
             flags: opts.flags,
         };
 
-        // Encode host: str uses IDNA encoding, bytes used as-is
+        // Encode host: str uses IDNA encoding, bytes must be valid UTF-8
         let host_encoded: Option<String> = match opts.host.as_ref() {
             Some(ArgStrOrBytesLike::Str(s)) => {
                 let encoded =
