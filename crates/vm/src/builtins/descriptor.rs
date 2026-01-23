@@ -168,7 +168,7 @@ impl Representable for PyMethodDescriptor {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum MemberKind {
     Bool = 14,
     ObjectEx = 16,
@@ -176,11 +176,13 @@ pub enum MemberKind {
 
 pub type MemberSetterFunc = Option<fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>>;
 
+#[derive(Clone, Copy)]
 pub enum MemberGetter {
     Getter(fn(&VirtualMachine, PyObjectRef) -> PyResult),
     Offset(usize),
 }
 
+#[derive(Clone, Copy)]
 pub enum MemberSetter {
     Setter(MemberSetterFunc),
     Offset(usize),

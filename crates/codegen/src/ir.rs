@@ -85,7 +85,7 @@ impl ops::IndexMut<BlockIdx> for Vec<Block> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Copy, Debug)]
 pub struct InstructionInfo {
     pub instr: AnyInstruction,
     pub arg: OpArg,
@@ -95,8 +95,8 @@ pub struct InstructionInfo {
     pub except_handler: Option<ExceptHandlerInfo>,
 }
 
-/// Exception handler information for an instruction
-#[derive(Debug, Clone)]
+/// Exception handler information for an instruction.
+#[derive(Clone, Copy, Debug)]
 pub struct ExceptHandlerInfo {
     /// Block to jump to when exception occurs
     pub handler_block: BlockIdx,

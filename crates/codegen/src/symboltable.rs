@@ -758,7 +758,7 @@ impl SymbolTableAnalyzer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Copy, Debug)]
 enum SymbolUsage {
     Global,
     Nonlocal,

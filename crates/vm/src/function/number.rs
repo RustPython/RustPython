@@ -14,7 +14,7 @@ use num_traits::PrimInt;
 /// method, this method will first be called to convert the object into a float.
 /// If `__complex__()` is not defined then it falls back to `__float__()`. If
 /// `__float__()` is not defined it falls back to `__index__()`.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(transparent)]
 pub struct ArgIntoComplex {
     value: Complex64,
@@ -52,7 +52,7 @@ impl TryFromObject for ArgIntoComplex {
 /// If the object is not a Python floating point object but has a `__float__()`
 /// method, this method will first be called to convert the object into a float.
 /// If `__float__()` is not defined then it falls back to `__index__()`.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(transparent)]
 pub struct ArgIntoFloat {
     value: f64,
@@ -95,7 +95,7 @@ impl TryFromObject for ArgIntoFloat {
 /// By default an object is considered true unless its class defines either a
 /// `__bool__()` method that returns False or a `__len__()` method that returns
 /// zero, when called with the object.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ArgIntoBool {
     value: bool,
 }

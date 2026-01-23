@@ -3,7 +3,7 @@ use core::fmt::Display;
 use rustpython_compiler_core::SourceLocation;
 use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum PatternUnreachableReason {
     NameCapture,
     Wildcard,

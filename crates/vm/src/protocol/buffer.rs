@@ -14,6 +14,7 @@ use alloc::borrow::Cow;
 use core::{fmt::Debug, ops::Range};
 use itertools::Itertools;
 
+#[derive(Clone, Copy)]
 pub struct BufferMethods {
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<'_, [u8]>,
     pub obj_bytes_mut: fn(&PyBuffer) -> BorrowedValueMut<'_, [u8]>,

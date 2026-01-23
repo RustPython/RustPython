@@ -32,7 +32,7 @@ mod oparg;
 
 /// Exception table entry for zero-cost exception handling
 /// Format: (start, size, target, depth<<1|lasti)
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExceptionTableEntry {
     /// Start instruction offset (inclusive)
     pub start: u32,
@@ -47,7 +47,7 @@ pub struct ExceptionTableEntry {
 }
 
 impl ExceptionTableEntry {
-    pub fn new(start: u32, end: u32, target: u32, depth: u16, push_lasti: bool) -> Self {
+    pub const fn new(start: u32, end: u32, target: u32, depth: u16, push_lasti: bool) -> Self {
         Self {
             start,
             end,

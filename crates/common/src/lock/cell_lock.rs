@@ -201,10 +201,14 @@ fn deadlock(lock_kind: &str, ty: &str) -> ! {
     panic!("deadlock: tried to {lock_kind}lock a Cell{ty} twice")
 }
 
+#[derive(Clone, Copy)]
 pub struct SingleThreadId(());
+
 unsafe impl GetThreadId for SingleThreadId {
     const INIT: Self = Self(());
+
     fn nonzero_thread_id(&self) -> NonZero<usize> {
-        NonZero::new(1).unwrap()
+        // Safety: This is constant.
+        unsafe { NonZero::new_unchecked(1) }
     }
 }

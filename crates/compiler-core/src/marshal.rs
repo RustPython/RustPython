@@ -6,7 +6,7 @@ use rustpython_wtf8::Wtf8;
 
 pub const FORMAT_VERSION: u32 = 5;
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum MarshalError {
     /// Unexpected End Of File
     Eof,
@@ -42,6 +42,7 @@ impl core::error::Error for MarshalError {}
 
 type Result<T, E = MarshalError> = core::result::Result<T, E>;
 
+#[derive(Clone, Copy)]
 #[repr(u8)]
 enum Type {
     // Null = b'0',

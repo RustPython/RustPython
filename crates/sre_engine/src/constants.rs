@@ -14,9 +14,10 @@
 use bitflags::bitflags;
 
 pub const SRE_MAGIC: usize = 20230612;
-#[derive(num_enum::TryFromPrimitive, Debug, PartialEq, Eq)]
-#[repr(u32)]
+
 #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+#[derive(num_enum::TryFromPrimitive, Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
 pub enum SreOpcode {
     FAILURE = 0,
     SUCCESS = 1,
@@ -63,9 +64,9 @@ pub enum SreOpcode {
     RANGE_UNI_IGNORE = 42,
 }
 
-#[derive(num_enum::TryFromPrimitive, Debug, PartialEq, Eq)]
-#[repr(u32)]
 #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+#[derive(num_enum::TryFromPrimitive, Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
 pub enum SreAtCode {
     BEGINNING = 0,
     BEGINNING_LINE = 1,
@@ -81,9 +82,9 @@ pub enum SreAtCode {
     UNI_NON_BOUNDARY = 11,
 }
 
-#[derive(num_enum::TryFromPrimitive, Debug)]
-#[repr(u32)]
 #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+#[derive(num_enum::TryFromPrimitive, Clone, Copy, Debug)]
+#[repr(u32)]
 pub enum SreCatCode {
     DIGIT = 0,
     NOT_DIGIT = 1,
@@ -120,6 +121,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Clone, Copy)]
     pub struct SreInfo: u32 {
         const PREFIX = 1;
         const LITERAL = 2;
