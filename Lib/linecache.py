@@ -63,6 +63,16 @@ def _getlines_from_code(code):
     return []
 
 
+def _source_unavailable(filename):
+    """Return True if the source code is unavailable for such file name."""
+    return (
+        not filename
+        or (filename.startswith('<')
+            and filename.endswith('>')
+            and not filename.startswith('<frozen '))
+    )
+
+
 def checkcache(filename=None):
     """Discard cache entries that are out of date.
     (This is not checked upon each call!)"""
@@ -118,10 +128,20 @@ def updatecache(filename, module_globals=None):
     if filename in cache:
         if len(cache[filename]) != 1:
             cache.pop(filename, None)
-    if not filename or (filename.startswith('<') and filename.endswith('>')):
+    if _source_unavailable(filename):
         return []
 
-    fullname = filename
+    if filename.startswith('<frozen '):
+        # This is a frozen module, so we need to use the filename
+        # from the module globals.
+        if module_globals is None:
+            return []
+
+        fullname = module_globals.get('__file__')
+        if fullname is None:
+            return []
+    else:
+        fullname = filename
     try:
         stat = os.stat(fullname)
     except OSError:
