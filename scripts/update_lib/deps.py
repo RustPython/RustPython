@@ -101,6 +101,32 @@ DEPENDENCIES = {
     },
 }
 
+def resolve_hard_dep_parent(name: str) -> str | None:
+    """Resolve a hard_dep name to its parent module.
+
+    If 'name' is listed as a hard_dep of another module, return that module's name.
+    E.g., 'pydoc_data' -> 'pydoc', '_pydatetime' -> 'datetime'
+
+    Args:
+        name: Module or file name (with or without .py extension)
+
+    Returns:
+        Parent module name if found, None otherwise
+    """
+    # Normalize: remove .py extension if present
+    if name.endswith(".py"):
+        name = name[:-3]
+
+    for module_name, dep_info in DEPENDENCIES.items():
+        hard_deps = dep_info.get("hard_deps", [])
+        for dep in hard_deps:
+            # Normalize dep: remove .py extension
+            dep_normalized = dep[:-3] if dep.endswith(".py") else dep
+            if dep_normalized == name:
+                return module_name
+    return None
+
+
 # Test-specific dependencies (only when auto-detection isn't enough)
 # - hard_deps: files to migrate (tightly coupled, must be migrated together)
 # - data: directories to copy without migration
@@ -254,10 +280,11 @@ def _extract_top_level_code(content: str) -> str:
 
 _FROM_TEST_IMPORT_RE = re.compile(r"^from test import (.+)", re.MULTILINE)
 _FROM_TEST_DOT_RE = re.compile(r"^from test\.(\w+)", re.MULTILINE)
+_IMPORT_TEST_DOT_RE = re.compile(r"^import test\.(\w+)", re.MULTILINE)
 
 
 def parse_test_imports(content: str) -> set[str]:
-    """Parse test file content and extract 'from test import ...' dependencies.
+    """Parse test file content and extract test package dependencies.
 
     Uses regex for speed - only matches top-level imports.
 
@@ -281,6 +308,12 @@ def parse_test_imports(content: str) -> set[str]:
 
     # Match "from test.foo import ..." -> depends on foo
     for match in _FROM_TEST_DOT_RE.finditer(content):
+        dep = match.group(1)
+        if dep not in ("support", "__init__"):
+            imports.add(dep)
+
+    # Match "import test.foo" -> depends on foo
+    for match in _IMPORT_TEST_DOT_RE.finditer(content):
         dep = match.group(1)
         if dep not in ("support", "__init__"):
             imports.add(dep)

@@ -163,6 +163,7 @@ def format_deps(
         find_dependent_tests_tree,
         get_lib_paths,
         get_test_paths,
+        resolve_hard_dep_parent,
     )
 
     if _visited is None:
@@ -170,17 +171,34 @@ def format_deps(
 
     lines = []
 
+    # Resolve test_ prefix to module (e.g., test_pydoc -> pydoc)
+    if name.startswith("test_"):
+        module_name = name[5:]  # strip "test_"
+        lines.append(f"(redirecting {name} -> {module_name})")
+        name = module_name
+
+    # Resolve hard_dep to parent module (e.g., pydoc_data -> pydoc)
+    parent = resolve_hard_dep_parent(name)
+    if parent:
+        lines.append(f"(redirecting {name} -> {parent})")
+        name = parent
+
     # lib paths (only show existing)
     lib_paths = get_lib_paths(name, cpython_prefix)
-    for p in lib_paths:
-        if p.exists():
-            lines.append(f"[+] lib: {p}")
+    existing_lib_paths = [p for p in lib_paths if p.exists()]
+    for p in existing_lib_paths:
+        lines.append(f"[+] lib: {p}")
 
     # test paths (only show existing)
     test_paths = get_test_paths(name, cpython_prefix)
-    for p in test_paths:
-        if p.exists():
-            lines.append(f"[+] test: {p}")
+    existing_test_paths = [p for p in test_paths if p.exists()]
+    for p in existing_test_paths:
+        lines.append(f"[+] test: {p}")
+
+    # If no lib or test paths exist, module doesn't exist
+    if not existing_lib_paths and not existing_test_paths:
+        lines.append(f"(module '{name}' not found)")
+        return lines
 
     # hard_deps (from DEPENDENCIES table)
     dep_info = DEPENDENCIES.get(name, {})
@@ -258,6 +276,56 @@ def _format_dependent_tests_tree(
     return lines
 
 
+def _resolve_module_name(
+    name: str,
+    cpython_prefix: str,
+    lib_prefix: str,
+) -> list[str]:
+    """Resolve module name through redirects.
+
+    Returns a list of module names (usually 1, but test support files may expand to multiple).
+    """
+    import pathlib
+
+    from update_lib.deps import (
+        _build_test_import_graph,
+        get_lib_paths,
+        get_test_paths,
+        resolve_hard_dep_parent,
+    )
+
+    # Resolve test_ prefix
+    if name.startswith("test_"):
+        name = name[5:]
+
+    # Resolve hard_dep to parent
+    parent = resolve_hard_dep_parent(name)
+    if parent:
+        return [parent]
+
+    # Check if it's a valid module
+    lib_paths = get_lib_paths(name, cpython_prefix)
+    test_paths = get_test_paths(name, cpython_prefix)
+    if any(p.exists() for p in lib_paths) or any(p.exists() for p in test_paths):
+        return [name]
+
+    # Check for test support files (e.g., string_tests -> bytes, str, userstring)
+    test_support_path = pathlib.Path(cpython_prefix) / "Lib" / "test" / f"{name}.py"
+    if test_support_path.exists():
+        test_dir = pathlib.Path(lib_prefix) / "test"
+        if test_dir.exists():
+            import_graph, _ = _build_test_import_graph(test_dir)
+            importing_tests = []
+            for file_key, imports in import_graph.items():
+                if name in imports and file_key.startswith("test_"):
+                    importing_tests.append(file_key)
+            if importing_tests:
+                # Resolve test names to module names (test_bytes -> bytes)
+                return sorted(set(t[5:] for t in importing_tests))
+
+    return [name]
+
+
 def show_deps(
     names: list[str],
     cpython_prefix: str = "cpython",
@@ -273,10 +341,19 @@ def show_deps(
         else:
             expanded_names.append(name)
 
+    # Resolve and deduplicate names (preserving order)
+    seen: set[str] = set()
+    resolved_names: list[str] = []
+    for name in expanded_names:
+        for resolved in _resolve_module_name(name, cpython_prefix, lib_prefix):
+            if resolved not in seen:
+                seen.add(resolved)
+                resolved_names.append(resolved)
+
     # Shared visited set across all modules
     visited: set[str] = set()
 
-    for i, name in enumerate(expanded_names):
+    for i, name in enumerate(resolved_names):
         if i > 0:
             print()  # blank line between modules
         for line in format_deps(name, cpython_prefix, lib_prefix, max_depth, visited):
