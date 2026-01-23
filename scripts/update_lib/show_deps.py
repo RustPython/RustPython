@@ -188,7 +188,7 @@ def format_deps(
     if hard_deps:
         lines.append(f"packages: {hard_deps}")
 
-    lines.append("dependencies:")
+    lines.append("\ndependencies:")
     lines.extend(
         format_deps_tree(
             cpython_prefix, lib_prefix, max_depth, soft_deps={name}, _visited=_visited
@@ -227,9 +227,9 @@ def _format_dependent_tests_tree(
 
         total = count_tests(tree)
         if total == 0 and not children:
-            lines.append(f"dependent tests: (no tests depend on {module})")
+            lines.append(f"\ndependent tests: (no tests depend on {module})")
             return lines
-        lines.append(f"dependent tests: ({total} tests)")
+        lines.append(f"\ndependent tests: ({total} tests)")
 
     # Check if module is up-to-date
     synced = is_up_to_date(module.split(".")[0], cpython_prefix, lib_prefix)
