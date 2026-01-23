@@ -1179,11 +1179,7 @@ pub trait InstructionMetadata {
         level: usize,
     ) -> fmt::Result;
 
-    fn display(
-        &self,
-        arg: OpArg,
-        ctx: &impl InstrDisplayContext,
-    ) -> impl fmt::Display {
+    fn display(&self, arg: OpArg, ctx: &impl InstrDisplayContext) -> impl fmt::Display {
         fmt::from_fn(move |f| self.fmt_dis(arg, f, ctx, false, 0, 0))
     }
 }
