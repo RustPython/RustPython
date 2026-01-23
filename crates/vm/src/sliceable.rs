@@ -252,6 +252,7 @@ impl<T: Clone> SliceableSequenceOp for [T] {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum SequenceIndex {
     Int(isize),
     Slice(SaturatedSlice),
@@ -403,6 +404,7 @@ impl SaturatedSlice {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct SaturatedSliceIter {
     index: isize,
     step: isize,

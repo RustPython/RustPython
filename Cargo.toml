@@ -222,6 +222,7 @@ wasm-bindgen = "0.2.106"
 unsafe_code = "allow"
 unsafe_op_in_unsafe_fn = "deny"
 elided_lifetimes_in_paths = "warn"
+missing_copy_implementations = "warn"
 
 [workspace.lints.clippy]
 # alloc_instead_of_core = "warn"

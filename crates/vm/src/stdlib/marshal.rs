@@ -25,6 +25,7 @@ mod decl {
     #[pyattr(name = "version")]
     use marshal::FORMAT_VERSION;
 
+    #[derive(Clone, Copy)]
     pub struct DumpError;
 
     impl marshal::Dumpable for PyObjectRef {

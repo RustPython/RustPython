@@ -102,6 +102,7 @@ pub(crate) fn weak_vm(vm: &VirtualMachine) -> Weak<StoredVirtualMachine> {
     STORED_VMS.with_borrow(|vms| Rc::downgrade(vms.get(id).expect("VirtualMachine is not valid")))
 }
 
+#[derive(Clone, Copy)]
 #[wasm_bindgen(js_name = vmStore)]
 pub struct VMStore;
 

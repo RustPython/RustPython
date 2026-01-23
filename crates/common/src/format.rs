@@ -110,7 +110,7 @@ impl FormatParse for FormatSign {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FormatGrouping {
     Comma,
     Underscore,
@@ -136,7 +136,7 @@ impl From<&FormatGrouping> for char {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FormatType {
     String,
     Binary,
@@ -199,7 +199,7 @@ impl FormatParse for FormatType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FormatSpec {
     conversion: Option<FormatConversion>,
     fill: Option<CodePoint>,
@@ -845,7 +845,7 @@ impl Deref for AsciiStr<'_> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FormatSpecError {
     DecimalDigitsTooMany,
     PrecisionTooBig,
@@ -862,7 +862,7 @@ pub enum FormatSpecError {
     NotImplemented(char, &'static str),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FormatParseError {
     UnmatchedBracket,
     MissingStartBracket,

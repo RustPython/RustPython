@@ -70,7 +70,7 @@ impl PySequenceSlots {
 }
 
 #[allow(clippy::type_complexity)]
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct PySequenceMethods {
     pub length: Option<fn(PySequence<'_>, &VirtualMachine) -> PyResult<usize>>,
     pub concat: Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult>,

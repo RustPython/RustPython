@@ -14,7 +14,7 @@ use rustpython_literal::{float, format::Case};
 
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CFormatErrorType {
     UnmatchedKeyParentheses,
     MissingModuloSign,
@@ -27,7 +27,7 @@ pub enum CFormatErrorType {
 // also contains how many chars the parsing function consumed
 pub type ParsingError = (CFormatErrorType, usize);
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CFormatError {
     pub typ: CFormatErrorType, // FIXME
     pub index: usize,

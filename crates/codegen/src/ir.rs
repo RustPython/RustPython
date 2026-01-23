@@ -85,7 +85,7 @@ impl ops::IndexMut<BlockIdx> for Vec<Block> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Copy, Debug)]
 pub struct InstructionInfo {
     pub instr: AnyInstruction,
     pub arg: OpArg,
@@ -95,8 +95,8 @@ pub struct InstructionInfo {
     pub except_handler: Option<ExceptHandlerInfo>,
 }
 
-/// Exception handler information for an instruction
-#[derive(Debug, Clone)]
+/// Exception handler information for an instruction.
+#[derive(Clone, Copy, Debug)]
 pub struct ExceptHandlerInfo {
     /// Block to jump to when exception occurs
     pub handler_block: BlockIdx,
@@ -742,13 +742,13 @@ fn generate_exception_table(blocks: &[Block], block_to_index: &[u32]) -> Box<[u8
             // instr_size includes EXTENDED_ARG instructions
             let instr_size = instr.arg.instr_size() as u32;
 
-            match (&current_entry, &instr.except_handler) {
+            match (&current_entry, instr.except_handler) {
                 // No current entry, no handler - nothing to do
                 (None, None) => {}
 
                 // No current entry, handler starts - begin new entry
                 (None, Some(handler)) => {
-                    current_entry = Some((handler.clone(), instr_index));
+                    current_entry = Some((handler, instr_index));
                 }
 
                 // Current entry exists, same handler - continue
@@ -767,7 +767,7 @@ fn generate_exception_table(blocks: &[Block], block_to_index: &[u32]) -> Box<[u8
                         curr_handler.stack_depth as u16,
                         curr_handler.preserve_lasti,
                     ));
-                    current_entry = Some((handler.clone(), instr_index));
+                    current_entry = Some((handler, instr_index));
                 }
 
                 // Current entry exists, no handler - finish current entry

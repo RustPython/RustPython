@@ -49,7 +49,7 @@ pub(crate) mod decl {
     }
 
     #[pyclass(no_attr, name = "NoDefaultType", module = "typing")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Clone, Copy, Debug, PyPayload)]
     pub struct NoDefault;
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]

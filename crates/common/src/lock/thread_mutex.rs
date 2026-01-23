@@ -121,19 +121,23 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
         }
     }
 }
-// Whether ThreadMutex::try_lock failed because the mutex was already locked on another thread or
-// on the current thread
+
+#[derive(Clone, Copy)]
 pub enum TryLockThreadError {
+    /// Failed to lock because mutex was already locked on another thread.
     Other,
+    /// Failed to lock because mutex was already locked on current thread.
     Current,
 }
 
 struct LockedPlaceholder(&'static str);
+
 impl fmt::Debug for LockedPlaceholder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
     }
 }
+
 impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug for ThreadMutex<R, G, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.try_lock() {

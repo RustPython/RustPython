@@ -449,6 +449,7 @@ pub fn to_ascii(value: &str) -> AsciiString {
     unsafe { AsciiString::from_ascii_unchecked(ascii) }
 }
 
+#[derive(Clone, Copy)]
 pub struct UnicodeEscapeCodepoint(pub CodePoint);
 
 impl fmt::Display for UnicodeEscapeCodepoint {

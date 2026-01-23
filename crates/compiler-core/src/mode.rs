@@ -22,7 +22,7 @@ impl core::str::FromStr for Mode {
 }
 
 /// Returned when a given mode is not valid.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct ModeParseError;
 
 impl core::fmt::Display for ModeParseError {

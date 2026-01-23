@@ -113,13 +113,14 @@ struct Compiler {
     in_annotation: bool,
 }
 
+#[derive(Clone, Copy)]
 enum DoneWithFuture {
     No,
     DoneWithDoc,
     Yes,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Copy, Debug)]
 pub struct CompileOpts {
     /// How optimized the bytecode output should be; any optimize > 0 does
     /// not emit assert statements
