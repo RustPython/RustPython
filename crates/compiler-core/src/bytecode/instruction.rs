@@ -432,15 +432,19 @@ impl InstructionMetadata for Instruction {
         }
     }
 
-    fn unconditional_branch(&self) -> bool {
+    fn is_unconditional_jump(&self) -> bool {
         matches!(
             self,
             Self::JumpForward { .. }
                 | Self::JumpBackward { .. }
                 | Self::JumpBackwardNoInterrupt { .. }
-                | Self::ReturnValue
-                | Self::RaiseVarargs { .. }
-                | Self::Reraise { .. }
+        )
+    }
+
+    fn is_scope_exit(&self) -> bool {
+        matches!(
+            self,
+            Self::ReturnValue | Self::RaiseVarargs { .. } | Self::Reraise { .. }
         )
     }
 
@@ -997,7 +1001,11 @@ impl InstructionMetadata for PseudoInstruction {
         }
     }
 
-    fn unconditional_branch(&self) -> bool {
+    fn is_scope_exit(&self) -> bool {
+        false
+    }
+
+    fn is_unconditional_jump(&self) -> bool {
         matches!(self, Self::Jump { .. } | Self::JumpNoInterrupt { .. })
     }
 
@@ -1085,7 +1093,9 @@ macro_rules! inst_either {
 impl InstructionMetadata for AnyInstruction {
     inst_either!(fn label_arg(&self) -> Option<Arg<Label>>);
 
-    inst_either!(fn unconditional_branch(&self) -> bool);
+    inst_either!(fn is_unconditional_jump(&self) -> bool);
+
+    inst_either!(fn is_scope_exit(&self) -> bool);
 
     inst_either!(fn stack_effect(&self, arg: OpArg) -> i32);
 
@@ -1142,16 +1152,9 @@ pub trait InstructionMetadata {
     /// Gets the label stored inside this instruction, if it exists.
     fn label_arg(&self) -> Option<Arg<Label>>;
 
-    /// Whether this is an unconditional branching.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, InstructionMetadata};
-    /// let jump_inst = Instruction::JumpForward { target: Arg::marker() };
-    /// assert!(jump_inst.unconditional_branch())
-    /// ```
-    fn unconditional_branch(&self) -> bool;
+    fn is_scope_exit(&self) -> bool;
+
+    fn is_unconditional_jump(&self) -> bool;
 
     /// What effect this instruction has on the stack
     ///
