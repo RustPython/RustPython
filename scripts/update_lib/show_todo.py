@@ -147,7 +147,9 @@ def _count_rustpython_todo(content: str) -> int:
     return sum(1 for line in content.splitlines() if "TODO: RUSTPYTHON" in line)
 
 
-def _compare_file_ignoring_todo(cpython_path: pathlib.Path, local_path: pathlib.Path) -> bool:
+def _compare_file_ignoring_todo(
+    cpython_path: pathlib.Path, local_path: pathlib.Path
+) -> bool:
     """Compare two files, ignoring TODO: RUSTPYTHON lines in local file."""
     try:
         cpython_content = cpython_path.read_text(encoding="utf-8")
@@ -159,7 +161,9 @@ def _compare_file_ignoring_todo(cpython_path: pathlib.Path, local_path: pathlib.
     return cpython_content == local_filtered
 
 
-def _compare_dir_ignoring_todo(cpython_path: pathlib.Path, local_path: pathlib.Path) -> bool:
+def _compare_dir_ignoring_todo(
+    cpython_path: pathlib.Path, local_path: pathlib.Path
+) -> bool:
     """Compare two directories, ignoring TODO: RUSTPYTHON lines in local files."""
     # Get all .py files in both directories
     cpython_files = {f.relative_to(cpython_path) for f in cpython_path.rglob("*.py")}
@@ -171,15 +175,15 @@ def _compare_dir_ignoring_todo(cpython_path: pathlib.Path, local_path: pathlib.P
 
     # Compare each file
     for rel_path in cpython_files:
-        if not _compare_file_ignoring_todo(cpython_path / rel_path, local_path / rel_path):
+        if not _compare_file_ignoring_todo(
+            cpython_path / rel_path, local_path / rel_path
+        ):
             return False
 
     return True
 
 
-def count_test_todos(
-    test_name: str, lib_prefix: str = "Lib"
-) -> int:
+def count_test_todos(test_name: str, lib_prefix: str = "Lib") -> int:
     """Count TODO: RUSTPYTHON lines in a test file/directory."""
     local_dir = pathlib.Path(lib_prefix) / "test" / test_name
     local_file = pathlib.Path(lib_prefix) / "test" / f"{test_name}.py"
@@ -366,7 +370,9 @@ def format_todo_list(
             test_done_mark = "[x]" if test_info["up_to_date"] else "[ ]"
             todo_count = test_info.get("todo_count", 0)
             if todo_count > 0:
-                lines.append(f"  - {test_done_mark} {test_info['name']} ({todo_count} TODO)")
+                lines.append(
+                    f"  - {test_done_mark} {test_info['name']} ({todo_count} TODO)"
+                )
             else:
                 lines.append(f"  - {test_done_mark} {test_info['name']}")
 
@@ -408,7 +414,9 @@ def format_all_todo(
         lib_status[name] = is_up_to_date(name, cpython_prefix, lib_prefix)
 
     # Compute test todo
-    test_todo = compute_test_todo_list(cpython_prefix, lib_prefix, include_done, lib_status)
+    test_todo = compute_test_todo_list(
+        cpython_prefix, lib_prefix, include_done, lib_status
+    )
 
     # Build test_by_lib map (only for tests with corresponding lib)
     test_by_lib = {}
@@ -439,7 +447,9 @@ def show_todo(
     verbose: bool = False,
 ) -> None:
     """Show prioritized list of modules and tests to update."""
-    for line in format_all_todo(cpython_prefix, lib_prefix, limit, include_done, verbose):
+    for line in format_all_todo(
+        cpython_prefix, lib_prefix, limit, include_done, verbose
+    ):
         print(line)
 
 
