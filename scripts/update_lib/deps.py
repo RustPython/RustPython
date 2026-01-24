@@ -101,6 +101,7 @@ DEPENDENCIES = {
     },
 }
 
+
 def resolve_hard_dep_parent(name: str) -> str | None:
     """Resolve a hard_dep name to its parent module.
 
