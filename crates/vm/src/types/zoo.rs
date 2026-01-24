@@ -108,12 +108,20 @@ impl TypeZoo {
     #[cold]
     pub(crate) fn init() -> Self {
         let (type_type, object_type, weakref_type) = crate::object::init_type_hierarchy();
+        // the order matters for type, object, weakref, and int - must be initialized first
+        let type_type = type_::PyType::init_manually(type_type);
+        let object_type = object::PyBaseObject::init_manually(object_type);
+        let weakref_type = weakref::PyWeak::init_manually(weakref_type);
+        let int_type = int::PyInt::init_builtin_type();
+
+        // builtin_function_or_method and builtin_method share the same type (CPython behavior)
+        let builtin_function_or_method_type = builtin_func::PyNativeFunction::init_builtin_type();
+
         Self {
-            // the order matters for type, object, weakref, and int
-            type_type: type_::PyType::init_manually(type_type),
-            object_type: object::PyBaseObject::init_manually(object_type),
-            weakref_type: weakref::PyWeak::init_manually(weakref_type),
-            int_type: int::PyInt::init_builtin_type(),
+            type_type,
+            object_type,
+            weakref_type,
+            int_type,
 
             // types exposed as builtins
             bool_type: bool_::PyBool::init_builtin_type(),
@@ -147,8 +155,8 @@ impl TypeZoo {
                 asyncgenerator::PyAsyncGenWrappedValue::init_builtin_type(),
             anext_awaitable: asyncgenerator::PyAnextAwaitable::init_builtin_type(),
             bound_method_type: function::PyBoundMethod::init_builtin_type(),
-            builtin_function_or_method_type: builtin_func::PyNativeFunction::init_builtin_type(),
-            builtin_method_type: builtin_func::PyNativeMethod::init_builtin_type(),
+            builtin_function_or_method_type,
+            builtin_method_type: builtin_function_or_method_type,
             bytearray_iterator_type: bytearray::PyByteArrayIterator::init_builtin_type(),
             bytes_iterator_type: bytes::PyBytesIterator::init_builtin_type(),
             callable_iterator: iter::PyCallableIterator::init_builtin_type(),

@@ -2,7 +2,7 @@
 //!
 //! This module exposes built-in types that are used by the `types` module.
 
-pub(crate) use _types::make_module;
+pub(crate) use _types::module_def;
 
 #[pymodule]
 #[allow(non_snake_case)]
@@ -96,6 +96,12 @@ mod _types {
 
     #[pyattr]
     fn MethodDescriptorType(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.types.method_descriptor_type.to_owned().into()
+    }
+
+    #[pyattr]
+    fn ClassMethodDescriptorType(vm: &VirtualMachine) -> PyObjectRef {
+        // TODO: implement as separate type
         vm.ctx.types.method_descriptor_type.to_owned().into()
     }
 
