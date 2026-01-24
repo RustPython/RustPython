@@ -15,8 +15,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 
 def compute_todo_list(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     include_done: bool = False,
 ) -> list[dict]:
     """Compute prioritized list of modules to update.
@@ -32,7 +32,12 @@ def compute_todo_list(
     Returns:
         List of dicts with module info, sorted by priority
     """
-    from update_lib.deps import get_rust_deps, get_soft_deps, is_up_to_date
+    from update_lib.deps import (
+        get_all_hard_deps,
+        get_rust_deps,
+        get_soft_deps,
+        is_up_to_date,
+    )
     from update_lib.show_deps import get_all_modules
 
     all_modules = get_all_modules(cpython_prefix)
@@ -44,11 +49,18 @@ def compute_todo_list(
         native_deps = get_rust_deps(name, cpython_prefix)
         up_to_date = is_up_to_date(name, cpython_prefix, lib_prefix)
 
+        # Get hard_deps and check their status
+        hard_deps = get_all_hard_deps(name, cpython_prefix)
+        hard_deps_status = {
+            hd: is_up_to_date(hd, cpython_prefix, lib_prefix) for hd in hard_deps
+        }
+
         module_data[name] = {
             "name": name,
             "soft_deps": soft_deps,
             "native_deps": native_deps,
             "up_to_date": up_to_date,
+            "hard_deps_status": hard_deps_status,
         }
 
     # Build reverse dependency map: who depends on this module
@@ -61,8 +73,11 @@ def compute_todo_list(
     # Compute scores and filter
     result = []
     for name, data in module_data.items():
-        # Skip already up-to-date modules (unless --done)
-        if data["up_to_date"] and not include_done:
+        hard_deps_status = data["hard_deps_status"]
+        has_outdated_hard_deps = any(not ok for ok in hard_deps_status.values())
+
+        # Include if: not up-to-date, or has outdated hard_deps, or --done
+        if data["up_to_date"] and not has_outdated_hard_deps and not include_done:
             continue
 
         soft_deps = data["soft_deps"]
@@ -90,6 +105,7 @@ def compute_todo_list(
                 "native_deps": data["native_deps"],
                 "soft_deps": soft_deps,
                 "up_to_date": data["up_to_date"],
+                "hard_deps_status": hard_deps_status,
             }
         )
 
@@ -108,7 +124,7 @@ def compute_todo_list(
     return result
 
 
-def get_all_tests(cpython_prefix: str = "cpython") -> list[str]:
+def get_all_tests(cpython_prefix: str) -> list[str]:
     """Get all test module names from cpython/Lib/test/.
 
     Returns:
@@ -136,8 +152,8 @@ def get_all_tests(cpython_prefix: str = "cpython") -> list[str]:
 
 
 def get_untracked_files(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
 ) -> list[str]:
     """Get files that exist in cpython/Lib but not in our Lib.
 
@@ -198,6 +214,52 @@ def get_untracked_files(
     return sorted(untracked)
 
 
+def get_original_files(
+    cpython_prefix: str,
+    lib_prefix: str,
+) -> list[str]:
+    """Get top-level files/modules that exist in our Lib but not in cpython/Lib.
+
+    These are RustPython-original files that don't come from CPython.
+    Modules that exist in cpython are handled by the library todo (even if
+    they have additional local files), so they are excluded here.
+    Excludes test/ directory (handled separately).
+
+    Returns:
+        Sorted list of top-level names (e.g., ["_dummy_thread.py"])
+    """
+    cpython_lib = pathlib.Path(cpython_prefix) / "Lib"
+    local_lib = pathlib.Path(lib_prefix)
+
+    if not local_lib.exists():
+        return []
+
+    original = []
+
+    # Only check top-level entries
+    for entry in local_lib.iterdir():
+        name = entry.name
+
+        # Skip hidden files and __pycache__
+        if name.startswith(".") or name == "__pycache__":
+            continue
+
+        # Skip test/ directory (handled separately)
+        if name == "test":
+            continue
+
+        # Skip site-packages (not a module)
+        if name == "site-packages":
+            continue
+
+        # Only include if it doesn't exist in cpython at all
+        cpython_entry = cpython_lib / name
+        if not cpython_entry.exists():
+            original.append(name)
+
+    return sorted(original)
+
+
 def _filter_rustpython_todo(content: str) -> str:
     """Remove lines containing 'TODO: RUSTPYTHON' from content."""
     lines = content.splitlines(keepends=True)
@@ -246,7 +308,7 @@ def _compare_dir_ignoring_todo(
     return True
 
 
-def count_test_todos(test_name: str, lib_prefix: str = "Lib") -> int:
+def count_test_todos(test_name: str, lib_prefix: str) -> int:
     """Count TODO: RUSTPYTHON lines in a test file/directory."""
     local_dir = pathlib.Path(lib_prefix) / "test" / test_name
     local_file = pathlib.Path(lib_prefix) / "test" / f"{test_name}.py"
@@ -276,9 +338,7 @@ def count_test_todos(test_name: str, lib_prefix: str = "Lib") -> int:
     return total
 
 
-def is_test_tracked(
-    test_name: str, cpython_prefix: str = "cpython", lib_prefix: str = "Lib"
-) -> bool:
+def is_test_tracked(test_name: str, cpython_prefix: str, lib_prefix: str) -> bool:
     """Check if a test exists in our local Lib/test."""
     cpython_dir = pathlib.Path(cpython_prefix) / "Lib" / "test" / test_name
     cpython_file = pathlib.Path(cpython_prefix) / "Lib" / "test" / f"{test_name}.py"
@@ -294,9 +354,7 @@ def is_test_tracked(
     return local_path.exists()
 
 
-def is_test_up_to_date(
-    test_name: str, cpython_prefix: str = "cpython", lib_prefix: str = "Lib"
-) -> bool:
+def is_test_up_to_date(test_name: str, cpython_prefix: str, lib_prefix: str) -> bool:
     """Check if a test is up-to-date by comparing files.
 
     Ignores lines containing 'TODO: RUSTPYTHON' in local files.
@@ -324,7 +382,7 @@ def is_test_up_to_date(
 
 
 def _build_test_to_lib_map(
-    cpython_prefix: str = "cpython",
+    cpython_prefix: str,
 ) -> tuple[dict[str, str], dict[str, list[str]]]:
     """Build reverse mapping from test name to library name using DEPENDENCIES.
 
@@ -344,7 +402,7 @@ def _build_test_to_lib_map(
             continue
         lib_test_order[lib_name] = []
         for test_path in dep_info["test"]:
-            # test_path is like "test/test_htmlparser.py" or "test/test_multiprocessing_fork"
+            # test_path is like "test_htmlparser.py" or "test_multiprocessing_fork"
             path = pathlib.Path(test_path)
             if path.suffix == ".py":
                 test_name = path.stem
@@ -357,8 +415,8 @@ def _build_test_to_lib_map(
 
 
 def compute_test_todo_list(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     include_done: bool = False,
     lib_status: dict[str, bool] | None = None,
 ) -> list[dict]:
@@ -515,11 +573,24 @@ def format_todo_list(
 
         rev_str = f"{rev_count} dependents" if rev_count else ""
 
-        parts = ["-", done_mark, f"[{score_str}]", name]
+        parts = ["-", done_mark, f"[{score_str}]", f"`{name}`"]
         if rev_str:
             parts.append(f"({rev_str})")
 
         lines.append(" ".join(parts))
+
+        # Show hard_deps:
+        # - Normal mode: only show if lib is up-to-date but hard_deps are not
+        # - Verbose mode: always show all hard_deps with their status
+        hard_deps_status = item.get("hard_deps_status", {})
+        if verbose and hard_deps_status:
+            for hd in sorted(hard_deps_status.keys()):
+                hd_mark = "[x]" if hard_deps_status[hd] else "[ ]"
+                lines.append(f"  - {hd_mark} {hd} (hard_dep)")
+        elif item["up_to_date"]:
+            for hd, ok in sorted(hard_deps_status.items()):
+                if not ok:
+                    lines.append(f"  - [ ] {hd} (hard_dep)")
 
         # Show corresponding tests if exist
         if test_by_lib and name in test_by_lib:
@@ -541,8 +612,8 @@ def format_todo_list(
 
 
 def format_all_todo(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     limit: int | None = None,
     include_done: bool = False,
     verbose: bool = False,
@@ -620,12 +691,23 @@ def format_all_todo(
         if limit and len(untracked) > limit:
             lines.append(f"  ... and {len(untracked) - limit} more")
 
+    # Format original files (in our Lib but not in cpython)
+    original = get_original_files(cpython_prefix, lib_prefix)
+    if original:
+        lines.append("")
+        lines.append("## Original Files")
+        display_original = original[:limit] if limit else original
+        for path in display_original:
+            lines.append(f"- {path}")
+        if limit and len(original) > limit:
+            lines.append(f"  ... and {len(original) - limit} more")
+
     return lines
 
 
 def show_todo(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     limit: int | None = None,
     include_done: bool = False,
     verbose: bool = False,
