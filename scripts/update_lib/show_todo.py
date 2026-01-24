@@ -135,14 +135,87 @@ def get_all_tests(cpython_prefix: str = "cpython") -> list[str]:
     return sorted(tests)
 
 
+def _filter_rustpython_todo(content: str) -> str:
+    """Remove lines containing 'TODO: RUSTPYTHON' from content."""
+    lines = content.splitlines(keepends=True)
+    filtered = [line for line in lines if "TODO: RUSTPYTHON" not in line]
+    return "".join(filtered)
+
+
+def _count_rustpython_todo(content: str) -> int:
+    """Count lines containing 'TODO: RUSTPYTHON' in content."""
+    return sum(1 for line in content.splitlines() if "TODO: RUSTPYTHON" in line)
+
+
+def _compare_file_ignoring_todo(cpython_path: pathlib.Path, local_path: pathlib.Path) -> bool:
+    """Compare two files, ignoring TODO: RUSTPYTHON lines in local file."""
+    try:
+        cpython_content = cpython_path.read_text(encoding="utf-8")
+        local_content = local_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+
+    local_filtered = _filter_rustpython_todo(local_content)
+    return cpython_content == local_filtered
+
+
+def _compare_dir_ignoring_todo(cpython_path: pathlib.Path, local_path: pathlib.Path) -> bool:
+    """Compare two directories, ignoring TODO: RUSTPYTHON lines in local files."""
+    # Get all .py files in both directories
+    cpython_files = {f.relative_to(cpython_path) for f in cpython_path.rglob("*.py")}
+    local_files = {f.relative_to(local_path) for f in local_path.rglob("*.py")}
+
+    # Check for missing or extra files
+    if cpython_files != local_files:
+        return False
+
+    # Compare each file
+    for rel_path in cpython_files:
+        if not _compare_file_ignoring_todo(cpython_path / rel_path, local_path / rel_path):
+            return False
+
+    return True
+
+
+def count_test_todos(
+    test_name: str, lib_prefix: str = "Lib"
+) -> int:
+    """Count TODO: RUSTPYTHON lines in a test file/directory."""
+    local_dir = pathlib.Path(lib_prefix) / "test" / test_name
+    local_file = pathlib.Path(lib_prefix) / "test" / f"{test_name}.py"
+
+    if local_dir.exists():
+        local_path = local_dir
+    elif local_file.exists():
+        local_path = local_file
+    else:
+        return 0
+
+    total = 0
+    if local_path.is_file():
+        try:
+            content = local_path.read_text(encoding="utf-8")
+            total = _count_rustpython_todo(content)
+        except (OSError, UnicodeDecodeError):
+            pass
+    else:
+        for py_file in local_path.rglob("*.py"):
+            try:
+                content = py_file.read_text(encoding="utf-8")
+                total += _count_rustpython_todo(content)
+            except (OSError, UnicodeDecodeError):
+                pass
+
+    return total
+
+
 def is_test_up_to_date(
     test_name: str, cpython_prefix: str = "cpython", lib_prefix: str = "Lib"
 ) -> bool:
-    """Check if a test is up-to-date by comparing files."""
-    import filecmp
+    """Check if a test is up-to-date by comparing files.
 
-    from update_lib.deps import _dircmp_is_same
-
+    Ignores lines containing 'TODO: RUSTPYTHON' in local files.
+    """
     # Try directory first, then file
     cpython_dir = pathlib.Path(cpython_prefix) / "Lib" / "test" / test_name
     cpython_file = pathlib.Path(cpython_prefix) / "Lib" / "test" / f"{test_name}.py"
@@ -160,10 +233,9 @@ def is_test_up_to_date(
         return False
 
     if cpython_path.is_file():
-        return filecmp.cmp(cpython_path, local_path, shallow=False)
+        return _compare_file_ignoring_todo(cpython_path, local_path)
     else:
-        dcmp = filecmp.dircmp(cpython_path, local_path)
-        return _dircmp_is_same(dcmp)
+        return _compare_dir_ignoring_todo(cpython_path, local_path)
 
 
 def compute_test_todo_list(
@@ -205,12 +277,15 @@ def compute_test_todo_list(
         else:
             score = 1  # No corresponding lib (independent test)
 
+        todo_count = count_test_todos(test_name, lib_prefix)
+
         result.append(
             {
                 "name": test_name,
                 "lib_name": lib_name,
                 "score": score,
                 "up_to_date": up_to_date,
+                "todo_count": todo_count,
             }
         )
 
@@ -233,7 +308,11 @@ def format_test_todo_list(
     for item in todo_list:
         name = item["name"]
         done_mark = "[x]" if item["up_to_date"] else "[ ]"
-        lines.append(f"- {done_mark} {name}")
+        todo_count = item.get("todo_count", 0)
+        if todo_count > 0:
+            lines.append(f"- {done_mark} {name} ({todo_count} TODO)")
+        else:
+            lines.append(f"- {done_mark} {name}")
 
     return lines
 
@@ -285,7 +364,11 @@ def format_todo_list(
         if test_by_lib and name in test_by_lib:
             test_info = test_by_lib[name]
             test_done_mark = "[x]" if test_info["up_to_date"] else "[ ]"
-            lines.append(f"  - {test_done_mark} {test_info['name']}")
+            todo_count = test_info.get("todo_count", 0)
+            if todo_count > 0:
+                lines.append(f"  - {test_done_mark} {test_info['name']} ({todo_count} TODO)")
+            else:
+                lines.append(f"  - {test_done_mark} {test_info['name']}")
 
         # Verbose mode: show detailed dependency info
         if verbose:
