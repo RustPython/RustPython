@@ -65,8 +65,51 @@ DEPENDENCIES = {
     },
     # Rust-implemented modules (no lib file, only test)
     "int": {
-        "lib": [],  # No Python lib (Rust implementation)
+        "lib": [],
         "hard_deps": ["_pylong.py"],
+    },
+    "exception": {
+        "lib": [],
+        "test": [
+            "test/test_exceptions.py",
+            "test/test_exception_group.py",
+            "test/test_exception_hierarchy.py",
+            "test/test_exception_variations.py",
+            "test/test_except_star.py",
+        ],
+    },
+    "dict": {
+        "lib": [],
+        "test": [
+            "test/test_dict.py",
+            "test/test_dictcomps.py",
+            "test/test_dictviews.py",
+            "test/test_userdict.py",
+        ],
+    },
+    "list": {
+        "lib": [],
+        "test": [
+            "test/test_list.py",
+            "test/test_userlist.py",
+        ],
+    },
+    "codecs": {
+        "test": [
+            "test/test_codecs.py",
+            "test/test_codeccallbacks.py",
+            "test/test_codecencodings_cn.py",
+            "test/test_codecencodings_hk.py",
+            "test/test_codecencodings_iso2022.py",
+            "test/test_codecencodings_jp.py",
+            "test/test_codecencodings_kr.py",
+            "test/test_codecencodings_tw.py",
+            "test/test_codecmaps_cn.py",
+            "test/test_codecmaps_hk.py",
+            "test/test_codecmaps_jp.py",
+            "test/test_codecmaps_kr.py",
+            "test/test_codecmaps_tw.py",
+        ],
     },
     # Non-pattern hard_deps (can't be auto-detected)
     "ast": {
@@ -83,6 +126,25 @@ DEPENDENCIES = {
     "support": {
         "lib": ["test/support"],
         "data": ["test/wheeldata"],
+    },
+    # test_htmlparser tests html.parser
+    "html": {
+        "test": ["test/test_html.py", "test/test_htmlparser.py"],
+    },
+    "xml": {
+        "test": [
+            "test/test_xml_etree.py",
+            "test/test_xml_etree_c.py",
+            "test/test_pulldom.py",
+            "test/test_pyexpat.py",
+        ],
+    },
+    "multiprocessing": {
+        "test": [
+            "test/test_multiprocessing_fork",
+            "test/test_multiprocessing_forkserver",
+            "test/test_multiprocessing_spawn",
+        ],
     },
 }
 
