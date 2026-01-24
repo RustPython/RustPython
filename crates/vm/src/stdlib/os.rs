@@ -35,7 +35,7 @@ impl crate::convert::IntoPyException for rustix::io::Errno {
 }
 
 #[allow(dead_code)]
-#[derive(FromArgs, Default, Copy, Clone)]
+#[derive(FromArgs, Default)]
 pub struct TargetIsDirectory {
     #[pyarg(any, default = false)]
     pub(crate) target_is_directory: bool,

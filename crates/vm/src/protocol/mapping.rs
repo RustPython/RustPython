@@ -48,7 +48,7 @@ impl PyMappingSlots {
 }
 
 #[allow(clippy::type_complexity)]
-#[derive(Clone, Copy, Default)]
+#[derive(Default)]
 pub struct PyMappingMethods {
     pub length: Option<fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>>,
     pub subscript: Option<fn(PyMapping<'_>, &PyObject, &VirtualMachine) -> PyResult>,

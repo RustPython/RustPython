@@ -16,13 +16,13 @@ pub struct SplitArgs<T: TryFromObject> {
     maxsplit: isize,
 }
 
-#[derive(Clone, Copy, FromArgs)]
+#[derive(FromArgs)]
 pub struct SplitLinesArgs {
     #[pyarg(any, default = false)]
     pub keepends: bool,
 }
 
-#[derive(Clone, Copy, FromArgs)]
+#[derive(FromArgs)]
 pub struct ExpandTabsArgs {
     #[pyarg(any, default = 8)]
     tabsize: isize,

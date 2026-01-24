@@ -301,7 +301,7 @@ impl Representable for PySlice {
 }
 
 #[pyclass(module = false, name = "EllipsisType")]
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug)]
 pub struct PyEllipsis;
 
 impl PyPayload for PyEllipsis {

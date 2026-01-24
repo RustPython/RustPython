@@ -63,7 +63,7 @@ macro_rules! define_methods {
     };
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct PyMethodDef {
     pub name: &'static str, // TODO: interned
     pub func: &'static dyn PyNativeFn,
@@ -270,7 +270,7 @@ impl core::fmt::Debug for PyMethodDef {
 // This is not a part of CPython API.
 // But useful to support dynamically generated methods
 #[pyclass(name, module = false, ctx = "method_def")]
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct HeapMethodDef {
     method: PyMethodDef,
 }

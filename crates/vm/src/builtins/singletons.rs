@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[pyclass(module = false, name = "NoneType")]
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct PyNone;
 
 impl PyPayload for PyNone {
@@ -75,7 +75,7 @@ impl AsNumber for PyNone {
 }
 
 #[pyclass(module = false, name = "NotImplementedType")]
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct PyNotImplemented;
 
 impl PyPayload for PyNotImplemented {
