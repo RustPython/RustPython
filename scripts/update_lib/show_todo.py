@@ -344,7 +344,7 @@ def _build_test_to_lib_map(
             continue
         lib_test_order[lib_name] = []
         for test_path in dep_info["test"]:
-            # test_path is like "test/test_htmlparser.py" or "test/test_multiprocessing_fork"
+            # test_path is like "test_htmlparser.py" or "test_multiprocessing_fork"
             path = pathlib.Path(test_path)
             if path.suffix == ".py":
                 test_name = path.stem
