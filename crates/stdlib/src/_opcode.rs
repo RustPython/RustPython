@@ -34,8 +34,8 @@ mod _opcode {
     }
 
     impl Opcode {
-        // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/opcode_ids.h#L238
-        const HAVE_ARGUMENT: i32 = 44;
+        // https://github.com/python/cpython/blob/v3.14.2/Include/opcode_ids.h#L252
+        const HAVE_ARGUMENT: i32 = 43;
 
         pub fn try_from_pyint(raw: PyIntRef, vm: &VirtualMachine) -> PyResult<Self> {
             let instruction = raw
@@ -92,7 +92,7 @@ mod _opcode {
                         | Instruction::StoreAttr { .. }
                         | Instruction::StoreGlobal(_)
                         | Instruction::StoreName(_)
-                ) | AnyInstruction::Pseudo(PseudoInstruction::LoadAttrMethod { .. }))
+                ))
             )
         }
 
@@ -148,8 +148,11 @@ mod _opcode {
         }
     }
 
+    // prepare specialization
     #[pyattr]
     const ENABLE_SPECIALIZATION: i8 = 1;
+    #[allow(dead_code)]
+    const ENABLE_SPECIALIZATION_FT: i8 = 1;
 
     #[derive(FromArgs)]
     struct StackEffectArgs {
@@ -303,6 +306,7 @@ mod _opcode {
             ("NB_INPLACE_SUBTRACT", "-="),
             ("NB_INPLACE_TRUE_DIVIDE", "/="),
             ("NB_INPLACE_XOR", "^="),
+            ("NB_SUBSCR", "[]"),
         ]
         .into_iter()
         .map(|(a, b)| {
@@ -314,8 +318,19 @@ mod _opcode {
     }
 
     #[pyfunction]
-    fn get_executor(_code: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        // TODO
+    fn get_special_method_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        ["__enter__", "__exit__", "__aenter__", "__aexit__"]
+            .into_iter()
+            .map(|x| vm.ctx.new_str(x).into())
+            .collect()
+    }
+
+    #[pyfunction]
+    fn get_executor(
+        _code: PyObjectRef,
+        _offset: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         Ok(vm.ctx.none())
     }
 

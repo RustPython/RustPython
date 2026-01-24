@@ -245,10 +245,6 @@ opmap = {
     'SETUP_FINALLY': 264,
     'SETUP_WITH': 265,
     'STORE_FAST_MAYBE_NULL': 266,
-    'LOAD_ATTR_METHOD': 267,
-    'LOAD_SUPER_METHOD': 268,
-    'LOAD_ZERO_SUPER_ATTR': 269,
-    'LOAD_ZERO_SUPER_METHOD': 270,
 }
 
 # CPython 3.13 compatible: opcodes < 44 have no argument

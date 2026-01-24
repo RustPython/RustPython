@@ -426,6 +426,8 @@ impl InstructionMetadata for Instruction {
             | Self::JumpForward { target: l }
             | Self::PopJumpIfTrue { target: l }
             | Self::PopJumpIfFalse { target: l }
+            | Self::PopJumpIfNone { target: l }
+            | Self::PopJumpIfNotNone { target: l }
             | Self::ForIter { target: l }
             | Self::Send { target: l } => Some(*l),
             _ => None,
@@ -472,7 +474,13 @@ impl InstructionMetadata for Instruction {
             Self::LoadFromDictOrDeref(_) => 1,
             Self::StoreSubscr => -3,
             Self::DeleteSubscr => -2,
-            Self::LoadAttr { .. } => 0,
+            Self::LoadAttr { idx } => {
+                // Stack effect depends on method flag in encoded oparg
+                // method=false: pop obj, push attr → effect = 0
+                // method=true: pop obj, push (method, self_or_null) → effect = +1
+                let (_, is_method) = decode_load_attr_arg(idx.get(arg));
+                if is_method { 1 } else { 0 }
+            }
             Self::StoreAttr { .. } => -2,
             Self::DeleteAttr { .. } => -1,
             Self::LoadCommonConstant { .. } => 1,
@@ -921,47 +929,22 @@ impl InstructionMetadata for Instruction {
 
 /// Instructions used by the compiler. They are not executed by the VM.
 ///
-/// CPython 3.14.2 aligned (256-266), RustPython-specific variants start at 267.
+/// CPython 3.14.2 aligned (256-266).
 #[derive(Clone, Copy, Debug)]
 #[repr(u16)]
 pub enum PseudoInstruction {
     // CPython 3.14.2 pseudo instructions (256-266)
     AnnotationsPlaceholder = 256,
-    Jump {
-        target: Arg<Label>,
-    } = 257,
-    JumpIfFalse {
-        target: Arg<Label>,
-    } = 258,
-    JumpIfTrue {
-        target: Arg<Label>,
-    } = 259,
-    JumpNoInterrupt {
-        target: Arg<Label>,
-    } = 260,
+    Jump { target: Arg<Label> } = 257,
+    JumpIfFalse { target: Arg<Label> } = 258,
+    JumpIfTrue { target: Arg<Label> } = 259,
+    JumpNoInterrupt { target: Arg<Label> } = 260,
     LoadClosure(Arg<NameIdx>) = 261,
     PopBlock = 262,
     SetupCleanup = 263,
     SetupFinally = 264,
     SetupWith = 265,
     StoreFastMaybeNull(Arg<NameIdx>) = 266,
-
-    // RustPython-specific pseudo instructions (267+)
-    LoadAttrMethod {
-        idx: Arg<NameIdx>,
-    } = 267,
-    // "Zero" variants are for 0-arg super() calls (has_class=false).
-    // Non-"Zero" variants are for 2-arg super(cls, self) calls (has_class=true).
-    /// 2-arg super(cls, self).method() - has_class=true, load_method=true
-    LoadSuperMethod {
-        idx: Arg<NameIdx>,
-    } = 268,
-    LoadZeroSuperAttr {
-        idx: Arg<NameIdx>,
-    } = 269,
-    LoadZeroSuperMethod {
-        idx: Arg<NameIdx>,
-    } = 270,
 }
 
 const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
@@ -980,7 +963,7 @@ impl TryFrom<u16> for PseudoInstruction {
     #[inline]
     fn try_from(value: u16) -> Result<Self, MarshalError> {
         let start = u16::from(Self::AnnotationsPlaceholder);
-        let end = u16::from(Self::LoadZeroSuperMethod { idx: Arg::marker() });
+        let end = u16::from(Self::StoreFastMaybeNull(Arg::marker()));
 
         if (start..=end).contains(&value) {
             Ok(unsafe { mem::transmute::<u16, Self>(value) })
@@ -1022,10 +1005,6 @@ impl InstructionMetadata for PseudoInstruction {
             Self::SetupFinally => 0,
             Self::SetupWith => 0,
             Self::StoreFastMaybeNull(_) => -1,
-            Self::LoadAttrMethod { .. } => 1, // pop obj, push method + self_or_null
-            Self::LoadSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
-            Self::LoadZeroSuperAttr { .. } => -3 + 1, // pop 3, push [attr]
-            Self::LoadZeroSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
         }
     }
 
