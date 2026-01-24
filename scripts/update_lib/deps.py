@@ -100,6 +100,32 @@ DEPENDENCIES = {
             "test_userlist.py",
         ],
     },
+    "__future__": {
+        "test": [
+            "test___future__.py",
+            "test_future_stmt.py",
+        ],
+    },
+    "site": {
+        "hard_deps": ["_sitebuiltins.py"],
+    },
+    "opcode": {
+        "hard_deps": ["_opcode_metadata.py"],
+        "test": [
+            "test_opcode.py",
+            "test__opcode.py",
+            "test_opcodes.py",
+        ],
+    },
+    "pickle": {
+        "hard_deps": ["_compat_pickle.py"],
+    },
+    "re": {
+        "hard_deps": ["sre_compile.py", "sre_constants.py", "sre_parse.py"],
+    },
+    "weakref": {
+        "hard_deps": ["_weakrefset.py"],
+    },
     "codecs": {
         "test": [
             "test_codecs.py",
@@ -145,6 +171,7 @@ DEPENDENCIES = {
     },
     # test_htmlparser tests html.parser
     "html": {
+        "hard_deps": ["_markupbase.py"],
         "test": ["test_html.py", "test_htmlparser.py"],
     },
     "xml": {
@@ -257,6 +284,7 @@ DEPENDENCIES = {
         ],
     },
     "threading": {
+        "hard_deps": ["_threading_local.py"],
         "test": [
             "test_threading.py",
             "test_threadedtempfile.py",
@@ -309,9 +337,27 @@ DEPENDENCIES = {
         ],
     },
     "datetime": {
+        "hard_deps": ["_strptime.py"],
         "test": [
             "test_datetime.py",
             "test_strptime.py",
+        ],
+    },
+    "concurrent": {
+        "test": [
+            "test_concurrent_futures",
+        ],
+    },
+    "locale": {
+        "test": [
+            "test_locale.py",
+            "test__locale.py",
+        ],
+    },
+    "numbers": {
+        "test": [
+            "test_numbers.py",
+            "test_abstract_numbers.py",
         ],
     },
     "file": {
@@ -326,6 +372,13 @@ DEPENDENCIES = {
         "test": [
             "test_fcntl.py",
             "test_ioctl.py",
+        ],
+    },
+    "select": {
+        "lib": [],
+        "test": [
+            "test_select.py",
+            "test_poll.py",
         ],
     },
     "xmlrpc": {
@@ -533,6 +586,33 @@ def get_lib_paths(
             paths.append(auto_path)
 
     return tuple(paths)
+
+
+def get_all_hard_deps(name: str, cpython_prefix: str) -> list[str]:
+    """Get all hard_deps for a module (explicit + auto-detected).
+
+    Args:
+        name: Module name (e.g., "decimal", "datetime")
+        cpython_prefix: CPython directory prefix
+
+    Returns:
+        List of hard_dep names (without .py extension)
+    """
+    dep_info = DEPENDENCIES.get(name, {})
+    hard_deps = set()
+
+    # Explicit hard_deps from DEPENDENCIES
+    for hd in dep_info.get("hard_deps", []):
+        # Remove .py extension if present
+        hard_deps.add(hd[:-3] if hd.endswith(".py") else hd)
+
+    # Auto-detect _py{module}.py or _py_{module}.py patterns
+    for pattern in [f"_py{name}.py", f"_py_{name}.py"]:
+        auto_path = construct_lib_path(cpython_prefix, pattern)
+        if auto_path.exists():
+            hard_deps.add(auto_path.stem)
+
+    return sorted(hard_deps)
 
 
 @functools.cache

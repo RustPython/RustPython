@@ -32,7 +32,12 @@ def compute_todo_list(
     Returns:
         List of dicts with module info, sorted by priority
     """
-    from update_lib.deps import get_rust_deps, get_soft_deps, is_up_to_date
+    from update_lib.deps import (
+        get_all_hard_deps,
+        get_rust_deps,
+        get_soft_deps,
+        is_up_to_date,
+    )
     from update_lib.show_deps import get_all_modules
 
     all_modules = get_all_modules(cpython_prefix)
@@ -44,11 +49,19 @@ def compute_todo_list(
         native_deps = get_rust_deps(name, cpython_prefix)
         up_to_date = is_up_to_date(name, cpython_prefix, lib_prefix)
 
+        # Get hard_deps and check their status
+        hard_deps = get_all_hard_deps(name, cpython_prefix)
+        hard_deps_status = {
+            hd: is_up_to_date(hd, cpython_prefix, lib_prefix)
+            for hd in hard_deps
+        }
+
         module_data[name] = {
             "name": name,
             "soft_deps": soft_deps,
             "native_deps": native_deps,
             "up_to_date": up_to_date,
+            "hard_deps_status": hard_deps_status,
         }
 
     # Build reverse dependency map: who depends on this module
@@ -61,8 +74,11 @@ def compute_todo_list(
     # Compute scores and filter
     result = []
     for name, data in module_data.items():
-        # Skip already up-to-date modules (unless --done)
-        if data["up_to_date"] and not include_done:
+        hard_deps_status = data["hard_deps_status"]
+        has_outdated_hard_deps = any(not ok for ok in hard_deps_status.values())
+
+        # Include if: not up-to-date, or has outdated hard_deps, or --done
+        if data["up_to_date"] and not has_outdated_hard_deps and not include_done:
             continue
 
         soft_deps = data["soft_deps"]
@@ -90,6 +106,7 @@ def compute_todo_list(
                 "native_deps": data["native_deps"],
                 "soft_deps": soft_deps,
                 "up_to_date": data["up_to_date"],
+                "hard_deps_status": hard_deps_status,
             }
         )
 
@@ -202,13 +219,15 @@ def get_original_files(
     cpython_prefix: str,
     lib_prefix: str,
 ) -> list[str]:
-    """Get files that exist in our Lib but not in cpython/Lib.
+    """Get top-level files/modules that exist in our Lib but not in cpython/Lib.
 
     These are RustPython-original files that don't come from CPython.
+    Modules that exist in cpython are handled by the library todo (even if
+    they have additional local files), so they are excluded here.
     Excludes test/ directory (handled separately).
 
     Returns:
-        Sorted list of relative paths (e.g., ["_rustpython_tokenize.py"])
+        Sorted list of top-level names (e.g., ["_dummy_thread.py"])
     """
     cpython_lib = pathlib.Path(cpython_prefix) / "Lib"
     local_lib = pathlib.Path(lib_prefix)
@@ -218,26 +237,26 @@ def get_original_files(
 
     original = []
 
-    for local_file in local_lib.rglob("*"):
-        # Skip directories
-        if local_file.is_dir():
-            continue
+    # Only check top-level entries
+    for entry in local_lib.iterdir():
+        name = entry.name
 
-        # Get relative path from Lib/
-        rel_path = local_file.relative_to(local_lib)
+        # Skip hidden files and __pycache__
+        if name.startswith(".") or name == "__pycache__":
+            continue
 
         # Skip test/ directory (handled separately)
-        if rel_path.parts and rel_path.parts[0] == "test":
+        if name == "test":
             continue
 
-        # Skip __pycache__ directories
-        if "__pycache__" in rel_path.parts:
+        # Skip site-packages (not a module)
+        if name == "site-packages":
             continue
 
-        # Check if exists in cpython lib
-        cpython_file = cpython_lib / rel_path
-        if not cpython_file.exists():
-            original.append(str(rel_path))
+        # Only include if it doesn't exist in cpython at all
+        cpython_entry = cpython_lib / name
+        if not cpython_entry.exists():
+            original.append(name)
 
     return sorted(original)
 
@@ -559,11 +578,24 @@ def format_todo_list(
 
         rev_str = f"{rev_count} dependents" if rev_count else ""
 
-        parts = ["-", done_mark, f"[{score_str}]", name]
+        parts = ["-", done_mark, f"[{score_str}]", f"`{name}`"]
         if rev_str:
             parts.append(f"({rev_str})")
 
         lines.append(" ".join(parts))
+
+        # Show hard_deps:
+        # - Normal mode: only show if lib is up-to-date but hard_deps are not
+        # - Verbose mode: always show all hard_deps with their status
+        hard_deps_status = item.get("hard_deps_status", {})
+        if verbose and hard_deps_status:
+            for hd in sorted(hard_deps_status.keys()):
+                hd_mark = "[x]" if hard_deps_status[hd] else "[ ]"
+                lines.append(f"  - {hd_mark} {hd} (hard_dep)")
+        elif item["up_to_date"]:
+            for hd, ok in sorted(hard_deps_status.items()):
+                if not ok:
+                    lines.append(f"  - [ ] {hd} (hard_dep)")
 
         # Show corresponding tests if exist
         if test_by_lib and name in test_by_lib:

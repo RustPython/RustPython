@@ -46,12 +46,9 @@ def get_all_modules(cpython_prefix: str) -> list[str]:
         else:
             continue
 
-        # Skip private modules that are hard_deps of other modules
-        # e.g., _pydatetime is a hard_dep of datetime, so skip it
-        if (
-            name.startswith("_")
-            and resolve_hard_dep_parent(name, cpython_prefix) is not None
-        ):
+        # Skip modules that are hard_deps of other modules
+        # e.g., _pydatetime is a hard_dep of datetime, pydoc_data is a hard_dep of pydoc
+        if resolve_hard_dep_parent(name, cpython_prefix) is not None:
             continue
 
         modules.add(name)
