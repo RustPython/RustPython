@@ -1,5 +1,6 @@
 use core::ptr::NonNull;
 
+use rustpython_common::boxvec::BoxVec;
 use rustpython_common::lock::{PyMutex, PyRwLock};
 
 use crate::{AsObject, PyObject, PyObjectRef, PyRef, function::Either, object::PyObjectPayload};
@@ -89,6 +90,18 @@ where
 }
 
 unsafe impl<T> Traverse for Vec<T>
+where
+    T: Traverse,
+{
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        for elem in self {
+            elem.traverse(traverse_fn);
+        }
+    }
+}
+
+unsafe impl<T> Traverse for BoxVec<T>
 where
     T: Traverse,
 {

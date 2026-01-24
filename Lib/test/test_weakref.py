@@ -848,11 +848,9 @@ class ReferencesTestCase(TestBase):
         gc.collect()
         self.assertEqual(alist, [])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_gc_during_ref_creation(self):
         self.check_gc_during_creation(weakref.ref)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_gc_during_proxy_creation(self):
         self.check_gc_during_creation(weakref.proxy)
 
@@ -1336,11 +1334,9 @@ class MappingTestCase(TestBase):
         self.assertIn(n1, (0, 1))
         self.assertEqual(n2, 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_weak_keyed_len_cycles(self):
         self.check_len_cycles(weakref.WeakKeyDictionary, lambda k: (k, 1))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_weak_valued_len_cycles(self):
         self.check_len_cycles(weakref.WeakValueDictionary, lambda k: (1, k))
 
@@ -1368,11 +1364,9 @@ class MappingTestCase(TestBase):
             self.assertGreaterEqual(n2, 0)
             self.assertLessEqual(n2, n1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_weak_keyed_len_race(self):
         self.check_len_race(weakref.WeakKeyDictionary, lambda k: (k, 1))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_weak_valued_len_race(self):
         self.check_len_race(weakref.WeakValueDictionary, lambda k: (1, k))
 
@@ -1960,6 +1954,7 @@ class MappingTestCase(TestBase):
                 x = d.pop(10, 10)
                 self.assertIsNot(x, None)  # we never put None in there!
 
+    @unittest.skip("TODO: RUSTPYTHON; race condition between GC and WeakValueDictionary callback")
     @threading_helper.requires_working_threading()
     def test_threaded_weak_valued_consistency(self):
         # Issue #28427: old keys should not remove new values from

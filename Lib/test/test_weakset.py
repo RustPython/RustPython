@@ -403,8 +403,6 @@ class TestWeakSet(unittest.TestCase):
             s.clear()
         self.assertEqual(len(s), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len_cycles(self):
         N = 20
         items = [RefCycle() for i in range(N)]
@@ -425,8 +423,6 @@ class TestWeakSet(unittest.TestCase):
         self.assertIn(n1, (0, 1))
         self.assertEqual(n2, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len_race(self):
         # Extended sanity checks for len() in the face of cyclic collection
         self.addCleanup(gc.set_threshold, *gc.get_threshold())

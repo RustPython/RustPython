@@ -1937,8 +1937,6 @@ class ExtensionBuiltTest(unittest.TestCase):
         self.assertFalse(hasattr(c_zoneinfo.ZoneInfo, "_weak_cache"))
         self.assertTrue(hasattr(py_zoneinfo.ZoneInfo, "_weak_cache"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_gc_tracked(self):
         import gc
 
