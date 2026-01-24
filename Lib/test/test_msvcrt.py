@@ -15,7 +15,6 @@ import msvcrt
 
 
 class TestFileOperations(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'locking'
     def test_locking(self):
         with open(TESTFN, "w") as f:
             self.addCleanup(os_helper.unlink, TESTFN)
@@ -23,7 +22,6 @@ class TestFileOperations(unittest.TestCase):
             msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
             self.assertRaises(OSError, msvcrt.locking, f.fileno(), msvcrt.LK_NBLCK, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'locking'
     def test_unlockfile(self):
         with open(TESTFN, "w") as f:
             self.addCleanup(os_helper.unlink, TESTFN)
@@ -39,7 +37,6 @@ class TestFileOperations(unittest.TestCase):
             msvcrt.setmode(f.fileno(), os.O_BINARY)
             msvcrt.setmode(f.fileno(), os.O_TEXT)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_winapi' has no attribute 'CreateFile'. Did you mean: 'CreatePipe'?
     def test_open_osfhandle(self):
         h = _winapi.CreateFile(TESTFN_ASCII, _winapi.GENERIC_WRITE, 0, 0, 1, 128, 0)
         self.addCleanup(os_helper.unlink, TESTFN_ASCII)
@@ -80,7 +77,6 @@ class TestConsoleIO(unittest.TestCase):
         ''')
         self.run_in_separated_process(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'ungetch'. Did you mean: 'getch'?
     def test_getch(self):
         msvcrt.ungetch(b'c')
         self.assertEqual(msvcrt.getch(), b'c')
@@ -98,7 +94,6 @@ class TestConsoleIO(unittest.TestCase):
     def test_getwch(self):
         self.check_getwch('getwch')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'ungetch'. Did you mean: 'getch'?
     def test_getche(self):
         msvcrt.ungetch(b'c')
         self.assertEqual(msvcrt.getche(), b'c')
@@ -114,7 +109,6 @@ class TestConsoleIO(unittest.TestCase):
 
 
 class TestOther(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'heapmin'
     def test_heap_min(self):
         try:
             msvcrt.heapmin()
