@@ -27,4 +27,3 @@ Lib/site-packages/*
 Lib/test/data/*
 !Lib/test/data/README
 cpython/
-cpython/
