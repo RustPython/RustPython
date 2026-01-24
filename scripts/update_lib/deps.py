@@ -68,24 +68,9 @@ DEPENDENCIES = {
         "lib": [],  # No Python lib (Rust implementation)
         "hard_deps": ["_pylong.py"],
     },
-    # Pure Python implementations
-    "abc": {
-        "hard_deps": ["_py_abc.py"],
-    },
-    "codecs": {
-        "hard_deps": ["_pycodecs.py"],
-    },
-    "datetime": {
-        "hard_deps": ["_pydatetime.py"],
-    },
-    "decimal": {
-        "hard_deps": ["_pydecimal.py"],
-    },
-    "io": {
-        "hard_deps": ["_pyio.py"],
-    },
-    "warnings": {
-        "hard_deps": ["_py_warnings.py"],
+    # Non-pattern hard_deps (can't be auto-detected)
+    "ast": {
+        "hard_deps": ["_ast_unparse.py"],
     },
     # Data directories
     "pydoc": {
@@ -102,22 +87,25 @@ DEPENDENCIES = {
 }
 
 
-def resolve_hard_dep_parent(name: str) -> str | None:
+def resolve_hard_dep_parent(name: str, cpython_prefix: str = "cpython") -> str | None:
     """Resolve a hard_dep name to its parent module.
 
-    If 'name' is listed as a hard_dep of another module, return that module's name.
-    E.g., 'pydoc_data' -> 'pydoc', '_pydatetime' -> 'datetime'
+    Only returns a parent if the file is actually tracked:
+    - Explicitly listed in DEPENDENCIES as a hard_dep
+    - Or auto-detected _py{module}.py pattern where the parent module exists
 
     Args:
         name: Module or file name (with or without .py extension)
+        cpython_prefix: CPython directory prefix
 
     Returns:
-        Parent module name if found, None otherwise
+        Parent module name if found and tracked, None otherwise
     """
     # Normalize: remove .py extension if present
     if name.endswith(".py"):
         name = name[:-3]
 
+    # Check DEPENDENCIES table first (explicit hard_deps)
     for module_name, dep_info in DEPENDENCIES.items():
         hard_deps = dep_info.get("hard_deps", [])
         for dep in hard_deps:
@@ -125,6 +113,26 @@ def resolve_hard_dep_parent(name: str) -> str | None:
             dep_normalized = dep[:-3] if dep.endswith(".py") else dep
             if dep_normalized == name:
                 return module_name
+
+    # Auto-detect _py{module} or _py_{module} patterns
+    # Only if the parent module actually exists
+    if name.startswith("_py"):
+        if name.startswith("_py_"):
+            # _py_abc -> abc
+            parent = name[4:]
+        else:
+            # _pydatetime -> datetime
+            parent = name[3:]
+
+        # Verify the parent module exists
+        lib_dir = pathlib.Path(cpython_prefix) / "Lib"
+        parent_file = lib_dir / f"{parent}.py"
+        parent_dir = lib_dir / parent
+        if parent_file.exists() or (
+            parent_dir.exists() and (parent_dir / "__init__.py").exists()
+        ):
+            return parent
+
     return None
 
 
@@ -234,9 +242,15 @@ def get_lib_paths(
         # Default: try file first, then directory
         paths = [resolve_module_path(name, cpython_prefix, prefer="file")]
 
-    # Add hard_deps
+    # Add hard_deps from DEPENDENCIES
     for dep in dep_info.get("hard_deps", []):
         paths.append(construct_lib_path(cpython_prefix, dep))
+
+    # Auto-detect _py{module}.py or _py_{module}.py patterns
+    for pattern in [f"_py{name}.py", f"_py_{name}.py"]:
+        auto_path = construct_lib_path(cpython_prefix, pattern)
+        if auto_path.exists() and auto_path not in paths:
+            paths.append(auto_path)
 
     return tuple(paths)
 
