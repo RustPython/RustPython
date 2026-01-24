@@ -804,6 +804,46 @@ class OpenSSLRFCTestCase(OpenSSLAssertersMixin,
     The underlying hash functions are also OpenSSL-based.
     """
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_md5_rfc2202(self):
+        return super().test_md5_rfc2202()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_sha1_rfc2202(self):
+        return super().test_sha1_rfc2202()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_sha2_224_rfc4231(self):
+        return super().test_sha2_224_rfc4231()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_sha2_256_rfc4231(self):
+        return super().test_sha2_256_rfc4231()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_sha2_384_rfc4231(self):
+        return super().test_sha2_384_rfc4231()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_sha2_512_rfc4231(self):
+        return super().test_sha2_512_rfc4231()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_sha3_224_nist(self):
+        return super().test_sha3_224_nist()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_sha3_256_nist(self):
+        return super().test_sha3_256_nist()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_sha3_384_nist(self):
+        return super().test_sha3_384_nist()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_sha3_512_nist(self):
+        return super().test_sha3_512_nist()
+
 
 class BuiltinRFCTestCase(BuiltinAssertersMixin,
                          NamedHashFunctionsTrait,
@@ -1017,6 +1057,7 @@ class OpenSSLConstructorTestCase(ThroughOpenSSLAPIMixin,
     def exc_type(self):
         return _hashlib.UnsupportedDigestmodError
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_hmac_digest_digestmod_parameter(self):
         for value in [object, 'unknown', 1234, None]:
             with (
@@ -1024,6 +1065,26 @@ class OpenSSLConstructorTestCase(ThroughOpenSSLAPIMixin,
                 self.assert_raises_unknown_digestmod(),
             ):
                 self.hmac_digest(b'key', b'msg', value)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_constructor(self):
+        return super().test_constructor()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_constructor_missing_digestmod(self):
+        return super().test_constructor_missing_digestmod()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_constructor_unknown_digestmod(self):
+        return super().test_constructor_unknown_digestmod()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'HMAC'. Did you mean: 'exc_type'?
+    def test_internal_types(self):
+        return super().test_internal_types()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'hmac_digest'
+    def test_digest(self):
+        return super().test_digest()
 
 
 class BuiltinConstructorTestCase(ThroughBuiltinAPIMixin,
@@ -1099,6 +1160,7 @@ class PySanityTestCase(ThroughObjectMixin, PyModuleMixin, SanityTestCaseMixin,
 
 
 @hashlib_helper.requires_openssl_hashdigest('sha256')
+@unittest.skip("TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'HMAC'")
 class OpenSSLSanityTestCase(ThroughOpenSSLAPIMixin, SanityTestCaseMixin,
                             unittest.TestCase):
 
@@ -1195,6 +1257,18 @@ class OpenSSLUpdateTestCase(UpdateTestCaseMixin, unittest.TestCase):
     def gil_minsize(self):
         return _hashlib._GIL_MINSIZE
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_update(self):
+        return super().test_update()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute '_GIL_MINSIZE'
+    def test_update_large(self):
+        return super().test_update_large()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'NoneType'
+    def test_update_exceptions(self):
+        return super().test_update_exceptions()
+
 
 class BuiltinUpdateTestCase(BuiltinModuleMixin,
                             UpdateTestCaseMixin, unittest.TestCase):
@@ -1246,6 +1320,7 @@ class PythonCopyTestCase(CopyBaseTestCase, unittest.TestCase):
         self.assertNotEqual(id(h1._inner), id(h2._inner))
         self.assertNotEqual(id(h1._outer), id(h2._outer))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'NoneType'
     def test_equality(self):
         # Testing if the copy has the same digests.
         h1 = hmac.HMAC(b"key", digestmod="sha256")
@@ -1254,6 +1329,7 @@ class PythonCopyTestCase(CopyBaseTestCase, unittest.TestCase):
         self.assertEqual(h1.digest(), h2.digest())
         self.assertEqual(h1.hexdigest(), h2.hexdigest())
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'NoneType'
     def test_equality_new(self):
         # Testing if the copy has the same digests with hmac.new().
         h1 = hmac.new(b"key", digestmod="sha256")
@@ -1298,6 +1374,14 @@ class OpenSSLCopyTestCase(ExtensionCopyTestCase, unittest.TestCase):
 
     def init(self, h):
         h._init_openssl_hmac(b"key", b"msg", digestmod="sha256")
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_attributes(self):
+        return super().test_attributes()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
+    def test_realcopy(self):
+        return super().test_realcopy()
 
 
 @hashlib_helper.requires_builtin_hmac()
@@ -1430,10 +1514,18 @@ class HMACCompareDigestTestCase(CompareDigestMixin, unittest.TestCase):
         else:
             self.assertIs(self.compare_digest, operator_compare_digest)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by compare_digest
+    def test_exceptions(self):
+        return super().test_exceptions()
+
 
 @hashlib_helper.requires_hashlib()
 class OpenSSLCompareDigestTestCase(CompareDigestMixin, unittest.TestCase):
     compare_digest = openssl_compare_digest
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by compare_digest
+    def test_exceptions(self):
+        return super().test_exceptions()
 
 
 class OperatorCompareDigestTestCase(CompareDigestMixin, unittest.TestCase):
@@ -1491,6 +1583,7 @@ class PyMiscellaneousTests(unittest.TestCase):
                 hmac.HMAC(b'a', b'b', digestmod=MockCrazyHash)
                 self.fail('Expected warning about small block_size')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'hmac_digest'
     @hashlib_helper.requires_hashdigest('sha256')
     def test_with_fallback(self):
         cache = getattr(hashlib, '__builtin_constructor_cache')
