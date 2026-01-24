@@ -3592,7 +3592,7 @@ class CodePageTest(unittest.TestCase):
             (b'\xff', 'strict', '\xff'),
         ))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_cp708(self):
         self.check_encode(708, (
             ('abc2%', 'strict', b'abc2%'),
@@ -3622,6 +3622,7 @@ class CodePageTest(unittest.TestCase):
             (b'[\xa0]', 'surrogatepass', None),
         ))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_cp20106(self):
         self.check_encode(20106, (
             ('abc', 'strict', b'abc'),
