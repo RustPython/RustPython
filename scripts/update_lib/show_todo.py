@@ -135,6 +135,63 @@ def get_all_tests(cpython_prefix: str = "cpython") -> list[str]:
     return sorted(tests)
 
 
+def get_untracked_files(
+    cpython_prefix: str = "cpython",
+    lib_prefix: str = "Lib",
+) -> list[str]:
+    """Get files that exist in cpython/Lib but not in our Lib.
+
+    Excludes files that belong to tracked modules (shown in library todo).
+    Includes all file types (.py, .txt, .pem, .json, etc.)
+
+    Returns:
+        Sorted list of relative paths (e.g., ["foo.py", "data/file.txt"])
+    """
+    from update_lib.show_deps import get_all_modules
+
+    cpython_lib = pathlib.Path(cpython_prefix) / "Lib"
+    local_lib = pathlib.Path(lib_prefix)
+
+    if not cpython_lib.exists():
+        return []
+
+    # Get tracked modules (shown in library todo)
+    tracked_modules = set(get_all_modules(cpython_prefix))
+
+    untracked = []
+
+    for cpython_file in cpython_lib.rglob("*"):
+        # Skip directories
+        if cpython_file.is_dir():
+            continue
+
+        # Get relative path from Lib/
+        rel_path = cpython_file.relative_to(cpython_lib)
+
+        # Skip test/ directory (handled separately by test todo)
+        if rel_path.parts and rel_path.parts[0] == "test":
+            continue
+
+        # Check if file belongs to a tracked module
+        # e.g., idlelib/Icons/idle.gif -> module "idlelib"
+        # e.g., foo.py -> module "foo"
+        first_part = rel_path.parts[0]
+        if first_part.endswith(".py"):
+            module_name = first_part[:-3]  # Remove .py
+        else:
+            module_name = first_part
+
+        if module_name in tracked_modules:
+            continue
+
+        # Check if exists in local lib
+        local_file = local_lib / rel_path
+        if not local_file.exists():
+            untracked.append(str(rel_path))
+
+    return sorted(untracked)
+
+
 def _filter_rustpython_todo(content: str) -> str:
     """Remove lines containing 'TODO: RUSTPYTHON' from content."""
     lines = content.splitlines(keepends=True)
@@ -449,6 +506,17 @@ def format_all_todo(
         lines.append("")
         lines.append("## Standalone Tests")
         lines.extend(format_test_todo_list(no_lib_tests, limit))
+
+    # Format untracked files (in cpython but not in our Lib)
+    untracked = get_untracked_files(cpython_prefix, lib_prefix)
+    if untracked:
+        lines.append("")
+        lines.append("## Untracked Files")
+        display_untracked = untracked[:limit] if limit else untracked
+        for path in display_untracked:
+            lines.append(f"- {path}")
+        if limit and len(untracked) > limit:
+            lines.append(f"  ... and {len(untracked) - limit} more")
 
     return lines
 
