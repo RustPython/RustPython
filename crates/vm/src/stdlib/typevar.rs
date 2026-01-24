@@ -988,7 +988,7 @@ pub(crate) mod typevar {
 
     #[pyattr]
     #[pyclass(name = "Generic", module = "typing")]
-    #[derive(Copy, Clone, Debug, PyPayload)]
+    #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub struct Generic;
 

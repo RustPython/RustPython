@@ -24,7 +24,7 @@ impl PyPayload for PyZip {
     }
 }
 
-#[derive(Clone, Copy, FromArgs)]
+#[derive(FromArgs)]
 pub struct PyZipNewArgs {
     #[pyarg(named, optional)]
     strict: OptionalArg<bool>,

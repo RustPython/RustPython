@@ -14,8 +14,8 @@ use crate::{
 ///
 /// SimpleNamespace(**kwargs)
 #[pyclass(module = "types", name = "SimpleNamespace")]
-#[derive(Copy, Clone, Debug, Default)]
-pub struct PyNamespace;
+#[derive(Debug, Default)]
+pub struct PyNamespace {}
 
 impl PyPayload for PyNamespace {
     #[inline]

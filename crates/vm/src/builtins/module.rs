@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[pyclass(module = false, name = "module")]
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct PyModuleDef {
     // pub index: usize,
     pub name: &'static PyStrInterned,
@@ -26,7 +26,7 @@ pub type ModuleCreate =
     fn(&VirtualMachine, &PyObject, &'static PyModuleDef) -> PyResult<PyRef<PyModule>>;
 pub type ModuleExec = fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Default)]
 pub struct PyModuleSlots {
     pub create: Option<ModuleCreate>,
     pub exec: Option<ModuleExec>,
@@ -83,7 +83,7 @@ impl PyModuleDef {
 
 #[allow(clippy::new_without_default)] // avoid Default implementation
 #[pyclass(module = false, name = "module")]
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct PyModule {
     // PyObject *md_dict;
     pub def: Option<&'static PyModuleDef>,
