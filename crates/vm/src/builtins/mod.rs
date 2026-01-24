@@ -9,6 +9,8 @@ pub(crate) mod bytearray;
 pub use bytearray::PyByteArray;
 pub(crate) mod bytes;
 pub use bytes::{PyBytes, PyBytesRef};
+pub(crate) mod capsule;
+pub use capsule::PyCapsule;
 pub(crate) mod classmethod;
 pub use classmethod::PyClassMethod;
 pub(crate) mod code;

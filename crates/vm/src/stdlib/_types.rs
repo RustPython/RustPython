@@ -34,6 +34,11 @@ mod _types {
     }
 
     #[pyattr]
+    fn CapsuleType(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.types.capsule_type.to_owned().into()
+    }
+
+    #[pyattr]
     fn CellType(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.types.cell_type.to_owned().into()
     }

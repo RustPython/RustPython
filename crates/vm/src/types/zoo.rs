@@ -1,7 +1,7 @@
 use crate::{
     Py,
     builtins::{
-        asyncgenerator, bool_, builtin_func, bytearray, bytes, classmethod, code, complex,
+        asyncgenerator, bool_, builtin_func, bytearray, bytes, capsule, classmethod, code, complex,
         coroutine, descriptor, dict, enumerate, filter, float, frame, function, generator,
         genericalias, getset, int, interpolation, iter, list, map, mappingproxy, memory, module,
         namespace, object, property, pystr, range, set, singletons, slice, staticmethod, super_,
@@ -28,6 +28,7 @@ pub struct TypeZoo {
     pub bytearray_iterator_type: &'static Py<PyType>,
     pub bool_type: &'static Py<PyType>,
     pub callable_iterator: &'static Py<PyType>,
+    pub capsule_type: &'static Py<PyType>,
     pub cell_type: &'static Py<PyType>,
     pub classmethod_type: &'static Py<PyType>,
     pub code_type: &'static Py<PyType>,
@@ -160,6 +161,7 @@ impl TypeZoo {
             bytearray_iterator_type: bytearray::PyByteArrayIterator::init_builtin_type(),
             bytes_iterator_type: bytes::PyBytesIterator::init_builtin_type(),
             callable_iterator: iter::PyCallableIterator::init_builtin_type(),
+            capsule_type: capsule::PyCapsule::init_builtin_type(),
             cell_type: function::PyCell::init_builtin_type(),
             code_type: code::PyCode::init_builtin_type(),
             coroutine_type: coroutine::PyCoroutine::init_builtin_type(),
@@ -233,6 +235,7 @@ impl TypeZoo {
         complex::init(context);
         bytes::init(context);
         bytearray::init(context);
+        capsule::init(context);
         property::init(context);
         getset::init(context);
         memory::init(context);
