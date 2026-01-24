@@ -52,8 +52,7 @@ def compute_todo_list(
         # Get hard_deps and check their status
         hard_deps = get_all_hard_deps(name, cpython_prefix)
         hard_deps_status = {
-            hd: is_up_to_date(hd, cpython_prefix, lib_prefix)
-            for hd in hard_deps
+            hd: is_up_to_date(hd, cpython_prefix, lib_prefix) for hd in hard_deps
         }
 
         module_data[name] = {
@@ -339,9 +338,7 @@ def count_test_todos(test_name: str, lib_prefix: str) -> int:
     return total
 
 
-def is_test_tracked(
-    test_name: str, cpython_prefix: str, lib_prefix: str
-) -> bool:
+def is_test_tracked(test_name: str, cpython_prefix: str, lib_prefix: str) -> bool:
     """Check if a test exists in our local Lib/test."""
     cpython_dir = pathlib.Path(cpython_prefix) / "Lib" / "test" / test_name
     cpython_file = pathlib.Path(cpython_prefix) / "Lib" / "test" / f"{test_name}.py"
@@ -357,9 +354,7 @@ def is_test_tracked(
     return local_path.exists()
 
 
-def is_test_up_to_date(
-    test_name: str, cpython_prefix: str, lib_prefix: str
-) -> bool:
+def is_test_up_to_date(test_name: str, cpython_prefix: str, lib_prefix: str) -> bool:
     """Check if a test is up-to-date by comparing files.
 
     Ignores lines containing 'TODO: RUSTPYTHON' in local files.

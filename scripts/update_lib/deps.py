@@ -554,9 +554,7 @@ TEST_DEPENDENCIES = {
 
 
 @functools.cache
-def get_lib_paths(
-    name: str, cpython_prefix: str
-) -> tuple[pathlib.Path, ...]:
+def get_lib_paths(name: str, cpython_prefix: str) -> tuple[pathlib.Path, ...]:
     """Get all library paths for a module.
 
     Args:
@@ -616,9 +614,7 @@ def get_all_hard_deps(name: str, cpython_prefix: str) -> list[str]:
 
 
 @functools.cache
-def get_test_paths(
-    name: str, cpython_prefix: str
-) -> tuple[pathlib.Path, ...]:
+def get_test_paths(name: str, cpython_prefix: str) -> tuple[pathlib.Path, ...]:
     """Get all test paths for a module.
 
     Args:
@@ -812,9 +808,7 @@ def _dircmp_is_same(dcmp) -> bool:
 
 
 @functools.cache
-def is_up_to_date(
-    name: str, cpython_prefix: str, lib_prefix: str
-) -> bool:
+def is_up_to_date(name: str, cpython_prefix: str, lib_prefix: str) -> bool:
     """Check if a module is up-to-date by comparing files.
 
     Args:
