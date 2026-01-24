@@ -187,7 +187,7 @@ def get_untracked_files(
             continue
 
         # Check if this is a hard_dep of a tracked module
-        if resolve_hard_dep_parent(module_name) is not None:
+        if resolve_hard_dep_parent(module_name, cpython_prefix) is not None:
             continue
 
         # Check if exists in local lib

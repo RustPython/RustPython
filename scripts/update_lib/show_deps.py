@@ -19,26 +19,39 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 def get_all_modules(cpython_prefix: str = "cpython") -> list[str]:
     """Get all top-level module names from cpython/Lib/.
 
+    Includes private modules (_*) that are not hard_deps of other modules.
+
     Returns:
         Sorted list of module names (without .py extension)
     """
+    from update_lib.deps import resolve_hard_dep_parent
+
     lib_dir = pathlib.Path(cpython_prefix) / "Lib"
     if not lib_dir.exists():
         return []
 
     modules = set()
     for entry in lib_dir.iterdir():
-        # Skip private/internal modules and special directories
-        if entry.name.startswith(("_", ".")):
+        # Skip hidden files
+        if entry.name.startswith("."):
             continue
         # Skip test directory
         if entry.name == "test":
             continue
 
         if entry.is_file() and entry.suffix == ".py":
-            modules.add(entry.stem)
+            name = entry.stem
         elif entry.is_dir() and (entry / "__init__.py").exists():
-            modules.add(entry.name)
+            name = entry.name
+        else:
+            continue
+
+        # Skip private modules that are hard_deps of other modules
+        # e.g., _pydatetime is a hard_dep of datetime, so skip it
+        if name.startswith("_") and resolve_hard_dep_parent(name, cpython_prefix) is not None:
+            continue
+
+        modules.add(name)
 
     return sorted(modules)
 
