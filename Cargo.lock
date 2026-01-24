@@ -1309,6 +1309,7 @@ dependencies = [
  "compact_str",
  "get-size-derive2",
  "hashbrown 0.16.1",
+ "ordermap",
  "smallvec",
 ]
 
@@ -2187,6 +2188,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "978aa494585d3ca4ad74929863093e87cac9790d81fe7aba2b3dc2890643a0fc"
 
 [[package]]
+name = "ordermap"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed637741ced8fb240855d22a2b4f208dab7a06bcce73380162e5253000c16758"
+dependencies = [
+ "indexmap",
+]
+
+[[package]]
 name = "page_size"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2805,14 +2815,13 @@ dependencies = [
 [[package]]
 name = "ruff_python_ast"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=45bbb4cbffe73cf925d4579c2e3eb413e0539390#45bbb4cbffe73cf925d4579c2e3eb413e0539390"
+source = "git+https://github.com/astral-sh/ruff.git?rev=8b2e7b36f246b990fe473a84eef25ff429e59ecf#8b2e7b36f246b990fe473a84eef25ff429e59ecf"
 dependencies = [
  "aho-corasick",
  "bitflags 2.10.0",
  "compact_str",
  "get-size2",
  "is-macro",
- "itertools 0.14.0",
  "memchr",
  "ruff_python_trivia",
  "ruff_source_file",
@@ -2824,7 +2833,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_parser"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=45bbb4cbffe73cf925d4579c2e3eb413e0539390#45bbb4cbffe73cf925d4579c2e3eb413e0539390"
+source = "git+https://github.com/astral-sh/ruff.git?rev=8b2e7b36f246b990fe473a84eef25ff429e59ecf#8b2e7b36f246b990fe473a84eef25ff429e59ecf"
 dependencies = [
  "bitflags 2.10.0",
  "bstr",
@@ -2844,7 +2853,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_trivia"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=45bbb4cbffe73cf925d4579c2e3eb413e0539390#45bbb4cbffe73cf925d4579c2e3eb413e0539390"
+source = "git+https://github.com/astral-sh/ruff.git?rev=8b2e7b36f246b990fe473a84eef25ff429e59ecf#8b2e7b36f246b990fe473a84eef25ff429e59ecf"
 dependencies = [
  "itertools 0.14.0",
  "ruff_source_file",
@@ -2855,7 +2864,7 @@ dependencies = [
 [[package]]
 name = "ruff_source_file"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=45bbb4cbffe73cf925d4579c2e3eb413e0539390#45bbb4cbffe73cf925d4579c2e3eb413e0539390"
+source = "git+https://github.com/astral-sh/ruff.git?rev=8b2e7b36f246b990fe473a84eef25ff429e59ecf#8b2e7b36f246b990fe473a84eef25ff429e59ecf"
 dependencies = [
  "memchr",
  "ruff_text_size",
@@ -2864,7 +2873,7 @@ dependencies = [
 [[package]]
 name = "ruff_text_size"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=45bbb4cbffe73cf925d4579c2e3eb413e0539390#45bbb4cbffe73cf925d4579c2e3eb413e0539390"
+source = "git+https://github.com/astral-sh/ruff.git?rev=8b2e7b36f246b990fe473a84eef25ff429e59ecf#8b2e7b36f246b990fe473a84eef25ff429e59ecf"
 dependencies = [
  "get-size2",
 ]
