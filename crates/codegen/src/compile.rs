@@ -36,6 +36,51 @@ use rustpython_compiler_core::{
 };
 use rustpython_wtf8::Wtf8Buf;
 
+/// Extension trait for `ast::Expr` to add constant checking methods
+trait ExprExt {
+    /// Check if an expression is a constant literal
+    fn is_constant(&self) -> bool;
+
+    /// Check if a slice expression has all constant elements
+    fn is_constant_slice(&self) -> bool;
+
+    /// Check if we should use BINARY_SLICE/STORE_SLICE optimization
+    fn should_use_slice_optimization(&self) -> bool;
+}
+
+impl ExprExt for ast::Expr {
+    fn is_constant(&self) -> bool {
+        matches!(
+            self,
+            ast::Expr::NumberLiteral(_)
+                | ast::Expr::StringLiteral(_)
+                | ast::Expr::BytesLiteral(_)
+                | ast::Expr::NoneLiteral(_)
+                | ast::Expr::BooleanLiteral(_)
+                | ast::Expr::EllipsisLiteral(_)
+        )
+    }
+
+    fn is_constant_slice(&self) -> bool {
+        match self {
+            ast::Expr::Slice(s) => {
+                let lower_const =
+                    s.lower.is_none() || s.lower.as_deref().is_some_and(|e| e.is_constant());
+                let upper_const =
+                    s.upper.is_none() || s.upper.as_deref().is_some_and(|e| e.is_constant());
+                let step_const =
+                    s.step.is_none() || s.step.as_deref().is_some_and(|e| e.is_constant());
+                lower_const && upper_const && step_const
+            }
+            _ => false,
+        }
+    }
+
+    fn should_use_slice_optimization(&self) -> bool {
+        !self.is_constant_slice() && matches!(self, ast::Expr::Slice(s) if s.step.is_none())
+    }
+}
+
 const MAXBLOCKS: usize = 20;
 
 #[derive(Debug, Clone, Copy)]
@@ -425,39 +470,25 @@ impl Compiler {
         }
     }
 
-    /// Check if the slice is a two-element slice (no step)
-    // = is_two_element_slice
-    const fn is_two_element_slice(slice: &ast::Expr) -> bool {
-        matches!(slice, ast::Expr::Slice(s) if s.step.is_none())
-    }
-
-    /// Compile a slice expression
-    // = compiler_slice
-    fn compile_slice(&mut self, s: &ast::ExprSlice) -> CompileResult<BuildSliceArgCount> {
-        // Compile lower
+    /// Compile just start and stop of a slice (for BINARY_SLICE/STORE_SLICE)
+    // = codegen_slice_two_parts
+    fn compile_slice_two_parts(&mut self, s: &ast::ExprSlice) -> CompileResult<()> {
+        // Compile lower (or None)
         if let Some(lower) = &s.lower {
             self.compile_expression(lower)?;
         } else {
             self.emit_load_const(ConstantData::None);
         }
 
-        // Compile upper
+        // Compile upper (or None)
         if let Some(upper) = &s.upper {
             self.compile_expression(upper)?;
         } else {
             self.emit_load_const(ConstantData::None);
         }
 
-        Ok(match &s.step {
-            Some(step) => {
-                // Compile step if present
-                self.compile_expression(step)?;
-                BuildSliceArgCount::Three
-            }
-            None => BuildSliceArgCount::Two,
-        })
+        Ok(())
     }
-
     /// Compile a subscript expression
     // = compiler_subscript
     fn compile_subscript(
@@ -480,27 +511,20 @@ impl Compiler {
         // VISIT(c, expr, e->v.Subscript.value)
         self.compile_expression(value)?;
 
-        // Handle two-element slice (for Load/Store, not Del)
-        if Self::is_two_element_slice(slice) && !matches!(ctx, ast::ExprContext::Del) {
-            let argc = match slice {
-                ast::Expr::Slice(s) => self.compile_slice(s)?,
+        // Handle two-element non-constant slice with BINARY_SLICE/STORE_SLICE
+        if slice.should_use_slice_optimization() && !matches!(ctx, ast::ExprContext::Del) {
+            match slice {
+                ast::Expr::Slice(s) => self.compile_slice_two_parts(s)?,
                 _ => unreachable!(
-                    "is_two_element_slice should only return true for ast::Expr::Slice"
+                    "should_use_slice_optimization should only return true for ast::Expr::Slice"
                 ),
             };
             match ctx {
                 ast::ExprContext::Load => {
-                    emit!(self, Instruction::BuildSlice { argc });
-                    emit!(
-                        self,
-                        Instruction::BinaryOp {
-                            op: BinaryOperator::Subscr
-                        }
-                    );
+                    emit!(self, Instruction::BinarySlice);
                 }
                 ast::ExprContext::Store => {
-                    emit!(self, Instruction::BuildSlice { argc });
-                    emit!(self, Instruction::StoreSubscr);
+                    emit!(self, Instruction::StoreSlice);
                 }
                 _ => unreachable!(),
             }
@@ -1269,8 +1293,12 @@ impl Compiler {
         emit!(self, Instruction::PopJumpIfFalse { target: body_block });
 
         // Raise NotImplementedError
-        let not_implemented_error = self.name("NotImplementedError");
-        emit!(self, Instruction::LoadGlobal(not_implemented_error));
+        emit!(
+            self,
+            Instruction::LoadCommonConstant {
+                idx: bytecode::CommonConstant::NotImplementedError
+            }
+        );
         emit!(
             self,
             Instruction::RaiseVarargs {
@@ -2345,8 +2373,12 @@ impl Compiler {
                     let after_block = self.new_block();
                     self.compile_jump_if(test, true, after_block)?;
 
-                    let assertion_error = self.name("AssertionError");
-                    emit!(self, Instruction::LoadGlobal(assertion_error));
+                    emit!(
+                        self,
+                        Instruction::LoadCommonConstant {
+                            idx: bytecode::CommonConstant::AssertionError
+                        }
+                    );
                     emit!(self, Instruction::PushNull);
                     match msg {
                         Some(e) => {
@@ -3326,11 +3358,9 @@ impl Compiler {
             // ADDOP_I(c, loc, COPY, 1);
             // ADDOP_JUMP(c, loc, POP_JUMP_IF_NONE, no_match);
             emit!(self, Instruction::Copy { index: 1 });
-            self.emit_load_const(ConstantData::None);
-            emit!(self, Instruction::IsOp(bytecode::Invert::No)); // is None?
             emit!(
                 self,
-                Instruction::PopJumpIfTrue {
+                Instruction::PopJumpIfNone {
                     target: no_match_block
                 }
             );
@@ -3455,11 +3485,9 @@ impl Compiler {
         // Stack: [prev_exc, result, result]
 
         // POP_JUMP_IF_NOT_NONE reraise
-        self.emit_load_const(ConstantData::None);
-        emit!(self, Instruction::IsOp(bytecode::Invert::Yes)); // is not None?
         emit!(
             self,
-            Instruction::PopJumpIfTrue {
+            Instruction::PopJumpIfNotNone {
                 target: reraise_block
             }
         );

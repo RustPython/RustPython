@@ -151,7 +151,7 @@ mod _opcode {
     // prepare specialization
     #[pyattr]
     const ENABLE_SPECIALIZATION: i8 = 1;
-    #[allow(dead_code)]
+    #[pyattr]
     const ENABLE_SPECIALIZATION_FT: i8 = 1;
 
     #[derive(FromArgs)]
