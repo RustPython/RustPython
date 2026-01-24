@@ -1,9 +1,5 @@
 use super::PyType;
-use crate::{
-    Context, Py, PyPayload, PyResult,
-    class::PyClassImpl,
-    types::Representable,
-};
+use crate::{Context, Py, PyPayload, PyResult, class::PyClassImpl, types::Representable};
 
 /// PyCapsule - a container for C pointers.
 /// In RustPython, this is a minimal implementation for compatibility.
