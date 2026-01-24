@@ -405,27 +405,41 @@ def format_all_todo(
 
     lines = []
 
-    # Compute lib todo
-    lib_todo = compute_todo_list(cpython_prefix, lib_prefix, include_done)
-
     # Build lib status map for test scoring
     lib_status = {}
     for name in get_all_modules(cpython_prefix):
         lib_status[name] = is_up_to_date(name, cpython_prefix, lib_prefix)
 
-    # Compute test todo
+    # Compute test todo (always include all to find libs with pending tests)
     test_todo = compute_test_todo_list(
-        cpython_prefix, lib_prefix, include_done, lib_status
+        cpython_prefix, lib_prefix, include_done=True, lib_status=lib_status
     )
 
     # Build test_by_lib map (only for tests with corresponding lib)
     test_by_lib = {}
     no_lib_tests = []
+    # Set of libs that have pending tests
+    libs_with_pending_tests = set()
     for test in test_todo:
         if test["score"] == 1:  # no lib
-            no_lib_tests.append(test)
+            if not test["up_to_date"] or include_done:
+                no_lib_tests.append(test)
         else:
             test_by_lib[test["lib_name"]] = test
+            if not test["up_to_date"]:
+                libs_with_pending_tests.add(test["lib_name"])
+
+    # Compute lib todo - include libs with pending tests even if lib is done
+    lib_todo_base = compute_todo_list(cpython_prefix, lib_prefix, include_done=True)
+
+    # Filter lib todo: include if lib is not done OR has pending test
+    lib_todo = []
+    for item in lib_todo_base:
+        lib_not_done = not item["up_to_date"]
+        has_pending_test = item["name"] in libs_with_pending_tests
+
+        if include_done or lib_not_done or has_pending_test:
+            lib_todo.append(item)
 
     # Format lib todo with embedded tests
     lines.extend(format_todo_list(lib_todo, test_by_lib, limit, verbose))
