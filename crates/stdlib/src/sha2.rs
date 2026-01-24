@@ -1,6 +1,8 @@
 #[pymodule]
 mod _sha2 {
-    use crate::hashlib::_hashlib::{HashArgs, local_sha224, local_sha256, local_sha384, local_sha512};
+    use crate::hashlib::_hashlib::{
+        HashArgs, local_sha224, local_sha256, local_sha384, local_sha512,
+    };
     use crate::vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
 
     #[pyfunction]
