@@ -66,6 +66,7 @@ def format_deps_tree(
     *,
     name: str | None = None,
     soft_deps: set[str] | None = None,
+    hard_deps: set[str] | None = None,
     _depth: int = 0,
     _visited: set[str] | None = None,
     _indent: str = "",
@@ -78,6 +79,7 @@ def format_deps_tree(
         max_depth: Maximum recursion depth
         name: Module name (used to compute deps if soft_deps not provided)
         soft_deps: Pre-computed soft dependencies (optional)
+        hard_deps: Hard dependencies to show under the module (root level only)
         _depth: Current depth (internal)
         _visited: Already visited modules (internal)
         _indent: Current indentation (internal)
@@ -103,7 +105,7 @@ def format_deps_tree(
 
     soft_deps = sorted(soft_deps)
 
-    if not soft_deps:
+    if not soft_deps and not hard_deps:
         return lines
 
     # Separate up-to-date and outdated modules
@@ -135,6 +137,14 @@ def format_deps_tree(
         )
         lines.append(f"{_indent}- [ ] {dep}{native_suffix}")
         _visited.add(dep)
+
+        # Show hard_deps under this module (only at root level, i.e., when hard_deps is provided)
+        if hard_deps and dep in soft_deps:
+            for hd in sorted(hard_deps):
+                hd_up_to_date = is_up_to_date(hd, cpython_prefix, lib_prefix)
+                hd_marker = "[x]" if hd_up_to_date else "[ ]"
+                lines.append(f"{_indent}  - {hd_marker} {hd}")
+            hard_deps = None  # Only show once
 
         # Recurse if within depth limit
         if _depth < max_depth - 1:
@@ -200,7 +210,7 @@ def format_deps(
         name = module_name
 
     # Resolve hard_dep to parent module (e.g., pydoc_data -> pydoc)
-    parent = resolve_hard_dep_parent(name)
+    parent = resolve_hard_dep_parent(name, cpython_prefix)
     if parent:
         lines.append(f"(redirecting {name} -> {parent})")
         name = parent
@@ -222,16 +232,30 @@ def format_deps(
         lines.append(f"(module '{name}' not found)")
         return lines
 
-    # hard_deps (from DEPENDENCIES table)
+    # Collect all hard_deps (explicit from DEPENDENCIES + implicit from lib_paths)
     dep_info = DEPENDENCIES.get(name, {})
-    hard_deps = dep_info.get("hard_deps", [])
-    if hard_deps:
-        lines.append(f"packages: {hard_deps}")
+    explicit_hard_deps = dep_info.get("hard_deps", [])
+
+    # Get implicit hard_deps from lib_paths (e.g., _pydecimal.py for decimal)
+    all_hard_deps = set()
+    for hd in explicit_hard_deps:
+        # Remove .py extension if present
+        all_hard_deps.add(hd[:-3] if hd.endswith(".py") else hd)
+
+    for p in existing_lib_paths:
+        dep_name = p.stem if p.is_file() else p.name
+        if dep_name != name:  # Skip the main module itself
+            all_hard_deps.add(dep_name)
 
     lines.append("\ndependencies:")
     lines.extend(
         format_deps_tree(
-            cpython_prefix, lib_prefix, max_depth, soft_deps={name}, _visited=_visited
+            cpython_prefix,
+            lib_prefix,
+            max_depth,
+            soft_deps={name},
+            _visited=_visited,
+            hard_deps=all_hard_deps,
         )
     )
 
@@ -325,7 +349,7 @@ def _resolve_module_name(
         name = name[5:]
 
     # Resolve hard_dep to parent
-    parent = resolve_hard_dep_parent(name)
+    parent = resolve_hard_dep_parent(name, cpython_prefix)
     if parent:
         return [parent]
 

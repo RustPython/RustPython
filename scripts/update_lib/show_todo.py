@@ -198,6 +198,50 @@ def get_untracked_files(
     return sorted(untracked)
 
 
+def get_original_files(
+    cpython_prefix: str = "cpython",
+    lib_prefix: str = "Lib",
+) -> list[str]:
+    """Get files that exist in our Lib but not in cpython/Lib.
+
+    These are RustPython-original files that don't come from CPython.
+    Excludes test/ directory (handled separately).
+
+    Returns:
+        Sorted list of relative paths (e.g., ["_rustpython_tokenize.py"])
+    """
+    cpython_lib = pathlib.Path(cpython_prefix) / "Lib"
+    local_lib = pathlib.Path(lib_prefix)
+
+    if not local_lib.exists():
+        return []
+
+    original = []
+
+    for local_file in local_lib.rglob("*"):
+        # Skip directories
+        if local_file.is_dir():
+            continue
+
+        # Get relative path from Lib/
+        rel_path = local_file.relative_to(local_lib)
+
+        # Skip test/ directory (handled separately)
+        if rel_path.parts and rel_path.parts[0] == "test":
+            continue
+
+        # Skip __pycache__ directories
+        if "__pycache__" in rel_path.parts:
+            continue
+
+        # Check if exists in cpython lib
+        cpython_file = cpython_lib / rel_path
+        if not cpython_file.exists():
+            original.append(str(rel_path))
+
+    return sorted(original)
+
+
 def _filter_rustpython_todo(content: str) -> str:
     """Remove lines containing 'TODO: RUSTPYTHON' from content."""
     lines = content.splitlines(keepends=True)
@@ -619,6 +663,17 @@ def format_all_todo(
             lines.append(f"- {path}")
         if limit and len(untracked) > limit:
             lines.append(f"  ... and {len(untracked) - limit} more")
+
+    # Format original files (in our Lib but not in cpython)
+    original = get_original_files(cpython_prefix, lib_prefix)
+    if original:
+        lines.append("")
+        lines.append("## Original Files")
+        display_original = original[:limit] if limit else original
+        for path in display_original:
+            lines.append(f"- {path}")
+        if limit and len(original) > limit:
+            lines.append(f"  ... and {len(original) - limit} more")
 
     return lines
 

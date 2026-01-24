@@ -19,7 +19,7 @@ from update_lib.io_utils import read_python_files, safe_parse_ast, safe_read_tex
 # === Cross-process cache using shelve ===
 
 
-def _get_cpython_version(cpython_prefix: str = "cpython") -> str:
+def _get_cpython_version(cpython_prefix: str) -> str:
     """Get CPython version from git tag for cache namespace."""
     try:
         result = subprocess.run(
@@ -343,7 +343,7 @@ DEPENDENCIES = {
 }
 
 
-def resolve_hard_dep_parent(name: str, cpython_prefix: str = "cpython") -> str | None:
+def resolve_hard_dep_parent(name: str, cpython_prefix: str) -> str | None:
     """Resolve a hard_dep name to its parent module.
 
     Only returns a parent if the file is actually tracked:
@@ -502,7 +502,7 @@ TEST_DEPENDENCIES = {
 
 @functools.cache
 def get_lib_paths(
-    name: str, cpython_prefix: str = "cpython"
+    name: str, cpython_prefix: str
 ) -> tuple[pathlib.Path, ...]:
     """Get all library paths for a module.
 
@@ -537,7 +537,7 @@ def get_lib_paths(
 
 @functools.cache
 def get_test_paths(
-    name: str, cpython_prefix: str = "cpython"
+    name: str, cpython_prefix: str
 ) -> tuple[pathlib.Path, ...]:
     """Get all test paths for a module.
 
@@ -651,7 +651,7 @@ def parse_lib_imports(content: str) -> set[str]:
 
 
 @functools.cache
-def get_all_imports(name: str, cpython_prefix: str = "cpython") -> frozenset[str]:
+def get_all_imports(name: str, cpython_prefix: str) -> frozenset[str]:
     """Get all imports from a library file.
 
     Args:
@@ -673,7 +673,7 @@ def get_all_imports(name: str, cpython_prefix: str = "cpython") -> frozenset[str
 
 
 @functools.cache
-def get_soft_deps(name: str, cpython_prefix: str = "cpython") -> frozenset[str]:
+def get_soft_deps(name: str, cpython_prefix: str) -> frozenset[str]:
     """Get soft dependencies by parsing imports from library file.
 
     Args:
@@ -696,7 +696,7 @@ def get_soft_deps(name: str, cpython_prefix: str = "cpython") -> frozenset[str]:
 
 
 @functools.cache
-def get_rust_deps(name: str, cpython_prefix: str = "cpython") -> frozenset[str]:
+def get_rust_deps(name: str, cpython_prefix: str) -> frozenset[str]:
     """Get Rust/C dependencies (imports that don't exist in cpython/Lib/).
 
     Args:
@@ -733,7 +733,7 @@ def _dircmp_is_same(dcmp) -> bool:
 
 @functools.cache
 def is_up_to_date(
-    name: str, cpython_prefix: str = "cpython", lib_prefix: str = "Lib"
+    name: str, cpython_prefix: str, lib_prefix: str = "Lib"
 ) -> bool:
     """Check if a module is up-to-date by comparing files.
 
@@ -915,7 +915,7 @@ def _build_test_import_graph(
     # Cross-process cache (only for standard Lib/test directory)
     use_file_cache = _is_standard_lib_path(cache_key)
     if use_file_cache:
-        version = _get_cpython_version()
+        version = _get_cpython_version("cpython")
         shelve_key = f"test_import_graph:{version}"
         try:
             with shelve.open(_get_cache_path()) as db:
@@ -994,7 +994,7 @@ def _build_lib_import_graph(lib_prefix: str = "Lib") -> dict[str, set[str]]:
     # Cross-process cache (only for standard Lib directory)
     use_file_cache = _is_standard_lib_path(lib_prefix)
     if use_file_cache:
-        version = _get_cpython_version()
+        version = _get_cpython_version("cpython")
         shelve_key = f"lib_import_graph:{version}"
         try:
             with shelve.open(_get_cache_path()) as db:
