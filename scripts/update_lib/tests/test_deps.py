@@ -64,12 +64,19 @@ from . import helper
 class TestGetLibPaths(unittest.TestCase):
     """Tests for get_lib_paths function."""
 
-    def test_known_dependency(self):
-        """Test library with known dependencies."""
-        paths = get_lib_paths("datetime", "cpython")
-        self.assertEqual(len(paths), 2)
-        self.assertIn(pathlib.Path("cpython/Lib/datetime.py"), paths)
-        self.assertIn(pathlib.Path("cpython/Lib/_pydatetime.py"), paths)
+    def test_auto_detect_py_module(self):
+        """Test auto-detection of _py{module}.py pattern."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            lib_dir = tmpdir / "Lib"
+            lib_dir.mkdir()
+            (lib_dir / "datetime.py").write_text("# datetime")
+            (lib_dir / "_pydatetime.py").write_text("# _pydatetime")
+
+            paths = get_lib_paths("datetime", str(tmpdir))
+            self.assertEqual(len(paths), 2)
+            self.assertIn(tmpdir / "Lib" / "datetime.py", paths)
+            self.assertIn(tmpdir / "Lib" / "_pydatetime.py", paths)
 
     def test_default_file(self):
         """Test default to .py file."""
