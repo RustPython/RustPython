@@ -72,6 +72,9 @@ DEPENDENCIES = {
     "abc": {
         "hard_deps": ["_py_abc.py"],
     },
+    "ast": {
+        "hard_deps": ["_ast_unparse.py"],
+    },
     "codecs": {
         "hard_deps": ["_pycodecs.py"],
     },

@@ -141,12 +141,14 @@ def get_untracked_files(
 ) -> list[str]:
     """Get files that exist in cpython/Lib but not in our Lib.
 
-    Excludes files that belong to tracked modules (shown in library todo).
+    Excludes files that belong to tracked modules (shown in library todo)
+    and hard_deps of those modules.
     Includes all file types (.py, .txt, .pem, .json, etc.)
 
     Returns:
         Sorted list of relative paths (e.g., ["foo.py", "data/file.txt"])
     """
+    from update_lib.deps import resolve_hard_dep_parent
     from update_lib.show_deps import get_all_modules
 
     cpython_lib = pathlib.Path(cpython_prefix) / "Lib"
@@ -182,6 +184,10 @@ def get_untracked_files(
             module_name = first_part
 
         if module_name in tracked_modules:
+            continue
+
+        # Check if this is a hard_dep of a tracked module
+        if resolve_hard_dep_parent(module_name) is not None:
             continue
 
         # Check if exists in local lib
