@@ -450,4 +450,30 @@ pub mod _hashlib {
             }
         }
     }
+
+    #[pyattr(once)]
+    fn openssl_md_meth_names(vm: &VirtualMachine) -> PyObjectRef {
+        // List of all hash algorithms that are available
+        // This is used by hashlib.py to populate algorithms_available
+        let names = vec![
+            "md5",
+            "sha1",
+            "sha224",
+            "sha256",
+            "sha384",
+            "sha512",
+            "sha3_224",
+            "sha3_256",
+            "sha3_384",
+            "sha3_512",
+            "shake_128",
+            "shake_256",
+            "blake2b",
+            "blake2s",
+        ];
+        let names_iter = names.into_iter().map(|name| vm.ctx.new_str(name).into());
+        rustpython_vm::builtins::PyFrozenSet::from_iter(vm, names_iter)
+            .expect("Creating openssl_md_meth_names frozen set must succeed")
+            .to_pyobject(vm)
+    }
 }
