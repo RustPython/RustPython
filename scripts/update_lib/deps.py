@@ -128,7 +128,9 @@ def resolve_hard_dep_parent(name: str, cpython_prefix: str = "cpython") -> str |
         lib_dir = pathlib.Path(cpython_prefix) / "Lib"
         parent_file = lib_dir / f"{parent}.py"
         parent_dir = lib_dir / parent
-        if parent_file.exists() or (parent_dir.exists() and (parent_dir / "__init__.py").exists()):
+        if parent_file.exists() or (
+            parent_dir.exists() and (parent_dir / "__init__.py").exists()
+        ):
             return parent
 
     return None
