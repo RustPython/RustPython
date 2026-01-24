@@ -288,9 +288,8 @@ class DynamicPathCalculation(NamespacePackageTest):
 class ZipWithMissingDirectory(NamespacePackageTest):
     paths = ['missing_directory.zip']
 
-    @unittest.expectedFailure
     def test_missing_directory(self):
-        # This will fail because missing_directory.zip contains:
+        # This tests that missing_directory.zip contains:
         #   Length      Date    Time    Name
         # ---------  ---------- -----   ----
         #        29  2012-05-03 18:13   foo/one.py
@@ -299,8 +298,8 @@ class ZipWithMissingDirectory(NamespacePackageTest):
         # ---------                     -------
         #        67                     3 files
 
-        # Because there is no 'foo/', the zipimporter currently doesn't
-        #  know that foo is a namespace package
+        # Even though there is no 'foo/', the zipimporter now
+        # supports implicit directories and knows foo is a namespace package
 
         import foo.one
 
