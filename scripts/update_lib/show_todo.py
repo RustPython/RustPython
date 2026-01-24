@@ -276,6 +276,24 @@ def count_test_todos(test_name: str, lib_prefix: str = "Lib") -> int:
     return total
 
 
+def is_test_tracked(
+    test_name: str, cpython_prefix: str = "cpython", lib_prefix: str = "Lib"
+) -> bool:
+    """Check if a test exists in our local Lib/test."""
+    cpython_dir = pathlib.Path(cpython_prefix) / "Lib" / "test" / test_name
+    cpython_file = pathlib.Path(cpython_prefix) / "Lib" / "test" / f"{test_name}.py"
+
+    if cpython_dir.exists():
+        cpython_path = cpython_dir
+    elif cpython_file.exists():
+        cpython_path = cpython_file
+    else:
+        return True  # No cpython test
+
+    local_path = pathlib.Path(lib_prefix) / "test" / cpython_path.name
+    return local_path.exists()
+
+
 def is_test_up_to_date(
     test_name: str, cpython_prefix: str = "cpython", lib_prefix: str = "Lib"
 ) -> bool:
@@ -305,6 +323,39 @@ def is_test_up_to_date(
         return _compare_dir_ignoring_todo(cpython_path, local_path)
 
 
+def _build_test_to_lib_map(
+    cpython_prefix: str = "cpython",
+) -> tuple[dict[str, str], dict[str, list[str]]]:
+    """Build reverse mapping from test name to library name using DEPENDENCIES.
+
+    Returns:
+        Tuple of:
+        - Dict mapping test_name -> lib_name (e.g., "test_htmlparser" -> "html")
+        - Dict mapping lib_name -> ordered list of test_names
+    """
+    import pathlib
+
+    from update_lib.deps import DEPENDENCIES
+
+    test_to_lib = {}
+    lib_test_order: dict[str, list[str]] = {}
+    for lib_name, dep_info in DEPENDENCIES.items():
+        if "test" not in dep_info:
+            continue
+        lib_test_order[lib_name] = []
+        for test_path in dep_info["test"]:
+            # test_path is like "test/test_htmlparser.py" or "test/test_multiprocessing_fork"
+            path = pathlib.Path(test_path)
+            if path.suffix == ".py":
+                test_name = path.stem
+            else:
+                test_name = path.name
+            test_to_lib[test_name] = lib_name
+            lib_test_order[lib_name].append(test_name)
+
+    return test_to_lib, lib_test_order
+
+
 def compute_test_todo_list(
     cpython_prefix: str = "cpython",
     lib_prefix: str = "Lib",
@@ -315,13 +366,14 @@ def compute_test_todo_list(
 
     Scoring:
         - If corresponding lib is up-to-date: score = 0 (ready)
-        - If corresponding lib is NOT up-to-date: score = 1 (wait for lib)
-        - If no corresponding lib: score = -1 (independent)
+        - If no corresponding lib: score = 1 (independent)
+        - If corresponding lib is NOT up-to-date: score = 2 (wait for lib)
 
     Returns:
         List of dicts with test info, sorted by priority
     """
     all_tests = get_all_tests(cpython_prefix)
+    test_to_lib, lib_test_order = _build_test_to_lib_map(cpython_prefix)
 
     result = []
     for test_name in all_tests:
@@ -330,8 +382,17 @@ def compute_test_todo_list(
         if up_to_date and not include_done:
             continue
 
-        # Extract lib name from test name (test_foo -> foo)
-        lib_name = test_name[5:] if test_name.startswith("test_") else test_name
+        tracked = is_test_tracked(test_name, cpython_prefix, lib_prefix)
+
+        # Check DEPENDENCIES mapping first, then fall back to simple extraction
+        if test_name in test_to_lib:
+            lib_name = test_to_lib[test_name]
+            # Get order from DEPENDENCIES
+            test_order = lib_test_order[lib_name].index(test_name)
+        else:
+            # Extract lib name from test name (test_foo -> foo)
+            lib_name = test_name.removeprefix("test_")
+            test_order = 0  # Default order for tests not in DEPENDENCIES
 
         # Check if corresponding lib is up-to-date
         # Scoring: 0 = lib ready (highest priority), 1 = no lib, 2 = lib pending
@@ -344,7 +405,7 @@ def compute_test_todo_list(
         else:
             score = 1  # No corresponding lib (independent test)
 
-        todo_count = count_test_todos(test_name, lib_prefix)
+        todo_count = count_test_todos(test_name, lib_prefix) if tracked else 0
 
         result.append(
             {
@@ -352,7 +413,9 @@ def compute_test_todo_list(
                 "lib_name": lib_name,
                 "score": score,
                 "up_to_date": up_to_date,
+                "tracked": tracked,
                 "todo_count": todo_count,
+                "test_order": test_order,
             }
         )
 
@@ -362,31 +425,62 @@ def compute_test_todo_list(
     return result
 
 
+def _format_test_suffix(item: dict) -> str:
+    """Format suffix for test item (TODO count or untracked)."""
+    tracked = item.get("tracked", True)
+    if not tracked:
+        return " (untracked)"
+    todo_count = item.get("todo_count", 0)
+    if todo_count > 0:
+        return f" ({todo_count} TODO)"
+    return ""
+
+
 def format_test_todo_list(
     todo_list: list[dict],
     limit: int | None = None,
 ) -> list[str]:
-    """Format test todo list for display."""
+    """Format test todo list for display.
+
+    Groups tests by lib_name. If multiple tests share the same lib_name,
+    the first test is shown as the primary and others are indented below it.
+    """
     lines = []
 
     if limit:
         todo_list = todo_list[:limit]
 
+    # Group by lib_name
+    grouped: dict[str, list[dict]] = {}
     for item in todo_list:
-        name = item["name"]
-        done_mark = "[x]" if item["up_to_date"] else "[ ]"
-        todo_count = item.get("todo_count", 0)
-        if todo_count > 0:
-            lines.append(f"- {done_mark} {name} ({todo_count} TODO)")
-        else:
-            lines.append(f"- {done_mark} {name}")
+        lib_name = item.get("lib_name", item["name"])
+        if lib_name not in grouped:
+            grouped[lib_name] = []
+        grouped[lib_name].append(item)
+
+    # Sort each group by test_order (from DEPENDENCIES)
+    for tests in grouped.values():
+        tests.sort(key=lambda x: x.get("test_order", 0))
+
+    for lib_name, tests in grouped.items():
+        # First test is the primary
+        primary = tests[0]
+        done_mark = "[x]" if primary["up_to_date"] else "[ ]"
+        suffix = _format_test_suffix(primary)
+        lines.append(f"- {done_mark} {primary['name']}{suffix}")
+
+        # Rest are indented
+        for item in tests[1:]:
+            done_mark = "[x]" if item["up_to_date"] else "[ ]"
+            suffix = _format_test_suffix(item)
+            lines.append(f"  - {done_mark} {item['name']}{suffix}")
 
     return lines
 
 
 def format_todo_list(
     todo_list: list[dict],
-    test_by_lib: dict[str, dict] | None = None,
+    test_by_lib: dict[str, list[dict]] | None = None,
     limit: int | None = None,
     verbose: bool = False,
 ) -> list[str]:
@@ -394,7 +488,7 @@ def format_todo_list(
 
     Args:
         todo_list: List from compute_todo_list()
-        test_by_lib: Dict mapping lib_name -> test info (optional)
+        test_by_lib: Dict mapping lib_name -> list of test infos (optional)
         limit: Maximum number of items to show
         verbose: Show detailed dependency information
 
@@ -427,17 +521,12 @@ def format_todo_list(
 
         lines.append(" ".join(parts))
 
-        # Show corresponding test if exists
+        # Show corresponding tests if exist
         if test_by_lib and name in test_by_lib:
-            test_info = test_by_lib[name]
-            test_done_mark = "[x]" if test_info["up_to_date"] else "[ ]"
-            todo_count = test_info.get("todo_count", 0)
-            if todo_count > 0:
-                lines.append(
-                    f"  - {test_done_mark} {test_info['name']} ({todo_count} TODO)"
-                )
-            else:
-                lines.append(f"  - {test_done_mark} {test_info['name']}")
+            for test_info in test_by_lib[name]:
+                test_done_mark = "[x]" if test_info["up_to_date"] else "[ ]"
+                suffix = _format_test_suffix(test_info)
+                lines.append(f"  - {test_done_mark} {test_info['name']}{suffix}")
 
         # Verbose mode: show detailed dependency info
         if verbose:
@@ -479,7 +568,7 @@ def format_all_todo(
     )
 
     # Build test_by_lib map (only for tests with corresponding lib)
-    test_by_lib = {}
+    test_by_lib: dict[str, list[dict]] = {}
     no_lib_tests = []
     # Set of libs that have pending tests
     libs_with_pending_tests = set()
@@ -488,9 +577,16 @@ def format_all_todo(
             if not test["up_to_date"] or include_done:
                 no_lib_tests.append(test)
         else:
-            test_by_lib[test["lib_name"]] = test
+            lib_name = test["lib_name"]
+            if lib_name not in test_by_lib:
+                test_by_lib[lib_name] = []
+            test_by_lib[lib_name].append(test)
             if not test["up_to_date"]:
-                libs_with_pending_tests.add(test["lib_name"])
+                libs_with_pending_tests.add(lib_name)
+
+    # Sort each lib's tests by test_order (from DEPENDENCIES)
+    for tests in test_by_lib.values():
+        tests.sort(key=lambda x: x.get("test_order", 0))
 
     # Compute lib todo - include libs with pending tests even if lib is done
     lib_todo_base = compute_todo_list(cpython_prefix, lib_prefix, include_done=True)
