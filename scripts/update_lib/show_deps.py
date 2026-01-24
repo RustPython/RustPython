@@ -86,6 +86,7 @@ def format_deps_tree(
         List of formatted lines
     """
     from update_lib.deps import (
+        get_lib_paths,
         get_rust_deps,
         get_soft_deps,
         is_up_to_date,
@@ -111,6 +112,11 @@ def format_deps_tree(
     dup_deps = []
 
     for dep in soft_deps:
+        # Skip if library doesn't exist in cpython
+        lib_paths = get_lib_paths(dep, cpython_prefix)
+        if not any(p.exists() for p in lib_paths):
+            continue
+
         up_to_date = is_up_to_date(dep, cpython_prefix, lib_prefix)
         if up_to_date:
             # Up-to-date modules collected compactly, no dup tracking needed

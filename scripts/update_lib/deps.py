@@ -468,9 +468,12 @@ def is_up_to_date(
 
     lib_paths = get_lib_paths(name, cpython_prefix)
 
+    found_any = False
     for cpython_path in lib_paths:
         if not cpython_path.exists():
             continue
+
+        found_any = True
 
         # Convert cpython path to local path
         # cpython/Lib/foo.py -> Lib/foo.py
@@ -489,7 +492,7 @@ def is_up_to_date(
             if not _dircmp_is_same(dcmp):
                 return False
 
-    return True
+    return found_any
 
 
 def get_test_dependencies(
