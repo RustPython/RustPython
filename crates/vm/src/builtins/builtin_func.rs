@@ -10,6 +10,7 @@ use crate::{
 use alloc::fmt;
 
 // PyCFunctionObject in CPython
+#[repr(C)]
 #[pyclass(name = "builtin_function_or_method", module = false)]
 pub struct PyNativeFunction {
     pub(crate) value: &'static PyMethodDef,
@@ -146,7 +147,9 @@ impl Representable for PyNativeFunction {
 }
 
 // `PyCMethodObject` in CPython
-#[pyclass(name = "builtin_method", module = false, base = PyNativeFunction, ctx = "builtin_method_type")]
+// repr(C) ensures `func` is at offset 0, allowing safe cast from PyNativeMethod to PyNativeFunction
+#[repr(C)]
+#[pyclass(name = "builtin_function_or_method", module = false, base = PyNativeFunction, ctx = "builtin_function_or_method_type")]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
     pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self
@@ -157,34 +160,8 @@ pub struct PyNativeMethod {
     flags(HAS_DICT, DISALLOW_INSTANTIATION)
 )]
 impl PyNativeMethod {
-    #[pygetset]
-    fn __qualname__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let prefix = zelf.class.name().to_string();
-        Ok(vm
-            .ctx
-            .new_str(format!("{}.{}", prefix, &zelf.func.value.name)))
-    }
-
-    #[pymethod]
-    fn __reduce__(
-        &self,
-        vm: &VirtualMachine,
-    ) -> PyResult<(PyObjectRef, (PyObjectRef, &'static str))> {
-        // TODO: return (getattr, (self.object, self.name)) if this is a method
-        let getattr = vm.builtins.get_attr("getattr", vm)?;
-        let target = self
-            .func
-            .zelf
-            .clone()
-            .unwrap_or_else(|| self.class.to_owned().into());
-        let name = self.func.value.name;
-        Ok((getattr, (target, name)))
-    }
-
-    #[pygetset]
-    fn __self__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        zelf.func.zelf.clone()
-    }
+    // __qualname__, __self__, and __reduce__ are inherited from PyNativeFunction
+    // via NativeFunctionOrMethod wrapper since we share the same Python type.
 }
 
 impl fmt::Debug for PyNativeMethod {
@@ -246,15 +223,20 @@ impl Representable for PyNativeMethod {
 
 pub fn init(context: &Context) {
     PyNativeFunction::extend_class(context, context.types.builtin_function_or_method_type);
-    PyNativeMethod::extend_class(context, context.types.builtin_method_type);
+    PyNativeMethod::extend_class(context, context.types.builtin_function_or_method_type);
 }
 
+/// Wrapper that provides access to the common PyNativeFunction data
+/// for both PyNativeFunction and PyNativeMethod (which has func as its first field).
 struct NativeFunctionOrMethod(PyRef<PyNativeFunction>);
 
 impl TryFromObject for NativeFunctionOrMethod {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = vm.ctx.types.builtin_function_or_method_type;
         if obj.fast_isinstance(class) {
+            // Both PyNativeFunction and PyNativeMethod share the same type now.
+            // PyNativeMethod has `func: PyNativeFunction` as its first field,
+            // so we can safely treat the data pointer as PyNativeFunction for reading.
             Ok(Self(unsafe { obj.downcast_unchecked() }))
         } else {
             Err(vm.new_downcast_type_error(class, &obj))

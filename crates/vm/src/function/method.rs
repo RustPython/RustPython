@@ -188,7 +188,7 @@ impl PyMethodDef {
     ) -> PyRef<PyNativeMethod> {
         PyRef::new_ref(
             self.to_bound_method(obj, class),
-            ctx.types.builtin_method_type.to_owned(),
+            ctx.types.builtin_function_or_method_type.to_owned(),
             None,
         )
     }
