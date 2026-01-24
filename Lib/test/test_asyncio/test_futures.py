@@ -730,8 +730,6 @@ class CFutureTests(BaseFutureTests, test_utils.TestCase):
         evil = gc.get_referents(_asyncio)
         gc.collect()
 
-    # TODO: RUSTPYTHON - _asyncio delegates to Python impl, no true C behavior
-    @unittest.expectedFailure
     def test_callbacks_copy(self):
         # See https://github.com/python/cpython/issues/125789
         # In C implementation, the `_callbacks` attribute

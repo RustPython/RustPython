@@ -963,8 +963,6 @@ class TestSSL(test_utils.TestCase):
                 asyncio.wait_for(client(srv.addr),
                                  timeout=support.SHORT_TIMEOUT))
 
-    # TODO: RUSTPYTHON - BrokenPipeError in connection_lost callback
-    @unittest.expectedFailure
     def test_start_tls_server_1(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
