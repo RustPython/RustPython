@@ -65,12 +65,67 @@ DEPENDENCIES = {
     },
     # Rust-implemented modules (no lib file, only test)
     "int": {
-        "lib": [],  # No Python lib (Rust implementation)
+        "lib": [],
         "hard_deps": ["_pylong.py"],
+        "test": [
+            "test/test_int.py",
+            "test/test_long.py",
+        ],
+    },
+    "exception": {
+        "lib": [],
+        "test": [
+            "test/test_exceptions.py",
+            "test/test_baseexception.py",
+            "test/test_except_star.py",
+            "test/test_exception_group.py",
+            "test/test_exception_hierarchy.py",
+            "test/test_exception_variations.py",
+        ],
+    },
+    "dict": {
+        "lib": [],
+        "test": [
+            "test/test_dict.py",
+            "test/test_dictcomps.py",
+            "test/test_dictviews.py",
+            "test/test_userdict.py",
+        ],
+    },
+    "list": {
+        "lib": [],
+        "test": [
+            "test/test_list.py",
+            "test/test_listcomps.py",
+            "test/test_userlist.py",
+        ],
+    },
+    "codecs": {
+        "test": [
+            "test/test_codecs.py",
+            "test/test_codeccallbacks.py",
+            "test/test_codecencodings_cn.py",
+            "test/test_codecencodings_hk.py",
+            "test/test_codecencodings_iso2022.py",
+            "test/test_codecencodings_jp.py",
+            "test/test_codecencodings_kr.py",
+            "test/test_codecencodings_tw.py",
+            "test/test_codecmaps_cn.py",
+            "test/test_codecmaps_hk.py",
+            "test/test_codecmaps_jp.py",
+            "test/test_codecmaps_kr.py",
+            "test/test_codecmaps_tw.py",
+            "test/test_charmapcodec.py",
+            "test/test_multibytecodec.py",
+        ],
     },
     # Non-pattern hard_deps (can't be auto-detected)
     "ast": {
         "hard_deps": ["_ast_unparse.py"],
+        "test": [
+            "test/test_ast.py",
+            "test/test_unparse.py",
+        ],
     },
     # Data directories
     "pydoc": {
@@ -83,6 +138,206 @@ DEPENDENCIES = {
     "support": {
         "lib": ["test/support"],
         "data": ["test/wheeldata"],
+        "test": [
+            "test/test_support.py",
+            "test/test_script_helper.py",
+        ],
+    },
+    # test_htmlparser tests html.parser
+    "html": {
+        "test": ["test/test_html.py", "test/test_htmlparser.py"],
+    },
+    "xml": {
+        "test": [
+            "test/test_xml_etree.py",
+            "test/test_xml_etree_c.py",
+            "test/test_minidom.py",
+            "test/test_pulldom.py",
+            "test/test_pyexpat.py",
+            "test/test_sax.py",
+        ],
+    },
+    "multiprocessing": {
+        "test": [
+            "test/test_multiprocessing_fork",
+            "test/test_multiprocessing_forkserver",
+            "test/test_multiprocessing_spawn",
+        ],
+    },
+    "urllib": {
+        "test": [
+            "test/test_urllib.py",
+            "test/test_urllib2.py",
+            "test/test_urllib2_localnet.py",
+            "test/test_urllib2net.py",
+            "test/test_urllibnet.py",
+            "test/test_urlparse.py",
+            "test/test_urllib_response.py",
+            "test/test_robotparser.py",
+        ],
+    },
+    "collections": {
+        "test": [
+            "test/test_collections.py",
+            "test/test_deque.py",
+            "test/test_defaultdict.py",
+            "test/test_ordered_dict.py",
+        ],
+    },
+    "http": {
+        "test": [
+            "test/test_httplib.py",
+            "test/test_http_cookiejar.py",
+            "test/test_http_cookies.py",
+            "test/test_httpservers.py",
+        ],
+    },
+    "unicode": {
+        "lib": [],
+        "test": [
+            "test/test_unicode_file.py",
+            "test/test_unicode_file_functions.py",
+            "test/test_unicode_identifiers.py",
+            "test/test_unicodedata.py",
+        ],
+    },
+    "typing": {
+        "test": [
+            "test/test_typing.py",
+            "test/test_type_aliases.py",
+            "test/test_type_annotations.py",
+            "test/test_type_params.py",
+            "test/test_genericalias.py",
+        ],
+    },
+    "unpack": {
+        "lib": [],
+        "test": [
+            "test/test_unpack.py",
+            "test/test_unpack_ex.py",
+        ],
+    },
+    "zipimport": {
+        "test": [
+            "test/test_zipimport.py",
+            "test/test_zipimport_support.py",
+        ],
+    },
+    "time": {
+        "lib": [],
+        "test": [
+            "test/test_time.py",
+            "test/test_strftime.py",
+        ],
+    },
+    "sys": {
+        "lib": [],
+        "test": [
+            "test/test_sys.py",
+            "test/test_syslog.py",
+            "test/test_sys_setprofile.py",
+            "test/test_sys_settrace.py",
+        ],
+    },
+    "str": {
+        "lib": [],
+        "test": [
+            "test/test_str.py",
+            "test/test_fstring.py",
+            "test/test_string_literals.py",
+        ],
+    },
+    "thread": {
+        "lib": [],
+        "test": [
+            "test/test_thread.py",
+            "test/test_thread_local_bytecode.py",
+            "test/test_threadsignals.py",
+        ],
+    },
+    "threading": {
+        "test": [
+            "test/test_threading.py",
+            "test/test_threadedtempfile.py",
+            "test/test_threading_local.py",
+        ],
+    },
+    "class": {
+        "lib": [],
+        "test": [
+            "test/test_class.py",
+            "test/test_genericclass.py",
+            "test/test_subclassinit.py",
+        ],
+    },
+    "generator": {
+        "lib": [],
+        "test": [
+            "test/test_generators.py",
+            "test/test_genexps.py",
+            "test/test_generator_stop.py",
+            "test/test_yield_from.py",
+        ],
+    },
+    "descr": {
+        "lib": [],
+        "test": [
+            "test/test_descr.py",
+            "test/test_descrtut.py",
+        ],
+    },
+    "contextlib": {
+        "test": [
+            "test/test_contextlib.py",
+            "test/test_contextlib_async.py",
+        ],
+    },
+    "io": {
+        "test": [
+            "test/test_io.py",
+            "test/test_bufio.py",
+            "test/test_fileio.py",
+            "test/test_memoryio.py",
+        ],
+    },
+    "dbm": {
+        "test": [
+            "test/test_dbm.py",
+            "test/test_dbm_gnu.py",
+            "test/test_dbm_ndbm.py",
+        ],
+    },
+    "datetime": {
+        "test": [
+            "test/test_datetime.py",
+            "test/test_strptime.py",
+        ],
+    },
+    "file": {
+        "lib": [],
+        "test": [
+            "test/test_file.py",
+            "test/test_largefile.py",
+        ],
+    },
+    "fcntl": {
+        "lib": [],
+        "test": [
+            "test/test_fcntl.py",
+            "test/test_ioctl.py",
+        ],
+    },
+    "xmlrpc": {
+        "test": [
+            "test/test_xmlrpc.py",
+            "test/test_docxmlrpc.py",
+        ],
+    },
+    "ctypes": {
+        "test": [
+            "test/test_ctypes",
+            "test/test_stable_abi_ctypes.py",
+        ],
     },
 }
 
@@ -468,9 +723,12 @@ def is_up_to_date(
 
     lib_paths = get_lib_paths(name, cpython_prefix)
 
+    found_any = False
     for cpython_path in lib_paths:
         if not cpython_path.exists():
             continue
+
+        found_any = True
 
         # Convert cpython path to local path
         # cpython/Lib/foo.py -> Lib/foo.py
@@ -489,7 +747,11 @@ def is_up_to_date(
             if not _dircmp_is_same(dcmp):
                 return False
 
-    return True
+    if not found_any:
+        dep_info = DEPENDENCIES.get(name, {})
+        if dep_info.get("lib") == []:
+            return True
+    return found_any
 
 
 def get_test_dependencies(
