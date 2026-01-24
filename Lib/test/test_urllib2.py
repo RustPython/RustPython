@@ -3,12 +3,12 @@ from test import support
 from test.support import os_helper
 from test.support import requires_subprocess
 from test.support import warnings_helper
-from test.support.testcase import ExtraAssertions
 from test import test_urllib
 from unittest import mock
 
 import os
 import io
+import ftplib
 import socket
 import array
 import sys
@@ -23,9 +23,10 @@ from urllib.request import (Request, OpenerDirector, HTTPBasicAuthHandler,
                             _proxy_bypass_winreg_override,
                             _proxy_bypass_macosx_sysconf,
                             AbstractDigestAuthHandler)
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 import urllib.error
 import http.client
+
 
 support.requires_working_socket(module=True)
 
@@ -43,10 +44,6 @@ class TrivialTests(unittest.TestCase):
             context = {}
             exec('from urllib.%s import *' % module, context)
             del context['__builtins__']
-            if module == 'request' and os.name == 'nt':
-                u, p = context.pop('url2pathname'), context.pop('pathname2url')
-                self.assertEqual(u.__module__, 'nturl2path')
-                self.assertEqual(p.__module__, 'nturl2path')
             for k, v in context.items():
                 self.assertEqual(v.__module__, 'urllib.%s' % module,
                     "%r is exposed in 'urllib.%s' but defined in %r" %
@@ -717,15 +714,7 @@ class OpenerDirectorTests(unittest.TestCase):
                     self.assertIsInstance(args[1], MockResponse)
 
 
-def sanepathname2url(path):
-    urlpath = urllib.request.pathname2url(path)
-    if os.name == "nt" and urlpath.startswith("///"):
-        urlpath = urlpath[2:]
-    # XXX don't ask me about the mac...
-    return urlpath
-
-
-class HandlerTests(unittest.TestCase, ExtraAssertions):
+class HandlerTests(unittest.TestCase):
 
     def test_ftp(self):
         class MockFTPWrapper:
@@ -751,7 +740,6 @@ class HandlerTests(unittest.TestCase, ExtraAssertions):
                 self.ftpwrapper = MockFTPWrapper(self.data)
                 return self.ftpwrapper
 
-        import ftplib
         data = "rheum rhaponicum"
         h = NullFTPHandler(data)
         h.parent = MockOpener()
@@ -792,25 +780,50 @@ class HandlerTests(unittest.TestCase, ExtraAssertions):
             self.assertEqual(int(headers["Content-length"]), len(data))
             r.close()
 
+    @support.requires_resource("network")
+    def test_ftp_error(self):
+        class ErrorFTPHandler(urllib.request.FTPHandler):
+            def __init__(self, exception):
+                self._exception = exception
+
+            def connect_ftp(self, user, passwd, host, port, dirs,
+                            timeout=socket._GLOBAL_DEFAULT_TIMEOUT):
+                raise self._exception
+
+        exception = ftplib.error_perm(
+            "500 OOPS: cannot change directory:/nonexistent")
+        h = ErrorFTPHandler(exception)
+        urlopen = urllib.request.build_opener(h).open
+        try:
+            urlopen("ftp://www.pythontest.net/")
+        except urllib.error.URLError as raised:
+            self.assertEqual(raised.reason,
+                             f"ftp error: {exception.args[0]}")
+        else:
+            self.fail("Did not raise ftplib exception")
+
     def test_file(self):
         import email.utils
         h = urllib.request.FileHandler()
         o = h.parent = MockOpener()
 
         TESTFN = os_helper.TESTFN
-        urlpath = sanepathname2url(os.path.abspath(TESTFN))
         towrite = b"hello, world\n"
+        canonurl = urllib.request.pathname2url(os.path.abspath(TESTFN), add_scheme=True)
+        parsed = urlsplit(canonurl)
+        if parsed.netloc:
+            raise unittest.SkipTest("non-local working directory")
         urls = [
-            "file://localhost%s" % urlpath,
-            "file://%s" % urlpath,
-            "file://%s%s" % (socket.gethostbyname('localhost'), urlpath),
+            canonurl,
+            parsed._replace(netloc='localhost').geturl(),
+            parsed._replace(netloc=socket.gethostbyname('localhost')).geturl(),
             ]
         try:
             localaddr = socket.gethostbyname(socket.gethostname())
         except socket.gaierror:
             localaddr = ''
         if localaddr:
-            urls.append("file://%s%s" % (localaddr, urlpath))
+            urls.append(parsed._replace(netloc=localaddr).geturl())
 
         for url in urls:
             f = open(TESTFN, "wb")
@@ -835,10 +848,10 @@ class HandlerTests(unittest.TestCase, ExtraAssertions):
             self.assertEqual(headers["Content-type"], "text/plain")
             self.assertEqual(headers["Content-length"], "13")
             self.assertEqual(headers["Last-modified"], modified)
-            self.assertEqual(respurl, url)
+            self.assertEqual(respurl, canonurl)
 
         for url in [
-            "file://localhost:80%s" % urlpath,
+            parsed._replace(netloc='localhost:80').geturl(),
             "file:///file_does_not_exist.txt",
             "file://not-a-local-host.com//dir/file.txt",
             "file://%s:80%s/%s" % (socket.gethostbyname('localhost'),
@@ -1136,13 +1149,13 @@ class HandlerTests(unittest.TestCase, ExtraAssertions):
         r = Request('http://example.com')
         for url in urls:
             r.full_url = url
-            parsed = urlparse(url)
+            parsed = urlsplit(url)
 
             self.assertEqual(r.get_full_url(), url)
             # full_url setter uses splittag to split into components.
             # splittag sets the fragment as None while urlparse sets it to ''
             self.assertEqual(r.fragment or '', parsed.fragment)
-            self.assertEqual(urlparse(r.get_full_url()).query, parsed.query)
+            self.assertEqual(urlsplit(r.get_full_url()).query, parsed.query)
 
     def test_full_url_deleter(self):
         r = Request('http://www.example.com')
@@ -1834,7 +1847,7 @@ class HandlerTests(unittest.TestCase, ExtraAssertions):
         self.assertTrue(conn.fakesock.closed, "Connection not closed")
 
 
-class MiscTests(unittest.TestCase, ExtraAssertions):
+class MiscTests(unittest.TestCase):
 
     def opener_has_handler(self, opener, handler_class):
         self.assertTrue(any(h.__class__ == handler_class
@@ -1954,10 +1967,38 @@ class MiscTests(unittest.TestCase, ExtraAssertions):
 
         self.assertRaises(ValueError, _parse_proxy, 'file:/ftp.example.com'),
 
-    def test_unsupported_algorithm(self):
-        handler = AbstractDigestAuthHandler()
+
+skip_libssl_fips_mode = unittest.skipIf(
+    support.is_libssl_fips_mode(),
+    "conservative skip due to OpenSSL FIPS mode possible algorithm nerfing",
+)
+
+
+class TestDigestAuthAlgorithms(unittest.TestCase):
+    def setUp(self):
+        self.handler = AbstractDigestAuthHandler()
+
+    @skip_libssl_fips_mode
+    def test_md5_algorithm(self):
+        H, KD = self.handler.get_algorithm_impls('MD5')
+        self.assertEqual(H("foo"), "acbd18db4cc2f85cedef654fccc4a4d8")
+        self.assertEqual(KD("foo", "bar"), "4e99e8c12de7e01535248d2bac85e732")
+
+    @skip_libssl_fips_mode
+    def test_sha_algorithm(self):
+        H, KD = self.handler.get_algorithm_impls('SHA')
+        self.assertEqual(H("foo"), "0beec7b5ea3f0fdbc95d0dd47f3c5bc275da8a33")
+        self.assertEqual(KD("foo", "bar"), "54dcbe67d21d5eb39493d46d89ae1f412d3bd6de")
+
+    @skip_libssl_fips_mode
+    def test_sha256_algorithm(self):
+        H, KD = self.handler.get_algorithm_impls('SHA-256')
+        self.assertEqual(H("foo"), "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
+        self.assertEqual(KD("foo", "bar"), "a765a8beaa9d561d4c5cbed29d8f4e30870297fdfa9cb7d6e9848a95fec9f937")
+
+    def test_invalid_algorithm(self):
         with self.assertRaises(ValueError) as exc:
-            handler.get_algorithm_impls('invalid')
+            self.handler.get_algorithm_impls('invalid')
         self.assertEqual(
             str(exc.exception),
             "Unsupported digest authentication algorithm 'invalid'"
