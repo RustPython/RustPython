@@ -301,6 +301,12 @@ def _expand_shortcut(path: pathlib.Path) -> pathlib.Path:
     if resolved.exists():
         return resolved
 
+    # Extension module shortcut: winreg -> cpython/Lib/test/test_winreg
+    # For C/Rust extension modules that have no Python source but have tests
+    resolved = resolve_module_path(f"test/test_{name}", "cpython", prefer="dir")
+    if resolved.exists():
+        return resolved
+
     # Return original (will likely fail later with a clear error)
     return path
 

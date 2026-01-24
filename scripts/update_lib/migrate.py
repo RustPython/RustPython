@@ -38,12 +38,12 @@ def patch_single_content(
 
     # Extract patches from existing file (if exists)
     if lib_path.exists():
-        patches = extract_patches(lib_path.read_text())
+        patches = extract_patches(lib_path.read_text(encoding="utf-8"))
     else:
         patches = {}
 
     # Apply patches to source content
-    src_content = src_path.read_text()
+    src_content = src_path.read_text(encoding="utf-8")
     return apply_patches(src_content, patches)
 
 
@@ -70,10 +70,10 @@ def patch_file(
     else:
         if verbose:
             print(f"Copying: {src_path} -> {lib_path}")
-        content = src_path.read_text()
+        content = src_path.read_text(encoding="utf-8")
 
     lib_path.parent.mkdir(parents=True, exist_ok=True)
-    lib_path.write_text(content)
+    lib_path.write_text(content, encoding="utf-8")
 
 
 def patch_directory(
@@ -105,10 +105,10 @@ def patch_directory(
         else:
             if verbose:
                 print(f"Copying: {src_file} -> {lib_file}")
-            content = src_file.read_text()
+            content = src_file.read_text(encoding="utf-8")
 
         lib_file.parent.mkdir(parents=True, exist_ok=True)
-        lib_file.write_text(content)
+        lib_file.write_text(content, encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
