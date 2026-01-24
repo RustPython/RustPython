@@ -31,8 +31,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-from update_lib.io_utils import safe_read_text
 from update_lib.deps import get_test_paths
+from update_lib.io_utils import safe_read_text
 from update_lib.path import (
     construct_lib_path,
     get_module_name,

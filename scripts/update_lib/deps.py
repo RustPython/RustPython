@@ -392,6 +392,30 @@ def resolve_hard_dep_parent(name: str, cpython_prefix: str = "cpython") -> str |
     return None
 
 
+def resolve_test_to_lib(test_name: str) -> str | None:
+    """Resolve a test name to its library group from DEPENDENCIES.
+
+    Args:
+        test_name: Test name with or without test_ prefix (e.g., "test_urllib2" or "urllib2")
+
+    Returns:
+        Library name if test belongs to a group, None otherwise
+    """
+    # Normalize: add test_ prefix if not present
+    if not test_name.startswith("test_"):
+        test_name = f"test_{test_name}"
+
+    for lib_name, dep_info in DEPENDENCIES.items():
+        tests = dep_info.get("test", [])
+        for test_path in tests:
+            # test_path is like "test_urllib2.py" or "test_multiprocessing_fork"
+            path_stem = test_path[:-3] if test_path.endswith(".py") else test_path
+            if path_stem == test_name:
+                return lib_name
+
+    return None
+
+
 # Test-specific dependencies (only when auto-detection isn't enough)
 # - hard_deps: files to migrate (tightly coupled, must be migrated together)
 # - data: directories to copy without migration

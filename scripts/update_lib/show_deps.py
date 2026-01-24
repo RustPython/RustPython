@@ -314,10 +314,14 @@ def _resolve_module_name(
         get_lib_paths,
         get_test_paths,
         resolve_hard_dep_parent,
+        resolve_test_to_lib,
     )
 
-    # Resolve test_ prefix
+    # Resolve test to library group (e.g., test_urllib2 -> urllib)
     if name.startswith("test_"):
+        lib_group = resolve_test_to_lib(name)
+        if lib_group:
+            return [lib_group]
         name = name[5:]
 
     # Resolve hard_dep to parent
