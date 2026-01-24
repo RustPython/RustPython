@@ -15,8 +15,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 
 def compute_todo_list(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     include_done: bool = False,
 ) -> list[dict]:
     """Compute prioritized list of modules to update.
@@ -108,7 +108,7 @@ def compute_todo_list(
     return result
 
 
-def get_all_tests(cpython_prefix: str = "cpython") -> list[str]:
+def get_all_tests(cpython_prefix: str) -> list[str]:
     """Get all test module names from cpython/Lib/test/.
 
     Returns:
@@ -136,8 +136,8 @@ def get_all_tests(cpython_prefix: str = "cpython") -> list[str]:
 
 
 def get_untracked_files(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
 ) -> list[str]:
     """Get files that exist in cpython/Lib but not in our Lib.
 
@@ -199,8 +199,8 @@ def get_untracked_files(
 
 
 def get_original_files(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
 ) -> list[str]:
     """Get files that exist in our Lib but not in cpython/Lib.
 
@@ -290,7 +290,7 @@ def _compare_dir_ignoring_todo(
     return True
 
 
-def count_test_todos(test_name: str, lib_prefix: str = "Lib") -> int:
+def count_test_todos(test_name: str, lib_prefix: str) -> int:
     """Count TODO: RUSTPYTHON lines in a test file/directory."""
     local_dir = pathlib.Path(lib_prefix) / "test" / test_name
     local_file = pathlib.Path(lib_prefix) / "test" / f"{test_name}.py"
@@ -321,7 +321,7 @@ def count_test_todos(test_name: str, lib_prefix: str = "Lib") -> int:
 
 
 def is_test_tracked(
-    test_name: str, cpython_prefix: str = "cpython", lib_prefix: str = "Lib"
+    test_name: str, cpython_prefix: str, lib_prefix: str
 ) -> bool:
     """Check if a test exists in our local Lib/test."""
     cpython_dir = pathlib.Path(cpython_prefix) / "Lib" / "test" / test_name
@@ -339,7 +339,7 @@ def is_test_tracked(
 
 
 def is_test_up_to_date(
-    test_name: str, cpython_prefix: str = "cpython", lib_prefix: str = "Lib"
+    test_name: str, cpython_prefix: str, lib_prefix: str
 ) -> bool:
     """Check if a test is up-to-date by comparing files.
 
@@ -368,7 +368,7 @@ def is_test_up_to_date(
 
 
 def _build_test_to_lib_map(
-    cpython_prefix: str = "cpython",
+    cpython_prefix: str,
 ) -> tuple[dict[str, str], dict[str, list[str]]]:
     """Build reverse mapping from test name to library name using DEPENDENCIES.
 
@@ -401,8 +401,8 @@ def _build_test_to_lib_map(
 
 
 def compute_test_todo_list(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     include_done: bool = False,
     lib_status: dict[str, bool] | None = None,
 ) -> list[dict]:
@@ -585,8 +585,8 @@ def format_todo_list(
 
 
 def format_all_todo(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     limit: int | None = None,
     include_done: bool = False,
     verbose: bool = False,
@@ -679,8 +679,8 @@ def format_all_todo(
 
 
 def show_todo(
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     limit: int | None = None,
     include_done: bool = False,
     verbose: bool = False,

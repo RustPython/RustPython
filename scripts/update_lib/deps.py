@@ -733,7 +733,7 @@ def _dircmp_is_same(dcmp) -> bool:
 
 @functools.cache
 def is_up_to_date(
-    name: str, cpython_prefix: str, lib_prefix: str = "Lib"
+    name: str, cpython_prefix: str, lib_prefix: str
 ) -> bool:
     """Check if a module is up-to-date by comparing files.
 
@@ -976,7 +976,7 @@ def _build_test_import_graph(
 _lib_import_graph_cache: dict[str, dict[str, set[str]]] = {}
 
 
-def _build_lib_import_graph(lib_prefix: str = "Lib") -> dict[str, set[str]]:
+def _build_lib_import_graph(lib_prefix: str) -> dict[str, set[str]]:
     """Build import graph for Lib modules (full module paths like urllib.request).
 
     Uses cross-process shelve cache based on CPython version.
@@ -1132,7 +1132,7 @@ _BLOCKLIST_MODULES = frozenset(
 
 def find_dependent_tests_tree(
     module_name: str,
-    lib_prefix: str = "Lib",
+    lib_prefix: str,
     max_depth: int = 1,
     _depth: int = 0,
     _visited_tests: set[str] | None = None,

@@ -70,13 +70,13 @@ class TestGetLibPaths(unittest.TestCase):
             tmpdir = pathlib.Path(tmpdir)
             lib_dir = tmpdir / "Lib"
             lib_dir.mkdir()
-            (lib_dir / "datetime.py").write_text("# datetime")
-            (lib_dir / "_pydatetime.py").write_text("# _pydatetime")
+            (lib_dir / "mymodule.py").write_text("# mymodule")
+            (lib_dir / "_pymymodule.py").write_text("# _pymymodule")
 
-            paths = get_lib_paths("datetime", str(tmpdir))
+            paths = get_lib_paths("mymodule", str(tmpdir))
             self.assertEqual(len(paths), 2)
-            self.assertIn(tmpdir / "Lib" / "datetime.py", paths)
-            self.assertIn(tmpdir / "Lib" / "_pydatetime.py", paths)
+            self.assertIn(tmpdir / "Lib" / "mymodule.py", paths)
+            self.assertIn(tmpdir / "Lib" / "_pymymodule.py", paths)
 
     def test_default_file(self):
         """Test default to .py file."""

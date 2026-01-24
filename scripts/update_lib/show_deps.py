@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 
-def get_all_modules(cpython_prefix: str = "cpython") -> list[str]:
+def get_all_modules(cpython_prefix: str) -> list[str]:
     """Get all top-level module names from cpython/Lib/.
 
     Includes private modules (_*) that are not hard_deps of other modules.
@@ -173,8 +173,8 @@ def format_deps_tree(
 
 def format_deps(
     name: str,
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     max_depth: int = 10,
     _visited: set[str] | None = None,
 ) -> list[str]:
@@ -268,8 +268,8 @@ def format_deps(
 
 def _format_dependent_tests_tree(
     tree: dict,
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     indent: str = "",
 ) -> list[str]:
     """Format dependent tests tree for display."""
@@ -378,8 +378,8 @@ def _resolve_module_name(
 
 def show_deps(
     names: list[str],
-    cpython_prefix: str = "cpython",
-    lib_prefix: str = "Lib",
+    cpython_prefix: str,
+    lib_prefix: str,
     max_depth: int = 10,
 ) -> None:
     """Show all dependency information for modules."""
