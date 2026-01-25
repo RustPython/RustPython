@@ -926,8 +926,6 @@ if 1:
                 func(save_caller_frame)
                 self.assertEqual(frame.f_lineno-frame.f_code.co_firstlineno, lastline)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lineno_after_no_code(self):
         def no_code1():
             "doc string"

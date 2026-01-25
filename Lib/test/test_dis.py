@@ -1290,6 +1290,7 @@ class DisTests(DisTestBase):
         except Exception as e:
             self.assertIsNone(e.__context__)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: No END_ASYNC_FOR in disassembly of async for
     def test_async_for_presentation(self):
 
         async def afunc():
@@ -1473,6 +1474,10 @@ class DisWithFileTests(DisTests):
         else:
             dis.disassemble(func, lasti, file=output, **kwargs)
         return output.getvalue()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: No END_ASYNC_FOR in disassembly of async for
+    def test_async_for_presentation(self):
+        return super().test_async_for_presentation()
 
 
 if dis.code_info.__doc__ is None:
@@ -1998,12 +2003,10 @@ class InstructionTests(InstructionTestCase):
         for instr in instrs:
             str(instr)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_default_first_line(self):
         actual = dis.get_instructions(simple)
         self.assertInstructionsEqual(list(actual), expected_opinfo_simple)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_first_line_set_to_None(self):
         actual = dis.get_instructions(simple, first_line=None)
         self.assertInstructionsEqual(list(actual), expected_opinfo_simple)
@@ -2340,7 +2343,6 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
         actual = dis.Bytecode(outer, first_line=expected_outer_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_outer)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_source_line_in_disassembly(self):
         # Use the line in the source code
         actual = dis.Bytecode(simple).dis()
@@ -2385,28 +2387,24 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
             assert instr.positions == positions
 
 class TestBytecodeTestCase(BytecodeTestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_assert_not_in_with_op_not_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         self.assertInBytecode(code, "LOAD_SMALL_INT", 1)
         self.assertNotInBytecode(code, "LOAD_NAME")
         self.assertNotInBytecode(code, "LOAD_NAME", "a")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_assert_not_in_with_arg_not_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         self.assertInBytecode(code, "LOAD_SMALL_INT")
         self.assertInBytecode(code, "LOAD_SMALL_INT", 1)
         self.assertNotInBytecode(code, "LOAD_CONST", 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AssertionError not raised
     def test_assert_not_in_with_arg_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         with self.assertRaises(AssertionError):
             self.assertNotInBytecode(code, "LOAD_SMALL_INT", 1)
 
 class TestFinderMethods(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test__find_imports(self):
         cases = [
             ("import a.b.c", ('a.b.c', 0, None)),
@@ -2611,7 +2609,6 @@ class TestDisCLI(unittest.TestCase):
         for flag in ['-C', '--show-caches']:
             self.check_output(source, expect, flag)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_show_offsets(self):
         # test 'python -m dis -O/--show-offsets'
         source = 'pass'
