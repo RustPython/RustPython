@@ -195,7 +195,7 @@ def format_deps(
         is_path_synced,
         resolve_hard_dep_parent,
     )
-    from update_lib.show_todo import count_test_todos, is_test_up_to_date
+    from update_lib.deps import count_test_todos, is_test_up_to_date
 
     if _visited is None:
         _visited = set()

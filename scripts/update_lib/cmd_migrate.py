@@ -17,7 +17,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-from update_lib.path import parse_lib_path
+from update_lib.file_utils import parse_lib_path
 
 
 def patch_single_content(

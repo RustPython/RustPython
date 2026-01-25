@@ -10,7 +10,7 @@ class TestCopySingle(unittest.TestCase):
 
     def test_copies_file(self):
         """Test copying a single file."""
-        from update_lib.copy_lib import _copy_single
+        from update_lib.cmd_copy_lib import _copy_single
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = pathlib.Path(tmpdir)
@@ -26,7 +26,7 @@ class TestCopySingle(unittest.TestCase):
 
     def test_copies_directory(self):
         """Test copying a directory."""
-        from update_lib.copy_lib import _copy_single
+        from update_lib.cmd_copy_lib import _copy_single
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = pathlib.Path(tmpdir)
@@ -43,7 +43,7 @@ class TestCopySingle(unittest.TestCase):
 
     def test_removes_existing_before_copy(self):
         """Test that existing destination is removed before copy."""
-        from update_lib.copy_lib import _copy_single
+        from update_lib.cmd_copy_lib import _copy_single
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = pathlib.Path(tmpdir)
@@ -63,7 +63,7 @@ class TestCopyLib(unittest.TestCase):
 
     def test_raises_on_path_without_lib(self):
         """Test that copy_lib raises ValueError when path doesn't contain /Lib/."""
-        from update_lib.copy_lib import copy_lib
+        from update_lib.cmd_copy_lib import copy_lib
 
         with self.assertRaises(ValueError) as ctx:
             copy_lib(pathlib.Path("some/path/without/lib.py"))

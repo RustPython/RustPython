@@ -3,7 +3,7 @@
 import subprocess
 import unittest
 
-from update_lib.auto_mark import (
+from update_lib.cmd_auto_mark import (
     Test,
     TestResult,
     _is_super_call_only,
@@ -277,7 +277,7 @@ class TestCollectTestChanges(unittest.TestCase):
         When test results come from a package's __init__.py, the path is like:
         'test.test_dataclasses.TestCase.test_foo' (no __init__)
 
-        But module_prefix from test_name_from_path would be:
+        But module_prefix from get_test_module_name would be:
         'test_dataclasses.__init__'
 
         So we need to strip '.__init__' and add 'test.' prefix.
