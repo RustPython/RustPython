@@ -4,9 +4,10 @@ use crate::{
     bytecode::{
         BorrowedConstant, Constant, InstrDisplayContext,
         oparg::{
-            BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
-            IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx,
-            OpArg, OpArgByte, OpArgType, RaiseKind, SpecialMethod, UnpackExArgs,
+            BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator,
+            ConvertValueOparg, IntrinsicFunction1, IntrinsicFunction2, Invert, Label,
+            MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind, SpecialMethod,
+            UnpackExArgs,
         },
     },
     marshal::MarshalError,
@@ -22,8 +23,8 @@ use crate::{
 #[repr(u8)]
 pub enum Instruction {
     // No-argument instructions (opcode < HAVE_ARGUMENT=44)
-    Cache = 0,       // Placeholder
-    BinarySlice = 1, // Placeholder
+    Cache = 0, // Placeholder
+    BinarySlice = 1,
     BuildTemplate = 2,
     BinaryOpInplaceAddUnicode = 3, // Placeholder
     CallFunctionEx = 4,
@@ -59,7 +60,7 @@ pub enum Instruction {
     ReturnGenerator = 34,
     ReturnValue = 35,
     SetupAnnotations = 36,
-    StoreSlice = 37, // Placeholder
+    StoreSlice = 37,
     StoreSubscr = 38,
     ToBool = 39,
     UnaryInvert = 40,
@@ -122,7 +123,7 @@ pub enum Instruction {
     } = 59,
     CopyFreeVars {
         count: Arg<u32>,
-    } = 60, // Placeholder
+    } = 60,
     DeleteAttr {
         idx: Arg<NameIdx>,
     } = 61,
@@ -168,8 +169,8 @@ pub enum Instruction {
         idx: Arg<NameIdx>,
     } = 80,
     LoadCommonConstant {
-        idx: Arg<u32>,
-    } = 81, // Placeholder
+        idx: Arg<CommonConstant>,
+    } = 81,
     LoadConst {
         idx: Arg<u32>,
     } = 82,
@@ -180,10 +181,10 @@ pub enum Instruction {
     LoadFastBorrowLoadFastBorrow {
         arg: Arg<u32>,
     } = 87, // Placeholder
-    LoadFastCheck(Arg<NameIdx>) = 88,  // Placeholder
+    LoadFastCheck(Arg<NameIdx>) = 88,
     LoadFastLoadFast {
         arg: Arg<u32>,
-    } = 89, // Placeholder
+    } = 89,
     LoadFromDictOrDeref(Arg<NameIdx>) = 90,
     LoadFromDictOrGlobals(Arg<NameIdx>) = 91, // Placeholder
     LoadGlobal(Arg<NameIdx>) = 92,
@@ -197,7 +198,7 @@ pub enum Instruction {
     LoadSuperAttr {
         arg: Arg<u32>,
     } = 96,
-    MakeCell(Arg<NameIdx>) = 97, // Placeholder
+    MakeCell(Arg<NameIdx>) = 97,
     MapAdd {
         i: Arg<u32>,
     } = 98,
@@ -207,10 +208,10 @@ pub enum Instruction {
     } = 100,
     PopJumpIfNone {
         target: Arg<Label>,
-    } = 101, // Placeholder
+    } = 101,
     PopJumpIfNotNone {
         target: Arg<Label>,
-    } = 102, // Placeholder
+    } = 102,
     PopJumpIfTrue {
         target: Arg<Label>,
     } = 103,
@@ -243,7 +244,7 @@ pub enum Instruction {
     } = 113,
     StoreFastStoreFast {
         arg: Arg<u32>,
-    } = 114, // Placeholder
+    } = 114,
     StoreGlobal(Arg<NameIdx>) = 115,
     StoreName(Arg<NameIdx>) = 116,
     Swap {
@@ -616,14 +617,14 @@ impl InstructionMetadata for Instruction {
             Self::JumpBackwardNoInterrupt { .. } => 0,
             Self::JumpBackward { .. } => 0,
             Self::JumpForward { .. } => 0,
-            Self::LoadFastCheck(_) => 0,
+            Self::LoadFastCheck(_) => 1,
             Self::LoadFastLoadFast { .. } => 2,
             Self::LoadFastBorrowLoadFastBorrow { .. } => 2,
             Self::LoadFromDictOrGlobals(_) => 0,
             Self::MakeCell(_) => 0,
-            Self::StoreFastStoreFast { .. } => 0,
-            Self::PopJumpIfNone { .. } => -1,    // (value -- )
-            Self::PopJumpIfNotNone { .. } => -1, // (value -- )
+            Self::StoreFastStoreFast { .. } => -2, // pops 2 values
+            Self::PopJumpIfNone { .. } => -1,      // (value -- )
+            Self::PopJumpIfNotNone { .. } => -1,   // (value -- )
             Self::BinaryOpAddFloat => 0,
             Self::BinaryOpAddInt => 0,
             Self::BinaryOpAddUnicode => 0,

@@ -1798,7 +1798,6 @@ class ExceptionTests(unittest.TestCase):
                 next(i)
                 next(i)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(__debug__, "Won't work if __debug__ is False")
     def test_assert_shadowing(self):
         # Shadowing AssertionError would cause the assert statement to

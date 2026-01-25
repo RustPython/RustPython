@@ -21,7 +21,7 @@ pub use crate::bytecode::{
         encode_load_super_attr_arg,
     },
     oparg::{
-        BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
+        BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,
         IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx, OpArg,
         OpArgByte, OpArgState, OpArgType, RaiseKind, ResumeType, SpecialMethod, UnpackExArgs,
     },

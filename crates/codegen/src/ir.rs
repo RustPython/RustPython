@@ -161,6 +161,7 @@ impl CodeInfo {
     ) -> crate::InternalResult<CodeObject> {
         if opts.optimize > 0 {
             self.dce();
+            self.peephole_optimize();
         }
 
         let max_stackdepth = self.max_stackdepth()?;
@@ -399,6 +400,70 @@ impl CodeInfo {
             }
             if let Some(i) = last_instr {
                 block.instructions.truncate(i + 1);
+            }
+        }
+    }
+
+    /// Peephole optimization: combine consecutive instructions into super-instructions
+    fn peephole_optimize(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i + 1 < block.instructions.len() {
+                let combined = {
+                    let curr = &block.instructions[i];
+                    let next = &block.instructions[i + 1];
+
+                    // Only combine if both are real instructions (not pseudo)
+                    let (Some(curr_instr), Some(next_instr)) =
+                        (curr.instr.real(), next.instr.real())
+                    else {
+                        i += 1;
+                        continue;
+                    };
+
+                    match (curr_instr, next_instr) {
+                        // LoadFast + LoadFast -> LoadFastLoadFast (if both indices < 16)
+                        (Instruction::LoadFast(_), Instruction::LoadFast(_)) => {
+                            let idx1 = curr.arg.0;
+                            let idx2 = next.arg.0;
+                            if idx1 < 16 && idx2 < 16 {
+                                let packed = (idx1 << 4) | idx2;
+                                Some((
+                                    Instruction::LoadFastLoadFast { arg: Arg::marker() },
+                                    OpArg(packed),
+                                ))
+                            } else {
+                                None
+                            }
+                        }
+                        // StoreFast + StoreFast -> StoreFastStoreFast (if both indices < 16)
+                        (Instruction::StoreFast(_), Instruction::StoreFast(_)) => {
+                            let idx1 = curr.arg.0;
+                            let idx2 = next.arg.0;
+                            if idx1 < 16 && idx2 < 16 {
+                                let packed = (idx1 << 4) | idx2;
+                                Some((
+                                    Instruction::StoreFastStoreFast { arg: Arg::marker() },
+                                    OpArg(packed),
+                                ))
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                };
+
+                if let Some((new_instr, new_arg)) = combined {
+                    // Combine: keep first instruction's location, replace with combined instruction
+                    block.instructions[i].instr = new_instr.into();
+                    block.instructions[i].arg = new_arg;
+                    // Remove the second instruction
+                    block.instructions.remove(i + 1);
+                    // Don't increment i - check if we can combine again with the next instruction
+                } else {
+                    i += 1;
+                }
             }
         }
     }
