@@ -7788,18 +7788,8 @@ impl Compiler {
     }
 
     fn emit_load_const(&mut self, constant: ConstantData) {
-        // Use LOAD_SMALL_INT for integers in small int cache range (-5..=256)
-        // Still add to co_consts for compatibility (CPython does this too)
-        if let ConstantData::Integer { ref value } = constant
-            && let Some(small_int) = value.to_i32()
-            && (-5..=256).contains(&small_int)
-        {
-            // Add to co_consts even though we use LOAD_SMALL_INT
-            let _idx = self.arg_constant(constant);
-            // Store as u32 (two's complement for negative values)
-            self.emit_arg(small_int as u32, |idx| Instruction::LoadSmallInt { idx });
-            return;
-        }
+        // Always add to co_consts and emit LOAD_CONST.
+        // Optimization pass converts LOAD_CONST to LOAD_SMALL_INT where appropriate.
         let idx = self.arg_constant(constant);
         self.emit_arg(idx, |idx| Instruction::LoadConst { idx })
     }

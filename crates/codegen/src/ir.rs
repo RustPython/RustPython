@@ -1,6 +1,8 @@
 use core::ops;
 
 use crate::{IndexMap, IndexSet, error::InternalError};
+use malachite_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
@@ -159,6 +161,13 @@ impl CodeInfo {
         mut self,
         opts: &crate::compile::CompileOpts,
     ) -> crate::InternalResult<CodeObject> {
+        // Always fold tuple constants and convert to LOAD_SMALL_INT
+        // 1. fold_tuple_of_constants - fold constant sequences into tuples
+        // 2. maybe_instr_make_load_smallint - convert LOAD_CONST to LOAD_SMALL_INT
+        self.fold_tuple_constants();
+        self.convert_to_load_small_int();
+        self.remove_nops();
+
         if opts.optimize > 0 {
             self.dce();
             self.peephole_optimize();
@@ -404,6 +413,85 @@ impl CodeInfo {
         }
     }
 
+    /// Constant folding: fold LOAD_CONST/LOAD_SMALL_INT + BUILD_TUPLE into LOAD_CONST tuple
+    /// fold_tuple_of_constants
+    fn fold_tuple_constants(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i < block.instructions.len() {
+                let instr = &block.instructions[i];
+                // Look for BUILD_TUPLE
+                let Some(Instruction::BuildTuple { .. }) = instr.instr.real() else {
+                    i += 1;
+                    continue;
+                };
+
+                let tuple_size = instr.arg.0 as usize;
+                if tuple_size == 0 || i < tuple_size {
+                    i += 1;
+                    continue;
+                }
+
+                // Check if all preceding instructions are constant-loading
+                let start_idx = i - tuple_size;
+                let mut elements = Vec::with_capacity(tuple_size);
+                let mut all_const = true;
+
+                for j in start_idx..i {
+                    let load_instr = &block.instructions[j];
+                    match load_instr.instr.real() {
+                        Some(Instruction::LoadConst { .. }) => {
+                            let const_idx = load_instr.arg.0 as usize;
+                            if let Some(constant) =
+                                self.metadata.consts.get_index(const_idx).cloned()
+                            {
+                                elements.push(constant);
+                            } else {
+                                all_const = false;
+                                break;
+                            }
+                        }
+                        Some(Instruction::LoadSmallInt { .. }) => {
+                            // arg is the i32 value stored as u32 (two's complement)
+                            let value = load_instr.arg.0 as i32;
+                            elements.push(ConstantData::Integer {
+                                value: BigInt::from(value),
+                            });
+                        }
+                        _ => {
+                            all_const = false;
+                            break;
+                        }
+                    }
+                }
+
+                if !all_const {
+                    i += 1;
+                    continue;
+                }
+
+                // Note: The first small int is added to co_consts during compilation
+                // (in compile_default_arguments).
+                // We don't need to add it here again.
+
+                // Create tuple constant and add to consts
+                let tuple_const = ConstantData::Tuple { elements };
+                let (const_idx, _) = self.metadata.consts.insert_full(tuple_const);
+
+                // Replace preceding LOAD instructions with NOP
+                for j in start_idx..i {
+                    block.instructions[j].instr = Instruction::Nop.into();
+                }
+
+                // Replace BUILD_TUPLE with LOAD_CONST
+                block.instructions[i].instr = Instruction::LoadConst { idx: Arg::marker() }.into();
+                block.instructions[i].arg = OpArg(const_idx as u32);
+
+                i += 1;
+            }
+        }
+    }
+
     /// Peephole optimization: combine consecutive instructions into super-instructions
     fn peephole_optimize(&mut self) {
         for block in &mut self.blocks {
@@ -465,6 +553,49 @@ impl CodeInfo {
                     i += 1;
                 }
             }
+        }
+    }
+
+    /// Convert LOAD_CONST for small integers to LOAD_SMALL_INT
+    /// maybe_instr_make_load_smallint
+    fn convert_to_load_small_int(&mut self) {
+        for block in &mut self.blocks {
+            for instr in &mut block.instructions {
+                // Check if it's a LOAD_CONST instruction
+                let Some(Instruction::LoadConst { .. }) = instr.instr.real() else {
+                    continue;
+                };
+
+                // Get the constant value
+                let const_idx = instr.arg.0 as usize;
+                let Some(constant) = self.metadata.consts.get_index(const_idx) else {
+                    continue;
+                };
+
+                // Check if it's a small integer
+                let ConstantData::Integer { value } = constant else {
+                    continue;
+                };
+
+                // Check if it's in small int range: -5 to 256 (_PY_IS_SMALL_INT)
+                if let Some(small) = value.to_i32() {
+                    if (-5..=256).contains(&small) {
+                        // Convert to LOAD_CONST to LOAD_SMALL_INT
+                        instr.instr = Instruction::LoadSmallInt { idx: Arg::marker() }.into();
+                        // The arg is the i32 value stored as u32 (two's complement)
+                        instr.arg = OpArg(small as u32);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Remove NOP instructions from all blocks
+    fn remove_nops(&mut self) {
+        for block in &mut self.blocks {
+            block
+                .instructions
+                .retain(|ins| !matches!(ins.instr.real(), Some(Instruction::Nop)));
         }
     }
 
