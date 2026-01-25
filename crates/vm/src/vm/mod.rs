@@ -1313,7 +1313,7 @@ fn test_nested_frozen() {
 
     vm::Interpreter::builder(Default::default())
         .add_frozen_modules(rustpython_vm::py_freeze!(
-            dir = "../../extra_tests/snippets"
+            dir = "../../../../extra_tests/snippets"
         ))
         .build()
         .enter(|vm| {
