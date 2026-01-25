@@ -2805,49 +2805,120 @@ mod _ssl {
             let stream = self.connection.read();
             let ssl_ptr = stream.ssl().as_ptr();
 
-            // Perform SSL shutdown - may need to be called twice:
-            // 1st call: sends close-notify, returns 0
-            // 2nd call: reads peer's close-notify, returns 1
-            let mut ret = unsafe { sys::SSL_shutdown(ssl_ptr) };
-
-            // If ret == 0, try once more to complete the bidirectional shutdown
-            // This handles the case where peer's close-notify is already available
-            if ret == 0 {
-                ret = unsafe { sys::SSL_shutdown(ssl_ptr) };
+            // BIO mode: just try shutdown once and raise SSLWantReadError if needed
+            if stream.is_bio() {
+                let ret = unsafe { sys::SSL_shutdown(ssl_ptr) };
+                if ret < 0 {
+                    let err = unsafe { sys::SSL_get_error(ssl_ptr, ret) };
+                    if err == sys::SSL_ERROR_WANT_READ {
+                        return Err(create_ssl_want_read_error(vm).upcast());
+                    } else if err == sys::SSL_ERROR_WANT_WRITE {
+                        return Err(create_ssl_want_write_error(vm).upcast());
+                    } else {
+                        return Err(new_ssl_error(
+                            vm,
+                            format!("SSL shutdown failed: error code {}", err),
+                        ));
+                    }
+                } else if ret == 0 {
+                    // Sent close-notify, waiting for peer's - raise SSLWantReadError
+                    return Err(create_ssl_want_read_error(vm).upcast());
+                }
+                return Ok(None);
             }
 
-            if ret < 0 {
-                // Error occurred
+            // Socket mode: loop with select to wait for peer's close-notify
+            let socket_stream = stream.get_ref().expect("get_ref() failed for socket mode");
+            let deadline = socket_stream.timeout_deadline();
+
+            // Track how many times we've seen ret == 0 (max 2 tries)
+            let mut zeros = 0;
+
+            loop {
+                let ret = unsafe { sys::SSL_shutdown(ssl_ptr) };
+
+                // ret > 0: complete shutdown
+                if ret > 0 {
+                    break;
+                }
+
+                // ret == 0: sent our close-notify, need to receive peer's
+                if ret == 0 {
+                    zeros += 1;
+                    if zeros > 1 {
+                        // Already tried twice, break out (legacy behavior)
+                        break;
+                    }
+                    // Wait briefly for peer's close_notify before retrying
+                    match socket_stream.select(SslNeeds::Read, &deadline) {
+                        SelectRet::TimedOut => {
+                            return Err(vm.new_exception_msg(
+                                vm.ctx.exceptions.timeout_error.to_owned(),
+                                "The read operation timed out".to_owned(),
+                            ));
+                        }
+                        SelectRet::Closed => {
+                            return Err(socket_closed_error(vm));
+                        }
+                        SelectRet::Nonblocking => {
+                            // Non-blocking socket: return SSLWantReadError
+                            return Err(create_ssl_want_read_error(vm).upcast());
+                        }
+                        SelectRet::Ok => {
+                            // Data available, continue to retry
+                        }
+                    }
+                    continue;
+                }
+
+                // ret < 0: error or would-block
                 let err = unsafe { sys::SSL_get_error(ssl_ptr, ret) };
 
-                if err == sys::SSL_ERROR_WANT_READ {
-                    return Err(create_ssl_want_read_error(vm).upcast());
+                let needs = if err == sys::SSL_ERROR_WANT_READ {
+                    SslNeeds::Read
                 } else if err == sys::SSL_ERROR_WANT_WRITE {
-                    return Err(create_ssl_want_write_error(vm).upcast());
+                    SslNeeds::Write
                 } else {
+                    // Real error
                     return Err(new_ssl_error(
                         vm,
                         format!("SSL shutdown failed: error code {}", err),
                     ));
-                }
-            } else if ret == 0 {
-                // Still waiting for peer's close-notify after retry
-                // In BIO mode, raise SSLWantReadError
-                if stream.is_bio() {
-                    return Err(create_ssl_want_read_error(vm).upcast());
+                };
+
+                // Wait on the socket
+                match socket_stream.select(needs, &deadline) {
+                    SelectRet::TimedOut => {
+                        let msg = if err == sys::SSL_ERROR_WANT_READ {
+                            "The read operation timed out"
+                        } else {
+                            "The write operation timed out"
+                        };
+                        return Err(vm.new_exception_msg(
+                            vm.ctx.exceptions.timeout_error.to_owned(),
+                            msg.to_owned(),
+                        ));
+                    }
+                    SelectRet::Closed => {
+                        return Err(socket_closed_error(vm));
+                    }
+                    SelectRet::Nonblocking => {
+                        // Non-blocking socket, raise SSLWantReadError/SSLWantWriteError
+                        if err == sys::SSL_ERROR_WANT_READ {
+                            return Err(create_ssl_want_read_error(vm).upcast());
+                        } else {
+                            return Err(create_ssl_want_write_error(vm).upcast());
+                        }
+                    }
+                    SelectRet::Ok => {
+                        // Socket is ready, retry shutdown
+                        continue;
+                    }
                 }
             }
 
-            // BIO mode doesn't have an underlying socket to return
-            if stream.is_bio() {
-                return Ok(None);
-            }
-
-            // Return the underlying socket for socket mode
-            let socket = stream
-                .get_ref()
-                .expect("unwrap() called on bio mode; should only be called in socket mode");
-            Ok(Some(socket.0.clone()))
+            // Return the underlying socket
+            Ok(Some(socket_stream.0.clone()))
         }
 
         #[cfg(osslconf = "OPENSSL_NO_COMP")]
