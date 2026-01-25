@@ -807,6 +807,71 @@ def _dircmp_is_same(dcmp) -> bool:
     return True
 
 
+def compare_paths(cpython_path: pathlib.Path, local_path: pathlib.Path) -> bool:
+    """Compare a CPython path with a local path.
+
+    Args:
+        cpython_path: Path in CPython directory (file or directory)
+        local_path: Corresponding path in local Lib directory
+
+    Returns:
+        True if paths are identical, False otherwise
+    """
+    import filecmp
+
+    if not local_path.exists():
+        return False
+
+    if cpython_path.is_file():
+        return filecmp.cmp(cpython_path, local_path, shallow=False)
+    else:
+        dcmp = filecmp.dircmp(cpython_path, local_path)
+        return _dircmp_is_same(dcmp)
+
+
+def cpython_to_local_path(
+    cpython_path: pathlib.Path,
+    cpython_prefix: str,
+    lib_prefix: str,
+) -> pathlib.Path | None:
+    """Convert CPython path to local Lib path.
+
+    Args:
+        cpython_path: Path like cpython/Lib/foo.py
+        cpython_prefix: CPython directory prefix
+        lib_prefix: Local Lib directory prefix
+
+    Returns:
+        Local path like Lib/foo.py, or None if conversion fails
+    """
+    try:
+        rel_path = cpython_path.relative_to(cpython_prefix)
+        return pathlib.Path(lib_prefix) / rel_path.relative_to("Lib")
+    except ValueError:
+        return None
+
+
+def is_path_synced(
+    cpython_path: pathlib.Path,
+    cpython_prefix: str,
+    lib_prefix: str,
+) -> bool:
+    """Check if a CPython path is synced with local.
+
+    Args:
+        cpython_path: Path in CPython directory
+        cpython_prefix: CPython directory prefix
+        lib_prefix: Local Lib directory prefix
+
+    Returns:
+        True if synced, False otherwise
+    """
+    local_path = cpython_to_local_path(cpython_path, cpython_prefix, lib_prefix)
+    if local_path is None:
+        return False
+    return compare_paths(cpython_path, local_path)
+
+
 @functools.cache
 def is_up_to_date(name: str, cpython_prefix: str, lib_prefix: str) -> bool:
     """Check if a module is up-to-date by comparing files.
@@ -819,8 +884,6 @@ def is_up_to_date(name: str, cpython_prefix: str, lib_prefix: str) -> bool:
     Returns:
         True if all files match, False otherwise
     """
-    import filecmp
-
     lib_paths = get_lib_paths(name, cpython_prefix)
 
     found_any = False
@@ -835,17 +898,8 @@ def is_up_to_date(name: str, cpython_prefix: str, lib_prefix: str) -> bool:
         rel_path = cpython_path.relative_to(cpython_prefix)
         local_path = pathlib.Path(lib_prefix) / rel_path.relative_to("Lib")
 
-        if not local_path.exists():
+        if not compare_paths(cpython_path, local_path):
             return False
-
-        if cpython_path.is_file():
-            if not filecmp.cmp(cpython_path, local_path, shallow=False):
-                return False
-        else:
-            # Directory comparison (recursive)
-            dcmp = filecmp.dircmp(cpython_path, local_path)
-            if not _dircmp_is_same(dcmp):
-                return False
 
     if not found_any:
         dep_info = DEPENDENCIES.get(name, {})
