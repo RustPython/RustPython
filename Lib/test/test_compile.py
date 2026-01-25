@@ -152,8 +152,6 @@ if 1:
         pass"""
         compile(s, "<string>", "exec")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # This test is probably specific to CPython and may not generalize
     # to other implementations.  We are trying to ensure that when
     # the first line of code starts after 256, correct line numbers
