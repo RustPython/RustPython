@@ -667,7 +667,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
                 const PAYLOAD_TYPE_ID: ::core::any::TypeId = <#base_type as ::rustpython_vm::PyPayload>::PAYLOAD_TYPE_ID;
 
                 #[inline]
-                fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
+                unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
                     <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
                 }
 

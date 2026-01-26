@@ -595,7 +595,7 @@ pub(crate) fn impl_pystruct_sequence(
             const PAYLOAD_TYPE_ID: ::core::any::TypeId = <::rustpython_vm::builtins::PyTuple as ::rustpython_vm::PyPayload>::PAYLOAD_TYPE_ID;
 
             #[inline]
-            fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
+            unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
                 obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
             }
 
