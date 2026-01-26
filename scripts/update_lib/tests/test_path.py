@@ -6,11 +6,11 @@ import unittest
 
 from update_lib.file_utils import (
     get_test_files,
+    get_test_module_name,
     is_lib_path,
     is_test_path,
     lib_to_test_path,
     parse_lib_path,
-    get_test_module_name,
 )
 
 

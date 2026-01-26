@@ -38,13 +38,13 @@ def compute_todo_list(
     Returns:
         List of dicts with module info, sorted by priority
     """
+    from update_lib.cmd_deps import get_all_modules
     from update_lib.deps import (
         get_all_hard_deps,
         get_rust_deps,
         get_soft_deps,
         is_up_to_date,
     )
-    from update_lib.cmd_deps import get_all_modules
 
     all_modules = get_all_modules(cpython_prefix)
 
@@ -170,8 +170,8 @@ def get_untracked_files(
     Returns:
         Sorted list of relative paths (e.g., ["foo.py", "data/file.txt"])
     """
-    from update_lib.deps import resolve_hard_dep_parent
     from update_lib.cmd_deps import get_all_modules
+    from update_lib.deps import resolve_hard_dep_parent
 
     cpython_lib = pathlib.Path(cpython_prefix) / "Lib"
     local_lib = pathlib.Path(lib_prefix)
@@ -508,8 +508,8 @@ def format_all_todo(
     Returns:
         List of formatted lines
     """
-    from update_lib.deps import is_up_to_date
     from update_lib.cmd_deps import get_all_modules
+    from update_lib.deps import is_up_to_date
 
     lines = []
 

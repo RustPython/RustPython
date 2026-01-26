@@ -189,13 +189,14 @@ def format_deps(
     """
     from update_lib.deps import (
         DEPENDENCIES,
+        count_test_todos,
         find_dependent_tests_tree,
         get_lib_paths,
         get_test_paths,
         is_path_synced,
+        is_test_up_to_date,
         resolve_hard_dep_parent,
     )
-    from update_lib.deps import count_test_todos, is_test_up_to_date
 
     if _visited is None:
         _visited = set()

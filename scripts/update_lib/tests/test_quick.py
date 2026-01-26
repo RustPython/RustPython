@@ -5,13 +5,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from update_lib.file_utils import lib_to_test_path
 from update_lib.cmd_quick import (
     _expand_shortcut,
     collect_original_methods,
     get_cpython_dir,
     git_commit,
 )
+from update_lib.file_utils import lib_to_test_path
 
 
 class TestGetCpythonDir(unittest.TestCase):

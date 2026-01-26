@@ -32,7 +32,6 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from update_lib.deps import get_test_paths
-from update_lib.file_utils import safe_read_text
 from update_lib.file_utils import (
     construct_lib_path,
     get_cpython_dir,
@@ -43,6 +42,7 @@ from update_lib.file_utils import (
     lib_to_test_path,
     parse_lib_path,
     resolve_module_path,
+    safe_read_text,
 )
 
 
