@@ -192,6 +192,8 @@ radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.1", features = ["event"] }
+# TODO: Replace with published version once rustyline releases with nix 0.31.1 support
+# Temporary git dependency to resolve nix version conflict (rustyline v17.0.2 uses nix 0.30.1)
 rustyline = { git = "https://github.com/kkawakam/rustyline", rev = "7bbd27991a641586a7c8599437ca207b33bcc823" }
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.28"
