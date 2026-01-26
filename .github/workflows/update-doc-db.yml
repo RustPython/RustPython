@@ -29,7 +29,7 @@ jobs:
           - windows-latest
           - macos-latest
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v6.0.1
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: generate
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v6.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
           token: ${{ secrets.AUTO_COMMIT_PAT }}
