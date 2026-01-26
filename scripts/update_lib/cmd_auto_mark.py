@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from update_lib import COMMENT, PatchSpec, UtMethod, apply_patches
-from update_lib.path import test_name_from_path
+from update_lib.file_utils import get_test_module_name
 
 
 class TestRunError(Exception):
@@ -455,7 +455,7 @@ def extract_test_methods(contents: str) -> set[tuple[str, str]]:
     Returns:
         Set of (class_name, method_name) tuples
     """
-    from update_lib.io_utils import safe_parse_ast
+    from update_lib.file_utils import safe_parse_ast
     from update_lib.patch_spec import iter_tests
 
     tree = safe_parse_ast(contents)
@@ -490,7 +490,7 @@ def auto_mark_file(
     if not test_path.exists():
         raise FileNotFoundError(f"File not found: {test_path}")
 
-    test_name = test_name_from_path(test_path)
+    test_name = get_test_module_name(test_path)
     if verbose:
         print(f"Running test: {test_name}")
 
@@ -587,7 +587,7 @@ def auto_mark_directory(
     if not test_dir.is_dir():
         raise ValueError(f"Not a directory: {test_dir}")
 
-    test_name = test_name_from_path(test_dir)
+    test_name = get_test_module_name(test_dir)
     if verbose:
         print(f"Running test: {test_name}")
 
@@ -610,7 +610,7 @@ def auto_mark_directory(
 
     for test_file in test_files:
         # Get module prefix for this file (e.g., "test_inspect.test_inspect")
-        module_prefix = test_name_from_path(test_file)
+        module_prefix = get_test_module_name(test_file)
         # For __init__.py, the test path doesn't include "__init__"
         if module_prefix.endswith(".__init__"):
             module_prefix = module_prefix[:-9]  # Remove ".__init__"

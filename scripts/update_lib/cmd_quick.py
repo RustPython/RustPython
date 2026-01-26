@@ -32,9 +32,9 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from update_lib.deps import get_test_paths
-from update_lib.io_utils import safe_read_text
-from update_lib.path import (
+from update_lib.file_utils import (
     construct_lib_path,
+    get_cpython_dir,
     get_module_name,
     get_test_files,
     is_lib_path,
@@ -42,6 +42,7 @@ from update_lib.path import (
     lib_to_test_path,
     parse_lib_path,
     resolve_module_path,
+    safe_read_text,
 )
 
 
@@ -55,7 +56,7 @@ def collect_original_methods(
         - For file: set of (class_name, method_name) or None if file doesn't exist
         - For directory: dict mapping file path to set of methods, or None if dir doesn't exist
     """
-    from update_lib.auto_mark import extract_test_methods
+    from update_lib.cmd_auto_mark import extract_test_methods
 
     if not lib_path.exists():
         return None
@@ -91,8 +92,8 @@ def quick(
         verbose: Print progress messages
         skip_build: Skip cargo build, use pre-built binary
     """
-    from update_lib.auto_mark import auto_mark_directory, auto_mark_file
-    from update_lib.migrate import patch_directory, patch_file
+    from update_lib.cmd_auto_mark import auto_mark_directory, auto_mark_file
+    from update_lib.cmd_migrate import patch_directory, patch_file
 
     # Determine lib_path and whether to migrate
     if is_lib_path(src_path):
@@ -172,22 +173,6 @@ def quick(
             if num_added:
                 print(f"Added expectedFailure to {num_added} tests")
             print(f"Removed expectedFailure from {num_removed} tests")
-
-
-def get_cpython_dir(src_path: pathlib.Path) -> pathlib.Path:
-    """Extract cpython directory from source path.
-
-    Example:
-        cpython/Lib/dataclasses.py -> cpython
-        /some/path/cpython/Lib/foo.py -> /some/path/cpython
-    """
-    path_str = str(src_path).replace("\\", "/")
-    lib_marker = "/Lib/"
-    if lib_marker in path_str:
-        idx = path_str.index(lib_marker)
-        return pathlib.Path(path_str[:idx])
-    # Shortcut case: assume "cpython"
-    return pathlib.Path("cpython")
 
 
 def get_cpython_version(cpython_dir: pathlib.Path) -> str:
@@ -384,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
             lib_file_path = parse_lib_path(src_path)
 
             if args.copy:
-                from update_lib.copy_lib import copy_lib
+                from update_lib.cmd_copy_lib import copy_lib
 
                 copy_lib(src_path)
 
@@ -449,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except Exception as e:
         # Handle TestRunError with a clean message
-        from update_lib.auto_mark import TestRunError
+        from update_lib.cmd_auto_mark import TestRunError
 
         if isinstance(e, TestRunError):
             print(f"Error: {e}", file=sys.stderr)

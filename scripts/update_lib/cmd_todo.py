@@ -13,6 +13,12 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
+from update_lib.deps import (
+    count_test_todos,
+    is_test_tracked,
+    is_test_up_to_date,
+)
+
 
 def compute_todo_list(
     cpython_prefix: str,
@@ -32,13 +38,13 @@ def compute_todo_list(
     Returns:
         List of dicts with module info, sorted by priority
     """
+    from update_lib.cmd_deps import get_all_modules
     from update_lib.deps import (
         get_all_hard_deps,
         get_rust_deps,
         get_soft_deps,
         is_up_to_date,
     )
-    from update_lib.show_deps import get_all_modules
 
     all_modules = get_all_modules(cpython_prefix)
 
@@ -164,8 +170,8 @@ def get_untracked_files(
     Returns:
         Sorted list of relative paths (e.g., ["foo.py", "data/file.txt"])
     """
+    from update_lib.cmd_deps import get_all_modules
     from update_lib.deps import resolve_hard_dep_parent
-    from update_lib.show_deps import get_all_modules
 
     cpython_lib = pathlib.Path(cpython_prefix) / "Lib"
     local_lib = pathlib.Path(lib_prefix)
@@ -258,127 +264,6 @@ def get_original_files(
             original.append(name)
 
     return sorted(original)
-
-
-def _filter_rustpython_todo(content: str) -> str:
-    """Remove lines containing 'TODO: RUSTPYTHON' from content."""
-    lines = content.splitlines(keepends=True)
-    filtered = [line for line in lines if "TODO: RUSTPYTHON" not in line]
-    return "".join(filtered)
-
-
-def _count_rustpython_todo(content: str) -> int:
-    """Count lines containing 'TODO: RUSTPYTHON' in content."""
-    return sum(1 for line in content.splitlines() if "TODO: RUSTPYTHON" in line)
-
-
-def _compare_file_ignoring_todo(
-    cpython_path: pathlib.Path, local_path: pathlib.Path
-) -> bool:
-    """Compare two files, ignoring TODO: RUSTPYTHON lines in local file."""
-    try:
-        cpython_content = cpython_path.read_text(encoding="utf-8")
-        local_content = local_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return False
-
-    local_filtered = _filter_rustpython_todo(local_content)
-    return cpython_content == local_filtered
-
-
-def _compare_dir_ignoring_todo(
-    cpython_path: pathlib.Path, local_path: pathlib.Path
-) -> bool:
-    """Compare two directories, ignoring TODO: RUSTPYTHON lines in local files."""
-    # Get all .py files in both directories
-    cpython_files = {f.relative_to(cpython_path) for f in cpython_path.rglob("*.py")}
-    local_files = {f.relative_to(local_path) for f in local_path.rglob("*.py")}
-
-    # Check for missing or extra files
-    if cpython_files != local_files:
-        return False
-
-    # Compare each file
-    for rel_path in cpython_files:
-        if not _compare_file_ignoring_todo(
-            cpython_path / rel_path, local_path / rel_path
-        ):
-            return False
-
-    return True
-
-
-def count_test_todos(test_name: str, lib_prefix: str) -> int:
-    """Count TODO: RUSTPYTHON lines in a test file/directory."""
-    local_dir = pathlib.Path(lib_prefix) / "test" / test_name
-    local_file = pathlib.Path(lib_prefix) / "test" / f"{test_name}.py"
-
-    if local_dir.exists():
-        local_path = local_dir
-    elif local_file.exists():
-        local_path = local_file
-    else:
-        return 0
-
-    total = 0
-    if local_path.is_file():
-        try:
-            content = local_path.read_text(encoding="utf-8")
-            total = _count_rustpython_todo(content)
-        except (OSError, UnicodeDecodeError):
-            pass
-    else:
-        for py_file in local_path.rglob("*.py"):
-            try:
-                content = py_file.read_text(encoding="utf-8")
-                total += _count_rustpython_todo(content)
-            except (OSError, UnicodeDecodeError):
-                pass
-
-    return total
-
-
-def is_test_tracked(test_name: str, cpython_prefix: str, lib_prefix: str) -> bool:
-    """Check if a test exists in our local Lib/test."""
-    cpython_dir = pathlib.Path(cpython_prefix) / "Lib" / "test" / test_name
-    cpython_file = pathlib.Path(cpython_prefix) / "Lib" / "test" / f"{test_name}.py"
-
-    if cpython_dir.exists():
-        cpython_path = cpython_dir
-    elif cpython_file.exists():
-        cpython_path = cpython_file
-    else:
-        return True  # No cpython test
-
-    local_path = pathlib.Path(lib_prefix) / "test" / cpython_path.name
-    return local_path.exists()
-
-
-def is_test_up_to_date(test_name: str, cpython_prefix: str, lib_prefix: str) -> bool:
-    """Check if a test is up-to-date by comparing files.
-
-    Ignores lines containing 'TODO: RUSTPYTHON' in local files.
-    """
-    # Try directory first, then file
-    cpython_dir = pathlib.Path(cpython_prefix) / "Lib" / "test" / test_name
-    cpython_file = pathlib.Path(cpython_prefix) / "Lib" / "test" / f"{test_name}.py"
-
-    if cpython_dir.exists():
-        cpython_path = cpython_dir
-    elif cpython_file.exists():
-        cpython_path = cpython_file
-    else:
-        return True  # No cpython test, consider up-to-date
-
-    local_path = pathlib.Path(lib_prefix) / "test" / cpython_path.name
-
-    if not local_path.exists():
-        return False
-
-    if cpython_path.is_file():
-        return _compare_file_ignoring_todo(cpython_path, local_path)
-    else:
-        return _compare_dir_ignoring_todo(cpython_path, local_path)
 
 
 def _build_test_to_lib_map(
@@ -623,8 +508,8 @@ def format_all_todo(
     Returns:
         List of formatted lines
     """
+    from update_lib.cmd_deps import get_all_modules
     from update_lib.deps import is_up_to_date
-    from update_lib.show_deps import get_all_modules
 
     lines = []
 

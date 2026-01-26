@@ -5,13 +5,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from update_lib.path import lib_to_test_path
-from update_lib.quick import (
+from update_lib.cmd_quick import (
     _expand_shortcut,
     collect_original_methods,
     get_cpython_dir,
     git_commit,
 )
+from update_lib.file_utils import lib_to_test_path
 
 
 class TestGetCpythonDir(unittest.TestCase):
@@ -159,7 +159,7 @@ class TestGitCommit(unittest.TestCase):
     """Tests for git_commit function."""
 
     @patch("subprocess.run")
-    @patch("update_lib.quick.get_cpython_version")
+    @patch("update_lib.cmd_quick.get_cpython_version")
     def test_none_lib_path_not_added(self, mock_version, mock_run):
         """Test that None lib_path doesn't add '.' to git."""
         mock_version.return_value = "v3.14.0"
@@ -177,7 +177,7 @@ class TestGitCommit(unittest.TestCase):
             self.assertNotIn(".", add_call[0][0][2:])  # Skip "git" and "add"
 
     @patch("subprocess.run")
-    @patch("update_lib.quick.get_cpython_version")
+    @patch("update_lib.cmd_quick.get_cpython_version")
     def test_none_test_path_not_added(self, mock_version, mock_run):
         """Test that None test_path doesn't add '.' to git."""
         mock_version.return_value = "v3.14.0"
@@ -203,10 +203,10 @@ class TestGitCommit(unittest.TestCase):
 class TestQuickTestRunFailure(unittest.TestCase):
     """Tests for quick() behavior when test run fails."""
 
-    @patch("update_lib.auto_mark.run_test")
+    @patch("update_lib.cmd_auto_mark.run_test")
     def test_auto_mark_raises_on_test_run_failure(self, mock_run_test):
         """Test that auto_mark_file raises when test run fails entirely."""
-        from update_lib.auto_mark import TestResult, TestRunError, auto_mark_file
+        from update_lib.cmd_auto_mark import TestResult, TestRunError, auto_mark_file
 
         # Simulate test runner crash (empty tests_result)
         mock_run_test.return_value = TestResult(

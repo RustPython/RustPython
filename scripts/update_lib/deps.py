@@ -14,7 +14,166 @@ import re
 import shelve
 import subprocess
 
-from update_lib.io_utils import read_python_files, safe_parse_ast, safe_read_text
+from update_lib.file_utils import (
+    _dircmp_is_same,
+    compare_dir_contents,
+    compare_file_contents,
+    compare_paths,
+    construct_lib_path,
+    cpython_to_local_path,
+    read_python_files,
+    resolve_module_path,
+    resolve_test_path,
+    safe_parse_ast,
+    safe_read_text,
+)
+
+# === Import parsing utilities ===
+
+
+def _extract_top_level_code(content: str) -> str:
+    """Extract only top-level code from Python content for faster parsing."""
+    def_idx = content.find("\ndef ")
+    class_idx = content.find("\nclass ")
+
+    indices = [i for i in (def_idx, class_idx) if i != -1]
+    if indices:
+        content = content[: min(indices)]
+    return content.rstrip("\n")
+
+
+_FROM_TEST_IMPORT_RE = re.compile(r"^from test import (.+)", re.MULTILINE)
+_FROM_TEST_DOT_RE = re.compile(r"^from test\.(\w+)", re.MULTILINE)
+_IMPORT_TEST_DOT_RE = re.compile(r"^import test\.(\w+)", re.MULTILINE)
+
+
+def parse_test_imports(content: str) -> set[str]:
+    """Parse test file content and extract test package dependencies."""
+    content = _extract_top_level_code(content)
+    imports = set()
+
+    for match in _FROM_TEST_IMPORT_RE.finditer(content):
+        import_list = match.group(1)
+        for part in import_list.split(","):
+            name = part.split()[0].strip()
+            if name and name not in ("support", "__init__"):
+                imports.add(name)
+
+    for match in _FROM_TEST_DOT_RE.finditer(content):
+        dep = match.group(1)
+        if dep not in ("support", "__init__"):
+            imports.add(dep)
+
+    for match in _IMPORT_TEST_DOT_RE.finditer(content):
+        dep = match.group(1)
+        if dep not in ("support", "__init__"):
+            imports.add(dep)
+
+    return imports
+
+
+_IMPORT_RE = re.compile(r"^import\s+(\w[\w.]*)", re.MULTILINE)
+_FROM_IMPORT_RE = re.compile(r"^from\s+(\w[\w.]*)\s+import", re.MULTILINE)
+
+
+def parse_lib_imports(content: str) -> set[str]:
+    """Parse library file and extract all imported module names."""
+    imports = set()
+
+    for match in _IMPORT_RE.finditer(content):
+        imports.add(match.group(1))
+
+    for match in _FROM_IMPORT_RE.finditer(content):
+        imports.add(match.group(1))
+
+    return imports
+
+
+# === TODO marker utilities ===
+
+TODO_MARKER = "TODO: RUSTPYTHON"
+
+
+def filter_rustpython_todo(content: str) -> str:
+    """Remove lines containing RustPython TODO markers."""
+    lines = content.splitlines(keepends=True)
+    filtered = [line for line in lines if TODO_MARKER not in line]
+    return "".join(filtered)
+
+
+def count_rustpython_todo(content: str) -> int:
+    """Count lines containing RustPython TODO markers."""
+    return sum(1 for line in content.splitlines() if TODO_MARKER in line)
+
+
+def count_todo_in_path(path: pathlib.Path) -> int:
+    """Count RustPython TODO markers in a file or directory of .py files."""
+    if path.is_file():
+        content = safe_read_text(path)
+        return count_rustpython_todo(content) if content else 0
+
+    total = 0
+    for _, content in read_python_files(path):
+        total += count_rustpython_todo(content)
+    return total
+
+
+# === Test utilities ===
+
+
+def _get_cpython_test_path(test_name: str, cpython_prefix: str) -> pathlib.Path | None:
+    """Return the CPython test path for a test name, or None if missing."""
+    cpython_path = resolve_test_path(test_name, cpython_prefix, prefer="dir")
+    return cpython_path if cpython_path.exists() else None
+
+
+def _get_local_test_path(
+    cpython_test_path: pathlib.Path, lib_prefix: str
+) -> pathlib.Path:
+    """Return the local Lib/test path matching a CPython test path."""
+    return pathlib.Path(lib_prefix) / "test" / cpython_test_path.name
+
+
+def is_test_tracked(test_name: str, cpython_prefix: str, lib_prefix: str) -> bool:
+    """Check if a test exists in the local Lib/test."""
+    cpython_path = _get_cpython_test_path(test_name, cpython_prefix)
+    if cpython_path is None:
+        return True
+    local_path = _get_local_test_path(cpython_path, lib_prefix)
+    return local_path.exists()
+
+
+def is_test_up_to_date(test_name: str, cpython_prefix: str, lib_prefix: str) -> bool:
+    """Check if a test is up-to-date, ignoring RustPython TODO markers."""
+    cpython_path = _get_cpython_test_path(test_name, cpython_prefix)
+    if cpython_path is None:
+        return True
+
+    local_path = _get_local_test_path(cpython_path, lib_prefix)
+    if not local_path.exists():
+        return False
+
+    if cpython_path.is_file():
+        return compare_file_contents(
+            cpython_path, local_path, local_filter=filter_rustpython_todo
+        )
+
+    return compare_dir_contents(
+        cpython_path, local_path, local_filter=filter_rustpython_todo
+    )
+
+
+def count_test_todos(test_name: str, lib_prefix: str) -> int:
+    """Count RustPython TODO markers in a test file/directory."""
+    local_dir = pathlib.Path(lib_prefix) / "test" / test_name
+    local_file = pathlib.Path(lib_prefix) / "test" / f"{test_name}.py"
+
+    if local_dir.exists():
+        return count_todo_in_path(local_dir)
+    if local_file.exists():
+        return count_todo_in_path(local_file)
+    return 0
+
 
 # === Cross-process cache using shelve ===
 
@@ -49,8 +208,6 @@ def clear_import_graph_caches() -> None:
     if "_lib_import_graph_cache" in globals():
         globals()["_lib_import_graph_cache"].clear()
 
-
-from update_lib.path import construct_lib_path, resolve_module_path
 
 # Manual dependency table for irregular cases
 # Format: "name" -> {"lib": [...], "test": [...], "data": [...], "hard_deps": [...]}
@@ -634,98 +791,6 @@ def get_test_paths(name: str, cpython_prefix: str) -> tuple[pathlib.Path, ...]:
     return (resolve_module_path(f"test/test_{name}", cpython_prefix, prefer="dir"),)
 
 
-def _extract_top_level_code(content: str) -> str:
-    """Extract only top-level code from Python content for faster parsing.
-
-    Cuts at first function/class definition since imports come before them.
-    """
-    # Find first function or class definition
-    def_idx = content.find("\ndef ")
-    class_idx = content.find("\nclass ")
-
-    # Use the earlier of the two (if found)
-    indices = [i for i in (def_idx, class_idx) if i != -1]
-    if indices:
-        content = content[: min(indices)]
-    return content.rstrip("\n")
-
-
-_FROM_TEST_IMPORT_RE = re.compile(r"^from test import (.+)", re.MULTILINE)
-_FROM_TEST_DOT_RE = re.compile(r"^from test\.(\w+)", re.MULTILINE)
-_IMPORT_TEST_DOT_RE = re.compile(r"^import test\.(\w+)", re.MULTILINE)
-
-
-def parse_test_imports(content: str) -> set[str]:
-    """Parse test file content and extract test package dependencies.
-
-    Uses regex for speed - only matches top-level imports.
-
-    Args:
-        content: Python file content
-
-    Returns:
-        Set of module names imported from test package
-    """
-    content = _extract_top_level_code(content)
-    imports = set()
-
-    # Match "from test import foo, bar, baz"
-    for match in _FROM_TEST_IMPORT_RE.finditer(content):
-        import_list = match.group(1)
-        # Parse "foo, bar as b, baz" -> ["foo", "bar", "baz"]
-        for part in import_list.split(","):
-            name = part.split()[0].strip()  # Handle "foo as f"
-            if name and name not in ("support", "__init__"):
-                imports.add(name)
-
-    # Match "from test.foo import ..." -> depends on foo
-    for match in _FROM_TEST_DOT_RE.finditer(content):
-        dep = match.group(1)
-        if dep not in ("support", "__init__"):
-            imports.add(dep)
-
-    # Match "import test.foo" -> depends on foo
-    for match in _IMPORT_TEST_DOT_RE.finditer(content):
-        dep = match.group(1)
-        if dep not in ("support", "__init__"):
-            imports.add(dep)
-
-    return imports
-
-
-# Match "import foo.bar" - module name must start with word char (not dot)
-_IMPORT_RE = re.compile(r"^import\s+(\w[\w.]*)", re.MULTILINE)
-# Match "from foo.bar import" - exclude relative imports (from . or from ..)
-_FROM_IMPORT_RE = re.compile(r"^from\s+(\w[\w.]*)\s+import", re.MULTILINE)
-
-
-def parse_lib_imports(content: str) -> set[str]:
-    """Parse library file and extract all imported module names.
-
-    Uses regex for speed - only matches top-level imports (no leading whitespace).
-    Returns full module paths (e.g., "collections.abc" not just "collections").
-
-    Args:
-        content: Python file content
-
-    Returns:
-        Set of imported module names (full paths)
-    """
-    # Note: Don't truncate content here - some stdlib files have imports after
-    # the first def/class (e.g., _pydecimal.py has `import contextvars` at line 343)
-    imports = set()
-
-    # Match "import foo.bar" at line start
-    for match in _IMPORT_RE.finditer(content):
-        imports.add(match.group(1))
-
-    # Match "from foo.bar import ..." at line start
-    for match in _FROM_IMPORT_RE.finditer(content):
-        imports.add(match.group(1))
-
-    return imports
-
-
 @functools.cache
 def get_all_imports(name: str, cpython_prefix: str) -> frozenset[str]:
     """Get all imports from a library file.
@@ -787,24 +852,25 @@ def get_rust_deps(name: str, cpython_prefix: str) -> frozenset[str]:
     return frozenset(all_imports - soft_deps)
 
 
-def _dircmp_is_same(dcmp) -> bool:
-    """Recursively check if two directories are identical.
+def is_path_synced(
+    cpython_path: pathlib.Path,
+    cpython_prefix: str,
+    lib_prefix: str,
+) -> bool:
+    """Check if a CPython path is synced with local.
 
     Args:
-        dcmp: filecmp.dircmp object
+        cpython_path: Path in CPython directory
+        cpython_prefix: CPython directory prefix
+        lib_prefix: Local Lib directory prefix
 
     Returns:
-        True if directories are identical (including subdirectories)
+        True if synced, False otherwise
     """
-    if dcmp.diff_files or dcmp.left_only or dcmp.right_only:
+    local_path = cpython_to_local_path(cpython_path, cpython_prefix, lib_prefix)
+    if local_path is None:
         return False
-
-    # Recursively check subdirectories
-    for subdir in dcmp.subdirs.values():
-        if not _dircmp_is_same(subdir):
-            return False
-
-    return True
+    return compare_paths(cpython_path, local_path)
 
 
 @functools.cache
@@ -819,8 +885,6 @@ def is_up_to_date(name: str, cpython_prefix: str, lib_prefix: str) -> bool:
     Returns:
         True if all files match, False otherwise
     """
-    import filecmp
-
     lib_paths = get_lib_paths(name, cpython_prefix)
 
     found_any = False
@@ -835,17 +899,8 @@ def is_up_to_date(name: str, cpython_prefix: str, lib_prefix: str) -> bool:
         rel_path = cpython_path.relative_to(cpython_prefix)
         local_path = pathlib.Path(lib_prefix) / rel_path.relative_to("Lib")
 
-        if not local_path.exists():
+        if not compare_paths(cpython_path, local_path):
             return False
-
-        if cpython_path.is_file():
-            if not filecmp.cmp(cpython_path, local_path, shallow=False):
-                return False
-        else:
-            # Directory comparison (recursive)
-            dcmp = filecmp.dircmp(cpython_path, local_path)
-            if not _dircmp_is_same(dcmp):
-                return False
 
     if not found_any:
         dep_info = DEPENDENCIES.get(name, {})

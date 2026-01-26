@@ -189,9 +189,12 @@ def format_deps(
     """
     from update_lib.deps import (
         DEPENDENCIES,
+        count_test_todos,
         find_dependent_tests_tree,
         get_lib_paths,
         get_test_paths,
+        is_path_synced,
+        is_test_up_to_date,
         resolve_hard_dep_parent,
     )
 
@@ -216,13 +219,20 @@ def format_deps(
     lib_paths = get_lib_paths(name, cpython_prefix)
     existing_lib_paths = [p for p in lib_paths if p.exists()]
     for p in existing_lib_paths:
-        lines.append(f"[+] lib: {p}")
+        synced = is_path_synced(p, cpython_prefix, lib_prefix)
+        marker = "[x]" if synced else "[ ]"
+        lines.append(f"{marker} lib: {p}")
 
     # test paths (only show existing)
     test_paths = get_test_paths(name, cpython_prefix)
     existing_test_paths = [p for p in test_paths if p.exists()]
     for p in existing_test_paths:
-        lines.append(f"[+] test: {p}")
+        test_name = p.stem if p.is_file() else p.name
+        synced = is_test_up_to_date(test_name, cpython_prefix, lib_prefix)
+        marker = "[x]" if synced else "[ ]"
+        todo_count = count_test_todos(test_name, lib_prefix)
+        todo_suffix = f" (TODO: {todo_count})" if todo_count > 0 else ""
+        lines.append(f"{marker} test: {p}{todo_suffix}")
 
     # If no lib or test paths exist, module doesn't exist
     if not existing_lib_paths and not existing_test_paths:

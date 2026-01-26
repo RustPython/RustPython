@@ -60,7 +60,7 @@ def copy_lib(
         verbose: Print progress messages
     """
     from update_lib.deps import get_lib_paths
-    from update_lib.path import parse_lib_path
+    from update_lib.file_utils import parse_lib_path
 
     # Extract module name and cpython prefix from path
     path_str = str(src_path).replace("\\", "/")

@@ -4,7 +4,7 @@ import pathlib
 import tempfile
 import unittest
 
-from update_lib.migrate import (
+from update_lib.cmd_migrate import (
     patch_directory,
     patch_file,
     patch_single_content,

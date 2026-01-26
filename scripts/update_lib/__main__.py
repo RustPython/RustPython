@@ -63,39 +63,39 @@ def main(argv: list[str] | None = None) -> int:
     args, remaining = parser.parse_known_args(argv)
 
     if args.command == "quick":
-        from update_lib.quick import main as quick_main
+        from update_lib.cmd_quick import main as quick_main
 
         return quick_main(remaining)
 
     if args.command == "copy-lib":
-        from update_lib.copy_lib import main as copy_lib_main
+        from update_lib.cmd_copy_lib import main as copy_lib_main
 
         return copy_lib_main(remaining)
 
     if args.command == "migrate":
-        from update_lib.migrate import main as migrate_main
+        from update_lib.cmd_migrate import main as migrate_main
 
         return migrate_main(remaining)
 
     if args.command == "patches":
-        from update_lib.patches import main as patches_main
+        from update_lib.cmd_patches import main as patches_main
 
         return patches_main(remaining)
 
     if args.command == "auto-mark":
-        from update_lib.auto_mark import main as auto_mark_main
+        from update_lib.cmd_auto_mark import main as cmd_auto_mark_main
 
-        return auto_mark_main(remaining)
+        return cmd_auto_mark_main(remaining)
 
     if args.command == "deps":
-        from update_lib.show_deps import main as show_deps_main
+        from update_lib.cmd_deps import main as cmd_deps_main
 
-        return show_deps_main(remaining)
+        return cmd_deps_main(remaining)
 
     if args.command == "todo":
-        from update_lib.show_todo import main as show_todo_main
+        from update_lib.cmd_todo import main as cmd_todo_main
 
-        return show_todo_main(remaining)
+        return cmd_todo_main(remaining)
 
     return 0
 

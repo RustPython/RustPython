@@ -4,13 +4,13 @@ import pathlib
 import tempfile
 import unittest
 
-from update_lib.path import (
+from update_lib.file_utils import (
     get_test_files,
+    get_test_module_name,
     is_lib_path,
     is_test_path,
     lib_to_test_path,
     parse_lib_path,
-    test_name_from_path,
 )
 
 
@@ -202,22 +202,22 @@ class TestGetTestFiles(unittest.TestCase):
 
 
 class TestTestNameFromPath(unittest.TestCase):
-    """Tests for test_name_from_path function."""
+    """Tests for get_test_module_name function."""
 
     def test_simple_test_file(self):
         """Test extracting name from simple test file."""
         path = pathlib.Path("Lib/test/test_foo.py")
-        self.assertEqual(test_name_from_path(path), "test_foo")
+        self.assertEqual(get_test_module_name(path), "test_foo")
 
     def test_nested_test_file(self):
         """Test extracting name from nested test directory."""
         path = pathlib.Path("Lib/test/test_ctypes/test_bar.py")
-        self.assertEqual(test_name_from_path(path), "test_ctypes.test_bar")
+        self.assertEqual(get_test_module_name(path), "test_ctypes.test_bar")
 
     def test_test_directory(self):
         """Test extracting name from test directory."""
         path = pathlib.Path("Lib/test/test_json")
-        self.assertEqual(test_name_from_path(path), "test_json")
+        self.assertEqual(get_test_module_name(path), "test_json")
 
 
 if __name__ == "__main__":
