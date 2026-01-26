@@ -2,7 +2,9 @@
 source: crates/codegen/src/compile.rs
 expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
-  3           0 LOAD_CONST           (<code object test at ??? file "source_path", line 1>):  1               0 RUSTPYTHON_PLACEHOLDER
+  1           0 RESUME               (0)
+
+  3           1 LOAD_CONST           (<code object test at ??? file "source_path", line 1>):  1               0 RUSTPYTHON_PLACEHOLDER
                   1 POP_TOP
                   2 RESUME               (0)
 
@@ -157,7 +159,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 143 LOAD_CONST           (None)
                 144 RETURN_VALUE
 
-              1 MAKE_FUNCTION
-              2 STORE_NAME           (0, test)
-              3 LOAD_CONST           (None)
-              4 RETURN_VALUE
+              2 MAKE_FUNCTION
+              3 STORE_NAME           (0, test)
+              4 LOAD_CONST           (None)
+              5 RETURN_VALUE

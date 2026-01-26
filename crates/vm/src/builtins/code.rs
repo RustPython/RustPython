@@ -651,6 +651,12 @@ impl PyCode {
     }
 
     #[pygetset]
+    pub fn _co_code_adaptive(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
+        // RustPython doesn't have adaptive/specialized bytecode, so return regular co_code
+        self.co_code(vm)
+    }
+
+    #[pygetset]
     pub fn co_freevars(&self, vm: &VirtualMachine) -> PyTupleRef {
         let names = self
             .code

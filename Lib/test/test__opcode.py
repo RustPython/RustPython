@@ -38,7 +38,7 @@ class OpListTests(unittest.TestCase):
         opcodes = [dis.opmap[opname] for opname in names]
         self.check_bool_function_result(_opcode.is_valid, opcodes, True)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; KeyError: 'BINARY_OP_ADD_INT'
     def test_opmaps(self):
         def check_roundtrip(name, map):
             return self.assertEqual(opcode.opname[map[name]], name)
@@ -116,7 +116,7 @@ class StackEffectTests(unittest.TestCase):
 
 
 class SpecializationStatsTests(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'load_attr' not found in []
     def test_specialization_stats(self):
         stat_names = ["success", "failure", "hit", "deferred", "miss", "deopt"]
         specialized_opcodes = [

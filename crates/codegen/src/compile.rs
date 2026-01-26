@@ -997,12 +997,6 @@ impl Compiler {
         key: usize, // In RustPython, we use the index in symbol_table_stack as key
         lineno: u32,
     ) -> CompileResult<()> {
-        // Create location
-        let location = SourceLocation {
-            line: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
-            character_offset: OneIndexed::MIN,
-        };
-
         // Allocate a new compiler unit
 
         // In Rust, we'll create the structure directly
@@ -1148,40 +1142,50 @@ impl Compiler {
             self.set_qualname();
         }
 
-        // Emit RESUME instruction
-        let _resume_loc = if scope_type == CompilerScope::Module {
-            // Module scope starts with lineno 0
-            SourceLocation {
-                line: OneIndexed::MIN,
-                character_offset: OneIndexed::MIN,
-            }
-        } else {
-            location
-        };
+        // Emit RESUME (handles async preamble and module lineno 0)
+        // CPython: LOCATION(lineno, lineno, 0, 0), then loc.lineno = 0 for module
+        self.emit_resume_for_scope(scope_type, lineno);
 
-        // Set the source range for the RESUME instruction
-        // For now, just use an empty range at the beginning
-        self.current_source_range = TextRange::default();
+        Ok(())
+    }
 
+    /// Emit RESUME instruction with proper handling for async preamble and module lineno.
+    /// codegen_enter_scope equivalent for RESUME emission.
+    fn emit_resume_for_scope(&mut self, scope_type: CompilerScope, lineno: u32) {
         // For async functions/coroutines, emit RETURN_GENERATOR + POP_TOP before RESUME
         if scope_type == CompilerScope::AsyncFunction {
             emit!(self, Instruction::ReturnGenerator);
             emit!(self, Instruction::PopTop);
         }
 
-        emit!(
-            self,
-            Instruction::Resume {
-                arg: bytecode::ResumeType::AtFuncStart as u32
+        // CPython: LOCATION(lineno, lineno, 0, 0)
+        // Module scope: loc.lineno = 0 (before the first line)
+        let lineno_override = if scope_type == CompilerScope::Module {
+            Some(0)
+        } else {
+            None
+        };
+
+        // Use lineno for location (col = 0 as in CPython)
+        let location = SourceLocation {
+            line: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
+            character_offset: OneIndexed::MIN, // col = 0
+        };
+        let end_location = location; // end_lineno = lineno, end_col = 0
+        let except_handler = self.current_except_handler();
+
+        self.current_block().instructions.push(ir::InstructionInfo {
+            instr: Instruction::Resume {
+                arg: OpArgMarker::marker(),
             }
-        );
-
-        if scope_type == CompilerScope::Module {
-            // This would be loc.lineno = -1 in CPython
-            // We handle this differently in RustPython
-        }
-
-        Ok(())
+            .into(),
+            arg: OpArg(bytecode::ResumeType::AtFuncStart as u32),
+            target: BlockIdx::NULL,
+            location,
+            end_location,
+            except_handler,
+            lineno_override,
+        });
     }
 
     fn push_output(
@@ -1750,6 +1754,8 @@ impl Compiler {
         self.future_annotations = symbol_table.future_annotations;
         self.symbol_table_stack.push(symbol_table);
 
+        self.emit_resume_for_scope(CompilerScope::Module, 1);
+
         let (doc, statements) = split_doc(&body.body, &self.opts);
         if let Some(value) = doc {
             self.emit_load_const(ConstantData::Str {
@@ -1794,6 +1800,8 @@ impl Compiler {
         // Set future_annotations from symbol table (detected during symbol table scan)
         self.future_annotations = symbol_table.future_annotations;
         self.symbol_table_stack.push(symbol_table);
+
+        self.emit_resume_for_scope(CompilerScope::Module, 1);
 
         // Handle annotations based on future_annotations flag
         if Self::find_ann(body) {
@@ -1858,6 +1866,7 @@ impl Compiler {
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
+        self.emit_resume_for_scope(CompilerScope::Module, 1);
 
         self.compile_statements(body)?;
 
@@ -1887,6 +1896,8 @@ impl Compiler {
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
+        self.emit_resume_for_scope(CompilerScope::Module, 1);
+
         self.compile_expression(&expression.body)?;
         self.emit_return_value();
         Ok(())
@@ -2631,7 +2642,7 @@ impl Compiler {
 
         // Get the current symbol table
         let key = self.symbol_table_stack.len() - 1;
-        let lineno = expr.range().start().to_u32();
+        let lineno = self.get_source_line_number().get().to_u32();
 
         // Enter scope with the type parameter name
         self.enter_scope(name, CompilerScope::TypeParams, key, lineno)?;
@@ -7764,6 +7775,7 @@ impl Compiler {
             location,
             end_location,
             except_handler,
+            lineno_override: None,
         });
     }
 
@@ -7788,18 +7800,6 @@ impl Compiler {
     }
 
     fn emit_load_const(&mut self, constant: ConstantData) {
-        // Use LOAD_SMALL_INT for integers in small int cache range (-5..=256)
-        // Still add to co_consts for compatibility (CPython does this too)
-        if let ConstantData::Integer { ref value } = constant
-            && let Some(small_int) = value.to_i32()
-            && (-5..=256).contains(&small_int)
-        {
-            // Add to co_consts even though we use LOAD_SMALL_INT
-            let _idx = self.arg_constant(constant);
-            // Store as u32 (two's complement for negative values)
-            self.emit_arg(small_int as u32, |idx| Instruction::LoadSmallInt { idx });
-            return;
-        }
         let idx = self.arg_constant(constant);
         self.emit_arg(idx, |idx| Instruction::LoadConst { idx })
     }
