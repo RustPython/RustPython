@@ -4119,45 +4119,115 @@ mod _ssl {
                         peer_closed = true;
                     }
                 } else if let Some(timeout) = timeout_mode {
-                    // All socket modes (blocking, timeout, non-blocking):
-                    // Return immediately after sending our close_notify.
-                    //
-                    // This matches CPython/OpenSSL behavior where SSL_shutdown()
-                    // returns after sending close_notify, allowing the app to
-                    // close the socket without waiting for peer's close_notify.
-                    //
-                    // Waiting for peer's close_notify can cause deadlock with
-                    // asyncore-based servers where both sides wait for the other's
-                    // close_notify before closing the connection.
-
-                    // Ensure all pending TLS data is sent before returning
-                    // This prevents data loss when rustls drains its buffer
-                    // but the socket couldn't accept all data immediately
-                    drop(conn_guard);
-
-                    // Respect socket timeout settings for flushing pending TLS data
                     match timeout {
                         Some(0.0) => {
-                            // Non-blocking: best-effort flush, ignore errors
-                            // to avoid deadlock with asyncore-based servers
+                            // Non-blocking: return immediately after sending close_notify.
+                            // Don't wait for peer's close_notify to avoid blocking.
+                            drop(conn_guard);
+                            // Best-effort flush; WouldBlock is expected in non-blocking mode.
+                            // Other errors indicate close_notify may not have been sent,
+                            // but we still complete shutdown to avoid inconsistent state.
                             let _ = self.flush_pending_tls_output(vm, None);
+                            *self.shutdown_state.lock() = ShutdownState::Completed;
+                            *self.connection.lock() = None;
+                            return Ok(self.sock.clone());
                         }
-                        Some(_t) => {
-                            // Timeout mode: use flush with socket's timeout
-                            // Errors (including timeout) are propagated to caller
-                            self.flush_pending_tls_output(vm, None)?;
-                        }
-                        None => {
-                            // Blocking mode: wait until all pending data is sent
-                            self.blocking_flush_all_pending(vm)?;
+                        _ => {
+                            // Blocking or timeout mode: wait for peer's close_notify.
+                            // This is proper TLS shutdown - we should receive peer's
+                            // close_notify before closing the connection.
+                            drop(conn_guard);
+
+                            // Flush our close_notify first
+                            if timeout.is_none() {
+                                self.blocking_flush_all_pending(vm)?;
+                            } else {
+                                self.flush_pending_tls_output(vm, None)?;
+                            }
+
+                            // Calculate deadline for timeout mode
+                            let deadline = timeout.map(|t| {
+                                std::time::Instant::now() + std::time::Duration::from_secs_f64(t)
+                            });
+
+                            // Wait for peer's close_notify
+                            loop {
+                                // Re-acquire connection lock for each iteration
+                                let mut conn_guard = self.connection.lock();
+                                let conn = match conn_guard.as_mut() {
+                                    Some(c) => c,
+                                    None => break, // Connection already closed
+                                };
+
+                                // Check if peer already sent close_notify
+                                if self.check_peer_closed(conn, vm)? {
+                                    break;
+                                }
+
+                                drop(conn_guard);
+
+                                // Check timeout
+                                let remaining_timeout = if let Some(dl) = deadline {
+                                    let now = std::time::Instant::now();
+                                    if now >= dl {
+                                        // Timeout reached - raise TimeoutError
+                                        return Err(vm.new_exception_msg(
+                                            vm.ctx.exceptions.timeout_error.to_owned(),
+                                            "The read operation timed out".to_owned(),
+                                        ));
+                                    }
+                                    Some(dl - now)
+                                } else {
+                                    None // Blocking mode: no timeout
+                                };
+
+                                // Wait for socket to be readable
+                                let timed_out = self.sock_wait_for_io_with_timeout(
+                                    SelectKind::Read,
+                                    remaining_timeout,
+                                    vm,
+                                )?;
+
+                                if timed_out {
+                                    // Timeout waiting for peer's close_notify
+                                    // Raise TimeoutError
+                                    return Err(vm.new_exception_msg(
+                                        vm.ctx.exceptions.timeout_error.to_owned(),
+                                        "The read operation timed out".to_owned(),
+                                    ));
+                                }
+
+                                // Try to read data from socket
+                                let mut conn_guard = self.connection.lock();
+                                let conn = match conn_guard.as_mut() {
+                                    Some(c) => c,
+                                    None => break,
+                                };
+
+                                // Read and process any incoming TLS data
+                                match self.try_read_close_notify(conn, vm) {
+                                    Ok(closed) => {
+                                        if closed {
+                                            break;
+                                        }
+                                        // Check again after processing
+                                        if self.check_peer_closed(conn, vm)? {
+                                            break;
+                                        }
+                                    }
+                                    Err(_) => {
+                                        // Socket error - peer likely closed connection
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // Shutdown complete
+                            *self.shutdown_state.lock() = ShutdownState::Completed;
+                            *self.connection.lock() = None;
+                            return Ok(self.sock.clone());
                         }
                     }
-
-                    // Set shutdown_state first to ensure atomic visibility
-                    // This prevents read/write race conditions during shutdown
-                    *self.shutdown_state.lock() = ShutdownState::Completed;
-                    *self.connection.lock() = None;
-                    return Ok(self.sock.clone());
                 }
 
                 // Step 3: Check again if peer has sent close_notify (non-blocking/BIO mode only)
