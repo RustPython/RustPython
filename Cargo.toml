@@ -193,7 +193,7 @@ rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.1", features = ["event"] }
 rustyline = "17.0.1"
-serde = { version = "1.0.225", default-features = false }
+serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.28"
 scoped-tls = "1"
 scopeguard = "1"
