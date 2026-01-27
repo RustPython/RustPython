@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout base branch
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6.0.2
         with:
           # Use base branch for scripts (security: don't run PR code with elevated permissions)
           ref: ${{ github.event.pull_request.base.ref }}
