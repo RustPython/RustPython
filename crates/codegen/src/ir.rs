@@ -189,6 +189,9 @@ impl CodeInfo {
             self.peephole_optimize();
         }
 
+        // Always apply LOAD_FAST_BORROW optimization
+        self.optimize_load_fast_borrow();
+
         let max_stackdepth = self.max_stackdepth()?;
         let cell2arg = self.cell2arg();
 
@@ -684,6 +687,110 @@ impl CodeInfo {
             block
                 .instructions
                 .retain(|ins| !matches!(ins.instr.real(), Some(Instruction::Nop)));
+        }
+    }
+
+    /// Optimize LOAD_FAST to LOAD_FAST_BORROW where safe.
+    ///
+    /// A LOAD_FAST can be converted to LOAD_FAST_BORROW if its value is
+    /// consumed within the same basic block (not passed to another block).
+    /// This is a reference counting optimization in CPython; in RustPython
+    /// we implement it for bytecode compatibility.
+    fn optimize_load_fast_borrow(&mut self) {
+        use rustpython_compiler_core::bytecode::InstructionMetadata;
+
+        // NOT_LOCAL marker: instruction didn't come from a LOAD_FAST
+        const NOT_LOCAL: usize = usize::MAX;
+
+        for block in &mut self.blocks {
+            if block.instructions.is_empty() {
+                continue;
+            }
+
+            // Track which instructions' outputs are still on stack at block end
+            // For each instruction, we track if its pushed value(s) are unconsumed
+            let mut unconsumed = vec![false; block.instructions.len()];
+
+            // Simulate stack: each entry is the instruction index that pushed it
+            // (or NOT_LOCAL if not from LOAD_FAST/LOAD_FAST_LOAD_FAST)
+            let mut stack: Vec<usize> = Vec::new();
+
+            for (i, info) in block.instructions.iter().enumerate() {
+                let Some(instr) = info.instr.real() else {
+                    continue;
+                };
+
+                // Get stack effect
+                let effect = instr.stack_effect(info.arg);
+                let num_popped = if effect < 0 { (-effect) as usize } else { 0 };
+                let num_pushed = if effect > 0 { effect as usize } else { 0 };
+
+                // More precise: calculate actual pops and pushes
+                // For most instructions: pops = max(0, -effect), pushes = max(0, effect)
+                // But some instructions have both pops and pushes
+                let (pops, pushes) = match instr {
+                    // Instructions that both pop and push
+                    Instruction::BinaryOp { .. } => (2, 1),
+                    Instruction::CompareOp { .. } => (2, 1),
+                    Instruction::ContainsOp(_) => (2, 1),
+                    Instruction::IsOp(_) => (2, 1),
+                    Instruction::UnaryInvert
+                    | Instruction::UnaryNegative
+                    | Instruction::UnaryNot
+                    | Instruction::ToBool => (1, 1),
+                    Instruction::GetIter | Instruction::GetAIter => (1, 1),
+                    Instruction::LoadAttr { .. } => (1, 1), // simplified
+                    Instruction::Call { nargs } => (nargs.get(info.arg) as usize + 2, 1),
+                    Instruction::CallKw { nargs } => (nargs.get(info.arg) as usize + 3, 1),
+                    // Use stack effect for others
+                    _ => (num_popped, num_pushed),
+                };
+
+                // Pop values from stack
+                for _ in 0..pops {
+                    if stack.pop().is_none() {
+                        // Stack underflow in simulation - block receives values from elsewhere
+                        // Conservative: don't optimize this block
+                        break;
+                    }
+                }
+
+                // Push values to stack with source instruction index
+                let source = match instr {
+                    Instruction::LoadFast(_) | Instruction::LoadFastLoadFast { .. } => i,
+                    _ => NOT_LOCAL,
+                };
+                for _ in 0..pushes {
+                    stack.push(source);
+                }
+            }
+
+            // Mark instructions whose values remain on stack at block end
+            for &src in &stack {
+                if src != NOT_LOCAL {
+                    unconsumed[src] = true;
+                }
+            }
+
+            // Convert LOAD_FAST to LOAD_FAST_BORROW where value is fully consumed
+            for (i, info) in block.instructions.iter_mut().enumerate() {
+                if unconsumed[i] {
+                    continue;
+                }
+                let Some(instr) = info.instr.real() else {
+                    continue;
+                };
+                match instr {
+                    Instruction::LoadFast(_) => {
+                        info.instr = Instruction::LoadFastBorrow(Arg::marker()).into();
+                    }
+                    Instruction::LoadFastLoadFast { .. } => {
+                        info.instr =
+                            Instruction::LoadFastBorrowLoadFastBorrow { arg: Arg::marker() }.into();
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 

@@ -578,7 +578,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(JitValue::Int(val));
                 Ok(())
             }
-            Instruction::LoadFast(idx) => {
+            Instruction::LoadFast(idx) | Instruction::LoadFastBorrow(idx) => {
                 let local = self.variables[idx.get(arg) as usize]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;

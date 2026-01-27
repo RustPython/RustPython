@@ -1325,6 +1325,57 @@ impl ExecutingFrame<'_> {
                 self.push_value(x2);
                 Ok(None)
             }
+            // TODO: Implement true borrow optimization (skip Arc::clone).
+            // CPython's LOAD_FAST_BORROW uses PyStackRef_Borrow to avoid refcount
+            // increment for values that are consumed within the same basic block.
+            // Possible approaches:
+            // - Store raw pointers with careful lifetime management
+            // - Add a "borrowed" variant to stack slots
+            // - Use arena allocation for short-lived stack values
+            // Currently this just clones like LoadFast.
+            Instruction::LoadFastBorrow(idx) => {
+                let idx = idx.get(arg) as usize;
+                let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx]
+                        ),
+                    )
+                })?;
+                self.push_value(x);
+                Ok(None)
+            }
+            // TODO: Same as LoadFastBorrow - implement true borrow optimization.
+            Instruction::LoadFastBorrowLoadFastBorrow { arg: packed } => {
+                let oparg = packed.get(arg);
+                let idx1 = (oparg >> 4) as usize;
+                let idx2 = (oparg & 15) as usize;
+                let fastlocals = self.fastlocals.lock();
+                let x1 = fastlocals[idx1].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx1]
+                        ),
+                    )
+                })?;
+                let x2 = fastlocals[idx2].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx2]
+                        ),
+                    )
+                })?;
+                drop(fastlocals);
+                self.push_value(x1);
+                self.push_value(x2);
+                Ok(None)
+            }
             Instruction::LoadGlobal(idx) => {
                 let name = &self.code.names[idx.get(arg) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;

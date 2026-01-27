@@ -177,10 +177,10 @@ pub enum Instruction {
     LoadDeref(Arg<NameIdx>) = 83,
     LoadFast(Arg<NameIdx>) = 84,
     LoadFastAndClear(Arg<NameIdx>) = 85,
-    LoadFastBorrow(Arg<NameIdx>) = 86, // Placeholder
+    LoadFastBorrow(Arg<NameIdx>) = 86,
     LoadFastBorrowLoadFastBorrow {
         arg: Arg<u32>,
-    } = 87, // Placeholder
+    } = 87,
     LoadFastCheck(Arg<NameIdx>) = 88,
     LoadFastLoadFast {
         arg: Arg<u32>,
@@ -861,6 +861,29 @@ impl InstructionMetadata for Instruction {
             Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             Self::LoadFast(idx) => w!(LOAD_FAST, varname = idx),
             Self::LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
+            Self::LoadFastBorrow(idx) => w!(LOAD_FAST_BORROW, varname = idx),
+            Self::LoadFastCheck(idx) => w!(LOAD_FAST_CHECK, varname = idx),
+            Self::LoadFastLoadFast { arg: packed } => {
+                let oparg = packed.get(arg);
+                let idx1 = oparg >> 4;
+                let idx2 = oparg & 15;
+                let name1 = varname(idx1);
+                let name2 = varname(idx2);
+                write!(f, "{:pad$}({}, {})", "LOAD_FAST_LOAD_FAST", name1, name2)
+            }
+            Self::LoadFastBorrowLoadFastBorrow { arg: packed } => {
+                let oparg = packed.get(arg);
+                let idx1 = oparg >> 4;
+                let idx2 = oparg & 15;
+                let name1 = varname(idx1);
+                let name2 = varname(idx2);
+                write!(
+                    f,
+                    "{:pad$}({}, {})",
+                    "LOAD_FAST_BORROW_LOAD_FAST_BORROW", name1, name2
+                )
+            }
+            Self::LoadFromDictOrGlobals(idx) => w!(LOAD_FROM_DICT_OR_GLOBALS, name = idx),
             Self::LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
             Self::LoadName(idx) => w!(LOAD_NAME, name = idx),
             Self::LoadSpecial { method } => w!(LOAD_SPECIAL, method),
@@ -893,6 +916,7 @@ impl InstructionMetadata for Instruction {
             Self::Reraise { depth } => w!(RERAISE, depth),
             Self::Resume { arg } => w!(RESUME, arg),
             Self::ReturnValue => w!(RETURN_VALUE),
+            Self::ReturnGenerator => w!(RETURN_GENERATOR),
             Self::Send { target } => w!(SEND, target),
             Self::SetAdd { i } => w!(SET_ADD, i),
             Self::SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),

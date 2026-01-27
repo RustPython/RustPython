@@ -4,7 +4,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
 ---
   1           0 RESUME               (0)
 
-  3           1 LOAD_CONST           (<code object test at ??? file "source_path", line 1>):  1               0 RUSTPYTHON_PLACEHOLDER
+  3           1 LOAD_CONST           (<code object test at ??? file "source_path", line 1>):  1               0 RETURN_GENERATOR
                   1 POP_TOP
                   2 RESUME               (0)
 
@@ -25,7 +25,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  16 LOAD_ATTR            (7, subTest, method=true)
                  17 LOAD_GLOBAL          (4, type)
                  18 PUSH_NULL
-                 19 LOAD_FAST            (0, stop_exc)
+                 19 LOAD_FAST_BORROW     (0, stop_exc)
                  20 CALL                 (1)
                  21 LOAD_CONST           (("type"))
                  22 CALL_KW              (1)
@@ -56,7 +56,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
             >>   46 END_SEND
                  47 POP_TOP
 
-  6              48 LOAD_FAST            (0, stop_exc)
+  6              48 LOAD_FAST_BORROW     (0, stop_exc)
                  49 RAISE_VARARGS        (Raise)
 
   5              50 PUSH_NULL
@@ -105,8 +105,8 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
 
   8              92 LOAD_GLOBAL          (2, self)
                  93 LOAD_ATTR            (15, assertIs, method=true)
-                 94 LOAD_FAST            (1, ex)
-                 95 LOAD_FAST            (0, stop_exc)
+                 94 LOAD_FAST_BORROW     (1, ex)
+                 95 LOAD_FAST_BORROW     (0, stop_exc)
                  96 CALL                 (2)
                  97 POP_TOP
                  98 JUMP_FORWARD         (103)
@@ -126,7 +126,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
 
  10         >>  112 LOAD_GLOBAL          (2, self)
                 113 LOAD_ATTR            (17, fail, method=true)
-                114 LOAD_FAST            (0, stop_exc)
+                114 LOAD_FAST_BORROW     (0, stop_exc)
                 115 FORMAT_SIMPLE
                 116 LOAD_CONST           (" was suppressed")
                 117 BUILD_STRING         (2)
