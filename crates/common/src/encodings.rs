@@ -262,6 +262,7 @@ pub mod errors {
     use super::*;
     use core::fmt::Write;
 
+    #[derive(Clone, Copy)]
     pub struct Strict;
 
     impl<Ctx: EncodeContext> EncodeErrorHandler<Ctx> for Strict {
@@ -286,6 +287,7 @@ pub mod errors {
         }
     }
 
+    #[derive(Clone, Copy)]
     pub struct Ignore;
 
     impl<Ctx: EncodeContext> EncodeErrorHandler<Ctx> for Ignore {
@@ -310,6 +312,7 @@ pub mod errors {
         }
     }
 
+    #[derive(Clone, Copy)]
     pub struct Replace;
 
     impl<Ctx: EncodeContext> EncodeErrorHandler<Ctx> for Replace {
@@ -338,6 +341,7 @@ pub mod errors {
         }
     }
 
+    #[derive(Clone, Copy)]
     pub struct XmlCharRefReplace;
 
     impl<Ctx: EncodeContext> EncodeErrorHandler<Ctx> for XmlCharRefReplace {
@@ -358,6 +362,7 @@ pub mod errors {
         }
     }
 
+    #[derive(Clone, Copy)]
     pub struct BackslashReplace;
 
     impl<Ctx: EncodeContext> EncodeErrorHandler<Ctx> for BackslashReplace {
@@ -394,6 +399,7 @@ pub mod errors {
         }
     }
 
+    #[derive(Clone, Copy)]
     pub struct NameReplace;
 
     impl<Ctx: EncodeContext> EncodeErrorHandler<Ctx> for NameReplace {
@@ -422,6 +428,7 @@ pub mod errors {
         }
     }
 
+    #[derive(Clone, Copy)]
     pub struct SurrogateEscape;
 
     impl<Ctx: EncodeContext> EncodeErrorHandler<Ctx> for SurrogateEscape {

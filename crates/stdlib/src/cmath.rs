@@ -1,4 +1,4 @@
-pub(crate) use cmath::make_module;
+pub(crate) use cmath::module_def;
 
 #[pymodule]
 mod cmath {

@@ -4,7 +4,7 @@ pub(crate) use _thread::after_fork_child;
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
     CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames, get_ident,
-    init_main_thread_ident, make_module,
+    init_main_thread_ident, module_def,
 };
 
 #[pymodule]
@@ -934,6 +934,50 @@ pub(crate) mod _thread {
                 }
 
                 true
+            });
+        }
+
+        // Clean up shutdown_handles as well.
+        // This is critical to prevent _shutdown() from waiting on threads
+        // that don't exist in the child process after fork.
+        if let Some(mut handles) = vm.state.shutdown_handles.try_lock() {
+            // Mark all non-current threads as done in shutdown_handles
+            handles.retain(|(inner_weak, done_event_weak): &ShutdownEntry| {
+                let Some(inner) = inner_weak.upgrade() else {
+                    return false; // Remove dead entries
+                };
+                let Some(done_event) = done_event_weak.upgrade() else {
+                    return false;
+                };
+
+                // Try to lock the inner state - skip if we can't
+                let Some(mut inner_guard) = inner.try_lock() else {
+                    return false;
+                };
+
+                // Skip current thread
+                if inner_guard.ident == current_ident {
+                    return true;
+                }
+
+                // Keep handles for threads that have not been started yet.
+                // They are safe to start in the child process.
+                if inner_guard.state == ThreadHandleState::NotStarted {
+                    return true;
+                }
+
+                // Mark as done so _shutdown() won't wait on it
+                inner_guard.state = ThreadHandleState::Done;
+                drop(inner_guard);
+
+                // Notify waiters
+                let (lock, cvar) = &*done_event;
+                if let Some(mut done) = lock.try_lock() {
+                    *done = true;
+                    cvar.notify_all();
+                }
+
+                false // Remove from shutdown_handles - these threads don't exist in child
             });
         }
     }

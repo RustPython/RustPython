@@ -1,24 +1,12 @@
 // spell-checker:disable
 
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = _signal::make_module(vm);
-
-    #[cfg(any(unix, windows))]
-    _signal::init_signal_handlers(&module, vm);
-
-    module
-}
+pub(crate) use _signal::module_def;
 
 #[pymodule]
 pub(crate) mod _signal {
     #[cfg(any(unix, windows))]
-    use crate::{
-        Py,
-        convert::{IntoPyException, TryFromBorrowedObject},
-    };
-    use crate::{PyObjectRef, PyResult, VirtualMachine, signal};
+    use crate::convert::{IntoPyException, TryFromBorrowedObject};
+    use crate::{Py, PyObjectRef, PyResult, VirtualMachine, signal};
     #[cfg(unix)]
     use crate::{
         builtins::PyTypeRef,
@@ -214,7 +202,7 @@ pub(crate) mod _signal {
             match usize::try_from_borrowed_object(vm, &handler).ok() {
                 Some(SIG_DFL) => SIG_DFL,
                 Some(SIG_IGN) => SIG_IGN,
-                None if handler.is_callable() => run_signal as sighandler_t,
+                None if handler.is_callable() => run_signal as *const () as sighandler_t,
                 _ => return Err(vm.new_type_error(
                     "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object",
                 )),
@@ -681,5 +669,17 @@ pub(crate) mod _signal {
             let _res = unsafe { libc::write(wakeup_fd as _, &sigbyte as *const u8 as *const _, 1) };
             // TODO: handle _res < 1, support warn_on_full_buffer
         }
+    }
+
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::builtins::PyModule>,
+    ) -> PyResult<()> {
+        __module_exec(vm, module);
+
+        #[cfg(any(unix, windows))]
+        init_signal_handlers(module, vm);
+
+        Ok(())
     }
 }

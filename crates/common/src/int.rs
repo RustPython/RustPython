@@ -29,7 +29,7 @@ pub fn float_to_ratio(value: f64) -> Option<(BigInt, BigInt)> {
     })
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BytesToIntError {
     InvalidLiteral { base: u32 },
     InvalidBase,

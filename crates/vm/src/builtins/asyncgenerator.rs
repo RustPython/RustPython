@@ -1,4 +1,4 @@
-use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{PyCode, PyGenerator, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
@@ -123,8 +123,12 @@ impl PyAsyncGen {
         self.inner.frame().yield_from_target()
     }
     #[pygetset]
-    fn ag_frame(&self, _vm: &VirtualMachine) -> FrameRef {
-        self.inner.frame()
+    fn ag_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
+        if self.inner.closed() {
+            None
+        } else {
+            Some(self.inner.frame())
+        }
     }
     #[pygetset]
     fn ag_running(&self, _vm: &VirtualMachine) -> bool {
@@ -592,6 +596,28 @@ impl PyAnextAwaitable {
         let awaitable = if wrapped.class().is(vm.ctx.types.coroutine_type) {
             // Coroutine - get __await__ later
             wrapped.clone()
+        } else if let Some(generator) = wrapped.downcast_ref::<PyGenerator>() {
+            // Generator with CO_ITERABLE_COROUTINE flag can be awaited
+            // (e.g., generators decorated with @types.coroutine)
+            if generator
+                .as_coro()
+                .frame()
+                .code
+                .flags
+                .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
+            {
+                // Return the generator itself as the iterator
+                return Ok(wrapped.clone());
+            }
+            // Fall through: try to get __await__ method for generator subclasses
+            if let Some(await_method) = vm.get_method(wrapped.clone(), identifier!(vm, __await__)) {
+                await_method?.call((), vm)?
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "object {} can't be used in 'await' expression",
+                    wrapped.class().name()
+                )));
+            }
         } else {
             // Try to get __await__ method
             if let Some(await_method) = vm.get_method(wrapped.clone(), identifier!(vm, __await__)) {

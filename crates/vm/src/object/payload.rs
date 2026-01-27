@@ -28,19 +28,15 @@ pub(crate) fn cold_downcast_type_error(
 pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     const PAYLOAD_TYPE_ID: core::any::TypeId = core::any::TypeId::of::<Self>();
 
-    /// # Safety: this function should only be called if `payload_type_id` matches the type of `obj`.
+    /// # Safety
+    /// This function should only be called if `payload_type_id` matches the type of `obj`.
     #[inline]
-    fn downcastable_from(obj: &PyObject) -> bool {
-        obj.typeid() == Self::PAYLOAD_TYPE_ID && Self::validate_downcastable_from(obj)
-    }
-
-    #[inline]
-    fn validate_downcastable_from(_obj: &PyObject) -> bool {
+    unsafe fn validate_downcastable_from(_obj: &PyObject) -> bool {
         true
     }
 
     fn try_downcast_from(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        if Self::downcastable_from(obj) {
+        if obj.downcastable::<Self>() {
             return Ok(());
         }
 

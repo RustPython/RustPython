@@ -1,6 +1,6 @@
 // spell-checker:disable
 //! mmap module
-pub(crate) use mmap::make_module;
+pub(crate) use mmap::module_def;
 
 #[pymodule]
 mod mmap {

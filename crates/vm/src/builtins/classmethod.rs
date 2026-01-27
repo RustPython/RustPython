@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::lock::PyMutex,
-    function::FuncArgs,
+    function::{FuncArgs, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer, Representable},
 };
 
@@ -156,6 +156,27 @@ impl PyClassMethod {
     #[pygetset]
     fn __annotations__(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.lock().get_attr("__annotations__", vm)
+    }
+
+    #[pygetset(setter)]
+    fn set___annotations__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        match value {
+            PySetterValue::Assign(v) => self.callable.lock().set_attr("__annotations__", v, vm),
+            PySetterValue::Delete => Ok(()), // Silently ignore delete like CPython
+        }
+    }
+
+    #[pygetset]
+    fn __annotate__(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.lock().get_attr("__annotate__", vm)
+    }
+
+    #[pygetset(setter)]
+    fn set___annotate__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        match value {
+            PySetterValue::Assign(v) => self.callable.lock().set_attr("__annotate__", v, vm),
+            PySetterValue::Delete => Ok(()), // Silently ignore delete like CPython
+        }
     }
 
     #[pygetset]

@@ -113,12 +113,10 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
     settings.write_bytecode = false;
     settings.user_site_directory = false;
 
-    Interpreter::with_init(settings, |vm| {
-        for (name, init) in rustpython_stdlib::get_module_inits() {
-            vm.add_native_module(name, init);
-        }
-    })
-    .enter(|vm| {
+    let builder = Interpreter::builder(settings);
+    let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+    let interp = builder.add_native_modules(&defs).build();
+    interp.enter(|vm| {
         let setup_code = vm
             .compile(&bench.setup, Mode::Exec, bench.name.to_owned())
             .expect("Error compiling setup code");

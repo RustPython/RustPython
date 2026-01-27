@@ -1,4 +1,4 @@
-pub(crate) use _warnings::make_module;
+pub(crate) use _warnings::module_def;
 
 use crate::{Py, PyResult, VirtualMachine, builtins::PyType};
 

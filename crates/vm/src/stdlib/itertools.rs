@@ -1,4 +1,4 @@
-pub(crate) use decl::make_module;
+pub(crate) use decl::module_def;
 
 #[pymodule(name = "itertools")]
 mod decl {

@@ -1,7 +1,8 @@
 // spell-checker:disable
 
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
 use std::os::fd::BorrowedFd;
+
+pub(crate) use module::module_def;
 
 pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()> {
     use nix::fcntl;
@@ -12,12 +13,6 @@ pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()>
         fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFD(new_flags))?;
     }
     Ok(())
-}
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = module::make_module(vm);
-    super::os::extend_module(vm, &module);
-    module
 }
 
 #[pymodule(name = "posix", with(super::os::_os))]
@@ -2579,7 +2574,14 @@ pub mod module {
             headers,
             trailers,
         );
-        res.map_err(|err| err.into_pyexception(vm))?;
+        // On macOS, sendfile can return EAGAIN even when some bytes were written.
+        // In that case, we should return the number of bytes written rather than
+        // raising an exception. Only raise an error if no bytes were written.
+        if let Err(err) = res
+            && written == 0
+        {
+            return Err(err.into_pyexception(vm));
+        }
         Ok(vm.ctx.new_int(written as u64).into())
     }
 
@@ -2605,5 +2607,14 @@ pub mod module {
             buf.set_len(len);
         }
         Ok(buf)
+    }
+
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::builtins::PyModule>,
+    ) -> PyResult<()> {
+        __module_exec(vm, module);
+        super::super::os::module_exec(vm, module)?;
+        Ok(())
     }
 }

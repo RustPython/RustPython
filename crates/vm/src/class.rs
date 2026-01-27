@@ -28,7 +28,7 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
                 .slots
                 .hash
                 .load()
-                .is_some_and(|h| h as usize == hash_not_implemented as usize)
+                .is_some_and(|h| h as usize == hash_not_implemented as *const () as usize)
         {
             class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
             continue;

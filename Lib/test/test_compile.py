@@ -152,8 +152,6 @@ if 1:
         pass"""
         compile(s, "<string>", "exec")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # This test is probably specific to CPython and may not generalize
     # to other implementations.  We are trying to ensure that when
     # the first line of code starts after 256, correct line numbers
@@ -928,8 +926,6 @@ if 1:
                 func(save_caller_frame)
                 self.assertEqual(frame.f_lineno-frame.f_code.co_firstlineno, lastline)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lineno_after_no_code(self):
         def no_code1():
             "doc string"

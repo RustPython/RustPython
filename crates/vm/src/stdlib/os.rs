@@ -149,6 +149,8 @@ pub(super) mod _os {
     use super::{DirFd, FollowSymlinks, SupportFunc};
     #[cfg(windows)]
     use crate::common::windows::ToWideString;
+    #[cfg(any(unix, windows))]
+    use crate::utils::ToCString;
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
@@ -168,7 +170,6 @@ pub(super) mod _os {
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
-        utils::ToCString,
         vm::VirtualMachine,
     };
     use core::time::Duration;
@@ -906,9 +907,11 @@ pub(super) mod _os {
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_blocks: i64,
+        #[cfg(windows)]
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_reparse_tag: u32,
+        #[cfg(windows)]
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_file_attributes: u32,
@@ -943,13 +946,8 @@ pub(super) mod _os {
 
             #[cfg(windows)]
             let st_reparse_tag = stat.st_reparse_tag;
-            #[cfg(not(windows))]
-            let st_reparse_tag = 0;
-
             #[cfg(windows)]
             let st_file_attributes = stat.st_file_attributes;
-            #[cfg(not(windows))]
-            let st_file_attributes = 0;
 
             // On Windows, combine st_ino and st_ino_high into a 128-bit value
             // like _pystat_l128_from_l64_l64
@@ -986,7 +984,9 @@ pub(super) mod _os {
                 st_blksize,
                 #[cfg(not(windows))]
                 st_blocks,
+                #[cfg(windows)]
                 st_reparse_tag,
+                #[cfg(windows)]
                 st_file_attributes,
             }
         }
@@ -1897,21 +1897,21 @@ impl SupportFunc {
     }
 }
 
-pub fn extend_module(vm: &VirtualMachine, module: &Py<PyModule>) {
+pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
     let support_funcs = _os::support_funcs();
     let supports_fd = PySet::default().into_ref(&vm.ctx);
     let supports_dir_fd = PySet::default().into_ref(&vm.ctx);
     let supports_follow_symlinks = PySet::default().into_ref(&vm.ctx);
     for support in support_funcs {
-        let func_obj = module.get_attr(support.name, vm).unwrap();
+        let func_obj = module.get_attr(support.name, vm)?;
         if support.fd.unwrap_or(false) {
-            supports_fd.clone().add(func_obj.clone(), vm).unwrap();
+            supports_fd.clone().add(func_obj.clone(), vm)?;
         }
         if support.dir_fd.unwrap_or(false) {
-            supports_dir_fd.clone().add(func_obj.clone(), vm).unwrap();
+            supports_dir_fd.clone().add(func_obj.clone(), vm)?;
         }
         if support.follow_symlinks.unwrap_or(false) {
-            supports_follow_symlinks.clone().add(func_obj, vm).unwrap();
+            supports_follow_symlinks.clone().add(func_obj, vm)?;
         }
     }
 
@@ -1921,6 +1921,8 @@ pub fn extend_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "supports_follow_symlinks" => supports_follow_symlinks,
         "error" => vm.ctx.exceptions.os_error.to_owned(),
     });
+
+    Ok(())
 }
 
 #[cfg(not(windows))]

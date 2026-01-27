@@ -485,9 +485,10 @@ class _CallableGenericAlias(GenericAlias):
     def __repr__(self):
         if len(self.__args__) == 2 and _is_param_expr(self.__args__[0]):
             return super().__repr__()
+        from annotationlib import type_repr
         return (f'collections.abc.Callable'
-                f'[[{", ".join([_type_repr(a) for a in self.__args__[:-1]])}], '
-                f'{_type_repr(self.__args__[-1])}]')
+                f'[[{", ".join([type_repr(a) for a in self.__args__[:-1]])}], '
+                f'{type_repr(self.__args__[-1])}]')
 
     def __reduce__(self):
         args = self.__args__
@@ -512,10 +513,6 @@ class _CallableGenericAlias(GenericAlias):
             new_args = (t_args, t_result)
         return _CallableGenericAlias(Callable, tuple(new_args))
 
-    # TODO: RUSTPYTHON; patch for common call
-    def __or__(self, other):
-        super().__or__(other)
-
 def _is_param_expr(obj):
     """Checks if obj matches either a list of types, ``...``, ``ParamSpec`` or
     ``_ConcatenateGenericAlias`` from typing.py
@@ -527,23 +524,6 @@ def _is_param_expr(obj):
     obj = type(obj)
     names = ('ParamSpec', '_ConcatenateGenericAlias')
     return obj.__module__ == 'typing' and any(obj.__name__ == name for name in names)
-
-def _type_repr(obj):
-    """Return the repr() of an object, special-casing types (internal helper).
-
-    Copied from :mod:`typing` since collections.abc
-    shouldn't depend on that module.
-    (Keep this roughly in sync with the typing version.)
-    """
-    if isinstance(obj, type):
-        if obj.__module__ == 'builtins':
-            return obj.__qualname__
-        return f'{obj.__module__}.{obj.__qualname__}'
-    if obj is Ellipsis:
-        return '...'
-    if isinstance(obj, FunctionType):
-        return obj.__name__
-    return repr(obj)
 
 
 class Callable(metaclass=ABCMeta):
@@ -1077,6 +1057,7 @@ class Sequence(Reversible, Collection):
 
 Sequence.register(tuple)
 Sequence.register(str)
+Sequence.register(bytes)
 Sequence.register(range)
 Sequence.register(memoryview)
 
@@ -1183,4 +1164,4 @@ class MutableSequence(Sequence):
 
 
 MutableSequence.register(list)
-MutableSequence.register(bytearray)  # Multiply inheriting, see ByteString
+MutableSequence.register(bytearray)

@@ -21,9 +21,9 @@ pub use crate::bytecode::{
         encode_load_super_attr_arg,
     },
     oparg::{
-        BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
+        BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,
         IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx, OpArg,
-        OpArgByte, OpArgState, OpArgType, RaiseKind, ResumeType, UnpackExArgs,
+        OpArgByte, OpArgState, OpArgType, RaiseKind, ResumeType, SpecialMethod, UnpackExArgs,
     },
 };
 
@@ -32,7 +32,7 @@ mod oparg;
 
 /// Exception table entry for zero-cost exception handling
 /// Format: (start, size, target, depth<<1|lasti)
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExceptionTableEntry {
     /// Start instruction offset (inclusive)
     pub start: u32,
@@ -47,7 +47,7 @@ pub struct ExceptionTableEntry {
 }
 
 impl ExceptionTableEntry {
-    pub fn new(start: u32, end: u32, target: u32, depth: u16, push_lasti: bool) -> Self {
+    pub const fn new(start: u32, end: u32, target: u32, depth: u16, push_lasti: bool) -> Self {
         Self {
             start,
             end,
@@ -297,6 +297,7 @@ bitflags! {
         const VARKEYWORDS = 0x0008;
         const GENERATOR = 0x0020;
         const COROUTINE = 0x0080;
+        const ITERABLE_COROUTINE = 0x0100;
         /// If a code object represents a function and has a docstring,
         /// this bit is set and the first item in co_consts is the docstring.
         const HAS_DOCSTRING = 0x4000000;

@@ -1,6 +1,6 @@
 // spell-checker:ignore usedforsecurity HASHXOF
 
-pub(crate) use _blake2::make_module;
+pub(crate) use _blake2::module_def;
 
 #[pymodule]
 mod _blake2 {

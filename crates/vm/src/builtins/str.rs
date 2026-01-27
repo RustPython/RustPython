@@ -1944,7 +1944,7 @@ impl PyPayload for PyUtf8Str {
 
     const PAYLOAD_TYPE_ID: core::any::TypeId = core::any::TypeId::of::<PyStr>();
 
-    fn validate_downcastable_from(obj: &PyObject) -> bool {
+    unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
         // SAFETY: we know the object is a PyStr in this context
         let wtf8 = unsafe { obj.downcast_unchecked_ref::<PyStr>() };
         wtf8.is_utf8()

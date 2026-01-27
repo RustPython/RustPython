@@ -5,7 +5,7 @@
 //! Use this rust module to do byte packing:
 //! <https://docs.rs/byteorder/1.2.6/byteorder/>
 
-pub(crate) use _struct::make_module;
+pub(crate) use _struct::module_def;
 
 #[pymodule]
 pub(crate) mod _struct {

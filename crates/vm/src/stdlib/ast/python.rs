@@ -80,6 +80,7 @@ pub(crate) mod _ast {
                 }
                 zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
             }
+
             Ok(())
         }
 
@@ -96,4 +97,13 @@ pub(crate) mod _ast {
 
     #[pyattr(name = "PyCF_TYPE_COMMENTS")]
     use super::PY_CF_TYPE_COMMENTS;
+
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::builtins::PyModule>,
+    ) -> PyResult<()> {
+        __module_exec(vm, module);
+        super::super::pyast::extend_module_nodes(vm, module);
+        Ok(())
+    }
 }

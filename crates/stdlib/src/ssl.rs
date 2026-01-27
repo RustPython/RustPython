@@ -25,7 +25,7 @@ mod compat;
 // SSL exception types (shared with openssl backend)
 mod error;
 
-pub(crate) use _ssl::make_module;
+pub(crate) use _ssl::module_def;
 
 #[allow(non_snake_case)]
 #[allow(non_upper_case_globals)]
@@ -42,7 +42,9 @@ mod _ssl {
             VirtualMachine,
             builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef},
             convert::IntoPyException,
-            function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, PyComparisonValue},
+            function::{
+                ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, PyComparisonValue,
+            },
             stdlib::warnings,
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
         },
@@ -51,6 +53,7 @@ mod _ssl {
     // Import error types used in this module (others are exposed via pymodule(with(...)))
     use super::error::{
         PySSLError, create_ssl_eof_error, create_ssl_want_read_error, create_ssl_want_write_error,
+        create_ssl_zero_return_error,
     };
     use alloc::sync::Arc;
     use core::{
@@ -821,20 +824,20 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
-        #[pyarg(any, optional)]
-        cafile: OptionalArg<Option<PyObjectRef>>,
-        #[pyarg(any, optional)]
-        capath: OptionalArg<Option<PyObjectRef>>,
-        #[pyarg(any, optional)]
-        cadata: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
+        cafile: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
+        capath: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        #[pyarg(any, optional, error_msg = "cadata should be a str or bytes")]
+        cadata: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
     }
 
     #[derive(FromArgs)]
     struct LoadCertChainArgs {
-        #[pyarg(any)]
-        certfile: PyObjectRef,
-        #[pyarg(any, optional)]
-        keyfile: OptionalArg<Option<PyObjectRef>>,
+        #[pyarg(any, error_msg = "path should be a str or bytes")]
+        certfile: Either<PyStrRef, ArgBytesLike>,
+        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
+        keyfile: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
         #[pyarg(any, optional)]
         password: OptionalArg<PyObjectRef>,
     }
@@ -1229,7 +1232,7 @@ mod _ssl {
             // Check that at least one argument is provided
             let has_cafile = matches!(&args.cafile, OptionalArg::Present(Some(_)));
             let has_capath = matches!(&args.capath, OptionalArg::Present(Some(_)));
-            let has_cadata = matches!(&args.cadata, OptionalArg::Present(obj) if !vm.is_none(obj));
+            let has_cadata = matches!(&args.cadata, OptionalArg::Present(Some(_)));
 
             if !has_cafile && !has_capath && !has_cadata {
                 return Err(
@@ -1250,10 +1253,8 @@ mod _ssl {
                 None
             };
 
-            let cadata_parsed = if let OptionalArg::Present(ref cadata_obj) = args.cadata
-                && !vm.is_none(cadata_obj)
-            {
-                let is_string = PyStrRef::try_from_object(vm, cadata_obj.clone()).is_ok();
+            let cadata_parsed = if let OptionalArg::Present(Some(ref cadata_obj)) = args.cadata {
+                let is_string = matches!(cadata_obj, Either::A(_));
                 let data_vec = self.parse_cadata_arg(cadata_obj, vm)?;
                 Some((data_vec, is_string))
             } else {
@@ -1989,14 +1990,14 @@ mod _ssl {
         // Helper functions (private):
 
         /// Parse path argument (str or bytes) to string
-        fn parse_path_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
-            if let Ok(s) = PyStrRef::try_from_object(vm, arg.to_owned()) {
-                Ok(s.as_str().to_owned())
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.to_owned()) {
-                String::from_utf8(b.borrow_buf().to_vec())
-                    .map_err(|_| vm.new_value_error("path contains invalid UTF-8".to_owned()))
-            } else {
-                Err(vm.new_type_error("path should be a str or bytes".to_owned()))
+        fn parse_path_arg(
+            arg: &Either<PyStrRef, ArgBytesLike>,
+            vm: &VirtualMachine,
+        ) -> PyResult<String> {
+            match arg {
+                Either::A(s) => Ok(s.as_str().to_owned()),
+                Either::B(b) => String::from_utf8(b.borrow_buf().to_vec())
+                    .map_err(|_| vm.new_value_error("path contains invalid UTF-8".to_owned())),
             }
         }
 
@@ -2167,13 +2168,14 @@ mod _ssl {
         }
 
         /// Helper: Parse cadata argument (str or bytes)
-        fn parse_cadata_arg(&self, arg: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            if let Ok(s) = PyStrRef::try_from_object(vm, arg.to_owned()) {
-                Ok(s.as_str().as_bytes().to_vec())
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.to_owned()) {
-                Ok(b.borrow_buf().to_vec())
-            } else {
-                Err(vm.new_type_error("cadata should be a str or bytes".to_owned()))
+        fn parse_cadata_arg(
+            &self,
+            arg: &Either<PyStrRef, ArgBytesLike>,
+            _vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
+            match arg {
+                Either::A(s) => Ok(s.as_str().as_bytes().to_vec()),
+                Either::B(b) => Ok(b.borrow_buf().to_vec()),
             }
         }
 
@@ -3592,7 +3594,7 @@ mod _ssl {
                         let mut conn_guard = self.connection.lock();
                         let conn = match conn_guard.as_mut() {
                             Some(conn) => conn,
-                            None => return return_data(vec![], &buffer, vm),
+                            None => return Err(create_ssl_zero_return_error(vm).upcast()),
                         };
                         use std::io::BufRead;
                         let mut reader = conn.reader();
@@ -3612,8 +3614,20 @@ mod _ssl {
                             return return_data(buf, &buffer, vm);
                         }
                     }
-                    // Clean closure with close_notify - return empty data
-                    return_data(vec![], &buffer, vm)
+                    // Clean closure with close_notify
+                    // CPython behavior depends on whether we've sent our close_notify:
+                    // - If we've already sent close_notify (unwrap was called): raise SSLZeroReturnError
+                    // - If we haven't sent close_notify yet: return empty bytes
+                    let our_shutdown_state = *self.shutdown_state.lock();
+                    if our_shutdown_state == ShutdownState::SentCloseNotify
+                        || our_shutdown_state == ShutdownState::Completed
+                    {
+                        // We already sent close_notify, now receiving peer's → SSLZeroReturnError
+                        Err(create_ssl_zero_return_error(vm).upcast())
+                    } else {
+                        // We haven't sent close_notify yet → return empty bytes
+                        return_data(vec![], &buffer, vm)
+                    }
                 }
                 Err(crate::ssl::compat::SslError::WantRead) => {
                     // Non-blocking mode: would block
@@ -4105,45 +4119,115 @@ mod _ssl {
                         peer_closed = true;
                     }
                 } else if let Some(timeout) = timeout_mode {
-                    // All socket modes (blocking, timeout, non-blocking):
-                    // Return immediately after sending our close_notify.
-                    //
-                    // This matches CPython/OpenSSL behavior where SSL_shutdown()
-                    // returns after sending close_notify, allowing the app to
-                    // close the socket without waiting for peer's close_notify.
-                    //
-                    // Waiting for peer's close_notify can cause deadlock with
-                    // asyncore-based servers where both sides wait for the other's
-                    // close_notify before closing the connection.
-
-                    // Ensure all pending TLS data is sent before returning
-                    // This prevents data loss when rustls drains its buffer
-                    // but the socket couldn't accept all data immediately
-                    drop(conn_guard);
-
-                    // Respect socket timeout settings for flushing pending TLS data
                     match timeout {
                         Some(0.0) => {
-                            // Non-blocking: best-effort flush, ignore errors
-                            // to avoid deadlock with asyncore-based servers
+                            // Non-blocking: return immediately after sending close_notify.
+                            // Don't wait for peer's close_notify to avoid blocking.
+                            drop(conn_guard);
+                            // Best-effort flush; WouldBlock is expected in non-blocking mode.
+                            // Other errors indicate close_notify may not have been sent,
+                            // but we still complete shutdown to avoid inconsistent state.
                             let _ = self.flush_pending_tls_output(vm, None);
+                            *self.shutdown_state.lock() = ShutdownState::Completed;
+                            *self.connection.lock() = None;
+                            return Ok(self.sock.clone());
                         }
-                        Some(_t) => {
-                            // Timeout mode: use flush with socket's timeout
-                            // Errors (including timeout) are propagated to caller
-                            self.flush_pending_tls_output(vm, None)?;
-                        }
-                        None => {
-                            // Blocking mode: wait until all pending data is sent
-                            self.blocking_flush_all_pending(vm)?;
+                        _ => {
+                            // Blocking or timeout mode: wait for peer's close_notify.
+                            // This is proper TLS shutdown - we should receive peer's
+                            // close_notify before closing the connection.
+                            drop(conn_guard);
+
+                            // Flush our close_notify first
+                            if timeout.is_none() {
+                                self.blocking_flush_all_pending(vm)?;
+                            } else {
+                                self.flush_pending_tls_output(vm, None)?;
+                            }
+
+                            // Calculate deadline for timeout mode
+                            let deadline = timeout.map(|t| {
+                                std::time::Instant::now() + std::time::Duration::from_secs_f64(t)
+                            });
+
+                            // Wait for peer's close_notify
+                            loop {
+                                // Re-acquire connection lock for each iteration
+                                let mut conn_guard = self.connection.lock();
+                                let conn = match conn_guard.as_mut() {
+                                    Some(c) => c,
+                                    None => break, // Connection already closed
+                                };
+
+                                // Check if peer already sent close_notify
+                                if self.check_peer_closed(conn, vm)? {
+                                    break;
+                                }
+
+                                drop(conn_guard);
+
+                                // Check timeout
+                                let remaining_timeout = if let Some(dl) = deadline {
+                                    let now = std::time::Instant::now();
+                                    if now >= dl {
+                                        // Timeout reached - raise TimeoutError
+                                        return Err(vm.new_exception_msg(
+                                            vm.ctx.exceptions.timeout_error.to_owned(),
+                                            "The read operation timed out".to_owned(),
+                                        ));
+                                    }
+                                    Some(dl - now)
+                                } else {
+                                    None // Blocking mode: no timeout
+                                };
+
+                                // Wait for socket to be readable
+                                let timed_out = self.sock_wait_for_io_with_timeout(
+                                    SelectKind::Read,
+                                    remaining_timeout,
+                                    vm,
+                                )?;
+
+                                if timed_out {
+                                    // Timeout waiting for peer's close_notify
+                                    // Raise TimeoutError
+                                    return Err(vm.new_exception_msg(
+                                        vm.ctx.exceptions.timeout_error.to_owned(),
+                                        "The read operation timed out".to_owned(),
+                                    ));
+                                }
+
+                                // Try to read data from socket
+                                let mut conn_guard = self.connection.lock();
+                                let conn = match conn_guard.as_mut() {
+                                    Some(c) => c,
+                                    None => break,
+                                };
+
+                                // Read and process any incoming TLS data
+                                match self.try_read_close_notify(conn, vm) {
+                                    Ok(closed) => {
+                                        if closed {
+                                            break;
+                                        }
+                                        // Check again after processing
+                                        if self.check_peer_closed(conn, vm)? {
+                                            break;
+                                        }
+                                    }
+                                    Err(_) => {
+                                        // Socket error - peer likely closed connection
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // Shutdown complete
+                            *self.shutdown_state.lock() = ShutdownState::Completed;
+                            *self.connection.lock() = None;
+                            return Ok(self.sock.clone());
                         }
                     }
-
-                    // Set shutdown_state first to ensure atomic visibility
-                    // This prevents read/write race conditions during shutdown
-                    *self.shutdown_state.lock() = ShutdownState::Completed;
-                    *self.connection.lock() = None;
-                    return Ok(self.sock.clone());
                 }
 
                 // Step 3: Check again if peer has sent close_notify (non-blocking/BIO mode only)
@@ -4405,15 +4489,14 @@ mod _ssl {
     // Clean up SSL socket resources on drop
     impl Drop for PySSLSocket {
         fn drop(&mut self) {
-            // Clear connection state
+            // Only clear connection state.
+            // Do NOT clear pending_tls_output - it may contain data that hasn't
+            // been flushed to the socket yet. SSLSocket._real_close() in Python
+            // doesn't call shutdown(), so when the socket is closed, pending TLS
+            // data would be lost if we clear it here.
+            // All fields (Vec, primitives) are automatically freed when the
+            // struct is dropped, so explicit clearing is unnecessary.
             let _ = self.connection.lock().take();
-
-            // Clear pending buffers
-            self.pending_tls_output.lock().clear();
-            *self.write_buffered_len.lock() = 0;
-
-            // Reset shutdown state
-            *self.shutdown_state.lock() = ShutdownState::NotStarted;
         }
     }
 

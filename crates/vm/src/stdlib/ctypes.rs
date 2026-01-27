@@ -10,8 +10,8 @@ mod structure;
 mod union;
 
 use crate::{
-    AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
-    builtins::{PyModule, PyStr, PyType},
+    AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
+    builtins::{PyStr, PyType},
     class::PyClassImpl,
     types::TypeDataRef,
 };
@@ -85,32 +85,9 @@ impl PyType {
 }
 
 // Dynamic type check helpers for PyCData
-// These check if an object's type's metaclass is a subclass of a specific metaclass
+pub(crate) use _ctypes::module_def;
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = _ctypes::make_module(vm);
-    let ctx = &vm.ctx;
-    PyCSimpleType::make_class(ctx);
-    array::PyCArrayType::make_class(ctx);
-    pointer::PyCPointerType::make_class(ctx);
-    structure::PyCStructType::make_class(ctx);
-    union::PyCUnionType::make_class(ctx);
-    function::PyCFuncPtrType::make_class(ctx);
-    extend_module!(vm, &module, {
-        "_CData" => PyCData::make_class(ctx),
-        "_SimpleCData" => PyCSimple::make_class(ctx),
-        "Array" => PyCArray::make_class(ctx),
-        "CField" => PyCField::make_class(ctx),
-        "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
-        "_Pointer" => PyCPointer::make_class(ctx),
-        "_pointer_type_cache" => ctx.new_dict(),
-        "_array_type_cache" => ctx.new_dict(),
-        "Structure" => PyCStructure::make_class(ctx),
-        "CThunkObject" => function::PyCThunk::make_class(ctx),
-        "Union" => PyCUnion::make_class(ctx),
-    });
-    module
-}
+// These check if an object's type's metaclass is a subclass of a specific metaclass
 
 /// Size of long double - platform dependent
 /// x86_64 macOS/Linux: 16 bytes (80-bit extended + padding)
@@ -987,13 +964,13 @@ pub(crate) mod _ctypes {
     #[pyattr]
     fn _memmove_addr(_vm: &VirtualMachine) -> usize {
         let f = libc::memmove;
-        f as usize
+        f as *const () as usize
     }
 
     #[pyattr]
     fn _memset_addr(_vm: &VirtualMachine) -> usize {
         let f = libc::memset;
-        f as usize
+        f as *const () as usize
     }
 
     #[pyattr]
@@ -1299,5 +1276,38 @@ pub(crate) mod _ctypes {
         }
 
         Ok(S_OK)
+    }
+
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::builtins::PyModule>,
+    ) -> PyResult<()> {
+        use super::*;
+
+        __module_exec(vm, module);
+
+        let ctx = &vm.ctx;
+        PyCSimpleType::make_class(ctx);
+        array::PyCArrayType::make_class(ctx);
+        pointer::PyCPointerType::make_class(ctx);
+        structure::PyCStructType::make_class(ctx);
+        union::PyCUnionType::make_class(ctx);
+        function::PyCFuncPtrType::make_class(ctx);
+
+        extend_module!(vm, module, {
+            "_CData" => PyCData::make_class(ctx),
+            "_SimpleCData" => PyCSimple::make_class(ctx),
+            "Array" => PyCArray::make_class(ctx),
+            "CField" => PyCField::make_class(ctx),
+            "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
+            "_Pointer" => PyCPointer::make_class(ctx),
+            "_pointer_type_cache" => ctx.new_dict(),
+            "_array_type_cache" => ctx.new_dict(),
+            "Structure" => PyCStructure::make_class(ctx),
+            "CThunkObject" => function::PyCThunk::make_class(ctx),
+            "Union" => PyCUnion::make_class(ctx),
+        });
+
+        Ok(())
     }
 }

@@ -1,7 +1,7 @@
-pub(crate) use opcode::make_module;
+pub(crate) use _opcode::module_def;
 
 #[pymodule]
-mod opcode {
+mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
@@ -34,8 +34,8 @@ mod opcode {
     }
 
     impl Opcode {
-        // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/opcode_ids.h#L238
-        const HAVE_ARGUMENT: i32 = 44;
+        // https://github.com/python/cpython/blob/v3.14.2/Include/opcode_ids.h#L252
+        const HAVE_ARGUMENT: i32 = 43;
 
         pub fn try_from_pyint(raw: PyIntRef, vm: &VirtualMachine) -> PyResult<Self> {
             let instruction = raw
@@ -71,9 +71,7 @@ mod opcode {
         pub fn has_const(opcode: i32) -> bool {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::LoadConst { .. } | Instruction::ReturnConst { .. }
-                ))
+                Ok(AnyInstruction::Real(Instruction::LoadConst { .. }))
             )
         }
 
@@ -94,7 +92,7 @@ mod opcode {
                         | Instruction::StoreAttr { .. }
                         | Instruction::StoreGlobal(_)
                         | Instruction::StoreName(_)
-                ) | AnyInstruction::Pseudo(PseudoInstruction::LoadAttrMethod { .. }))
+                ))
             )
         }
 
@@ -104,12 +102,7 @@ mod opcode {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
                 Ok(AnyInstruction::Real(
-                    Instruction::Break { .. }
-                        | Instruction::Continue { .. }
-                        | Instruction::ForIter { .. }
-                        | Instruction::JumpIfFalseOrPop { .. }
-                        | Instruction::JumpIfNotExcMatch(_)
-                        | Instruction::JumpIfTrueOrPop { .. }
+                    Instruction::ForIter { .. }
                         | Instruction::PopJumpIfFalse { .. }
                         | Instruction::PopJumpIfTrue { .. }
                         | Instruction::Send { .. }
@@ -155,8 +148,11 @@ mod opcode {
         }
     }
 
+    // prepare specialization
     #[pyattr]
     const ENABLE_SPECIALIZATION: i8 = 1;
+    #[pyattr]
+    const ENABLE_SPECIALIZATION_FT: i8 = 1;
 
     #[derive(FromArgs)]
     struct StackEffectArgs {
@@ -201,7 +197,8 @@ mod opcode {
 
         let opcode = Opcode::try_from_pyint(args.opcode, vm)?;
 
-        Ok(opcode.stack_effect(oparg.into(), jump))
+        let _ = jump; // Python API accepts jump but it's not used
+        Ok(opcode.stack_effect(oparg.into()))
     }
 
     #[pyfunction]
@@ -309,6 +306,7 @@ mod opcode {
             ("NB_INPLACE_SUBTRACT", "-="),
             ("NB_INPLACE_TRUE_DIVIDE", "/="),
             ("NB_INPLACE_XOR", "^="),
+            ("NB_SUBSCR", "[]"),
         ]
         .into_iter()
         .map(|(a, b)| {
@@ -320,8 +318,19 @@ mod opcode {
     }
 
     #[pyfunction]
-    fn get_executor(_code: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        // TODO
+    fn get_special_method_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        ["__enter__", "__exit__", "__aenter__", "__aexit__"]
+            .into_iter()
+            .map(|x| vm.ctx.new_str(x).into())
+            .collect()
+    }
+
+    #[pyfunction]
+    fn get_executor(
+        _code: PyObjectRef,
+        _offset: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         Ok(vm.ctx.none())
     }
 

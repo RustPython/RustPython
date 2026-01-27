@@ -1,7 +1,7 @@
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
+pub(crate) use _stat::module_def;
 
 #[pymodule]
-mod stat {
+mod _stat {
     // Use libc::mode_t for Mode to match the system's definition
     #[cfg(unix)]
     type Mode = libc::mode_t;
@@ -521,8 +521,4 @@ mod stat {
 
         result
     }
-}
-
-pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    stat::make_module(vm)
 }

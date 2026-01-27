@@ -753,7 +753,7 @@ impl PyObject {
     /// Check if this object can be downcast to T.
     #[inline(always)]
     pub fn downcastable<T: PyPayload>(&self) -> bool {
-        T::downcastable_from(self)
+        self.typeid() == T::PAYLOAD_TYPE_ID && unsafe { T::validate_downcastable_from(self) }
     }
 
     /// Attempt to downcast this reference to a subclass.

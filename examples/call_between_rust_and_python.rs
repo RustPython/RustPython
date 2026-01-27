@@ -1,17 +1,12 @@
+use rustpython::InterpreterBuilderExt;
 use rustpython::vm::{
     PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine, pyclass, pymodule,
 };
 
 pub fn main() {
-    let interp = rustpython::InterpreterConfig::new()
-        .init_stdlib()
-        .init_hook(Box::new(|vm| {
-            vm.add_native_module(
-                "rust_py_module".to_owned(),
-                Box::new(rust_py_module::make_module),
-            );
-        }))
-        .interpreter();
+    let builder = rustpython::Interpreter::builder(Default::default());
+    let def = rust_py_module::module_def(&builder.ctx);
+    let interp = builder.init_stdlib().add_native_module(def).build();
 
     interp.enter(|vm| {
         vm.insert_sys_path(vm.new_pyobj("examples"))

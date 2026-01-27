@@ -30,6 +30,14 @@ RustPython is a Python 3 interpreter written in Rust, implementing Python 3.14.0
 - `jit/` - Experimental JIT compiler implementation
 - `pylib/` - Python standard library packaging (do not modify this directory directly - its contents are generated automatically)
 
+## AI Agent Rules
+
+**CRITICAL: Git Operations**
+- NEVER create pull requests directly without explicit user permission
+- NEVER push commits to remote without explicit user permission
+- Always ask the user before performing any git operations that affect the remote repository
+- Commits can be created locally when requested, but pushing and PR creation require explicit approval
+
 ## Important Development Notes
 
 ### Running Python Code

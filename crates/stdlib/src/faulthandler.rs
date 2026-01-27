@@ -1,11 +1,13 @@
-pub(crate) use decl::make_module;
+pub(crate) use decl::module_def;
 
 #[allow(static_mut_refs)] // TODO: group code only with static mut refs
 #[pymodule(name = "faulthandler")]
 mod decl {
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine, builtins::PyFloat, frame::Frame,
-        function::OptionalArg, py_io::Write,
+        PyObjectRef, PyResult, VirtualMachine,
+        frame::Frame,
+        function::{ArgIntoFloat, OptionalArg},
+        py_io::Write,
     };
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -551,7 +553,7 @@ mod decl {
                 }
 
                 let mut action: libc::sigaction = core::mem::zeroed();
-                action.sa_sigaction = faulthandler_fatal_error as libc::sighandler_t;
+                action.sa_sigaction = faulthandler_fatal_error as *const () as libc::sighandler_t;
                 // SA_NODEFER flag
                 action.sa_flags = libc::SA_NODEFER;
 
@@ -581,7 +583,7 @@ mod decl {
 
                 handler.previous = libc::signal(
                     handler.signum,
-                    faulthandler_fatal_error as libc::sighandler_t,
+                    faulthandler_fatal_error as *const () as libc::sighandler_t,
                 );
 
                 // SIG_ERR is -1 as sighandler_t (which is usize on Windows)
@@ -762,8 +764,8 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct DumpTracebackLaterArgs {
-        #[pyarg(positional)]
-        timeout: PyObjectRef,
+        #[pyarg(positional, error_msg = "timeout must be a number (int or float)")]
+        timeout: ArgIntoFloat,
         #[pyarg(any, default = false)]
         repeat: bool,
         #[pyarg(any, default)]
@@ -774,18 +776,7 @@ mod decl {
 
     #[pyfunction]
     fn dump_traceback_later(args: DumpTracebackLaterArgs, vm: &VirtualMachine) -> PyResult<()> {
-        use num_traits::ToPrimitive;
-        // Convert timeout to f64 (accepting int or float)
-        let timeout: f64 = if let Some(float) = args.timeout.downcast_ref::<PyFloat>() {
-            float.to_f64()
-        } else if let Some(int) = args.timeout.try_index_opt(vm).transpose()? {
-            int.as_bigint()
-                .to_i64()
-                .ok_or_else(|| vm.new_overflow_error("timeout value is too large".to_owned()))?
-                as f64
-        } else {
-            return Err(vm.new_type_error("timeout must be a number (int or float)".to_owned()));
-        };
+        let timeout: f64 = args.timeout.into_float();
 
         if timeout <= 0.0 {
             return Err(vm.new_value_error("timeout must be greater than 0".to_owned()));
@@ -946,7 +937,10 @@ mod decl {
                 libc::signal(signum, user.previous);
                 libc::raise(signum);
                 // Re-register our handler
-                libc::signal(signum, faulthandler_user_signal as libc::sighandler_t);
+                libc::signal(
+                    signum,
+                    faulthandler_user_signal as *const () as libc::sighandler_t,
+                );
             }
         }
     }
@@ -997,7 +991,10 @@ mod decl {
         let previous = if !user_signals::is_enabled(signum) {
             // Install signal handler
             let prev = unsafe {
-                libc::signal(args.signum, faulthandler_user_signal as libc::sighandler_t)
+                libc::signal(
+                    args.signum,
+                    faulthandler_user_signal as *const () as libc::sighandler_t,
+                )
             };
             if prev == libc::SIG_ERR {
                 return Err(vm.new_os_error(format!(

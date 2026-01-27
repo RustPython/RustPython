@@ -1,7 +1,7 @@
 // spell-checker:disable
 
 #![allow(non_snake_case)]
-pub(crate) use _winapi::make_module;
+pub(crate) use _winapi::module_def;
 
 #[pymodule]
 mod _winapi {
@@ -31,19 +31,57 @@ mod _winapi {
             LCMAP_TRADITIONAL_CHINESE, LCMAP_UPPERCASE,
         },
         Storage::FileSystem::{
-            COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK,
-            COPY_FILE_FAIL_IF_EXISTS, COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD,
-            COPY_FILE_OPEN_SOURCE_FOR_WRITE, COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
-            COPY_FILE_REQUEST_SECURITY_PRIVILEGES, COPY_FILE_RESTARTABLE,
-            COPY_FILE_RESUME_FROM_PAUSE, COPYFILE2_CALLBACK_CHUNK_FINISHED,
-            COPYFILE2_CALLBACK_CHUNK_STARTED, COPYFILE2_CALLBACK_ERROR,
-            COPYFILE2_CALLBACK_POLL_CONTINUE, COPYFILE2_CALLBACK_STREAM_FINISHED,
-            COPYFILE2_CALLBACK_STREAM_STARTED, COPYFILE2_PROGRESS_CANCEL,
-            COPYFILE2_PROGRESS_CONTINUE, COPYFILE2_PROGRESS_PAUSE, COPYFILE2_PROGRESS_QUIET,
-            COPYFILE2_PROGRESS_STOP, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED,
-            FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE,
-            FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
-            PIPE_ACCESS_INBOUND, SYNCHRONIZE,
+            COPY_FILE_ALLOW_DECRYPTED_DESTINATION,
+            COPY_FILE_COPY_SYMLINK,
+            COPY_FILE_FAIL_IF_EXISTS,
+            COPY_FILE_NO_BUFFERING,
+            COPY_FILE_NO_OFFLOAD,
+            COPY_FILE_OPEN_SOURCE_FOR_WRITE,
+            COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
+            COPY_FILE_REQUEST_SECURITY_PRIVILEGES,
+            COPY_FILE_RESTARTABLE,
+            COPY_FILE_RESUME_FROM_PAUSE,
+            COPYFILE2_CALLBACK_CHUNK_FINISHED,
+            COPYFILE2_CALLBACK_CHUNK_STARTED,
+            COPYFILE2_CALLBACK_ERROR,
+            COPYFILE2_CALLBACK_POLL_CONTINUE,
+            COPYFILE2_CALLBACK_STREAM_FINISHED,
+            COPYFILE2_CALLBACK_STREAM_STARTED,
+            COPYFILE2_PROGRESS_CANCEL,
+            COPYFILE2_PROGRESS_CONTINUE,
+            COPYFILE2_PROGRESS_PAUSE,
+            COPYFILE2_PROGRESS_QUIET,
+            COPYFILE2_PROGRESS_STOP,
+            CREATE_ALWAYS,
+            // CreateFile constants
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            FILE_FLAG_DELETE_ON_CLOSE,
+            FILE_FLAG_FIRST_PIPE_INSTANCE,
+            FILE_FLAG_NO_BUFFERING,
+            FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_FLAG_OVERLAPPED,
+            FILE_FLAG_POSIX_SEMANTICS,
+            FILE_FLAG_RANDOM_ACCESS,
+            FILE_FLAG_SEQUENTIAL_SCAN,
+            FILE_FLAG_WRITE_THROUGH,
+            FILE_GENERIC_READ,
+            FILE_GENERIC_WRITE,
+            FILE_SHARE_DELETE,
+            FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+            FILE_TYPE_CHAR,
+            FILE_TYPE_DISK,
+            FILE_TYPE_PIPE,
+            FILE_TYPE_REMOTE,
+            FILE_TYPE_UNKNOWN,
+            OPEN_ALWAYS,
+            OPEN_EXISTING,
+            PIPE_ACCESS_DUPLEX,
+            PIPE_ACCESS_INBOUND,
+            SYNCHRONIZE,
+            TRUNCATE_EXISTING,
         },
         System::{
             Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
@@ -76,6 +114,42 @@ mod _winapi {
     #[pyfunction]
     fn CloseHandle(handle: WinHandle) -> WindowsSysResult<i32> {
         WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0) })
+    }
+
+    /// CreateFile - Create or open a file or I/O device.
+    #[pyfunction]
+    #[allow(clippy::too_many_arguments)]
+    fn CreateFile(
+        file_name: PyStrRef,
+        desired_access: u32,
+        share_mode: u32,
+        _security_attributes: PyObjectRef, // Always NULL (0)
+        creation_disposition: u32,
+        flags_and_attributes: u32,
+        _template_file: PyObjectRef, // Always NULL (0)
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        use windows_sys::Win32::Storage::FileSystem::CreateFileW;
+
+        let file_name_wide = file_name.as_wtf8().to_wide_with_nul();
+
+        let handle = unsafe {
+            CreateFileW(
+                file_name_wide.as_ptr(),
+                desired_access,
+                share_mode,
+                null(),
+                creation_disposition,
+                flags_and_attributes,
+                null_mut(),
+            )
+        };
+
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(vm.new_last_os_error());
+        }
+
+        Ok(WinHandle(handle))
     }
 
     #[pyfunction]
@@ -466,7 +540,15 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn WaitForSingleObject(h: WinHandle, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
+    fn WaitForSingleObject(h: WinHandle, ms: i64, vm: &VirtualMachine) -> PyResult<u32> {
+        // Negative values (e.g., -1) map to INFINITE (0xFFFFFFFF)
+        let ms = if ms < 0 {
+            windows_sys::Win32::System::Threading::INFINITE
+        } else if ms > u32::MAX as i64 {
+            return Err(vm.new_overflow_error("timeout value is too large".to_owned()));
+        } else {
+            ms as u32
+        };
         let ret = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0, ms) };
         if ret == windows_sys::Win32::Foundation::WAIT_FAILED {
             Err(vm.new_last_os_error())

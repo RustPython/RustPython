@@ -38,10 +38,10 @@ mod json;
 #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
 mod locale;
 
+mod _opcode;
 mod math;
 #[cfg(any(unix, windows))]
 mod mmap;
-mod opcode;
 mod pyexpat;
 mod pystruct;
 mod random;
@@ -65,6 +65,11 @@ mod posixshmem;
 #[cfg(unix)]
 mod posixsubprocess;
 // libc is missing constants on redox
+#[cfg(all(
+    feature = "sqlite",
+    not(any(target_os = "android", target_arch = "wasm32"))
+))]
+mod _sqlite3;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod grp;
 #[cfg(windows)]
@@ -75,11 +80,6 @@ mod resource;
 mod scproxy;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 mod select;
-#[cfg(all(
-    feature = "sqlite",
-    not(any(target_os = "android", target_arch = "wasm32"))
-))]
-mod sqlite;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
 mod openssl;
@@ -105,131 +105,87 @@ mod tkinter;
 use rustpython_common as common;
 use rustpython_vm as vm;
 
-use crate::vm::{builtins, stdlib::StdlibInitFunc};
-use alloc::borrow::Cow;
+use crate::vm::{Context, builtins};
 
-pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInitFunc)> {
-    macro_rules! modules {
-        {
-            $(
-                #[cfg($cfg:meta)]
-                { $( $key:expr => $val:expr),* $(,)? }
-            )*
-        } => {{
-            [
-                $(
-                    $(#[cfg($cfg)] (Cow::<'static, str>::from($key), Box::new($val) as StdlibInitFunc),)*
-                )*
-            ]
-            .into_iter()
-        }};
-    }
-    modules! {
-        #[cfg(all())]
-        {
-            "array" => array::make_module,
-            "binascii" => binascii::make_module,
-            "_bisect" => bisect::make_module,
-            "_bz2" => bz2::make_module,
-            "cmath" => cmath::make_module,
-            "_contextvars" => contextvars::make_module,
-            "_csv" => csv::make_module,
-            "faulthandler" => faulthandler::make_module,
-            "gc" => gc::make_module,
-            "_hashlib" => hashlib::make_module,
-            "_sha1" => sha1::make_module,
-            "_sha3" => sha3::make_module,
-            "_sha256" => sha256::make_module,
-            "_sha512" => sha512::make_module,
-            "_md5" => md5::make_module,
-            "_blake2" => blake2::make_module,
-            "_json" => json::make_module,
-            "math" => math::make_module,
-            "pyexpat" => pyexpat::make_module,
-            "_opcode" => opcode::make_module,
-            "_random" => random::make_module,
-            "_statistics" => statistics::make_module,
-            "_struct" => pystruct::make_module,
-            "unicodedata" => unicodedata::make_module,
-            "zlib" => zlib::make_module,
-            "_statistics" => statistics::make_module,
-            "_suggestions" => suggestions::make_module,
-            // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
-        }
+/// Returns module definitions for multi-phase init modules.
+/// These modules are added to sys.modules BEFORE their exec function runs,
+/// allowing safe circular imports.
+pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> {
+    vec![
+        _opcode::module_def(ctx),
+        array::module_def(ctx),
+        binascii::module_def(ctx),
+        bisect::module_def(ctx),
+        blake2::module_def(ctx),
+        bz2::module_def(ctx),
+        cmath::module_def(ctx),
+        contextvars::module_def(ctx),
+        csv::module_def(ctx),
+        faulthandler::module_def(ctx),
         #[cfg(any(unix, target_os = "wasi"))]
-        {
-            "fcntl" => fcntl::make_module,
-        }
-        #[cfg(any(unix, windows, target_os = "wasi"))]
-        {
-            "select" => select::make_module,
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            "_multiprocessing" => multiprocessing::make_module,
-            "_socket" => socket::make_module,
-        }
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-        {
-            "_lzma" => lzma::make_module,
-        }
-        #[cfg(all(feature = "sqlite", not(any(target_os = "android", target_arch = "wasm32"))))]
-        {
-            "_sqlite3" => sqlite::make_module,
-        }
-        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
-        {
-            "_ssl" => ssl::make_module,
-        }
-        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
-        {
-            "_ssl" => openssl::make_module,
-        }
-        #[cfg(windows)]
-        {
-            "_overlapped" => overlapped::make_module,
-        }
-        // Unix-only
-        #[cfg(unix)]
-        {
-            "_posixsubprocess" => posixsubprocess::make_module,
-        }
-        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
-        {
-            "_posixshmem" => posixshmem::make_module,
-        }
-        #[cfg(any(unix, windows))]
-        {
-            "mmap" => mmap::make_module,
-        }
-        #[cfg(all(unix, not(target_os = "redox")))]
-        {
-            "syslog" => syslog::make_module,
-            "resource" => resource::make_module,
-        }
-        #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
-        {
-            "termios" => termios::make_module,
-        }
+        fcntl::module_def(ctx),
+        gc::module_def(ctx),
         #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
-        {
-            "grp" => grp::make_module,
-        }
-        #[cfg(target_os = "macos")]
-        {
-            "_scproxy" => scproxy::make_module,
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32", target_os = "redox")))]
-        {
-            "_uuid" => uuid::make_module,
-        }
+        grp::module_def(ctx),
+        hashlib::module_def(ctx),
+        json::module_def(ctx),
         #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
-        {
-            "_locale" => locale::make_module,
-        }
+        locale::module_def(ctx),
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        lzma::module_def(ctx),
+        math::module_def(ctx),
+        md5::module_def(ctx),
+        #[cfg(any(unix, windows))]
+        mmap::module_def(ctx),
+        #[cfg(not(target_arch = "wasm32"))]
+        multiprocessing::module_def(ctx),
+        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
+        openssl::module_def(ctx),
+        #[cfg(windows)]
+        overlapped::module_def(ctx),
+        #[cfg(unix)]
+        posixsubprocess::module_def(ctx),
+        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
+        posixshmem::module_def(ctx),
+        pyexpat::module_def(ctx),
+        pystruct::module_def(ctx),
+        random::module_def(ctx),
+        #[cfg(all(unix, not(target_os = "redox")))]
+        resource::module_def(ctx),
+        #[cfg(target_os = "macos")]
+        scproxy::module_def(ctx),
+        #[cfg(any(unix, windows, target_os = "wasi"))]
+        select::module_def(ctx),
+        sha1::module_def(ctx),
+        sha256::module_def(ctx),
+        sha3::module_def(ctx),
+        sha512::module_def(ctx),
+        #[cfg(not(target_arch = "wasm32"))]
+        socket::module_def(ctx),
+        #[cfg(all(
+            feature = "sqlite",
+            not(any(target_os = "android", target_arch = "wasm32"))
+        ))]
+        _sqlite3::module_def(ctx),
+        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
+        ssl::module_def(ctx),
+        statistics::module_def(ctx),
+        suggestions::module_def(ctx),
+        #[cfg(all(unix, not(target_os = "redox")))]
+        syslog::module_def(ctx),
+        #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
+        termios::module_def(ctx),
         #[cfg(feature = "tkinter")]
-        {
-            "_tkinter" => tkinter::make_module,
-        }
-    }
+        tkinter::module_def(ctx),
+        unicodedata::module_def(ctx),
+        #[cfg(not(any(
+            target_os = "android",
+            target_os = "ios",
+            target_os = "windows",
+            target_arch = "wasm32",
+            target_os = "redox"
+        )))]
+        uuid::module_def(ctx),
+        zlib::module_def(ctx),
+    ]
 }

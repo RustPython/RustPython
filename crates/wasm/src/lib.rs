@@ -11,7 +11,6 @@ extern crate rustpython_vm;
 
 use js_sys::{Reflect, WebAssembly::RuntimeError};
 use std::panic;
-pub use vm_class::add_init_func;
 pub(crate) use vm_class::weak_vm;
 use wasm_bindgen::prelude::*;
 

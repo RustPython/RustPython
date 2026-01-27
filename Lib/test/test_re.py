@@ -1,12 +1,11 @@
 from test.support import (gc_collect, bigmemtest, _2G,
                           cpython_only, captured_stdout,
-                          check_disallow_instantiation, is_emscripten, is_wasi,
+                          check_disallow_instantiation, linked_to_musl,
                           warnings_helper, SHORT_TIMEOUT, Stopwatch, requires_resource)
 import locale
 import re
 import string
 import sys
-import time
 import unittest
 import warnings
 from re import Scanner
@@ -14,7 +13,7 @@ from weakref import proxy
 
 # some platforms lack working multiprocessing
 try:
-    import _multiprocessing
+    import _multiprocessing  # noqa: F401
 except ImportError:
     multiprocessing = None
 else:
@@ -621,6 +620,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.fullmatch(r"a.*?b", "axxb").span(), (0, 4))
         self.assertIsNone(re.fullmatch(r"a+", "ab"))
         self.assertIsNone(re.fullmatch(r"abc$", "abc\n"))
+        self.assertIsNone(re.fullmatch(r"abc\z", "abc\n"))
         self.assertIsNone(re.fullmatch(r"abc\Z", "abc\n"))
         self.assertIsNone(re.fullmatch(r"(?m)abc$", "abc\n"))
         self.assertEqual(re.fullmatch(r"ab(?=c)cd", "abcd").span(), (0, 4))
@@ -806,6 +806,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.search(r"\B(b.)\B",
                                    "abc bcd bc abxd", re.ASCII).group(1), "bx")
         self.assertEqual(re.search(r"^abc$", "\nabc\n", re.M).group(0), "abc")
+        self.assertEqual(re.search(r"^\Aabc\z$", "abc", re.M).group(0), "abc")
+        self.assertIsNone(re.search(r"^\Aabc\z$", "\nabc\n", re.M))
         self.assertEqual(re.search(r"^\Aabc\Z$", "abc", re.M).group(0), "abc")
         self.assertIsNone(re.search(r"^\Aabc\Z$", "\nabc\n", re.M))
         self.assertEqual(re.search(br"\b(b.)\b",
@@ -817,6 +819,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.search(br"\B(b.)\B",
                                    b"abc bcd bc abxd", re.LOCALE).group(1), b"bx")
         self.assertEqual(re.search(br"^abc$", b"\nabc\n", re.M).group(0), b"abc")
+        self.assertEqual(re.search(br"^\Aabc\z$", b"abc", re.M).group(0), b"abc")
+        self.assertIsNone(re.search(br"^\Aabc\z$", b"\nabc\n", re.M))
         self.assertEqual(re.search(br"^\Aabc\Z$", b"abc", re.M).group(0), b"abc")
         self.assertIsNone(re.search(br"^\Aabc\Z$", b"\nabc\n", re.M))
         self.assertEqual(re.search(r"\d\D\w\W\s\S",
@@ -840,7 +844,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match(r"[\^a]+", 'a^').group(), 'a^')
         self.assertIsNone(re.match(r"[\^a]+", 'b'))
         re.purge()  # for warnings
-        for c in 'ceghijklmopqyzCEFGHIJKLMNOPQRTVXY':
+        for c in 'ceghijklmopqyCEFGHIJKLMNOPQRTVXY':
             with self.subTest(c):
                 self.assertRaises(re.PatternError, re.compile, '\\%c' % c)
         for c in 'ceghijklmopqyzABCEFGHIJKLMNOPQRTVXYZ':
@@ -888,6 +892,8 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(br'\N{LESS-THAN SIGN}', r'bad escape \N', 0)
         self.checkPatternError(br'[\N{LESS-THAN SIGN}]', r'bad escape \N', 1)
 
+    # TODO: RUSTPYTHON; re.search(r"\B", "") now returns a match in CPython 3.14
+    @unittest.expectedFailure
     def test_word_boundaries(self):
         # See http://bugs.python.org/issue10713
         self.assertEqual(re.search(r"\b(abc)\b", "abc").group(1), "abc")
@@ -983,18 +989,15 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.fullmatch(br".+\B", b"abc", re.LOCALE))
         self.assertIsNone(re.fullmatch(r".+\B", "ьюя"))
         self.assertTrue(re.fullmatch(r".+\B", "ьюя", re.ASCII))
-        # However, an empty string contains no word boundaries, and also no
-        # non-boundaries.
+        # However, an empty string contains no word boundaries.
         self.assertIsNone(re.search(r"\b", ""))
         self.assertIsNone(re.search(r"\b", "", re.ASCII))
         self.assertIsNone(re.search(br"\b", b""))
         self.assertIsNone(re.search(br"\b", b"", re.LOCALE))
-        # This one is questionable and different from the perlre behaviour,
-        # but describes current behavior.
-        self.assertIsNone(re.search(r"\B", ""))
-        self.assertIsNone(re.search(r"\B", "", re.ASCII))
-        self.assertIsNone(re.search(br"\B", b""))
-        self.assertIsNone(re.search(br"\B", b"", re.LOCALE))
+        self.assertTrue(re.search(r"\B", ""))
+        self.assertTrue(re.search(r"\B", "", re.ASCII))
+        self.assertTrue(re.search(br"\B", b""))
+        self.assertTrue(re.search(br"\B", b"", re.LOCALE))
         # A single word-character string has two boundaries, but no
         # non-boundary gaps.
         self.assertEqual(len(re.findall(r"\b", "a")), 2)
@@ -1423,7 +1426,7 @@ class ReTests(unittest.TestCase):
             newpat = pickle.loads(pickled)
             self.assertEqual(newpat, oldpat)
         # current pickle expects the _compile() reconstructor in re module
-        from re import _compile
+        from re import _compile  # noqa: F401
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_copying(self):
@@ -1755,7 +1758,7 @@ class ReTests(unittest.TestCase):
         for x in not_decimal_digits:
             self.assertIsNone(re.match(r'^\d$', x))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON a = array.array(typecode)\n ValueError: bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)
+    @unittest.expectedFailure # TODO: RUSTPYTHON; a = array.array(typecode)\n ValueError: bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)
     @warnings_helper.ignore_warnings(category=DeprecationWarning)  # gh-80480 array('u')
     def test_empty_array(self):
         # SF buf 1647541
@@ -2185,10 +2188,9 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.fullmatch('[a-c]+', 'ABC', re.I).span(), (0, 3))
 
     @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertTrue(re.match(b'\xc5', b'\xe5', re.L|re.I))\n AssertionError: None is not true
-    @unittest.skipIf(
-        is_emscripten or is_wasi,
-        "musl libc issue on Emscripten/WASI, bpo-46390"
-    )
+    @unittest.skipIf(linked_to_musl(), "musl libc issue, bpo-46390")
+    @unittest.skipIf(sys.platform.startswith("sunos"),
+                     "test doesn't work on Solaris, gh-91214")
     def test_locale_caching(self):
         # Issue #22410
         oldlocale = locale.setlocale(locale.LC_CTYPE)
@@ -2225,10 +2227,9 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match(b'(?Li)\xc5', b'\xe5'))
         self.assertIsNone(re.match(b'(?Li)\xe5', b'\xc5'))
 
-    @unittest.skipIf(
-        is_emscripten or is_wasi,
-        "musl libc issue on Emscripten/WASI, bpo-46390"
-    )
+    @unittest.skipIf(linked_to_musl(), "musl libc issue, bpo-46390")
+    @unittest.skipIf(sys.platform.startswith("sunos"),
+                     "test doesn't work on Solaris, gh-91214")
     def test_locale_compiled(self):
         oldlocale = locale.setlocale(locale.LC_CTYPE)
         self.addCleanup(locale.setlocale, locale.LC_CTYPE, oldlocale)
@@ -2632,8 +2633,8 @@ class ReTests(unittest.TestCase):
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_gh91616(self):
-        self.assertTrue(re.fullmatch(r'(?s:(?>.*?\.).*)\Z', "a.txt")) # reproducer
-        self.assertTrue(re.fullmatch(r'(?s:(?=(?P<g0>.*?\.))(?P=g0).*)\Z', "a.txt"))
+        self.assertTrue(re.fullmatch(r'(?s:(?>.*?\.).*)\z', "a.txt")) # reproducer
+        self.assertTrue(re.fullmatch(r'(?s:(?=(?P<g0>.*?\.))(?P=g0).*)\z', "a.txt"))
 
     def test_bug_gh100061(self):
         # gh-100061
@@ -2655,7 +2656,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match("(?>(?:ab?c){1,3})", "aca").span(), (0, 2))
         self.assertEqual(re.match("(?:ab?c){1,3}+", "aca").span(), (0, 2))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; self.assertEqual(re.match('((x)|y|z){3}+', 'xyz').groups(), ('z', 'x'))\n AssertionError: Tuples differ: ('x', 'x') != ('z', 'x')
+    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertEqual(re.match('((x)|y|z){3}+', 'xyz').groups(), ('z', 'x'))\n AssertionError: Tuples differ: ('x', 'x') != ('z', 'x')
     def test_bug_gh101955(self):
         # Possessive quantifier with nested alternative with capture groups
         self.assertEqual(re.match('((x)|y|z)*+', 'xyz').groups(), ('z', 'x'))
@@ -2893,11 +2894,11 @@ class PatternReprTests(unittest.TestCase):
         pattern = 'Very %spattern' % ('long ' * 1000)
         r = repr(re.compile(pattern))
         self.assertLess(len(r), 300)
-        self.assertEqual(r[:30], "re.compile('Very long long lon")
+        self.assertStartsWith(r, "re.compile('Very long long lon")
         r = repr(re.compile(pattern, re.I))
         self.assertLess(len(r), 300)
-        self.assertEqual(r[:30], "re.compile('Very long long lon")
-        self.assertEqual(r[-16:], ", re.IGNORECASE)")
+        self.assertStartsWith(r, "re.compile('Very long long lon")
+        self.assertEndsWith(r, ", re.IGNORECASE)")
 
     def test_flags_repr(self):
         self.assertEqual(repr(re.I), "re.IGNORECASE")
@@ -2977,7 +2978,7 @@ class ImplementationTest(unittest.TestCase):
                 self.assertEqual(mod.__name__, name)
                 self.assertEqual(mod.__package__, '')
                 for attr in deprecated[name]:
-                    self.assertTrue(hasattr(mod, attr))
+                    self.assertHasAttr(mod, attr)
                 del sys.modules[name]
 
     @cpython_only

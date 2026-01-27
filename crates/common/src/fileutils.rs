@@ -46,7 +46,7 @@ pub mod windows {
 
     pub const SECS_BETWEEN_EPOCHS: i64 = 11644473600; // Seconds between 1.1.1601 and 1.1.1970
 
-    #[derive(Default)]
+    #[derive(Clone, Copy, Default)]
     pub struct StatStruct {
         pub st_dev: libc::c_ulong,
         pub st_ino: u64,
@@ -256,6 +256,7 @@ pub mod windows {
         m as _
     }
 
+    #[derive(Clone, Copy)]
     #[repr(C)]
     pub struct FILE_STAT_BASIC_INFORMATION {
         pub FileId: i64,
@@ -275,8 +276,9 @@ pub mod windows {
         pub FileId128: [u64; 2],
     }
 
-    #[repr(C)]
     #[allow(dead_code)]
+    #[derive(Clone, Copy)]
+    #[repr(C)]
     pub enum FILE_INFO_BY_NAME_CLASS {
         FileStatByNameInfo,
         FileStatLxByNameInfo,

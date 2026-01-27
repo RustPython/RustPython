@@ -1,4 +1,4 @@
-pub(crate) use _md5::make_module;
+pub(crate) use _md5::module_def;
 
 #[pymodule]
 mod _md5 {

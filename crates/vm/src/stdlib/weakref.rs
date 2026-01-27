@@ -4,7 +4,7 @@
 //! - [python weakref module](https://docs.python.org/3/library/weakref.html)
 //! - [rust weak struct](https://doc.rust-lang.org/std/rc/struct.Weak.html)
 //!
-pub(crate) use _weakref::make_module;
+pub(crate) use _weakref::module_def;
 
 #[pymodule]
 mod _weakref {

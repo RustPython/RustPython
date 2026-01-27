@@ -4,9 +4,10 @@ use crate::{
     bytecode::{
         BorrowedConstant, Constant, InstrDisplayContext,
         oparg::{
-            BinaryOperator, BuildSliceArgCount, ComparisonOperator, ConvertValueOparg,
-            IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx,
-            OpArg, OpArgByte, OpArgType, RaiseKind, UnpackExArgs,
+            BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator,
+            ConvertValueOparg, IntrinsicFunction1, IntrinsicFunction2, Invert, Label,
+            MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind, SpecialMethod,
+            UnpackExArgs,
         },
     },
     marshal::MarshalError,
@@ -22,8 +23,8 @@ use crate::{
 #[repr(u8)]
 pub enum Instruction {
     // No-argument instructions (opcode < HAVE_ARGUMENT=44)
-    Cache = 0,       // Placeholder
-    BinarySlice = 1, // Placeholder
+    Cache = 0, // Placeholder
+    BinarySlice = 1,
     BuildTemplate = 2,
     BinaryOpInplaceAddUnicode = 3, // Placeholder
     CallFunctionEx = 4,
@@ -31,7 +32,7 @@ pub enum Instruction {
     CheckExcMatch = 6,
     CleanupThrow = 7,
     DeleteSubscr = 8,
-    EndFor = 9, // Placeholder
+    EndFor = 9,
     EndSend = 10,
     ExitInitCheck = 11, // Placeholder
     FormatSimple = 12,
@@ -52,14 +53,14 @@ pub enum Instruction {
     Nop = 27,
     NotTaken = 28, // Placeholder
     PopExcept = 29,
-    PopIter = 30, // Placeholder
+    PopIter = 30,
     PopTop = 31,
     PushExcInfo = 32,
     PushNull = 33,
-    ReturnGenerator = 34, // Placeholder
+    ReturnGenerator = 34,
     ReturnValue = 35,
     SetupAnnotations = 36,
-    StoreSlice = 37, // Placeholder
+    StoreSlice = 37,
     StoreSubscr = 38,
     ToBool = 39,
     UnaryInvert = 40,
@@ -122,7 +123,7 @@ pub enum Instruction {
     } = 59,
     CopyFreeVars {
         count: Arg<u32>,
-    } = 60, // Placeholder
+    } = 60,
     DeleteAttr {
         idx: Arg<NameIdx>,
     } = 61,
@@ -168,8 +169,8 @@ pub enum Instruction {
         idx: Arg<NameIdx>,
     } = 80,
     LoadCommonConstant {
-        idx: Arg<u32>,
-    } = 81, // Placeholder
+        idx: Arg<CommonConstant>,
+    } = 81,
     LoadConst {
         idx: Arg<u32>,
     } = 82,
@@ -180,24 +181,24 @@ pub enum Instruction {
     LoadFastBorrowLoadFastBorrow {
         arg: Arg<u32>,
     } = 87, // Placeholder
-    LoadFastCheck(Arg<NameIdx>) = 88,  // Placeholder
+    LoadFastCheck(Arg<NameIdx>) = 88,
     LoadFastLoadFast {
         arg: Arg<u32>,
-    } = 89, // Placeholder
+    } = 89,
     LoadFromDictOrDeref(Arg<NameIdx>) = 90,
     LoadFromDictOrGlobals(Arg<NameIdx>) = 91, // Placeholder
     LoadGlobal(Arg<NameIdx>) = 92,
     LoadName(Arg<NameIdx>) = 93,
     LoadSmallInt {
         idx: Arg<u32>,
-    } = 94, // Placeholder
+    } = 94,
     LoadSpecial {
-        arg: Arg<u32>,
-    } = 95, // Placeholder
+        method: Arg<SpecialMethod>,
+    } = 95,
     LoadSuperAttr {
         arg: Arg<u32>,
     } = 96,
-    MakeCell(Arg<NameIdx>) = 97, // Placeholder
+    MakeCell(Arg<NameIdx>) = 97,
     MapAdd {
         i: Arg<u32>,
     } = 98,
@@ -207,10 +208,10 @@ pub enum Instruction {
     } = 100,
     PopJumpIfNone {
         target: Arg<Label>,
-    } = 101, // Placeholder
+    } = 101,
     PopJumpIfNotNone {
         target: Arg<Label>,
-    } = 102, // Placeholder
+    } = 102,
     PopJumpIfTrue {
         target: Arg<Label>,
     } = 103,
@@ -243,7 +244,7 @@ pub enum Instruction {
     } = 113,
     StoreFastStoreFast {
         arg: Arg<u32>,
-    } = 114, // Placeholder
+    } = 114,
     StoreGlobal(Arg<NameIdx>) = 115,
     StoreName(Arg<NameIdx>) = 116,
     Swap {
@@ -258,33 +259,6 @@ pub enum Instruction {
     YieldValue {
         arg: Arg<u32>,
     } = 120,
-    // RustPython-only instructions (212-225)
-    // These either don't exist in CPython 3.14 or are RustPython-specific.
-    BeforeAsyncWith = 212,
-    BeforeWith = 213,
-    BinarySubscr = 214,
-    BuildConstKeyMap {
-        size: Arg<u32>,
-    } = 215, // Placeholder
-    Break {
-        target: Arg<Label>,
-    } = 216,
-    Continue {
-        target: Arg<Label>,
-    } = 217,
-    JumpIfFalseOrPop {
-        target: Arg<Label>,
-    } = 218,
-    JumpIfTrueOrPop {
-        target: Arg<Label>,
-    } = 219,
-    JumpIfNotExcMatch(Arg<Label>) = 220,
-    LoadAssertionError = 221, // Placeholder
-    ReturnConst {
-        idx: Arg<u32>,
-    } = 222,
-    SetExcInfo = 223,
-    Subscript = 224,
     // CPython 3.14 RESUME (128)
     Resume {
         arg: Arg<u32>,
@@ -296,12 +270,12 @@ pub enum Instruction {
     BinaryOpExtend = 132,                       // Placeholder
     BinaryOpMultiplyFloat = 133,                // Placeholder
     BinaryOpMultiplyInt = 134,                  // Placeholder
-    BinarySubscrDict = 135,                     // Placeholder
-    BinarySubscrGetitem = 136,                  // Placeholder
-    BinarySubscrListInt = 137,                  // Placeholder
-    BinarySubscrListSlice = 138,                // Placeholder
-    BinarySubscrStrInt = 139,                   // Placeholder
-    BinarySubscrTupleInt = 140,                 // Placeholder
+    BinaryOpSubscrDict = 135,                   // Placeholder
+    BinaryOpSubscrGetitem = 136,                // Placeholder
+    BinaryOpSubscrListInt = 137,                // Placeholder
+    BinaryOpSubscrListSlice = 138,              // Placeholder
+    BinaryOpSubscrStrInt = 139,                 // Placeholder
+    BinaryOpSubscrTupleInt = 140,               // Placeholder
     BinaryOpSubtractFloat = 141,                // Placeholder
     BinaryOpSubtractInt = 142,                  // Placeholder
     CallAllocAndEnterInit = 143,                // Placeholder
@@ -427,32 +401,8 @@ impl TryFrom<u8> for Instruction {
         let instrumented_start = u8::from(Self::InstrumentedEndFor);
         let instrumented_end = u8::from(Self::InstrumentedLine);
 
-        // RustPython-only opcodes (explicit list to avoid gaps)
-        let custom_ops: &[u8] = &[
-            u8::from(Self::BeforeAsyncWith),
-            u8::from(Self::BeforeWith),
-            u8::from(Self::BinarySubscr),
-            u8::from(Self::BuildConstKeyMap {
-                size: Arg::marker(),
-            }),
-            u8::from(Self::Break {
-                target: Arg::marker(),
-            }),
-            u8::from(Self::Continue {
-                target: Arg::marker(),
-            }),
-            u8::from(Self::JumpIfFalseOrPop {
-                target: Arg::marker(),
-            }),
-            u8::from(Self::JumpIfTrueOrPop {
-                target: Arg::marker(),
-            }),
-            u8::from(Self::JumpIfNotExcMatch(Arg::marker())),
-            u8::from(Self::LoadAssertionError),
-            u8::from(Self::ReturnConst { idx: Arg::marker() }),
-            u8::from(Self::SetExcInfo),
-            u8::from(Self::Subscript),
-        ];
+        // No RustPython-only opcodes anymore - all opcodes match CPython 3.14
+        let custom_ops: &[u8] = &[];
 
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
@@ -475,35 +425,33 @@ impl InstructionMetadata for Instruction {
             Self::JumpBackward { target: l }
             | Self::JumpBackwardNoInterrupt { target: l }
             | Self::JumpForward { target: l }
-            | Self::JumpIfNotExcMatch(l)
             | Self::PopJumpIfTrue { target: l }
             | Self::PopJumpIfFalse { target: l }
-            | Self::JumpIfTrueOrPop { target: l }
-            | Self::JumpIfFalseOrPop { target: l }
+            | Self::PopJumpIfNone { target: l }
+            | Self::PopJumpIfNotNone { target: l }
             | Self::ForIter { target: l }
-            | Self::Break { target: l }
-            | Self::Continue { target: l }
             | Self::Send { target: l } => Some(*l),
             _ => None,
         }
     }
 
-    fn unconditional_branch(&self) -> bool {
+    fn is_unconditional_jump(&self) -> bool {
         matches!(
             self,
             Self::JumpForward { .. }
                 | Self::JumpBackward { .. }
                 | Self::JumpBackwardNoInterrupt { .. }
-                | Self::Continue { .. }
-                | Self::Break { .. }
-                | Self::ReturnValue
-                | Self::ReturnConst { .. }
-                | Self::RaiseVarargs { .. }
-                | Self::Reraise { .. }
         )
     }
 
-    fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
+    fn is_scope_exit(&self) -> bool {
+        matches!(
+            self,
+            Self::ReturnValue | Self::RaiseVarargs { .. } | Self::Reraise { .. }
+        )
+    }
+
+    fn stack_effect(&self, arg: OpArg) -> i32 {
         match self {
             Self::Nop => 0,
             Self::NotTaken => 0,
@@ -525,10 +473,15 @@ impl InstructionMetadata for Instruction {
             Self::DeleteGlobal(_) => 0,
             Self::DeleteDeref(_) => 0,
             Self::LoadFromDictOrDeref(_) => 1,
-            Self::Subscript => -1,
             Self::StoreSubscr => -3,
             Self::DeleteSubscr => -2,
-            Self::LoadAttr { .. } => 0,
+            Self::LoadAttr { idx } => {
+                // Stack effect depends on method flag in encoded oparg
+                // method=false: pop obj, push attr → effect = 0
+                // method=true: pop obj, push (method, self_or_null) → effect = +1
+                let (_, is_method) = decode_load_attr_arg(idx.get(arg));
+                if is_method { 1 } else { 0 }
+            }
             Self::StoreAttr { .. } => -2,
             Self::DeleteAttr { .. } => -1,
             Self::LoadCommonConstant { .. } => 1,
@@ -538,7 +491,6 @@ impl InstructionMetadata for Instruction {
             Self::Reserved => 0,
             Self::BinaryOp { .. } => -1,
             Self::CompareOp { .. } => -1,
-            Self::BinarySubscr => -1,
             Self::Copy { .. } => 1,
             Self::PopTop => -1,
             Self::Swap { .. } => 0,
@@ -547,24 +499,8 @@ impl InstructionMetadata for Instruction {
             Self::GetLen => 1,
             Self::CallIntrinsic1 { .. } => 0,  // Takes 1, pushes 1
             Self::CallIntrinsic2 { .. } => -1, // Takes 2, pushes 1
-            Self::Continue { .. } => 0,
-            Self::Break { .. } => 0,
             Self::PopJumpIfTrue { .. } => -1,
             Self::PopJumpIfFalse { .. } => -1,
-            Self::JumpIfTrueOrPop { .. } => {
-                if jump {
-                    0
-                } else {
-                    -1
-                }
-            }
-            Self::JumpIfFalseOrPop { .. } => {
-                if jump {
-                    0
-                } else {
-                    -1
-                }
-            }
             Self::MakeFunction => {
                 // CPython 3.14 style: MakeFunction only pops code object
                 -1 + 1 // pop code, push function
@@ -583,18 +519,10 @@ impl InstructionMetadata for Instruction {
             Self::ConvertValue { .. } => 0,
             Self::FormatSimple => 0,
             Self::FormatWithSpec => -1,
-            Self::ForIter { .. } => {
-                if jump {
-                    -1
-                } else {
-                    1
-                }
-            }
+            Self::ForIter { .. } => 1, // push next value
             Self::IsOp(_) => -1,
             Self::ContainsOp(_) => -1,
-            Self::JumpIfNotExcMatch(_) => -2,
             Self::ReturnValue => -1,
-            Self::ReturnConst { .. } => 0,
             Self::Resume { .. } => 0,
             Self::YieldValue { .. } => 0,
             // SEND: (receiver, val) -> (receiver, retval) - no change, both paths keep same depth
@@ -603,12 +531,10 @@ impl InstructionMetadata for Instruction {
             Self::EndSend => -1,
             // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) = 3 pop, 2 push = -1
             Self::CleanupThrow => -1,
-            Self::SetExcInfo => 0,
             Self::PushExcInfo => 1,    // [exc] -> [prev_exc, exc]
             Self::CheckExcMatch => 0,  // [exc, type] -> [exc, bool] (pops type, pushes bool)
             Self::Reraise { .. } => 0, // Exception raised, stack effect doesn't matter
             Self::SetupAnnotations => 0,
-            Self::BeforeWith => 1, // push __exit__, then replace ctx_mgr with __enter__ result
             Self::WithExceptStart => 1, // push __exit__ result
             Self::RaiseVarargs { kind } => {
                 // Stack effects for different raise kinds:
@@ -654,10 +580,9 @@ impl InstructionMetadata for Instruction {
                 let UnpackExArgs { before, after } = args.get(arg);
                 -1 + before as i32 + 1 + after as i32
             }
-            Self::PopExcept => 0,
+            Self::PopExcept => -1,
             Self::PopIter => -1,
             Self::GetAwaitable => 0,
-            Self::BeforeAsyncWith => 1,
             Self::GetAIter => 0,
             Self::GetANext => 1,
             Self::EndAsyncFor => -2,  // pops (awaitable, exc) from stack
@@ -679,29 +604,27 @@ impl InstructionMetadata for Instruction {
             }
             // Pseudo instructions (calculated before conversion)
             Self::Cache => 0,
-            Self::BinarySlice => 0,
+            Self::BinarySlice => -2, // (container, start, stop -- res)
             Self::BinaryOpInplaceAddUnicode => 0,
-            Self::EndFor => 0,
-            Self::ExitInitCheck => 0,
+            Self::EndFor => -1,        // pop next value at end of loop iteration
+            Self::ExitInitCheck => -1, // (should_be_none -- )
             Self::InterpreterExit => 0,
-            Self::LoadAssertionError => 0,
-            Self::LoadLocals => 0,
-            Self::ReturnGenerator => 0,
-            Self::StoreSlice => 0,
-            Self::BuildConstKeyMap { .. } => 0,
+            Self::LoadLocals => 1,      // ( -- locals)
+            Self::ReturnGenerator => 1, // pushes None for POP_TOP to consume
+            Self::StoreSlice => -4,     // (v, container, start, stop -- )
             Self::CopyFreeVars { .. } => 0,
             Self::EnterExecutor => 0,
             Self::JumpBackwardNoInterrupt { .. } => 0,
             Self::JumpBackward { .. } => 0,
             Self::JumpForward { .. } => 0,
-            Self::LoadFastCheck(_) => 0,
+            Self::LoadFastCheck(_) => 1,
             Self::LoadFastLoadFast { .. } => 2,
             Self::LoadFastBorrowLoadFastBorrow { .. } => 2,
             Self::LoadFromDictOrGlobals(_) => 0,
             Self::MakeCell(_) => 0,
-            Self::StoreFastStoreFast { .. } => 0,
-            Self::PopJumpIfNone { .. } => 0,
-            Self::PopJumpIfNotNone { .. } => 0,
+            Self::StoreFastStoreFast { .. } => -2, // pops 2 values
+            Self::PopJumpIfNone { .. } => -1,      // (value -- )
+            Self::PopJumpIfNotNone { .. } => -1,   // (value -- )
             Self::BinaryOpAddFloat => 0,
             Self::BinaryOpAddInt => 0,
             Self::BinaryOpAddUnicode => 0,
@@ -710,12 +633,12 @@ impl InstructionMetadata for Instruction {
             Self::BinaryOpMultiplyInt => 0,
             Self::BinaryOpSubtractFloat => 0,
             Self::BinaryOpSubtractInt => 0,
-            Self::BinarySubscrDict => 0,
-            Self::BinarySubscrGetitem => 0,
-            Self::BinarySubscrListInt => 0,
-            Self::BinarySubscrListSlice => 0,
-            Self::BinarySubscrStrInt => 0,
-            Self::BinarySubscrTupleInt => 0,
+            Self::BinaryOpSubscrDict => 0,
+            Self::BinaryOpSubscrGetitem => 0,
+            Self::BinaryOpSubscrListInt => 0,
+            Self::BinaryOpSubscrListSlice => 0,
+            Self::BinaryOpSubscrStrInt => 0,
+            Self::BinaryOpSubscrTupleInt => 0,
             Self::CallAllocAndEnterInit => 0,
             Self::CallBoundMethodExactArgs => 0,
             Self::CallBoundMethodGeneral => 0,
@@ -870,11 +793,7 @@ impl InstructionMetadata for Instruction {
             };
 
         match self {
-            Self::BeforeAsyncWith => w!(BEFORE_ASYNC_WITH),
-            Self::BeforeWith => w!(BEFORE_WITH),
             Self::BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
-            Self::BinarySubscr => w!(BINARY_SUBSCR),
-            Self::Break { target } => w!(BREAK, target),
             Self::BuildList { size } => w!(BUILD_LIST, size),
             Self::BuildMap { size } => w!(BUILD_MAP, size),
             Self::BuildSet { size } => w!(BUILD_SET, size),
@@ -891,7 +810,6 @@ impl InstructionMetadata for Instruction {
             Self::CleanupThrow => w!(CLEANUP_THROW),
             Self::CompareOp { op } => w!(COMPARE_OP, ?op),
             Self::ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
-            Self::Continue { target } => w!(CONTINUE, target),
             Self::ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
             Self::Copy { index } => w!(COPY, index),
             Self::DeleteAttr { idx } => w!(DELETE_ATTR, name = idx),
@@ -920,9 +838,6 @@ impl InstructionMetadata for Instruction {
             Self::JumpBackward { target } => w!(JUMP_BACKWARD, target),
             Self::JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
             Self::JumpForward { target } => w!(JUMP_FORWARD, target),
-            Self::JumpIfFalseOrPop { target } => w!(JUMP_IF_FALSE_OR_POP, target),
-            Self::JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
-            Self::JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
             Self::ListAppend { i } => w!(LIST_APPEND, i),
             Self::ListExtend { i } => w!(LIST_EXTEND, i),
             Self::LoadAttr { idx } => {
@@ -942,11 +857,13 @@ impl InstructionMetadata for Instruction {
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
             Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
             Self::LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
+            Self::LoadSmallInt { idx } => w!(LOAD_SMALL_INT, idx),
             Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             Self::LoadFast(idx) => w!(LOAD_FAST, varname = idx),
             Self::LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
             Self::LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
             Self::LoadName(idx) => w!(LOAD_NAME, name = idx),
+            Self::LoadSpecial { method } => w!(LOAD_SPECIAL, method),
             Self::LoadSuperAttr { arg: idx } => {
                 let encoded = idx.get(arg);
                 let (name_idx, load_method, has_class) = decode_load_super_attr_arg(encoded);
@@ -968,16 +885,16 @@ impl InstructionMetadata for Instruction {
             Self::PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
             Self::PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
             Self::PopTop => w!(POP_TOP),
+            Self::EndFor => w!(END_FOR),
+            Self::PopIter => w!(POP_ITER),
             Self::PushExcInfo => w!(PUSH_EXC_INFO),
             Self::PushNull => w!(PUSH_NULL),
             Self::RaiseVarargs { kind } => w!(RAISE_VARARGS, ?kind),
             Self::Reraise { depth } => w!(RERAISE, depth),
             Self::Resume { arg } => w!(RESUME, arg),
-            Self::ReturnConst { idx } => fmt_const("RETURN_CONST", arg, f, idx),
             Self::ReturnValue => w!(RETURN_VALUE),
             Self::Send { target } => w!(SEND, target),
             Self::SetAdd { i } => w!(SET_ADD, i),
-            Self::SetExcInfo => w!(SET_EXC_INFO),
             Self::SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
             Self::SetupAnnotations => w!(SETUP_ANNOTATIONS),
             Self::SetUpdate { i } => w!(SET_UPDATE, i),
@@ -994,7 +911,6 @@ impl InstructionMetadata for Instruction {
             Self::StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
             Self::StoreName(idx) => w!(STORE_NAME, name = idx),
             Self::StoreSubscr => w!(STORE_SUBSCR),
-            Self::Subscript => w!(SUBSCRIPT),
             Self::Swap { index } => w!(SWAP, index),
             Self::ToBool => w!(TO_BOOL),
             Self::UnpackEx { args } => w!(UNPACK_EX, args),
@@ -1013,37 +929,23 @@ impl InstructionMetadata for Instruction {
 }
 
 /// Instructions used by the compiler. They are not executed by the VM.
+///
+/// CPython 3.14.2 aligned (256-266).
 #[derive(Clone, Copy, Debug)]
 #[repr(u16)]
 pub enum PseudoInstruction {
-    Jump {
-        target: Arg<Label>,
-    } = 256,
-    JumpNoInterrupt {
-        target: Arg<Label>,
-    } = 257, // Placeholder
-    Reserved258 = 258,
-    LoadAttrMethod {
-        idx: Arg<NameIdx>,
-    } = 259,
-    // "Zero" variants are for 0-arg super() calls (has_class=false).
-    // Non-"Zero" variants are for 2-arg super(cls, self) calls (has_class=true).
-    /// 2-arg super(cls, self).method() - has_class=true, load_method=true
-    LoadSuperMethod {
-        idx: Arg<NameIdx>,
-    } = 260,
-    LoadZeroSuperAttr {
-        idx: Arg<NameIdx>,
-    } = 261,
-    LoadZeroSuperMethod {
-        idx: Arg<NameIdx>,
-    } = 262,
-    PopBlock = 263,
-    SetupCleanup = 264,       // Placeholder
-    SetupFinally = 265,       // Placeholder
-    SetupWith = 266,          // Placeholder
-    StoreFastMaybeNull = 267, // Placeholder
-    LoadClosure(Arg<NameIdx>) = 268,
+    // CPython 3.14.2 pseudo instructions (256-266)
+    AnnotationsPlaceholder = 256,
+    Jump { target: Arg<Label> } = 257,
+    JumpIfFalse { target: Arg<Label> } = 258,
+    JumpIfTrue { target: Arg<Label> } = 259,
+    JumpNoInterrupt { target: Arg<Label> } = 260,
+    LoadClosure(Arg<NameIdx>) = 261,
+    PopBlock = 262,
+    SetupCleanup = 263,
+    SetupFinally = 264,
+    SetupWith = 265,
+    StoreFastMaybeNull(Arg<NameIdx>) = 266,
 }
 
 const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
@@ -1061,10 +963,8 @@ impl TryFrom<u16> for PseudoInstruction {
 
     #[inline]
     fn try_from(value: u16) -> Result<Self, MarshalError> {
-        let start = u16::from(Self::Jump {
-            target: Arg::marker(),
-        });
-        let end = u16::from(Self::LoadClosure(Arg::marker()));
+        let start = u16::from(Self::AnnotationsPlaceholder);
+        let end = u16::from(Self::StoreFastMaybeNull(Arg::marker()));
 
         if (start..=end).contains(&value) {
             Ok(unsafe { mem::transmute::<u16, Self>(value) })
@@ -1077,30 +977,35 @@ impl TryFrom<u16> for PseudoInstruction {
 impl InstructionMetadata for PseudoInstruction {
     fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
-            Self::Jump { target: l } => Some(*l),
+            Self::Jump { target: l }
+            | Self::JumpIfFalse { target: l }
+            | Self::JumpIfTrue { target: l }
+            | Self::JumpNoInterrupt { target: l } => Some(*l),
             _ => None,
         }
     }
 
-    fn unconditional_branch(&self) -> bool {
-        matches!(self, Self::Jump { .. },)
+    fn is_scope_exit(&self) -> bool {
+        false
     }
 
-    fn stack_effect(&self, _arg: OpArg, _jump: bool) -> i32 {
+    fn is_unconditional_jump(&self) -> bool {
+        matches!(self, Self::Jump { .. } | Self::JumpNoInterrupt { .. })
+    }
+
+    fn stack_effect(&self, _arg: OpArg) -> i32 {
         match self {
+            Self::AnnotationsPlaceholder => 0,
             Self::Jump { .. } => 0,
+            Self::JumpIfFalse { .. } => 0, // peek, don't pop: COPY + TO_BOOL + POP_JUMP_IF_FALSE
+            Self::JumpIfTrue { .. } => 0,  // peek, don't pop: COPY + TO_BOOL + POP_JUMP_IF_TRUE
             Self::JumpNoInterrupt { .. } => 0,
-            Self::LoadAttrMethod { .. } => 1, // pop obj, push method + self_or_null
-            Self::LoadSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
-            Self::LoadZeroSuperAttr { .. } => -3 + 1, // pop 3, push [attr]
-            Self::LoadZeroSuperMethod { .. } => -3 + 2, // pop 3, push [method, self_or_null]
+            Self::LoadClosure(_) => 1,
             Self::PopBlock => 0,
             Self::SetupCleanup => 0,
             Self::SetupFinally => 0,
             Self::SetupWith => 0,
-            Self::StoreFastMaybeNull => 0,
-            Self::Reserved258 => 0,
-            Self::LoadClosure(_) => 1,
+            Self::StoreFastMaybeNull(_) => -1,
         }
     }
 
@@ -1168,9 +1073,11 @@ macro_rules! inst_either {
 impl InstructionMetadata for AnyInstruction {
     inst_either!(fn label_arg(&self) -> Option<Arg<Label>>);
 
-    inst_either!(fn unconditional_branch(&self) -> bool);
+    inst_either!(fn is_unconditional_jump(&self) -> bool);
 
-    inst_either!(fn stack_effect(&self, arg: OpArg, jump: bool) -> i32);
+    inst_either!(fn is_scope_exit(&self) -> bool);
+
+    inst_either!(fn stack_effect(&self, arg: OpArg) -> i32);
 
     inst_either!(fn fmt_dis(
         &self,
@@ -1225,16 +1132,9 @@ pub trait InstructionMetadata {
     /// Gets the label stored inside this instruction, if it exists.
     fn label_arg(&self) -> Option<Arg<Label>>;
 
-    /// Whether this is an unconditional branching.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, InstructionMetadata};
-    /// let jump_inst = Instruction::JumpForward { target: Arg::marker() };
-    /// assert!(jump_inst.unconditional_branch())
-    /// ```
-    fn unconditional_branch(&self) -> bool;
+    fn is_scope_exit(&self) -> bool;
+
+    fn is_unconditional_jump(&self) -> bool;
 
     /// What effect this instruction has on the stack
     ///
@@ -1244,9 +1144,9 @@ pub trait InstructionMetadata {
     /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label, InstructionMetadata};
     /// let (target, jump_arg) = Arg::new(Label(0xF));
     /// let jump_instruction = Instruction::JumpForward { target };
-    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
+    /// assert_eq!(jump_instruction.stack_effect(jump_arg), 0);
     /// ```
-    fn stack_effect(&self, arg: OpArg, jump: bool) -> i32;
+    fn stack_effect(&self, arg: OpArg) -> i32;
 
     #[allow(clippy::too_many_arguments)]
     fn fmt_dis(
@@ -1259,18 +1159,8 @@ pub trait InstructionMetadata {
         level: usize,
     ) -> fmt::Result;
 
-    fn display<'a>(
-        &'a self,
-        arg: OpArg,
-        ctx: &'a impl InstrDisplayContext,
-    ) -> impl fmt::Display + 'a {
-        struct FmtFn<F>(F);
-        impl<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for FmtFn<F> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                (self.0)(f)
-            }
-        }
-        FmtFn(move |f: &mut fmt::Formatter<'_>| self.fmt_dis(arg, f, ctx, false, 0, 0))
+    fn display(&self, arg: OpArg, ctx: &impl InstrDisplayContext) -> impl fmt::Display {
+        fmt::from_fn(move |f| self.fmt_dis(arg, f, ctx, false, 0, 0))
     }
 }
 

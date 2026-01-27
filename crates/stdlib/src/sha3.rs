@@ -1,4 +1,4 @@
-pub(crate) use _sha3::make_module;
+pub(crate) use _sha3::module_def;
 
 #[pymodule]
 mod _sha3 {

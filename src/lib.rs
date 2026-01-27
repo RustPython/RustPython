@@ -1,23 +1,29 @@
 //! This is the `rustpython` binary. If you're looking to embed RustPython into your application,
 //! you're likely looking for the [`rustpython_vm`] crate.
 //!
-//! You can install `rustpython` with `cargo install rustpython`, or if you'd like to inject your
-//! own native modules you can make a binary crate that depends on the `rustpython` crate (and
+//! You can install `rustpython` with `cargo install rustpython`. If you'd like to inject your
+//! own native modules, you can make a binary crate that depends on the `rustpython` crate (and
 //! probably [`rustpython_vm`], too), and make a `main.rs` that looks like:
 //!
 //! ```no_run
+//! use rustpython::{InterpreterBuilder, InterpreterBuilderExt};
 //! use rustpython_vm::{pymodule, py_freeze};
-//! fn main() {
-//!     rustpython::run(|vm| {
-//!         vm.add_native_module("my_mod".to_owned(), Box::new(my_mod::make_module));
-//!         vm.add_frozen(py_freeze!(source = "def foo(): pass", module_name = "other_thing"));
-//!     });
+//!
+//! fn main() -> std::process::ExitCode {
+//!     let builder = InterpreterBuilder::new().init_stdlib();
+//!     // Add a native module using builder.ctx
+//!     let my_mod_def = my_mod::module_def(&builder.ctx);
+//!     let builder = builder
+//!         .add_native_module(my_mod_def)
+//!         // Add a frozen module
+//!         .add_frozen_modules(py_freeze!(source = "def foo(): pass", module_name = "other_thing"));
+//!
+//!     rustpython::run(builder)
 //! }
 //!
 //! #[pymodule]
 //! mod my_mod {
 //!     use rustpython_vm::builtins::PyStrRef;
-//TODO: use rustpython_vm::prelude::*;
 //!
 //!     #[pyfunction]
 //!     fn do_thing(x: i32) -> i32 {
@@ -54,8 +60,8 @@ use std::env;
 use std::io::IsTerminal;
 use std::process::ExitCode;
 
-pub use interpreter::InterpreterConfig;
-pub use rustpython_vm as vm;
+pub use interpreter::InterpreterBuilderExt;
+pub use rustpython_vm::{self as vm, Interpreter, InterpreterBuilder};
 pub use settings::{InstallPipMode, RunMode, parse_opts};
 pub use shell::run_shell;
 
@@ -69,7 +75,11 @@ compile_error!(
 
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
-pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
+///
+/// **Note**: This function provides no way to further initialize the VM after the builder is applied.
+/// All VM initialization (adding native modules, init hooks, etc.) must be done through the
+/// [`InterpreterBuilder`] parameter before calling this function.
+pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
     env_logger::init();
 
     // NOTE: This is not a WASI convention. But it will be convenient since POSIX shell always defines it.
@@ -101,14 +111,9 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
         }
     }
 
-    let mut config = InterpreterConfig::new().settings(settings);
-    #[cfg(feature = "stdlib")]
-    {
-        config = config.init_stdlib();
-    }
-    config = config.init_hook(Box::new(init));
+    builder = builder.settings(settings);
 
-    let interp = config.interpreter();
+    let interp = builder.interpreter();
     let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
 
     rustpython_vm::common::os::exit_code(exitcode)
@@ -351,7 +356,7 @@ mod tests {
     use rustpython_vm::Interpreter;
 
     fn interpreter() -> Interpreter {
-        InterpreterConfig::new().init_stdlib().interpreter()
+        InterpreterBuilder::new().init_stdlib().interpreter()
     }
 
     #[test]

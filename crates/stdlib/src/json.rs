@@ -1,4 +1,4 @@
-pub(crate) use _json::make_module;
+pub(crate) use _json::module_def;
 mod machinery;
 
 #[pymodule]

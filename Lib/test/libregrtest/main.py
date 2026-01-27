@@ -6,22 +6,21 @@ import sys
 import sysconfig
 import time
 import trace
+from _colorize import get_colors  # type: ignore[import-not-found]
 from typing import NoReturn
 
-from test.support import (os_helper, MS_WINDOWS, flush_std_streams,
-                          can_use_suppress_immortalization,
-                          suppress_immortalization)
+from test.support import os_helper, MS_WINDOWS, flush_std_streams
 
 from .cmdline import _parse_args, Namespace
 from .findtests import findtests, split_test_packages, list_cases
 from .logger import Logger
 from .pgo import setup_pgo_tests
-from .result import State, TestResult
+from .result import TestResult
 from .results import TestResults, EXITCODE_INTERRUPTED
 from .runtests import RunTests, HuntRefleak
 from .setup import setup_process, setup_test_dir
 from .single import run_single_test, PROGRESS_MIN_TIME
-from .tsan import setup_tsan_tests
+from .tsan import setup_tsan_tests, setup_tsan_parallel_tests
 from .utils import (
     StrPath, StrJSON, TestName, TestList, TestTuple, TestFilter,
     strip_py_suffix, count, format_duration,
@@ -61,6 +60,7 @@ class Regrtest:
         self.pgo: bool = ns.pgo
         self.pgo_extended: bool = ns.pgo_extended
         self.tsan: bool = ns.tsan
+        self.tsan_parallel: bool = ns.tsan_parallel
 
         # Test results
         self.results: TestResults = TestResults()
@@ -142,6 +142,9 @@ class Regrtest:
             self.random_seed = random.getrandbits(32)
         else:
             self.random_seed = ns.random_seed
+        self.prioritize_tests: tuple[str, ...] = tuple(ns.prioritize)
+
+        self.parallel_threads = ns.parallel_threads
 
         # tests
         self.first_runtests: RunTests | None = None
@@ -200,6 +203,9 @@ class Regrtest:
         if self.tsan:
             setup_tsan_tests(self.cmdline_args)
 
+        if self.tsan_parallel:
+            setup_tsan_parallel_tests(self.cmdline_args)
+
         alltests = findtests(testdir=self.test_dir,
                              exclude=exclude_tests)
 
@@ -235,6 +241,16 @@ class Regrtest:
         random.seed(self.random_seed)
         if self.randomize:
             random.shuffle(selected)
+
+        for priority_test in reversed(self.prioritize_tests):
+            try:
+                selected.remove(priority_test)
+            except ValueError:
+                print(f"warning: --prioritize={priority_test} used"
+                        f" but test not actually selected")
+                continue
+            else:
+                selected.insert(0, priority_test)
 
         return (tuple(selected), tests)
 
@@ -276,6 +292,9 @@ class Regrtest:
         return runtests
 
     def rerun_failed_tests(self, runtests: RunTests) -> None:
+        ansi = get_colors()
+        red, reset = ansi.BOLD_RED, ansi.RESET
+
         if self.python_cmd:
             # Temp patch for https://github.com/python/cpython/issues/94052
             self.log(
@@ -290,7 +309,10 @@ class Regrtest:
         rerun_runtests = self._rerun_failed_tests(runtests)
 
         if self.results.bad:
-            print(count(len(self.results.bad), 'test'), "failed again:")
+            print(
+                f"{red}{count(len(self.results.bad), 'test')} "
+                f"failed again:{reset}"
+            )
             printlist(self.results.bad)
 
         self.display_result(rerun_runtests)
@@ -496,6 +518,7 @@ class Regrtest:
             python_cmd=self.python_cmd,
             randomize=self.randomize,
             random_seed=self.random_seed,
+            parallel_threads=self.parallel_threads,
         )
 
     def _run_tests(self, selected: TestTuple, tests: TestList | None) -> int:
@@ -529,8 +552,7 @@ class Regrtest:
             use_load_tracker = False
         else:
             # WindowsLoadTracker is only needed on Windows
-            # use_load_tracker = MS_WINDOWS  # TODO: RUSTPYTHON, investigate why this was disabled in the first place
-            use_load_tracker = False
+            use_load_tracker = MS_WINDOWS
 
         if use_load_tracker:
             self.logger.start_load_tracker()
@@ -538,18 +560,7 @@ class Regrtest:
             if self.num_workers:
                 self._run_tests_mp(runtests, self.num_workers)
             else:
-                # gh-135734: suppress_immortalization() raises SkipTest
-                # if _testinternalcapi is missing and the -R option is set.
-                if not can_use_suppress_immortalization(runtests.hunt_refleak):
-                    print("Module '_testinternalcapi' is missing. "
-                          "Did you disable it with --disable-test-modules?",
-                          file=sys.stderr)
-                    raise SystemExit(1)
-
-                # gh-117783: don't immortalize deferred objects when tracking
-                # refleaks. Only relevant for the free-threaded build.
-                with suppress_immortalization(runtests.hunt_refleak):
-                    self.run_tests_sequentially(runtests)
+                self.run_tests_sequentially(runtests)
 
             coverage = self.results.get_coverage_results()
             self.display_result(runtests)

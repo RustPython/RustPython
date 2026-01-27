@@ -1,7 +1,7 @@
 // spell-checker:ignore hexlify unhexlify uuencodes CRCTAB rlecode rledecode
 
 pub(super) use decl::crc32;
-pub(crate) use decl::make_module;
+pub(crate) use decl::module_def;
 use rustpython_vm::{VirtualMachine, builtins::PyBaseExceptionRef, convert::ToPyException};
 
 const PAD: u8 = 61u8;

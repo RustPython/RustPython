@@ -211,7 +211,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             // If that was an unconditional branch or return, mark future instructions unreachable
             match instruction {
                 Instruction::ReturnValue
-                | Instruction::ReturnConst { .. }
                 | Instruction::JumpBackward { .. }
                 | Instruction::JumpBackwardNoInterrupt { .. }
                 | Instruction::JumpForward { .. } => {
@@ -573,6 +572,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(val);
                 Ok(())
             }
+            Instruction::LoadSmallInt { idx } => {
+                let small_int = idx.get(arg) as i64;
+                let val = self.builder.ins().iconst(types::I64, small_int);
+                self.stack.push(JitValue::Int(val));
+                Ok(())
+            }
             Instruction::LoadFast(idx) => {
                 let local = self.variables[idx.get(arg) as usize]
                     .as_ref()
@@ -627,11 +632,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::Resume { arg: _resume_arg } => {
                 // TODO: Implement the resume instruction
                 Ok(())
-            }
-            Instruction::ReturnConst { idx } => {
-                let val = self
-                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
-                self.return_value(val)
             }
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;

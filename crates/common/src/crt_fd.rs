@@ -5,8 +5,10 @@ use alloc::fmt;
 use core::cmp;
 use std::{ffi, io};
 
+#[cfg(unix)]
+use std::os::fd::AsFd;
 #[cfg(not(windows))]
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
 #[cfg(windows)]
 use std::os::windows::io::BorrowedHandle;
 

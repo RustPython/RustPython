@@ -22,7 +22,7 @@ impl PyMethod {
     pub fn get(obj: PyObjectRef, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Self> {
         let cls = obj.class();
         let getattro = cls.slots.getattro.load().unwrap();
-        if getattro as usize != PyBaseObject::getattro as usize {
+        if getattro as usize != PyBaseObject::getattro as *const () as usize {
             return obj.get_attr(name, vm).map(Self::Attribute);
         }
 

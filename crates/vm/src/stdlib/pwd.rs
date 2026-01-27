@@ -1,6 +1,6 @@
 // spell-checker:disable
 
-pub(crate) use pwd::make_module;
+pub(crate) use pwd::module_def;
 
 #[pymodule]
 mod pwd {

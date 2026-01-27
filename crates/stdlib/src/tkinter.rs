@@ -1,6 +1,6 @@
 // spell-checker:ignore createcommand
 
-pub(crate) use self::_tkinter::make_module;
+pub(crate) use self::_tkinter::module_def;
 
 #[pymodule]
 mod _tkinter {

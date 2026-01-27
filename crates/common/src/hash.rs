@@ -25,6 +25,7 @@ pub const SEED_BITS: usize = core::mem::size_of::<u64>() * 2 * 8;
 
 // pub const CUTOFF: usize = 7;
 
+#[derive(Clone, Copy)]
 pub struct HashSecret {
     k0: u64,
     k1: u64,

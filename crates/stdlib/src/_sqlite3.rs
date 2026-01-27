@@ -8,18 +8,10 @@
 // spell-checker:ignore cantlock commithook foreignkey notnull primarykey gettemppath autoindex convpath
 // spell-checker:ignore dbmoved vnode nbytes
 
-use rustpython_vm::{AsObject, PyRef, VirtualMachine, builtins::PyModule};
-
-// pub(crate) use _sqlite::make_module;
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    // TODO: sqlite version check
-    let module = _sqlite::make_module(vm);
-    _sqlite::setup_module(module.as_object(), vm);
-    module
-}
+pub(crate) use _sqlite3::module_def;
 
 #[pymodule]
-mod _sqlite {
+mod _sqlite3 {
     use libsqlite3_sys::{
         SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
         SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRACE_STMT,
@@ -58,8 +50,8 @@ mod _sqlite {
         TryFromBorrowedObject, VirtualMachine, atomic_func,
         builtins::{
             PyBaseException, PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat,
-            PyInt, PyIntRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
-            PyUtf8Str, PyUtf8StrRef,
+            PyInt, PyIntRef, PyModule, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+            PyTypeRef, PyUtf8Str, PyUtf8StrRef,
         },
         convert::IntoObject,
         function::{
@@ -852,26 +844,26 @@ mod _sqlite {
             .expect("enable traceback not initialize")
     }
 
-    pub(super) fn setup_module(module: &PyObject, vm: &VirtualMachine) {
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+
         for (name, code) in ERROR_CODES {
             let name = vm.ctx.intern_str(*name);
             let code = vm.new_pyobj(*code);
-            module.set_attr(name, code, vm).unwrap();
+            module.set_attr(name, code, vm)?;
         }
 
-        setup_module_exceptions(module, vm);
+        setup_module_exceptions(module.as_object(), vm);
 
         let _ = CONVERTERS.set(vm.ctx.new_dict());
         let _ = ADAPTERS.set(vm.ctx.new_dict());
         let _ = USER_FUNCTION_EXCEPTION.set(PyAtomicRef::from(None));
         let _ = ENABLE_TRACEBACK.set(Radium::new(false));
 
-        module
-            .set_attr("converters", converters().to_owned(), vm)
-            .unwrap();
-        module
-            .set_attr("adapters", adapters().to_owned(), vm)
-            .unwrap();
+        module.set_attr("converters", converters().to_owned(), vm)?;
+        module.set_attr("adapters", adapters().to_owned(), vm)?;
+
+        Ok(())
     }
 
     #[pyattr]

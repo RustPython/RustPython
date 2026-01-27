@@ -1,7 +1,7 @@
-pub(crate) use sysconfig::make_module;
+pub(crate) use _sysconfig::module_def;
 
-#[pymodule(name = "_sysconfig")]
-pub(crate) mod sysconfig {
+#[pymodule]
+pub(crate) mod _sysconfig {
     use crate::{VirtualMachine, builtins::PyDictRef, convert::ToPyObject};
 
     #[pyfunction]

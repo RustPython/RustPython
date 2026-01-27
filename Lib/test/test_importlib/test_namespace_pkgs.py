@@ -288,7 +288,6 @@ class DynamicPathCalculation(NamespacePackageTest):
 class ZipWithMissingDirectory(NamespacePackageTest):
     paths = ['missing_directory.zip']
 
-    @unittest.expectedFailure
     def test_missing_directory(self):
         # This will fail because missing_directory.zip contains:
         #   Length      Date    Time    Name

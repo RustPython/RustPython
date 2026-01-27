@@ -1,4 +1,4 @@
-pub(crate) use _sha1::make_module;
+pub(crate) use _sha1::module_def;
 
 #[pymodule]
 mod _sha1 {

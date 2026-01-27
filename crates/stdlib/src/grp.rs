@@ -1,5 +1,5 @@
 // spell-checker:disable
-pub(crate) use grp::make_module;
+pub(crate) use grp::module_def;
 
 #[pymodule]
 mod grp {

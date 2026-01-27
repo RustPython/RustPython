@@ -76,8 +76,12 @@ impl PyCoroutine {
         self.inner.frame().yield_from_target()
     }
     #[pygetset]
-    fn cr_frame(&self, _vm: &VirtualMachine) -> FrameRef {
-        self.inner.frame()
+    fn cr_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
+        if self.inner.closed() {
+            None
+        } else {
+            Some(self.inner.frame())
+        }
     }
     #[pygetset]
     fn cr_running(&self, _vm: &VirtualMachine) -> bool {

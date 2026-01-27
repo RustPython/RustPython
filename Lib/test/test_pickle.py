@@ -138,11 +138,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_builtin_functions(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_builtin_functions()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_bytearray_memoization()
 
@@ -165,42 +160,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     @unittest.expectedFailure
     def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_oob_buffers_writable_to_readonly()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_buffers_error()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_builtin_functions(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_builtin_functions()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_bytearray_memoization()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bytes_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_bytes_memoization()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_in_band_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_in_band_buffers()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_oob_buffers()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_oob_buffers_writable_to_readonly()
-
 
 class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
                           BigmemPickleTests, unittest.TestCase):
@@ -249,11 +208,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     @unittest.expectedFailure
     def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_buffers_error()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_builtin_functions(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_builtin_functions()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure

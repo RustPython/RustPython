@@ -1,5 +1,4 @@
 pub(crate) use _js::{PyJsValue, PyPromise};
-use rustpython_vm::VirtualMachine;
 
 #[pymodule]
 mod _js {
@@ -621,8 +620,4 @@ mod _js {
     }
 }
 
-pub(crate) use _js::make_module;
-
-pub fn setup_js_module(vm: &mut VirtualMachine) {
-    vm.add_native_module("_js".to_owned(), Box::new(make_module));
-}
+pub(crate) use _js::module_def;

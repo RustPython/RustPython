@@ -31,7 +31,24 @@ mod msvcrt {
         fn _getwche() -> u32;
         fn _putch(c: u32) -> i32;
         fn _putwch(c: u16) -> u32;
+        fn _ungetch(c: i32) -> i32;
+        fn _ungetwch(c: u32) -> u32;
+        fn _locking(fd: i32, mode: i32, nbytes: i64) -> i32;
+        fn _heapmin() -> i32;
+        fn _kbhit() -> i32;
     }
+
+    // Locking mode constants
+    #[pyattr]
+    const LK_UNLCK: i32 = 0; // Unlock
+    #[pyattr]
+    const LK_LOCK: i32 = 1; // Lock (blocking)
+    #[pyattr]
+    const LK_NBLCK: i32 = 2; // Non-blocking lock
+    #[pyattr]
+    const LK_RLCK: i32 = 3; // Lock for reading (same as LK_LOCK)
+    #[pyattr]
+    const LK_NBRLCK: i32 = 4; // Non-blocking lock for reading (same as LK_NBLCK)
 
     #[pyfunction]
     fn getch() -> Vec<u8> {
@@ -71,6 +88,60 @@ mod msvcrt {
             .map_err(|_| vm.new_type_error("putch() argument must be a string of length 1"))?;
         unsafe { suppress_iph!(_putwch(c as u16)) };
         Ok(())
+    }
+
+    #[pyfunction]
+    fn ungetch(b: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {
+        let &c = b.as_bytes().iter().exactly_one().map_err(|_| {
+            vm.new_type_error("ungetch() argument must be a byte string of length 1")
+        })?;
+        let ret = unsafe { suppress_iph!(_ungetch(c as i32)) };
+        if ret == -1 {
+            // EOF returned means the buffer is full
+            Err(vm.new_os_error(libc::ENOSPC))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[pyfunction]
+    fn ungetwch(s: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        let c =
+            s.as_str().chars().exactly_one().map_err(|_| {
+                vm.new_type_error("ungetwch() argument must be a string of length 1")
+            })?;
+        let ret = unsafe { suppress_iph!(_ungetwch(c as u32)) };
+        if ret == 0xFFFF {
+            // WEOF returned means the buffer is full
+            Err(vm.new_os_error(libc::ENOSPC))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[pyfunction]
+    fn kbhit() -> i32 {
+        unsafe { _kbhit() }
+    }
+
+    #[pyfunction]
+    fn locking(fd: i32, mode: i32, nbytes: i64, vm: &VirtualMachine) -> PyResult<()> {
+        let ret = unsafe { suppress_iph!(_locking(fd, mode, nbytes)) };
+        if ret == -1 {
+            Err(vm.new_last_errno_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    #[pyfunction]
+    fn heapmin(vm: &VirtualMachine) -> PyResult<()> {
+        let ret = unsafe { suppress_iph!(_heapmin()) };
+        if ret == -1 {
+            Err(vm.new_last_errno_error())
+        } else {
+            Ok(())
+        }
     }
 
     unsafe extern "C" {

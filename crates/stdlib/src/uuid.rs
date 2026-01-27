@@ -1,4 +1,4 @@
-pub(crate) use _uuid::make_module;
+pub(crate) use _uuid::module_def;
 
 #[pymodule]
 mod _uuid {

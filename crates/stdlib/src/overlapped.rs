@@ -1,6 +1,6 @@
 // spell-checker:disable
 
-pub(crate) use _overlapped::make_module;
+pub(crate) use _overlapped::module_def;
 
 #[allow(non_snake_case)]
 #[pymodule]

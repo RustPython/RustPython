@@ -3,18 +3,10 @@
 
 // See also:
 // https://docs.python.org/3/library/time.html
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub use decl::time;
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    #[cfg(not(target_env = "msvc"))]
-    #[cfg(not(target_arch = "wasm32"))]
-    unsafe {
-        c_tzset()
-    };
-    decl::make_module(vm)
-}
+pub(crate) use decl::module_def;
 
 #[cfg(not(target_env = "msvc"))]
 #[cfg(not(target_arch = "wasm32"))]
@@ -34,7 +26,7 @@ unsafe extern "C" {
 #[pymodule(name = "time", with(platform))]
 mod decl {
     use crate::{
-        AsObject, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyTypeRef, PyUtf8StrRef},
         function::{Either, FuncArgs, OptionalArg},
         types::{PyStructSequence, struct_sequence_new},
@@ -581,6 +573,20 @@ mod decl {
 
     #[allow(unused_imports)]
     use super::platform::*;
+
+    pub(crate) fn module_exec(
+        vm: &VirtualMachine,
+        module: &Py<crate::builtins::PyModule>,
+    ) -> PyResult<()> {
+        #[cfg(not(target_env = "msvc"))]
+        #[cfg(not(target_arch = "wasm32"))]
+        unsafe {
+            super::c_tzset()
+        };
+
+        __module_exec(vm, module);
+        Ok(())
+    }
 }
 
 #[cfg(unix)]

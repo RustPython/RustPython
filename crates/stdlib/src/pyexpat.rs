@@ -2,18 +2,7 @@
 
 // spell-checker: ignore libexpat
 
-use crate::vm::{PyRef, VirtualMachine, builtins::PyModule, extend_module};
-
-pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = _pyexpat::make_module(vm);
-
-    extend_module!(vm, &module, {
-         "errors" => _errors::make_module(vm),
-         "model" => _model::make_module(vm),
-    });
-
-    module
-}
+pub(crate) use _pyexpat::module_def;
 
 macro_rules! create_property {
     ($ctx: expr, $attributes: expr, $name: expr, $class: expr, $element: ident) => {
@@ -52,13 +41,29 @@ macro_rules! create_bool_property {
 mod _pyexpat {
     use crate::vm::{
         Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBytesRef, PyStr, PyStrRef, PyType},
+        builtins::{PyBytesRef, PyModule, PyStr, PyStrRef, PyType},
+        extend_module,
         function::ArgBytesLike,
         function::{Either, IntoFuncArgs, OptionalArg},
     };
     use rustpython_common::lock::PyRwLock;
     use std::io::Cursor;
     use xml::reader::XmlEvent;
+
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+
+        // Add submodules
+        let model = super::_model::module_def(&vm.ctx).create_module(vm)?;
+        let errors = super::_errors::module_def(&vm.ctx).create_module(vm)?;
+
+        extend_module!(vm, module, {
+            "model" => model,
+            "errors" => errors,
+        });
+
+        Ok(())
+    }
 
     type MutableObject = PyRwLock<PyObjectRef>;
 

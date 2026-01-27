@@ -143,8 +143,8 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// This attribute must be applied to an inline module.
-/// It defines a Python module in the form a `make_module` function in the module;
-/// this has to be used in a `get_module_inits` to properly register the module.
+/// It defines a Python module in the form of a `module_def` function in the module;
+/// this has to be used in a `add_native_module` to properly register the module.
 /// Additionally, this macro defines 'MODULE_NAME' and 'DOC' in the module.
 /// # Arguments
 /// - `name`: the name of the python module,

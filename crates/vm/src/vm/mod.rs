@@ -19,7 +19,7 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
+        self, PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
         PyStrRef, PyTypeRef,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
@@ -56,7 +56,7 @@ use std::{
 };
 
 pub use context::Context;
-pub use interpreter::Interpreter;
+pub use interpreter::{Interpreter, InterpreterBuilder};
 pub(crate) use method::PyMethod;
 pub use setting::{CheckHashPycsMode, Paths, PyConfig, Settings};
 
@@ -102,7 +102,7 @@ struct ExceptionStack {
 
 pub struct PyGlobalState {
     pub config: PyConfig,
-    pub module_inits: stdlib::StdlibMap,
+    pub module_defs: std::collections::BTreeMap<&'static str, &'static builtins::PyModuleDef>,
     pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -144,7 +144,7 @@ pub fn process_hash_secret_seed() -> u32 {
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    fn new(config: PyConfig, ctx: PyRc<Context>) -> Self {
+    pub(crate) fn new(ctx: PyRc<Context>, state: PyRc<PyGlobalState>) -> Self {
         flame_guard!("new VirtualMachine");
 
         // make a new module without access to the vm; doesn't
@@ -158,8 +158,8 @@ impl VirtualMachine {
         };
 
         // Hard-core modules:
-        let builtins = new_module(stdlib::builtins::__module_def(&ctx));
-        let sys_module = new_module(stdlib::sys::__module_def(&ctx));
+        let builtins = new_module(stdlib::builtins::module_def(&ctx));
+        let sys_module = new_module(stdlib::sys::module_def(&ctx));
 
         let import_func = ctx.none();
         let profile_func = RefCell::new(ctx.none());
@@ -169,23 +169,7 @@ impl VirtualMachine {
             const { RefCell::new([const { None }; signal::NSIG]) },
         ));
 
-        let module_inits = stdlib::get_module_inits();
-
-        let seed = match config.settings.hash_seed {
-            Some(seed) => seed,
-            None => process_hash_secret_seed(),
-        };
-        let hash_secret = HashSecret::new(seed);
-
-        let codec_registry = CodecsRegistry::new(&ctx);
-
-        let warnings = WarningsState::init_state(&ctx);
-
-        let int_max_str_digits = AtomicCell::new(match config.settings.int_max_str_digits {
-            -1 => 4300,
-            other => other,
-        } as usize);
-        let mut vm = Self {
+        let vm = Self {
             builtins,
             sys_module,
             ctx,
@@ -200,34 +184,7 @@ impl VirtualMachine {
             signal_handlers,
             signal_rx: None,
             repr_guards: RefCell::default(),
-            state: PyRc::new(PyGlobalState {
-                config,
-                module_inits,
-                frozen: HashMap::default(),
-                stacksize: AtomicCell::new(0),
-                thread_count: AtomicCell::new(0),
-                hash_secret,
-                atexit_funcs: PyMutex::default(),
-                codec_registry,
-                finalizing: AtomicBool::new(false),
-                warnings,
-                override_frozen_modules: AtomicCell::new(0),
-                before_forkers: PyMutex::default(),
-                after_forkers_child: PyMutex::default(),
-                after_forkers_parent: PyMutex::default(),
-                int_max_str_digits,
-                switch_interval: AtomicCell::new(0.005),
-                global_trace_func: PyMutex::default(),
-                global_profile_func: PyMutex::default(),
-                #[cfg(feature = "threading")]
-                main_thread_ident: AtomicCell::new(0),
-                #[cfg(feature = "threading")]
-                thread_frames: parking_lot::Mutex::new(HashMap::new()),
-                #[cfg(feature = "threading")]
-                thread_handles: parking_lot::Mutex::new(Vec::new()),
-                #[cfg(feature = "threading")]
-                shutdown_handles: parking_lot::Mutex::new(Vec::new()),
-            }),
+            state,
             initialized: false,
             recursion_depth: Cell::new(0),
             c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
@@ -244,9 +201,6 @@ impl VirtualMachine {
         {
             panic!("Interpreters in same process must share the hash seed");
         }
-
-        let frozen = core_frozen_inits().collect();
-        PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
         vm.builtins.init_dict(
             vm.ctx.intern_str("builtins"),
@@ -275,7 +229,7 @@ impl VirtualMachine {
             });
 
             let guide_message = if cfg!(feature = "freeze-stdlib") {
-                "`rustpython_pylib` maybe not set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterConfig::init_stdlib` or manually call `vm.add_frozen(rustpython_pylib::FROZEN_STDLIB)` in `rustpython_vm::Interpreter::with_init`."
+                "`rustpython_pylib` may not be set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterBuilder::init_stdlib` or manually call `builder.add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)` in `rustpython_vm::Interpreter::builder()`."
             } else if !env_set {
                 "Neither RUSTPYTHONPATH nor PYTHONPATH is set. Try setting one of them to the stdlib directory."
             } else if path_contains_env {
@@ -468,34 +422,6 @@ impl VirtualMachine {
         }
 
         self.initialized = true;
-    }
-
-    fn state_mut(&mut self) -> &mut PyGlobalState {
-        PyRc::get_mut(&mut self.state)
-            .expect("there should not be multiple threads while a user has a mut ref to a vm")
-    }
-
-    /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]
-    pub fn add_native_module<S>(&mut self, name: S, module: stdlib::StdlibInitFunc)
-    where
-        S: Into<Cow<'static, str>>,
-    {
-        self.state_mut().module_inits.insert(name.into(), module);
-    }
-
-    pub fn add_native_modules<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = (Cow<'static, str>, stdlib::StdlibInitFunc)>,
-    {
-        self.state_mut().module_inits.extend(iter);
-    }
-
-    /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]
-    pub fn add_frozen<I>(&mut self, frozen: I)
-    where
-        I: IntoIterator<Item = (&'static str, FrozenModule)>,
-    {
-        self.state_mut().frozen.extend(frozen);
     }
 
     /// Set the custom signal channel for the interpreter
@@ -1381,89 +1307,52 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
     }
 }
 
-fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
-    let iter = core::iter::empty();
-    macro_rules! ext_modules {
-        ($iter:ident, $($t:tt)*) => {
-            let $iter = $iter.chain(py_freeze!($($t)*));
-        };
-    }
-
-    // keep as example but use file one now
-    // ext_modules!(
-    //     iter,
-    //     source = "initialized = True; print(\"Hello world!\")\n",
-    //     module_name = "__hello__",
-    // );
-
-    // Python modules that the vm calls into, but are not actually part of the stdlib. They could
-    // in theory be implemented in Rust, but are easiest to do in Python for one reason or another.
-    // Includes _importlib_bootstrap and _importlib_bootstrap_external
-    ext_modules!(
-        iter,
-        dir = "./Lib/python_builtins",
-        crate_name = "rustpython_compiler_core"
-    );
-
-    // core stdlib Python modules that the vm calls into, but are still used in Python
-    // application code, e.g. copyreg
-    // FIXME: Initializing core_modules here results duplicated frozen module generation for core_modules.
-    // We need a way to initialize this modules for both `Interpreter::without_stdlib()` and `InterpreterConfig::new().init_stdlib().interpreter()`
-    // #[cfg(not(feature = "freeze-stdlib"))]
-    ext_modules!(
-        iter,
-        dir = "./Lib/core_modules",
-        crate_name = "rustpython_compiler_core"
-    );
-
-    iter
-}
-
 #[test]
 fn test_nested_frozen() {
     use rustpython_vm as vm;
 
-    vm::Interpreter::with_init(Default::default(), |vm| {
-        // vm.add_native_modules(rustpython_stdlib::get_module_inits());
-        vm.add_frozen(rustpython_vm::py_freeze!(
+    vm::Interpreter::builder(Default::default())
+        .add_frozen_modules(rustpython_vm::py_freeze!(
             dir = "../../extra_tests/snippets"
-        ));
-    })
-    .enter(|vm| {
-        let scope = vm.new_scope_with_builtins();
+        ))
+        .build()
+        .enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
 
-        let source = "from dir_module.dir_module_inner import value2";
-        let code_obj = vm
-            .compile(source, vm::compiler::Mode::Exec, "<embedded>".to_owned())
-            .map_err(|err| vm.new_syntax_error(&err, Some(source)))
-            .unwrap();
+            let source = "from dir_module.dir_module_inner import value2";
+            let code_obj = vm
+                .compile(source, vm::compiler::Mode::Exec, "<embedded>".to_owned())
+                .map_err(|err| vm.new_syntax_error(&err, Some(source)))
+                .unwrap();
 
-        if let Err(e) = vm.run_code_obj(code_obj, scope) {
-            vm.print_exception(e);
-            panic!();
-        }
-    })
+            if let Err(e) = vm.run_code_obj(code_obj, scope) {
+                vm.print_exception(e);
+                panic!();
+            }
+        })
 }
 
 #[test]
 fn frozen_origname_matches() {
     use rustpython_vm as vm;
 
-    vm::Interpreter::with_init(Default::default(), |_vm| {}).enter(|vm| {
-        let check = |name, expected| {
-            let module = import::import_frozen(vm, name).unwrap();
-            let origname: PyStrRef = module
-                .get_attr("__origname__", vm)
-                .unwrap()
-                .try_into_value(vm)
-                .unwrap();
-            assert_eq!(origname.as_str(), expected);
-        };
+    vm::Interpreter::builder(Default::default())
+        .build()
+        .enter(|vm| {
+            let check = |name, expected| {
+                let module = import::import_frozen(vm, name).unwrap();
+                let origname: PyStrRef = module
+                    .get_attr("__origname__", vm)
+                    .unwrap()
+                    .try_into_value(vm)
+                    .unwrap();
+                assert_eq!(origname.as_str(), expected);
+            };
 
-        check("_frozen_importlib", "importlib._bootstrap");
-        check(
-            "_frozen_importlib_external",
-            "importlib._bootstrap_external",
-        );
-    });
+            check("_frozen_importlib", "importlib._bootstrap");
+            check(
+                "_frozen_importlib_external",
+                "importlib._bootstrap_external",
+            );
+        });
 }

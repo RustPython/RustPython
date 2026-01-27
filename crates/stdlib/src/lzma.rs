@@ -1,6 +1,6 @@
 // spell-checker:ignore ARMTHUMB
 
-pub(crate) use _lzma::make_module;
+pub(crate) use _lzma::module_def;
 
 #[pymodule]
 mod _lzma {

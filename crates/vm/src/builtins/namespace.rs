@@ -42,15 +42,76 @@ impl PyNamespace {
         );
         result.into_pytuple(vm)
     }
+
+    #[pymethod]
+    fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if !args.args.is_empty() {
+            return Err(vm.new_type_error("__replace__() takes no positional arguments"));
+        }
+
+        // Create a new instance of the same type
+        let cls: PyObjectRef = zelf.class().to_owned().into();
+        let result = cls.call((), vm)?;
+
+        // Copy the current namespace dict to the new instance
+        let src_dict = zelf.dict().unwrap();
+        let dst_dict = result.dict().unwrap();
+        for (key, value) in src_dict {
+            dst_dict.set_item(&*key, value, vm)?;
+        }
+
+        // Update with the provided kwargs
+        for (name, value) in args.kwargs {
+            let name = vm.ctx.new_str(name);
+            result.set_attr(&name, value, vm)?;
+        }
+
+        Ok(result)
+    }
 }
 
 impl Initializer for PyNamespace {
     type Args = FuncArgs;
 
     fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        if !args.args.is_empty() {
-            return Err(vm.new_type_error("no positional arguments expected"));
+        // SimpleNamespace accepts 0 or 1 positional argument (a mapping)
+        if args.args.len() > 1 {
+            return Err(vm.new_type_error(format!(
+                "{} expected at most 1 positional argument, got {}",
+                zelf.class().name(),
+                args.args.len()
+            )));
         }
+
+        // If there's a positional argument, treat it as a mapping
+        if let Some(mapping) = args.args.first() {
+            // Convert to dict if not already
+            let dict: PyRef<PyDict> = if let Some(d) = mapping.downcast_ref::<PyDict>() {
+                d.to_owned()
+            } else {
+                // Call dict() on the mapping
+                let dict_type: PyObjectRef = vm.ctx.types.dict_type.to_owned().into();
+                dict_type
+                    .call((mapping.clone(),), vm)?
+                    .downcast()
+                    .map_err(|_| vm.new_type_error("dict() did not return a dict"))?
+            };
+
+            // Validate keys are strings and set attributes
+            for (key, value) in dict.into_iter() {
+                let key_str = key
+                    .downcast_ref::<crate::builtins::PyStr>()
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "keywords must be strings, not '{}'",
+                            key.class().name()
+                        ))
+                    })?;
+                zelf.as_object().set_attr(key_str, value, vm)?;
+            }
+        }
+
+        // Apply keyword arguments (these override positional mapping values)
         for (name, value) in args.kwargs {
             let name = vm.ctx.new_str(name);
             zelf.as_object().set_attr(&name, value, vm)?;

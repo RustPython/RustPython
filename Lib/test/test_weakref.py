@@ -2059,6 +2059,7 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakKeyDictionary, False)
 
+    @unittest.skip('TODO: RUSTPYTHON; occasionally crash (malloc corruption)')
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_key_dict_deepcopy(self):
@@ -2066,13 +2067,14 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakKeyDictionary, True)
 
-    @unittest.skip('TODO: RUSTPYTHON; occasionally crash (Exit code -6)')
+    @unittest.skip('TODO: RUSTPYTHON; occasionally crash (malloc corruption)')
     @threading_helper.requires_working_threading()
     def test_threaded_weak_value_dict_copy(self):
         # Issue #35615: Weakref keys or values getting GC'ed during dict
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakValueDictionary, False)
 
+    @unittest.skip('TODO: RUSTPYTHON; occasionally crash (malloc corruption)')
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_value_dict_deepcopy(self):

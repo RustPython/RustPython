@@ -1,4 +1,4 @@
-pub(crate) use gc::make_module;
+pub(crate) use gc::module_def;
 
 #[pymodule]
 mod gc {

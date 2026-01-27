@@ -60,7 +60,7 @@ fn main() -> Result<(), lexopt::Error> {
 
     for script in &scripts {
         if script.exists() && script.is_file() {
-            let res = display_script(script, mode, opts.clone(), expand_code_objects);
+            let res = display_script(script, mode, opts, expand_code_objects);
             if let Err(e) = res {
                 error!("Error while compiling {script:?}: {e}");
             }

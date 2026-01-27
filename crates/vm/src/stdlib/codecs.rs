@@ -1,4 +1,4 @@
-pub(crate) use _codecs::make_module;
+pub(crate) use _codecs::module_def;
 
 #[pymodule]
 mod _codecs {

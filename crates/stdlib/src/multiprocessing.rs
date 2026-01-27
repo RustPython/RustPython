@@ -1,4 +1,4 @@
-pub(crate) use _multiprocessing::make_module;
+pub(crate) use _multiprocessing::module_def;
 
 #[cfg(windows)]
 #[pymodule]
