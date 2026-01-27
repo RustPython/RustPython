@@ -451,295 +451,6 @@ impl InstructionMetadata for Instruction {
         )
     }
 
-    fn stack_effect(&self, arg: OpArg) -> i32 {
-        match self {
-            Self::Nop => 0,
-            Self::NotTaken => 0,
-            Self::ImportName { .. } => -1,
-            Self::ImportFrom { .. } => 1,
-            Self::LoadFast(_) => 1,
-            Self::LoadFastBorrow(_) => 1,
-            Self::LoadFastAndClear(_) => 1,
-            Self::LoadName(_) => 1,
-            Self::LoadGlobal(_) => 1,
-            Self::LoadDeref(_) => 1,
-            Self::StoreFast(_) => -1,
-            Self::StoreName(_) => -1,
-            Self::StoreGlobal(_) => -1,
-            Self::StoreDeref(_) => -1,
-            Self::StoreFastLoadFast { .. } => 0, // pop 1, push 1
-            Self::DeleteFast(_) => 0,
-            Self::DeleteName(_) => 0,
-            Self::DeleteGlobal(_) => 0,
-            Self::DeleteDeref(_) => 0,
-            Self::LoadFromDictOrDeref(_) => 0, // (dict -- value)
-            Self::StoreSubscr => -3,
-            Self::DeleteSubscr => -2,
-            Self::LoadAttr { idx } => {
-                // Stack effect depends on method flag in encoded oparg
-                // method=false: pop obj, push attr → effect = 0
-                // method=true: pop obj, push (method, self_or_null) → effect = +1
-                let (_, is_method) = decode_load_attr_arg(idx.get(arg));
-                if is_method { 1 } else { 0 }
-            }
-            Self::StoreAttr { .. } => -2,
-            Self::DeleteAttr { .. } => -1,
-            Self::LoadCommonConstant { .. } => 1,
-            Self::LoadConst { .. } => 1,
-            Self::LoadSmallInt { .. } => 1,
-            Self::LoadSpecial { .. } => 0,
-            Self::Reserved => 0,
-            Self::BinaryOp { .. } => -1,
-            Self::CompareOp { .. } => -1,
-            Self::Copy { .. } => 1,
-            Self::PopTop => -1,
-            Self::Swap { .. } => 0,
-            Self::ToBool => 0,
-            Self::GetIter => 0,
-            Self::GetLen => 1,
-            Self::CallIntrinsic1 { .. } => 0,  // Takes 1, pushes 1
-            Self::CallIntrinsic2 { .. } => -1, // Takes 2, pushes 1
-            Self::PopJumpIfTrue { .. } => -1,
-            Self::PopJumpIfFalse { .. } => -1,
-            Self::MakeFunction => {
-                // CPython 3.14 style: MakeFunction only pops code object
-                -1 + 1 // pop code, push function
-            }
-            Self::SetFunctionAttribute { .. } => {
-                // pops attribute value and function, pushes function back
-                -2 + 1
-            }
-            // Call: pops nargs + self_or_null + callable, pushes result
-            Self::Call { nargs } => -(nargs.get(arg) as i32) - 2 + 1,
-            // CallKw: pops kw_names_tuple + nargs + self_or_null + callable, pushes result
-            Self::CallKw { nargs } => -1 - (nargs.get(arg) as i32) - 2 + 1,
-            // CallFunctionEx: always pops kwargs_or_null + args_tuple + self_or_null + callable, pushes result
-            Self::CallFunctionEx => -4 + 1,
-            Self::CheckEgMatch => 0, // pops 2 (exc, type), pushes 2 (rest, match)
-            Self::ConvertValue { .. } => 0,
-            Self::FormatSimple => 0,
-            Self::FormatWithSpec => -1,
-            Self::ForIter { .. } => 1, // push next value
-            Self::IsOp(_) => -1,
-            Self::ContainsOp(_) => -1,
-            Self::ReturnValue => -1,
-            Self::Resume { .. } => 0,
-            Self::YieldValue { .. } => 0,
-            // SEND: (receiver, val) -> (receiver, retval) - no change, both paths keep same depth
-            Self::Send { .. } => 0,
-            // END_SEND: (receiver, value) -> (value)
-            Self::EndSend => -1,
-            // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) = 3 pop, 2 push = -1
-            Self::CleanupThrow => -1,
-            Self::PushExcInfo => 1,    // [exc] -> [prev_exc, exc]
-            Self::CheckExcMatch => 0,  // [exc, type] -> [exc, bool] (pops type, pushes bool)
-            Self::Reraise { .. } => 0, // Exception raised, stack effect doesn't matter
-            Self::SetupAnnotations => 0,
-            Self::WithExceptStart => 1, // push __exit__ result
-            Self::RaiseVarargs { kind } => {
-                // Stack effects for different raise kinds:
-                // - Reraise (0): gets from VM state, no stack pop
-                // - Raise (1): pops 1 exception
-                // - RaiseCause (2): pops 2 (exception + cause)
-                // - ReraiseFromStack (3): pops 1 exception from stack
-                match kind.get(arg) {
-                    RaiseKind::BareRaise => 0,
-                    RaiseKind::Raise => -1,
-                    RaiseKind::RaiseCause => -2,
-                    RaiseKind::ReraiseFromStack => -1,
-                }
-            }
-            Self::BuildString { size } => -(size.get(arg) as i32) + 1,
-            Self::BuildTuple { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildList { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildSet { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildMap { size } => {
-                let nargs = size.get(arg) * 2;
-                -(nargs as i32) + 1
-            }
-            Self::DictUpdate { .. } => -1,
-            Self::DictMerge { .. } => -1,
-            Self::BuildSlice { argc } => {
-                // push 1
-                // pops either 2/3
-                // Default to Two (2 args) if arg is invalid
-                1 - (argc
-                    .try_get(arg)
-                    .unwrap_or(BuildSliceArgCount::Two)
-                    .argc()
-                    .get() as i32)
-            }
-            Self::ListAppend { .. } => -1,
-            Self::ListExtend { .. } => -1,
-            Self::SetAdd { .. } => -1,
-            Self::SetUpdate { .. } => -1,
-            Self::MapAdd { .. } => -2,
-            Self::LoadBuildClass => 1,
-            Self::UnpackSequence { size } => -1 + size.get(arg) as i32,
-            Self::UnpackEx { args } => {
-                let UnpackExArgs { before, after } = args.get(arg);
-                -1 + before as i32 + 1 + after as i32
-            }
-            Self::PopExcept => -1,
-            Self::PopIter => -1,
-            Self::GetAwaitable => 0,
-            Self::GetAIter => 0,
-            Self::GetANext => 1,
-            Self::EndAsyncFor => -2,  // pops (awaitable, exc) from stack
-            Self::MatchMapping => 1,  // Push bool result
-            Self::MatchSequence => 1, // Push bool result
-            Self::MatchKeys => 1, // Pop 2 (subject, keys), push 3 (subject, keys_or_none, values_or_none)
-            Self::MatchClass(_) => -2,
-            Self::ExtendedArg => 0,
-            Self::UnaryInvert => 0,
-            Self::UnaryNegative => 0,
-            Self::UnaryNot => 0,
-            Self::GetYieldFromIter => 0,
-            Self::PushNull => 1, // Push NULL for call protocol
-            // LoadSuperAttr: pop [super, class, self], push [attr] or [method, self_or_null]
-            // stack_effect depends on load_method flag (bit 0 of oparg)
-            Self::LoadSuperAttr { arg: idx } => {
-                let (_, load_method, _) = decode_load_super_attr_arg(idx.get(arg));
-                if load_method { -3 + 2 } else { -3 + 1 }
-            }
-            // Pseudo instructions (calculated before conversion)
-            Self::Cache => 0,
-            Self::BinarySlice => -2, // (container, start, stop -- res)
-            Self::BinaryOpInplaceAddUnicode => 0,
-            Self::EndFor => -1,        // pop next value at end of loop iteration
-            Self::ExitInitCheck => -1, // (should_be_none -- )
-            Self::InterpreterExit => 0,
-            Self::LoadLocals => 1,      // ( -- locals)
-            Self::ReturnGenerator => 1, // pushes None for POP_TOP to consume
-            Self::StoreSlice => -4,     // (v, container, start, stop -- )
-            Self::CopyFreeVars { .. } => 0,
-            Self::EnterExecutor => 0,
-            Self::JumpBackwardNoInterrupt { .. } => 0,
-            Self::JumpBackward { .. } => 0,
-            Self::JumpForward { .. } => 0,
-            Self::LoadFastCheck(_) => 1,
-            Self::LoadFastLoadFast { .. } => 2,
-            Self::LoadFastBorrowLoadFastBorrow { .. } => 2,
-            Self::LoadFromDictOrGlobals(_) => 0,
-            Self::MakeCell(_) => 0,
-            Self::StoreFastStoreFast { .. } => -2, // pops 2 values
-            Self::PopJumpIfNone { .. } => -1,      // (value -- )
-            Self::PopJumpIfNotNone { .. } => -1,   // (value -- )
-            Self::BinaryOpAddFloat => 0,
-            Self::BinaryOpAddInt => 0,
-            Self::BinaryOpAddUnicode => 0,
-            Self::BinaryOpExtend => 0,
-            Self::BinaryOpMultiplyFloat => 0,
-            Self::BinaryOpMultiplyInt => 0,
-            Self::BinaryOpSubtractFloat => 0,
-            Self::BinaryOpSubtractInt => 0,
-            Self::BinaryOpSubscrDict => 0,
-            Self::BinaryOpSubscrGetitem => 0,
-            Self::BinaryOpSubscrListInt => 0,
-            Self::BinaryOpSubscrListSlice => 0,
-            Self::BinaryOpSubscrStrInt => 0,
-            Self::BinaryOpSubscrTupleInt => 0,
-            Self::CallAllocAndEnterInit => 0,
-            Self::CallBoundMethodExactArgs => 0,
-            Self::CallBoundMethodGeneral => 0,
-            Self::CallBuiltinClass => 0,
-            Self::CallBuiltinFast => 0,
-            Self::CallBuiltinFastWithKeywords => 0,
-            Self::CallBuiltinO => 0,
-            Self::CallIsinstance => 0,
-            Self::CallKwBoundMethod => 0,
-            Self::CallKwNonPy => 0,
-            Self::CallKwPy => 0,
-            Self::CallLen => 0,
-            Self::CallListAppend => 0,
-            Self::CallMethodDescriptorFast => 0,
-            Self::CallMethodDescriptorFastWithKeywords => 0,
-            Self::CallMethodDescriptorNoargs => 0,
-            Self::CallMethodDescriptorO => 0,
-            Self::CallNonPyGeneral => 0,
-            Self::CallPyExactArgs => 0,
-            Self::CallPyGeneral => 0,
-            Self::CallStr1 => 0,
-            Self::CallTuple1 => 0,
-            Self::CallType1 => 0,
-            Self::CompareOpFloat => 0,
-            Self::CompareOpInt => 0,
-            Self::CompareOpStr => 0,
-            Self::ContainsOpDict => 0,
-            Self::ContainsOpSet => 0,
-            Self::ForIterGen => 0,
-            Self::ForIterList => 0,
-            Self::ForIterRange => 0,
-            Self::ForIterTuple => 0,
-            Self::JumpBackwardJit => 0,
-            Self::JumpBackwardNoJit => 0,
-            Self::LoadAttrClass => 0,
-            Self::LoadAttrClassWithMetaclassCheck => 0,
-            Self::LoadAttrGetattributeOverridden => 0,
-            Self::LoadAttrInstanceValue => 0,
-            Self::LoadAttrMethodLazyDict => 0,
-            Self::LoadAttrMethodNoDict => 0,
-            Self::LoadAttrMethodWithValues => 0,
-            Self::LoadAttrModule => 0,
-            Self::LoadAttrNondescriptorNoDict => 0,
-            Self::LoadAttrNondescriptorWithValues => 0,
-            Self::LoadAttrProperty => 0,
-            Self::LoadAttrSlot => 0,
-            Self::LoadAttrWithHint => 0,
-            Self::LoadConstImmortal => 0,
-            Self::LoadConstMortal => 0,
-            Self::LoadGlobalBuiltin => 0,
-            Self::LoadGlobalModule => 0,
-            Self::LoadSuperAttrAttr => 0,
-            Self::LoadSuperAttrMethod => 0,
-            Self::ResumeCheck => 0,
-            Self::SendGen => 0,
-            Self::StoreAttrInstanceValue => 0,
-            Self::StoreAttrSlot => 0,
-            Self::StoreAttrWithHint => 0,
-            Self::StoreSubscrDict => 0,
-            Self::StoreSubscrListInt => 0,
-            Self::ToBoolAlwaysTrue => 0,
-            Self::ToBoolBool => 0,
-            Self::ToBoolInt => 0,
-            Self::ToBoolList => 0,
-            Self::ToBoolNone => 0,
-            Self::ToBoolStr => 0,
-            Self::UnpackSequenceList => 0,
-            Self::UnpackSequenceTuple => 0,
-            Self::UnpackSequenceTwoTuple => 0,
-            Self::InstrumentedEndFor => 0,
-            Self::InstrumentedPopIter => -1,
-            Self::InstrumentedEndSend => 0,
-            Self::InstrumentedForIter => 0,
-            Self::InstrumentedInstruction => 0,
-            Self::InstrumentedJumpForward => 0,
-            Self::InstrumentedNotTaken => 0,
-            Self::InstrumentedJumpBackward => 0,
-            Self::InstrumentedPopJumpIfTrue => 0,
-            Self::InstrumentedPopJumpIfFalse => 0,
-            Self::InstrumentedPopJumpIfNone => 0,
-            Self::InstrumentedPopJumpIfNotNone => 0,
-            Self::InstrumentedResume => 0,
-            Self::InstrumentedReturnValue => 0,
-            Self::InstrumentedYieldValue => 0,
-            Self::InstrumentedEndAsyncFor => -2,
-            Self::InstrumentedLoadSuperAttr => 0,
-            Self::InstrumentedCall => 0,
-            Self::InstrumentedCallKw => 0,
-            Self::InstrumentedCallFunctionEx => 0,
-            Self::InstrumentedLine => 0,
-            // BuildTemplate: pops [strings_tuple, interpolations_tuple], pushes [template]
-            Self::BuildTemplate => -1,
-            // BuildInterpolation: pops [value, expr_str, format_spec?], pushes [interpolation]
-            // has_format_spec is bit 0 of oparg
-            Self::BuildInterpolation { oparg } => {
-                let has_format_spec = oparg.get(arg) & 1 != 0;
-                if has_format_spec { -2 } else { -1 }
-            }
-        }
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn fmt_dis(
         &self,
@@ -1017,22 +728,6 @@ impl InstructionMetadata for PseudoInstruction {
         matches!(self, Self::Jump { .. } | Self::JumpNoInterrupt { .. })
     }
 
-    fn stack_effect(&self, _arg: OpArg) -> i32 {
-        match self {
-            Self::AnnotationsPlaceholder => 0,
-            Self::Jump { .. } => 0,
-            Self::JumpIfFalse { .. } => 0, // peek, don't pop: COPY + TO_BOOL + POP_JUMP_IF_FALSE
-            Self::JumpIfTrue { .. } => 0,  // peek, don't pop: COPY + TO_BOOL + POP_JUMP_IF_TRUE
-            Self::JumpNoInterrupt { .. } => 0,
-            Self::LoadClosure(_) => 1,
-            Self::PopBlock => 0,
-            Self::SetupCleanup => 0,
-            Self::SetupFinally => 0,
-            Self::SetupWith => 0,
-            Self::StoreFastMaybeNull(_) => -1,
-        }
-    }
-
     fn fmt_dis(
         &self,
         _arg: OpArg,
@@ -1094,14 +789,18 @@ macro_rules! inst_either {
     };
 }
 
+impl StackEffect for AnyInstruction {
+    inst_either!(fn num_popped(&self, oparg: i32) -> i32);
+
+    inst_either!(fn num_pushed(&self, oparg: i32) -> i32);
+}
+
 impl InstructionMetadata for AnyInstruction {
     inst_either!(fn label_arg(&self) -> Option<Arg<Label>>);
 
     inst_either!(fn is_unconditional_jump(&self) -> bool);
 
     inst_either!(fn is_scope_exit(&self) -> bool);
-
-    inst_either!(fn stack_effect(&self, arg: OpArg) -> i32);
 
     inst_either!(fn fmt_dis(
         &self,
@@ -1152,25 +851,32 @@ impl AnyInstruction {
     }
 }
 
-pub trait InstructionMetadata {
+pub trait StackEffect {
+    /// How many items this instruction is popping from the stack.
+    fn num_popped(&self, oparg: i32) -> i32;
+
+    /// How many items this instruction is pushinng on the stack.
+    fn num_pushed(&self, oparg: i32) -> i32;
+
+    /// What effect this instruction has on the stack.
+    /// Negative values means that the instruction is popping more items than it pushes.
+    fn stack_effect(&self, oparg: i32) -> i32 {
+        let pushed = self.num_pushed(oparg);
+        let popped = self.num_popped(oparg);
+
+        debug_assert!(pushed >= 0);
+        debug_assert!(popped >= 0);
+        pushed - popped
+    }
+}
+
+pub trait InstructionMetadata: StackEffect {
     /// Gets the label stored inside this instruction, if it exists.
     fn label_arg(&self) -> Option<Arg<Label>>;
 
     fn is_scope_exit(&self) -> bool;
 
     fn is_unconditional_jump(&self) -> bool;
-
-    /// What effect this instruction has on the stack
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label, InstructionMetadata};
-    /// let (target, jump_arg) = Arg::new(Label(0xF));
-    /// let jump_instruction = Instruction::JumpForward { target };
-    /// assert_eq!(jump_instruction.stack_effect(jump_arg), 0);
-    /// ```
-    fn stack_effect(&self, arg: OpArg) -> i32;
 
     #[allow(clippy::too_many_arguments)]
     fn fmt_dis(
@@ -1185,6 +891,526 @@ pub trait InstructionMetadata {
 
     fn display(&self, arg: OpArg, ctx: &impl InstrDisplayContext) -> impl fmt::Display {
         fmt::from_fn(move |f| self.fmt_dis(arg, f, ctx, false, 0, 0))
+    }
+}
+
+impl StackEffect for Instruction {
+    fn num_pushed(&self, oparg: i32) -> i32 {
+        match self {
+            Self::BinaryOp { .. } => 1,
+            Self::BinaryOpAddFloat => 1,
+            Self::BinaryOpAddInt => 1,
+            Self::BinaryOpAddUnicode => 1,
+            Self::BinaryOpExtend => 1,
+            Self::BinaryOpInplaceAddUnicode => 0,
+            Self::BinaryOpMultiplyFloat => 1,
+            Self::BinaryOpMultiplyInt => 1,
+            Self::BinaryOpSubscrDict => 1,
+            Self::BinaryOpSubscrGetitem => 0,
+            Self::BinaryOpSubscrListInt => 1,
+            Self::BinaryOpSubscrListSlice => 1,
+            Self::BinaryOpSubscrStrInt => 1,
+            Self::BinaryOpSubscrTupleInt => 1,
+            Self::BinaryOpSubtractFloat => 1,
+            Self::BinaryOpSubtractInt => 1,
+            Self::BinarySlice { .. } => 1,
+            Self::BuildInterpolation { .. } => 1,
+            Self::BuildList { .. } => 1,
+            Self::BuildMap { .. } => 1,
+            Self::BuildSet { .. } => 1,
+            Self::BuildSlice { .. } => 1,
+            Self::BuildString { .. } => 1,
+            Self::BuildTemplate { .. } => 1,
+            Self::BuildTuple { .. } => 1,
+            Self::Cache => 0,
+            Self::Call { .. } => 1,
+            Self::CallAllocAndEnterInit => 0,
+            Self::CallBoundMethodExactArgs => 0,
+            Self::CallBoundMethodGeneral => 0,
+            Self::CallBuiltinClass => 1,
+            Self::CallBuiltinFast => 1,
+            Self::CallBuiltinFastWithKeywords => 1,
+            Self::CallBuiltinO => 1,
+            Self::CallFunctionEx => 1,
+            Self::CallIntrinsic1 { .. } => 1,
+            Self::CallIntrinsic2 { .. } => 1,
+            Self::CallIsinstance => 1,
+            Self::CallKw { .. } => 1,
+            Self::CallKwBoundMethod => 0,
+            Self::CallKwNonPy => 1,
+            Self::CallKwPy => 0,
+            Self::CallLen => 1,
+            Self::CallListAppend => 0,
+            Self::CallMethodDescriptorFast => 1,
+            Self::CallMethodDescriptorFastWithKeywords => 1,
+            Self::CallMethodDescriptorNoargs => 1,
+            Self::CallMethodDescriptorO => 1,
+            Self::CallNonPyGeneral => 1,
+            Self::CallPyExactArgs => 0,
+            Self::CallPyGeneral => 0,
+            Self::CallStr1 => 1,
+            Self::CallTuple1 => 1,
+            Self::CallType1 => 1,
+            Self::CheckEgMatch => 2,
+            Self::CheckExcMatch => 2,
+            Self::CleanupThrow => 2,
+            Self::CompareOp { .. } => 1,
+            Self::CompareOpFloat => 1,
+            Self::CompareOpInt => 1,
+            Self::CompareOpStr => 1,
+            Self::ContainsOp(_) => 1,
+            Self::ContainsOpDict => 1,
+            Self::ContainsOpSet => 1,
+            Self::ConvertValue { .. } => 1,
+            Self::Copy { .. } => 2 + (oparg - 1),
+            Self::CopyFreeVars { .. } => 0,
+            Self::DeleteAttr { .. } => 0,
+            Self::DeleteDeref(_) => 0,
+            Self::DeleteFast(_) => 0,
+            Self::DeleteGlobal(_) => 0,
+            Self::DeleteName(_) => 0,
+            Self::DeleteSubscr => 0,
+            Self::DictMerge { .. } => 4 + (oparg - 1),
+            Self::DictUpdate { .. } => 1 + (oparg - 1),
+            Self::EndAsyncFor => 0,
+            Self::EndFor => 0,
+            Self::EndSend => 1,
+            Self::EnterExecutor => 0,
+            Self::ExitInitCheck => 0,
+            Self::ExtendedArg => 0,
+            Self::ForIter { .. } => 2,
+            Self::ForIterGen => 1,
+            Self::ForIterList => 2,
+            Self::ForIterRange => 2,
+            Self::ForIterTuple => 2,
+            Self::FormatSimple => 1,
+            Self::FormatWithSpec => 1,
+            Self::GetAIter => 1,
+            Self::GetANext => 2,
+            Self::GetAwaitable => 1,
+            Self::GetIter => 1,
+            Self::GetLen => 2,
+            Self::GetYieldFromIter => 1,
+            Self::ImportFrom { .. } => 2,
+            Self::ImportName { .. } => 1,
+            Self::InstrumentedCall => 1,
+            Self::InstrumentedCallFunctionEx => 1,
+            Self::InstrumentedCallKw => 1,
+            Self::InstrumentedEndAsyncFor => 0,
+            Self::InstrumentedEndFor => 1,
+            Self::InstrumentedEndSend => 1,
+            Self::InstrumentedForIter => 2,
+            Self::InstrumentedInstruction => 0,
+            Self::InstrumentedJumpBackward => 0,
+            Self::InstrumentedJumpForward => 0,
+            Self::InstrumentedLine => 0,
+            Self::InstrumentedLoadSuperAttr => 1 + (oparg & 1),
+            Self::InstrumentedNotTaken => 0,
+            Self::InstrumentedPopIter => 0,
+            Self::InstrumentedPopJumpIfFalse => 0,
+            Self::InstrumentedPopJumpIfNone => 0,
+            Self::InstrumentedPopJumpIfNotNone => 0,
+            Self::InstrumentedPopJumpIfTrue => 0,
+            Self::InstrumentedResume => 0,
+            Self::InstrumentedReturnValue => 1,
+            Self::InstrumentedYieldValue => 1,
+            Self::InterpreterExit => 0,
+            Self::IsOp(_) => 1,
+            Self::JumpBackward { .. } => 0,
+            Self::JumpBackwardJit => 0,
+            Self::JumpBackwardNoInterrupt { .. } => 0,
+            Self::JumpBackwardNoJit => 0,
+            Self::JumpForward { .. } => 0,
+            Self::ListAppend { .. } => 1 + (oparg - 1),
+            Self::ListExtend { .. } => 1 + (oparg - 1),
+            Self::LoadAttr { .. } => 1 + (oparg & 1),
+            Self::LoadAttrClass => 1 + (oparg & 1),
+            Self::LoadAttrClassWithMetaclassCheck => 1 + (oparg & 1),
+            Self::LoadAttrGetattributeOverridden => 1,
+            Self::LoadAttrInstanceValue => 1 + (oparg & 1),
+            Self::LoadAttrMethodLazyDict => 2,
+            Self::LoadAttrMethodNoDict => 2,
+            Self::LoadAttrMethodWithValues => 2,
+            Self::LoadAttrModule => 1 + (oparg & 1),
+            Self::LoadAttrNondescriptorNoDict => 1,
+            Self::LoadAttrNondescriptorWithValues => 1,
+            Self::LoadAttrProperty => 0,
+            Self::LoadAttrSlot => 1 + (oparg & 1),
+            Self::LoadAttrWithHint => 1 + (oparg & 1),
+            Self::LoadBuildClass => 1,
+            Self::LoadCommonConstant { .. } => 1,
+            Self::LoadConst { .. } => 1,
+            Self::LoadConstImmortal => 1,
+            Self::LoadConstMortal => 1,
+            Self::LoadDeref(_) => 1,
+            Self::LoadFast(_) => 1,
+            Self::LoadFastAndClear(_) => 1,
+            Self::LoadFastBorrow(_) => 1,
+            Self::LoadFastBorrowLoadFastBorrow { .. } => 2,
+            Self::LoadFastCheck(_) => 1,
+            Self::LoadFastLoadFast { .. } => 2,
+            Self::LoadFromDictOrDeref(_) => 1,
+            Self::LoadFromDictOrGlobals(_) => 1,
+            Self::LoadGlobal(_) => {
+                // TODO: Differs from CPython `1 + (oparg & 1)`
+                1
+            }
+            Self::LoadGlobalBuiltin => 1 + (oparg & 1),
+            Self::LoadGlobalModule => 1 + (oparg & 1),
+            Self::LoadLocals => 1,
+            Self::LoadName(_) => 1,
+            Self::LoadSmallInt { .. } => 1,
+            Self::LoadSpecial { .. } => 2,
+            Self::LoadSuperAttr { .. } => 1 + (oparg & 1),
+            Self::LoadSuperAttrAttr => 1,
+            Self::LoadSuperAttrMethod => 2,
+            Self::MakeCell(_) => 0,
+            Self::MakeFunction { .. } => 1,
+            Self::MapAdd { .. } => 1 + (oparg - 1),
+            Self::MatchClass { .. } => 1,
+            Self::MatchKeys { .. } => 3,
+            Self::MatchMapping => 2,
+            Self::MatchSequence => 2,
+            Self::Nop => 0,
+            Self::NotTaken => 0,
+            Self::PopExcept => 0,
+            Self::PopIter => 0,
+            Self::PopJumpIfFalse { .. } => 0,
+            Self::PopJumpIfNone { .. } => 0,
+            Self::PopJumpIfNotNone { .. } => 0,
+            Self::PopJumpIfTrue { .. } => 0,
+            Self::PopTop => 0,
+            Self::PushExcInfo => 2,
+            Self::PushNull => 1,
+            Self::RaiseVarargs { .. } => 0,
+            Self::Reraise { .. } => {
+                // TODO: Differs from CPython: `oparg`
+                1 + oparg
+            }
+            Self::Reserved => 0,
+            Self::Resume { .. } => 0,
+            Self::ResumeCheck => 0,
+            Self::ReturnGenerator => 1,
+            Self::ReturnValue => {
+                // TODO: Differs from CPython: `1`
+                0
+            }
+            Self::Send { .. } => 2,
+            Self::SendGen => 1,
+            Self::SetAdd { .. } => 1 + (oparg - 1),
+            Self::SetFunctionAttribute { .. } => 1,
+            Self::SetUpdate { .. } => 1 + (oparg - 1),
+            Self::SetupAnnotations => 0,
+            Self::StoreAttr { .. } => 0,
+            Self::StoreAttrInstanceValue => 0,
+            Self::StoreAttrSlot => 0,
+            Self::StoreAttrWithHint => 0,
+            Self::StoreDeref(_) => 0,
+            Self::StoreFast(_) => 0,
+            Self::StoreFastLoadFast { .. } => 1,
+            Self::StoreFastStoreFast { .. } => 0,
+            Self::StoreGlobal(_) => 0,
+            Self::StoreName(_) => 0,
+            Self::StoreSlice => 0,
+            Self::StoreSubscr => 0,
+            Self::StoreSubscrDict => 0,
+            Self::StoreSubscrListInt => 0,
+            Self::Swap { .. } => 2 + (oparg - 2),
+            Self::ToBool => 1,
+            Self::ToBoolAlwaysTrue => 1,
+            Self::ToBoolBool => 1,
+            Self::ToBoolInt => 1,
+            Self::ToBoolList => 1,
+            Self::ToBoolNone => 1,
+            Self::ToBoolStr => 1,
+            Self::UnaryInvert => 1,
+            Self::UnaryNegative => 1,
+            Self::UnaryNot => 1,
+            Self::UnpackEx { .. } => 1 + (oparg & 0xFF) + (oparg >> 8),
+            Self::UnpackSequence { .. } => oparg,
+            Self::UnpackSequenceList => oparg,
+            Self::UnpackSequenceTuple => oparg,
+            Self::UnpackSequenceTwoTuple => 2,
+            Self::WithExceptStart => 6,
+            Self::YieldValue { .. } => 1,
+        }
+    }
+
+    fn num_popped(&self, oparg: i32) -> i32 {
+        match self {
+            Self::BinaryOp { .. } => 2,
+            Self::BinaryOpAddFloat => 2,
+            Self::BinaryOpAddInt => 2,
+            Self::BinaryOpAddUnicode => 2,
+            Self::BinaryOpExtend => 2,
+            Self::BinaryOpInplaceAddUnicode => 2,
+            Self::BinaryOpMultiplyFloat => 2,
+            Self::BinaryOpMultiplyInt => 2,
+            Self::BinaryOpSubscrDict => 2,
+            Self::BinaryOpSubscrGetitem => 2,
+            Self::BinaryOpSubscrListInt => 2,
+            Self::BinaryOpSubscrListSlice => 2,
+            Self::BinaryOpSubscrStrInt => 2,
+            Self::BinaryOpSubscrTupleInt => 2,
+            Self::BinaryOpSubtractFloat => 2,
+            Self::BinaryOpSubtractInt => 2,
+            Self::BinarySlice { .. } => 3,
+            Self::BuildInterpolation { .. } => 2 + (oparg & 1),
+            Self::BuildList { .. } => oparg,
+            Self::BuildMap { .. } => oparg * 2,
+            Self::BuildSet { .. } => oparg,
+            Self::BuildSlice { .. } => oparg,
+            Self::BuildString { .. } => oparg,
+            Self::BuildTemplate { .. } => 2,
+            Self::BuildTuple { .. } => oparg,
+            Self::Cache => 0,
+            Self::Call { .. } => 2 + oparg,
+            Self::CallAllocAndEnterInit => 2 + oparg,
+            Self::CallBoundMethodExactArgs => 2 + oparg,
+            Self::CallBoundMethodGeneral => 2 + oparg,
+            Self::CallBuiltinClass => 2 + oparg,
+            Self::CallBuiltinFast => 2 + oparg,
+            Self::CallBuiltinFastWithKeywords => 2 + oparg,
+            Self::CallBuiltinO => 2 + oparg,
+            Self::CallFunctionEx => 4,
+            Self::CallIntrinsic1 { .. } => 1,
+            Self::CallIntrinsic2 { .. } => 2,
+            Self::CallIsinstance => 2 + oparg,
+            Self::CallKw { .. } => 3 + oparg,
+            Self::CallKwBoundMethod => 3 + oparg,
+            Self::CallKwNonPy => 3 + oparg,
+            Self::CallKwPy => 3 + oparg,
+            Self::CallLen => 3,
+            Self::CallListAppend => 3,
+            Self::CallMethodDescriptorFast => 2 + oparg,
+            Self::CallMethodDescriptorFastWithKeywords => 2 + oparg,
+            Self::CallMethodDescriptorNoargs => 2 + oparg,
+            Self::CallMethodDescriptorO => 2 + oparg,
+            Self::CallNonPyGeneral => 2 + oparg,
+            Self::CallPyExactArgs => 2 + oparg,
+            Self::CallPyGeneral => 2 + oparg,
+            Self::CallStr1 => 3,
+            Self::CallTuple1 => 3,
+            Self::CallType1 => 3,
+            Self::CheckEgMatch => 2,
+            Self::CheckExcMatch => 2,
+            Self::CleanupThrow => 3,
+            Self::CompareOp { .. } => 2,
+            Self::CompareOpFloat => 2,
+            Self::CompareOpInt => 2,
+            Self::CompareOpStr => 2,
+            Self::ContainsOp(_) => 2,
+            Self::ContainsOpDict => 2,
+            Self::ContainsOpSet => 2,
+            Self::ConvertValue { .. } => 1,
+            Self::Copy { .. } => 1 + (oparg - 1),
+            Self::CopyFreeVars { .. } => 0,
+            Self::DeleteAttr { .. } => 1,
+            Self::DeleteDeref(_) => 0,
+            Self::DeleteFast(_) => 0,
+            Self::DeleteGlobal(_) => 0,
+            Self::DeleteName(_) => 0,
+            Self::DeleteSubscr => 2,
+            Self::DictMerge { .. } => 5 + (oparg - 1),
+            Self::DictUpdate { .. } => 2 + (oparg - 1),
+            Self::EndAsyncFor => 2,
+            Self::EndFor => 1,
+            Self::EndSend => 2,
+            Self::EnterExecutor => 0,
+            Self::ExitInitCheck => 1,
+            Self::ExtendedArg => 0,
+            Self::ForIter { .. } => 1,
+            Self::ForIterGen => 1,
+            Self::ForIterList => 1,
+            Self::ForIterRange => 1,
+            Self::ForIterTuple => 1,
+            Self::FormatSimple => 1,
+            Self::FormatWithSpec => 2,
+            Self::GetAIter => 1,
+            Self::GetANext => 1,
+            Self::GetAwaitable => 1,
+            Self::GetIter => 1,
+            Self::GetLen => 1,
+            Self::GetYieldFromIter => 1,
+            Self::ImportFrom { .. } => 1,
+            Self::ImportName { .. } => 2,
+            Self::InstrumentedCall => 2 + oparg,
+            Self::InstrumentedCallFunctionEx => 4,
+            Self::InstrumentedCallKw => 3 + oparg,
+            Self::InstrumentedEndAsyncFor => 2,
+            Self::InstrumentedEndFor => 2,
+            Self::InstrumentedEndSend => 2,
+            Self::InstrumentedForIter => 1,
+            Self::InstrumentedInstruction => 0,
+            Self::InstrumentedJumpBackward => 0,
+            Self::InstrumentedJumpForward => 0,
+            Self::InstrumentedLine => 0,
+            Self::InstrumentedLoadSuperAttr => 3,
+            Self::InstrumentedNotTaken => 0,
+            Self::InstrumentedPopIter => 1,
+            Self::InstrumentedPopJumpIfFalse => 1,
+            Self::InstrumentedPopJumpIfNone => 1,
+            Self::InstrumentedPopJumpIfNotNone => 1,
+            Self::InstrumentedPopJumpIfTrue => 1,
+            Self::InstrumentedResume => 0,
+            Self::InstrumentedReturnValue => 1,
+            Self::InstrumentedYieldValue => 1,
+            Self::InterpreterExit => 1,
+            Self::IsOp(_) => 2,
+            Self::JumpBackward { .. } => 0,
+            Self::JumpBackwardJit => 0,
+            Self::JumpBackwardNoInterrupt { .. } => 0,
+            Self::JumpBackwardNoJit => 0,
+            Self::JumpForward { .. } => 0,
+            Self::ListAppend { .. } => 2 + (oparg - 1),
+            Self::ListExtend { .. } => 2 + (oparg - 1),
+            Self::LoadAttr { .. } => 1,
+            Self::LoadAttrClass => 1,
+            Self::LoadAttrClassWithMetaclassCheck => 1,
+            Self::LoadAttrGetattributeOverridden => 1,
+            Self::LoadAttrInstanceValue => 1,
+            Self::LoadAttrMethodLazyDict => 1,
+            Self::LoadAttrMethodNoDict => 1,
+            Self::LoadAttrMethodWithValues => 1,
+            Self::LoadAttrModule => 1,
+            Self::LoadAttrNondescriptorNoDict => 1,
+            Self::LoadAttrNondescriptorWithValues => 1,
+            Self::LoadAttrProperty => 1,
+            Self::LoadAttrSlot => 1,
+            Self::LoadAttrWithHint => 1,
+            Self::LoadBuildClass => 0,
+            Self::LoadCommonConstant { .. } => 0,
+            Self::LoadConst { .. } => 0,
+            Self::LoadConstImmortal => 0,
+            Self::LoadConstMortal => 0,
+            Self::LoadDeref(_) => 0,
+            Self::LoadFast(_) => 0,
+            Self::LoadFastAndClear(_) => 0,
+            Self::LoadFastBorrow(_) => 0,
+            Self::LoadFastBorrowLoadFastBorrow { .. } => 0,
+            Self::LoadFastCheck(_) => 0,
+            Self::LoadFastLoadFast { .. } => 0,
+            Self::LoadFromDictOrDeref(_) => 1,
+            Self::LoadFromDictOrGlobals(_) => 1,
+            Self::LoadGlobal(_) => 0,
+            Self::LoadGlobalBuiltin => 0,
+            Self::LoadGlobalModule => 0,
+            Self::LoadLocals => 0,
+            Self::LoadName(_) => 0,
+            Self::LoadSmallInt { .. } => 0,
+            Self::LoadSpecial { .. } => {
+                // TODO: Differs from CPython: `1`
+                2
+            }
+            Self::LoadSuperAttr { .. } => 3,
+            Self::LoadSuperAttrAttr => 3,
+            Self::LoadSuperAttrMethod => 3,
+            Self::MakeCell(_) => 0,
+            Self::MakeFunction => 1,
+            Self::MapAdd { .. } => 3 + (oparg - 1),
+            Self::MatchClass(_) => 3,
+            Self::MatchKeys => 2,
+            Self::MatchMapping => 1,
+            Self::MatchSequence => 1,
+            Self::Nop => 0,
+            Self::NotTaken => 0,
+            Self::PopExcept => 1,
+            Self::PopIter => 1,
+            Self::PopJumpIfFalse { .. } => 1,
+            Self::PopJumpIfNone { .. } => 1,
+            Self::PopJumpIfNotNone { .. } => 1,
+            Self::PopJumpIfTrue { .. } => 1,
+            Self::PopTop => 1,
+            Self::PushExcInfo => 1,
+            Self::PushNull => 0,
+            Self::RaiseVarargs { kind } => {
+                // TODO: Differs from CPython: `oparg`
+                match kind.get((oparg as u32).into()) {
+                    RaiseKind::BareRaise => 0,
+                    RaiseKind::Raise => 1,
+                    RaiseKind::RaiseCause => 2,
+                    RaiseKind::ReraiseFromStack => 1,
+                }
+            }
+            Self::Reraise { .. } => 1 + oparg,
+            Self::Reserved => 0,
+            Self::Resume { .. } => 0,
+            Self::ResumeCheck => 0,
+            Self::ReturnGenerator => 0,
+            Self::ReturnValue => 1,
+            Self::Send { .. } => 2,
+            Self::SendGen => 2,
+            Self::SetAdd { .. } => 2 + (oparg - 1),
+            Self::SetFunctionAttribute { .. } => 2,
+            Self::SetUpdate { .. } => 2 + (oparg - 1),
+            Self::SetupAnnotations => 0,
+            Self::StoreAttr { .. } => 2,
+            Self::StoreAttrInstanceValue => 2,
+            Self::StoreAttrSlot => 2,
+            Self::StoreAttrWithHint => 2,
+            Self::StoreDeref(_) => 1,
+            Self::StoreFast(_) => 1,
+            Self::StoreFastLoadFast { .. } => 1,
+            Self::StoreFastStoreFast { .. } => 2,
+            Self::StoreGlobal(_) => 1,
+            Self::StoreName(_) => 1,
+            Self::StoreSlice => 4,
+            Self::StoreSubscr => 3,
+            Self::StoreSubscrDict => 3,
+            Self::StoreSubscrListInt => 3,
+            Self::Swap { .. } => 2 + (oparg - 2),
+            Self::ToBool => 1,
+            Self::ToBoolAlwaysTrue => 1,
+            Self::ToBoolBool => 1,
+            Self::ToBoolInt => 1,
+            Self::ToBoolList => 1,
+            Self::ToBoolNone => 1,
+            Self::ToBoolStr => 1,
+            Self::UnaryInvert => 1,
+            Self::UnaryNegative => 1,
+            Self::UnaryNot => 1,
+            Self::UnpackEx { .. } => 1,
+            Self::UnpackSequence { .. } => 1,
+            Self::UnpackSequenceList => 1,
+            Self::UnpackSequenceTuple => 1,
+            Self::UnpackSequenceTwoTuple => 1,
+            Self::WithExceptStart => 5,
+            Self::YieldValue { .. } => 1,
+        }
+    }
+}
+
+impl StackEffect for PseudoInstruction {
+    fn num_pushed(&self, _oparg: i32) -> i32 {
+        match self {
+            Self::AnnotationsPlaceholder => 0,
+            Self::Jump { .. } => 0,
+            Self::JumpIfFalse { .. } => 1,
+            Self::JumpIfTrue { .. } => 1,
+            Self::JumpNoInterrupt { .. } => 0,
+            Self::LoadClosure(_) => 1,
+            Self::PopBlock => 0,
+            Self::SetupCleanup => 2,
+            Self::SetupFinally => 1,
+            Self::SetupWith => 1,
+            Self::StoreFastMaybeNull(_) => 0,
+        }
+    }
+
+    fn num_popped(&self, _oparg: i32) -> i32 {
+        match self {
+            Self::AnnotationsPlaceholder => 0,
+            Self::Jump { .. } => 0,
+            Self::JumpIfFalse { .. } => 1,
+            Self::JumpIfTrue { .. } => 1,
+            Self::JumpNoInterrupt { .. } => 0,
+            Self::LoadClosure(_) => 0,
+            Self::PopBlock => 0,
+            Self::SetupCleanup => 0,
+            Self::SetupFinally => 0,
+            Self::SetupWith => 0,
+            Self::StoreFastMaybeNull(_) => 1,
+        }
     }
 }
 

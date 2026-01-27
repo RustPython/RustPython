@@ -70,6 +70,12 @@ impl From<u32> for OpArg {
     }
 }
 
+impl From<OpArg> for u32 {
+    fn from(value: OpArg) -> Self {
+        value.0
+    }
+}
+
 #[derive(Default, Copy, Clone)]
 #[repr(transparent)]
 pub struct OpArgState {

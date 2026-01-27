@@ -5,7 +5,7 @@ mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
-        bytecode::{AnyInstruction, Instruction, InstructionMetadata, PseudoInstruction},
+        bytecode::{AnyInstruction, Instruction, PseudoInstruction, StackEffect},
     };
     use core::ops::Deref;
 
@@ -182,7 +182,7 @@ mod _opcode {
                             v.class().name()
                         ))
                     })?
-                    .try_to_primitive::<u32>(vm)
+                    .try_to_primitive::<i32>(vm)
             })
             .unwrap_or(Ok(0))?;
 
@@ -198,7 +198,7 @@ mod _opcode {
         let opcode = Opcode::try_from_pyint(args.opcode, vm)?;
 
         let _ = jump; // Python API accepts jump but it's not used
-        Ok(opcode.stack_effect(oparg.into()))
+        Ok(opcode.stack_effect(oparg))
     }
 
     #[pyfunction]
