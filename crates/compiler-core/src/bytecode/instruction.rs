@@ -45,7 +45,7 @@ pub enum Instruction {
     GetYieldFromIter = 19,
     InterpreterExit = 20, // Placeholder
     LoadBuildClass = 21,
-    LoadLocals = 22, // Placeholder
+    LoadLocals = 22,
     MakeFunction = 23,
     MatchKeys = 24,
     MatchMapping = 25,
@@ -186,7 +186,7 @@ pub enum Instruction {
         arg: Arg<u32>,
     } = 89,
     LoadFromDictOrDeref(Arg<NameIdx>) = 90,
-    LoadFromDictOrGlobals(Arg<NameIdx>) = 91, // Placeholder
+    LoadFromDictOrGlobals(Arg<NameIdx>) = 91,
     LoadGlobal(Arg<NameIdx>) = 92,
     LoadName(Arg<NameIdx>) = 93,
     LoadSmallInt {
@@ -472,7 +472,7 @@ impl InstructionMetadata for Instruction {
             Self::DeleteName(_) => 0,
             Self::DeleteGlobal(_) => 0,
             Self::DeleteDeref(_) => 0,
-            Self::LoadFromDictOrDeref(_) => 1,
+            Self::LoadFromDictOrDeref(_) => 0, // (dict -- value)
             Self::StoreSubscr => -3,
             Self::DeleteSubscr => -2,
             Self::LoadAttr { idx } => {

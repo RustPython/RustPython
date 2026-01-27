@@ -1176,13 +1176,16 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadFromDictOrDeref(i) => {
+                // Pop dict from stack (locals or classdict depending on context)
+                let class_dict = self.pop_value();
                 let i = i.get(arg) as usize;
                 let name = if i < self.code.cellvars.len() {
                     self.code.cellvars[i]
                 } else {
                     self.code.freevars[i - self.code.cellvars.len()]
                 };
-                let value = self.locals.mapping().subscript(name, vm).ok();
+                // First try to find in the dict
+                let value = class_dict.get_item(name, vm).ok();
                 self.push_value(match value {
                     Some(v) => v,
                     None => self.cells_frees[i]
