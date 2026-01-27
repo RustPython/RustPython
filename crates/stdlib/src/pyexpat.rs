@@ -422,8 +422,8 @@ mod _pyexpat {
     }
 
     // TODO: Tie this exception to the module's state.
-    // TODO: Alias `error` to `ExpatError`
     #[pyattr]
+    #[pyattr(name = "error")]
     #[pyexception(name = "ExpatError", base = PyException)]
     #[derive(Debug)]
     #[repr(transparent)]
