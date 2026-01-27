@@ -450,7 +450,7 @@ jobs:
         run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: Ensure docs generate no warnings
-        run: cargo doc
+        run: cargo doc --locked
 
       - name: Ensure Lib/_opcode_metadata is updated
         run: |
