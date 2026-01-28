@@ -332,6 +332,13 @@ impl PyObject {
         op_id: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
+        if self.is(other) {
+            if op_id == PyComparisonOp::Eq {
+                return Ok(true);
+            } else if op_id == PyComparisonOp::Ne {
+                return Ok(false);
+            }
+        }
         match self._cmp(other, op_id, vm)? {
             Either::A(obj) => obj.try_to_bool(vm),
             Either::B(other) => Ok(other),
