@@ -522,12 +522,17 @@ fn do_sort(
     key_func: Option<PyObjectRef>,
     reverse: bool,
 ) -> PyResult<()> {
-    let op = if reverse {
-        PyComparisonOp::Lt
-    } else {
-        PyComparisonOp::Gt
+    // CPython uses __lt__ for all comparisons in sort.
+    // try_sort_by_gt expects is_gt(a, b) = true when a should come AFTER b.
+    let cmp = |a: &PyObjectRef, b: &PyObjectRef| {
+        if reverse {
+            // Descending: a comes after b when a < b
+            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
+        } else {
+            // Ascending: a comes after b when b < a
+            b.rich_compare_bool(a, PyComparisonOp::Lt, vm)
+        }
     };
-    let cmp = |a: &PyObjectRef, b: &PyObjectRef| a.rich_compare_bool(b, op, vm);
 
     if let Some(ref key_func) = key_func {
         let mut items = values
