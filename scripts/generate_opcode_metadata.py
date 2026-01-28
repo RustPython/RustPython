@@ -49,7 +49,7 @@ def extract_enum_body(contents: str, enum_name: str) -> str:
     )
 
 
-contents = BYTECODE_FILE.read_text()
+contents = BYTECODE_FILE.read_text(encoding="utf-8")
 enum_body = "\n".join(
     extract_enum_body(contents, enum_name)
     for enum_name in ("Instruction", "PseudoInstruction")
@@ -78,4 +78,4 @@ HAVE_ARGUMENT = 44
 MIN_INSTRUMENTED_OPCODE = 236
 """
 
-OPCODE_METADATA_FILE.write_text(output)
+OPCODE_METADATA_FILE.write_text(output, encoding="utf-8")
