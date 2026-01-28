@@ -61,6 +61,7 @@ posonlyargs
 prec
 preinitialized
 pydecimal
+pymain
 pyrepl
 pythonw
 PYTHREAD_NAME
@@ -73,9 +74,9 @@ stackdepth
 stginfo
 stringlib
 structseq
-subscr
 subkwargs
 subparams
+subscr
 swappedbytes
 ticketer
 tok_oldval
