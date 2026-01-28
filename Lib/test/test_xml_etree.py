@@ -384,7 +384,6 @@ class ElementTreeTest(unittest.TestCase):
         self.serialize_check(element,
                 '<tag key="value"><subtag /><subtag /></tag>')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cdata(self):
         # Test CDATA handling (etc).
 
@@ -407,7 +406,6 @@ class ElementTreeTest(unittest.TestCase):
         self.assertEqual(tree.find("element/../empty-element").tag,
                 'empty-element')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_path_cache(self):
         # Check that the path cache behaves sanely.
 
@@ -424,7 +422,6 @@ class ElementTreeTest(unittest.TestCase):
         for i in range(600): ET.ElementTree(elem).find('./'+str(i))
         self.assertLess(len(ElementPath._cache), 500)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_copy(self):
         # Test copy handling (etc).
 
@@ -888,7 +885,6 @@ class ElementTreeTest(unittest.TestCase):
                 ('end-ns', ''),
             ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_initialize_parser_without_target(self):
         # Explicit None
         parser = ET.XMLParser(target=None)
@@ -936,14 +932,12 @@ class ElementTreeTest(unittest.TestCase):
         elem.clear()
         self.assertEqual(list(elem), [])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_writestring(self):
         elem = ET.XML("<html><body>text</body></html>")
         self.assertEqual(ET.tostring(elem), b'<html><body>text</body></html>')
         elem = ET.fromstring("<html><body>text</body></html>")
         self.assertEqual(ET.tostring(elem), b'<html><body>text</body></html>')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_indent(self):
         elem = ET.XML("<root></root>")
         ET.indent(elem)
@@ -988,7 +982,6 @@ class ElementTreeTest(unittest.TestCase):
             b'</html>'
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_indent_space(self):
         elem = ET.XML("<html><body><p>pre<br/>post</p><p>text</p></body></html>")
         ET.indent(elem, space='\t')
@@ -1014,7 +1007,6 @@ class ElementTreeTest(unittest.TestCase):
             b'</html>'
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_indent_space_caching(self):
         elem = ET.XML("<html><body><p>par</p><p>text</p><p><br/></p><p /></body></html>")
         ET.indent(elem)
@@ -1031,7 +1023,6 @@ class ElementTreeTest(unittest.TestCase):
             len({id(el.tail) for el in elem.iter()}),
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_indent_level(self):
         elem = ET.XML("<html><body><p>pre<br/>post</p><p>text</p></body></html>")
         with self.assertRaises(ValueError):
@@ -1064,7 +1055,6 @@ class ElementTreeTest(unittest.TestCase):
             b' </html>'
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostring_default_namespace(self):
         elem = ET.XML('<body xmlns="http://effbot.org/ns"><tag/></body>')
         self.assertEqual(
@@ -1076,7 +1066,6 @@ class ElementTreeTest(unittest.TestCase):
             '<body xmlns="http://effbot.org/ns"><tag /></body>'
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostring_default_namespace_different_namespace(self):
         elem = ET.XML('<body xmlns="http://effbot.org/ns"><tag/></body>')
         self.assertEqual(
@@ -1084,14 +1073,12 @@ class ElementTreeTest(unittest.TestCase):
             '<ns1:body xmlns="foobar" xmlns:ns1="http://effbot.org/ns"><ns1:tag /></ns1:body>'
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostring_default_namespace_original_no_namespace(self):
         elem = ET.XML('<body><tag/></body>')
         EXPECTED_MSG = '^cannot use non-qualified names with default_namespace option$'
         with self.assertRaisesRegex(ValueError, EXPECTED_MSG):
             ET.tostring(elem, encoding='unicode', default_namespace='foobar')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostring_no_xml_declaration(self):
         elem = ET.XML('<body><tag/></body>')
         self.assertEqual(
@@ -1099,7 +1086,6 @@ class ElementTreeTest(unittest.TestCase):
             '<body><tag /></body>'
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostring_xml_declaration(self):
         elem = ET.XML('<body><tag/></body>')
         self.assertEqual(
@@ -1107,7 +1093,6 @@ class ElementTreeTest(unittest.TestCase):
             b"<?xml version='1.0' encoding='utf8'?>\n<body><tag /></body>"
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostring_xml_declaration_unicode_encoding(self):
         elem = ET.XML('<body><tag/></body>')
         self.assertEqual(
@@ -1115,7 +1100,6 @@ class ElementTreeTest(unittest.TestCase):
             "<?xml version='1.0' encoding='utf-8'?>\n<body><tag /></body>"
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostring_xml_declaration_cases(self):
         elem = ET.XML('<body><tag>ø</tag></body>')
         TESTCASES = [
@@ -1160,7 +1144,6 @@ class ElementTreeTest(unittest.TestCase):
                     expected_retval
                 )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostringlist_default_namespace(self):
         elem = ET.XML('<body xmlns="http://effbot.org/ns"><tag/></body>')
         self.assertEqual(
@@ -1172,7 +1155,6 @@ class ElementTreeTest(unittest.TestCase):
             '<body xmlns="http://effbot.org/ns"><tag /></body>'
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostringlist_xml_declaration(self):
         elem = ET.XML('<body><tag/></body>')
         self.assertEqual(
@@ -1252,7 +1234,6 @@ class ElementTreeTest(unittest.TestCase):
         self.assertRaises(ValueError, ET.XML, xml('undefined').encode('ascii'))
         self.assertRaises(LookupError, ET.XML, xml('xxx').encode('ascii'))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_methods(self):
         # Test serialization methods.
 
@@ -1268,7 +1249,6 @@ class ElementTreeTest(unittest.TestCase):
                 '<html><link><script>1 < 2</script></html>\n')
         self.assertEqual(serialize(e, method="text"), '1 < 2\n')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_issue18347(self):
         e = ET.XML('<html><CamelCase>text</CamelCase></html>')
         self.assertEqual(serialize(e),
@@ -1413,7 +1393,6 @@ class ElementTreeTest(unittest.TestCase):
         self.assertNotEqual(q1, 'ns:tag')
         self.assertEqual(q1, '{ns}tag')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_doctype_public(self):
         # Test PUBLIC doctype.
 
@@ -1496,7 +1475,6 @@ class ElementTreeTest(unittest.TestCase):
                 b"<?xml version='1.0' encoding='latin-1'?>\n"
                 b"<?test <testing&>\xe3?>")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_html_empty_elems_serialization(self):
         # issue 15970
         # from http://www.w3.org/TR/html401/index/elements.html
@@ -1775,7 +1753,6 @@ class XMLPullParserTest(unittest.TestCase):
         self._feed(parser, "<?pitarget some text ?>\n")
         self.assert_events(parser, [('pi', (ET.PI, 'pitarget some text '))])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_events_sequence(self):
         # Test that events can be some sequence that's not just a tuple or list
         eventset = {'end', 'start'}
@@ -1795,7 +1772,6 @@ class XMLPullParserTest(unittest.TestCase):
         self._feed(parser, "<foo>bar</foo>")
         self.assert_event_tags(parser, [('start', 'foo'), ('end', 'foo')])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_unknown_event(self):
         with self.assertRaises(ValueError):
             ET.XMLPullParser(events=('start', 'end', 'bogus'))
@@ -2210,7 +2186,6 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(tree.findtext("tag"), 'text')
         self.assertEqual(tree.findtext("section/tag"), 'subtext')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_xmltoolkit28(self):
         # .//tag causes exceptions
 
@@ -2218,7 +2193,6 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(summarize_list(tree.findall(".//thead")), [])
         self.assertEqual(summarize_list(tree.findall(".//tbody")), ['tbody'])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_xmltoolkitX1(self):
         # dump() doesn't flush the output buffer
 
@@ -2253,7 +2227,6 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(ET.tostring(tree, "utf-8"),
                 b'<tag \xc3\xa4ttr="v\xc3\xa4lue" />')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_xmltoolkit54(self):
         # problems handling internally defined entities
 
@@ -2273,7 +2246,6 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(str(cm.exception),
                 'undefined entity &ldots;: line 1, column 36')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_xmltoolkit60(self):
         # Handle crash in stream source.
 
@@ -2328,7 +2300,6 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(ET.tostring(ET.XML(ET.tostring(e))),
                 b'<SomeTag text="def _f():&#10;  return 3&#10;" />')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_200708_close(self):
         # Test default builder.
         parser = ET.XMLParser() # default
@@ -2421,7 +2392,6 @@ class BugsTest(unittest.TestCase):
         e = bob.close()
         self.assertEqual(serialize(e), '<tag />')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_issue6233(self):
         e = ET.XML(b"<?xml version='1.0' encoding='utf-8'?>"
                    b'<body>t\xc3\xa3g</body>')
@@ -2742,7 +2712,6 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
                 self.assertEqual(len(e2), 2)
                 self.assertEqualElements(e, e2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickle_issue18997(self):
         for proto in range(2, pickle.HIGHEST_PROTOCOL + 1):
             for dumper, loader in product(self.modules, repeat=2):
@@ -3426,7 +3395,6 @@ class ElementFindTest(unittest.TestCase):
         self.assertEqual(summarize_list(e.findall(".//tag[. = 'subtext']")),
                          ['tag', 'tag'])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_test_find_with_ns(self):
         e = ET.XML(SAMPLE_XML_NS)
         self.assertEqual(summarize_list(e.findall('tag')), [])
@@ -3437,7 +3405,6 @@ class ElementFindTest(unittest.TestCase):
             summarize_list(e.findall(".//{http://effbot.org/ns}tag")),
             ['{http://effbot.org/ns}tag'] * 3)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_findall_different_nsmaps(self):
         root = ET.XML('''
             <a xmlns:x="X" xmlns:y="Y">
@@ -3455,7 +3422,6 @@ class ElementFindTest(unittest.TestCase):
         self.assertEqual(len(root.findall(".//xx:b", namespaces=nsmap)), 2)
         self.assertEqual(len(root.findall(".//b", namespaces=nsmap)), 1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_findall_wildcard(self):
         root = ET.XML('''
             <a xmlns:x="X" xmlns:y="Y">
@@ -3500,7 +3466,6 @@ class ElementFindTest(unittest.TestCase):
         self.assertEqual(summarize_list(root.findall(".//{}b")),
                          summarize_list(root.findall(".//b")))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bad_find(self):
         e = ET.XML(SAMPLE_XML)
         with self.assertRaisesRegex(SyntaxError, 'cannot use absolute path'):
@@ -3526,7 +3491,6 @@ class ElementIterTest(unittest.TestCase):
     def _ilist(self, elem, tag=None):
         return summarize_list(elem.iter(tag))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_basic(self):
         doc = ET.XML("<html><body>this is a <i>paragraph</i>.</body>..</html>")
         self.assertEqual(self._ilist(doc), ['html', 'body', 'i'])
@@ -3575,7 +3539,6 @@ class ElementIterTest(unittest.TestCase):
         del a[1]
         self.assertEqual(self._ilist(a), ['a', 'd'])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_iter_by_tag(self):
         doc = ET.XML('''
             <document>
@@ -3640,7 +3603,6 @@ class TreeBuilderTest(unittest.TestCase):
         self.assertEqual(child.tail, 'tail')
         self.assertEqual(child.attrib, {})
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_dummy_builder(self):
         class BaseDummyBuilder:
             def close(self):
@@ -3688,7 +3650,6 @@ class TreeBuilderTest(unittest.TestCase):
         self.assertEqual(b.pi('target'), (len('target'), None))
         self.assertEqual(b.pi('pitarget', ' text '), (len('pitarget'), ' text '))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_late_tail(self):
         # Issue #37399: The tail of an ignored comment could overwrite the text before it.
         class TreeBuilderSubclass(ET.TreeBuilder):
@@ -3750,14 +3711,12 @@ class TreeBuilderTest(unittest.TestCase):
         self.assertEqual(a[0].tail, 'tail')
         self.assertEqual(a.text, "text\n")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_treebuilder_elementfactory_none(self):
         parser = ET.XMLParser(target=ET.TreeBuilder(element_factory=None))
         parser.feed(self.sample1)
         e = parser.close()
         self._check_sample1_element(e)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_subclass(self):
         class MyTreeBuilder(ET.TreeBuilder):
             def foobar(self, x):
@@ -3772,7 +3731,6 @@ class TreeBuilderTest(unittest.TestCase):
         e = parser.close()
         self._check_sample1_element(e)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_subclass_comment_pi(self):
         class MyTreeBuilder(ET.TreeBuilder):
             def foobar(self, x):
@@ -3788,7 +3746,6 @@ class TreeBuilderTest(unittest.TestCase):
         e = parser.close()
         self._check_sample1_element(e)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_element_factory(self):
         lst = []
         def myfactory(tag, attrib):
@@ -3812,13 +3769,11 @@ class TreeBuilderTest(unittest.TestCase):
         self.assertIsInstance(e, cls)
         self._check_sample1_element(e)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_element_factory_subclass(self):
         class MyElement(ET.Element):
             pass
         self._check_element_factory_class(MyElement)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_element_factory_pure_python_subclass(self):
         # Mimic SimpleTAL's behaviour (issue #16089): both versions of
         # TreeBuilder should be able to cope with a subclass of the
@@ -3850,7 +3805,6 @@ class TreeBuilderTest(unittest.TestCase):
             ('html', '-//W3C//DTD XHTML 1.0 Transitional//EN',
              'http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd'))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_builder_lookup_errors(self):
         class RaisingBuilder:
             def __init__(self, raise_in=None, what=ValueError):
@@ -3891,14 +3845,12 @@ class XMLParserTest(unittest.TestCase):
         self.assertEqual(e[0].tag, 'line')
         self.assertEqual(e[0].text, '22')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_constructor_args(self):
         parser2 = ET.XMLParser(encoding='utf-8',
                                target=ET.TreeBuilder())
         parser2.feed(self.sample1)
         self._check_sample_element(parser2.close())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_subclass(self):
         class MyParser(ET.XMLParser):
             pass
@@ -3906,7 +3858,6 @@ class XMLParserTest(unittest.TestCase):
         parser.feed(self.sample1)
         self._check_sample_element(parser.close())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_doctype_warning(self):
         with warnings.catch_warnings():
             warnings.simplefilter('error', DeprecationWarning)
@@ -3945,7 +3896,6 @@ class XMLParserTest(unittest.TestCase):
                 ('html', '-//W3C//DTD XHTML 1.0 Transitional//EN',
                  'http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd'))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_inherited_doctype(self):
         '''Ensure that ordinary usage is not deprecated (Issue 19176)'''
         with warnings.catch_warnings():
@@ -3968,7 +3918,6 @@ class XMLParserTest(unittest.TestCase):
 
 
 class NamespaceParseTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_find_with_namespace(self):
         nsmap = {'h': 'hello', 'f': 'foo'}
         doc = ET.fromstring(SAMPLE_XML_NS_ELEMS)
@@ -4215,7 +4164,6 @@ class IOTest(unittest.TestCase):
                     ("<?xml version='1.0' encoding='%s'?>\n"
                      "<tag key=\"åöö&lt;&gt;\" />" % enc).encode(enc))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_filename(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
@@ -4223,7 +4171,6 @@ class IOTest(unittest.TestCase):
         with open(TESTFN, 'rb') as f:
             self.assertEqual(f.read(), b'''<site>&#248;</site>''')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_filename_with_encoding(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
@@ -4237,7 +4184,6 @@ class IOTest(unittest.TestCase):
                              b'''<?xml version='1.0' encoding='ISO-8859-1'?>\n'''
                              b'''<site>\xf8</site>'''))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_filename_as_unicode(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         with open(TESTFN, 'w') as f:
@@ -4249,7 +4195,6 @@ class IOTest(unittest.TestCase):
         with open(TESTFN, 'rb') as f:
             self.assertEqual(f.read(), b"<site>\xc3\xb8</site>")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_text_file(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
@@ -4271,7 +4216,6 @@ class IOTest(unittest.TestCase):
         with open(TESTFN, 'rb') as f:
             self.assertEqual(f.read(), b'''<site>\xf8</site>''')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_binary_file(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
@@ -4281,7 +4225,6 @@ class IOTest(unittest.TestCase):
         with open(TESTFN, 'rb') as f:
             self.assertEqual(f.read(), b'''<site>&#248;</site>''')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_binary_file_with_encoding(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
@@ -4299,7 +4242,6 @@ class IOTest(unittest.TestCase):
                              b'''<?xml version='1.0' encoding='ISO-8859-1'?>\n'''
                              b'''<site>\xf8</site>''')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_binary_file_with_bom(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
@@ -4320,28 +4262,24 @@ class IOTest(unittest.TestCase):
                     '''<?xml version='1.0' encoding='utf-16'?>\n'''
                     '''<site>\xf8</site>'''.encode("utf-16"))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_read_from_stringio(self):
         tree = ET.ElementTree()
         stream = io.StringIO('''<?xml version="1.0"?><site></site>''')
         tree.parse(stream)
         self.assertEqual(tree.getroot().tag, 'site')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_stringio(self):
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
         stream = io.StringIO()
         tree.write(stream, encoding='unicode')
         self.assertEqual(stream.getvalue(), '''<site>\xf8</site>''')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_read_from_bytesio(self):
         tree = ET.ElementTree()
         raw = io.BytesIO(b'''<?xml version="1.0"?><site></site>''')
         tree.parse(raw)
         self.assertEqual(tree.getroot().tag, 'site')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_bytesio(self):
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
         raw = io.BytesIO()
@@ -4351,7 +4289,6 @@ class IOTest(unittest.TestCase):
     class dummy:
         pass
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_read_from_user_text_reader(self):
         stream = io.StringIO('''<?xml version="1.0"?><site></site>''')
         reader = self.dummy()
@@ -4360,7 +4297,6 @@ class IOTest(unittest.TestCase):
         tree.parse(reader)
         self.assertEqual(tree.getroot().tag, 'site')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_user_text_writer(self):
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
         stream = io.StringIO()
@@ -4369,7 +4305,6 @@ class IOTest(unittest.TestCase):
         tree.write(writer, encoding='unicode')
         self.assertEqual(stream.getvalue(), '''<site>\xf8</site>''')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_read_from_user_binary_reader(self):
         raw = io.BytesIO(b'''<?xml version="1.0"?><site></site>''')
         reader = self.dummy()
@@ -4379,7 +4314,6 @@ class IOTest(unittest.TestCase):
         self.assertEqual(tree.getroot().tag, 'site')
         tree = ET.ElementTree()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_user_binary_writer(self):
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
         raw = io.BytesIO()
@@ -4388,7 +4322,6 @@ class IOTest(unittest.TestCase):
         tree.write(writer)
         self.assertEqual(raw.getvalue(), b'''<site>&#248;</site>''')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_to_user_binary_writer_with_bom(self):
         tree = ET.ElementTree(ET.XML('''<site />'''))
         raw = io.BytesIO()
@@ -4401,7 +4334,6 @@ class IOTest(unittest.TestCase):
                 '''<?xml version='1.0' encoding='utf-16'?>\n'''
                 '''<site />'''.encode("utf-16"))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tostringlist_invariant(self):
         root = ET.fromstring('<tag>foo</tag>')
         self.assertEqual(
@@ -4411,7 +4343,6 @@ class IOTest(unittest.TestCase):
             ET.tostring(root, 'utf-16'),
             b''.join(ET.tostringlist(root, 'utf-16')))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_short_empty_elements(self):
         root = ET.fromstring('<tag>a<x />b<y></y>c</tag>')
         self.assertEqual(
@@ -4451,7 +4382,6 @@ class ParseErrorTest(unittest.TestCase):
 class KeywordArgsTest(unittest.TestCase):
     # Test various issues with keyword arguments passed to ET.Element
     # constructor and methods
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_issue14818(self):
         x = ET.XML("<a>foo</a>")
         self.assertEqual(x.find('a', None),
