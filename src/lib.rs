@@ -41,6 +41,8 @@
 //!
 //! The binary will have all the standard arguments of a python interpreter (including a REPL!) but
 //! it will have your modules loaded into the vm.
+//!
+//! See [`rustpython_derive`](../rustpython_derive/index.html) crate for documentation on macros used in the example above.
 
 #![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
 #![allow(clippy::needless_doctest_main)]
