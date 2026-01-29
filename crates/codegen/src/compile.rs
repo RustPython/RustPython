@@ -2048,8 +2048,14 @@ impl Compiler {
 
                 let op = match usage {
                     NameUsage::Load => {
-                        // Special case for class scope
+                        // ClassBlock (not inlined comp): LOAD_LOCALS first, then LOAD_FROM_DICT_OR_DEREF
                         if self.ctx.in_class && !self.ctx.in_func() {
+                            emit!(self, Instruction::LoadLocals);
+                            Instruction::LoadFromDictOrDeref
+                        // can_see_class_scope: LOAD_DEREF(__classdict__) first
+                        } else if can_see_class_scope {
+                            let classdict_idx = self.get_free_var_index("__classdict__")?;
+                            self.emit_arg(classdict_idx, Instruction::LoadDeref);
                             Instruction::LoadFromDictOrDeref
                         } else {
                             Instruction::LoadDeref

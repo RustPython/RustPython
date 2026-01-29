@@ -1002,7 +1002,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK', "a73")
         self.assertInBytecode(f, 'LOAD_FAST_BORROW', "a73")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_setting_lineno_no_undefined(self):
         code = textwrap.dedent("""\
             def f():
@@ -1123,7 +1122,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertNotInBytecode(f, "LOAD_FAST_CHECK")
         return f
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_modifying_local_does_not_add_check(self):
         f = self.make_function_with_no_checks()
         def trace(frame, event, arg):
@@ -1137,7 +1135,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, "LOAD_FAST_BORROW")
         self.assertNotInBytecode(f, "LOAD_FAST_CHECK")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_initializing_local_does_not_add_check(self):
         f = self.make_function_with_no_checks()
         def trace(frame, event, arg):

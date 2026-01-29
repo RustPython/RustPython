@@ -189,6 +189,9 @@ impl CodeInfo {
             self.peephole_optimize();
         }
 
+        // Always apply LOAD_FAST_BORROW optimization
+        self.optimize_load_fast_borrow();
+
         let max_stackdepth = self.max_stackdepth()?;
         let cell2arg = self.cell2arg();
 
@@ -684,6 +687,155 @@ impl CodeInfo {
             block
                 .instructions
                 .retain(|ins| !matches!(ins.instr.real(), Some(Instruction::Nop)));
+        }
+    }
+
+    /// Optimize LOAD_FAST to LOAD_FAST_BORROW where safe.
+    ///
+    /// A LOAD_FAST can be converted to LOAD_FAST_BORROW if its value is
+    /// consumed within the same basic block (not passed to another block).
+    /// This is a reference counting optimization in CPython; in RustPython
+    /// we implement it for bytecode compatibility.
+    fn optimize_load_fast_borrow(&mut self) {
+        use rustpython_compiler_core::bytecode::InstructionMetadata;
+
+        // NOT_LOCAL marker: instruction didn't come from a LOAD_FAST
+        const NOT_LOCAL: usize = usize::MAX;
+
+        for block in &mut self.blocks {
+            if block.instructions.is_empty() {
+                continue;
+            }
+
+            // Track which instructions' outputs are still on stack at block end
+            // For each instruction, we track if its pushed value(s) are unconsumed
+            let mut unconsumed = vec![false; block.instructions.len()];
+
+            // Simulate stack: each entry is the instruction index that pushed it
+            // (or NOT_LOCAL if not from LOAD_FAST/LOAD_FAST_LOAD_FAST).
+            //
+            // CPython (flowgraph.c optimize_load_fast) pre-fills the stack with
+            // dummy refs for values inherited from predecessor blocks.  We take
+            // the simpler approach of aborting the optimisation for the whole
+            // block on stack underflow.
+            let mut stack: Vec<usize> = Vec::new();
+            let mut underflow = false;
+
+            for (i, info) in block.instructions.iter().enumerate() {
+                let Some(instr) = info.instr.real() else {
+                    continue;
+                };
+
+                // Decompose into (pops, pushes).
+                //
+                // stack_effect() returns pushes − pops, which is ambiguous for
+                // instructions that both pop and push (e.g. BinaryOp: effect=-1
+                // is pop 2 push 1, not pop 1 push 0).  We list those explicitly;
+                // the fallback under-pops and under-pushes, which is conservative
+                // (may miss optimisation opportunities but never miscompiles).
+                let effect = instr.stack_effect(info.arg);
+                let (pops, pushes) = match instr {
+                    // --- pop 2, push 1 ---
+                    Instruction::BinaryOp { .. }
+                    | Instruction::BinaryOpInplaceAddUnicode
+                    | Instruction::CompareOp { .. }
+                    | Instruction::ContainsOp(_)
+                    | Instruction::IsOp(_)
+                    | Instruction::ImportName { .. }
+                    | Instruction::FormatWithSpec => (2, 1),
+
+                    // --- pop 1, push 1 ---
+                    Instruction::UnaryInvert
+                    | Instruction::UnaryNegative
+                    | Instruction::UnaryNot
+                    | Instruction::ToBool
+                    | Instruction::GetIter
+                    | Instruction::GetAIter
+                    | Instruction::FormatSimple
+                    | Instruction::LoadFromDictOrDeref(_)
+                    | Instruction::LoadFromDictOrGlobals(_) => (1, 1),
+
+                    // LoadAttr: pop receiver, push attr.
+                    // method=true: push (method, self_or_null) → (1, 2)
+                    Instruction::LoadAttr { idx } => {
+                        let (_, is_method) =
+                            rustpython_compiler_core::bytecode::decode_load_attr_arg(
+                                idx.get(info.arg),
+                            );
+                        if is_method { (1, 2) } else { (1, 1) }
+                    }
+
+                    // --- pop 3, push 1 ---
+                    Instruction::BinarySlice => (3, 1),
+
+                    // --- variable pops, push 1 ---
+                    Instruction::Call { nargs } => (nargs.get(info.arg) as usize + 2, 1),
+                    Instruction::CallKw { nargs } => (nargs.get(info.arg) as usize + 3, 1),
+
+                    // --- conservative fallback ---
+                    // under-pops (≤ actual pops) and under-pushes (≤ actual pushes),
+                    // which keeps extra refs on the stack → marks them unconsumed →
+                    // prevents optimisation. Safe but may miss opportunities.
+                    _ => {
+                        let p = if effect < 0 { (-effect) as usize } else { 0 };
+                        let q = if effect > 0 { effect as usize } else { 0 };
+                        (p, q)
+                    }
+                };
+
+                // Pop values from stack
+                for _ in 0..pops {
+                    if stack.pop().is_none() {
+                        // Stack underflow — block receives values from a predecessor.
+                        // Abort optimisation for the entire block.
+                        underflow = true;
+                        break;
+                    }
+                }
+                if underflow {
+                    break;
+                }
+
+                // Push values to stack with source instruction index
+                let source = match instr {
+                    Instruction::LoadFast(_) | Instruction::LoadFastLoadFast { .. } => i,
+                    _ => NOT_LOCAL,
+                };
+                for _ in 0..pushes {
+                    stack.push(source);
+                }
+            }
+
+            if underflow {
+                continue;
+            }
+
+            // Mark instructions whose values remain on stack at block end
+            for &src in &stack {
+                if src != NOT_LOCAL {
+                    unconsumed[src] = true;
+                }
+            }
+
+            // Convert LOAD_FAST to LOAD_FAST_BORROW where value is fully consumed
+            for (i, info) in block.instructions.iter_mut().enumerate() {
+                if unconsumed[i] {
+                    continue;
+                }
+                let Some(instr) = info.instr.real() else {
+                    continue;
+                };
+                match instr {
+                    Instruction::LoadFast(_) => {
+                        info.instr = Instruction::LoadFastBorrow(Arg::marker()).into();
+                    }
+                    Instruction::LoadFastLoadFast { .. } => {
+                        info.instr =
+                            Instruction::LoadFastBorrowLoadFastBorrow { arg: Arg::marker() }.into();
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 

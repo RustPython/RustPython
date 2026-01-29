@@ -23,10 +23,10 @@ use crate::{
 #[repr(u8)]
 pub enum Instruction {
     // No-argument instructions (opcode < HAVE_ARGUMENT=44)
-    Cache = 0, // Placeholder
+    Cache = 0,
     BinarySlice = 1,
     BuildTemplate = 2,
-    BinaryOpInplaceAddUnicode = 3, // Placeholder
+    BinaryOpInplaceAddUnicode = 3,
     CallFunctionEx = 4,
     CheckEgMatch = 5,
     CheckExcMatch = 6,
@@ -45,13 +45,13 @@ pub enum Instruction {
     GetYieldFromIter = 19,
     InterpreterExit = 20, // Placeholder
     LoadBuildClass = 21,
-    LoadLocals = 22, // Placeholder
+    LoadLocals = 22,
     MakeFunction = 23,
     MatchKeys = 24,
     MatchMapping = 25,
     MatchSequence = 26,
     Nop = 27,
-    NotTaken = 28, // Placeholder
+    NotTaken = 28,
     PopExcept = 29,
     PopIter = 30,
     PopTop = 31,
@@ -177,16 +177,16 @@ pub enum Instruction {
     LoadDeref(Arg<NameIdx>) = 83,
     LoadFast(Arg<NameIdx>) = 84,
     LoadFastAndClear(Arg<NameIdx>) = 85,
-    LoadFastBorrow(Arg<NameIdx>) = 86, // Placeholder
+    LoadFastBorrow(Arg<NameIdx>) = 86,
     LoadFastBorrowLoadFastBorrow {
         arg: Arg<u32>,
-    } = 87, // Placeholder
+    } = 87,
     LoadFastCheck(Arg<NameIdx>) = 88,
     LoadFastLoadFast {
         arg: Arg<u32>,
     } = 89,
     LoadFromDictOrDeref(Arg<NameIdx>) = 90,
-    LoadFromDictOrGlobals(Arg<NameIdx>) = 91, // Placeholder
+    LoadFromDictOrGlobals(Arg<NameIdx>) = 91,
     LoadGlobal(Arg<NameIdx>) = 92,
     LoadName(Arg<NameIdx>) = 93,
     LoadSmallInt {
@@ -348,13 +348,13 @@ pub enum Instruction {
     UnpackSequenceTuple = 210,                  // Placeholder
     UnpackSequenceTwoTuple = 211,               // Placeholder
     // CPython 3.14 instrumented opcodes (234-254)
-    InstrumentedEndFor = 234,           // Placeholder
-    InstrumentedPopIter = 235,          // Placeholder
-    InstrumentedEndSend = 236,          // Placeholder
-    InstrumentedForIter = 237,          // Placeholder
-    InstrumentedInstruction = 238,      // Placeholder
-    InstrumentedJumpForward = 239,      // Placeholder
-    InstrumentedNotTaken = 240,         // Placeholder
+    InstrumentedEndFor = 234,      // Placeholder
+    InstrumentedPopIter = 235,     // Placeholder
+    InstrumentedEndSend = 236,     // Placeholder
+    InstrumentedForIter = 237,     // Placeholder
+    InstrumentedInstruction = 238, // Placeholder
+    InstrumentedJumpForward = 239, // Placeholder
+    InstrumentedNotTaken = 240,
     InstrumentedPopJumpIfTrue = 241,    // Placeholder
     InstrumentedPopJumpIfFalse = 242,   // Placeholder
     InstrumentedPopJumpIfNone = 243,    // Placeholder
@@ -472,7 +472,7 @@ impl InstructionMetadata for Instruction {
             Self::DeleteName(_) => 0,
             Self::DeleteGlobal(_) => 0,
             Self::DeleteDeref(_) => 0,
-            Self::LoadFromDictOrDeref(_) => 1,
+            Self::LoadFromDictOrDeref(_) => 0, // (dict -- value)
             Self::StoreSubscr => -3,
             Self::DeleteSubscr => -2,
             Self::LoadAttr { idx } => {
@@ -861,6 +861,29 @@ impl InstructionMetadata for Instruction {
             Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             Self::LoadFast(idx) => w!(LOAD_FAST, varname = idx),
             Self::LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
+            Self::LoadFastBorrow(idx) => w!(LOAD_FAST_BORROW, varname = idx),
+            Self::LoadFastCheck(idx) => w!(LOAD_FAST_CHECK, varname = idx),
+            Self::LoadFastLoadFast { arg: packed } => {
+                let oparg = packed.get(arg);
+                let idx1 = oparg >> 4;
+                let idx2 = oparg & 15;
+                let name1 = varname(idx1);
+                let name2 = varname(idx2);
+                write!(f, "{:pad$}({}, {})", "LOAD_FAST_LOAD_FAST", name1, name2)
+            }
+            Self::LoadFastBorrowLoadFastBorrow { arg: packed } => {
+                let oparg = packed.get(arg);
+                let idx1 = oparg >> 4;
+                let idx2 = oparg & 15;
+                let name1 = varname(idx1);
+                let name2 = varname(idx2);
+                write!(
+                    f,
+                    "{:pad$}({}, {})",
+                    "LOAD_FAST_BORROW_LOAD_FAST_BORROW", name1, name2
+                )
+            }
+            Self::LoadFromDictOrGlobals(idx) => w!(LOAD_FROM_DICT_OR_GLOBALS, name = idx),
             Self::LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
             Self::LoadName(idx) => w!(LOAD_NAME, name = idx),
             Self::LoadSpecial { method } => w!(LOAD_SPECIAL, method),
@@ -893,6 +916,7 @@ impl InstructionMetadata for Instruction {
             Self::Reraise { depth } => w!(RERAISE, depth),
             Self::Resume { arg } => w!(RESUME, arg),
             Self::ReturnValue => w!(RETURN_VALUE),
+            Self::ReturnGenerator => w!(RETURN_GENERATOR),
             Self::Send { target } => w!(SEND, target),
             Self::SetAdd { i } => w!(SET_ADD, i),
             Self::SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
