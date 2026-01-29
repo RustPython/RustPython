@@ -1025,54 +1025,47 @@ impl ExecutingFrame<'_> {
                 debug_assert_eq!(orig_stack_len + 1, self.state.stack.len());
                 Ok(None)
             }
-            Instruction::GetAwaitable => {
-                use crate::protocol::PyIter;
+            Instruction::GetAwaitable { arg: oparg } => {
+                let iterable = self.pop_value();
 
-                let awaited_obj = self.pop_value();
-                let awaitable = if let Some(coro) = awaited_obj.downcast_ref::<PyCoroutine>() {
-                    // _PyGen_yf() check - detect if coroutine is already being awaited elsewhere
-                    if coro.as_coro().frame().yield_from_target().is_some() {
-                        return Err(
-                            vm.new_runtime_error("coroutine is being awaited already".to_owned())
-                        );
+                let iter = match crate::coroutine::get_awaitable_iter(iterable.clone(), vm) {
+                    Ok(iter) => iter,
+                    Err(e) => {
+                        // _PyEval_FormatAwaitableError: override error for async with
+                        // when the type doesn't have __await__
+                        let oparg_val = oparg.get(arg);
+                        if vm
+                            .get_method(iterable.clone(), identifier!(vm, __await__))
+                            .is_none()
+                        {
+                            if oparg_val == 1 {
+                                return Err(vm.new_type_error(format!(
+                                    "'async with' received an object from __aenter__ \
+                                     that does not implement __await__: {}",
+                                    iterable.class().name()
+                                )));
+                            } else if oparg_val == 2 {
+                                return Err(vm.new_type_error(format!(
+                                    "'async with' received an object from __aexit__ \
+                                     that does not implement __await__: {}",
+                                    iterable.class().name()
+                                )));
+                            }
+                        }
+                        return Err(e);
                     }
-                    awaited_obj
-                } else if awaited_obj
-                    .downcast_ref::<PyGenerator>()
-                    .is_some_and(|generator| {
-                        generator
-                            .as_coro()
-                            .frame()
-                            .code
-                            .flags
-                            .contains(bytecode::CodeFlags::ITERABLE_COROUTINE)
-                    })
-                {
-                    // Generator with CO_ITERABLE_COROUTINE flag can be awaited
-                    // (e.g., generators decorated with @types.coroutine)
-                    awaited_obj
-                } else {
-                    let await_method = vm.get_method_or_type_error(
-                        awaited_obj.clone(),
-                        identifier!(vm, __await__),
-                        || {
-                            format!(
-                                "object {} can't be used in 'await' expression",
-                                awaited_obj.class().name(),
-                            )
-                        },
-                    )?;
-                    let result = await_method.call((), vm)?;
-                    // Check that __await__ returned an iterator
-                    if !PyIter::check(&result) {
-                        return Err(vm.new_type_error(format!(
-                            "__await__() returned non-iterator of type '{}'",
-                            result.class().name()
-                        )));
-                    }
-                    result
                 };
-                self.push_value(awaitable);
+
+                // Check if coroutine is already being awaited
+                if let Some(coro) = iter.downcast_ref::<PyCoroutine>()
+                    && coro.as_coro().frame().yield_from_target().is_some()
+                {
+                    return Err(
+                        vm.new_runtime_error("coroutine is being awaited already".to_owned())
+                    );
+                }
+
+                self.push_value(iter);
                 Ok(None)
             }
             Instruction::GetIter => {
