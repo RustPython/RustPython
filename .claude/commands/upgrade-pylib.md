@@ -1,3 +1,7 @@
+---
+allowed-tools: Bash(git add:*), Bash(git commit:*), Bash(python3 scripts/update_lib quick:*), Bash(python3 scripts/update_lib auto-mark:*)
+---
+
 # Upgrade Python Library from CPython
 
 Upgrade a Python standard library module from CPython to RustPython.
@@ -23,24 +27,19 @@ This helps improve the tooling for future upgrades.
 
 ## Steps
 
-1. **Delete existing library in Lib/**
-   - If `Lib/$ARGUMENTS.py` exists, delete it
-   - If `Lib/$ARGUMENTS/` directory exists, delete it
-
-2. **Copy from cpython/Lib/**
-   - If `cpython/Lib/$ARGUMENTS.py` exists, copy it to `Lib/$ARGUMENTS.py`
-   - If `cpython/Lib/$ARGUMENTS/` directory exists, copy it to `Lib/$ARGUMENTS/`
-
-3. **Upgrade tests (quick upgrade with update_lib)**
-   - Run: `python3 scripts/update_lib quick cpython/Lib/test/test_$ARGUMENTS.py` (single file)
-   - Or: `python3 scripts/update_lib quick cpython/Lib/test/test_$ARGUMENTS/` (directory)
+1. **Run quick upgrade with update_lib**
+   - Run: `python3 scripts/update_lib quick $ARGUMENTS` (module name)
+   - Or: `python3 scripts/update_lib quick cpython/Lib/$ARGUMENTS.py` (library file path)
+   - Or: `python3 scripts/update_lib quick cpython/Lib/$ARGUMENTS/` (library directory path)
    - This will:
+     - Copy library files (delete existing `Lib/$ARGUMENTS.py` or `Lib/$ARGUMENTS/`, then copy from `cpython/Lib/`)
      - Patch test files preserving existing RustPython markers
      - Run tests and auto-mark new test failures (not regressions)
      - Remove `@unittest.expectedFailure` from tests that now pass
-   - **Handle warnings**: If you see warnings like `WARNING: TestCFoo does not exist in remote file`, it means the class structure changed and markers couldn't be transferred automatically. These need to be manually restored in step 4 or added in step 5.
+     - Create a git commit with the changes
+   - **Handle warnings**: If you see warnings like `WARNING: TestCFoo does not exist in remote file`, it means the class structure changed and markers couldn't be transferred automatically. These need to be manually restored in step 2 or added in step 3.
 
-4. **Review git diff and restore RUSTPYTHON-specific changes**
+2. **Review git diff and restore RUSTPYTHON-specific changes**
    - Run `git diff Lib/test/test_$ARGUMENTS` to review all changes
    - **Only restore changes that have explicit `RUSTPYTHON` comments**. Look for:
      - `# XXX: RUSTPYTHON` or `# XXX RUSTPYTHON` - Comments marking RustPython-specific code modifications
@@ -49,13 +48,46 @@ This helps improve the tooling for future upgrades.
    - **Do NOT restore other diff changes** - these are likely upstream CPython changes, not RustPython-specific modifications
    - When restoring, preserve the original context and formatting
 
-5. **Verify tests**
-   - Run: `cargo run --release -- -m test test_$ARGUMENTS -v`
-   - The `-v` flag shows detailed output to identify which tests fail and why
-   - For each new failure, add appropriate markers based on the failure type:
-     - **Test assertion failure** → `@unittest.expectedFailure` with `# TODO: RUSTPYTHON` comment
-     - **Panic/crash** → `@unittest.skip("TODO: RUSTPYTHON; <panic message>")`
-   - **Class-specific markers**: If a test fails only in the C implementation (TestCFoo) but passes in the Python implementation (TestPyFoo), or vice versa, add the marker to the specific subclass, not the base class:
+3. **Investigate test failures with subagent**
+   - First, get dependent tests using the deps command:
+     ```
+     cargo run --release -- scripts/update_lib deps $ARGUMENTS
+     ```
+   - Look for the line `- [ ] $ARGUMENTS: test_xxx test_yyy ...` to get the direct dependent tests
+   - Run those tests to collect failures:
+     ```
+     cargo run --release -- -m test test_xxx test_yyy ... 2>&1 | grep -E "^(FAIL|ERROR):"
+     ```
+   - For example, if deps output shows `- [ ] linecache: test_bdb test_inspect test_linecache test_traceback test_zipimport`, run:
+     ```
+     cargo run --release -- -m test test_bdb test_inspect test_linecache test_traceback test_zipimport 2>&1 | grep -E "^(FAIL|ERROR):"
+     ```
+   - For each failure, use the Task tool with `general-purpose` subagent to investigate:
+     - Subagent should follow the `/investigate-test-failure` skill workflow
+     - Pass the failed test identifier as the argument (e.g., `test_inspect.TestGetSourceBase.test_getsource_reload`)
+   - If subagent can fix the issue easily: fix and commit
+   - If complex issue: subagent collects issue info and reports back (issue creation on user request only)
+   - Using subagent prevents context pollution in the main conversation
+
+4. **Mark remaining test failures with auto-mark**
+   - Run: `python3 scripts/update_lib auto-mark Lib/test/test_$ARGUMENTS.py --mark-failure`
+   - Or for directory: `python3 scripts/update_lib auto-mark Lib/test/test_$ARGUMENTS/ --mark-failure`
+   - This will:
+     - Run tests and mark ALL failing tests with `@unittest.expectedFailure`
+     - Remove `@unittest.expectedFailure` from tests that now pass
+   - **Note**: The `--mark-failure` flag marks all failures including regressions. Review the changes before committing.
+
+5. **Handle panics manually**
+   - If any tests cause panics/crashes (not just assertion failures), they need `@unittest.skip` instead:
+     ```python
+     @unittest.skip("TODO: RUSTPYTHON; panics with 'index out of bounds'")
+     def test_crashes(self):
+         ...
+     ```
+   - auto-mark cannot detect panics automatically - check the test output for crash messages
+
+6. **Handle class-specific failures**
+   - If a test fails only in the C implementation (TestCFoo) but passes in the Python implementation (TestPyFoo), or vice versa, move the marker to the specific subclass:
      ```python
      # Base class - no marker here
      class TestFoo:
@@ -70,25 +102,21 @@ This helps improve the tooling for future upgrades.
          def test_something(self):
              return super().test_something()
      ```
-   - **New tests from CPython**: The upgrade may bring in entirely new tests that didn't exist before. These won't have any RUSTPYTHON markers in the diff - they just need to be tested and marked if they fail.
-   - Example markers:
-     ```python
-     # TODO: RUSTPYTHON
-     @unittest.expectedFailure
-     def test_something(self):
-         ...
 
-     # TODO: RUSTPYTHON
-     @unittest.skip("TODO: RUSTPYTHON; panics with 'index out of bounds'")
-     def test_crashes(self):
-         ...
-     ```
+7. **Commit the test fixes**
+   - Run: `git add -u && git commit -m "Mark failing tests"`
+   - This creates a separate commit for the test markers added in steps 2-6
 
 ## Example Usage
 ```
+# Using module names (recommended)
 /upgrade-pylib inspect
 /upgrade-pylib json
 /upgrade-pylib asyncio
+
+# Using library paths (alternative)
+/upgrade-pylib cpython/Lib/inspect.py
+/upgrade-pylib cpython/Lib/json/
 ```
 
 ## Example: Restoring RUSTPYTHON changes
