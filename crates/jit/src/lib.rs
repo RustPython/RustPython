@@ -92,7 +92,7 @@ impl Jit {
         let sig = {
             let mut compiler = FunctionCompiler::new(
                 &mut builder,
-                bytecode.varnames.len(),
+                bytecode.nlocals as usize,
                 args,
                 ret,
                 entry_block,

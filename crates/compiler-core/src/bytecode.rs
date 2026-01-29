@@ -276,12 +276,13 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub obj_name: C::Name,
     /// Qualified name of the object (like CPython's co_qualname)
     pub qualname: C::Name,
-    pub cell2arg: Option<Box<[i32]>>,
+    pub localsplusnames: Box<[C::Name]>,
+    pub localspluskinds: Box<[LocalKind]>,
+    pub nlocals: u32,
+    pub ncellvars: u32,
+    pub nfreevars: u32,
     pub constants: Box<[C]>,
     pub names: Box<[C::Name]>,
-    pub varnames: Box<[C::Name]>,
-    pub cellvars: Box<[C::Name]>,
-    pub freevars: Box<[C::Name]>,
     /// Line number table (CPython 3.11+ format)
     pub linetable: Box<[u8]>,
     /// Exception handling table
@@ -301,6 +302,16 @@ bitflags! {
         /// If a code object represents a function and has a docstring,
         /// this bit is set and the first item in co_consts is the docstring.
         const HAS_DOCSTRING = 0x4000000;
+    }
+}
+
+bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    pub struct LocalKind: u8 {
+        const LOCAL  = 0x20;
+        const CELL   = 0x40;
+        const FREE   = 0x80;
+        const HIDDEN = 0x10;
     }
 }
 
@@ -561,25 +572,42 @@ impl<N: AsRef<str>> fmt::Debug for Arguments<'_, N> {
 }
 
 impl<C: Constant> CodeObject<C> {
+    /// Returns varnames (first nlocals entries of localsplusnames)
+    pub fn varnames(&self) -> &[C::Name] {
+        &self.localsplusnames[..self.nlocals as usize]
+    }
+
+    /// Returns freevars (last nfreevars entries of localsplusnames)
+    pub fn freevars(&self) -> &[C::Name] {
+        let start = self.localsplusnames.len() - self.nfreevars as usize;
+        &self.localsplusnames[start..]
+    }
+
+    /// Total localsplus count
+    pub fn nlocalsplus(&self) -> usize {
+        self.localsplusnames.len()
+    }
+
     /// Get all arguments of the code object
     /// like inspect.getargs
     pub fn arg_names(&self) -> Arguments<'_, C::Name> {
+        let varnames = self.varnames();
         let nargs = self.arg_count as usize;
         let nkwargs = self.kwonlyarg_count as usize;
         let mut varargs_pos = nargs + nkwargs;
-        let posonlyargs = &self.varnames[..self.posonlyarg_count as usize];
-        let args = &self.varnames[..nargs];
-        let kwonlyargs = &self.varnames[nargs..varargs_pos];
+        let posonlyargs = &varnames[..self.posonlyarg_count as usize];
+        let args = &varnames[..nargs];
+        let kwonlyargs = &varnames[nargs..varargs_pos];
 
         let vararg = if self.flags.contains(CodeFlags::VARARGS) {
-            let vararg = &self.varnames[varargs_pos];
+            let vararg = &varnames[varargs_pos];
             varargs_pos += 1;
             Some(vararg)
         } else {
             None
         };
         let varkwarg = if self.flags.contains(CodeFlags::VARKEYWORDS) {
-            Some(&self.varnames[varargs_pos])
+            Some(&varnames[varargs_pos])
         } else {
             None
         };
@@ -682,9 +710,11 @@ impl<C: Constant> CodeObject<C> {
                 .map(|x| bag.make_constant(x.borrow_constant()))
                 .collect(),
             names: map_names(self.names),
-            varnames: map_names(self.varnames),
-            cellvars: map_names(self.cellvars),
-            freevars: map_names(self.freevars),
+            localsplusnames: map_names(self.localsplusnames),
+            localspluskinds: self.localspluskinds,
+            nlocals: self.nlocals,
+            ncellvars: self.ncellvars,
+            nfreevars: self.nfreevars,
             source_path: bag.make_name(self.source_path.as_ref()),
             obj_name: bag.make_name(self.obj_name.as_ref()),
             qualname: bag.make_name(self.qualname.as_ref()),
@@ -697,7 +727,6 @@ impl<C: Constant> CodeObject<C> {
             kwonlyarg_count: self.kwonlyarg_count,
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
-            cell2arg: self.cell2arg,
             linetable: self.linetable,
             exceptiontable: self.exceptiontable,
         }
@@ -714,9 +743,11 @@ impl<C: Constant> CodeObject<C> {
                 .map(|x| bag.make_constant(x.borrow_constant()))
                 .collect(),
             names: map_names(&self.names),
-            varnames: map_names(&self.varnames),
-            cellvars: map_names(&self.cellvars),
-            freevars: map_names(&self.freevars),
+            localsplusnames: map_names(&self.localsplusnames),
+            localspluskinds: self.localspluskinds.clone(),
+            nlocals: self.nlocals,
+            ncellvars: self.ncellvars,
+            nfreevars: self.nfreevars,
             source_path: bag.make_name(self.source_path.as_ref()),
             obj_name: bag.make_name(self.obj_name.as_ref()),
             qualname: bag.make_name(self.qualname.as_ref()),
@@ -729,7 +760,6 @@ impl<C: Constant> CodeObject<C> {
             kwonlyarg_count: self.kwonlyarg_count,
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
-            cell2arg: self.cell2arg.clone(),
             linetable: self.linetable.clone(),
             exceptiontable: self.exceptiontable.clone(),
         }
@@ -773,14 +803,20 @@ impl<C: Constant> InstrDisplayContext for CodeObject<C> {
     }
 
     fn get_varname(&self, i: usize) -> &str {
-        self.varnames[i].as_ref()
+        self.localsplusnames[i].as_ref()
     }
 
     fn get_cell_name(&self, i: usize) -> &str {
-        self.cellvars
-            .get(i)
-            .unwrap_or_else(|| &self.freevars[i - self.cellvars.len()])
-            .as_ref()
+        let mut count = 0;
+        for (name, &kind) in self.localsplusnames.iter().zip(self.localspluskinds.iter()) {
+            if kind.intersects(LocalKind::CELL | LocalKind::FREE) {
+                if count == i {
+                    return name.as_ref();
+                }
+                count += 1;
+            }
+        }
+        panic!("cell/free index {i} out of bounds")
     }
 }
 

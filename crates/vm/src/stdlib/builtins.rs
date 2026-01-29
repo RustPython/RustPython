@@ -377,7 +377,7 @@ mod builtins {
             Either::B(code_obj) => code_obj,
         };
 
-        if !code_obj.freevars.is_empty() {
+        if code_obj.nfreevars > 0 {
             return Err(vm.new_type_error(format!(
                 "code object passed to {func}() may not contain free variables"
             )));

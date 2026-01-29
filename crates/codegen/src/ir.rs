@@ -8,8 +8,8 @@ use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
         AnyInstruction, Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData,
-        ExceptionTableEntry, InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg,
-        PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table,
+        ExceptionTableEntry, InstrDisplayContext, Instruction, InstructionMetadata, Label,
+        LocalKind, OpArg, PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -193,7 +193,6 @@ impl CodeInfo {
         self.optimize_load_fast_borrow();
 
         let max_stackdepth = self.max_stackdepth()?;
-        let cell2arg = self.cell2arg();
 
         let Self {
             flags,
@@ -219,12 +218,43 @@ impl CodeInfo {
             varnames: varname_cache,
             cellvars: cellvar_cache,
             freevars: freevar_cache,
-            fast_hidden: _,
+            fast_hidden,
             argcount: arg_count,
             posonlyargcount: posonlyarg_count,
             kwonlyargcount: kwonlyarg_count,
             firstlineno: first_line_number,
         } = metadata;
+
+        // Build localsplusnames and localspluskinds
+        let mut localsplusnames_vec: Vec<String> = Vec::new();
+        let mut localspluskinds_vec: Vec<LocalKind> = Vec::new();
+
+        // 1. For each var in varnames
+        for var in varname_cache.iter() {
+            let mut kind = LocalKind::LOCAL;
+            if cellvar_cache.contains(var) {
+                kind |= LocalKind::CELL;
+            }
+            if fast_hidden.get(var).copied().unwrap_or(false) {
+                kind |= LocalKind::HIDDEN;
+            }
+            localsplusnames_vec.push(var.clone());
+            localspluskinds_vec.push(kind);
+        }
+
+        // 2. For each var in cellvars that is NOT in varnames
+        for var in cellvar_cache.iter() {
+            if !varname_cache.contains(var) {
+                localsplusnames_vec.push(var.clone());
+                localspluskinds_vec.push(LocalKind::CELL);
+            }
+        }
+
+        // 3. For each var in freevars
+        for var in freevar_cache.iter() {
+            localsplusnames_vec.push(var.clone());
+            localspluskinds_vec.push(LocalKind::FREE);
+        }
 
         let mut instructions = Vec::new();
         let mut locations = Vec::new();
@@ -389,44 +419,14 @@ impl CodeInfo {
             locations: locations.into_boxed_slice(),
             constants: constants.into_iter().collect(),
             names: name_cache.into_iter().collect(),
-            varnames: varname_cache.into_iter().collect(),
-            cellvars: cellvar_cache.into_iter().collect(),
-            freevars: freevar_cache.into_iter().collect(),
-            cell2arg,
+            nlocals: varname_cache.len() as u32,
+            ncellvars: cellvar_cache.len() as u32,
+            nfreevars: freevar_cache.len() as u32,
+            localsplusnames: localsplusnames_vec.into_iter().collect(),
+            localspluskinds: localspluskinds_vec.into_boxed_slice(),
             linetable,
             exceptiontable,
         })
-    }
-
-    fn cell2arg(&self) -> Option<Box<[i32]>> {
-        if self.metadata.cellvars.is_empty() {
-            return None;
-        }
-
-        let total_args = self.metadata.argcount
-            + self.metadata.kwonlyargcount
-            + self.flags.contains(CodeFlags::VARARGS) as u32
-            + self.flags.contains(CodeFlags::VARKEYWORDS) as u32;
-
-        let mut found_cellarg = false;
-        let cell2arg = self
-            .metadata
-            .cellvars
-            .iter()
-            .map(|var| {
-                self.metadata
-                    .varnames
-                    .get_index_of(var)
-                    // check that it's actually an arg
-                    .filter(|i| *i < total_args as usize)
-                    .map_or(-1, |i| {
-                        found_cellarg = true;
-                        i as i32
-                    })
-            })
-            .collect::<Box<[_]>>();
-
-        if found_cellarg { Some(cell2arg) } else { None }
     }
 
     fn dce(&mut self) {

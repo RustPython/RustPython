@@ -522,6 +522,42 @@ impl Constructor for PyCode {
             )],
         > = vec![(loc, loc); instructions.len()].into_boxed_slice();
 
+        // Build localsplusnames/localspluskinds from varnames, cellvars, freevars
+        use rustpython_compiler_core::bytecode::LocalKind;
+
+        // Save counts before consuming the arrays
+        let nlocals = varnames.len() as u32;
+        let ncellvars = cellvars.len() as u32;
+        let nfreevars = freevars.len() as u32;
+
+        let cellvar_set: std::collections::HashSet<&str> =
+            cellvars.iter().map(|s| s.as_str()).collect();
+
+        let mut lp_names = Vec::new();
+        let mut lp_kinds = Vec::new();
+
+        // 1. varnames (locals, some may be cells too)
+        for vn in varnames.iter() {
+            let mut kind = LocalKind::LOCAL;
+            if cellvar_set.contains(vn.as_str()) {
+                kind |= LocalKind::CELL;
+            }
+            lp_names.push(*vn);
+            lp_kinds.push(kind);
+        }
+        // 2. cell-only vars
+        for cn in cellvars.iter() {
+            if !varnames.iter().any(|vn| vn.as_str() == cn.as_str()) {
+                lp_names.push(*cn);
+                lp_kinds.push(LocalKind::CELL);
+            }
+        }
+        // 3. free vars
+        for fv in freevars.iter() {
+            lp_names.push(*fv);
+            lp_kinds.push(LocalKind::FREE);
+        }
+
         // Build the CodeObject
         let code = CodeObject {
             instructions,
@@ -539,12 +575,13 @@ impl Constructor for PyCode {
             max_stackdepth: args.stacksize,
             obj_name: vm.ctx.intern_str(args.name.as_str()),
             qualname: vm.ctx.intern_str(args.qualname.as_str()),
-            cell2arg: None, // TODO: reuse `fn cell2arg`
+            localsplusnames: lp_names.into_boxed_slice(),
+            localspluskinds: lp_kinds.into_boxed_slice(),
+            nlocals,
+            ncellvars,
+            nfreevars,
             constants,
             names,
-            varnames,
-            cellvars,
-            freevars,
             linetable: args.linetable.as_bytes().to_vec().into_boxed_slice(),
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
@@ -577,17 +614,17 @@ impl PyCode {
 
     #[pygetset]
     pub fn co_cellvars(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let cellvars = self
-            .cellvars
-            .iter()
-            .map(|name| name.to_pyobject(vm))
+        let cellvars: Vec<PyObjectRef> = self.code.localsplusnames.iter()
+            .zip(self.code.localspluskinds.iter())
+            .filter(|&(_, kind)| kind.contains(bytecode::LocalKind::CELL))
+            .map(|(name, _)| name.to_object())
             .collect();
         vm.ctx.new_tuple(cellvars)
     }
 
     #[pygetset]
     fn co_nlocals(&self) -> usize {
-        self.code.varnames.len()
+        self.code.nlocals as usize
     }
 
     #[pygetset]
@@ -634,7 +671,7 @@ impl PyCode {
 
     #[pygetset]
     pub fn co_varnames(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let varnames = self.code.varnames.iter().map(|s| s.to_object()).collect();
+        let varnames = self.code.varnames().iter().map(|s| s.to_object()).collect();
         vm.ctx.new_tuple(varnames)
     }
 
@@ -660,12 +697,33 @@ impl PyCode {
     pub fn co_freevars(&self, vm: &VirtualMachine) -> PyTupleRef {
         let names = self
             .code
-            .freevars
-            .deref()
+            .freevars()
             .iter()
             .map(|name| name.to_pyobject(vm))
             .collect();
         vm.ctx.new_tuple(names)
+    }
+
+    #[pygetset]
+    fn co_localsplusnames(&self, vm: &VirtualMachine) -> PyTupleRef {
+        let names: Vec<PyObjectRef> = self
+            .code
+            .localsplusnames
+            .iter()
+            .map(|name| name.to_pyobject(vm))
+            .collect();
+        vm.ctx.new_tuple(names)
+    }
+
+    #[pygetset]
+    fn co_localspluskinds(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
+        let bytes: Vec<u8> = self
+            .code
+            .localspluskinds
+            .iter()
+            .map(|kind| kind.bits())
+            .collect();
+        vm.ctx.new_bytes(bytes)
     }
 
     #[pygetset]
@@ -947,7 +1005,7 @@ impl PyCode {
 
         let varnames = match co_varnames {
             OptionalArg::Present(varnames) => varnames,
-            OptionalArg::Missing => self.code.varnames.iter().map(|s| s.to_object()).collect(),
+            OptionalArg::Missing => self.code.varnames().iter().map(|s| s.to_object()).collect(),
         };
 
         let qualname = match co_qualname {
@@ -969,20 +1027,24 @@ impl PyCode {
             OptionalArg::Missing => self.code.instructions.clone(),
         };
 
-        let cellvars = match co_cellvars {
+        let cellvars: Box<[&'static PyStrInterned]> = match co_cellvars {
             OptionalArg::Present(cellvars) => cellvars
                 .into_iter()
                 .map(|o| o.as_interned_str(vm).unwrap())
                 .collect(),
-            OptionalArg::Missing => self.code.cellvars.clone(),
+            OptionalArg::Missing => self.code.localsplusnames.iter()
+                .zip(self.code.localspluskinds.iter())
+                .filter(|&(_, kind)| kind.contains(bytecode::LocalKind::CELL))
+                .map(|(name, _)| *name)
+                .collect(),
         };
 
-        let freevars = match co_freevars {
+        let freevars: Box<[&'static PyStrInterned]> = match co_freevars {
             OptionalArg::Present(freevars) => freevars
                 .into_iter()
                 .map(|o| o.as_interned_str(vm).unwrap())
                 .collect(),
-            OptionalArg::Missing => self.code.freevars.clone(),
+            OptionalArg::Missing => self.code.freevars().iter().copied().collect(),
         };
 
         // Validate co_nlocals if provided
@@ -1009,6 +1071,50 @@ impl PyCode {
             OptionalArg::Missing => self.code.exceptiontable.clone(),
         };
 
+        let varnames_interned: Box<[&'static PyStrInterned]> = varnames
+            .into_iter()
+            .map(|o| o.as_interned_str(vm).unwrap())
+            .collect();
+
+        // Build localsplusnames/localspluskinds from varnames, cellvars, freevars
+        use rustpython_compiler_core::bytecode::LocalKind;
+
+        // Save counts before consuming the arrays
+        let nlocals = varnames_interned.len() as u32;
+        let ncellvars = cellvars.len() as u32;
+        let nfreevars = freevars.len() as u32;
+
+        let cellvar_set: std::collections::HashSet<&str> =
+            cellvars.iter().map(|s| s.as_str()).collect();
+
+        let mut lp_names = Vec::new();
+        let mut lp_kinds = Vec::new();
+
+        // 1. varnames (locals, some may be cells too)
+        for vn in varnames_interned.iter() {
+            let mut kind = LocalKind::LOCAL;
+            if cellvar_set.contains(vn.as_str()) {
+                kind |= LocalKind::CELL;
+            }
+            lp_names.push(*vn);
+            lp_kinds.push(kind);
+        }
+        // 2. cell-only vars
+        for cn in cellvars.iter() {
+            if !varnames_interned
+                .iter()
+                .any(|vn| vn.as_str() == cn.as_str())
+            {
+                lp_names.push(*cn);
+                lp_kinds.push(LocalKind::CELL);
+            }
+        }
+        // 3. free vars
+        for fv in freevars.iter() {
+            lp_names.push(*fv);
+            lp_kinds.push(LocalKind::FREE);
+        }
+
         let new_code = CodeObject {
             flags: CodeFlags::from_bits_truncate(flags),
             posonlyarg_count,
@@ -1029,13 +1135,11 @@ impl PyCode {
                 .into_iter()
                 .map(|o| o.as_interned_str(vm).unwrap())
                 .collect(),
-            varnames: varnames
-                .into_iter()
-                .map(|o| o.as_interned_str(vm).unwrap())
-                .collect(),
-            cellvars,
-            freevars,
-            cell2arg: self.code.cell2arg.clone(),
+            localsplusnames: lp_names.into_boxed_slice(),
+            localspluskinds: lp_kinds.into_boxed_slice(),
+            nlocals,
+            ncellvars,
+            nfreevars,
             linetable,
             exceptiontable,
         };
@@ -1045,30 +1149,14 @@ impl PyCode {
 
     #[pymethod]
     fn _varname_from_oparg(&self, opcode: i32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let idx_err = |vm: &VirtualMachine| vm.new_index_error("tuple index out of range");
-
-        let idx = usize::try_from(opcode).map_err(|_| idx_err(vm))?;
-
-        let varnames_len = self.code.varnames.len();
-        let cellvars_len = self.code.cellvars.len();
-
-        let name = if idx < varnames_len {
-            // Index in varnames
-            self.code.varnames.get(idx).ok_or_else(|| idx_err(vm))?
-        } else if idx < varnames_len + cellvars_len {
-            // Index in cellvars
-            self.code
-                .cellvars
-                .get(idx - varnames_len)
-                .ok_or_else(|| idx_err(vm))?
-        } else {
-            // Index in freevars
-            self.code
-                .freevars
-                .get(idx - varnames_len - cellvars_len)
-                .ok_or_else(|| idx_err(vm))?
-        };
-        Ok(name.to_object())
+        let idx = usize::try_from(opcode)
+            .map_err(|_| vm.new_index_error("tuple index out of range".to_owned()))?;
+        let name = self
+            .code
+            .localsplusnames
+            .get(idx)
+            .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))?;
+        Ok(name.to_pyobject(vm))
     }
 }
 

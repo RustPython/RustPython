@@ -132,8 +132,8 @@ impl Frame {
         func_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> Self {
-        let nlocals = code.varnames.len();
-        let num_cells = code.cellvars.len();
+        let nlocals = code.nlocals as usize;
+        let num_cells = code.ncellvars as usize;
         let nfrees = closure.len();
 
         let cells_frees: Box<[PyCellRef]> =
@@ -191,9 +191,9 @@ impl Frame {
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
         let locals = &self.locals;
         let code = &**self.code;
-        let map = &code.varnames;
-        let j = core::cmp::min(map.len(), code.varnames.len());
-        if !code.varnames.is_empty() {
+        let map = code.varnames();
+        let j = map.len();
+        if code.nlocals > 0 {
             let fastlocals = self.fastlocals.lock();
             for (&k, v) in zip(&map[..j], &**fastlocals) {
                 match locals.mapping().ass_subscript(k, v.clone(), vm) {
@@ -203,24 +203,40 @@ impl Frame {
                 }
             }
         }
-        if !code.cellvars.is_empty() || !code.freevars.is_empty() {
-            let map_to_dict = |keys: &[&PyStrInterned], values: &[PyCellRef]| {
-                for (&k, v) in zip(keys, values) {
-                    if let Some(value) = v.get() {
-                        locals.mapping().ass_subscript(k, Some(value), vm)?;
+        if code.ncellvars > 0 || code.nfreevars > 0 {
+            // Add cell variables
+            let mut cf_idx = 0;
+            for (&name, &kind) in code.localsplusnames.iter().zip(code.localspluskinds.iter()) {
+                if kind.contains(bytecode::LocalKind::CELL) {
+                    if let Some(value) = self.cells_frees[cf_idx].get() {
+                        locals.mapping().ass_subscript(name, Some(value), vm)?;
                     } else {
-                        match locals.mapping().ass_subscript(k, None, vm) {
+                        match locals.mapping().ass_subscript(name, None, vm) {
+                            Ok(()) => {}
+                            Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    cf_idx += 1;
+                } else if kind.contains(bytecode::LocalKind::FREE) {
+                    cf_idx += 1;
+                }
+            }
+            // Add free variables only in optimized mode
+            if code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
+                let freevars = code.freevars();
+                for (i, &name) in freevars.iter().enumerate() {
+                    let cf_idx = code.ncellvars as usize + i;
+                    if let Some(value) = self.cells_frees[cf_idx].get() {
+                        locals.mapping().ass_subscript(name, Some(value), vm)?;
+                    } else {
+                        match locals.mapping().ass_subscript(name, None, vm) {
                             Ok(()) => {}
                             Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                             Err(e) => return Err(e),
                         }
                     }
                 }
-                Ok(())
-            };
-            map_to_dict(&code.cellvars, &self.cells_frees)?;
-            if code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
-                map_to_dict(&code.freevars, &self.cells_frees[code.cellvars.len()..])?;
             }
         }
         Ok(locals.clone())
@@ -565,16 +581,28 @@ impl ExecutingFrame<'_> {
     }
 
     fn unbound_cell_exception(&self, i: usize, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        if let Some(&name) = self.code.cellvars.get(i) {
+        // Find the i-th cell/free variable name
+        let mut count = 0;
+        let mut found_name = None;
+        for (name, &kind) in self.code.localsplusnames.iter().zip(self.code.localspluskinds.iter()) {
+            if kind.intersects(bytecode::LocalKind::CELL | bytecode::LocalKind::FREE) {
+                if count == i {
+                    found_name = Some(name);
+                    break;
+                }
+                count += 1;
+            }
+        }
+        let name = found_name.expect("cell/free index out of bounds");
+        if i < self.code.ncellvars as usize {
             vm.new_exception_msg(
                 vm.ctx.exceptions.unbound_local_error.to_owned(),
                 format!("local variable '{name}' referenced before assignment"),
             )
         } else {
-            let name = self.code.freevars[i - self.code.cellvars.len()];
             vm.new_name_error(
                 format!("free variable '{name}' referenced before assignment in enclosing scope"),
-                name.to_owned(),
+                (*name).to_owned(),
             )
         }
     }
@@ -824,7 +852,7 @@ impl ExecutingFrame<'_> {
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
                         format!(
                             "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
+                            self.code.localsplusnames[idx]
                         ),
                     ));
                 }
@@ -1184,11 +1212,18 @@ impl ExecutingFrame<'_> {
                 // Pop dict from stack (locals or classdict depending on context)
                 let class_dict = self.pop_value();
                 let i = i.get(arg) as usize;
-                let name = if i < self.code.cellvars.len() {
-                    self.code.cellvars[i]
-                } else {
-                    self.code.freevars[i - self.code.cellvars.len()]
-                };
+                // Find the i-th cell/free variable name
+                let mut count = 0;
+                let mut name = self.code.localsplusnames[0]; // placeholder
+                for (n, &kind) in self.code.localsplusnames.iter().zip(self.code.localspluskinds.iter()) {
+                    if kind.intersects(bytecode::LocalKind::CELL | bytecode::LocalKind::FREE) {
+                        if count == i {
+                            name = *n;
+                            break;
+                        }
+                        count += 1;
+                    }
+                }
                 // Only treat KeyError as "not found", propagate other exceptions
                 let value = if let Some(dict_obj) = class_dict.downcast_ref::<PyDict>() {
                     dict_obj.get_item_opt(name, vm)?
@@ -1278,7 +1313,7 @@ impl ExecutingFrame<'_> {
                 let idx = idx.get(arg) as usize;
                 let x = self.fastlocals.lock()[idx]
                     .clone()
-                    .ok_or_else(|| reference_error(self.code.varnames[idx], vm))?;
+                    .ok_or_else(|| reference_error(self.code.localsplusnames[idx], vm))?;
                 self.push_value(x);
                 Ok(None)
             }
@@ -1301,7 +1336,7 @@ impl ExecutingFrame<'_> {
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
                         format!(
                             "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
+                            self.code.localsplusnames[idx]
                         ),
                     )
                 })?;
@@ -1320,7 +1355,7 @@ impl ExecutingFrame<'_> {
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
                         format!(
                             "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx1]
+                            self.code.localsplusnames[idx1]
                         ),
                     )
                 })?;
@@ -1329,7 +1364,7 @@ impl ExecutingFrame<'_> {
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
                         format!(
                             "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx2]
+                            self.code.localsplusnames[idx2]
                         ),
                     )
                 })?;
@@ -1353,7 +1388,7 @@ impl ExecutingFrame<'_> {
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
                         format!(
                             "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
+                            self.code.localsplusnames[idx]
                         ),
                     )
                 })?;
@@ -1371,7 +1406,7 @@ impl ExecutingFrame<'_> {
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
                         format!(
                             "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx1]
+                            self.code.localsplusnames[idx1]
                         ),
                     )
                 })?;
@@ -1380,7 +1415,7 @@ impl ExecutingFrame<'_> {
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
                         format!(
                             "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx2]
+                            self.code.localsplusnames[idx2]
                         ),
                     )
                 })?;
