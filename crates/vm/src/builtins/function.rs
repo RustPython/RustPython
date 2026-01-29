@@ -392,11 +392,16 @@ impl PyFunction {
         }
 
         {
-            let total_args = (code.arg_count + code.kwonlyarg_count
+            let total_args = (code.arg_count
+                + code.kwonlyarg_count
                 + code.flags.contains(bytecode::CodeFlags::VARARGS) as u32
-                + code.flags.contains(bytecode::CodeFlags::VARKEYWORDS) as u32) as usize;
+                + code.flags.contains(bytecode::CodeFlags::VARKEYWORDS) as u32)
+                as usize;
             let mut cell_idx = 0;
-            for (i, &kind) in code.localspluskinds[..code.nlocals as usize].iter().enumerate() {
+            for (i, &kind) in code.localspluskinds[..code.nlocals as usize]
+                .iter()
+                .enumerate()
+            {
                 if kind.contains(bytecode::LocalKind::CELL) {
                     if i < total_args {
                         let arg = fastlocals[i].take();

@@ -6,8 +6,7 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    bytecode,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, bytecode,
     class::PyClassImpl,
     common::lock::PyRwLock,
     function::{FuncArgs, IntoFuncArgs, OptionalArg},
@@ -89,7 +88,12 @@ impl Initializer for PySuper {
             let obj = frame.fastlocals.lock()[0]
                 .clone()
                 .or_else(|| {
-                    if frame.code.localspluskinds.first().map_or(false, |k| k.contains(bytecode::LocalKind::CELL)) {
+                    if frame
+                        .code
+                        .localspluskinds
+                        .first()
+                        .map_or(false, |k| k.contains(bytecode::LocalKind::CELL))
+                    {
                         // First argument (self) is captured as a cell
                         frame.cells_frees[0].get()
                     } else {

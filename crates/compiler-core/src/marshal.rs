@@ -255,9 +255,15 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let mut ncellvars: u32 = 0;
     let mut nfreevars: u32 = 0;
     for &kind in localspluskinds.iter() {
-        if kind.contains(LocalKind::LOCAL) { nlocals += 1; }
-        if kind.contains(LocalKind::CELL) { ncellvars += 1; }
-        if kind.contains(LocalKind::FREE) { nfreevars += 1; }
+        if kind.contains(LocalKind::LOCAL) {
+            nlocals += 1;
+        }
+        if kind.contains(LocalKind::CELL) {
+            ncellvars += 1;
+        }
+        if kind.contains(LocalKind::FREE) {
+            nfreevars += 1;
+        }
     }
 
     // Read linetable and exceptiontable

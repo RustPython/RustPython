@@ -584,7 +584,12 @@ impl ExecutingFrame<'_> {
         // Find the i-th cell/free variable name
         let mut count = 0;
         let mut found_name = None;
-        for (name, &kind) in self.code.localsplusnames.iter().zip(self.code.localspluskinds.iter()) {
+        for (name, &kind) in self
+            .code
+            .localsplusnames
+            .iter()
+            .zip(self.code.localspluskinds.iter())
+        {
             if kind.intersects(bytecode::LocalKind::CELL | bytecode::LocalKind::FREE) {
                 if count == i {
                     found_name = Some(name);
@@ -1215,7 +1220,12 @@ impl ExecutingFrame<'_> {
                 // Find the i-th cell/free variable name
                 let mut count = 0;
                 let mut name = self.code.localsplusnames[0]; // placeholder
-                for (n, &kind) in self.code.localsplusnames.iter().zip(self.code.localspluskinds.iter()) {
+                for (n, &kind) in self
+                    .code
+                    .localsplusnames
+                    .iter()
+                    .zip(self.code.localspluskinds.iter())
+                {
                     if kind.intersects(bytecode::LocalKind::CELL | bytecode::LocalKind::FREE) {
                         if count == i {
                             name = *n;

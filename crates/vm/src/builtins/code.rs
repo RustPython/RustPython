@@ -614,7 +614,10 @@ impl PyCode {
 
     #[pygetset]
     pub fn co_cellvars(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let cellvars: Vec<PyObjectRef> = self.code.localsplusnames.iter()
+        let cellvars: Vec<PyObjectRef> = self
+            .code
+            .localsplusnames
+            .iter()
             .zip(self.code.localspluskinds.iter())
             .filter(|&(_, kind)| kind.contains(bytecode::LocalKind::CELL))
             .map(|(name, _)| name.to_object())
@@ -1032,7 +1035,10 @@ impl PyCode {
                 .into_iter()
                 .map(|o| o.as_interned_str(vm).unwrap())
                 .collect(),
-            OptionalArg::Missing => self.code.localsplusnames.iter()
+            OptionalArg::Missing => self
+                .code
+                .localsplusnames
+                .iter()
                 .zip(self.code.localspluskinds.iter())
                 .filter(|&(_, kind)| kind.contains(bytecode::LocalKind::CELL))
                 .map(|(name, _)| *name)
