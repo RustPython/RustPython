@@ -452,7 +452,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     // Includes _importlib_bootstrap and _importlib_bootstrap_external
     ext_modules!(
         iter,
-        dir = "./Lib/python_builtins",
+        dir = "../../Lib/python_builtins",
         crate_name = "rustpython_compiler_core"
     );
 
@@ -463,7 +463,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     // #[cfg(not(feature = "freeze-stdlib"))]
     ext_modules!(
         iter,
-        dir = "./Lib/core_modules",
+        dir = "../../Lib/core_modules",
         crate_name = "rustpython_compiler_core"
     );
 
