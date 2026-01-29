@@ -1,4 +1,4 @@
-// spell-checker: ignore ssleof aesccm aesgcm getblocking setblocking ENDTLS TLSEXT
+// spell-checker: ignore ssleof aesccm aesgcm capath getblocking setblocking ENDTLS TLSEXT
 
 //! Pure Rust SSL/TLS implementation using rustls
 //!
@@ -2786,6 +2786,16 @@ mod _ssl {
             recv_method.call((self.sock.clone(), vm.ctx.new_int(size)), vm)
         }
 
+        /// Peek at socket data without consuming it (MSG_PEEK).
+        /// Used during TLS shutdown to avoid consuming post-TLS cleartext data.
+        pub(crate) fn sock_peek(&self, size: usize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let socket_mod = vm.import("socket", 0)?;
+            let socket_class = socket_mod.get_attr("socket", vm)?;
+            let recv_method = socket_class.get_attr("recv", vm)?;
+            let msg_peek = socket_mod.get_attr("MSG_PEEK", vm)?;
+            recv_method.call((self.sock.clone(), vm.ctx.new_int(size), msg_peek), vm)
+        }
+
         /// Socket send - just sends data, caller must handle pending flush
         /// Use flush_pending_tls_output before this if ordering is important
         pub(crate) fn sock_send(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyObjectRef> {
@@ -4287,45 +4297,118 @@ mod _ssl {
             conn: &mut TlsConnection,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            // Try to read incoming data
+            // In socket mode, peek first to avoid consuming post-TLS cleartext
+            // data. During STARTTLS, after close_notify exchange, the socket
+            // transitions to cleartext. Without peeking, sock_recv may consume
+            // cleartext data meant for the application after unwrap().
+            if self.incoming_bio.is_none() {
+                return self.try_read_close_notify_socket(conn, vm);
+            }
+
+            // BIO mode: read from incoming BIO
             match self.sock_recv(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
                 Ok(bytes_obj) => {
                     let bytes = ArgBytesLike::try_from_object(vm, bytes_obj)?;
                     let data = bytes.borrow_buf();
 
                     if data.is_empty() {
-                        // Empty read could mean EOF or just "no data yet" in BIO mode
                         if let Some(ref bio) = self.incoming_bio {
                             // BIO mode: check if EOF was signaled via write_eof()
                             let bio_obj: PyObjectRef = bio.clone().into();
                             let eof_attr = bio_obj.get_attr("eof", vm)?;
                             let is_eof = eof_attr.try_to_bool(vm)?;
                             if !is_eof {
-                                // No EOF signaled, just no data available yet
                                 return Ok(false);
                             }
                         }
-                        // Socket mode or BIO with EOF: peer closed connection
-                        // This is "ragged EOF" - peer closed without close_notify
                         return Ok(true);
                     }
 
-                    // Feed data to TLS connection
                     let data_slice: &[u8] = data.as_ref();
                     let mut cursor = std::io::Cursor::new(data_slice);
                     let _ = conn.read_tls(&mut cursor);
-
-                    // Process packets
                     let _ = conn.process_new_packets();
                     Ok(false)
                 }
                 Err(e) => {
-                    // BlockingIOError means no data yet
                     if is_blocking_io_error(&e, vm) {
                         return Ok(false);
                     }
-                    // Connection reset, EOF, or other error means peer closed
-                    // ECONNRESET, EPIPE, broken pipe, etc.
+                    Ok(true)
+                }
+            }
+        }
+
+        /// Socket-mode close_notify reader that respects TLS record boundaries.
+        /// Uses MSG_PEEK to inspect data before consuming, preventing accidental
+        /// consumption of post-TLS cleartext data during STARTTLS transitions.
+        ///
+        /// Equivalent to OpenSSL's `SSL_set_read_ahead(ssl, 0)` — rustls has no
+        /// such knob, so we enforce record-level reads manually via peek.
+        fn try_read_close_notify_socket(
+            &self,
+            conn: &mut TlsConnection,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            // Peek at the first 5 bytes (TLS record header size)
+            let peeked_obj = match self.sock_peek(5, vm) {
+                Ok(obj) => obj,
+                Err(e) => {
+                    if is_blocking_io_error(&e, vm) {
+                        return Ok(false);
+                    }
+                    return Ok(true);
+                }
+            };
+
+            let peeked = ArgBytesLike::try_from_object(vm, peeked_obj)?;
+            let peek_data = peeked.borrow_buf();
+
+            if peek_data.is_empty() {
+                return Ok(true); // EOF
+            }
+
+            // TLS record content types: ChangeCipherSpec(20), Alert(21),
+            // Handshake(22), ApplicationData(23)
+            let content_type = peek_data[0];
+            if !(20..=23).contains(&content_type) {
+                // Not a TLS record - post-TLS cleartext data.
+                // Peer has completed TLS shutdown; don't consume this data.
+                return Ok(true);
+            }
+
+            // Determine how many bytes to read for exactly one TLS record
+            let recv_size = if peek_data.len() >= 5 {
+                let record_length = u16::from_be_bytes([peek_data[3], peek_data[4]]) as usize;
+                5 + record_length
+            } else {
+                // Partial header available - read just these bytes for now
+                peek_data.len()
+            };
+
+            drop(peek_data);
+            drop(peeked);
+
+            // Now consume exactly one TLS record from the socket
+            match self.sock_recv(recv_size, vm) {
+                Ok(bytes_obj) => {
+                    let bytes = ArgBytesLike::try_from_object(vm, bytes_obj)?;
+                    let data = bytes.borrow_buf();
+
+                    if data.is_empty() {
+                        return Ok(true);
+                    }
+
+                    let data_slice: &[u8] = data.as_ref();
+                    let mut cursor = std::io::Cursor::new(data_slice);
+                    let _ = conn.read_tls(&mut cursor);
+                    let _ = conn.process_new_packets();
+                    Ok(false)
+                }
+                Err(e) => {
+                    if is_blocking_io_error(&e, vm) {
+                        return Ok(false);
+                    }
                     Ok(true)
                 }
             }

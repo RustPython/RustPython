@@ -270,6 +270,7 @@ class C:
 lst.sort(key=C)
 assert lst == [1, 2, 3, 4, 5]
 
+
 # Test that sorted() uses __lt__ (not __gt__) for comparisons.
 # Track which comparison method is actually called during sort.
 class TrackComparison:
@@ -287,13 +288,16 @@ class TrackComparison:
         TrackComparison.gt_calls += 1
         return self.value > other.value
 
+
 # Reset and test sorted()
 TrackComparison.lt_calls = 0
 TrackComparison.gt_calls = 0
 items = [TrackComparison(3), TrackComparison(1), TrackComparison(2)]
 sorted(items)
 assert TrackComparison.lt_calls > 0, "sorted() should call __lt__"
-assert TrackComparison.gt_calls == 0, f"sorted() should not call __gt__, but it was called {TrackComparison.gt_calls} times"
+assert TrackComparison.gt_calls == 0, (
+    f"sorted() should not call __gt__, but it was called {TrackComparison.gt_calls} times"
+)
 
 # Reset and test list.sort()
 TrackComparison.lt_calls = 0
@@ -301,7 +305,9 @@ TrackComparison.gt_calls = 0
 items = [TrackComparison(3), TrackComparison(1), TrackComparison(2)]
 items.sort()
 assert TrackComparison.lt_calls > 0, "list.sort() should call __lt__"
-assert TrackComparison.gt_calls == 0, f"list.sort() should not call __gt__, but it was called {TrackComparison.gt_calls} times"
+assert TrackComparison.gt_calls == 0, (
+    f"list.sort() should not call __gt__, but it was called {TrackComparison.gt_calls} times"
+)
 
 # Reset and test sorted(reverse=True) - should still use __lt__, not __gt__
 TrackComparison.lt_calls = 0
@@ -309,7 +315,9 @@ TrackComparison.gt_calls = 0
 items = [TrackComparison(3), TrackComparison(1), TrackComparison(2)]
 sorted(items, reverse=True)
 assert TrackComparison.lt_calls > 0, "sorted(reverse=True) should call __lt__"
-assert TrackComparison.gt_calls == 0, f"sorted(reverse=True) should not call __gt__, but it was called {TrackComparison.gt_calls} times"
+assert TrackComparison.gt_calls == 0, (
+    f"sorted(reverse=True) should not call __gt__, but it was called {TrackComparison.gt_calls} times"
+)
 
 lst = [5, 1, 2, 3, 4]
 
