@@ -2068,6 +2068,18 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.31.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "225e7cfe711e0ba79a68baeddb2982723e4235247aefce1482f2f16c27865b66"
+dependencies = [
+ "bitflags 2.10.0",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
  "memoffset",
 ]
 
@@ -3138,7 +3150,7 @@ dependencies = [
  "malachite-base",
  "malachite-bigint",
  "malachite-q",
- "nix 0.30.1",
+ "nix 0.31.1",
  "num-complex",
  "num-traits",
  "once_cell",
@@ -3303,7 +3315,7 @@ dependencies = [
  "memchr",
  "memmap2",
  "mt19937",
- "nix 0.30.1",
+ "nix 0.31.1",
  "num-complex",
  "num-integer",
  "num-traits",
@@ -3395,7 +3407,7 @@ dependencies = [
  "log",
  "malachite-bigint",
  "memchr",
- "nix 0.30.1",
+ "nix 0.31.1",
  "num-complex",
  "num-integer",
  "num-traits",
