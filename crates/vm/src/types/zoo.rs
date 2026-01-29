@@ -1,7 +1,7 @@
 use crate::{
     Py,
     builtins::{
-        asyncgenerator, bool_, builtin_func, bytearray, bytes, classmethod, code, complex,
+        asyncgenerator, bool_, builtin_func, bytearray, bytes, capsule, classmethod, code, complex,
         coroutine, descriptor, dict, enumerate, filter, float, frame, function, generator,
         genericalias, getset, int, interpolation, iter, list, map, mappingproxy, memory, module,
         namespace, object, property, pystr, range, set, singletons, slice, staticmethod, super_,
@@ -28,6 +28,7 @@ pub struct TypeZoo {
     pub bytearray_iterator_type: &'static Py<PyType>,
     pub bool_type: &'static Py<PyType>,
     pub callable_iterator: &'static Py<PyType>,
+    pub capsule_type: &'static Py<PyType>,
     pub cell_type: &'static Py<PyType>,
     pub classmethod_type: &'static Py<PyType>,
     pub code_type: &'static Py<PyType>,
@@ -108,12 +109,20 @@ impl TypeZoo {
     #[cold]
     pub(crate) fn init() -> Self {
         let (type_type, object_type, weakref_type) = crate::object::init_type_hierarchy();
+        // the order matters for type, object, weakref, and int - must be initialized first
+        let type_type = type_::PyType::init_manually(type_type);
+        let object_type = object::PyBaseObject::init_manually(object_type);
+        let weakref_type = weakref::PyWeak::init_manually(weakref_type);
+        let int_type = int::PyInt::init_builtin_type();
+
+        // builtin_function_or_method and builtin_method share the same type (CPython behavior)
+        let builtin_function_or_method_type = builtin_func::PyNativeFunction::init_builtin_type();
+
         Self {
-            // the order matters for type, object, weakref, and int
-            type_type: type_::PyType::init_manually(type_type),
-            object_type: object::PyBaseObject::init_manually(object_type),
-            weakref_type: weakref::PyWeak::init_manually(weakref_type),
-            int_type: int::PyInt::init_builtin_type(),
+            type_type,
+            object_type,
+            weakref_type,
+            int_type,
 
             // types exposed as builtins
             bool_type: bool_::PyBool::init_builtin_type(),
@@ -147,11 +156,12 @@ impl TypeZoo {
                 asyncgenerator::PyAsyncGenWrappedValue::init_builtin_type(),
             anext_awaitable: asyncgenerator::PyAnextAwaitable::init_builtin_type(),
             bound_method_type: function::PyBoundMethod::init_builtin_type(),
-            builtin_function_or_method_type: builtin_func::PyNativeFunction::init_builtin_type(),
-            builtin_method_type: builtin_func::PyNativeMethod::init_builtin_type(),
+            builtin_function_or_method_type,
+            builtin_method_type: builtin_function_or_method_type,
             bytearray_iterator_type: bytearray::PyByteArrayIterator::init_builtin_type(),
             bytes_iterator_type: bytes::PyBytesIterator::init_builtin_type(),
             callable_iterator: iter::PyCallableIterator::init_builtin_type(),
+            capsule_type: capsule::PyCapsule::init_builtin_type(),
             cell_type: function::PyCell::init_builtin_type(),
             code_type: code::PyCode::init_builtin_type(),
             coroutine_type: coroutine::PyCoroutine::init_builtin_type(),
@@ -225,6 +235,7 @@ impl TypeZoo {
         complex::init(context);
         bytes::init(context);
         bytearray::init(context);
+        capsule::init(context);
         property::init(context);
         getset::init(context);
         memory::init(context);
