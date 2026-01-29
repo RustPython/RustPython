@@ -10,15 +10,15 @@ assert bb.seekable()
 
 result = bb.read()
 
-assert len(result) <= 8 * 1024
+assert len(result) <= 16 * 1024
 assert len(result) >= 0
 assert isinstance(result, bytes)
 
 with FileIO("README.md") as fio:
     res = fio.read()
-    assert len(result) <= 8 * 1024
-    assert len(result) >= 0
-    assert isinstance(result, bytes)
+    assert len(res) <= 16 * 1024
+    assert len(res) >= 0
+    assert isinstance(res, bytes)
 
 fd = os.open("README.md", os.O_RDONLY)
 

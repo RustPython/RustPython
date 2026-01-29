@@ -618,6 +618,11 @@ impl ExecutingFrame<'_> {
 
         match instruction {
             Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
+            // TODO: In CPython, this does in-place unicode concatenation when
+            // refcount is 1. Falls back to regular iadd for now.
+            Instruction::BinaryOpInplaceAddUnicode => {
+                self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd)
+            }
             Instruction::BinarySlice => {
                 // Stack: [container, start, stop] -> [result]
                 let stop = self.pop_value();
@@ -1176,13 +1181,24 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadFromDictOrDeref(i) => {
+                // Pop dict from stack (locals or classdict depending on context)
+                let class_dict = self.pop_value();
                 let i = i.get(arg) as usize;
                 let name = if i < self.code.cellvars.len() {
                     self.code.cellvars[i]
                 } else {
                     self.code.freevars[i - self.code.cellvars.len()]
                 };
-                let value = self.locals.mapping().subscript(name, vm).ok();
+                // Only treat KeyError as "not found", propagate other exceptions
+                let value = if let Some(dict_obj) = class_dict.downcast_ref::<PyDict>() {
+                    dict_obj.get_item_opt(name, vm)?
+                } else {
+                    match class_dict.get_item(name, vm) {
+                        Ok(v) => Some(v),
+                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => None,
+                        Err(e) => return Err(e),
+                    }
+                };
                 self.push_value(match value {
                     Some(v) => v,
                     None => self.cells_frees[i]
@@ -1295,6 +1311,57 @@ impl ExecutingFrame<'_> {
             Instruction::LoadFastLoadFast { arg: packed } => {
                 // Load two local variables at once
                 // oparg encoding: (idx1 << 4) | idx2
+                let oparg = packed.get(arg);
+                let idx1 = (oparg >> 4) as usize;
+                let idx2 = (oparg & 15) as usize;
+                let fastlocals = self.fastlocals.lock();
+                let x1 = fastlocals[idx1].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx1]
+                        ),
+                    )
+                })?;
+                let x2 = fastlocals[idx2].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx2]
+                        ),
+                    )
+                })?;
+                drop(fastlocals);
+                self.push_value(x1);
+                self.push_value(x2);
+                Ok(None)
+            }
+            // TODO: Implement true borrow optimization (skip Arc::clone).
+            // CPython's LOAD_FAST_BORROW uses PyStackRef_Borrow to avoid refcount
+            // increment for values that are consumed within the same basic block.
+            // Possible approaches:
+            // - Store raw pointers with careful lifetime management
+            // - Add a "borrowed" variant to stack slots
+            // - Use arena allocation for short-lived stack values
+            // Currently this just clones like LoadFast.
+            Instruction::LoadFastBorrow(idx) => {
+                let idx = idx.get(arg) as usize;
+                let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx]
+                        ),
+                    )
+                })?;
+                self.push_value(x);
+                Ok(None)
+            }
+            // TODO: Same as LoadFastBorrow - implement true borrow optimization.
+            Instruction::LoadFastBorrowLoadFastBorrow { arg: packed } => {
                 let oparg = packed.get(arg);
                 let idx1 = (oparg >> 4) as usize;
                 let idx2 = (oparg & 15) as usize;
@@ -1600,6 +1667,12 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::Nop => Ok(None),
+            // NOT_TAKEN is a branch prediction hint - functionally a NOP
+            Instruction::NotTaken => Ok(None),
+            // Instrumented version of NOT_TAKEN - NOP without monitoring
+            Instruction::InstrumentedNotTaken => Ok(None),
+            // CACHE is used by adaptive interpreter for inline caching - NOP for us
+            Instruction::Cache => Ok(None),
             Instruction::ReturnGenerator => {
                 // In RustPython, generators/coroutines are created in function.rs
                 // before the frame starts executing. The RETURN_GENERATOR instruction

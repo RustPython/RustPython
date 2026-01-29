@@ -28,6 +28,7 @@ hexf
 hexversion
 idents
 illumos
+ilog
 indexmap
 insta
 keccak
@@ -86,4 +87,7 @@ wasmer
 wasmtime
 widestring
 winapi
+winresource
 winsock
+bitvec
+Bitvec
