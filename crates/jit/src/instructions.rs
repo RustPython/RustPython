@@ -588,6 +588,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 ));
                 Ok(())
             }
+            Instruction::LoadFastLoadFast { arg: packed }
+            | Instruction::LoadFastBorrowLoadFastBorrow { arg: packed } => {
+                let oparg = packed.get(arg);
+                let idx1 = oparg >> 4;
+                let idx2 = oparg & 0xF;
+                for idx in [idx1, idx2] {
+                    let local = self.variables[idx as usize]
+                        .as_ref()
+                        .ok_or(JitCompileError::BadBytecode)?;
+                    self.stack.push(JitValue::from_type_and_value(
+                        local.ty.clone(),
+                        self.builder.use_var(local.var),
+                    ));
+                }
+                Ok(())
+            }
             Instruction::LoadGlobal(idx) => {
                 let name = &bytecode.names[idx.get(arg) as usize];
 

@@ -23,10 +23,10 @@ use crate::{
 #[repr(u8)]
 pub enum Instruction {
     // No-argument instructions (opcode < HAVE_ARGUMENT=44)
-    Cache = 0, // Placeholder
+    Cache = 0,
     BinarySlice = 1,
     BuildTemplate = 2,
-    BinaryOpInplaceAddUnicode = 3, // Placeholder
+    BinaryOpInplaceAddUnicode = 3,
     CallFunctionEx = 4,
     CheckEgMatch = 5,
     CheckExcMatch = 6,
@@ -51,7 +51,7 @@ pub enum Instruction {
     MatchMapping = 25,
     MatchSequence = 26,
     Nop = 27,
-    NotTaken = 28, // Placeholder
+    NotTaken = 28,
     PopExcept = 29,
     PopIter = 30,
     PopTop = 31,
@@ -348,13 +348,13 @@ pub enum Instruction {
     UnpackSequenceTuple = 210,                  // Placeholder
     UnpackSequenceTwoTuple = 211,               // Placeholder
     // CPython 3.14 instrumented opcodes (234-254)
-    InstrumentedEndFor = 234,           // Placeholder
-    InstrumentedPopIter = 235,          // Placeholder
-    InstrumentedEndSend = 236,          // Placeholder
-    InstrumentedForIter = 237,          // Placeholder
-    InstrumentedInstruction = 238,      // Placeholder
-    InstrumentedJumpForward = 239,      // Placeholder
-    InstrumentedNotTaken = 240,         // Placeholder
+    InstrumentedEndFor = 234,      // Placeholder
+    InstrumentedPopIter = 235,     // Placeholder
+    InstrumentedEndSend = 236,     // Placeholder
+    InstrumentedForIter = 237,     // Placeholder
+    InstrumentedInstruction = 238, // Placeholder
+    InstrumentedJumpForward = 239, // Placeholder
+    InstrumentedNotTaken = 240,
     InstrumentedPopJumpIfTrue = 241,    // Placeholder
     InstrumentedPopJumpIfFalse = 242,   // Placeholder
     InstrumentedPopJumpIfNone = 243,    // Placeholder

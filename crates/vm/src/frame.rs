@@ -618,6 +618,11 @@ impl ExecutingFrame<'_> {
 
         match instruction {
             Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
+            // TODO: In CPython, this does in-place unicode concatenation when
+            // refcount is 1. Falls back to regular iadd for now.
+            Instruction::BinaryOpInplaceAddUnicode => {
+                self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd)
+            }
             Instruction::BinarySlice => {
                 // Stack: [container, start, stop] -> [result]
                 let stop = self.pop_value();
@@ -1184,8 +1189,16 @@ impl ExecutingFrame<'_> {
                 } else {
                     self.code.freevars[i - self.code.cellvars.len()]
                 };
-                // First try to find in the dict
-                let value = class_dict.get_item(name, vm).ok();
+                // Only treat KeyError as "not found", propagate other exceptions
+                let value = if let Some(dict_obj) = class_dict.downcast_ref::<PyDict>() {
+                    dict_obj.get_item_opt(name, vm)?
+                } else {
+                    match class_dict.get_item(name, vm) {
+                        Ok(v) => Some(v),
+                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => None,
+                        Err(e) => return Err(e),
+                    }
+                };
                 self.push_value(match value {
                     Some(v) => v,
                     None => self.cells_frees[i]
@@ -1654,6 +1667,12 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::Nop => Ok(None),
+            // NOT_TAKEN is a branch prediction hint - functionally a NOP
+            Instruction::NotTaken => Ok(None),
+            // Instrumented version of NOT_TAKEN - NOP without monitoring
+            Instruction::InstrumentedNotTaken => Ok(None),
+            // CACHE is used by adaptive interpreter for inline caching - NOP for us
+            Instruction::Cache => Ok(None),
             Instruction::ReturnGenerator => {
                 // In RustPython, generators/coroutines are created in function.rs
                 // before the frame starts executing. The RETURN_GENERATOR instruction
