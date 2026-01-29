@@ -101,6 +101,14 @@ pub(crate) mod _signal {
     #[pyattr]
     pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
+    // Windows-specific control events for GenerateConsoleCtrlEvent
+    #[cfg(windows)]
+    #[pyattr]
+    const CTRL_C_EVENT: u32 = 0;
+    #[cfg(windows)]
+    #[pyattr]
+    const CTRL_BREAK_EVENT: u32 = 1;
+
     #[cfg(unix)]
     #[pyattr]
     use libc::{

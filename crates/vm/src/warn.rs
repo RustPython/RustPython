@@ -178,8 +178,10 @@ fn already_warned(
         Some(version_obj)
             if version_obj.try_int(vm).is_ok() || version_obj.is(&filters_version) =>
         {
-            let already_warned = registry.get_item(key.as_ref(), vm)?;
-            if already_warned.is_true(vm)? {
+            // Use .ok() to handle KeyError when key doesn't exist (like Python's dict.get())
+            if let Ok(already_warned) = registry.get_item(key.as_ref(), vm)
+                && already_warned.is_true(vm)?
+            {
                 return Ok(true);
             }
         }

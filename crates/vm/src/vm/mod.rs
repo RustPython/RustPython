@@ -92,6 +92,10 @@ pub struct VirtualMachine {
     pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
     /// Async generator finalizer hook (per-thread, set via sys.set_asyncgen_hooks)
     pub async_gen_finalizer: RefCell<Option<PyObjectRef>>,
+    /// Current running asyncio event loop for this thread
+    pub asyncio_running_loop: RefCell<Option<PyObjectRef>>,
+    /// Current running asyncio task for this thread
+    pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
 }
 
 #[derive(Debug, Default)]
@@ -190,6 +194,8 @@ impl VirtualMachine {
             c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
             async_gen_finalizer: RefCell::new(None),
+            asyncio_running_loop: RefCell::new(None),
+            asyncio_running_task: RefCell::new(None),
         };
 
         if vm.state.hash_secret.hash_str("")

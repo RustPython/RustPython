@@ -139,7 +139,11 @@
     "birthtime",
     "IFEXEC",
     // "stat"
-    "FIRMLINK"
+    "FIRMLINK",
+    // CPython internal names
+    "sysdict",
+    "settraceallthreads",
+    "setprofileallthreads"
   ],
   // flagWords - list of words to be always considered incorrect
   "flagWords": [

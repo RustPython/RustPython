@@ -11,6 +11,7 @@ extern crate alloc;
 #[macro_use]
 pub(crate) mod macros;
 
+mod _asyncio;
 pub mod array;
 mod binascii;
 mod bisect;
@@ -112,6 +113,7 @@ use crate::vm::{Context, builtins};
 /// allowing safe circular imports.
 pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> {
     vec![
+        _asyncio::module_def(ctx),
         _opcode::module_def(ctx),
         array::module_def(ctx),
         binascii::module_def(ctx),

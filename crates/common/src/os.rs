@@ -131,7 +131,10 @@ pub fn winerror_to_errno(winerror: i32) -> i32 {
     use libc::*;
     use windows_sys::Win32::{
         Foundation::*,
-        Networking::WinSock::{WSAEACCES, WSAEBADF, WSAEFAULT, WSAEINTR, WSAEINVAL, WSAEMFILE},
+        Networking::WinSock::{
+            WSAEACCES, WSAEBADF, WSAECONNABORTED, WSAECONNREFUSED, WSAECONNRESET, WSAEFAULT,
+            WSAEINTR, WSAEINVAL, WSAEMFILE,
+        },
     };
     // Unwrap FACILITY_WIN32 HRESULT errors.
     // if ((winerror & 0xFFFF0000) == 0x80070000) {
@@ -218,6 +221,11 @@ pub fn winerror_to_errno(winerror: i32) -> i32 {
         ERROR_BROKEN_PIPE | ERROR_NO_DATA => EPIPE,
         ERROR_DIR_NOT_EMPTY => ENOTEMPTY,
         ERROR_NO_UNICODE_TRANSLATION => EILSEQ,
+        // Connection-related Windows error codes - map to Winsock error codes
+        // which Python uses on Windows (errno.ECONNREFUSED = 10061, etc.)
+        ERROR_CONNECTION_REFUSED => WSAECONNREFUSED,
+        ERROR_CONNECTION_ABORTED => WSAECONNABORTED,
+        ERROR_NETNAME_DELETED => WSAECONNRESET,
         ERROR_INVALID_FUNCTION
         | ERROR_INVALID_ACCESS
         | ERROR_INVALID_DATA

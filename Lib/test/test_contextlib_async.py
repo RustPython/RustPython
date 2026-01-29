@@ -728,9 +728,6 @@ class TestAsyncExitStack(TestBaseExitStack, unittest.IsolatedAsyncioTestCase):
         stack.push_async_exit(cm)
         self.assertIs(stack._exit_callbacks[-1][1], cm)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; - no _asyncio module, pure Python Task adds extra frame
-    def test_exit_exception_traceback(self):
-        return super().test_exit_exception_traceback()
 
 
 class TestAsyncNullcontext(unittest.IsolatedAsyncioTestCase):
