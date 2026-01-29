@@ -855,7 +855,7 @@ pub trait StackEffect {
     /// How many items this instruction is popping from the stack.
     fn num_popped(&self, oparg: i32) -> i32;
 
-    /// How many items this instruction is pushinng on the stack.
+    /// How many items this instruction is pushing on the stack.
     fn num_pushed(&self, oparg: i32) -> i32;
 
     /// What effect this instruction has on the stack.
