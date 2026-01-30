@@ -246,6 +246,52 @@ pub fn is_gen_exit(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
     exc.fast_isinstance(vm.ctx.exceptions.generator_exit)
 }
 
+/// Get an awaitable iterator from an object.
+///
+/// Returns the object itself if it's a coroutine or iterable coroutine (generator with
+/// CO_ITERABLE_COROUTINE flag). Otherwise calls `__await__()` and validates the result.
+pub fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    use crate::builtins::{PyCoroutine, PyGenerator};
+    use crate::protocol::PyIter;
+
+    if obj.downcastable::<PyCoroutine>()
+        || obj.downcast_ref::<PyGenerator>().is_some_and(|g| {
+            g.as_coro()
+                .frame()
+                .code
+                .flags
+                .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
+        })
+    {
+        return Ok(obj);
+    }
+
+    if let Some(await_method) = vm.get_method(obj.clone(), identifier!(vm, __await__)) {
+        let result = await_method?.call((), vm)?;
+        // __await__() must NOT return a coroutine (PEP 492)
+        if result.downcastable::<PyCoroutine>()
+            || result.downcast_ref::<PyGenerator>().is_some_and(|g| {
+                g.as_coro()
+                    .frame()
+                    .code
+                    .flags
+                    .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
+            })
+        {
+            return Err(vm.new_type_error("__await__() returned a coroutine".to_owned()));
+        }
+        if !PyIter::check(&result) {
+            return Err(vm.new_type_error(format!(
+                "__await__() returned non-iterator of type '{}'",
+                result.class().name()
+            )));
+        }
+        return Ok(result);
+    }
+
+    Err(vm.new_type_error(format!("'{}' object can't be awaited", obj.class().name())))
+}
+
 /// Emit DeprecationWarning for the deprecated 3-argument throw() signature.
 pub fn warn_deprecated_throw_signature(
     exc_val: &OptionalArg,
