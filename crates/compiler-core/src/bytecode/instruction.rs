@@ -1426,7 +1426,7 @@ impl StackEffect {
 
 impl From<StackEffect> for i32 {
     fn from(effect: StackEffect) -> Self {
-        // SAFTEY: Trust `num_pushed` & `num_popped` impls
+        // SAFETY: Trust `num_pushed` & `num_popped` impls
         unsafe {
             Self::try_from(effect.pushed()).unwrap_unchecked()
                 - Self::try_from(effect.popped()).unwrap_unchecked()
