@@ -2506,15 +2506,11 @@ mod _io {
                 return None;
             }
             buf.resize(Self::BYTE_LEN, 0);
-            let buf: &[u8; Self::BYTE_LEN] = buf.as_slice().try_into().unwrap();
+            let buf: &[u8; Self::BYTE_LEN] = buf.as_array()?;
             macro_rules! get_field {
-                ($t:ty, $off:ident) => {{
-                    <$t>::from_ne_bytes(
-                        buf[Self::$off..][..core::mem::size_of::<$t>()]
-                            .try_into()
-                            .unwrap(),
-                    )
-                }};
+                ($t:ty, $off:ident) => {
+                    <$t>::from_ne_bytes(*buf[Self::$off..].first_chunk().unwrap())
+                };
             }
             Some(Self {
                 start_pos: get_field!(Offset, START_POS_OFF),

@@ -419,13 +419,10 @@ impl PyCSimpleType {
                 if let Some(funcptr) = value.downcast_ref::<PyCFuncPtr>() {
                     let ptr_val = {
                         let buffer = funcptr._base.buffer.read();
-                        if buffer.len() >= core::mem::size_of::<usize>() {
-                            usize::from_ne_bytes(
-                                buffer[..core::mem::size_of::<usize>()].try_into().unwrap(),
-                            )
-                        } else {
-                            0
-                        }
+                        buffer
+                            .first_chunk::<{ size_of::<usize>() }>()
+                            .copied()
+                            .map_or(0, usize::from_ne_bytes)
                     };
                     return Ok(CArgObject {
                         tag: b'P',
@@ -442,13 +439,10 @@ impl PyCSimpleType {
                     if matches!(value_type_code.as_deref(), Some("z") | Some("Z")) {
                         let ptr_val = {
                             let buffer = simple.0.buffer.read();
-                            if buffer.len() >= core::mem::size_of::<usize>() {
-                                usize::from_ne_bytes(
-                                    buffer[..core::mem::size_of::<usize>()].try_into().unwrap(),
-                                )
-                            } else {
-                                0
-                            }
+                            buffer
+                                .first_chunk::<{ size_of::<usize>() }>()
+                                .copied()
+                                .map_or(0, usize::from_ne_bytes)
                         };
                         return Ok(CArgObject {
                             tag: b'Z',
@@ -1360,68 +1354,47 @@ impl PyCSimple {
         let buffer = self.0.buffer.read();
         let bytes: &[u8] = &buffer;
 
-        if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u8().as_raw_ptr()) {
-            if !bytes.is_empty() {
-                return Some(FfiArgValue::U8(bytes[0]));
-            }
+        let ret = if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u8().as_raw_ptr()) {
+            let byte = *bytes.first()?;
+            FfiArgValue::U8(byte)
         } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i8().as_raw_ptr()) {
-            if !bytes.is_empty() {
-                return Some(FfiArgValue::I8(bytes[0] as i8));
-            }
+            let byte = *bytes.first()?;
+            FfiArgValue::I8(byte as i8)
         } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u16().as_raw_ptr()) {
-            if bytes.len() >= 2 {
-                return Some(FfiArgValue::U16(u16::from_ne_bytes([bytes[0], bytes[1]])));
-            }
+            let bytes = *bytes.first_chunk::<2>()?;
+            FfiArgValue::U16(u16::from_ne_bytes(bytes))
         } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i16().as_raw_ptr()) {
-            if bytes.len() >= 2 {
-                return Some(FfiArgValue::I16(i16::from_ne_bytes([bytes[0], bytes[1]])));
-            }
+            let bytes = *bytes.first_chunk::<2>()?;
+            FfiArgValue::I16(i16::from_ne_bytes(bytes))
         } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u32().as_raw_ptr()) {
-            if bytes.len() >= 4 {
-                return Some(FfiArgValue::U32(u32::from_ne_bytes([
-                    bytes[0], bytes[1], bytes[2], bytes[3],
-                ])));
-            }
+            let bytes = *bytes.first_chunk::<4>()?;
+            FfiArgValue::U32(u32::from_ne_bytes(bytes))
         } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i32().as_raw_ptr()) {
-            if bytes.len() >= 4 {
-                return Some(FfiArgValue::I32(i32::from_ne_bytes([
-                    bytes[0], bytes[1], bytes[2], bytes[3],
-                ])));
-            }
+            let bytes = *bytes.first_chunk::<4>()?;
+            FfiArgValue::I32(i32::from_ne_bytes(bytes))
         } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u64().as_raw_ptr()) {
-            if bytes.len() >= 8 {
-                return Some(FfiArgValue::U64(u64::from_ne_bytes([
-                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-                ])));
-            }
+            let bytes = *bytes.first_chunk::<8>()?;
+            FfiArgValue::U64(u64::from_ne_bytes(bytes))
         } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i64().as_raw_ptr()) {
-            if bytes.len() >= 8 {
-                return Some(FfiArgValue::I64(i64::from_ne_bytes([
-                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-                ])));
-            }
+            let bytes = *bytes.first_chunk::<8>()?;
+            FfiArgValue::I64(i64::from_ne_bytes(bytes))
         } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::f32().as_raw_ptr()) {
-            if bytes.len() >= 4 {
-                return Some(FfiArgValue::F32(f32::from_ne_bytes([
-                    bytes[0], bytes[1], bytes[2], bytes[3],
-                ])));
-            }
+            let bytes = *bytes.first_chunk::<4>()?;
+            FfiArgValue::F32(f32::from_ne_bytes(bytes))
         } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::f64().as_raw_ptr()) {
-            if bytes.len() >= 8 {
-                return Some(FfiArgValue::F64(f64::from_ne_bytes([
-                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-                ])));
-            }
+            let bytes = *bytes.first_chunk::<8>()?;
+            FfiArgValue::F64(f64::from_ne_bytes(bytes))
         } else if core::ptr::eq(
             ty.as_raw_ptr(),
             libffi::middle::Type::pointer().as_raw_ptr(),
-        ) && bytes.len() >= core::mem::size_of::<usize>()
-        {
-            let val =
-                usize::from_ne_bytes(bytes[..core::mem::size_of::<usize>()].try_into().unwrap());
-            return Some(FfiArgValue::Pointer(val));
-        }
-        None
+        ) {
+            let bytes = *buffer.first_chunk::<{ size_of::<usize>() }>()?;
+            let val = usize::from_ne_bytes(bytes);
+            FfiArgValue::Pointer(val)
+        } else {
+            return None;
+        };
+        Some(ret)
     }
 }
 
