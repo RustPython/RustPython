@@ -142,7 +142,9 @@ pub enum Instruction {
     ForIter {
         target: Arg<Label>,
     } = 70,
-    GetAwaitable = 71, // TODO: Make this instruction to hold an oparg
+    GetAwaitable {
+        arg: Arg<u32>,
+    } = 71,
     ImportFrom {
         idx: Arg<NameIdx>,
     } = 72,
@@ -539,7 +541,7 @@ impl InstructionMetadata for Instruction {
             Self::FormatWithSpec => w!(FORMAT_WITH_SPEC),
             Self::GetAIter => w!(GET_AITER),
             Self::GetANext => w!(GET_ANEXT),
-            Self::GetAwaitable => w!(GET_AWAITABLE),
+            Self::GetAwaitable { arg } => w!(GET_AWAITABLE, arg),
             Self::Reserved => w!(RESERVED),
             Self::GetIter => w!(GET_ITER),
             Self::GetLen => w!(GET_LEN),
