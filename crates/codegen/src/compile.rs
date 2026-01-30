@@ -1465,7 +1465,7 @@ impl Compiler {
 
                 // For async with, await the result
                 if matches!(info.fb_type, FBlockType::AsyncWith) {
-                    emit!(self, Instruction::GetAwaitable);
+                    emit!(self, Instruction::GetAwaitable { arg: 2 });
                     self.emit_load_const(ConstantData::None);
                     self.compile_yield_from_sequence(true)?;
                 }
@@ -4773,7 +4773,7 @@ impl Compiler {
             // bound_aenter is already bound, call with NULL self_or_null
             emit!(self, Instruction::PushNull); // [bound_aexit, bound_aenter, NULL]
             emit!(self, Instruction::Call { nargs: 0 }); // [bound_aexit, awaitable]
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, Instruction::GetAwaitable { arg: 1 });
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         } else {
@@ -4854,7 +4854,7 @@ impl Compiler {
         self.emit_load_const(ConstantData::None);
         emit!(self, Instruction::Call { nargs: 3 });
         if is_async {
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, Instruction::GetAwaitable { arg: 2 });
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         }
@@ -4899,7 +4899,7 @@ impl Compiler {
         emit!(self, Instruction::WithExceptStart);
 
         if is_async {
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, Instruction::GetAwaitable { arg: 2 });
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         }
@@ -6741,7 +6741,7 @@ impl Compiler {
                     return Err(self.error(CodegenErrorType::InvalidAwait));
                 }
                 self.compile_expression(value)?;
-                emit!(self, Instruction::GetAwaitable);
+                emit!(self, Instruction::GetAwaitable { arg: 0 });
                 self.emit_load_const(ConstantData::None);
                 self.compile_yield_from_sequence(true)?;
             }
@@ -7516,7 +7516,7 @@ impl Compiler {
         // Call just created <listcomp> function:
         emit!(self, Instruction::Call { nargs: 1 });
         if is_async_list_set_dict_comprehension {
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, Instruction::GetAwaitable { arg: 0 });
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         }
@@ -7991,7 +7991,7 @@ impl Compiler {
                     emit!(self, Instruction::Call { nargs: 3 });
 
                     if is_async {
-                        emit!(self, Instruction::GetAwaitable);
+                        emit!(self, Instruction::GetAwaitable { arg: 2 });
                         self.emit_load_const(ConstantData::None);
                         self.compile_yield_from_sequence(true)?;
                     }
