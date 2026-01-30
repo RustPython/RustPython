@@ -15,6 +15,7 @@ use crate::{
 pub use crate::object::PyWeak;
 
 #[derive(FromArgs)]
+#[allow(dead_code)]
 pub struct WeakNewArgs {
     #[pyarg(positional)]
     referent: PyObjectRef,
@@ -41,8 +42,20 @@ impl Constructor for PyWeak {
     type Args = WeakNewArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let Self::Args { referent, callback } = args.bind(vm)?;
-        let weak = referent.downgrade_with_typ(callback.into_option(), cls, vm)?;
+        // PyArg_UnpackTuple: only process positional args, ignore kwargs.
+        // Subclass __init__ will handle extra kwargs.
+        let mut positional = args.args.into_iter();
+        let referent = positional.next().ok_or_else(|| {
+            vm.new_type_error("__new__ expected at least 1 argument, got 0".to_owned())
+        })?;
+        let callback = positional.next();
+        if let Some(_extra) = positional.next() {
+            return Err(vm.new_type_error(format!(
+                "__new__ expected at most 2 arguments, got {}",
+                3 + positional.count()
+            )));
+        }
+        let weak = referent.downgrade_with_typ(callback, cls, vm)?;
         Ok(weak.into())
     }
 
