@@ -185,9 +185,7 @@ test_normal_fail (test.test_example.TestClass.test_normal_fail) ... FAIL
         self.assertIn("test_with_doc", names)
         self.assertIn("test_normal_fail", names)
         test_doc = next(t for t in result.tests if t.name == "test_with_doc")
-        self.assertEqual(
-            test_doc.path, "test.test_example.TestClass.test_with_doc"
-        )
+        self.assertEqual(test_doc.path, "test.test_example.TestClass.test_with_doc")
         self.assertEqual(test_doc.result, "error")
 
     def test_parse_multiple_error_messages(self):
