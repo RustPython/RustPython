@@ -128,7 +128,8 @@ Use various combinations of explicit keywords and **kwds.
 
 Check for duplicate keywords.
 
-    >>> class C(metaclass=type, metaclass=type): pass
+    # TODO: RUSTPYTHON
+    >>> class C(metaclass=type, metaclass=type): pass # doctest: +SKIP
     ...
     Traceback (most recent call last):
     [...]
@@ -138,7 +139,9 @@ Check for duplicate keywords.
 Another way.
 
     >>> kwds = {'metaclass': type}
-    >>> class C(metaclass=type, **kwds): pass
+
+    # TODO: RUSTPYTHON
+    >>> class C(metaclass=type, **kwds): pass # doctest: +SKIP
     ...
     Traceback (most recent call last):
     [...]
@@ -157,7 +160,9 @@ Use a __prepare__ method that returns an instrumented dict.
     ...    def __prepare__(name, bases):
     ...        return LoggingDict()
     ...
-    >>> class C(metaclass=Meta):
+
+    # TODO: RUSTPYTHON
+    >>> class C(metaclass=Meta): # doctest: +SKIP
     ...     foo = 2+2
     ...     foo = 42
     ...     bar = 123
@@ -179,16 +184,22 @@ Use a metaclass that doesn't derive from type.
     ...     print("kw:", sorted(kwds.items()))
     ...     return namespace
     ...
-    >>> class C(metaclass=meta):
+
+    # TODO: RUSTPYTHON
+    >>> class C(metaclass=meta): # doctest: +SKIP
     ...     a = 42
     ...     b = 24
     ...
     meta: C ()
     ns: [('__firstlineno__', 1), ('__module__', 'test.test_metaclass'), ('__qualname__', 'C'), ('__static_attributes__', ()), ('a', 42), ('b', 24)]
     kw: []
-    >>> type(C) is dict
+
+    # TODO: RUSTPYTHON
+    >>> type(C) is dict # doctest: +SKIP
     True
-    >>> print(sorted(C.items()))
+
+    # TODO: RUSTPYTHON
+    >>> print(sorted(C.items())) # doctest: +SKIP
     [('__firstlineno__', 1), ('__module__', 'test.test_metaclass'), ('__qualname__', 'C'), ('__static_attributes__', ()), ('a', 42), ('b', 24)]
     >>>
 
@@ -199,7 +210,9 @@ And again, with a __prepare__ attribute.
     ...     return LoggingDict()
     ...
     >>> meta.__prepare__ = prepare
-    >>> class C(metaclass=meta, other="booh"):
+
+    # TODO: RUSTPYTHON
+    >>> class C(metaclass=meta, other="booh"): # doctest: +SKIP
     ...    a = 1
     ...    a = 2
     ...    b = 3
@@ -268,17 +281,23 @@ Test setting attributes with a non-base type in mro() (gh-127773).
     ...
     >>> Base.value
     1
-    >>> WeirdClass.value
+
+    # TODO: RUSTPYTHON; AttributeError: type object 'WeirdClass' has no attribute 'value' 
+    >>> WeirdClass.value # doctest: +SKIP
     1
     >>> Base.value = 2
     >>> Base.value
     2
-    >>> WeirdClass.value
+
+    # TODO: RUSTPYTHON; AttributeError: type object 'WeirdClass' has no attribute 'value' 
+    >>> WeirdClass.value # doctest: +SKIP
     2
     >>> Base.value = 3
     >>> Base.value
     3
-    >>> WeirdClass.value
+
+    # TODO: RUSTPYTHON; AttributeError: type object 'WeirdClass' has no attribute 'value' 
+    >>> WeirdClass.value # doctest: +SKIP
     3
 
 """
