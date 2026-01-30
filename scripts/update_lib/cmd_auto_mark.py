@@ -71,45 +71,81 @@ def run_test(test_name: str, skip_build: bool = False) -> TestResult:
     return parse_results(result)
 
 
+def _try_parse_test_info(test_info: str) -> tuple[str, str] | None:
+    """Try to extract (name, path) from 'test_name (path)' or 'test_name (path) [subtest]'."""
+    first_space = test_info.find(" ")
+    if first_space > 0:
+        name = test_info[:first_space]
+        rest = test_info[first_space:].strip()
+        if rest.startswith("("):
+            end_paren = rest.find(")")
+            if end_paren > 0:
+                return name, rest[1:end_paren]
+    return None
+
+
 def parse_results(result: subprocess.CompletedProcess) -> TestResult:
     """Parse subprocess result into TestResult."""
     lines = result.stdout.splitlines()
     test_results = TestResult()
     test_results.stdout = result.stdout
     in_test_results = False
+    # For multiline format: "test_name (path)\ndocstring ... RESULT"
+    pending_test_info = None
 
     for line in lines:
         if re.search(r"Run \d+ tests? sequentially", line):
             in_test_results = True
-        elif line.startswith("-----------"):
+        elif "== Tests result: " in line:
             in_test_results = False
 
         if in_test_results and " ... " in line:
-            line = line.strip()
+            stripped = line.strip()
             # Skip lines that don't look like test results
-            if line.startswith("tests") or line.startswith("["):
+            if stripped.startswith("tests") or stripped.startswith("["):
+                pending_test_info = None
                 continue
             # Parse: "test_name (path) [subtest] ... RESULT"
-            parts = line.split(" ... ")
+            parts = stripped.split(" ... ")
             if len(parts) >= 2:
                 test_info = parts[0]
                 result_str = parts[-1].lower()
                 # Only process FAIL or ERROR
                 if result_str not in ("fail", "error"):
+                    pending_test_info = None
                     continue
-                # Extract test name (first word)
-                first_space = test_info.find(" ")
-                if first_space > 0:
+                # Try parsing from this line (single-line format)
+                parsed = _try_parse_test_info(test_info)
+                if not parsed and pending_test_info:
+                    # Multiline format: previous line had test_name (path)
+                    parsed = _try_parse_test_info(pending_test_info)
+                if parsed:
                     test = Test()
-                    test.name = test_info[:first_space]
-                    # Extract path from (path)
-                    rest = test_info[first_space:].strip()
-                    if rest.startswith("("):
-                        end_paren = rest.find(")")
-                        if end_paren > 0:
-                            test.path = rest[1:end_paren]
-                            test.result = result_str
-                            test_results.tests.append(test)
+                    test.name, test.path = parsed
+                    test.result = result_str
+                    test_results.tests.append(test)
+                pending_test_info = None
+
+        elif in_test_results:
+            # Track test info for multiline format:
+            #   test_name (path)
+            #   docstring ... RESULT
+            stripped = line.strip()
+            if (
+                stripped
+                and "(" in stripped
+                and stripped.endswith(")")
+                and ":" not in stripped.split("(")[0]
+            ):
+                pending_test_info = stripped
+            else:
+                pending_test_info = None
+
+            # Also check for Tests result on non-" ... " lines
+            if "== Tests result: " in line:
+                res = line.split("== Tests result: ")[1]
+                res = res.split(" ")[0]
+                test_results.tests_result = res
 
         elif "== Tests result: " in line:
             res = line.split("== Tests result: ")[1]
@@ -117,7 +153,7 @@ def parse_results(result: subprocess.CompletedProcess) -> TestResult:
             test_results.tests_result = res
 
         # Parse: "UNEXPECTED SUCCESS: test_name (path)"
-        elif line.startswith("UNEXPECTED SUCCESS: "):
+        if line.startswith("UNEXPECTED SUCCESS: "):
             rest = line[len("UNEXPECTED SUCCESS: ") :]
             # Format: "test_name (path)"
             first_space = rest.find(" ")
@@ -232,13 +268,16 @@ def build_patches(
 
 
 def _is_super_call_only(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    """Check if the method body is just 'return super().method_name()'."""
+    """Check if the method body is just 'return super().method_name()' or 'return await super().method_name()'."""
     if len(func_node.body) != 1:
         return False
     stmt = func_node.body[0]
     if not isinstance(stmt, ast.Return) or stmt.value is None:
         return False
     call = stmt.value
+    # Unwrap await for async methods
+    if isinstance(call, ast.Await):
+        call = call.value
     if not isinstance(call, ast.Call):
         return False
     if not isinstance(call.func, ast.Attribute):

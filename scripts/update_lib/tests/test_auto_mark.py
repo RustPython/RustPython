@@ -118,6 +118,76 @@ AssertionError: 1 != 2
         self.assertEqual(len(result.tests), 1)
         self.assertEqual(result.tests[0].error_message, "AssertionError: 1 != 2")
 
+    def test_parse_directory_test_multiple_submodules(self):
+        """Test parsing directory test output with multiple submodules.
+
+        When running a directory test (e.g., test_asyncio), the output contains
+        multiple submodules separated by '------' lines. Failures in submodules
+        after the first one must still be detected.
+        """
+        stdout = """\
+Run 3 tests sequentially
+0:00:00 [  1/3] test_asyncio.test_buffered_proto
+test_ok (test.test_asyncio.test_buffered_proto.TestProto.test_ok) ... ok
+
+----------------------------------------------------------------------
+Ran 1 tests in 0.1s
+
+OK
+
+0:00:01 [  2/3] test_asyncio.test_events
+test_create (test.test_asyncio.test_events.TestEvents.test_create) ... FAIL
+
+----------------------------------------------------------------------
+Ran 1 tests in 0.2s
+
+FAILED (failures=1)
+
+0:00:02 [  3/3] test_asyncio.test_tasks
+test_gather (test.test_asyncio.test_tasks.TestTasks.test_gather) ... ERROR
+
+----------------------------------------------------------------------
+Ran 1 tests in 0.3s
+
+FAILED (errors=1)
+
+== Tests result: FAILURE ==
+"""
+        result = parse_results(self._make_result(stdout))
+        self.assertEqual(len(result.tests), 2)
+        names = {t.name for t in result.tests}
+        self.assertIn("test_create", names)
+        self.assertIn("test_gather", names)
+        # Verify results
+        test_create = next(t for t in result.tests if t.name == "test_create")
+        test_gather = next(t for t in result.tests if t.name == "test_gather")
+        self.assertEqual(test_create.result, "fail")
+        self.assertEqual(test_gather.result, "error")
+        self.assertEqual(result.tests_result, "FAILURE")
+
+    def test_parse_multiline_test_with_docstring(self):
+        """Test parsing tests where docstring appears on a separate line.
+
+        Some tests have docstrings that cause the output to span two lines:
+          test_name (path)
+          docstring ... ERROR
+        """
+        stdout = """\
+Run 3 tests sequentially
+test_ok (test.test_example.TestClass.test_ok) ... ok
+test_with_doc (test.test_example.TestClass.test_with_doc)
+Test that something works ... ERROR
+test_normal_fail (test.test_example.TestClass.test_normal_fail) ... FAIL
+"""
+        result = parse_results(self._make_result(stdout))
+        self.assertEqual(len(result.tests), 2)
+        names = {t.name for t in result.tests}
+        self.assertIn("test_with_doc", names)
+        self.assertIn("test_normal_fail", names)
+        test_doc = next(t for t in result.tests if t.name == "test_with_doc")
+        self.assertEqual(test_doc.path, "test.test_example.TestClass.test_with_doc")
+        self.assertEqual(test_doc.result, "error")
+
     def test_parse_multiple_error_messages(self):
         """Test parsing multiple error messages."""
         stdout = """
@@ -643,6 +713,102 @@ class Foo:
 """
         method = self._parse_method(code)
         self.assertFalse(_is_super_call_only(method))
+
+    def test_async_await_super_call(self):
+        """Test async method that awaits super().same_name()."""
+        code = """
+class Foo:
+    async def test_one(self):
+        return await super().test_one()
+"""
+        method = self._parse_method(code)
+        self.assertTrue(_is_super_call_only(method))
+
+    def test_async_await_mismatched_super_call(self):
+        """Test async method that awaits super().different_name()."""
+        code = """
+class Foo:
+    async def test_one(self):
+        return await super().test_two()
+"""
+        method = self._parse_method(code)
+        self.assertFalse(_is_super_call_only(method))
+
+    def test_async_without_await(self):
+        """Test async method that calls super() without await (sync super call in async method)."""
+        code = """
+class Foo:
+    async def test_one(self):
+        return super().test_one()
+"""
+        method = self._parse_method(code)
+        self.assertTrue(_is_super_call_only(method))
+
+
+class TestAsyncInheritedOverride(unittest.TestCase):
+    """Tests for async inherited method override generation."""
+
+    def test_inherited_async_method_generates_async_override(self):
+        """Test that inherited async methods get async def + await override."""
+        code = """import unittest
+
+class BaseTest:
+    async def test_async_one(self):
+        pass
+
+class TestChild(BaseTest, unittest.TestCase):
+    pass
+"""
+        failing = {("TestChild", "test_async_one")}
+        result = apply_test_changes(code, failing, set())
+
+        self.assertIn("async def test_async_one(self):", result)
+        self.assertIn("return await super().test_async_one()", result)
+        self.assertIn("@unittest.expectedFailure", result)
+
+    def test_inherited_sync_method_generates_sync_override(self):
+        """Test that inherited sync methods get sync def override."""
+        code = """import unittest
+
+class BaseTest:
+    def test_sync_one(self):
+        pass
+
+class TestChild(BaseTest, unittest.TestCase):
+    pass
+"""
+        failing = {("TestChild", "test_sync_one")}
+        result = apply_test_changes(code, failing, set())
+
+        self.assertIn("def test_sync_one(self):", result)
+        self.assertIn("return super().test_sync_one()", result)
+        self.assertNotIn("async def test_sync_one", result)
+        self.assertNotIn("await", result)
+
+    def test_remove_async_super_call_override(self):
+        """Test removing async super call override on unexpected success."""
+        code = f"""import unittest
+
+class BaseTest:
+    async def test_async_one(self):
+        pass
+
+class TestChild(BaseTest, unittest.TestCase):
+    # {COMMENT}
+    @unittest.expectedFailure
+    async def test_async_one(self):
+        return await super().test_async_one()
+"""
+        successes = {("TestChild", "test_async_one")}
+        result = apply_test_changes(code, set(), successes)
+
+        # The override in TestChild should be removed; base class method remains
+        self.assertNotIn("return await super().test_async_one()", result)
+        self.assertNotIn("@unittest.expectedFailure", result)
+        self.assertIn("class TestChild", result)
+        # Base class method should still be present
+        self.assertIn("class BaseTest", result)
+        self.assertIn("async def test_async_one(self):", result)
 
 
 if __name__ == "__main__":
