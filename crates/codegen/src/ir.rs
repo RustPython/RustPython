@@ -9,7 +9,7 @@ use rustpython_compiler_core::{
     bytecode::{
         AnyInstruction, Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData,
         ExceptionTableEntry, InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg,
-        PseudoInstruction, PyCodeLocationInfoKind, StackEffect, encode_exception_table,
+        PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -731,7 +731,7 @@ impl CodeInfo {
                 // is pop 2 push 1, not pop 1 push 0).  We list those explicitly;
                 // the fallback under-pops and under-pushes, which is conservative
                 // (may miss optimisation opportunities but never miscompiles).
-                let effect = instr.stack_effect(u32::from(info.arg) as i32);
+                let effect = instr.stack_effect(info.arg.into()).effect();
                 let (pops, pushes) = match instr {
                     // --- pop 2, push 1 ---
                     Instruction::BinaryOp { .. }
@@ -864,7 +864,7 @@ impl CodeInfo {
             let block = &self.blocks[block_idx];
             for ins in &block.instructions {
                 let instr = &ins.instr;
-                let effect = instr.stack_effect(u32::from(ins.arg) as i32);
+                let effect = instr.stack_effect(ins.arg.into()).effect();
                 if DEBUG {
                     let display_arg = if ins.target == BlockIdx::NULL {
                         ins.arg
