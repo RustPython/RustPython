@@ -990,10 +990,10 @@ impl InstructionMetadata for PseudoInstruction {
         false
     }
 
-    fn stack_effect_info(&self, oparg: u32) -> StackEffect {
+    fn stack_effect_info(&self, _oparg: u32) -> StackEffect {
         // Reason for converting oparg to i32 is because of expressions like `1 + (oparg -1)`
         // that causes underflow errors.
-        let oparg = i32::try_from(oparg).expect("oparg does not fit in an `i32`");
+        let _oparg = i32::try_from(_oparg).expect("oparg does not fit in an `i32`");
 
         // NOTE: Please don't "simplify" expressions here (i.e. `1 + (oparg - 1)`)
         // as it will be harder to see diff with what CPython auto-generates
@@ -1197,7 +1197,7 @@ pub trait InstructionMetadata {
 
     /// Stack effect of [`Self::stack_effect_info`].
     fn stack_effect(&self, oparg: u32) -> i32 {
-        self.stack_effect_info(oparg).into()
+        self.stack_effect_info(oparg).effect()
     }
 
     #[allow(clippy::too_many_arguments)]
