@@ -711,8 +711,8 @@ impl InstructionMetadata for Instruction {
             Self::YieldValue { .. } => (1, 1),
         };
 
-        debug_assert!(pushed >= 0);
-        debug_assert!(popped >= 0);
+        debug_assert!((0..=i32::MAX).contains(&pushed));
+        debug_assert!((0..=i32::MAX).contains(&popped));
 
         StackEffect::new(pushed as u32, popped as u32)
     }
@@ -1011,8 +1011,8 @@ impl InstructionMetadata for PseudoInstruction {
             Self::StoreFastMaybeNull(_) => (0, 1),
         };
 
-        debug_assert!(pushed >= 0);
-        debug_assert!(popped >= 0);
+        debug_assert!((0..=i32::MAX).contains(&pushed));
+        debug_assert!((0..=i32::MAX).contains(&popped));
 
         StackEffect::new(pushed as u32, popped as u32)
     }
@@ -1157,6 +1157,11 @@ impl StackEffect {
         Self { pushed, popped }
     }
 
+    /// Get the calculated stack effect as [`i32`].
+    pub fn effect(self) -> i32 {
+        self.into()
+    }
+
     /// Get the pushed count.
     pub const fn pushed(self) -> u32 {
         self.pushed
@@ -1166,20 +1171,11 @@ impl StackEffect {
     pub const fn popped(self) -> u32 {
         self.popped
     }
-
-    /// Get the calculated stack effect as [`i32`].
-    pub fn effect(self) -> i32 {
-        self.into()
-    }
 }
 
 impl From<StackEffect> for i32 {
     fn from(effect: StackEffect) -> Self {
-        // SAFETY: Trust `num_pushed` & `num_popped` impls
-        unsafe {
-            Self::try_from(effect.pushed()).unwrap_unchecked()
-                - Self::try_from(effect.popped()).unwrap_unchecked()
-        }
+        (effect.pushed() as i32) - (effect.popped() as i32)
     }
 }
 
