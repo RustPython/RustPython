@@ -94,6 +94,7 @@ mod _winapi {
                 SEC_LARGE_PAGES, SEC_NOCACHE, SEC_RESERVE, SEC_WRITECOMBINE,
             },
             Pipes::{
+                NMPWAIT_NOWAIT, NMPWAIT_USE_DEFAULT_WAIT, NMPWAIT_WAIT_FOREVER,
                 PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
             },
             SystemServices::LOCALE_NAME_MAX_LENGTH,

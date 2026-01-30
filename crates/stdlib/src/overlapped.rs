@@ -14,7 +14,7 @@ mod _overlapped {
         convert::{ToPyException, ToPyObject},
         function::OptionalArg,
         protocol::PyBuffer,
-        types::Constructor,
+        types::{Constructor, Destructor},
     };
     use windows_sys::Win32::{
         Foundation::{self, GetLastError, HANDLE},
@@ -235,14 +235,8 @@ mod _overlapped {
     }
 
     fn from_windows_err(err: u32, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        use Foundation::{ERROR_CONNECTION_ABORTED, ERROR_CONNECTION_REFUSED};
         debug_assert_ne!(err, 0, "call errno_err instead");
-        let exc = match err {
-            ERROR_CONNECTION_REFUSED => vm.ctx.exceptions.connection_refused_error,
-            ERROR_CONNECTION_ABORTED => vm.ctx.exceptions.connection_aborted_error,
-            err => return std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm),
-        };
-        vm.new_exception_empty(exc.to_owned())
+        std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm)
     }
 
     fn HasOverlappedIoCompleted(overlapped: &OVERLAPPED) -> bool {
@@ -383,7 +377,7 @@ mod _overlapped {
         }
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor, Destructor))]
     impl Overlapped {
         #[pygetset]
         fn address(&self, _vm: &VirtualMachine) -> usize {
@@ -438,7 +432,6 @@ mod _overlapped {
             use windows_sys::Win32::Foundation::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
-            use windows_sys::Win32::System::IO::GetOverlappedResult;
 
             let mut inner = zelf.inner.lock();
             let wait = wait.unwrap_or(false);
@@ -454,7 +447,7 @@ mod _overlapped {
             // Get the result
             let mut transferred: u32 = 0;
             let ret = unsafe {
-                GetOverlappedResult(
+                windows_sys::Win32::System::IO::GetOverlappedResult(
                     inner.handle,
                     &inner.overlapped,
                     &mut transferred,
@@ -1190,35 +1183,6 @@ mod _overlapped {
             }
         }
 
-        // ConnectPipe - this is a static method that returns a handle
-        #[pymethod]
-        fn ConnectPipe(address: String, vm: &VirtualMachine) -> PyResult<isize> {
-            use windows_sys::Win32::Storage::FileSystem::{
-                CreateFileW, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
-                OPEN_EXISTING,
-            };
-
-            let address_wide: Vec<u16> = address.encode_utf16().chain(std::iter::once(0)).collect();
-
-            let handle = unsafe {
-                CreateFileW(
-                    address_wide.as_ptr(),
-                    FILE_GENERIC_READ | FILE_GENERIC_WRITE,
-                    0,
-                    std::ptr::null(),
-                    OPEN_EXISTING,
-                    FILE_FLAG_OVERLAPPED,
-                    std::ptr::null_mut(),
-                )
-            };
-
-            if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
-                return Err(vm.new_last_os_error());
-            }
-
-            Ok(handle as isize)
-        }
-
         // WSASendTo
         #[pymethod]
         fn WSASendTo(
@@ -1506,6 +1470,78 @@ mod _overlapped {
                 inner: PyMutex::new(inner),
             })
         }
+    }
+
+    impl Destructor for Overlapped {
+        fn del(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
+
+            let mut inner = zelf.inner.lock();
+            let olderr = unsafe { GetLastError() };
+
+            // Cancel pending I/O and wait for completion
+            if !HasOverlappedIoCompleted(&inner.overlapped)
+                && !matches!(
+                    inner.data,
+                    OverlappedData::None | OverlappedData::NotStarted
+                )
+            {
+                let cancelled = unsafe { CancelIoEx(inner.handle, &inner.overlapped) } != 0;
+
+                if cancelled {
+                    // Wait for the cancellation to complete
+                    let mut transferred: u32 = 0;
+                    unsafe {
+                        GetOverlappedResult(
+                            inner.handle,
+                            &inner.overlapped,
+                            &mut transferred,
+                            1, // bWait = TRUE
+                        )
+                    };
+                }
+            }
+
+            // Close the event handle
+            if !inner.overlapped.hEvent.is_null() {
+                unsafe {
+                    Foundation::CloseHandle(inner.overlapped.hEvent);
+                }
+                inner.overlapped.hEvent = std::ptr::null_mut();
+            }
+
+            // Restore last error
+            unsafe { Foundation::SetLastError(olderr) };
+
+            Ok(())
+        }
+    }
+
+    #[pyfunction]
+    fn ConnectPipe(address: String, vm: &VirtualMachine) -> PyResult<isize> {
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE, OPEN_EXISTING,
+        };
+
+        let address_wide: Vec<u16> = address.encode_utf16().chain(std::iter::once(0)).collect();
+
+        let handle = unsafe {
+            CreateFileW(
+                address_wide.as_ptr(),
+                FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+                0,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+            return Err(vm.new_last_os_error());
+        }
+
+        Ok(handle as isize)
     }
 
     #[pyfunction]

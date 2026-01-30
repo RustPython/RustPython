@@ -2,6 +2,7 @@
 Test the API of the symtable module.
 """
 
+import re
 import textwrap
 import symtable
 import unittest
@@ -202,9 +203,7 @@ class SymtableTest(unittest.TestCase):
     # XXX: RUSTPYTHON
     # U = find_block(GenericMine, "U")
 
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_type(self):
         self.assertEqual(self.top.get_type(), "module")
         self.assertEqual(self.Mine.get_type(), "class")
@@ -222,8 +221,7 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.T.get_type(), "type variable")
         self.assertEqual(self.U.get_type(), "type variable")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_id(self):
         self.assertGreater(self.top.get_id(), 0)
         self.assertGreater(self.Mine.get_id(), 0)
@@ -256,8 +254,7 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.top.get_lineno(), 0)
         self.assertEqual(self.spam.get_lineno(), 14)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_function_info(self):
         func = self.spam
         self.assertEqual(sorted(func.get_parameters()), ["a", "b", "kw", "var"])
@@ -266,8 +263,7 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(sorted(func.get_globals()), ["bar", "glob", "some_assigned_global_var"])
         self.assertEqual(self.internal.get_frees(), ("x",))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_globals(self):
         self.assertTrue(self.spam.lookup("glob").is_global())
         self.assertFalse(self.spam.lookup("glob").is_declared_global())
@@ -280,16 +276,14 @@ class SymtableTest(unittest.TestCase):
         self.assertTrue(self.top.lookup("some_non_assigned_global_var").is_global())
         self.assertTrue(self.top.lookup("some_assigned_global_var").is_global())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_nonlocal(self):
         self.assertFalse(self.spam.lookup("some_var").is_nonlocal())
         self.assertTrue(self.other_internal.lookup("some_var").is_nonlocal())
         expected = ("some_var",)
         self.assertEqual(self.other_internal.get_nonlocals(), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_local(self):
         self.assertTrue(self.spam.lookup("x").is_local())
         self.assertFalse(self.spam.lookup("bar").is_local())
@@ -297,13 +291,11 @@ class SymtableTest(unittest.TestCase):
         self.assertTrue(self.top.lookup("some_non_assigned_global_var").is_local())
         self.assertTrue(self.top.lookup("some_assigned_global_var").is_local())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_free(self):
         self.assertTrue(self.internal.lookup("x").is_free())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_referenced(self):
         self.assertTrue(self.internal.lookup("x").is_referenced())
         self.assertTrue(self.spam.lookup("internal").is_referenced())
@@ -320,8 +312,7 @@ class SymtableTest(unittest.TestCase):
 
         self.assertRaises(KeyError, self.top.lookup, "not_here")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_namespaces(self):
         self.assertTrue(self.top.lookup("Mine").is_namespace())
         self.assertTrue(self.Mine.lookup("a_method").is_namespace())
@@ -346,16 +337,17 @@ class SymtableTest(unittest.TestCase):
         self.assertTrue(self.Mine.lookup("a_method").is_assigned())
         self.assertFalse(self.internal.lookup("x").is_assigned())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_annotated(self):
         st1 = symtable.symtable('def f():\n    x: int\n', 'test', 'exec')
-        st2 = st1.get_children()[0]
+        st2 = st1.get_children()[1]
+        self.assertEqual(st2.get_type(), "function")
         self.assertTrue(st2.lookup('x').is_local())
         self.assertTrue(st2.lookup('x').is_annotated())
         self.assertFalse(st2.lookup('x').is_global())
         st3 = symtable.symtable('def f():\n    x = 1\n', 'test', 'exec')
-        st4 = st3.get_children()[0]
+        st4 = st3.get_children()[1]
+        self.assertEqual(st4.get_type(), "function")
         self.assertTrue(st4.lookup('x').is_local())
         self.assertFalse(st4.lookup('x').is_annotated())
 
@@ -373,8 +365,7 @@ class SymtableTest(unittest.TestCase):
                                 '    x: int',
                                 'test', 'exec')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_imported(self):
         self.assertTrue(self.top.lookup("sys").is_imported())
 
@@ -384,28 +375,34 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.spam.lookup("x").get_name(), "x")
         self.assertEqual(self.Mine.get_name(), "Mine")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_class_get_methods(self):
-        self.assertEqual(self.Mine.get_methods(), ('a_method',))
+        deprecation_mess = (
+            re.escape('symtable.Class.get_methods() is deprecated '
+                      'and will be removed in Python 3.16.')
+        )
+
+        with self.assertWarnsRegex(DeprecationWarning, deprecation_mess):
+            self.assertEqual(self.Mine.get_methods(), ('a_method',))
 
         top = symtable.symtable(TEST_COMPLEX_CLASS_CODE, "?", "exec")
         this = find_block(top, "ComplexClass")
 
-        self.assertEqual(this.get_methods(), (
-            'a_method', 'a_method_pep_695',
-            'an_async_method', 'an_async_method_pep_695',
-            'a_classmethod', 'a_classmethod_pep_695',
-            'an_async_classmethod', 'an_async_classmethod_pep_695',
-            'a_staticmethod', 'a_staticmethod_pep_695',
-            'an_async_staticmethod', 'an_async_staticmethod_pep_695',
-            'a_fakemethod', 'a_fakemethod_pep_695',
-            'an_async_fakemethod', 'an_async_fakemethod_pep_695',
-            'glob_unassigned_meth', 'glob_unassigned_meth_pep_695',
-            'glob_unassigned_async_meth', 'glob_unassigned_async_meth_pep_695',
-            'glob_assigned_meth', 'glob_assigned_meth_pep_695',
-            'glob_assigned_async_meth', 'glob_assigned_async_meth_pep_695',
-        ))
+        with self.assertWarnsRegex(DeprecationWarning, deprecation_mess):
+            self.assertEqual(this.get_methods(), (
+                'a_method', 'a_method_pep_695',
+                'an_async_method', 'an_async_method_pep_695',
+                'a_classmethod', 'a_classmethod_pep_695',
+                'an_async_classmethod', 'an_async_classmethod_pep_695',
+                'a_staticmethod', 'a_staticmethod_pep_695',
+                'an_async_staticmethod', 'an_async_staticmethod_pep_695',
+                'a_fakemethod', 'a_fakemethod_pep_695',
+                'an_async_fakemethod', 'an_async_fakemethod_pep_695',
+                'glob_unassigned_meth', 'glob_unassigned_meth_pep_695',
+                'glob_unassigned_async_meth', 'glob_unassigned_async_meth_pep_695',
+                'glob_assigned_meth', 'glob_assigned_meth_pep_695',
+                'glob_assigned_async_meth', 'glob_assigned_async_meth_pep_695',
+            ))
 
         # Test generator expressions that are of type TYPE_FUNCTION
         # but will not be reported by get_methods() since they are
@@ -418,7 +415,8 @@ class SymtableTest(unittest.TestCase):
             indented = textwrap.indent(body, ' ' * 4)
             top = symtable.symtable(f"class A:\n{indented}", "?", "exec")
             this = find_block(top, "A")
-            self.assertEqual(this.get_methods(), expected_methods)
+            with self.assertWarnsRegex(DeprecationWarning, deprecation_mess):
+                self.assertEqual(this.get_methods(), expected_methods)
 
         # statements with 'genexpr' inside it
         GENEXPRS = (
@@ -459,8 +457,7 @@ class SymtableTest(unittest.TestCase):
                         check_body('\n'.join((gen, func)), ('genexpr',))
                         check_body('\n'.join((func, gen)), ('genexpr',))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_filename_correct(self):
         ### Bug tickler: SyntaxError file name correct whether error raised
         ### while parsing or building symbol table.
@@ -492,8 +489,7 @@ class SymtableTest(unittest.TestCase):
     def test_exec(self):
         symbols = symtable.symtable("def f(x): return x", "?", "exec")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bytes(self):
         top = symtable.symtable(TEST_CODE.encode('utf8'), "?", "exec")
         self.assertIsNotNone(find_block(top, "Mine"))
@@ -507,8 +503,7 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(str(self.top), "<SymbolTable for module ?>")
         self.assertEqual(str(self.spam), "<Function SymbolTable for spam in ?>")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_symbol_repr(self):
         self.assertEqual(repr(self.spam.lookup("glob")),
                          "<symbol 'glob': GLOBAL_IMPLICIT, USE>")
@@ -524,19 +519,69 @@ class SymtableTest(unittest.TestCase):
                          "<symbol 'x': FREE, USE>")
         self.assertEqual(repr(self.other_internal.lookup("some_var")),
                          "<symbol 'some_var': FREE, USE|DEF_NONLOCAL|DEF_LOCAL>")
+        self.assertEqual(repr(self.GenericMine.lookup("T")),
+                         "<symbol 'T': LOCAL, DEF_LOCAL|DEF_TYPE_PARAM>")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+        st1 = symtable.symtable("[x for x in [1]]", "?", "exec")
+        self.assertEqual(repr(st1.lookup("x")),
+                         "<symbol 'x': LOCAL, USE|DEF_LOCAL|DEF_COMP_ITER>")
+
+        st2 = symtable.symtable("[(lambda: x) for x in [1]]", "?", "exec")
+        self.assertEqual(repr(st2.lookup("x")),
+                         "<symbol 'x': CELL, DEF_LOCAL|DEF_COMP_ITER|DEF_COMP_CELL>")
+
+        st3 = symtable.symtable("def f():\n"
+                                "   x = 1\n"
+                                "   class A:\n"
+                                "       x = 2\n"
+                                "       def method():\n"
+                                "           return x\n",
+                                "?", "exec")
+        # child 0 is for __annotate__
+        func_f = st3.get_children()[1]
+        class_A = func_f.get_children()[0]
+        self.assertEqual(repr(class_A.lookup('x')),
+                         "<symbol 'x': LOCAL, DEF_LOCAL|DEF_FREE_CLASS>")
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_symtable_entry_repr(self):
         expected = f"<symtable entry top({self.top.get_id()}), line {self.top.get_lineno()}>"
         self.assertEqual(repr(self.top._table), expected)
+
+    def test__symtable_refleak(self):
+        # Regression test for reference leak in PyUnicode_FSDecoder.
+        # See https://github.com/python/cpython/issues/139748.
+        mortal_str = 'this is a mortal string'
+        # check error path when 'compile_type' AC conversion failed
+        self.assertRaises(TypeError, symtable.symtable, '', mortal_str, 1)
+
+
+class ComprehensionTests(unittest.TestCase):
+    def get_identifiers_recursive(self, st, res):
+        res.extend(st.get_identifiers())
+        for ch in st.get_children():
+            self.get_identifiers_recursive(ch, res)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 2 != 1
+    def test_loopvar_in_only_one_scope(self):
+        # ensure that the loop variable appears only once in the symtable
+        comps = [
+            "[x for x in [1]]",
+            "{x for x in [1]}",
+            "{x:x*x for x in [1]}",
+        ]
+        for comp in comps:
+            with self.subTest(comp=comp):
+                st = symtable.symtable(comp, "?", "exec")
+                ids = []
+                self.get_identifiers_recursive(st, ids)
+                self.assertEqual(len([x for x in ids if x == 'x']), 1)
 
 
 class CommandLineTest(unittest.TestCase):
     maxDiff = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_file(self):
         filename = os_helper.TESTFN
         self.addCleanup(os_helper.unlink, filename)
