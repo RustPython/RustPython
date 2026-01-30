@@ -249,9 +249,19 @@ def _iter_patch_lines(
     cache = {}
     # Build per-class set of async method names (for Phase 2 to generate correct override)
     async_methods: dict[str, set[str]] = {}
+    # Track class bases for inherited async method lookup
+    class_bases: dict[str, list[str]] = {}
+    all_classes = {
+        node.name for node in tree.body if isinstance(node, ast.ClassDef)
+    }
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             cache[node.name] = node.end_lineno
+            class_bases[node.name] = [
+                base.id
+                for base in node.bases
+                if isinstance(base, ast.Name) and base.id in all_classes
+            ]
             cls_async: set[str] = set()
             for item in node.body:
                 if isinstance(item, ast.AsyncFunctionDef):
@@ -282,7 +292,19 @@ def _iter_patch_lines(
 
         for test_name, specs in tests.items():
             decorators = "\n".join(spec.as_decorator() for spec in specs)
-            is_async = test_name in async_methods.get(cls_name, set())
+            # Check current class and ancestors for async method
+            is_async = False
+            queue = [cls_name]
+            visited: set[str] = set()
+            while queue:
+                cur = queue.pop(0)
+                if cur in visited:
+                    continue
+                visited.add(cur)
+                if test_name in async_methods.get(cur, set()):
+                    is_async = True
+                    break
+                queue.extend(class_bases.get(cur, []))
             if is_async:
                 patch_lines = f"""
 {decorators}
