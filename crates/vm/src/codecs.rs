@@ -476,7 +476,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for SurrogatePass {
         let p = &s[byte_range.start..];
 
         fn slice<const N: usize>(p: &[u8]) -> Option<[u8; N]> {
-            p.get(..N).map(|x| x.try_into().unwrap())
+            p.first_chunk().copied()
         }
 
         let c = match standard_encoding {

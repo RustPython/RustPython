@@ -745,10 +745,9 @@ impl VirtualMachine {
             return Err(self.new_recursion_error(_where.to_string()));
         }
 
-        self.recursion_depth.set(self.recursion_depth.get() + 1);
-        let result = f();
-        self.recursion_depth.set(self.recursion_depth.get() - 1);
-        result
+        self.recursion_depth.update(|d| d + 1);
+        scopeguard::defer! { self.recursion_depth.update(|d| d - 1) }
+        f()
     }
 
     pub fn with_frame<R, F: FnOnce(FrameRef) -> PyResult<R>>(
