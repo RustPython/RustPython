@@ -1668,7 +1668,6 @@ class CoroutineTest(unittest.TestCase):
 
         self.assertEqual(sys.getrefcount(aiter), refs_before)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; refcount leak in async for/with
     def test_for_6(self):
         I = 0
 
