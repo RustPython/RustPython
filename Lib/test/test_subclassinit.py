@@ -129,35 +129,35 @@ class Test(unittest.TestCase):
             d = Descriptor()
         self.assertEqual(A, 0)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; ZeroDivisionError: division by zero
     def test_set_name_error(self):
         class Descriptor:
             def __set_name__(self, owner, name):
                 1/0
 
-        with self.assertRaises(RuntimeError) as cm:
+        with self.assertRaises(ZeroDivisionError) as cm:
             class NotGoingToWork:
                 attr = Descriptor()
 
-        exc = cm.exception
-        self.assertRegex(str(exc), r'\bNotGoingToWork\b')
-        self.assertRegex(str(exc), r'\battr\b')
-        self.assertRegex(str(exc), r'\bDescriptor\b')
-        self.assertIsInstance(exc.__cause__, ZeroDivisionError)
+        notes = cm.exception.__notes__
+        self.assertRegex(str(notes), r'\bNotGoingToWork\b')
+        self.assertRegex(str(notes), r'\battr\b')
+        self.assertRegex(str(notes), r'\bDescriptor\b')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; RuntimeError: Error calling __set_name__ on 'Descriptor' instance attr in 'NotGoingToWork'
     def test_set_name_wrong(self):
         class Descriptor:
             def __set_name__(self):
                 pass
 
-        with self.assertRaises(RuntimeError) as cm:
+        with self.assertRaises(TypeError) as cm:
             class NotGoingToWork:
                 attr = Descriptor()
 
-        exc = cm.exception
-        self.assertRegex(str(exc), r'\bNotGoingToWork\b')
-        self.assertRegex(str(exc), r'\battr\b')
-        self.assertRegex(str(exc), r'\bDescriptor\b')
-        self.assertIsInstance(exc.__cause__, TypeError)
+        notes = cm.exception.__notes__
+        self.assertRegex(str(notes), r'\bNotGoingToWork\b')
+        self.assertRegex(str(notes), r'\battr\b')
+        self.assertRegex(str(notes), r'\bDescriptor\b')
 
     def test_set_name_lookup(self):
         resolved = []
@@ -232,7 +232,7 @@ class Test(unittest.TestCase):
                 super().__init__(name, bases, namespace)
 
         with self.assertRaises(TypeError):
-            class MyClass(metaclass=MyMeta, otherarg=1):
+            class MyClass2(metaclass=MyMeta, otherarg=1):
                 pass
 
         class MyMeta(type):
@@ -243,10 +243,10 @@ class Test(unittest.TestCase):
                 super().__init__(name, bases, namespace)
                 self.otherarg = otherarg
 
-        class MyClass(metaclass=MyMeta, otherarg=1):
+        class MyClass3(metaclass=MyMeta, otherarg=1):
             pass
 
-        self.assertEqual(MyClass.otherarg, 1)
+        self.assertEqual(MyClass3.otherarg, 1)
 
     def test_errors_changed_pep487(self):
         # These tests failed before Python 3.6, PEP 487
@@ -265,10 +265,10 @@ class Test(unittest.TestCase):
                 self.otherarg = otherarg
                 return self
 
-        class MyClass(metaclass=MyMeta, otherarg=1):
+        class MyClass2(metaclass=MyMeta, otherarg=1):
             pass
 
-        self.assertEqual(MyClass.otherarg, 1)
+        self.assertEqual(MyClass2.otherarg, 1)
 
     def test_type(self):
         t = type('NewClass', (object,), {})
@@ -281,4 +281,3 @@ class Test(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
