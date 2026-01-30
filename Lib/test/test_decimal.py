@@ -4775,9 +4775,6 @@ class PyCoverage(Coverage, unittest.TestCase):
         sys.set_int_max_str_digits(self._previous_int_limit)
         super().tearDown()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_implicit_context(self):
-        return super().test_implicit_context()
 
 class PyFunctionality(unittest.TestCase):
     """Extra functionality in decimal.py"""
