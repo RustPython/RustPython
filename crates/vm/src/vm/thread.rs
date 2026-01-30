@@ -237,6 +237,8 @@ impl VirtualMachine {
             c_stack_soft_limit: Cell::new(VirtualMachine::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
             async_gen_finalizer: RefCell::new(None),
+            asyncio_running_loop: RefCell::new(None),
+            asyncio_running_task: RefCell::new(None),
         };
         ThreadedVirtualMachine { vm }
     }

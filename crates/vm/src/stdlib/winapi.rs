@@ -6,15 +6,16 @@ pub(crate) use _winapi::module_def;
 #[pymodule]
 mod _winapi {
     use crate::{
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::PyStrRef,
-        common::windows::ToWideString,
+        common::{lock::PyMutex, windows::ToWideString},
         convert::{ToPyException, ToPyResult},
         function::{ArgMapping, ArgSequence, OptionalArg},
+        types::Constructor,
         windows::{WinHandle, WindowsSysResult},
     };
     use std::ptr::{null, null_mut};
-    use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, MAX_PATH};
+    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, MAX_PATH};
 
     #[pyattr]
     use windows_sys::Win32::{
@@ -558,6 +559,48 @@ mod _winapi {
     }
 
     #[pyfunction]
+    fn WaitForMultipleObjects(
+        handle_seq: ArgSequence<isize>,
+        wait_all: bool,
+        milliseconds: u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<u32> {
+        use windows_sys::Win32::Foundation::WAIT_FAILED;
+        use windows_sys::Win32::System::Threading::WaitForMultipleObjects as WinWaitForMultipleObjects;
+
+        let handles: Vec<HANDLE> = handle_seq
+            .into_vec()
+            .into_iter()
+            .map(|h| h as HANDLE)
+            .collect();
+
+        if handles.is_empty() {
+            return Err(vm.new_value_error("handle_seq must not be empty".to_owned()));
+        }
+
+        if handles.len() > 64 {
+            return Err(
+                vm.new_value_error("WaitForMultipleObjects supports at most 64 handles".to_owned())
+            );
+        }
+
+        let ret = unsafe {
+            WinWaitForMultipleObjects(
+                handles.len() as u32,
+                handles.as_ptr(),
+                if wait_all { 1 } else { 0 },
+                milliseconds,
+            )
+        };
+
+        if ret == WAIT_FAILED {
+            Err(vm.new_last_os_error())
+        } else {
+            Ok(ret)
+        }
+    }
+
+    #[pyfunction]
     fn GetExitCodeProcess(h: WinHandle, vm: &VirtualMachine) -> PyResult<u32> {
         unsafe {
             let mut ec = std::mem::MaybeUninit::uninit();
@@ -759,6 +802,229 @@ mod _winapi {
         }
 
         Ok(WinHandle(handle))
+    }
+
+    // ==================== Overlapped class ====================
+    // Used for asynchronous I/O operations (ConnectNamedPipe, ReadFile, WriteFile)
+
+    #[pyattr]
+    #[pyclass(name = "Overlapped", module = "_winapi")]
+    #[derive(Debug, PyPayload)]
+    struct Overlapped {
+        inner: PyMutex<OverlappedInner>,
+    }
+
+    struct OverlappedInner {
+        overlapped: windows_sys::Win32::System::IO::OVERLAPPED,
+        handle: HANDLE,
+        pending: bool,
+        completed: bool,
+        read_buffer: Option<Vec<u8>>,
+    }
+
+    impl std::fmt::Debug for OverlappedInner {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("OverlappedInner")
+                .field("handle", &self.handle)
+                .field("pending", &self.pending)
+                .field("completed", &self.completed)
+                .finish()
+        }
+    }
+
+    unsafe impl Sync for OverlappedInner {}
+    unsafe impl Send for OverlappedInner {}
+
+    #[pyclass(with(Constructor))]
+    impl Overlapped {
+        fn new_with_handle(handle: HANDLE) -> Self {
+            use windows_sys::Win32::System::Threading::CreateEventW;
+
+            let event = unsafe { CreateEventW(null(), 1, 0, null()) };
+            let mut overlapped: windows_sys::Win32::System::IO::OVERLAPPED =
+                unsafe { std::mem::zeroed() };
+            overlapped.hEvent = event;
+
+            Overlapped {
+                inner: PyMutex::new(OverlappedInner {
+                    overlapped,
+                    handle,
+                    pending: false,
+                    completed: false,
+                    read_buffer: None,
+                }),
+            }
+        }
+
+        #[pymethod]
+        fn GetOverlappedResult(&self, wait: bool, vm: &VirtualMachine) -> PyResult<u32> {
+            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, GetLastError};
+            use windows_sys::Win32::System::IO::GetOverlappedResult;
+
+            let mut inner = self.inner.lock();
+
+            // If operation was already completed synchronously (e.g., ERROR_PIPE_CONNECTED),
+            // return immediately without calling GetOverlappedResult
+            if inner.completed && !inner.pending {
+                return Ok(0);
+            }
+
+            let mut transferred: u32 = 0;
+
+            let ret = unsafe {
+                GetOverlappedResult(
+                    inner.handle,
+                    &inner.overlapped,
+                    &mut transferred,
+                    if wait { 1 } else { 0 },
+                )
+            };
+
+            if ret == 0 {
+                let err = unsafe { GetLastError() };
+                if err == ERROR_IO_PENDING {
+                    return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
+                }
+                return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
+            }
+
+            inner.completed = true;
+            inner.pending = false;
+            Ok(transferred)
+        }
+
+        #[pymethod]
+        fn getbuffer(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            let inner = self.inner.lock();
+            if !inner.completed {
+                return Err(vm.new_value_error("operation not completed".to_owned()));
+            }
+            Ok(inner
+                .read_buffer
+                .as_ref()
+                .map(|buf| vm.ctx.new_bytes(buf.clone()).into()))
+        }
+
+        #[pymethod]
+        fn cancel(&self, vm: &VirtualMachine) -> PyResult<()> {
+            use windows_sys::Win32::System::IO::CancelIoEx;
+
+            let inner = self.inner.lock();
+            if !inner.pending {
+                return Ok(());
+            }
+
+            let ret = unsafe { CancelIoEx(inner.handle, &inner.overlapped) };
+            if ret == 0 {
+                let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+                // ERROR_NOT_FOUND means operation already completed
+                if err != windows_sys::Win32::Foundation::ERROR_NOT_FOUND {
+                    return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
+                }
+            }
+            Ok(())
+        }
+
+        #[pygetset]
+        fn event(&self) -> isize {
+            let inner = self.inner.lock();
+            inner.overlapped.hEvent as isize
+        }
+    }
+
+    impl Constructor for Overlapped {
+        type Args = ();
+
+        fn py_new(
+            _cls: &Py<crate::builtins::PyType>,
+            _args: Self::Args,
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Overlapped::new_with_handle(null_mut()))
+        }
+    }
+
+    impl Drop for OverlappedInner {
+        fn drop(&mut self) {
+            use windows_sys::Win32::Foundation::CloseHandle;
+            if !self.overlapped.hEvent.is_null() {
+                unsafe { CloseHandle(self.overlapped.hEvent) };
+            }
+        }
+    }
+
+    /// ConnectNamedPipe - Wait for a client to connect to a named pipe
+    #[derive(FromArgs)]
+    struct ConnectNamedPipeArgs {
+        #[pyarg(positional)]
+        handle: WinHandle,
+        #[pyarg(named, optional)]
+        overlapped: OptionalArg<bool>,
+    }
+
+    #[pyfunction]
+    fn ConnectNamedPipe(args: ConnectNamedPipeArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        use windows_sys::Win32::Foundation::{
+            ERROR_IO_PENDING, ERROR_PIPE_CONNECTED, GetLastError,
+        };
+
+        let handle = args.handle;
+        let use_overlapped = args.overlapped.unwrap_or(false);
+
+        if use_overlapped {
+            // Overlapped (async) mode
+            let ov = Overlapped::new_with_handle(handle.0);
+
+            let ret = {
+                let mut inner = ov.inner.lock();
+                unsafe {
+                    windows_sys::Win32::System::Pipes::ConnectNamedPipe(
+                        handle.0,
+                        &mut inner.overlapped,
+                    )
+                }
+            };
+
+            if ret != 0 {
+                // Connected immediately
+                let mut inner = ov.inner.lock();
+                inner.completed = true;
+            } else {
+                let err = unsafe { GetLastError() };
+                match err {
+                    ERROR_IO_PENDING => {
+                        let mut inner = ov.inner.lock();
+                        inner.pending = true;
+                    }
+                    ERROR_PIPE_CONNECTED => {
+                        // Client was already connected
+                        let mut inner = ov.inner.lock();
+                        inner.completed = true;
+                    }
+                    _ => {
+                        return Err(
+                            std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm)
+                        );
+                    }
+                }
+            }
+
+            Ok(ov.into_pyobject(vm))
+        } else {
+            // Synchronous mode
+            let ret = unsafe {
+                windows_sys::Win32::System::Pipes::ConnectNamedPipe(handle.0, null_mut())
+            };
+
+            if ret == 0 {
+                let err = unsafe { GetLastError() };
+                if err != ERROR_PIPE_CONNECTED {
+                    return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
+                }
+            }
+
+            Ok(vm.ctx.none())
+        }
     }
 
     /// Helper for GetShortPathName and GetLongPathName
