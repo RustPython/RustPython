@@ -59,7 +59,7 @@ impl StoredVirtualMachine {
             let browser_def = browser_module::module_def(&builder.ctx);
             builder = builder
                 .add_native_modules(&[window_def, browser_def])
-                .add_frozen_modules(rustpython_vm::py_freeze!(dir = "Lib"));
+                .add_frozen_modules(rustpython_vm::py_freeze!(dir = "../Lib"));
         }
 
         let interp = builder
