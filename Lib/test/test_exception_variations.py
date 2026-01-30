@@ -294,8 +294,6 @@ class ExceptTestCases(unittest.TestCase):
         self.assertTrue(hit_except)
 
 
-# TODO: RUSTPYTHON
-'''
 class ExceptStarTestCases(unittest.TestCase):
     def test_try_except_else_finally(self):
         hit_except = False
@@ -571,7 +569,7 @@ class ExceptStarTestCases(unittest.TestCase):
         self.assertFalse(hit_else)
         self.assertTrue(hit_finally)
         self.assertTrue(hit_except)
-'''
+
 
 if __name__ == '__main__':
     unittest.main()
