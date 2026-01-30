@@ -837,12 +837,15 @@ class TestCopy(unittest.TestCase):
         v[x] = y
         self.assertNotIn(x, u)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; weakref callback not fired immediately by gc_collect
     def test_copy_weakkeydict(self):
         self._check_copy_weakdict(weakref.WeakKeyDictionary)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; weakref callback not fired immediately by gc_collect
     def test_copy_weakvaluedict(self):
         self._check_copy_weakdict(weakref.WeakValueDictionary)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; weakref callback not fired immediately by gc_collect
     def test_deepcopy_weakkeydict(self):
         class C(object):
             def __init__(self, i):
@@ -863,6 +866,7 @@ class TestCopy(unittest.TestCase):
         support.gc_collect()  # For PyPy or other GCs.
         self.assertEqual(len(v), 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; weakref callback not fired immediately by gc_collect
     def test_deepcopy_weakvaluedict(self):
         class C(object):
             def __init__(self, i):

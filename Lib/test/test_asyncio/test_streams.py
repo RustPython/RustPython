@@ -1078,7 +1078,7 @@ class StreamTests(test_utils.TestCase):
 
         self.assertEqual(messages, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 1
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC finalization timing issue
     def test_unclosed_resource_warnings(self):
         async def inner(httpd):
             rd, wr = await asyncio.open_connection(*httpd.address)

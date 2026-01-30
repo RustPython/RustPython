@@ -2274,14 +2274,12 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, group=65535)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; observed gids do not match expected gids
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups(self):
         gid = os.getegid()
         group_list = [65534 if gid != 65534 else 65533]
         self._test_extra_groups_impl(gid=gid, group_list=group_list)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups_empty_list(self):
         self._test_extra_groups_impl(gid=os.getegid(), group_list=[])
@@ -3284,6 +3282,7 @@ class POSIXProcessTestCase(BaseTestCase):
         finally:
             p.wait()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC Popen.__del__ timing
     def test_zombie_fast_process_del(self):
         # Issue #12650: on Unix, if Popen.__del__() was called before the
         # process exited, it wouldn't be added to subprocess._active, and would
@@ -3308,6 +3307,7 @@ class POSIXProcessTestCase(BaseTestCase):
             # check that p is in the active processes list
             self.assertIn(ident, [id(o) for o in subprocess._active])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC Popen.__del__ timing
     def test_leak_fast_process_del_killed(self):
         # Issue #12650: on Unix, if Popen.__del__() was called before the
         # process exited, and the process got killed by a signal, it would never

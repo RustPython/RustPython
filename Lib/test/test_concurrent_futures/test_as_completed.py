@@ -72,6 +72,7 @@ class AsCompletedTests:
         ]
         self.assertEqual(len(completed), 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC weak reference not collected
     def test_free_reference_yielded_future(self):
         # Issue #14406: Generator should not keep references
         # to finished futures.

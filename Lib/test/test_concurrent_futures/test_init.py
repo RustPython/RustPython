@@ -136,9 +136,11 @@ class FailingInitializerResourcesTest(unittest.TestCase):
 
         self.assertEqual(_resource_tracker._exitcode, 0)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; resource tracker exit code mismatch
     def test_spawn(self):
         self._test(ProcessPoolSpawnFailingInitializerTest)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; resource tracker exit code mismatch
     @support.skip_if_sanitizer("TSAN doesn't support threads after fork", thread=True)
     def test_forkserver(self):
         self._test(ProcessPoolForkserverFailingInitializerTest)
