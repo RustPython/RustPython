@@ -614,7 +614,7 @@ impl PyAnextAwaitable {
                 await_method?.call((), vm)?
             } else {
                 return Err(vm.new_type_error(format!(
-                    "object {} can't be used in 'await' expression",
+                    "'{}' object can't be awaited",
                     wrapped.class().name()
                 )));
             }
@@ -624,7 +624,7 @@ impl PyAnextAwaitable {
                 await_method?.call((), vm)?
             } else {
                 return Err(vm.new_type_error(format!(
-                    "object {} can't be used in 'await' expression",
+                    "'{}' object can't be awaited",
                     wrapped.class().name()
                 )));
             }

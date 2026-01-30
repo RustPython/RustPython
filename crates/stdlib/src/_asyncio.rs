@@ -17,6 +17,7 @@ pub(crate) mod _asyncio {
             extend_module,
             function::{FuncArgs, KwArgs, OptionalArg, OptionalOption, PySetterValue},
             protocol::PyIterReturn,
+            recursion::ReprGuard,
             types::{
                 Callable, Constructor, Destructor, Initializer, IterNext, Iterable, Representable,
                 SelfIter,
@@ -44,6 +45,15 @@ pub(crate) mod _asyncio {
             "_eager_tasks" => eager_tasks,
             "_current_tasks" => current_tasks,
         });
+
+        // Register fork handler to clear task state in child process
+        #[cfg(unix)]
+        {
+            let on_fork = vm
+                .get_attribute_opt(module.to_owned().into(), vm.ctx.intern_str("_on_fork"))?
+                .expect("_on_fork not found in _asyncio module");
+            vm.state.after_forkers_child.lock().push(on_fork);
+        }
 
         Ok(())
     }
@@ -830,9 +840,13 @@ pub(crate) mod _asyncio {
 
     impl Representable for PyFuture {
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let info = get_future_repr_info(zelf.as_object(), vm)?;
             let class_name = zelf.class().name().to_string();
-            Ok(format!("<{} {}>", class_name, info))
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let info = get_future_repr_info(zelf.as_object(), vm)?;
+                Ok(format!("<{} {}>", class_name, info))
+            } else {
+                Ok(format!("<{} ...>", class_name))
+            }
         }
     }
 
@@ -1915,34 +1929,38 @@ pub(crate) mod _asyncio {
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let class_name = zelf.class().name().to_string();
 
-            // Try to use _task_repr_info if available
-            if let Ok(info) = get_task_repr_info(zelf.as_object(), vm)
-                && info != "state=unknown"
-            {
-                return Ok(format!("<{} {}>", class_name, info));
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                // Try to use _task_repr_info if available
+                if let Ok(info) = get_task_repr_info(zelf.as_object(), vm)
+                    && info != "state=unknown"
+                {
+                    return Ok(format!("<{} {}>", class_name, info));
+                }
+
+                // Fallback: build repr from task properties directly
+                let state = zelf.base.fut_state.load().as_str().to_lowercase();
+                let name = zelf
+                    .task_name
+                    .read()
+                    .as_ref()
+                    .and_then(|n| n.str(vm).ok())
+                    .map(|s| s.as_str().to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                let coro_repr = zelf
+                    .task_coro
+                    .read()
+                    .as_ref()
+                    .and_then(|c| c.repr(vm).ok())
+                    .map(|s| s.as_str().to_string())
+                    .unwrap_or_else(|| "?".to_string());
+
+                Ok(format!(
+                    "<{} {} name='{}' coro={}>",
+                    class_name, state, name, coro_repr
+                ))
+            } else {
+                Ok(format!("<{} ...>", class_name))
             }
-
-            // Fallback: build repr from task properties directly
-            let state = zelf.base.fut_state.load().as_str().to_lowercase();
-            let name = zelf
-                .task_name
-                .read()
-                .as_ref()
-                .and_then(|n| n.str(vm).ok())
-                .map(|s| s.as_str().to_string())
-                .unwrap_or_else(|| "?".to_string());
-            let coro_repr = zelf
-                .task_coro
-                .read()
-                .as_ref()
-                .and_then(|c| c.repr(vm).ok())
-                .map(|s| s.as_str().to_string())
-                .unwrap_or_else(|| "?".to_string());
-
-            Ok(format!(
-                "<{} {} name='{}' coro={}>",
-                class_name, state, name, coro_repr
-            ))
         }
     }
 
@@ -2203,8 +2221,11 @@ pub(crate) mod _asyncio {
             *task.task_fut_waiter.write() = Some(result.clone());
 
             let task_obj: PyObjectRef = task.clone().into();
-            let wakeup_wrapper = TaskWakeupMethWrapper::new(task_obj).into_ref(&vm.ctx);
+            let wakeup_wrapper = TaskWakeupMethWrapper::new(task_obj.clone()).into_ref(&vm.ctx);
             vm.call_method(&result, "add_done_callback", (wakeup_wrapper,))?;
+
+            // Track awaited_by relationship for introspection
+            future_add_to_awaited_by(result.clone(), task_obj, vm)?;
 
             // If task_must_cancel is set, cancel the awaited future immediately
             // This propagates the cancellation through the future chain
@@ -2295,6 +2316,9 @@ pub(crate) mod _asyncio {
             .downcast()
             .map_err(|_| vm.new_type_error("task_wakeup called with non-Task object"))?;
 
+        // Remove awaited_by relationship before resuming
+        future_discard_from_awaited_by(fut.clone(), task.clone(), vm)?;
+
         *task_ref.task_fut_waiter.write() = None;
 
         // Call result() on the awaited future to get either result or exception
@@ -2376,7 +2400,6 @@ pub(crate) mod _asyncio {
             Some(l) if !vm.is_none(&l) => l,
             _ => {
                 // When loop is None or not provided, use the running loop
-                // and raise an error if there's no running loop
                 match vm.asyncio_running_loop.borrow().clone() {
                     Some(l) => l,
                     None => return Err(vm.new_runtime_error("no running event loop")),
@@ -2384,6 +2407,23 @@ pub(crate) mod _asyncio {
             }
         };
 
+        // Fast path: if the loop is the current thread's running loop,
+        // return the per-thread running task directly
+        let is_current_loop = vm
+            .asyncio_running_loop
+            .borrow()
+            .as_ref()
+            .is_some_and(|rl| rl.is(&loop_obj));
+
+        if is_current_loop {
+            return Ok(vm
+                .asyncio_running_task
+                .borrow()
+                .clone()
+                .unwrap_or_else(|| vm.ctx.none()));
+        }
+
+        // Slow path: look up in the module-level dict for cross-thread queries
         let current_tasks = get_current_tasks_dict(vm)?;
         let dict: PyDictRef = current_tasks.downcast().unwrap();
 
@@ -2464,60 +2504,100 @@ pub(crate) mod _asyncio {
 
     #[pyfunction]
     fn _enter_task(loop_: PyObjectRef, task: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let current_tasks = get_current_tasks_dict(vm)?;
-        let dict: PyDictRef = current_tasks.downcast().unwrap();
-
-        if dict.contains_key(&*loop_, vm) {
-            return Err(
-                vm.new_runtime_error("Cannot enter task while another task is already running")
-            );
+        // Per-thread check, matching CPython's ts->asyncio_running_task
+        {
+            let running_task = vm.asyncio_running_task.borrow();
+            if running_task.is_some() {
+                return Err(vm.new_runtime_error(format!(
+                    "Cannot enter into task {:?} while another task {:?} is being executed.",
+                    task,
+                    running_task.as_ref().unwrap()
+                )));
+            }
         }
 
-        dict.set_item(&*loop_, task, vm)?;
+        *vm.asyncio_running_task.borrow_mut() = Some(task.clone());
+
+        // Also update the module-level dict for cross-thread queries
+        if let Ok(current_tasks) = get_current_tasks_dict(vm)
+            && let Ok(dict) = current_tasks.downcast::<rustpython_vm::builtins::PyDict>()
+        {
+            let _ = dict.set_item(&*loop_, task, vm);
+        }
         Ok(())
     }
 
     #[pyfunction]
     fn _leave_task(loop_: PyObjectRef, task: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let current_tasks = get_current_tasks_dict(vm)?;
-        let dict: PyDictRef = current_tasks.downcast().unwrap();
-
-        let current = dict.get_item(&*loop_, vm).ok();
-        match current {
-            None => {
-                return Err(
-                    vm.new_runtime_error("_leave_task: task is not the current task".to_owned())
-                );
+        // Per-thread check, matching CPython's ts->asyncio_running_task
+        {
+            let running_task = vm.asyncio_running_task.borrow();
+            match running_task.as_ref() {
+                None => {
+                    return Err(vm.new_runtime_error(
+                        "_leave_task: task is not the current task".to_owned(),
+                    ));
+                }
+                Some(current) if !current.is(&task) => {
+                    return Err(vm.new_runtime_error(
+                        "_leave_task: task is not the current task".to_owned(),
+                    ));
+                }
+                _ => {}
             }
-            Some(current) if !current.is(&task) => {
-                return Err(
-                    vm.new_runtime_error("_leave_task: task is not the current task".to_owned())
-                );
-            }
-            _ => {}
         }
 
-        dict.del_item(&*loop_, vm)?;
+        *vm.asyncio_running_task.borrow_mut() = None;
+
+        // Also update the module-level dict
+        if let Ok(current_tasks) = get_current_tasks_dict(vm)
+            && let Ok(dict) = current_tasks.downcast::<rustpython_vm::builtins::PyDict>()
+        {
+            let _ = dict.del_item(&*loop_, vm);
+        }
         Ok(())
     }
 
     #[pyfunction]
     fn _swap_current_task(loop_: PyObjectRef, task: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let current_tasks = get_current_tasks_dict(vm)?;
-        let dict: PyDictRef = current_tasks.downcast().unwrap();
-
-        let prev = match dict.get_item(&*loop_, vm) {
-            Ok(t) => t,
-            Err(_) => vm.ctx.none(),
-        };
+        // Per-thread swap, matching CPython's swap_current_task
+        let prev = vm
+            .asyncio_running_task
+            .borrow()
+            .clone()
+            .unwrap_or_else(|| vm.ctx.none());
 
         if vm.is_none(&task) {
-            let _ = dict.del_item(&*loop_, vm);
+            *vm.asyncio_running_task.borrow_mut() = None;
         } else {
-            dict.set_item(&*loop_, task, vm)?;
+            *vm.asyncio_running_task.borrow_mut() = Some(task.clone());
+        }
+
+        // Also update the module-level dict for cross-thread queries
+        if let Ok(current_tasks) = get_current_tasks_dict(vm)
+            && let Ok(dict) = current_tasks.downcast::<rustpython_vm::builtins::PyDict>()
+        {
+            if vm.is_none(&task) {
+                let _ = dict.del_item(&*loop_, vm);
+            } else {
+                let _ = dict.set_item(&*loop_, task, vm);
+            }
         }
 
         Ok(prev)
+    }
+
+    /// Reset task state after fork in child process.
+    #[pyfunction]
+    fn _on_fork(vm: &VirtualMachine) -> PyResult<()> {
+        // Clear current_tasks dict so child process doesn't inherit parent's tasks
+        if let Ok(current_tasks) = get_current_tasks_dict(vm) {
+            vm.call_method(&current_tasks, "clear", ())?;
+        }
+        // Clear the running loop and task
+        *vm.asyncio_running_loop.borrow_mut() = None;
+        *vm.asyncio_running_task.borrow_mut() = None;
+        Ok(())
     }
 
     #[pyfunction]
@@ -2526,27 +2606,14 @@ pub(crate) mod _asyncio {
         waiter: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // Use optimized method for native Future/Task
+        // Only operate on native Future/Task objects (including subclasses).
+        // Non-native objects are silently ignored.
         if let Some(task) = fut.downcast_ref::<PyTask>() {
             return task.base.awaited_by_add(waiter, vm);
         }
         if let Some(future) = fut.downcast_ref::<PyFuture>() {
             return future.awaited_by_add(waiter, vm);
         }
-
-        // Fallback for non-native futures (Python subclasses)
-        if let Ok(Some(awaited_by)) =
-            vm.get_attribute_opt(fut.clone(), vm.ctx.intern_str("_asyncio_awaited_by"))
-            && !vm.is_none(&awaited_by)
-        {
-            vm.call_method(&awaited_by, "add", (waiter,))?;
-            return Ok(());
-        }
-
-        let new_set = PySet::default().into_ref(&vm.ctx);
-        new_set.add(waiter, vm)?;
-        fut.set_attr(vm.ctx.intern_str("_asyncio_awaited_by"), new_set, vm)?;
-
         Ok(())
     }
 
@@ -2556,20 +2623,13 @@ pub(crate) mod _asyncio {
         waiter: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // Use optimized method for native Future/Task
+        // Only operate on native Future/Task objects (including subclasses).
+        // Non-native objects are silently ignored.
         if let Some(task) = fut.downcast_ref::<PyTask>() {
             return task.base.awaited_by_discard(&waiter, vm);
         }
         if let Some(future) = fut.downcast_ref::<PyFuture>() {
             return future.awaited_by_discard(&waiter, vm);
-        }
-
-        // Fallback for non-native futures
-        if let Ok(Some(awaited_by)) =
-            vm.get_attribute_opt(fut.clone(), vm.ctx.intern_str("_asyncio_awaited_by"))
-            && !vm.is_none(&awaited_by)
-        {
-            vm.call_method(&awaited_by, "discard", (waiter,))?;
         }
         Ok(())
     }
@@ -2596,6 +2656,14 @@ pub(crate) mod _asyncio {
         fn __self__(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.task.read().clone().unwrap_or_else(|| vm.ctx.none())
         }
+
+        #[pygetset]
+        fn __qualname__(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            match self.task.read().as_ref() {
+                Some(t) => vm.get_attribute_opt(t.clone(), vm.ctx.intern_str("__qualname__")),
+                None => Ok(None),
+            }
+        }
     }
 
     impl Callable for TaskStepMethWrapper {
@@ -2610,12 +2678,12 @@ pub(crate) mod _asyncio {
     }
 
     impl Representable for TaskStepMethWrapper {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let task = zelf.task.read().clone();
-            match task {
-                Some(t) => Ok(t.repr(vm)?.as_str().to_string()),
-                None => Ok("<TaskStepMethWrapper>".to_string()),
-            }
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!(
+                "<{} object at {:#x}>",
+                zelf.class().name(),
+                zelf.get_id()
+            ))
         }
     }
 
@@ -2634,6 +2702,14 @@ pub(crate) mod _asyncio {
                 task: PyRwLock::new(Some(task)),
             }
         }
+
+        #[pygetset]
+        fn __qualname__(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            match self.task.read().as_ref() {
+                Some(t) => vm.get_attribute_opt(t.clone(), vm.ctx.intern_str("__qualname__")),
+                None => Ok(None),
+            }
+        }
     }
 
     impl Callable for TaskWakeupMethWrapper {
@@ -2648,12 +2724,12 @@ pub(crate) mod _asyncio {
     }
 
     impl Representable for TaskWakeupMethWrapper {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let task = zelf.task.read().clone();
-            match task {
-                Some(t) => Ok(t.repr(vm)?.as_str().to_string()),
-                None => Ok("<TaskWakeupMethWrapper>".to_string()),
-            }
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!(
+                "<{} object at {:#x}>",
+                zelf.class().name(),
+                zelf.get_id()
+            ))
         }
     }
 

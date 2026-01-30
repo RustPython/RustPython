@@ -85,6 +85,8 @@ pub struct Frame {
     pub trace_lines: PyMutex<bool>,
     pub trace_opcodes: PyMutex<bool>,
     pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
+    /// Back-reference to owning generator/coroutine/async generator
+    pub generator: PyMutex<Option<PyObjectRef>>,
 }
 
 impl PyPayload for Frame {
@@ -112,6 +114,7 @@ unsafe impl Traverse for Frame {
         self.trace.traverse(tracer_fn);
         self.state.traverse(tracer_fn);
         self.temporary_refs.traverse(tracer_fn);
+        self.generator.traverse(tracer_fn);
     }
 }
 
@@ -172,7 +175,12 @@ impl Frame {
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
+            generator: PyMutex::new(None),
         }
+    }
+
+    pub fn set_generator(&self, generator: PyObjectRef) {
+        *self.generator.lock() = Some(generator);
     }
 
     pub fn current_location(&self) -> SourceLocation {
@@ -276,7 +284,21 @@ impl Py<Frame> {
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        self.with_exec(|exec| exec.yield_from_target().map(PyObject::to_owned))
+        // Use try_lock to avoid deadlock when the frame is currently executing.
+        // A running coroutine has no yield-from target.
+        let mut state = self.state.try_lock()?;
+        let exec = ExecutingFrame {
+            code: &self.code,
+            fastlocals: &self.fastlocals,
+            cells_frees: &self.cells_frees,
+            locals: &self.locals,
+            globals: &self.globals,
+            builtins: &self.builtins,
+            lasti: &self.lasti,
+            object: self,
+            state: &mut state,
+        };
+        exec.yield_from_target().map(PyObject::to_owned)
     }
 
     pub fn is_internal_frame(&self) -> bool {
