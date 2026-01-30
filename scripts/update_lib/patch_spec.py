@@ -247,9 +247,14 @@ def _iter_patch_lines(
 
     # Build cache of all classes (for Phase 2 to find classes without methods)
     cache = {}
+    # Build set of async method names (for Phase 2 to generate correct override)
+    async_methods: set[str] = set()
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             cache[node.name] = node.end_lineno
+            for item in node.body:
+                if isinstance(item, ast.AsyncFunctionDef):
+                    async_methods.add(item.name)
 
     # Phase 1: Iterate and mark existing tests
     for cls_node, fn_node in iter_tests(tree):
@@ -274,7 +279,15 @@ def _iter_patch_lines(
 
         for test_name, specs in tests.items():
             decorators = "\n".join(spec.as_decorator() for spec in specs)
-            patch_lines = f"""
+            is_async = test_name in async_methods
+            if is_async:
+                patch_lines = f"""
+{decorators}
+async def {test_name}(self):
+{DEFAULT_INDENT}return await super().{test_name}()
+""".rstrip()
+            else:
+                patch_lines = f"""
 {decorators}
 def {test_name}(self):
 {DEFAULT_INDENT}return super().{test_name}()
