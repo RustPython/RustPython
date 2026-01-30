@@ -251,9 +251,7 @@ def _iter_patch_lines(
     async_methods: dict[str, set[str]] = {}
     # Track class bases for inherited async method lookup
     class_bases: dict[str, list[str]] = {}
-    all_classes = {
-        node.name for node in tree.body if isinstance(node, ast.ClassDef)
-    }
+    all_classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             cache[node.name] = node.end_lineno
