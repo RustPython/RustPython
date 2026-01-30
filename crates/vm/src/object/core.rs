@@ -841,8 +841,7 @@ impl PyObject {
         ) -> Result<(), ()> {
             let ret = crate::vm::thread::with_vm(zelf, |vm| {
                 // Increment twice (0→2) so we can decrement twice below.
-                zelf.0.ref_count.inc();
-                zelf.0.ref_count.inc();
+                zelf.0.ref_count.inc_by(2);
                 let after_inc = zelf.strong_count(); // Should be 2
 
                 if let Err(e) = slot_del(zelf, vm) {
