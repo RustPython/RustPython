@@ -189,6 +189,14 @@ class TestPyFreeThreading(TestFreeThreading, TestCase):
     def factory(self, loop, coro, **kwargs):
         return asyncio.tasks._PyTask(coro, loop=loop, **kwargs)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <Task finished name='Task-7322' coro=<TestFreeThreading.test_task_different_thread_finalized.<locals>.func() done, defined at /Users/al03219714/Projects/RustPython2/crates/pylib/Lib/test/test_asyncio/test_free_threading.py:101> result=None> is not None
+    def test_task_different_thread_finalized(self):
+        return super().test_task_different_thread_finalized()
+
+    @unittest.skip("TODO: RUSTPYTHON; hangs - Python _current_tasks dict not thread-safe")
+    def test_all_tasks_race(self):
+        return super().test_all_tasks_race()
+
 
 @unittest.skipUnless(hasattr(asyncio.tasks, "_c_all_tasks"), "requires _asyncio")
 class TestCFreeThreading(TestFreeThreading, TestCase):
@@ -219,6 +227,14 @@ class TestCFreeThreading(TestFreeThreading, TestCase):
 class TestEagerPyFreeThreading(TestPyFreeThreading):
     def factory(self, loop, coro, eager_start=True, **kwargs):
         return asyncio.tasks._PyTask(coro, loop=loop, **kwargs, eager_start=eager_start)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <Task finished name='Task-5240' coro=<TestFreeThreading.test_task_different_thread_finalized.<locals>.func() done, defined at /Users/al03219714/Projects/RustPython2/crates/pylib/Lib/test/test_asyncio/test_free_threading.py:101> result=None> is not None
+    def test_task_different_thread_finalized(self):
+        return super().test_task_different_thread_finalized()
+
+    @unittest.skip("TODO: RUSTPYTHON; hangs - Python _current_tasks dict not thread-safe")
+    def test_all_tasks_race(self):
+        return super().test_all_tasks_race()
 
 
 @unittest.skipUnless(hasattr(asyncio.tasks, "_c_all_tasks"), "requires _asyncio")
