@@ -6,6 +6,7 @@ __all__ = ("TaskGroup",)
 
 from . import events
 from . import exceptions
+from . import futures
 from . import tasks
 
 
@@ -178,7 +179,7 @@ class TaskGroup:
                 exc = None
 
 
-    def create_task(self, coro, *, name=None, context=None):
+    def create_task(self, coro, **kwargs):
         """Create a new task in this group and return it.
 
         Similar to `asyncio.create_task`.
@@ -192,10 +193,9 @@ class TaskGroup:
         if self._aborting:
             coro.close()
             raise RuntimeError(f"TaskGroup {self!r} is shutting down")
-        if context is None:
-            task = self._loop.create_task(coro, name=name)
-        else:
-            task = self._loop.create_task(coro, name=name, context=context)
+        task = self._loop.create_task(coro, **kwargs)
+
+        futures.future_add_to_awaited_by(task, self._parent_task)
 
         # Always schedule the done callback even if the task is
         # already done (e.g. if the coro was able to complete eagerly),
@@ -227,6 +227,8 @@ class TaskGroup:
 
     def _on_task_done(self, task):
         self._tasks.discard(task)
+
+        futures.future_discard_from_awaited_by(task, self._parent_task)
 
         if self._on_completed_fut is not None and not self._tasks:
             if not self._on_completed_fut.done():

@@ -15,7 +15,7 @@ from test.test_asyncio.utils import await_without_task
 
 # To prevent a warning "test altered the execution environment"
 def tearDownModule():
-    asyncio.set_event_loop_policy(None)
+    asyncio.events._set_event_loop_policy(None)
 
 
 class MyExc(Exception):
@@ -28,6 +28,15 @@ class MyBaseExc(BaseException):
 
 def get_error_types(eg):
     return {type(exc) for exc in eg.exceptions}
+
+
+def no_other_refs():
+    # due to gh-124392 coroutines now refer to their locals
+    coro = asyncio.current_task().get_coro()
+    frame = sys._getframe(1)
+    while coro.cr_frame != frame:
+        coro = coro.cr_await
+    return [coro]
 
 
 def set_gc_state(enabled):
@@ -918,7 +927,6 @@ class BaseTestTaskGroup:
 
         await outer()
 
-    @unittest.skip("RUSTPYTHON: gc.get_referrers not implemented")
     async def test_exception_refcycles_direct(self):
         """Test that TaskGroup doesn't keep a reference to the raised ExceptionGroup"""
         tg = asyncio.TaskGroup()
@@ -934,10 +942,9 @@ class BaseTestTaskGroup:
             exc = e
 
         self.assertIsNotNone(exc)
-        self.assertListEqual(gc.get_referrers(exc), [])
+        self.assertListEqual(gc.get_referrers(exc), no_other_refs())
 
 
-    @unittest.skip("RUSTPYTHON: gc.get_referrers not implemented")
     async def test_exception_refcycles_errors(self):
         """Test that TaskGroup deletes self._errors, and __aexit__ args"""
         tg = asyncio.TaskGroup()
@@ -953,10 +960,9 @@ class BaseTestTaskGroup:
             exc = excs.exceptions[0]
 
         self.assertIsInstance(exc, _Done)
-        self.assertListEqual(gc.get_referrers(exc), [])
+        self.assertListEqual(gc.get_referrers(exc), no_other_refs())
 
 
-    @unittest.skip("RUSTPYTHON: gc.get_referrers not implemented")
     async def test_exception_refcycles_parent_task(self):
         """Test that TaskGroup deletes self._parent_task"""
         tg = asyncio.TaskGroup()
@@ -976,10 +982,9 @@ class BaseTestTaskGroup:
             exc = excs.exceptions[0].exceptions[0]
 
         self.assertIsInstance(exc, _Done)
-        self.assertListEqual(gc.get_referrers(exc), [])
+        self.assertListEqual(gc.get_referrers(exc), no_other_refs())
 
 
-    @unittest.skip("RUSTPYTHON: gc.get_referrers not implemented")
     async def test_exception_refcycles_parent_task_wr(self):
         """Test that TaskGroup deletes self._parent_task and create_task() deletes task"""
         tg = asyncio.TaskGroup()
@@ -1001,9 +1006,8 @@ class BaseTestTaskGroup:
 
         self.assertIsNone(task_wr())
         self.assertIsInstance(exc, _Done)
-        self.assertListEqual(gc.get_referrers(exc), [])
+        self.assertListEqual(gc.get_referrers(exc), no_other_refs())
 
-    @unittest.skip("RUSTPYTHON: gc.get_referrers not implemented")
     async def test_exception_refcycles_propagate_cancellation_error(self):
         """Test that TaskGroup deletes propagate_cancellation_error"""
         tg = asyncio.TaskGroup()
@@ -1017,9 +1021,8 @@ class BaseTestTaskGroup:
             exc = e.__cause__
 
         self.assertIsInstance(exc, asyncio.CancelledError)
-        self.assertListEqual(gc.get_referrers(exc), [])
+        self.assertListEqual(gc.get_referrers(exc), no_other_refs())
 
-    @unittest.skip("RUSTPYTHON: gc.get_referrers not implemented")
     async def test_exception_refcycles_base_error(self):
         """Test that TaskGroup deletes self._base_error"""
         class MyKeyboardInterrupt(KeyboardInterrupt):
@@ -1035,7 +1038,19 @@ class BaseTestTaskGroup:
             exc = e
 
         self.assertIsNotNone(exc)
-        self.assertListEqual(gc.get_referrers(exc), [])
+        self.assertListEqual(gc.get_referrers(exc), no_other_refs())
+
+    async def test_name(self):
+        name = None
+
+        async def asyncfn():
+            nonlocal name
+            name = asyncio.current_task().get_name()
+
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(asyncfn(), name="example name")
+
+        self.assertEqual(name, "example name")
 
 
     async def test_cancels_task_if_created_during_creation(self):
