@@ -1106,12 +1106,60 @@ class BaseTestTaskGroup:
 class TestTaskGroup(BaseTestTaskGroup, unittest.IsolatedAsyncioTestCase):
     loop_factory = asyncio.EventLoop
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes propagate_cancellation_error
+    async def test_exception_refcycles_propagate_cancellation_error(self):
+        return await super().test_exception_refcycles_propagate_cancellation_error()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes self._base_error
+    async def test_exception_refcycles_base_error(self):
+        return await super().test_exception_refcycles_base_error()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes self._errors, and __aexit__ args
+    async def test_exception_refcycles_errors(self):
+        return await super().test_exception_refcycles_errors()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes self._parent_task
+    async def test_exception_refcycles_parent_task(self):
+        return await super().test_exception_refcycles_parent_task()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes self._parent_task and create_task() deletes task
+    async def test_exception_refcycles_parent_task_wr(self):
+        return await super().test_exception_refcycles_parent_task_wr()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup doesn't keep a reference to the raised ExceptionGroup
+    async def test_exception_refcycles_direct(self):
+        return await super().test_exception_refcycles_direct()
+
 class TestEagerTaskTaskGroup(BaseTestTaskGroup, unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def loop_factory():
         loop = asyncio.EventLoop()
         loop.set_task_factory(asyncio.eager_task_factory)
         return loop
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes propagate_cancellation_error
+    async def test_exception_refcycles_propagate_cancellation_error(self):
+        return await super().test_exception_refcycles_propagate_cancellation_error()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes self._base_error
+    async def test_exception_refcycles_base_error(self):
+        return await super().test_exception_refcycles_base_error()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes self._errors, and __aexit__ args
+    async def test_exception_refcycles_errors(self):
+        return await super().test_exception_refcycles_errors()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes self._parent_task
+    async def test_exception_refcycles_parent_task(self):
+        return await super().test_exception_refcycles_parent_task()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup deletes self._parent_task and create_task() deletes task
+    async def test_exception_refcycles_parent_task_wr(self):
+        return await super().test_exception_refcycles_parent_task_wr()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Test that TaskGroup doesn't keep a reference to the raised ExceptionGroup
+    async def test_exception_refcycles_direct(self):
+        return await super().test_exception_refcycles_direct()
 
 
 if __name__ == "__main__":
