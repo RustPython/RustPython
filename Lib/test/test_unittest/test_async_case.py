@@ -475,7 +475,6 @@ class TestAsyncCase(unittest.TestCase):
         test.doCleanups()
         self.assertEqual(events, ['asyncSetUp', 'test', 'cleanup'])
 
-    @unittest.expectedFailure
     def test_setup_get_event_loop(self):
         # See https://github.com/python/cpython/issues/95736
         # Make sure the default event loop is not used

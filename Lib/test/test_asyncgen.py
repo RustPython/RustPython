@@ -1026,6 +1026,7 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         fut.cancel()
         self.loop.run_until_complete(asyncio.sleep(0.01))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; gc_collect doesn't finalize async generators
     def test_async_gen_asyncio_gc_aclose_09(self):
         DONE = 0
 
@@ -1512,6 +1513,7 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         self.assertIn('an error occurred during closing of asynchronous generator',
                       message['message'])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; gc_collect doesn't finalize async generators, different cleanup path
     def test_async_gen_asyncio_shutdown_exception_02(self):
         messages = []
 

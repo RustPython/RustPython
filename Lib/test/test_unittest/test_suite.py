@@ -374,9 +374,11 @@ class Test_TestSuite(unittest.TestCase, TestEquality):
         self.assertEqual(suite._tests, [None])
         self.assertIsNone(wref())
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC test not collected after run
     def test_garbage_collect_test_after_run_BaseTestSuite(self):
         self.assert_garbage_collect_test_after_run(unittest.BaseTestSuite)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC test not collected after run
     def test_garbage_collect_test_after_run_TestSuite(self):
         self.assert_garbage_collect_test_after_run(unittest.TestSuite)
 

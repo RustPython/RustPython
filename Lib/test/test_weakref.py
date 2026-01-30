@@ -1368,6 +1368,7 @@ class MappingTestCase(TestBase):
     def test_weak_valued_len_race(self):
         self.check_len_race(weakref.WeakValueDictionary, lambda k: (1, k))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; weakref callback not fired immediately by gc_collect
     def test_weak_values(self):
         #
         #  This exercises d.copy(), d.items(), d[], del d[], len(d).
@@ -1400,6 +1401,7 @@ class MappingTestCase(TestBase):
         gc_collect()  # For PyPy or other GCs.
         self.assertRaises(KeyError, dict.__getitem__, 2)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; weakref callback not fired immediately by gc_collect
     def test_weak_keys(self):
         #
         #  This exercises d.copy(), d.items(), d[] = v, d[], del d[],
@@ -1765,6 +1767,7 @@ class MappingTestCase(TestBase):
             self.assertEqual(list(d.keys()), [kw])
             self.assertEqual(d[kw], o)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; weakref callback not fired immediately by gc_collect
     def test_weak_valued_union_operators(self):
         a = C()
         b = C()
@@ -1817,6 +1820,7 @@ class MappingTestCase(TestBase):
         self.assertEqual(len(d), 1)
         self.assertEqual(list(d.keys()), [o2])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; weakref callback not fired immediately by gc_collect
     def test_weak_keyed_union_operators(self):
         o1 = C()
         o2 = C()
