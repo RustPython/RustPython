@@ -120,7 +120,7 @@ impl Frame {
     fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
         let trace_opcodes = zelf.trace_opcodes.lock();
-        Ok(*trace_opcodes)
+        Ok(vm.ctx.new_bool(*trace_opcodes).into())
     }
 
     #[pymember(type = "bool", setter)]
