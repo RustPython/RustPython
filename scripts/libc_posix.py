@@ -13,7 +13,7 @@ OS_CONSTS_PAT = re.compile(
 )  # TODO: Exclude matches if they have `(` after (those are functions)
 
 
-LIBC_VERSION = "0.2.177"
+LIBC_VERSION = "0.2.180"
 
 EXCLUDE = frozenset(
     {
@@ -96,7 +96,7 @@ def format_groups(groups: dict) -> "Iterator[tuple[str, str]]":
 
 def main():
     wanted_consts = get_consts(
-        "https://docs.python.org/3.13/library/os.html",  # Should we read from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Modules/posixmodule.c#L17023 instead?
+        "https://docs.python.org/3.14/library/os.html",  # Should we read from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Modules/posixmodule.c#L17023 instead?
         pattern=OS_CONSTS_PAT,
     )
     available = {
