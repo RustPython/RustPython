@@ -15,6 +15,7 @@ use crate::{
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{ArgMapping, Either, FuncArgs},
+    object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
@@ -85,8 +86,10 @@ pub struct Frame {
     pub trace_lines: PyMutex<bool>,
     pub trace_opcodes: PyMutex<bool>,
     pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
-    /// Back-reference to owning generator/coroutine/async generator
-    pub generator: PyMutex<Option<PyObjectRef>>,
+    /// Back-reference to owning generator/coroutine/async generator.
+    /// Borrowed reference (not ref-counted) to avoid Generator↔Frame cycle.
+    /// Cleared by the generator's Drop impl.
+    pub generator: PyAtomicBorrow,
 }
 
 impl PyPayload for Frame {
@@ -114,7 +117,7 @@ unsafe impl Traverse for Frame {
         self.trace.traverse(tracer_fn);
         self.state.traverse(tracer_fn);
         self.temporary_refs.traverse(tracer_fn);
-        self.generator.traverse(tracer_fn);
+        // generator is a borrowed reference, not traversed
     }
 }
 
@@ -175,12 +178,19 @@ impl Frame {
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
-            generator: PyMutex::new(None),
+            generator: PyAtomicBorrow::new(),
         }
     }
 
-    pub fn set_generator(&self, generator: PyObjectRef) {
-        *self.generator.lock() = Some(generator);
+    /// Store a borrowed back-reference to the owning generator/coroutine.
+    /// The caller must ensure the generator outlives the frame.
+    pub fn set_generator(&self, generator: &PyObject) {
+        self.generator.store(generator);
+    }
+
+    /// Clear the generator back-reference. Called when the generator is finalized.
+    pub fn clear_generator(&self) {
+        self.generator.clear();
     }
 
     pub fn current_location(&self) -> SourceLocation {

@@ -69,7 +69,6 @@ class TestWeakSet(unittest.TestCase):
         support.gc_collect()  # For PyPy or other GCs.
         self.assertNotIn(ustr('F'), self.fs)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC weak reference not collected
     def test_union(self):
         u = self.s.union(self.items2)
         for c in self.letters:
@@ -92,7 +91,6 @@ class TestWeakSet(unittest.TestCase):
         self.assertEqual(self.s | set(self.items2), i)
         self.assertEqual(self.s | frozenset(self.items2), i)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC weak reference not collected
     def test_intersection(self):
         s = WeakSet(self.letters)
         i = s.intersection(self.items2)
@@ -130,7 +128,6 @@ class TestWeakSet(unittest.TestCase):
         self.assertEqual(self.s - set(self.items2), i)
         self.assertEqual(self.s - frozenset(self.items2), i)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC weak reference not collected
     def test_symmetric_difference(self):
         i = self.s.symmetric_difference(self.items2)
         for c in self.letters:

@@ -189,10 +189,6 @@ class TestPyFreeThreading(TestFreeThreading, TestCase):
     def factory(self, loop, coro, **kwargs):
         return asyncio.tasks._PyTask(coro, loop=loop, **kwargs)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC weak reference timing issue
-    def test_task_different_thread_finalized(self):
-        return super().test_task_different_thread_finalized()
-
     @unittest.skip("TODO: RUSTPYTHON; hangs - Python _current_tasks dict not thread-safe")
     def test_all_tasks_race(self):
         return super().test_all_tasks_race()
@@ -227,10 +223,6 @@ class TestCFreeThreading(TestFreeThreading, TestCase):
 class TestEagerPyFreeThreading(TestPyFreeThreading):
     def factory(self, loop, coro, eager_start=True, **kwargs):
         return asyncio.tasks._PyTask(coro, loop=loop, **kwargs, eager_start=eager_start)
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC weak reference timing issue
-    def test_task_different_thread_finalized(self):
-        return super().test_task_different_thread_finalized()
 
     @unittest.skip("TODO: RUSTPYTHON; hangs - Python _current_tasks dict not thread-safe")
     def test_all_tasks_race(self):

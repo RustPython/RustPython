@@ -531,19 +531,19 @@ impl Py<PyFunction> {
             (true, false) => {
                 let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
                     .into_pyobject(vm);
-                frame.set_generator(obj.clone());
+                frame.set_generator(&obj);
                 Ok(obj)
             }
             (false, true) => {
                 let obj = PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
                     .into_pyobject(vm);
-                frame.set_generator(obj.clone());
+                frame.set_generator(&obj);
                 Ok(obj)
             }
             (true, true) => {
                 let obj = PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
                     .into_pyobject(vm);
-                frame.set_generator(obj.clone());
+                frame.set_generator(&obj);
                 Ok(obj)
             }
             (false, false) => vm.run_frame(frame),

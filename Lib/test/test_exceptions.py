@@ -1076,7 +1076,6 @@ class ExceptionTests(unittest.TestCase):
             g.close()
         self._check_generator_cleanup_exc_state(do_close)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC generator cleanup timing
     def test_generator_del_cleanup_exc_state(self):
         def do_del(g):
             g = None
