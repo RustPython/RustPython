@@ -220,6 +220,12 @@ impl WeakRefList {
             }))
         });
         let mut inner = unsafe { inner_ptr.as_ref().lock() };
+        // If obj was cleared but object is still alive (e.g., new weakref
+        // created during __del__), restore the obj pointer
+        if inner.obj.is_none() {
+            inner.obj = Some(NonNull::from(obj));
+            inner.ref_count += 1;
+        }
         if is_generic && let Some(generic_weakref) = inner.generic_weakref {
             let generic_weakref = unsafe { generic_weakref.as_ref() };
             if generic_weakref.0.ref_count.get() != 0 {
@@ -835,15 +841,23 @@ impl PyObject {
             slot_del: fn(&PyObject, &VirtualMachine) -> PyResult<()>,
         ) -> Result<(), ()> {
             let ret = crate::vm::thread::with_vm(zelf, |vm| {
-                zelf.0.ref_count.inc();
+                // Temporarily resurrect (0→2) so ref_count stays positive
+                // during __del__, preventing safe_inc from seeing 0.
+                zelf.0.ref_count.inc_by(2);
+
                 if let Err(e) = slot_del(zelf, vm) {
                     let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                     vm.run_unraisable(e, None, del_method);
                 }
+
+                // Undo the temporary resurrection. Always remove both
+                // temporary refs; the second dec returns true only when
+                // ref_count drops to 0 (no resurrection).
+                zelf.0.ref_count.dec();
                 zelf.0.ref_count.dec()
             });
             match ret {
-                // the decref right above set ref_count back to 0
+                // the decref set ref_count back to 0
                 Some(true) => Ok(()),
                 // we've been resurrected by __del__
                 Some(false) => Err(()),

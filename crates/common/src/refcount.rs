@@ -40,6 +40,16 @@ impl RefCount {
         }
     }
 
+    #[inline]
+    pub fn inc_by(&self, n: usize) {
+        debug_assert!(n <= Self::MASK);
+        let old_size = self.strong.fetch_add(n, Relaxed);
+
+        if old_size & Self::MASK > Self::MASK - n {
+            std::process::abort();
+        }
+    }
+
     /// Returns true if successful
     #[inline]
     pub fn safe_inc(&self) -> bool {
