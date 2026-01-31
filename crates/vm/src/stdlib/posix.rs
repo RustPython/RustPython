@@ -41,6 +41,10 @@ pub mod module {
     };
     use strum_macros::{EnumIter, EnumString};
 
+    #[cfg(target_os = "android")]
+    #[pyattr]
+    use libc::{SCHED_DEADLINE, SCHED_NORMAL};
+
     #[cfg(target_os = "freebsd")]
     #[pyattr]
     use libc::{MFD_HUGE_MASK, SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
