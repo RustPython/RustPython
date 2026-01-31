@@ -48,7 +48,7 @@ unsafe impl Traverse for PyInner<Erased> {
         // 2. call vtable's trace function to trace payload
         // self.typ.trace(tracer_fn);
         self.dict.traverse(tracer_fn);
-        // weak_list keeps a *pointer* to a struct for maintenance of weak ref, so no ownership, no trace
+        // weak_list is inline atomic pointers, no heap allocation, no trace
         self.slots.traverse(tracer_fn);
 
         if let Some(f) = self.vtable.trace {
@@ -68,7 +68,7 @@ unsafe impl<T: MaybeTraverse> Traverse for PyInner<T> {
         // (No need to call vtable's trace function because we already know the type)
         // self.typ.trace(tracer_fn);
         self.dict.traverse(tracer_fn);
-        // weak_list keeps a *pointer* to a struct for maintenance of weak ref, so no ownership, no trace
+        // weak_list is inline atomic pointers, no heap allocation, no trace
         self.slots.traverse(tracer_fn);
         T::try_traverse(&self.payload, tracer_fn);
     }

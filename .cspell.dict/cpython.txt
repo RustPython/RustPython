@@ -192,6 +192,7 @@ venvwlauncher
 venvwlaunchert
 wbits
 weakreflist
+weakrefobject
 webpki
 withitem
 withs
