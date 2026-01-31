@@ -25,7 +25,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  16 LOAD_ATTR            (7, subTest, method=true)
                  17 LOAD_GLOBAL          (4, type)
                  18 PUSH_NULL
-                 19 LOAD_FAST_BORROW     (0, stop_exc)
+                 19 LOAD_FAST            (0, stop_exc)
                  20 CALL                 (1)
                  21 LOAD_CONST           (("type"))
                  22 CALL_KW              (1)
@@ -105,8 +105,8 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
 
   8              92 LOAD_GLOBAL          (2, self)
                  93 LOAD_ATTR            (15, assertIs, method=true)
-                 94 LOAD_FAST_BORROW     (1, ex)
-                 95 LOAD_FAST_BORROW     (0, stop_exc)
+                 94 LOAD_FAST            (1, ex)
+                 95 LOAD_FAST            (0, stop_exc)
                  96 CALL                 (2)
                  97 POP_TOP
                  98 JUMP_FORWARD         (103)
