@@ -697,8 +697,6 @@ impl CodeInfo {
     /// This is a reference counting optimization in CPython; in RustPython
     /// we implement it for bytecode compatibility.
     fn optimize_load_fast_borrow(&mut self) {
-        use rustpython_compiler_core::bytecode::InstructionMetadata;
-
         // NOT_LOCAL marker: instruction didn't come from a LOAD_FAST
         const NOT_LOCAL: usize = usize::MAX;
 
@@ -733,7 +731,7 @@ impl CodeInfo {
                 // is pop 2 push 1, not pop 1 push 0).  We list those explicitly;
                 // the fallback under-pops and under-pushes, which is conservative
                 // (may miss optimisation opportunities but never miscompiles).
-                let effect = instr.stack_effect(info.arg);
+                let effect = instr.stack_effect(info.arg.into());
                 let (pops, pushes) = match instr {
                     // --- pop 2, push 1 ---
                     Instruction::BinaryOp { .. }
@@ -866,7 +864,7 @@ impl CodeInfo {
             let block = &self.blocks[block_idx];
             for ins in &block.instructions {
                 let instr = &ins.instr;
-                let effect = instr.stack_effect(ins.arg);
+                let effect = instr.stack_effect(ins.arg.into());
                 if DEBUG {
                     let display_arg = if ins.target == BlockIdx::NULL {
                         ins.arg
