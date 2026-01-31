@@ -2,7 +2,7 @@ pub(crate) use gc::module_def;
 
 #[pymodule]
 mod gc {
-    use crate::vm::{
+    use crate::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::PyListRef,
         function::{FuncArgs, OptionalArg},
@@ -205,7 +205,6 @@ mod gc {
     /// Return True if the object has been finalized by the garbage collector.
     #[pyfunction]
     fn is_finalized(obj: PyObjectRef) -> bool {
-        // Check the per-object finalized flag directly
         obj.gc_finalized()
     }
 
