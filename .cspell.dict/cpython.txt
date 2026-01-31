@@ -147,6 +147,7 @@ repr
 resinfo
 Rshift
 SA_ONSTACK
+saveall
 scls
 setdict
 setfunc
@@ -178,6 +179,7 @@ Typeparam
 typeparams
 typeslots
 unaryop
+uncollectable
 Unhandle
 unparse
 unparser

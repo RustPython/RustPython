@@ -678,8 +678,6 @@ class BaseFutureTests:
             fut = self._new_future(loop=self.loop)
             fut.set_result(Evil())
 
-    # TODO: RUSTPYTHON - gc.get_referrers not implemented
-    @unittest.expectedFailure
     def test_future_cancelled_result_refcycles(self):
         f = self._new_future(loop=self.loop)
         f.cancel()
@@ -691,8 +689,6 @@ class BaseFutureTests:
         self.assertIsNotNone(exc)
         self.assertListEqual(gc.get_referrers(exc), [])
 
-    # TODO: RUSTPYTHON - gc.get_referrers not implemented
-    @unittest.expectedFailure
     def test_future_cancelled_exception_refcycles(self):
         f = self._new_future(loop=self.loop)
         f.cancel()
@@ -720,8 +716,6 @@ class CFutureTests(BaseFutureTests, test_utils.TestCase):
         with self.assertRaises(AttributeError):
             del fut._log_traceback
 
-    # TODO: RUSTPYTHON - gc.get_referents not implemented
-    @unittest.expectedFailure
     def test_future_iter_get_referents_segfault(self):
         # See https://github.com/python/cpython/issues/122695
         import _asyncio
