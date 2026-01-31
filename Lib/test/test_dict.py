@@ -369,8 +369,6 @@ class DictTest(unittest.TestCase):
                 self.assertNotEqual(d, d2)
                 self.assertEqual(len(d2), len(d) + 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_maintains_tracking(self):
         class A:
             pass
