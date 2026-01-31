@@ -10,7 +10,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["compiler", "wasmbind", "stdio"]
+default = ["compiler", "wasmbind", "stdio", "gc"]
 stdio = []
 importlib = []
 encodings = ["importlib"]
@@ -19,6 +19,7 @@ flame-it = ["flame", "flamer"]
 freeze-stdlib = ["encodings"]
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
+gc = []
 compiler = ["parser", "codegen", "rustpython-compiler"]
 ast = ["ruff_python_ast", "ruff_text_size"]
 codegen = ["rustpython-codegen", "ast"]

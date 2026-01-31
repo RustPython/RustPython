@@ -811,7 +811,7 @@ impl PyObject {
     /// Check if the object has been finalized (__del__ already called).
     /// _PyGC_FINALIZED in Py_GIL_DISABLED mode.
     #[inline]
-    fn gc_finalized(&self) -> bool {
+    pub fn gc_finalized(&self) -> bool {
         use core::sync::atomic::Ordering::Relaxed;
         GcBits::from_bits_retain(self.0.gc_bits.load(Relaxed)).contains(GcBits::FINALIZED)
     }
@@ -897,6 +897,25 @@ impl PyObject {
 
     pub(crate) fn set_slot(&self, offset: usize, value: Option<PyObjectRef>) {
         *self.0.slots[offset].write() = value;
+    }
+
+    /// Check if this object is tracked by the garbage collector.
+    /// Returns true if the object has a trace function or has an instance dict.
+    pub fn is_gc_tracked(&self) -> bool {
+        if self.0.vtable.trace.is_some() {
+            return true;
+        }
+        self.0.dict.is_some()
+    }
+
+    /// Get the referents (objects directly referenced) of this object.
+    /// Uses the full traverse including dict and slots.
+    pub fn gc_get_referents(&self) -> Vec<PyObjectRef> {
+        let mut result = Vec::new();
+        self.0.traverse(&mut |child: &PyObject| {
+            result.push(child.to_owned());
+        });
+        result
     }
 }
 
