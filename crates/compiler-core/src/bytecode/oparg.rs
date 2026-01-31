@@ -2,10 +2,13 @@ use bitflags::bitflags;
 
 use core::{fmt, num::NonZeroU8};
 
-use crate::bytecode::{CodeUnit, instruction::Instruction};
+use crate::{
+    bytecode::{CodeUnit, instruction::Instruction},
+    marshal::MarshalError,
+};
 
 pub trait OpArgType: Copy {
-    fn from_op_arg(x: u32) -> Option<Self>;
+    fn from_op_arg(x: u32) -> Result<Self, MarshalError>;
 
     fn to_op_arg(self) -> u32;
 }
@@ -158,15 +161,15 @@ impl fmt::Display for ConvertValueOparg {
 
 impl OpArgType for ConvertValueOparg {
     #[inline]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(match x {
+    fn from_op_arg(x: u32) -> Result<Self, MarshalError> {
+        Ok(match x {
             // Ruff `ConversionFlag::None` is `-1i8`,
             // when its converted to `u8` its value is `u8::MAX`
             0 | 255 => Self::None,
             1 => Self::Str,
             2 => Self::Repr,
             3 => Self::Ascii,
-            _ => return None,
+            _ => return Err(MarshalError::InvalidBytecode),
         })
     }
 
@@ -188,8 +191,8 @@ pub enum ResumeType {
 
 impl OpArgType for u32 {
     #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(x)
+    fn from_op_arg(x: u32) -> Result<Self, MarshalError> {
+        Ok(x)
     }
 
     #[inline(always)]
@@ -200,8 +203,8 @@ impl OpArgType for u32 {
 
 impl OpArgType for bool {
     #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(x != 0)
+    fn from_op_arg(x: u32) -> Result<Self, MarshalError> {
+        Ok(x != 0)
     }
 
     #[inline(always)]
@@ -217,10 +220,10 @@ macro_rules! op_arg_enum_impl {
                 self as u32
             }
 
-            fn from_op_arg(x: u32) -> Option<Self> {
-                Some(match u8::try_from(x).ok()? {
+            fn from_op_arg(x: u32) -> Result<Self, MarshalError> {
+                Ok(match u8::try_from(x).map_err(|_| MarshalError::InvalidBytecode)? {
                     $($value => Self::$var,)*
-                    _ => return None,
+                    _ => return Err(MarshalError::InvalidBytecode),
                 })
             }
         }
@@ -248,8 +251,8 @@ pub struct Label(pub u32);
 
 impl OpArgType for Label {
     #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(Self(x))
+    fn from_op_arg(x: u32) -> Result<Self, MarshalError> {
+        Ok(Self(x))
     }
 
     #[inline(always)]
@@ -341,8 +344,8 @@ bitflags! {
 
 impl OpArgType for MakeFunctionFlags {
     #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Self::from_bits(x as u8)
+    fn from_op_arg(x: u32) -> Result<Self, MarshalError> {
+        Self::from_bits(x as u8).ok_or(MarshalError::InvalidBytecode)
     }
 
     #[inline(always)]
@@ -601,11 +604,11 @@ pub enum BuildSliceArgCount {
 
 impl OpArgType for BuildSliceArgCount {
     #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(match x {
+    fn from_op_arg(x: u32) -> Result<Self, MarshalError> {
+        Ok(match x {
             2 => Self::Two,
             3 => Self::Three,
-            _ => return None,
+            _ => return Err(MarshalError::InvalidBytecode),
         })
     }
 
@@ -636,9 +639,9 @@ pub struct UnpackExArgs {
 
 impl OpArgType for UnpackExArgs {
     #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
+    fn from_op_arg(x: u32) -> Result<Self, MarshalError> {
         let [before, after, ..] = x.to_le_bytes();
-        Some(Self { before, after })
+        Ok(Self { before, after })
     }
 
     #[inline(always)]

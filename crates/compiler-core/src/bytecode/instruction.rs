@@ -1240,7 +1240,7 @@ impl<T: OpArgType> Arg<T> {
     }
 
     #[inline(always)]
-    pub fn try_get(self, arg: OpArg) -> Option<T> {
+    pub fn try_get(self, arg: OpArg) -> Result<T, MarshalError> {
         T::from_op_arg(arg.0)
     }
 
