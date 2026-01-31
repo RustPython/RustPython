@@ -513,9 +513,7 @@ impl PyAsyncGenAThrow {
     ) -> PyResult {
         match self.state.load() {
             AwaitableState::Closed => {
-                return Err(
-                    vm.new_runtime_error("cannot reuse already awaited aclose()/athrow()")
-                );
+                return Err(vm.new_runtime_error("cannot reuse already awaited aclose()/athrow()"));
             }
             AwaitableState::Init => {
                 if self.ag.running_async.load() {
@@ -813,6 +811,12 @@ impl Destructor for PyAsyncGen {
         Self::call_finalizer(zelf, vm);
 
         Ok(())
+    }
+}
+
+impl Drop for PyAsyncGen {
+    fn drop(&mut self) {
+        self.inner.frame().clear_generator();
     }
 }
 

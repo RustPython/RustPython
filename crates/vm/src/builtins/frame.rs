@@ -153,7 +153,7 @@ impl Frame {
 impl Py<Frame> {
     #[pygetset]
     fn f_generator(&self) -> Option<PyObjectRef> {
-        self.generator.lock().clone()
+        self.generator.to_owned()
     }
 
     #[pygetset]

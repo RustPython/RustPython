@@ -3282,7 +3282,6 @@ class POSIXProcessTestCase(BaseTestCase):
         finally:
             p.wait()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC Popen.__del__ timing
     def test_zombie_fast_process_del(self):
         # Issue #12650: on Unix, if Popen.__del__() was called before the
         # process exited, it wouldn't be added to subprocess._active, and would
@@ -3307,7 +3306,6 @@ class POSIXProcessTestCase(BaseTestCase):
             # check that p is in the active processes list
             self.assertIn(ident, [id(o) for o in subprocess._active])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC Popen.__del__ timing
     def test_leak_fast_process_del_killed(self):
         # Issue #12650: on Unix, if Popen.__del__() was called before the
         # process exited, and the process got killed by a signal, it would never
