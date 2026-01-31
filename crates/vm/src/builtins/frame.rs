@@ -115,6 +115,38 @@ impl Frame {
             PySetterValue::Delete => Err(vm.new_type_error("can't delete numeric/char attribute")),
         }
     }
+
+    #[pymember(type = "bool")]
+    fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let trace_opcodes = zelf.trace_opcodes.lock();
+        Ok(vm.ctx.new_bool(*trace_opcodes).into())
+    }
+
+    #[pymember(type = "bool", setter)]
+    fn set_f_trace_opcodes(
+        vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        value: PySetterValue,
+    ) -> PyResult<()> {
+        match value {
+            PySetterValue::Assign(value) => {
+                let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+
+                let value: PyIntRef = value
+                    .downcast()
+                    .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
+
+                let mut trace_opcodes = zelf.trace_opcodes.lock();
+                *trace_opcodes = !value.as_bigint().is_zero();
+
+                // TODO: Implement the equivalent of _PyEval_SetOpcodeTrace()
+
+                Ok(())
+            }
+            PySetterValue::Delete => Err(vm.new_type_error("can't delete numeric/char attribute")),
+        }
+    }
 }
 
 #[pyclass]
