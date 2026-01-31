@@ -27,7 +27,6 @@ bitflags::bitflags! {
     }
 }
 
-
 /// Statistics for a single generation (gc_generation_stats)
 #[derive(Debug, Default, Clone, Copy)]
 pub struct GcStats {
@@ -279,6 +278,16 @@ impl GcState {
         // Remove from global tracking
         if let Ok(mut tracked) = self.tracked_objects.write() {
             tracked.remove(&gc_ptr);
+        }
+
+        // Remove from permanent tracking
+        if let Ok(mut permanent) = self.permanent_objects.write()
+            && permanent.remove(&gc_ptr)
+        {
+            let count = self.permanent.count.load(Ordering::SeqCst);
+            if count > 0 {
+                self.permanent.count.fetch_sub(1, Ordering::SeqCst);
+            }
         }
 
         // Remove from finalized set
