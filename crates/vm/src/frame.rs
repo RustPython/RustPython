@@ -83,6 +83,7 @@ pub struct Frame {
 
     // member
     pub trace_lines: PyMutex<bool>,
+    pub trace_opcodes: PyMutex<bool>,
     pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
 }
 
@@ -169,6 +170,7 @@ impl Frame {
             state: PyMutex::new(state),
             trace: PyMutex::new(vm.ctx.none()),
             trace_lines: PyMutex::new(true),
+            trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
         }
     }
