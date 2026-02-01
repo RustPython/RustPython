@@ -738,31 +738,26 @@ impl VirtualMachine {
         }
     }
 
-    /// Phase 4: Clear module dicts in reverse import order.
-    /// All modules are alive (held by module_refs from Phase 2).
-    /// Skips builtins and sys (they are cleared last in phase 5).
+    /// Phase 4: Clear module dicts.
+    /// Without GC, only clear __main__ — other modules' __del__ handlers
+    /// need their globals intact. CPython can clear ALL module dicts because
+    /// _PyGC_CollectNoFail() finalizes cycle-participating objects beforehand.
     fn finalize_clear_module_dicts(&self, module_weakrefs: &[(String, PyRef<PyWeak>)]) {
-        let sys_dict = self.sys_module.dict();
-        let builtins_dict = self.builtins.dict();
+        for (name, weakref) in module_weakrefs.iter().rev() {
+            // Only clear __main__ — user objects with __del__ get finalized
+            // while other modules' globals remain intact for their __del__ handlers.
+            if name != "__main__" {
+                continue;
+            }
 
-        // Iterate in reverse (last imported → first cleared)
-        for (_name, weakref) in module_weakrefs.iter().rev() {
-            // Try to upgrade weakref - skip if module was already freed
             let Some(module_obj) = weakref.upgrade() else {
                 continue;
             };
             let Some(module) = module_obj.downcast_ref::<PyModule>() else {
                 continue;
             };
-            let module_dict = module.dict();
 
-            // Skip builtins and sys dicts (cleared last in phase 5)
-            if module_dict.is(&sys_dict) || module_dict.is(&builtins_dict) {
-                continue;
-            }
-
-            // 2-pass clearing
-            Self::module_clear_dict(&module_dict, self);
+            Self::module_clear_dict(&module.dict(), self);
         }
     }
 
