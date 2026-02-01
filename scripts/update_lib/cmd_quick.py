@@ -31,7 +31,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-from update_lib.deps import get_test_paths
+from update_lib.deps import DEPENDENCIES, get_test_paths
 from update_lib.file_utils import (
     construct_lib_path,
     get_cpython_dir,
@@ -194,6 +194,7 @@ def git_commit(
     lib_path: pathlib.Path | None,
     test_paths: list[pathlib.Path] | pathlib.Path | None,
     cpython_dir: pathlib.Path,
+    hard_deps: list[pathlib.Path] | None = None,
     verbose: bool = True,
 ) -> bool:
     """Commit changes with CPython author.
@@ -203,6 +204,7 @@ def git_commit(
         lib_path: Path to library file/directory (or None)
         test_paths: Path(s) to test file/directory (or None)
         cpython_dir: Path to cpython directory
+        hard_deps: Path(s) to hard dependency files (or None)
         verbose: Print progress messages
 
     Returns:
@@ -216,6 +218,10 @@ def git_commit(
     elif isinstance(test_paths, pathlib.Path):
         test_paths = [test_paths]
 
+    # Normalize hard_deps to list
+    if hard_deps is None:
+        hard_deps = []
+
     # Stage changes
     paths_to_add = []
     if lib_path and lib_path.exists():
@@ -223,6 +229,9 @@ def git_commit(
     for test_path in test_paths:
         if test_path and test_path.exists():
             paths_to_add.append(str(test_path))
+    for dep_path in hard_deps:
+        if dep_path and dep_path.exists():
+            paths_to_add.append(str(dep_path))
 
     if not paths_to_add:
         return False
@@ -362,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         # Track library path for commit
         lib_file_path = None
         test_path = None
+        hard_deps_for_commit = []
 
         # If it's a library path (not test path), do copy_lib first
         if not is_test_path(src_path):
@@ -383,6 +393,13 @@ def main(argv: list[str] | None = None) -> int:
                 default_test = lib_to_test_path(original_src)
                 if default_test.exists():
                     test_src_paths = (default_test,)
+
+            # Collect hard dependencies for commit
+            lib_deps = DEPENDENCIES.get(module_name, {})
+            for dep_name in lib_deps.get("hard_deps", []):
+                dep_lib_path = construct_lib_path("Lib", dep_name)
+                if dep_lib_path.exists():
+                    hard_deps_for_commit.append(dep_lib_path)
 
             # Process all test paths
             test_paths_for_commit = []
@@ -422,7 +439,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.commit:
             cpython_dir = get_cpython_dir(original_src)
             git_commit(
-                get_module_name(original_src), lib_file_path, test_paths, cpython_dir
+                get_module_name(original_src),
+                lib_file_path,
+                test_paths,
+                cpython_dir,
+                hard_deps=hard_deps_for_commit,
             )
 
         return 0
