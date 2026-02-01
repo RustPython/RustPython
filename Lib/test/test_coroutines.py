@@ -1364,7 +1364,6 @@ class CoroutineTest(unittest.TestCase):
             self.fail('invalid asynchronous context manager did not fail')
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "'async with' received an object from __aexit__ that does not implement __await__: int" does not match "'range_iterator' object is not callable"
     def test_with_8(self):
         CNT = 0
 
@@ -2170,7 +2169,6 @@ class CoroutineTest(unittest.TestCase):
                              f"coroutine {coro_repr}")
             self.assertIn("was never awaited", str(cm.unraisable.exc_value))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: StopAsyncIteration not raised
     def test_for_assign_raising_stop_async_iteration(self):
         class BadTarget:
             def __setitem__(self, key, value):
@@ -2204,7 +2202,6 @@ class CoroutineTest(unittest.TestCase):
             return 'end'
         self.assertEqual(run_async(run_gen()), ([], 'end'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: StopAsyncIteration not raised
     def test_for_assign_raising_stop_async_iteration_2(self):
         class BadIterable:
             def __iter__(self):

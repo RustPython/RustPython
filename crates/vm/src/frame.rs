@@ -937,9 +937,9 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::EndAsyncFor => {
-                // END_ASYNC_FOR pops (awaitable, exc) from stack
-                // Stack: [awaitable, exc] -> []
-                // exception_unwind pushes exception to stack before jumping to handler
+                // Pops (awaitable, exc) from stack.
+                // If exc is StopAsyncIteration, clears it (normal loop end).
+                // Otherwise re-raises.
                 let exc = self.pop_value();
                 let _awaitable = self.pop_value();
 
@@ -1979,22 +1979,20 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             Instruction::Send { target } => {
-                // Stack: (receiver, value) -> (receiver, retval)
-                // On StopIteration: replace value with stop value and jump to target
+                // (receiver, v -- receiver, retval)
+                // Pops v, sends it to receiver. On yield, pushes retval
+                // (so stack = [..., receiver, retval]). On return/StopIteration,
+                // also pushes retval and jumps to END_SEND which will pop receiver.
                 let exit_label = target.get(arg);
                 let val = self.pop_value();
                 let receiver = self.top_value();
 
                 match self._send(receiver, val, vm)? {
                     PyIterReturn::Return(value) => {
-                        // Value yielded, push it back for YIELD_VALUE
-                        // Stack: (receiver, retval)
                         self.push_value(value);
                         Ok(None)
                     }
                     PyIterReturn::StopIteration(value) => {
-                        // StopIteration: replace top with stop value, jump to exit
-                        // Stack: (receiver, value) - receiver stays, v replaced
                         let value = vm.unwrap_or_none(value);
                         self.push_value(value);
                         self.jump(exit_label);
