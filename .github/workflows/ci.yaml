@@ -101,6 +101,7 @@ env:
     test_subclassinit
     test_super
     test_syntax
+    test_tstring
     test_tuple
     test_types
     test_unary
