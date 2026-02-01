@@ -4162,7 +4162,6 @@ class OldTestIntFlag(unittest.TestCase):
         self.assertEqual(str(NoName.ONE & NoName.TWO), 'NoName(0)')
         self.assertEqual(str(NoName(0)), 'NoName(0)')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; format(NewPerm.R) does not use __str__
     def test_format(self):
         Perm = self.Perm
         self.assertEqual(format(Perm.R, ''), '4')
