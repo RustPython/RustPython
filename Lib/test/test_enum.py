@@ -11,7 +11,6 @@ import typing
 import builtins as bltns
 from collections import OrderedDict
 from datetime import date
-from functools import partial
 from enum import Enum, EnumMeta, IntEnum, StrEnum, EnumType, Flag, IntFlag, unique, auto
 from enum import STRICT, CONFORM, EJECT, KEEP, _simple_enum, _test_simple_enum
 from enum import verify, UNIQUE, CONTINUOUS, NAMED_FLAGS, ReprEnum
@@ -20,7 +19,8 @@ from io import StringIO
 from pickle import dumps, loads, PicklingError, HIGHEST_PROTOCOL
 from test import support
 from test.support import ALWAYS_EQ, REPO_ROOT
-from test.support import threading_helper
+from test.support import threading_helper, cpython_only
+from test.support.import_helper import ensure_lazy_imports
 from datetime import timedelta
 
 python_version = sys.version_info[:2]
@@ -434,9 +434,9 @@ class _EnumTests:
             def spam(cls):
                 pass
         #
-        self.assertTrue(hasattr(Season, 'spam'))
+        self.assertHasAttr(Season, 'spam')
         del Season.spam
-        self.assertFalse(hasattr(Season, 'spam'))
+        self.assertNotHasAttr(Season, 'spam')
         #
         with self.assertRaises(AttributeError):
             del Season.SPRING
@@ -445,8 +445,7 @@ class _EnumTests:
         with self.assertRaises(AttributeError):
             del Season.SPRING.name
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    # RuntimeError: Error calling __set_name__ on '_proto_member' instance failed in 'BadSuper'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_new_super(self):
         with self.assertRaisesRegex(
                 TypeError,
@@ -659,9 +658,6 @@ class _EnumTests:
         self.assertEqual(str(Generic.item), 'item.test')
 
     def test_overridden_str(self):
-        # TODO: RUSTPYTHON, format(NS.first) does not use __str__
-        if self.__class__ in (TestIntFlagFunction, TestIntFlagClass, TestIntEnumFunction, TestIntEnumClass, TestMinimalFloatFunction, TestMinimalFloatClass):
-            self.skipTest("format(NS.first) does not use __str__")
         NS = self.NewStrEnum
         self.assertEqual(str(NS.first), NS.first.name.upper())
         self.assertEqual(format(NS.first), NS.first.name.upper())
@@ -1544,22 +1540,6 @@ class TestSpecial(unittest.TestCase):
             [Outer.a, Outer.b, Outer.Inner],
             )
 
-    # TODO: RUSTPYTHON
-    # AssertionError: FutureWarning not triggered
-    @unittest.expectedFailure
-    def test_partial(self):
-        def func(a, b=5):
-            return a, b
-        with self.assertWarnsRegex(FutureWarning, r'partial.*enum\.member') as cm:
-            class E(Enum):
-                a = 1
-                b = partial(func)
-        self.assertEqual(cm.filename, __file__)
-        self.assertIsInstance(E.b, partial)
-        self.assertEqual(E.b(2), (2, 5))
-        with self.assertWarnsRegex(FutureWarning, 'partial'):
-            self.assertEqual(E.a.b(2), (2, 5))
-
     def test_enum_with_value_name(self):
         class Huh(Enum):
             name = 1
@@ -1769,7 +1749,7 @@ class TestSpecial(unittest.TestCase):
         self.assertIs(ThreePart((3, 3.0, 'three')), ThreePart.THREE)
         self.assertIs(ThreePart(3, 3.0, 'three'), ThreePart.THREE)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: <test.test_enum.IntStooges object at 0x55c70c38a240> is not <IntStooges.MOE: 3>
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <test.test_enum.IntStooges object at 0x55c70c38a240> is not <IntStooges.MOE: 3>
     @reraise_if_not_enum(IntStooges)
     def test_intenum_from_bytes(self):
         self.assertIs(IntStooges.from_bytes(b'\x00\x03', 'big'), IntStooges.MOE)
@@ -1923,8 +1903,7 @@ class TestSpecial(unittest.TestCase):
             class Wrong(Enum, str):
                 NotHere = 'error before this point'
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    # RuntimeError: Error calling __set_name__ on '_proto_member' instance INVALID in 'RgbColor'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: Error calling __set_name__ on '_proto_member' instance INVALID in 'RgbColor'
     def test_raise_custom_error_on_creation(self):
         class InvalidRgbColorError(ValueError):
             def __init__(self, r, g, b):
@@ -2612,8 +2591,7 @@ class TestSpecial(unittest.TestCase):
         self.assertEqual(Test.flash.flash, 'flashy dynamic')
         self.assertEqual(Test.flash.value, 1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    # RuntimeError: Error calling __set_name__ on '_proto_member' instance grene in 'Color'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: Error calling __set_name__ on '_proto_member' instance grene in 'Color'
     def test_no_duplicates(self):
         class UniqueEnum(Enum):
             def __init__(self, *args):
@@ -2678,12 +2656,12 @@ class TestSpecial(unittest.TestCase):
             OneDay = day_1
             OneWeek = week_1
             OneMonth = month_1
-        self.assertFalse(hasattr(Period, '_ignore_'))
-        self.assertFalse(hasattr(Period, 'Period'))
-        self.assertFalse(hasattr(Period, 'i'))
-        self.assertTrue(isinstance(Period.day_1, timedelta))
-        self.assertTrue(Period.month_1 is Period.day_30)
-        self.assertTrue(Period.week_4 is Period.day_28)
+        self.assertNotHasAttr(Period, '_ignore_')
+        self.assertNotHasAttr(Period, 'Period')
+        self.assertNotHasAttr(Period, 'i')
+        self.assertIsInstance(Period.day_1, timedelta)
+        self.assertIs(Period.month_1, Period.day_30)
+        self.assertIs(Period.week_4, Period.day_28)
 
     def test_nonhash_value(self):
         class AutoNumberInAList(Enum):
@@ -2903,7 +2881,7 @@ class TestSpecial(unittest.TestCase):
         self.assertEqual(str(ReformedColor.BLUE), 'blue')
         self.assertEqual(ReformedColor.RED.behavior(), 'booyah')
         self.assertEqual(ConfusedColor.RED.social(), "what's up?")
-        self.assertTrue(issubclass(ReformedColor, int))
+        self.assertIsSubclass(ReformedColor, int)
 
     def test_multiple_inherited_mixin(self):
         @unique
@@ -2999,8 +2977,7 @@ class TestSpecial(unittest.TestCase):
         local_ls = {}
         exec(code, global_ns, local_ls)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    # RuntimeError: Error calling __set_name__ on '_proto_member' instance one in 'FirstFailedStrEnum'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: Error calling __set_name__ on '_proto_member' instance one in 'FirstFailedStrEnum'
     def test_strenum(self):
         class GoodStrEnum(StrEnum):
             one = '1'
@@ -3063,7 +3040,7 @@ class TestSpecial(unittest.TestCase):
                 one = '1'
                 two = b'2', 'ascii', 9
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; fails on encoding testing : TypeError: Expected type 'str' but 'builtin_function_or_method' found
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; fails on encoding testing : TypeError: Expected type 'str' but 'builtin_function_or_method' found
     def test_custom_strenum(self):
         class CustomStrEnum(str, Enum):
             pass
@@ -3125,8 +3102,7 @@ class TestSpecial(unittest.TestCase):
                 one = '1'
                 two = b'2', 'ascii', 9
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    # RuntimeError: Error calling __set_name__ on '_proto_member' instance key_type in 'Combined'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: Error calling __set_name__ on '_proto_member' instance key_type in 'Combined'
     def test_missing_value_error(self):
         with self.assertRaisesRegex(TypeError, "_value_ not set in __new__"):
             class Combined(str, Enum):
@@ -3413,8 +3389,7 @@ class TestSpecial(unittest.TestCase):
         self.assertEqual(FlagFromChar.a, 158456325028528675187087900672)
         self.assertEqual(FlagFromChar.a|1, 158456325028528675187087900673)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    # RuntimeError: Error calling __set_name__ on '_proto_member' instance A in 'MyEnum'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: Error calling __set_name__ on '_proto_member' instance A in 'MyEnum'
     def test_init_exception(self):
         class Base:
             def __new__(cls, *args):
@@ -4003,7 +3978,7 @@ class OldTestFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_unique_composite(self):
@@ -4524,7 +4499,7 @@ class OldTestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_unique_composite(self):
@@ -5073,7 +5048,7 @@ class TestStdLib(unittest.TestCase):
         MAGENTA = 2
         YELLOW = 3
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; |      is a read-only view of the internal mapping.
     def test_pydoc(self):
         # indirectly test __objclass__
         if StrEnum.__doc__ is None:
@@ -5185,7 +5160,6 @@ class TestStdLib(unittest.TestCase):
         if failed:
             self.fail("result does not equal expected, see print above")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Enum.__signature__ is @classmethod instead of @property
     def test_inspect_signatures(self):
         from inspect import signature, Signature, Parameter
         self.assertEqual(
@@ -5325,6 +5299,10 @@ class MiscTestCase(unittest.TestCase):
 
     def test__all__(self):
         support.check__all__(self, enum, not_exported={'bin', 'show_flag_values'})
+
+    @cpython_only
+    def test_lazy_import(self):
+        ensure_lazy_imports("enum", {"functools", "warnings", "inspect", "re"})
 
     def test_doc_1(self):
         class Single(Enum):
