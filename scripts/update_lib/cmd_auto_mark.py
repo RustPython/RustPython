@@ -279,7 +279,9 @@ def _expand_stripped_to_children(
     for parent_cls, method_name in unmatched:
         if method_name not in class_methods.get(parent_cls, set()):
             continue
-        for cls in _find_all_inheritors(parent_cls, method_name, class_bases, class_methods):
+        for cls in _find_all_inheritors(
+            parent_cls, method_name, class_bases, class_methods
+        ):
             if (cls, method_name) in all_failing_tests:
                 result.add((cls, method_name))
 
@@ -322,7 +324,9 @@ def _consolidate_to_parent(
     new_error_messages = dict(error_messages) if error_messages else {}
 
     for (parent, method_name), failing_children in groups.items():
-        all_inheritors = _find_all_inheritors(parent, method_name, class_bases, class_methods)
+        all_inheritors = _find_all_inheritors(
+            parent, method_name, class_bases, class_methods
+        )
 
         if all_inheritors and failing_children >= all_inheritors:
             # All inheritors fail → mark on parent instead
@@ -391,7 +395,11 @@ def _method_removal_range(
         if func_node.decorator_list
         else func_node.lineno - 1
     )
-    if first > 0 and lines[first - 1].strip().startswith("#") and COMMENT in lines[first - 1]:
+    if (
+        first > 0
+        and lines[first - 1].strip().startswith("#")
+        and COMMENT in lines[first - 1]
+    ):
         first -= 1
     return range(first, func_node.end_lineno)
 

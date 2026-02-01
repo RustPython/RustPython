@@ -21,7 +21,9 @@ from update_lib.patch_spec import COMMENT
 
 
 def _make_result(stdout: str) -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(args=["test"], returncode=0, stdout=stdout, stderr="")
+    return subprocess.CompletedProcess(
+        args=["test"], returncode=0, stdout=stdout, stderr=""
+    )
 
 
 # -- fixtures shared across inheritance-aware tests --
@@ -212,10 +214,14 @@ class TestCollectTestChanges(unittest.TestCase):
         ]
         failing, successes, error_messages = collect_test_changes(results)
 
-        self.assertEqual(failing, {("TestClass", "test_foo"), ("TestClass", "test_bar")})
+        self.assertEqual(
+            failing, {("TestClass", "test_foo"), ("TestClass", "test_bar")}
+        )
         self.assertEqual(successes, set())
         self.assertEqual(len(error_messages), 1)
-        self.assertEqual(error_messages[("TestClass", "test_foo")], "AssertionError: 1 != 2")
+        self.assertEqual(
+            error_messages[("TestClass", "test_foo")], "AssertionError: 1 != 2"
+        )
 
     def test_collect_unexpected_successes(self):
         results = TestResult()
@@ -234,13 +240,23 @@ class TestCollectTestChanges(unittest.TestCase):
         results = TestResult()
         results.tests = [
             Test(name="test_foo", path="test_a.TestClass.test_foo", result="fail"),
-            Test(name="test_bar", path="test.test_dataclasses.TestCase.test_bar", result="fail"),
-            Test(name="test_baz", path="test.test_other.TestOther.test_baz", result="fail"),
+            Test(
+                name="test_bar",
+                path="test.test_dataclasses.TestCase.test_bar",
+                result="fail",
+            ),
+            Test(
+                name="test_baz",
+                path="test.test_other.TestOther.test_baz",
+                result="fail",
+            ),
         ]
         failing_a, _, _ = collect_test_changes(results, module_prefix="test_a.")
         self.assertEqual(failing_a, {("TestClass", "test_foo")})
 
-        failing_dc, _, _ = collect_test_changes(results, module_prefix="test.test_dataclasses.")
+        failing_dc, _, _ = collect_test_changes(
+            results, module_prefix="test.test_dataclasses."
+        )
         self.assertEqual(failing_dc, {("TestCase", "test_bar")})
 
     def test_collect_init_module_matching(self):
@@ -603,9 +619,7 @@ class TestConsolidateToParent(unittest.TestCase):
         self.assertIn("RuntimeError: boom", result)
 
     def test_partial_children_fail_marks_children(self):
-        result = apply_test_changes(
-            BASE_TWO_CHILDREN, {("ChildA", "test_foo")}, set()
-        )
+        result = apply_test_changes(BASE_TWO_CHILDREN, {("ChildA", "test_foo")}, set())
         self.assertIn("return super().test_foo()", result)
         self.assertEqual(result.count("@unittest.expectedFailure"), 1)
 
@@ -679,9 +693,9 @@ class TestSmartAutoMarkFiltering(unittest.TestCase):
         original = {("TestA", "test_a"), ("TestB", "test_b")}
         current = original | {("TestA", "test_new_a"), ("TestC", "test_c")}
         all_failing = {
-            ("TestA", "test_a"),      # regression
+            ("TestA", "test_a"),  # regression
             ("TestA", "test_new_a"),  # new
-            ("TestC", "test_c"),      # new (new class)
+            ("TestC", "test_c"),  # new (new class)
         }
         to_mark, regressions = self._filter(all_failing, original, current)
         self.assertEqual(to_mark, {("TestA", "test_new_a"), ("TestC", "test_c")})
@@ -701,7 +715,7 @@ class TestIsSuperCallOnly(unittest.TestCase):
         cases = [
             ("return super().test_one()", True),
             ("return super().test_two()", False),  # mismatched name
-            ("pass", False),                        # regular body
+            ("pass", False),  # regular body
             ("x = 1\n        return super().test_one()", False),  # multiple stmts
         ]
         for body, expected in cases:
@@ -711,7 +725,9 @@ class Foo:
     def test_one(self):
         {body}
 """
-                self.assertEqual(_is_super_call_only(self._parse_method(code)), expected)
+                self.assertEqual(
+                    _is_super_call_only(self._parse_method(code)), expected
+                )
 
     def test_async(self):
         cases = [
@@ -726,7 +742,9 @@ class Foo:
     async def test_one(self):
         {body}
 """
-                self.assertEqual(_is_super_call_only(self._parse_method(code)), expected)
+                self.assertEqual(
+                    _is_super_call_only(self._parse_method(code)), expected
+                )
 
 
 if __name__ == "__main__":
