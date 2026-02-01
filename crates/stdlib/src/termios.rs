@@ -261,13 +261,12 @@ mod termios {
     }
 
     fn termios_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception(
+        vm.new_os_subtype_error(
             error_type(vm),
-            vec![
-                err.posix_errno().to_pyobject(vm),
-                vm.ctx.new_str(err.to_string()).into(),
-            ],
+            Some(err.posix_errno()),
+            vm.ctx.new_str(err.to_string()),
         )
+        .upcast()
     }
 
     #[pyattr(name = "error", once)]
