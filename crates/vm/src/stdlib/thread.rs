@@ -1,9 +1,10 @@
 //! Implementation of the _thread module
 #[cfg(unix)]
 pub(crate) use _thread::after_fork_child;
+pub use _thread::get_ident;
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
-    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames, get_ident,
+    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames,
     init_main_thread_ident, module_def,
 };
 
@@ -873,12 +874,12 @@ pub(crate) mod _thread {
     // Re-export type from vm::thread for PyGlobalState
     pub use crate::vm::thread::CurrentFrameSlot;
 
-    /// Get all threads' current frames. Used by sys._current_frames().
+    /// Get all threads' current (top) frames. Used by sys._current_frames().
     pub fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
         let registry = vm.state.thread_frames.lock();
         registry
             .iter()
-            .filter_map(|(id, slot)| slot.lock().clone().map(|f| (*id, f)))
+            .filter_map(|(id, slot)| slot.lock().last().cloned().map(|f| (*id, f)))
             .collect()
     }
 

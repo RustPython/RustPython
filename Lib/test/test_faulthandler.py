@@ -533,7 +533,6 @@ class FaultHandlerTests(unittest.TestCase):
     def test_dump_traceback(self):
         self.check_dump_traceback()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - binary file write needs different handling
     def test_dump_traceback_file(self):
         with temporary_filename() as filename:
             self.check_dump_traceback(filename=filename)
@@ -629,11 +628,9 @@ class FaultHandlerTests(unittest.TestCase):
         self.assertRegex(output, regex)
         self.assertEqual(exitcode, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^Thread 0x[0-9a-f]+( \\[.*\\])? \\(most recent call first\\):\n(?:  File ".*threading.py", line [0-9]+ in [_a-z]+\n){1,3}  File "<string>", line (?:22|23) in run\n  File ".*threading.py", line [0-9]+ in _bootstrap_inner\n  File ".*threading.py", line [0-9]+ in _bootstrap\n\nCurrent thread 0x[0-9a-f]+( \\[.*\\])? \\(most recent call first\\):\n  File "<string>", line 10 in dump\n  File "<string>", line 28 in <module>$' not found in 'Stack (most recent call first):\n  File "<string>", line 10 in dump\n  File "<string>", line 28 in <module>'
     def test_dump_traceback_threads(self):
         self.check_dump_traceback_threads(None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - TypeError: a bytes-like object is required, not 'str'
     def test_dump_traceback_threads_file(self):
         with temporary_filename() as filename:
             self.check_dump_traceback_threads(filename)
@@ -701,19 +698,15 @@ class FaultHandlerTests(unittest.TestCase):
             self.assertEqual(trace, '')
         self.assertEqual(exitcode, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^Timeout \\(0:00:00.500000\\)!\\nThread 0x[0-9a-f]+( \\[.*\\])? \\(most recent call first\\):\\n  File "<string>", line 17 in func\n  File "<string>", line 26 in <module>$' not found in 'Traceback (most recent call last):\n  File "<string>", line 26, in <module>\n  File "<string>", line 14, in func\nAttributeError: \'NoneType\' object has no attribute \'fileno\''
     def test_dump_traceback_later(self):
         self.check_dump_traceback_later()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^Timeout \\(0:00:00.500000\\)!\\nThread 0x[0-9a-f]+( \\[.*\\])? \\(most recent call first\\):\\n  File "<string>", line 17 in func\n  File "<string>", line 26 in <module>\nTimeout \\(0:00:00.500000\\)!\\nThread 0x[0-9a-f]+( \\[.*\\])? \\(most recent call first\\):\\n  File "<string>", line 17 in func\n  File "<string>", line 26 in <module>' not found in 'Traceback (most recent call last):\n  File "<string>", line 26, in <module>\n  File "<string>", line 14, in func\nAttributeError: \'NoneType\' object has no attribute \'fileno\''
     def test_dump_traceback_later_repeat(self):
         self.check_dump_traceback_later(repeat=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AttributeError: 'NoneType' object has no attribute 'fileno'
     def test_dump_traceback_later_cancel(self):
         self.check_dump_traceback_later(cancel=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^Timeout \\(0:00:00.500000\\)!\\nThread 0x[0-9a-f]+( \\[.*\\])? \\(most recent call first\\):\\n  File "<string>", line 17 in func\n  File "<string>", line 26 in <module>$' not found in 'Timeout (00:00:00.500000)!\n<timeout: cannot dump traceback from watchdog thread>'
     def test_dump_traceback_later_file(self):
         with temporary_filename() as filename:
             self.check_dump_traceback_later(filename=filename)
@@ -724,7 +717,6 @@ class FaultHandlerTests(unittest.TestCase):
         with tempfile.TemporaryFile('wb+') as fp:
             self.check_dump_traceback_later(fd=fp.fileno())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^Timeout \\(0:00:00.500000\\)!\\nThread 0x[0-9a-f]+( \\[.*\\])? \\(most recent call first\\):\\n  File "<string>", line 17 in func\n  File "<string>", line 26 in <module>\nTimeout \\(0:00:00.500000\\)!\\nThread 0x[0-9a-f]+( \\[.*\\])? \\(most recent call first\\):\\n  File "<string>", line 17 in func\n  File "<string>", line 26 in <module>' not found in 'Traceback (most recent call last):\n  File "<string>", line 26, in <module>\n  File "<string>", line 14, in func\nAttributeError: \'NoneType\' object has no attribute \'fileno\''
     @support.requires_resource('walltime')
     def test_dump_traceback_later_twice(self):
         self.check_dump_traceback_later(loops=2)
