@@ -86,6 +86,7 @@ env:
     test_math
     test_operator
     test_ordered_dict
+    test_pep646_syntax
     test_pow
     test_raise
     test_richcmp
