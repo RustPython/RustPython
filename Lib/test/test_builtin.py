@@ -2330,8 +2330,6 @@ class TestSorted(unittest.TestCase):
 
 class ShutdownTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cleanup(self):
         # Issue #19255: builtins are still available at shutdown
         code = """if 1:

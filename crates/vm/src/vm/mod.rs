@@ -620,6 +620,170 @@ impl VirtualMachine {
         }
     }
 
+    /// Clear module references during shutdown.
+    /// Follows the same phased algorithm as pylifecycle.c finalize_modules():
+    /// no hardcoded module names, reverse import order, only builtins/sys last.
+    pub fn finalize_modules(&self) {
+        // Phase 1: Set special sys/builtins attributes to None, restore stdio
+        self.finalize_modules_delete_special();
+
+        // Phase 2: Remove all modules from sys.modules (set values to None),
+        // and collect references to module dicts preserving import order.
+        // NOTE: CPython uses weakrefs here and relies on GC to collect cyclic garbage.
+        // Since RustPython's GC is a stub, we store strong dict refs to ensure
+        // phase 4 can clear them (breaking __globals__ cycles and triggering __del__).
+        let module_dicts = self.finalize_remove_modules();
+
+        // Phase 3: Clear sys.modules dict
+        self.finalize_clear_modules_dict();
+
+        // Phase 4: Clear module dicts in reverse import order using 2-pass algorithm.
+        // This drops references to objects in module namespaces, triggering __del__.
+        self.finalize_clear_module_dicts(&module_dicts);
+
+        // Phase 5: Clear sys and builtins dicts last
+        self.finalize_clear_sys_builtins_dict();
+    }
+
+    /// Phase 1: Set special sys attributes to None and restore stdio.
+    fn finalize_modules_delete_special(&self) {
+        let none = self.ctx.none();
+        let sys_dict = self.sys_module.dict();
+
+        // Set special sys attributes to None
+        for attr in &[
+            "path",
+            "argv",
+            "ps1",
+            "ps2",
+            "last_exc",
+            "last_type",
+            "last_value",
+            "last_traceback",
+            "path_importer_cache",
+            "meta_path",
+            "path_hooks",
+        ] {
+            let _ = sys_dict.set_item(*attr, none.clone(), self);
+        }
+
+        // Restore stdin/stdout/stderr from __stdin__/__stdout__/__stderr__
+        for (std_name, dunder_name) in &[
+            ("stdin", "__stdin__"),
+            ("stdout", "__stdout__"),
+            ("stderr", "__stderr__"),
+        ] {
+            let restored = sys_dict
+                .get_item_opt(*dunder_name, self)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| none.clone());
+            let _ = sys_dict.set_item(*std_name, restored, self);
+        }
+
+        // builtins._ = None
+        let _ = self.builtins.dict().set_item("_", none, self);
+    }
+
+    /// Phase 2: Set all sys.modules values to None and collect module dicts.
+    /// Returns a list of (name, dict) preserving import order.
+    fn finalize_remove_modules(&self) -> Vec<(String, PyDictRef)> {
+        let mut module_dicts = Vec::new();
+
+        let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self) else {
+            return module_dicts;
+        };
+        let Some(modules_dict) = modules.downcast_ref::<PyDict>() else {
+            return module_dicts;
+        };
+
+        let none = self.ctx.none();
+        let items: Vec<_> = modules_dict.into_iter().collect();
+
+        for (key, value) in items {
+            let name = key
+                .downcast_ref::<PyStr>()
+                .map(|s| s.as_str().to_owned())
+                .unwrap_or_default();
+
+            // Save reference to module dict for later clearing
+            if let Some(module) = value.downcast_ref::<PyModule>() {
+                module_dicts.push((name, module.dict()));
+            }
+
+            // Set the value to None in sys.modules
+            let _ = modules_dict.set_item(&*key, none.clone(), self);
+        }
+
+        module_dicts
+    }
+
+    /// Phase 3: Clear sys.modules dict.
+    fn finalize_clear_modules_dict(&self) {
+        if let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self)
+            && let Some(modules_dict) = modules.downcast_ref::<PyDict>()
+        {
+            modules_dict.clear();
+        }
+    }
+
+    /// Phase 4: Clear module dicts in reverse import order.
+    /// Skips builtins and sys (they are cleared last in phase 5).
+    fn finalize_clear_module_dicts(&self, module_dicts: &[(String, PyDictRef)]) {
+        let sys_dict = self.sys_module.dict();
+        let builtins_dict = self.builtins.dict();
+
+        // Iterate in reverse (last imported → first cleared)
+        for (_name, dict) in module_dicts.iter().rev() {
+            // Skip builtins and sys dicts (cleared last in phase 5)
+            if dict.is(&sys_dict) || dict.is(&builtins_dict) {
+                continue;
+            }
+
+            // 2-pass clearing
+            Self::module_clear_dict(dict, self);
+        }
+    }
+
+    /// 2-pass module dict clearing (_PyModule_ClearDict algorithm).
+    /// Pass 1: Set names starting with '_' (except __builtins__) to None.
+    /// Pass 2: Set all remaining names (except __builtins__) to None.
+    fn module_clear_dict(dict: &Py<PyDict>, vm: &VirtualMachine) {
+        let none = vm.ctx.none();
+
+        // Pass 1: names starting with '_' (except __builtins__)
+        for (key, value) in dict.into_iter().collect::<Vec<_>>() {
+            if vm.is_none(&value) {
+                continue;
+            }
+            if let Some(key_str) = key.downcast_ref::<PyStr>() {
+                let name = key_str.as_str();
+                if name.starts_with('_') && name != "__builtins__" && name != "__spec__" {
+                    let _ = dict.set_item(name, none.clone(), vm);
+                }
+            }
+        }
+
+        // Pass 2: all remaining (except __builtins__)
+        for (key, value) in dict.into_iter().collect::<Vec<_>>() {
+            if vm.is_none(&value) {
+                continue;
+            }
+            if let Some(key_str) = key.downcast_ref::<PyStr>()
+                && key_str.as_str() != "__builtins__"
+                && key_str.as_str() != "__spec__"
+            {
+                let _ = dict.set_item(key_str.as_str(), none.clone(), vm);
+            }
+        }
+    }
+
+    /// Phase 5: Clear sys and builtins dicts last.
+    fn finalize_clear_sys_builtins_dict(&self) {
+        Self::module_clear_dict(&self.sys_module.dict(), self);
+        Self::module_clear_dict(&self.builtins.dict(), self);
+    }
+
     pub fn current_recursion_depth(&self) -> usize {
         self.recursion_depth.get()
     }
