@@ -638,8 +638,6 @@ class StrTest(unittest.TestCase, BaseStrTest):
         except MemoryError:
             pass # acceptable on 32-bit
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @bigmemtest(size=_4G // 4 + 5, memuse=ascii_char_size + ucs4_char_size + 4)
     def test_encode_utf32(self, size):
         try:
