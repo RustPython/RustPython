@@ -141,6 +141,13 @@ mod builtins {
                 .source
                 .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
             {
+                // If PyCF_ONLY_AST is set, just return the AST node as-is
+                use num_traits::Zero;
+                let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
+                if !(flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
+                    return Ok(args.source);
+                }
+
                 #[cfg(not(feature = "rustpython-codegen"))]
                 {
                     return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned()));
