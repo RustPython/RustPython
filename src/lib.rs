@@ -408,4 +408,41 @@ mod tests {
             })());
         })
     }
+
+    #[test]
+    fn test_compile_only() {
+        interpreter().enter(|vm| {
+            let valid = "def foo(x, y):\n    return x + y\n";
+            assert!(
+                vm.compile(valid, vm::compiler::Mode::Exec, "<test>".to_owned())
+                    .is_ok()
+            );
+
+            let syntax_error = "def foo(:\n";
+            assert!(
+                vm.compile(syntax_error, vm::compiler::Mode::Exec, "<test>".to_owned())
+                    .is_err()
+            );
+
+            let duplicate_param = "def foo(x, x):\n    pass\n";
+            assert!(
+                vm.compile(
+                    duplicate_param,
+                    vm::compiler::Mode::Exec,
+                    "<test>".to_owned()
+                )
+                .is_err()
+            );
+
+            let break_outside_loop = "def foo():\n    break\n";
+            assert!(
+                vm.compile(
+                    break_outside_loop,
+                    vm::compiler::Mode::Exec,
+                    "<test>".to_owned()
+                )
+                .is_err()
+            );
+        })
+    }
 }
