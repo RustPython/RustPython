@@ -50,6 +50,16 @@ pub(crate) fn set_triggered() {
     ANY_TRIGGERED.store(true, Ordering::Release);
 }
 
+/// Reset all signal trigger state after fork in child process.
+/// Stale triggers from the parent must not fire in the child.
+#[cfg(unix)]
+pub(crate) fn clear_after_fork() {
+    ANY_TRIGGERED.store(false, Ordering::Release);
+    for trigger in &TRIGGERS {
+        trigger.store(false, Ordering::Relaxed);
+    }
+}
+
 pub fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
     if (1..NSIG as i32).contains(&signum) {
         Ok(())
