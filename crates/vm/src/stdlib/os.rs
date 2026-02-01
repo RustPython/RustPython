@@ -1268,13 +1268,64 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn link(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
-        fs::hard_link(&src.path, &dst.path).map_err(|err| {
-            let builder = err.to_os_error_builder(vm);
-            let builder = builder.filename(src.filename(vm));
-            let builder = builder.filename2(dst.filename(vm));
-            builder.build(vm).upcast()
-        })
+    fn link(
+        src: OsPath,
+        dst: OsPath,
+        follow_symlinks: FollowSymlinks,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let src_cstr = std::ffi::CString::new(src.path.as_os_str().as_bytes())
+                .map_err(|_| vm.new_value_error("embedded null byte".to_owned()))?;
+            let dst_cstr = std::ffi::CString::new(dst.path.as_os_str().as_bytes())
+                .map_err(|_| vm.new_value_error("embedded null byte".to_owned()))?;
+
+            let flags = if follow_symlinks.0 {
+                libc::AT_SYMLINK_FOLLOW
+            } else {
+                0
+            };
+
+            let ret = unsafe {
+                libc::linkat(
+                    libc::AT_FDCWD,
+                    src_cstr.as_ptr(),
+                    libc::AT_FDCWD,
+                    dst_cstr.as_ptr(),
+                    flags,
+                )
+            };
+
+            if ret != 0 {
+                let err = std::io::Error::last_os_error();
+                let builder = err.to_os_error_builder(vm);
+                let builder = builder.filename(src.filename(vm));
+                let builder = builder.filename2(dst.filename(vm));
+                return Err(builder.build(vm).upcast());
+            }
+
+            Ok(())
+        }
+
+        #[cfg(not(unix))]
+        {
+            // On non-Unix platforms, ignore follow_symlinks if it's the default value
+            // or raise NotImplementedError if explicitly set to False
+            if !follow_symlinks.0 {
+                return Err(vm.new_not_implemented_error(
+                    "link: follow_symlinks unavailable on this platform".to_owned(),
+                ));
+            }
+
+            fs::hard_link(&src.path, &dst.path).map_err(|err| {
+                let builder = err.to_os_error_builder(vm);
+                let builder = builder.filename(src.filename(vm));
+                let builder = builder.filename2(dst.filename(vm));
+                builder.build(vm).upcast()
+            })
+        }
     }
 
     #[cfg(any(unix, windows))]
@@ -1842,6 +1893,7 @@ pub(super) mod _os {
             SupportFunc::new("access", Some(false), Some(false), None),
             SupportFunc::new("chdir", None, Some(false), Some(false)),
             // chflags Some, None Some
+            SupportFunc::new("link", Some(false), Some(false), Some(cfg!(unix))),
             SupportFunc::new("listdir", Some(LISTDIR_FD), Some(false), Some(false)),
             SupportFunc::new("mkdir", Some(false), Some(MKDIR_DIR_FD), Some(false)),
             // mkfifo Some Some None
