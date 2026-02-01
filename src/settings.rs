@@ -53,7 +53,6 @@ struct CliArgs {
     warning_control: Vec<String>,
     implementation_option: Vec<String>,
     check_hash_based_pycs: CheckHashPycsMode,
-    compile_only: bool,
 
     #[cfg(feature = "flame-it")]
     profile_output: Option<std::ffi::OsString>,
@@ -153,7 +152,13 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             Long("check-hash-based-pycs") => {
                 args.check_hash_based_pycs = parser.value()?.parse()?
             }
-            Long("compile-only") => args.compile_only = true,
+            Long("compile-only") => {
+                let files: Vec<String> = parser
+                    .raw_args()?
+                    .map(|a| a.string())
+                    .collect::<Result<_, _>>()?;
+                return Ok((args, RunMode::CompileOnly(files), vec![]));
+            }
 
             // TODO: make these more specific
             Long("help-env") => help(parser),
@@ -183,13 +188,6 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             }
             Value(script_name) => {
                 let script_name = script_name.string()?;
-                if args.compile_only {
-                    return Ok((
-                        args,
-                        RunMode::CompileOnly(argv(script_name, parser)?),
-                        vec![],
-                    ));
-                }
                 let mode = if script_name == "-" {
                     RunMode::Repl
                 } else {
@@ -200,11 +198,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             _ => return Err(arg.unexpected()),
         }
     }
-    if args.compile_only {
-        Ok((args, RunMode::CompileOnly(vec![]), vec![]))
-    } else {
-        Ok((args, RunMode::Repl, vec![]))
-    }
+    Ok((args, RunMode::Repl, vec![]))
 }
 
 fn help(parser: lexopt::Parser) -> ! {
