@@ -1219,7 +1219,10 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                     preserve_lasti,
                 });
             } else if is_pop {
-                debug_assert!(!stack.is_empty(), "POP_BLOCK with empty except stack at block {bi} instruction {i}");
+                debug_assert!(
+                    !stack.is_empty(),
+                    "POP_BLOCK with empty except stack at block {bi} instruction {i}"
+                );
                 stack.pop();
                 // POP_BLOCK → NOP
                 blocks[bi].instructions[i].instr = Instruction::Nop.into();
