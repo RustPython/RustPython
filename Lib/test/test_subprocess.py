@@ -1291,7 +1291,6 @@ class ProcessTestCase(BaseTestCase):
         # to stderr at exit of subprocess.
         self.assertTrue(stderr.startswith("eline2\neline6\neline7\n"))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_universal_newlines_communicate_encodings(self):
         # Check that universal newlines mode works for various encodings,
         # in particular for encodings in the UTF-16 and UTF-32 families.
