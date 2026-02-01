@@ -12,7 +12,7 @@ pub fn warn(
     if let Ok(module) = vm.import("warnings", 0)
         && let Ok(func) = module.get_attr("warn", vm)
     {
-        let _ = func.call((message, category.to_owned(), stack_level), vm);
+        func.call((message, category.to_owned(), stack_level), vm)?;
     }
     Ok(())
 }

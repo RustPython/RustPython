@@ -328,6 +328,7 @@ impl VirtualMachine {
                         Some(if write { "wb" } else { "rb" }),
                         crate::stdlib::io::OpenArgs {
                             buffering: if unbuffered { 0 } else { -1 },
+                            closefd: false,
                             ..Default::default()
                         },
                         self,
