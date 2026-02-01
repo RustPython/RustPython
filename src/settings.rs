@@ -10,6 +10,7 @@ pub enum RunMode {
     Module(String),
     InstallPip(InstallPipMode),
     Repl,
+    CompileOnly(Vec<String>),
 }
 
 pub enum InstallPipMode {
@@ -52,6 +53,7 @@ struct CliArgs {
     warning_control: Vec<String>,
     implementation_option: Vec<String>,
     check_hash_based_pycs: CheckHashPycsMode,
+    compile_only: bool,
 
     #[cfg(feature = "flame-it")]
     profile_output: Option<std::ffi::OsString>,
@@ -100,7 +102,8 @@ Options (and corresponding environment variables):
 --help-all: print complete help information and exit
 
 RustPython extensions:
-
+--compile-only file ... : compile files without executing (terminates option list)
+--install-pip [ensurepip|get-pip] : install pip using specified method
 
 Arguments:
 file   : program read from script file
@@ -150,6 +153,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             Long("check-hash-based-pycs") => {
                 args.check_hash_based_pycs = parser.value()?.parse()?
             }
+            Long("compile-only") => args.compile_only = true,
 
             // TODO: make these more specific
             Long("help-env") => help(parser),
@@ -179,6 +183,13 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             }
             Value(script_name) => {
                 let script_name = script_name.string()?;
+                if args.compile_only {
+                    return Ok((
+                        args,
+                        RunMode::CompileOnly(argv(script_name, parser)?),
+                        vec![],
+                    ));
+                }
                 let mode = if script_name == "-" {
                     RunMode::Repl
                 } else {
@@ -189,7 +200,11 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             _ => return Err(arg.unexpected()),
         }
     }
-    Ok((args, RunMode::Repl, vec![]))
+    if args.compile_only {
+        Ok((args, RunMode::CompileOnly(vec![]), vec![]))
+    } else {
+        Ok((args, RunMode::Repl, vec![]))
+    }
 }
 
 fn help(parser: lexopt::Parser) -> ! {
