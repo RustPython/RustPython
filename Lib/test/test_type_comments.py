@@ -1,7 +1,6 @@
 import ast
 import sys
 import unittest
-from test import support
 
 
 funcdef = """\
@@ -64,6 +63,14 @@ for a in []:  # type: int
 
 withstmt = """\
 with context() as a:  # type: int
+    pass
+"""
+
+parenthesized_withstmt = """\
+with (a as b):  # type: int
+    pass
+
+with (a, b):  # type: int
     pass
 """
 
@@ -244,8 +251,7 @@ class TypeCommentTests(unittest.TestCase):
     def classic_parse(self, source):
         return ast.parse(source)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'FunctionDef' object has no attribute 'type_comment'
     def test_funcdef(self):
         for tree in self.parse_all(funcdef):
             self.assertEqual(tree.body[0].type_comment, "() -> int")
@@ -254,8 +260,7 @@ class TypeCommentTests(unittest.TestCase):
         self.assertEqual(tree.body[0].type_comment, None)
         self.assertEqual(tree.body[1].type_comment, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised : feature_version=(3, 4)
     def test_asyncdef(self):
         for tree in self.parse_all(asyncdef, minver=5):
             self.assertEqual(tree.body[0].type_comment, "() -> int")
@@ -264,75 +269,71 @@ class TypeCommentTests(unittest.TestCase):
         self.assertEqual(tree.body[0].type_comment, None)
         self.assertEqual(tree.body[1].type_comment, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_asyncvar(self):
-        for tree in self.parse_all(asyncvar, maxver=6):
-            pass
+        with self.assertRaises(SyntaxError):
+            self.classic_parse(asyncvar)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised : feature_version=(3, 4)
     def test_asynccomp(self):
         for tree in self.parse_all(asynccomp, minver=6):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised : feature_version=(3, 4)
     def test_matmul(self):
         for tree in self.parse_all(matmul, minver=5):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fstring(self):
-        for tree in self.parse_all(fstring, minver=6):
+        for tree in self.parse_all(fstring):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised : feature_version=(3, 4)
     def test_underscorednumber(self):
         for tree in self.parse_all(underscorednumber, minver=6):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised : feature_version=(3, 4)
     def test_redundantdef(self):
         for tree in self.parse_all(redundantdef, maxver=0,
                                 expected_regex="^Cannot have two type comments on def"):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'FunctionDef' object has no attribute 'type_comment'
     def test_nonasciidef(self):
         for tree in self.parse_all(nonasciidef):
             self.assertEqual(tree.body[0].type_comment, "() -> àçčéñt")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'For' object has no attribute 'type_comment'
     def test_forstmt(self):
         for tree in self.parse_all(forstmt):
             self.assertEqual(tree.body[0].type_comment, "int")
         tree = self.classic_parse(forstmt)
         self.assertEqual(tree.body[0].type_comment, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'With' object has no attribute 'type_comment'
     def test_withstmt(self):
         for tree in self.parse_all(withstmt):
             self.assertEqual(tree.body[0].type_comment, "int")
         tree = self.classic_parse(withstmt)
         self.assertEqual(tree.body[0].type_comment, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'With' object has no attribute 'type_comment'
+    def test_parenthesized_withstmt(self):
+        for tree in self.parse_all(parenthesized_withstmt):
+            self.assertEqual(tree.body[0].type_comment, "int")
+            self.assertEqual(tree.body[1].type_comment, "int")
+        tree = self.classic_parse(parenthesized_withstmt)
+        self.assertEqual(tree.body[0].type_comment, None)
+        self.assertEqual(tree.body[1].type_comment, None)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != 'int'
     def test_vardecl(self):
         for tree in self.parse_all(vardecl):
             self.assertEqual(tree.body[0].type_comment, "int")
         tree = self.classic_parse(vardecl)
         self.assertEqual(tree.body[0].type_comment, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  (11, ' whatever')]
     def test_ignores(self):
         for tree in self.parse_all(ignores):
             self.assertEqual(
@@ -348,16 +349,15 @@ class TypeCommentTests(unittest.TestCase):
         tree = self.classic_parse(ignores)
         self.assertEqual(tree.type_ignores, [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised : feature_version=(3, 4)
     def test_longargs(self):
-        for tree in self.parse_all(longargs):
+        for tree in self.parse_all(longargs, minver=8):
             for t in tree.body:
                 # The expected args are encoded in the function name
                 todo = set(t.name[1:])
                 self.assertEqual(len(t.args.args) + len(t.args.posonlyargs),
                                  len(todo) - bool(t.args.vararg) - bool(t.args.kwarg))
-                self.assertTrue(t.name.startswith('f'), t.name)
+                self.assertStartsWith(t.name, 'f')
                 for index, c in enumerate(t.name[1:]):
                     todo.remove(c)
                     if c == 'v':
@@ -380,8 +380,7 @@ class TypeCommentTests(unittest.TestCase):
                     self.assertIsNone(arg.type_comment, "%s(%s:%r)" %
                                       (t.name, arg.arg, arg.type_comment))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Tests for inappropriately-placed type comments.
     def test_inappropriate_type_comments(self):
         """Tests for inappropriately-placed type comments.
 
@@ -406,8 +405,7 @@ class TypeCommentTests(unittest.TestCase):
         check_both_ways("pass  # type: ignorewhatever\n")
         check_both_ways("pass  # type: ignoreé\n")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: mode must be "exec", "eval", "ipython", or "single"
     def test_func_type_input(self):
 
         def parse_func_type_input(source):
