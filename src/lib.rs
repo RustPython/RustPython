@@ -291,7 +291,11 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
             debug!("Compiling {} file(s)", files.len());
             if files.is_empty() {
                 eprintln!("No files specified for --compile-only");
-                return Ok(());
+                let exit_code = vm.ctx.new_int(1);
+                return Err(vm.new_exception(
+                    vm.ctx.exceptions.system_exit.to_owned(),
+                    vec![exit_code.into()],
+                ));
             }
             let mut success = true;
             for file in files {
