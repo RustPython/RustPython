@@ -15,11 +15,11 @@ mod _asyncio;
 pub mod array;
 mod binascii;
 mod bisect;
+mod bz2;
 mod cmath;
+mod compression; // internal module
 mod contextvars;
 mod csv;
-mod bz2;
-mod compression; // internal module
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod lzma;
 mod zlib;
