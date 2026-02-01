@@ -105,6 +105,7 @@ env:
     test_types
     test_unary
     test_unpack
+    test_unpack_ex
     test_weakref
     test_yield_from
   ENV_POLLUTING_TESTS_COMMON: >-
