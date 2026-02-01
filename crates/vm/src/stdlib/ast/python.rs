@@ -65,8 +65,13 @@ pub(crate) mod _ast {
                     if fields.len() == 1 { "" } else { "s" },
                 )));
             }
+
+            // Track which fields were set
+            let mut set_fields = std::collections::HashSet::new();
+
             for (name, arg) in fields.iter().zip(args.args) {
                 zelf.set_attr(name, arg, vm)?;
+                set_fields.insert(name.as_str().to_string());
             }
             for (key, value) in args.kwargs {
                 if let Some(pos) = fields.iter().position(|f| f.as_str() == key)
@@ -78,7 +83,29 @@ pub(crate) mod _ast {
                         key
                     )));
                 }
+                set_fields.insert(key.clone());
                 zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
+            }
+
+            // Set default values for fields that weren't provided
+            let class_name = &*zelf.class().name();
+            if class_name == "Module" && !set_fields.contains("type_ignores") {
+                zelf.set_attr("type_ignores", vm.ctx.new_list(vec![]), vm)?;
+            }
+            if class_name == "ImportFrom" && !set_fields.contains("level") {
+                zelf.set_attr("level", vm.ctx.new_int(0), vm)?;
+            }
+            if class_name == "alias" && !set_fields.contains("asname") {
+                zelf.set_attr("asname", vm.ctx.none(), vm)?;
+            }
+            // Set type_comment to None for nodes that support it
+            if !set_fields.contains("type_comment") {
+                match class_name {
+                    "FunctionDef" | "AsyncFunctionDef" | "For" | "AsyncFor" | "With" | "AsyncWith" | "arg" => {
+                        zelf.set_attr("type_comment", vm.ctx.none(), vm)?;
+                    }
+                    _ => {}
+                }
             }
 
             Ok(())
