@@ -32,6 +32,7 @@ class TestFunctions(unittest.TestCase):
             callable(*args)
         self.assertIn(cm.exception.args[0], errs)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'FileIO' found.
     def test_tcgetattr(self):
         attrs = termios.tcgetattr(self.fd)
         self.assertIsInstance(attrs, list)
@@ -58,6 +59,7 @@ class TestFunctions(unittest.TestCase):
         self.assertRaises(TypeError, termios.tcgetattr, object())
         self.assertRaises(TypeError, termios.tcgetattr)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'FileIO' found.
     def test_tcsetattr(self):
         attrs = termios.tcgetattr(self.fd)
         termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
@@ -101,6 +103,7 @@ class TestFunctions(unittest.TestCase):
         self.assertRaises(TypeError, termios.tcsetattr, object(), termios.TCSANOW, attrs)
         self.assertRaises(TypeError, termios.tcsetattr, self.fd, termios.TCSANOW)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'FileIO' found.
     @support.skip_android_selinux('tcsendbreak')
     def test_tcsendbreak(self):
         try:
@@ -124,6 +127,7 @@ class TestFunctions(unittest.TestCase):
         self.assertRaises(TypeError, termios.tcsendbreak, object(), 0)
         self.assertRaises(TypeError, termios.tcsendbreak, self.fd)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'FileIO' found.
     @support.skip_android_selinux('tcdrain')
     def test_tcdrain(self):
         termios.tcdrain(self.fd)
@@ -227,6 +231,7 @@ class TestFunctions(unittest.TestCase):
                             'output was not resumed')
             self.assertEqual(os.read(rfd, 1024), b'def')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcgetwinsize(self):
         size = termios.tcgetwinsize(self.fd)
         self.assertIsInstance(size, tuple)
@@ -235,6 +240,7 @@ class TestFunctions(unittest.TestCase):
         self.assertIsInstance(size[1], int)
         self.assertEqual(termios.tcgetwinsize(self.stream), size)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcgetwinsize_errors(self):
         self.assertRaisesTermiosError(errno.ENOTTY, termios.tcgetwinsize, self.bad_fd)
         self.assertRaises(ValueError, termios.tcgetwinsize, -1)
@@ -242,12 +248,14 @@ class TestFunctions(unittest.TestCase):
         self.assertRaises(TypeError, termios.tcgetwinsize, object())
         self.assertRaises(TypeError, termios.tcgetwinsize)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcsetwinsize(self):
         size = termios.tcgetwinsize(self.fd)
         termios.tcsetwinsize(self.fd, size)
         termios.tcsetwinsize(self.fd, list(size))
         termios.tcsetwinsize(self.stream, size)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcsetwinsize_errors(self):
         size = termios.tcgetwinsize(self.fd)
         self.assertRaises(TypeError, termios.tcsetwinsize, self.fd, size[:-1])
@@ -295,6 +303,7 @@ class TestModule(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertGreaterEqual(value, 0)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'termios.error'> is a subclass of <class 'OSError'>
     def test_exception(self):
         self.assertIsSubclass(termios.error, Exception)
         self.assertNotIsSubclass(termios.error, OSError)
