@@ -407,8 +407,10 @@ pub(crate) use env::split_paths;
 pub(crate) fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
     s: &T,
 ) -> impl Iterator<Item = std::path::PathBuf> + '_ {
-    use std::os::wasi::ffi::OsStrExt;
-    let s = s.as_ref().as_bytes();
-    s.split(|b| *b == b':')
-        .map(|x| std::ffi::OsStr::from_bytes(x).to_owned().into())
+    let s = s.as_ref().as_encoded_bytes();
+    s.split(|b| *b == b':').map(|x| {
+        unsafe { std::ffi::OsStr::from_encoded_bytes_unchecked(x) }
+            .to_owned()
+            .into()
+    })
 }

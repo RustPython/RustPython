@@ -94,8 +94,60 @@ pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
 
 #[cfg(unix)]
 pub use std::os::unix::ffi;
-#[cfg(target_os = "wasi")]
+
+// WASIp1 uses stable std::os::wasi::ffi
+#[cfg(all(target_os = "wasi", not(target_env = "p2")))]
 pub use std::os::wasi::ffi;
+
+// WASIp2: std::os::wasip2::ffi is unstable, so we provide a stable implementation
+// leveraging WASI's UTF-8 string guarantee
+#[cfg(all(target_os = "wasi", target_env = "p2"))]
+pub mod ffi {
+    use std::ffi::{OsStr, OsString};
+
+    pub trait OsStrExt: sealed::Sealed {
+        fn as_bytes(&self) -> &[u8];
+        fn from_bytes(slice: &[u8]) -> &Self;
+    }
+
+    impl OsStrExt for OsStr {
+        fn as_bytes(&self) -> &[u8] {
+            // WASI strings are guaranteed to be UTF-8
+            self.to_str().expect("wasip2 strings are UTF-8").as_bytes()
+        }
+
+        fn from_bytes(slice: &[u8]) -> &OsStr {
+            // WASI strings are guaranteed to be UTF-8
+            OsStr::new(std::str::from_utf8(slice).expect("wasip2 strings are UTF-8"))
+        }
+    }
+
+    pub trait OsStringExt: sealed::Sealed {
+        fn from_vec(vec: Vec<u8>) -> Self;
+        fn into_vec(self) -> Vec<u8>;
+    }
+
+    impl OsStringExt for OsString {
+        fn from_vec(vec: Vec<u8>) -> OsString {
+            // WASI strings are guaranteed to be UTF-8
+            OsString::from(String::from_utf8(vec).expect("wasip2 strings are UTF-8"))
+        }
+
+        fn into_vec(self) -> Vec<u8> {
+            // WASI strings are guaranteed to be UTF-8
+            self.to_str()
+                .expect("wasip2 strings are UTF-8")
+                .as_bytes()
+                .to_vec()
+        }
+    }
+
+    mod sealed {
+        pub trait Sealed {}
+        impl Sealed for std::ffi::OsStr {}
+        impl Sealed for std::ffi::OsString {}
+    }
+}
 
 #[cfg(windows)]
 pub fn errno_to_winerror(errno: i32) -> i32 {

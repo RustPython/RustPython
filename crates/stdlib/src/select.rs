@@ -61,7 +61,7 @@ mod platform {
 #[cfg(target_os = "wasi")]
 mod platform {
     pub use libc::{FD_SETSIZE, timeval};
-    pub use std::os::wasi::io::RawFd;
+    pub use std::os::fd::RawFd;
 
     pub fn check_err(x: i32) -> bool {
         x < 0
