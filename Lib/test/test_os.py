@@ -2350,7 +2350,6 @@ class TestInvalidFD(unittest.TestCase):
                 with self.assertRaises(RuntimeWarning):
                     f(fd, *args, **kwargs)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_fdopen(self):
         self.check(os.fdopen, encoding="utf-8")
         self.check_bool(os.fdopen, encoding="utf-8")
