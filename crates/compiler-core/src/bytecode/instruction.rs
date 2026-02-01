@@ -624,10 +624,7 @@ impl InstructionMetadata for Instruction {
             Self::LoadLocals => (1, 0),
             Self::LoadName(_) => (1, 0),
             Self::LoadSmallInt { .. } => (1, 0),
-            Self::LoadSpecial { .. } => (
-                2, // TODO: Differs from CPython: `1`
-                2,
-            ),
+            Self::LoadSpecial { .. } => (1, 1),
             Self::LoadSuperAttr { .. } => (1 + (oparg & 1), 3),
             Self::LoadSuperAttrAttr => (1, 3),
             Self::LoadSuperAttrMethod => (2, 3),
@@ -943,9 +940,9 @@ pub enum PseudoInstruction {
     JumpNoInterrupt { target: Arg<Label> } = 260,
     LoadClosure(Arg<NameIdx>) = 261,
     PopBlock = 262,
-    SetupCleanup = 263,
-    SetupFinally = 264,
-    SetupWith = 265,
+    SetupCleanup { target: Arg<Label> } = 263,
+    SetupFinally { target: Arg<Label> } = 264,
+    SetupWith { target: Arg<Label> } = 265,
     StoreFastMaybeNull(Arg<NameIdx>) = 266,
 }
 
@@ -975,13 +972,27 @@ impl TryFrom<u16> for PseudoInstruction {
     }
 }
 
+impl PseudoInstruction {
+    /// Returns true if this is a block push pseudo instruction
+    /// (SETUP_FINALLY, SETUP_CLEANUP, or SETUP_WITH).
+    pub fn is_block_push(&self) -> bool {
+        matches!(
+            self,
+            Self::SetupCleanup { .. } | Self::SetupFinally { .. } | Self::SetupWith { .. }
+        )
+    }
+}
+
 impl InstructionMetadata for PseudoInstruction {
     fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Self::Jump { target: l }
             | Self::JumpIfFalse { target: l }
             | Self::JumpIfTrue { target: l }
-            | Self::JumpNoInterrupt { target: l } => Some(*l),
+            | Self::JumpNoInterrupt { target: l }
+            | Self::SetupCleanup { target: l }
+            | Self::SetupFinally { target: l }
+            | Self::SetupWith { target: l } => Some(*l),
             _ => None,
         }
     }
@@ -1005,9 +1016,11 @@ impl InstructionMetadata for PseudoInstruction {
             Self::JumpNoInterrupt { .. } => (0, 0),
             Self::LoadClosure(_) => (1, 0),
             Self::PopBlock => (0, 0),
-            Self::SetupCleanup => (2, 0),
-            Self::SetupFinally => (1, 0),
-            Self::SetupWith => (1, 0),
+            // Normal path effect is 0 (these are NOPs on fall-through).
+            // Handler entry effects are computed directly in max_stackdepth().
+            Self::SetupCleanup { .. } => (0, 0),
+            Self::SetupFinally { .. } => (0, 0),
+            Self::SetupWith { .. } => (0, 0),
             Self::StoreFastMaybeNull(_) => (0, 1),
         };
 
@@ -1139,6 +1152,17 @@ impl AnyInstruction {
     pub const fn expect_pseudo(self) -> PseudoInstruction {
         self.pseudo()
             .expect("Expected Instruction::Pseudo, found Instruction::Real")
+    }
+
+    /// Returns true if this is a block push pseudo instruction
+    /// (SETUP_FINALLY, SETUP_CLEANUP, or SETUP_WITH).
+    pub fn is_block_push(&self) -> bool {
+        matches!(self, Self::Pseudo(p) if p.is_block_push())
+    }
+
+    /// Returns true if this is a POP_BLOCK pseudo instruction.
+    pub fn is_pop_block(&self) -> bool {
+        matches!(self, Self::Pseudo(PseudoInstruction::PopBlock))
     }
 }
 
