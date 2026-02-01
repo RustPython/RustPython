@@ -1278,9 +1278,9 @@ pub(super) mod _os {
         {
             use std::os::unix::ffi::OsStrExt;
             let src_cstr = std::ffi::CString::new(src.path.as_os_str().as_bytes())
-                .map_err(|_| vm.new_value_error("embedded null byte".to_owned()))?;
+                .map_err(|_| vm.new_value_error("embedded null byte"))?;
             let dst_cstr = std::ffi::CString::new(dst.path.as_os_str().as_bytes())
-                .map_err(|_| vm.new_value_error("embedded null byte".to_owned()))?;
+                .map_err(|_| vm.new_value_error("embedded null byte"))?;
 
             let flags = if follow_symlinks.0 {
                 libc::AT_SYMLINK_FOLLOW
@@ -1315,7 +1315,7 @@ pub(super) mod _os {
             // or raise NotImplementedError if explicitly set to False
             if !follow_symlinks.0 {
                 return Err(vm.new_not_implemented_error(
-                    "link: follow_symlinks unavailable on this platform".to_owned(),
+                    "link: follow_symlinks unavailable on this platform",
                 ));
             }
 
