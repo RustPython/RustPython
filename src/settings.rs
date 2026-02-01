@@ -10,6 +10,7 @@ pub enum RunMode {
     Module(String),
     InstallPip(InstallPipMode),
     Repl,
+    /// Compile files without executing them. Used for syntax/compile validation.
     CompileOnly(Vec<String>),
 }
 
