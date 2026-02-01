@@ -837,11 +837,14 @@ class TestCopy(unittest.TestCase):
         v[x] = y
         self.assertNotIn(x, u)
 
+
     def test_copy_weakkeydict(self):
         self._check_copy_weakdict(weakref.WeakKeyDictionary)
 
+
     def test_copy_weakvaluedict(self):
         self._check_copy_weakdict(weakref.WeakValueDictionary)
+
 
     def test_deepcopy_weakkeydict(self):
         class C(object):
@@ -862,6 +865,7 @@ class TestCopy(unittest.TestCase):
         del c
         support.gc_collect()  # For PyPy or other GCs.
         self.assertEqual(len(v), 1)
+
 
     def test_deepcopy_weakvaluedict(self):
         class C(object):

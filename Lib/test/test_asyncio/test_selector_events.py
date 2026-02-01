@@ -24,7 +24,7 @@ MOCK_ANY = mock.ANY
 
 
 def tearDownModule():
-    asyncio.set_event_loop_policy(None)
+    asyncio.events._set_event_loop_policy(None)
 
 
 class TestBaseSelectorEventLoop(BaseSelectorEventLoop):
@@ -347,6 +347,18 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
               selectors.EVENT_WRITE)])
         self.loop._remove_writer.assert_called_with(1)
 
+    def test_accept_connection_zero_one(self):
+        for backlog in [0, 1]:
+            sock = mock.Mock()
+            sock.accept.return_value = (mock.Mock(), mock.Mock())
+            with self.subTest(backlog):
+                mock_obj = mock.patch.object
+                with mock_obj(self.loop, '_accept_connection2') as accept2_mock:
+                    self.loop._accept_connection(
+                        mock.Mock(), sock, backlog=backlog)
+                self.loop.run_until_complete(asyncio.sleep(0))
+                self.assertEqual(sock.accept.call_count, backlog + 1)
+
     def test_accept_connection_multiple(self):
         sock = mock.Mock()
         sock.accept.return_value = (mock.Mock(), mock.Mock())
@@ -362,8 +374,33 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
             self.loop._accept_connection(
                 mock.Mock(), sock, backlog=backlog)
         self.loop.run_until_complete(asyncio.sleep(0))
-        self.assertEqual(sock.accept.call_count, backlog)
+        self.assertEqual(sock.accept.call_count, backlog + 1)
 
+    def test_accept_connection_skip_connectionabortederror(self):
+        sock = mock.Mock()
+
+        def mock_sock_accept():
+            # mock accept(2) returning -ECONNABORTED every-other
+            # time that it's called. This applies most to OpenBSD
+            # whose sockets generate this errno more reproducibly than
+            # Linux and other OS.
+            if sock.accept.call_count % 2 == 0:
+                raise ConnectionAbortedError
+            return (mock.Mock(), mock.Mock())
+
+        sock.accept.side_effect = mock_sock_accept
+        backlog = 100
+        # test that _accept_connection's loop calls sock.accept
+        # all 100 times, continuing past ConnectionAbortedError
+        # instead of unnecessarily returning early
+        mock_obj = mock.patch.object
+        with mock_obj(self.loop, '_accept_connection2') as accept2_mock:
+            self.loop._accept_connection(
+                mock.Mock(), sock, backlog=backlog)
+        # as in test_accept_connection_multiple avoid task pending
+        # warnings by using asyncio.sleep(0)
+        self.loop.run_until_complete(asyncio.sleep(0))
+        self.assertEqual(sock.accept.call_count, backlog + 1)
 
 class SelectorTransportTests(test_utils.TestCase):
 
@@ -1077,7 +1114,7 @@ class SelectorSocketTransportTests(test_utils.TestCase):
         self.assertFalse(self.protocol.connection_lost.called)
 
         self.loop.writers[7]._run()
-        # during this ^ run, the _resume_writing mock above was called and added more data
+        # during this ^ run, the _resume_writing mock above was called and added more data
 
         self.assertEqual(transport.get_write_buffer_size(), 2)
         self.loop.writers[7]._run()
