@@ -173,8 +173,7 @@ mod weakref_lock {
 
     const NUM_WEAKREF_LOCKS: usize = 64;
 
-    static LOCKS: [AtomicU8; NUM_WEAKREF_LOCKS] =
-        [const { AtomicU8::new(0) }; NUM_WEAKREF_LOCKS];
+    static LOCKS: [AtomicU8; NUM_WEAKREF_LOCKS] = [const { AtomicU8::new(0) }; NUM_WEAKREF_LOCKS];
 
     pub(super) struct WeakrefLockGuard {
         idx: usize,
