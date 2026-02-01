@@ -1192,37 +1192,45 @@ class TestCmpToKeyC(TestCmpToKey, unittest.TestCase):
             self, type(c_functools.cmp_to_key(None))
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_bad_cmp(self):
-        return super().test_bad_cmp()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_cmp_to_key(self):
-        return super().test_cmp_to_key()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_cmp_to_key_arguments(self):
-        return super().test_cmp_to_key_arguments()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + (mycmp)
     def test_cmp_to_signature(self):
         return super().test_cmp_to_signature()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_hash(self):
-        return super().test_hash()
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() got multiple values for argument 'mycmp'
+    def test_cmp_to_key_arguments(self):
+        return super().test_cmp_to_key_arguments()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() got multiple values for argument 'mycmp'
     def test_obj_field(self):
         return super().test_obj_field()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
+    def test_bad_cmp(self):
+        return super().test_bad_cmp()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
+    def test_cmp_to_key(self):
+        return super().test_cmp_to_key()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
+    def test_hash(self):
+        return super().test_hash()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
     def test_sort_int(self):
         return super().test_sort_int()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
     def test_sort_int_str(self):
         return super().test_sort_int_str()
+
+
+
+
+
+
+
+
 
 
 class TestCmpToKeyPy(TestCmpToKey, unittest.TestCase):
@@ -3592,7 +3600,6 @@ class TestCachedProperty(unittest.TestCase):
         ):
             MyClass.prop
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_reuse_different_names(self):
         """Disallow this case because decorated function a would not be cached."""
         with self.assertRaises(TypeError) as ctx:
