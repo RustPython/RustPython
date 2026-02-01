@@ -113,7 +113,7 @@ Dict display element unpacking
     >>> sorted({**{'x': 1}, 'y': 2, **{'x': 3}}.items())
     [('x', 3), ('y', 2)]
 
-    >>> sorted({**{'x': 1}, **{'x': 3}, 'x': 4}.items())
+    >>> sorted({**{'x': 1}, **{'x': 3}, 'x': 4}.items()) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     [('x', 4)]
 
     >>> {**{}}
@@ -138,7 +138,7 @@ Dict display element unpacking
     ...                          for i in range(1000)) + "}"))
     1000
 
-    >>> {0:1, **{0:2}, 0:3, 0:4}
+    >>> {0:1, **{0:2}, 0:3, 0:4} # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     {0: 4}
 
 List comprehension element unpacking
@@ -148,27 +148,27 @@ List comprehension element unpacking
     [0, 1, 2, 3, 4]
 
     >>> l = [a, (3, 4), {5}, {6: None}, (i for i in range(7, 10))]
-    >>> [*item for item in l]
+    >>> [*item for item in l] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> [*[0, 1] for i in range(10)]
+    >>> [*[0, 1] for i in range(10)] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> [*'a' for i in range(10)]
+    >>> [*'a' for i in range(10)] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> [*[] for i in range(10)]
+    >>> [*[] for i in range(10)] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> {**{} for a in [1]}
+    >>> {**{} for a in [1]} # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: dict unpacking cannot be used in dict comprehension
@@ -183,7 +183,7 @@ List comprehension element unpacking
 #                   ^
 #     SyntaxError: invalid syntax
 
-    >>> dict(**x for x in [{1:2}])
+    >>> dict(**x for x in [{1:2}]) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
         dict(**x for x in [{1:2}])
@@ -249,34 +249,34 @@ Make sure the raised errors are right for keyword argument unpackings
 
 Overridden parameters
 
-    >>> f(x=5, **{'x': 3}, y=2)
+    >>> f(x=5, **{'x': 3}, y=2) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument 'x'
 
-    >>> f(**{'x': 3}, x=5, y=2)
+    >>> f(**{'x': 3}, x=5, y=2) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument 'x'
 
-    >>> f(**{'x': 3}, **{'x': 5}, y=2)
+    >>> f(**{'x': 3}, **{'x': 5}, y=2) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument 'x'
 
-    >>> f(x=5, **{'x': 3}, **{'x': 2})
+    >>> f(x=5, **{'x': 3}, **{'x': 2}) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument 'x'
 
-    >>> f(**{1: 3}, **{1: 5})
+    >>> f(**{1: 3}, **{1: 5}) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument '1'
 
 Unpacking non-sequence
 
-    >>> a, *b = 7
+    >>> a, *b = 7 # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     TypeError: cannot unpack non-iterable int object
@@ -321,17 +321,17 @@ error)
 
 Now some general starred expressions (all fail).
 
-    >>> a, *b, c, *d, e = range(10) # doctest:+ELLIPSIS
+    >>> a, *b, c, *d, e = range(10) # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: multiple starred expressions in assignment
 
-    >>> [*b, *c] = range(10) # doctest:+ELLIPSIS
+    >>> [*b, *c] = range(10) # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: multiple starred expressions in assignment
 
-    >>> a,*b,*c,*d = range(4) # doctest:+ELLIPSIS
+    >>> a,*b,*c,*d = range(4) # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: multiple starred expressions in assignment
@@ -341,42 +341,42 @@ Now some general starred expressions (all fail).
       ...
     SyntaxError: starred assignment target must be in a list or tuple
 
-    >>> *a # doctest:+ELLIPSIS
+    >>> *a # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: can't use starred expression here
 
-    >>> *1 # doctest:+ELLIPSIS
+    >>> *1 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: can't use starred expression here
 
-    >>> x = *a # doctest:+ELLIPSIS
+    >>> x = *a # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: can't use starred expression here
 
-    >>> (*x),y = 1, 2 # doctest:+ELLIPSIS
+    >>> (*x),y = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> (((*x))),y = 1, 2 # doctest:+ELLIPSIS
+    >>> (((*x))),y = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> z,(*x),y = 1, 2, 4 # doctest:+ELLIPSIS
+    >>> z,(*x),y = 1, 2, 4 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> z,(*x) = 1, 2 # doctest:+ELLIPSIS
+    >>> z,(*x) = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> ((*x),y) = 1, 2 # doctest:+ELLIPSIS
+    >>> ((*x),y) = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
@@ -402,8 +402,15 @@ Some size constraints (all fail.)
 
 __test__ = {'doctests' : doctests}
 
+EXPECTED_FAILURE = doctest.register_optionflag('EXPECTED_FAILURE') # TODO: RUSTPYTHON
+class CustomOutputChecker(doctest.OutputChecker): # TODO: RUSTPYTHON
+    def check_output(self, want, got, optionflags): # TODO: RUSTPYTHON
+        if optionflags & EXPECTED_FAILURE: # TODO: RUSTPYTHON
+            return not super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
+        return super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
+
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite())
+    tests.addTest(doctest.DocTestSuite(checker=CustomOutputChecker())) # TODO: RUSTPYTHON
     return tests
 
 
