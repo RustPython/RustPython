@@ -1554,15 +1554,17 @@ impl Constructor for PyType {
             })
             .collect::<PyResult<Vec<_>>>()?;
         for (obj, name, set_name) in attributes {
-            set_name.call((typ.clone(), name), vm).map_err(|e| {
-                let err = vm.new_runtime_error(format!(
+            set_name.call((typ.clone(), name), vm).inspect_err(|e| {
+                // PEP 678: Add a note to the original exception instead of wrapping it
+                // (Python 3.12+, gh-77757)
+                let note = format!(
                     "Error calling __set_name__ on '{}' instance {} in '{}'",
                     obj.class().name(),
                     name,
                     typ.name()
-                ));
-                err.set___cause__(Some(e));
-                err
+                );
+                // Ignore result - adding a note is best-effort, the original exception is what matters
+                drop(vm.call_method(e.as_object(), "add_note", (vm.ctx.new_str(note.as_str()),)));
             })?;
         }
 
