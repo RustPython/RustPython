@@ -197,6 +197,10 @@ cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdli
 cargo run --features jit
 ```
 
+### Linux Build and Debug on macOS
+
+See the "Testing on Linux from macOS" section in [DEVELOPMENT.md](DEVELOPMENT.md#testing-on-linux-from-macos).
+
 ### Building venvlauncher (Windows)
 
 See DEVELOPMENT.md "CPython Version Upgrade Checklist" section.
