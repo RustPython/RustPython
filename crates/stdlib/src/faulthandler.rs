@@ -7,7 +7,6 @@ mod decl {
         PyObjectRef, PyResult, VirtualMachine,
         frame::Frame,
         function::{ArgIntoFloat, OptionalArg},
-        py_io::Write,
     };
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -66,11 +65,7 @@ mod decl {
     #[cfg(windows)]
     const FAULTHANDLER_NSIGNALS: usize = 4;
 
-    // CPython uses static arrays for signal handlers which requires mutable static access.
-    // This is safe because:
-    // 1. Signal handlers run in a single-threaded context (from the OS perspective)
-    // 2. FAULTHANDLER_HANDLERS is only modified during enable/disable operations
-    // 3. This matches CPython's faulthandler.c implementation
+    // Signal handlers use mutable statics matching faulthandler.c implementation.
     #[cfg(unix)]
     static mut FAULTHANDLER_HANDLERS: [FaultHandler; FAULTHANDLER_NSIGNALS] = [
         FaultHandler::new(libc::SIGBUS, "Bus error"),
@@ -101,6 +96,10 @@ mod decl {
         all_threads: AtomicBool::new(true),
     };
 
+    /// Arc<Mutex<Vec<FrameRef>>> - shared frame slot for a thread
+    #[cfg(feature = "threading")]
+    type ThreadFrameSlot = Arc<parking_lot::Mutex<Vec<crate::vm::frame::FrameRef>>>;
+
     // Watchdog thread state for dump_traceback_later
     struct WatchdogState {
         cancel: bool,
@@ -109,51 +108,32 @@ mod decl {
         repeat: bool,
         exit: bool,
         header: String,
+        #[cfg(feature = "threading")]
+        thread_frame_slots: Vec<(u64, ThreadFrameSlot)>,
     }
 
     type WatchdogHandle = Arc<(Mutex<WatchdogState>, Condvar)>;
     static WATCHDOG: Mutex<Option<WatchdogHandle>> = Mutex::new(None);
-
-    // Frame snapshot for signal-safe traceback (RustPython-specific)
-
-    /// Frame information snapshot for signal-safe access
-    #[cfg(any(unix, windows))]
-    #[derive(Clone, Copy)]
-    struct FrameSnapshot {
-        filename: [u8; 256],
-        filename_len: usize,
-        lineno: u32,
-        funcname: [u8; 128],
-        funcname_len: usize,
-    }
-
-    #[cfg(any(unix, windows))]
-    impl FrameSnapshot {
-        const EMPTY: Self = Self {
-            filename: [0; 256],
-            filename_len: 0,
-            lineno: 0,
-            funcname: [0; 128],
-            funcname_len: 0,
-        };
-    }
-
-    #[cfg(any(unix, windows))]
-    const MAX_SNAPSHOT_FRAMES: usize = 100;
-
-    /// Signal-safe global storage for frame snapshots
-    #[cfg(any(unix, windows))]
-    static mut FRAME_SNAPSHOTS: [FrameSnapshot; MAX_SNAPSHOT_FRAMES] =
-        [FrameSnapshot::EMPTY; MAX_SNAPSHOT_FRAMES];
-    #[cfg(any(unix, windows))]
-    static SNAPSHOT_COUNT: core::sync::atomic::AtomicUsize =
-        core::sync::atomic::AtomicUsize::new(0);
 
     // Signal-safe output functions
 
     // PUTS macro
     #[cfg(any(unix, windows))]
     fn puts(fd: i32, s: &str) {
+        let _ = unsafe {
+            #[cfg(windows)]
+            {
+                libc::write(fd, s.as_ptr() as *const libc::c_void, s.len() as u32)
+            }
+            #[cfg(not(windows))]
+            {
+                libc::write(fd, s.as_ptr() as *const libc::c_void, s.len())
+            }
+        };
+    }
+
+    #[cfg(any(unix, windows))]
+    fn puts_bytes(fd: i32, s: &[u8]) {
         let _ = unsafe {
             #[cfg(windows)]
             {
@@ -235,59 +215,69 @@ mod decl {
 
     // write_thread_id (traceback.c:1240-1256)
     #[cfg(any(unix, windows))]
-    fn write_thread_id(fd: i32, is_current: bool) {
+    fn write_thread_id(fd: i32, thread_id: u64, is_current: bool) {
         if is_current {
-            puts(fd, "Current thread 0x");
+            puts(fd, "Current thread ");
         } else {
-            puts(fd, "Thread 0x");
+            puts(fd, "Thread ");
         }
-        let thread_id = current_thread_id();
-        // Use appropriate width based on platform pointer size
         dump_hexadecimal(fd, thread_id, core::mem::size_of::<usize>() * 2);
         puts(fd, " (most recent call first):\n");
     }
 
-    // dump_frame (traceback.c:1037-1087)
+    /// Dump the current thread's live frame chain to fd (signal-safe).
+    /// Walks the `Frame.previous` pointer chain starting from the
+    /// thread-local current frame pointer.
     #[cfg(any(unix, windows))]
-    fn dump_frame(fd: i32, filename: &[u8], lineno: u32, funcname: &[u8]) {
-        puts(fd, "  File \"");
-        let _ = unsafe {
-            #[cfg(windows)]
-            {
-                libc::write(
-                    fd,
-                    filename.as_ptr() as *const libc::c_void,
-                    filename.len() as u32,
-                )
-            }
-            #[cfg(not(windows))]
-            {
-                libc::write(fd, filename.as_ptr() as *const libc::c_void, filename.len())
+    fn dump_live_frames(fd: i32) {
+        const MAX_FRAME_DEPTH: usize = 100;
+
+        let mut frame_ptr = crate::vm::vm::thread::get_current_frame();
+        if frame_ptr.is_null() {
+            puts(fd, "  <no Python frame>\n");
+            return;
+        }
+        let mut depth = 0;
+        while !frame_ptr.is_null() && depth < MAX_FRAME_DEPTH {
+            let frame = unsafe { &*frame_ptr };
+            dump_frame_from_raw(fd, frame);
+            frame_ptr = frame.previous_frame();
+            depth += 1;
+        }
+        if depth >= MAX_FRAME_DEPTH && !frame_ptr.is_null() {
+            puts(fd, "  ...\n");
+        }
+    }
+
+    /// Dump a single frame's info to fd (signal-safe), reading live data.
+    #[cfg(any(unix, windows))]
+    fn dump_frame_from_raw(fd: i32, frame: &Frame) {
+        let filename = frame.code.source_path.as_str();
+        let funcname = frame.code.obj_name.as_str();
+        let lasti = frame.lasti();
+        let lineno = if lasti == 0 {
+            frame.code.first_line_number.map(|n| n.get()).unwrap_or(1) as u32
+        } else {
+            let idx = (lasti as usize).saturating_sub(1);
+            if idx < frame.code.locations.len() {
+                frame.code.locations[idx].0.line.get() as u32
+            } else {
+                frame.code.first_line_number.map(|n| n.get()).unwrap_or(0) as u32
             }
         };
+
+        puts(fd, "  File \"");
+        dump_ascii(fd, filename);
         puts(fd, "\", line ");
         dump_decimal(fd, lineno as usize);
         puts(fd, " in ");
-        let _ = unsafe {
-            #[cfg(windows)]
-            {
-                libc::write(
-                    fd,
-                    funcname.as_ptr() as *const libc::c_void,
-                    funcname.len() as u32,
-                )
-            }
-            #[cfg(not(windows))]
-            {
-                libc::write(fd, funcname.as_ptr() as *const libc::c_void, funcname.len())
-            }
-        };
+        dump_ascii(fd, funcname);
         puts(fd, "\n");
     }
 
-    // faulthandler_dump_traceback
+    // faulthandler_dump_traceback (signal-safe, for fatal errors)
     #[cfg(any(unix, windows))]
-    fn faulthandler_dump_traceback(fd: i32, _all_threads: bool) {
+    fn faulthandler_dump_traceback(fd: i32, all_threads: bool) {
         static REENTRANT: AtomicBool = AtomicBool::new(false);
 
         if REENTRANT.swap(true, Ordering::SeqCst) {
@@ -295,76 +285,82 @@ mod decl {
         }
 
         // Write thread header
-        write_thread_id(fd, true);
-
-        // Try to dump traceback from snapshot
-        let count = SNAPSHOT_COUNT.load(Ordering::Acquire);
-        if count > 0 {
-            // Using index access instead of iterator because FRAME_SNAPSHOTS is static mut
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..count {
-                unsafe {
-                    let snap = &FRAME_SNAPSHOTS[i];
-                    if snap.filename_len > 0 {
-                        dump_frame(
-                            fd,
-                            &snap.filename[..snap.filename_len],
-                            snap.lineno,
-                            &snap.funcname[..snap.funcname_len],
-                        );
-                    }
-                }
-            }
+        if all_threads {
+            write_thread_id(fd, current_thread_id(), true);
         } else {
-            puts(fd, "  <no Python frame>\n");
+            puts(fd, "Stack (most recent call first):\n");
         }
+
+        dump_live_frames(fd);
 
         REENTRANT.store(false, Ordering::SeqCst);
     }
 
-    const MAX_FUNCTION_NAME_LEN: usize = 500;
+    /// MAX_STRING_LENGTH in traceback.c
+    const MAX_STRING_LENGTH: usize = 500;
 
-    fn truncate_name(name: &str) -> String {
-        if name.len() > MAX_FUNCTION_NAME_LEN {
-            format!("{}...", &name[..MAX_FUNCTION_NAME_LEN])
-        } else {
-            name.to_string()
+    /// Truncate a UTF-8 string to at most `max_bytes` without splitting a
+    /// multi-byte codepoint. Signal-safe (no allocation, no panic).
+    #[cfg(any(unix, windows))]
+    fn safe_truncate(s: &str, max_bytes: usize) -> (&str, bool) {
+        if s.len() <= max_bytes {
+            return (s, false);
+        }
+        let mut end = max_bytes;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        (&s[..end], true)
+    }
+
+    /// Write a string to fd, truncating with "..." if it exceeds MAX_STRING_LENGTH.
+    /// Mirrors `_Py_DumpASCII` truncation behavior.
+    #[cfg(any(unix, windows))]
+    fn dump_ascii(fd: i32, s: &str) {
+        let (truncated_s, was_truncated) = safe_truncate(s, MAX_STRING_LENGTH);
+        puts(fd, truncated_s);
+        if was_truncated {
+            puts(fd, "...");
         }
     }
 
-    fn get_file_for_output(
-        file: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        match file {
-            OptionalArg::Present(f) => {
-                // If it's an integer, we can't use it directly as a file object
-                // For now, just return it and let the caller handle it
-                Ok(f)
-            }
-            OptionalArg::Missing => {
-                // Get sys.stderr
-                let stderr = vm.sys_module.get_attr("stderr", vm)?;
-                if vm.is_none(&stderr) {
-                    return Err(vm.new_runtime_error("sys.stderr is None".to_owned()));
-                }
-                Ok(stderr)
-            }
-        }
-    }
-
-    fn collect_frame_info(frame: &crate::vm::PyRef<Frame>) -> String {
-        let func_name = truncate_name(frame.code.obj_name.as_str());
-        // If lasti is 0, execution hasn't started yet - use first line number or 1
-        let line = if frame.lasti() == 0 {
-            frame.code.first_line_number.map(|n| n.get()).unwrap_or(1)
+    /// Write a frame's info to an fd using signal-safe I/O.
+    #[cfg(any(unix, windows))]
+    fn dump_frame_from_ref(fd: i32, frame: &crate::vm::PyRef<Frame>) {
+        let funcname = frame.code.obj_name.as_str();
+        let filename = frame.code.source_path.as_str();
+        let lineno = if frame.lasti() == 0 {
+            frame.code.first_line_number.map(|n| n.get()).unwrap_or(1) as u32
         } else {
-            frame.current_location().line.get()
+            frame.current_location().line.get() as u32
         };
-        format!(
-            "  File \"{}\", line {} in {}",
-            frame.code.source_path, line, func_name
-        )
+
+        puts(fd, "  File \"");
+        dump_ascii(fd, filename);
+        puts(fd, "\", line ");
+        dump_decimal(fd, lineno as usize);
+        puts(fd, " in ");
+        dump_ascii(fd, funcname);
+        puts(fd, "\n");
+    }
+
+    /// Dump traceback for a thread given its frame stack (for cross-thread dumping).
+    #[cfg(all(any(unix, windows), feature = "threading"))]
+    fn dump_traceback_thread_frames(
+        fd: i32,
+        thread_id: u64,
+        is_current: bool,
+        frames: &[crate::vm::frame::FrameRef],
+    ) {
+        write_thread_id(fd, thread_id, is_current);
+
+        if frames.is_empty() {
+            puts(fd, "  <no Python frame>\n");
+        } else {
+            for frame in frames.iter().rev() {
+                dump_frame_from_ref(fd, frame);
+            }
+        }
     }
 
     #[derive(FromArgs)]
@@ -377,20 +373,68 @@ mod decl {
 
     #[pyfunction]
     fn dump_traceback(args: DumpTracebackArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let _ = args.all_threads; // TODO: implement all_threads support
+        let fd = get_fd_from_file_opt(args.file, vm)?;
 
-        let file = get_file_for_output(args.file, vm)?;
-
-        // Collect frame info first to avoid RefCell borrow conflict
-        let frame_lines: Vec<String> = vm.frames.borrow().iter().map(collect_frame_info).collect();
-
-        // Now write to file (in reverse order - most recent call first)
-        let mut writer = crate::vm::py_io::PyWriter(file, vm);
-        writeln!(writer, "Stack (most recent call first):")?;
-        for line in frame_lines.iter().rev() {
-            writeln!(writer, "{}", line)?;
+        #[cfg(any(unix, windows))]
+        {
+            if args.all_threads {
+                dump_all_threads(fd, vm);
+            } else {
+                puts(fd, "Stack (most recent call first):\n");
+                let frames = vm.frames.borrow();
+                for frame in frames.iter().rev() {
+                    dump_frame_from_ref(fd, frame);
+                }
+            }
         }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (fd, args.all_threads);
+        }
+
         Ok(())
+    }
+
+    /// Dump tracebacks of all threads.
+    #[cfg(any(unix, windows))]
+    fn dump_all_threads(fd: i32, vm: &VirtualMachine) {
+        // Get all threads' frame stacks from the shared registry
+        #[cfg(feature = "threading")]
+        {
+            let current_tid = rustpython_vm::stdlib::thread::get_ident();
+            let registry = vm.state.thread_frames.lock();
+
+            // First dump non-current threads, then current thread last
+            for (&tid, slot) in registry.iter() {
+                if tid == current_tid {
+                    continue;
+                }
+                let frames_guard = slot.lock();
+                dump_traceback_thread_frames(fd, tid, false, &frames_guard);
+                puts(fd, "\n");
+            }
+
+            // Now dump current thread (use vm.frames for most up-to-date data)
+            write_thread_id(fd, current_tid, true);
+            let frames = vm.frames.borrow();
+            if frames.is_empty() {
+                puts(fd, "  <no Python frame>\n");
+            } else {
+                for frame in frames.iter().rev() {
+                    dump_frame_from_ref(fd, frame);
+                }
+            }
+        }
+
+        #[cfg(not(feature = "threading"))]
+        {
+            write_thread_id(fd, current_thread_id(), true);
+            let frames = vm.frames.borrow();
+            for frame in frames.iter().rev() {
+                dump_frame_from_ref(fd, frame);
+            }
+        }
     }
 
     #[derive(FromArgs)]
@@ -464,9 +508,8 @@ mod decl {
                 .find(|h| h.signum == signum)
         };
 
-        // faulthandler_fatal_error
         if let Some(h) = handler {
-            // Disable handler first (restores previous)
+            // Disable handler (restores previous)
             unsafe {
                 faulthandler_disable_fatal_handler(h);
             }
@@ -480,17 +523,23 @@ mod decl {
             puts(fd, "\n\n");
         }
 
-        // faulthandler_dump_traceback
         let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
         faulthandler_dump_traceback(fd, all_threads);
 
-        // restore errno
         set_errno(save_errno);
 
-        // raise
-        // Called immediately thanks to SA_NODEFER flag
+        // Reset to default handler and re-raise to ensure process terminates.
+        // We cannot just restore the previous handler because Rust's runtime
+        // may have installed its own SIGSEGV handler (for stack overflow detection)
+        // that doesn't terminate the process on software-raised signals.
         unsafe {
+            libc::signal(signum, libc::SIG_DFL);
             libc::raise(signum);
+        }
+
+        // Fallback if raise() somehow didn't terminate the process
+        unsafe {
+            libc::_exit(1);
         }
     }
 
@@ -529,14 +578,84 @@ mod decl {
 
         set_errno(save_errno);
 
-        // On Windows, don't explicitly call the previous handler for SIGSEGV
-        if signum == libc::SIGSEGV {
-            return;
-        }
-
         unsafe {
+            libc::signal(signum, libc::SIG_DFL);
             libc::raise(signum);
         }
+
+        // Fallback
+        std::process::exit(1);
+    }
+
+    // Windows vectored exception handler (faulthandler.c:417-480)
+    #[cfg(windows)]
+    static EXC_HANDLER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+    #[cfg(windows)]
+    fn faulthandler_ignore_exception(code: u32) -> bool {
+        // bpo-30557: ignore exceptions which are not errors
+        if (code & 0x80000000) == 0 {
+            return true;
+        }
+        // bpo-31701: ignore MSC and COM exceptions
+        if code == 0xE06D7363 || code == 0xE0434352 {
+            return true;
+        }
+        false
+    }
+
+    #[cfg(windows)]
+    unsafe extern "system" fn faulthandler_exc_handler(
+        exc_info: *mut windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS,
+    ) -> i32 {
+        const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
+
+        if !FATAL_ERROR.enabled.load(Ordering::Relaxed) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        let record = unsafe { &*(*exc_info).ExceptionRecord };
+        let code = record.ExceptionCode as u32;
+
+        if faulthandler_ignore_exception(code) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        let fd = FATAL_ERROR.fd.load(Ordering::Relaxed);
+
+        puts(fd, "Windows fatal exception: ");
+        match code {
+            0xC0000005 => puts(fd, "access violation"),
+            0xC000008C => puts(fd, "float divide by zero"),
+            0xC0000091 => puts(fd, "float overflow"),
+            0xC0000094 => puts(fd, "int divide by zero"),
+            0xC0000095 => puts(fd, "integer overflow"),
+            0xC0000006 => puts(fd, "page error"),
+            0xC00000FD => puts(fd, "stack overflow"),
+            0xC000001D => puts(fd, "illegal instruction"),
+            _ => {
+                puts(fd, "code ");
+                dump_hexadecimal(fd, code as u64, 8);
+            }
+        }
+        puts(fd, "\n\n");
+
+        // Disable SIGSEGV handler for access violations to avoid double output
+        if code == 0xC0000005 {
+            unsafe {
+                for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+                    if handler.signum == libc::SIGSEGV {
+                        faulthandler_disable_fatal_handler(handler);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
+        faulthandler_dump_traceback(fd, all_threads);
+
+        EXCEPTION_CONTINUE_SEARCH
     }
 
     // faulthandler_enable
@@ -595,6 +714,14 @@ mod decl {
             }
         }
 
+        // Register Windows vectored exception handler
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::Diagnostics::Debug::AddVectoredExceptionHandler;
+            let h = unsafe { AddVectoredExceptionHandler(1, Some(faulthandler_exc_handler)) };
+            EXC_HANDLER.store(h as usize, Ordering::Relaxed);
+        }
+
         FATAL_ERROR.enabled.store(true, Ordering::Relaxed);
         true
     }
@@ -609,6 +736,18 @@ mod decl {
         unsafe {
             for handler in FAULTHANDLER_HANDLERS.iter_mut() {
                 faulthandler_disable_fatal_handler(handler);
+            }
+        }
+
+        // Remove Windows vectored exception handler
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::Diagnostics::Debug::RemoveVectoredExceptionHandler;
+            let h = EXC_HANDLER.swap(0, Ordering::Relaxed);
+            if h != 0 {
+                unsafe {
+                    RemoveVectoredExceptionHandler(h as *mut core::ffi::c_void);
+                }
             }
         }
     }
@@ -646,16 +785,17 @@ mod decl {
         let hour = min / 60;
         let min = min % 60;
 
+        // Match Python's timedelta str format: H:MM:SS.ffffff (no leading zero for hours)
         if us != 0 {
-            format!("Timeout ({:02}:{:02}:{:02}.{:06})!\n", hour, min, sec, us)
+            format!("Timeout ({}:{:02}:{:02}.{:06})!\n", hour, min, sec, us)
         } else {
-            format!("Timeout ({:02}:{:02}:{:02})!\n", hour, min, sec)
+            format!("Timeout ({}:{:02}:{:02})!\n", hour, min, sec)
         }
     }
 
     fn get_fd_from_file_opt(file: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<i32> {
         match file {
-            OptionalArg::Present(f) => {
+            OptionalArg::Present(f) if !vm.is_none(&f) => {
                 // Check if it's an integer (file descriptor)
                 if let Ok(fd) = f.try_to_value::<i32>(vm) {
                     if fd < 0 {
@@ -677,8 +817,8 @@ mod decl {
                 let _ = vm.call_method(&f, "flush", ());
                 Ok(fd)
             }
-            OptionalArg::Missing => {
-                // Get sys.stderr
+            _ => {
+                // file=None or file not passed: fall back to sys.stderr
                 let stderr = vm.sys_module.get_attr("stderr", vm)?;
                 if vm.is_none(&stderr) {
                     return Err(vm.new_runtime_error("sys.stderr is None".to_owned()));
@@ -709,8 +849,12 @@ mod decl {
             }
 
             // Extract values before releasing lock for I/O
-            let (repeat, exit, fd, header) =
-                (guard.repeat, guard.exit, guard.fd, guard.header.clone());
+            let repeat = guard.repeat;
+            let exit = guard.exit;
+            let fd = guard.fd;
+            let header = guard.header.clone();
+            #[cfg(feature = "threading")]
+            let thread_frame_slots = guard.thread_frame_slots.clone();
             drop(guard); // Release lock before I/O
 
             // Timeout occurred, dump traceback
@@ -719,35 +863,21 @@ mod decl {
 
             #[cfg(not(target_arch = "wasm32"))]
             {
-                let header_bytes = header.as_bytes();
-                #[cfg(windows)]
-                unsafe {
-                    libc::write(
-                        fd,
-                        header_bytes.as_ptr() as *const libc::c_void,
-                        header_bytes.len() as u32,
-                    );
-                }
-                #[cfg(not(windows))]
-                unsafe {
-                    libc::write(
-                        fd,
-                        header_bytes.as_ptr() as *const libc::c_void,
-                        header_bytes.len(),
-                    );
-                }
+                puts_bytes(fd, header.as_bytes());
 
-                // Note: We cannot dump actual Python traceback from a separate thread
-                // because we don't have access to the VM's frame stack.
-                // Just output a message indicating timeout occurred.
-                let msg = b"<timeout: cannot dump traceback from watchdog thread>\n";
-                #[cfg(windows)]
-                unsafe {
-                    libc::write(fd, msg.as_ptr() as *const libc::c_void, msg.len() as u32);
+                // Use thread frame slots when threading is enabled (includes all threads).
+                // Fall back to live frame walking for non-threaded builds.
+                #[cfg(feature = "threading")]
+                {
+                    for (tid, slot) in &thread_frame_slots {
+                        let frames = slot.lock();
+                        dump_traceback_thread_frames(fd, *tid, false, &frames);
+                    }
                 }
-                #[cfg(not(windows))]
-                unsafe {
-                    libc::write(fd, msg.as_ptr() as *const libc::c_void, msg.len());
+                #[cfg(not(feature = "threading"))]
+                {
+                    write_thread_id(fd, current_thread_id(), false);
+                    dump_live_frames(fd);
                 }
 
                 if exit {
@@ -792,6 +922,16 @@ mod decl {
 
         let header = format_timeout(timeout_us);
 
+        // Snapshot thread frame slots so watchdog can dump tracebacks
+        #[cfg(feature = "threading")]
+        let thread_frame_slots: Vec<(u64, ThreadFrameSlot)> = {
+            let registry = vm.state.thread_frames.lock();
+            registry
+                .iter()
+                .map(|(&id, slot)| (id, Arc::clone(slot)))
+                .collect()
+        };
+
         // Cancel any previous watchdog
         cancel_dump_traceback_later();
 
@@ -804,6 +944,8 @@ mod decl {
                 repeat: args.repeat,
                 exit: args.exit,
                 header,
+                #[cfg(feature = "threading")]
+                thread_frame_slots,
             }),
             Condvar::new(),
         ));
@@ -845,14 +987,13 @@ mod decl {
 
         const NSIG: usize = 64;
 
-        #[derive(Clone)]
+        #[derive(Clone, Copy)]
         pub struct UserSignal {
             pub enabled: bool,
             pub fd: i32,
-            #[allow(dead_code)]
             pub all_threads: bool,
             pub chain: bool,
-            pub previous: libc::sighandler_t,
+            pub previous: libc::sigaction,
         }
 
         impl Default for UserSignal {
@@ -862,7 +1003,8 @@ mod decl {
                     fd: 2, // stderr
                     all_threads: true,
                     chain: false,
-                    previous: libc::SIG_DFL,
+                    // SAFETY: sigaction is a C struct that can be zero-initialized
+                    previous: unsafe { core::mem::zeroed() },
                 }
             }
         }
@@ -892,7 +1034,7 @@ mod decl {
                 && signum < v.len()
                 && v[signum].enabled
             {
-                let old = v[signum].clone();
+                let old = v[signum];
                 v[signum] = UserSignal::default();
                 return Some(old);
             }
@@ -910,38 +1052,33 @@ mod decl {
 
     #[cfg(unix)]
     extern "C" fn faulthandler_user_signal(signum: libc::c_int) {
+        let save_errno = get_errno();
+
         let user = match user_signals::get_user_signal(signum as usize) {
             Some(u) if u.enabled => u,
             _ => return,
         };
 
-        // Write traceback header
-        let header = b"Current thread 0x0000 (most recent call first):\n";
-        let _ = unsafe {
-            libc::write(
-                user.fd,
-                header.as_ptr() as *const libc::c_void,
-                header.len(),
-            )
-        };
+        faulthandler_dump_traceback(user.fd, user.all_threads);
 
-        // Note: We cannot easily access RustPython's frame stack from a signal handler
-        // because signal handlers run asynchronously. We just output a placeholder.
-        let msg = b"  <signal handler invoked, traceback unavailable in signal context>\n";
-        let _ = unsafe { libc::write(user.fd, msg.as_ptr() as *const libc::c_void, msg.len()) };
-
-        // If chain is enabled, call the previous handler
-        if user.chain && user.previous != libc::SIG_DFL && user.previous != libc::SIG_IGN {
-            // Re-register the old handler and raise the signal
+        if user.chain {
+            // Restore the previous handler and re-raise
             unsafe {
-                libc::signal(signum, user.previous);
-                libc::raise(signum);
-                // Re-register our handler
-                libc::signal(
-                    signum,
-                    faulthandler_user_signal as *const () as libc::sighandler_t,
-                );
+                libc::sigaction(signum, &user.previous, core::ptr::null_mut());
             }
+            set_errno(save_errno);
+            unsafe {
+                libc::raise(signum);
+            }
+            // Re-install our handler with the same flags as register()
+            let save_errno2 = get_errno();
+            unsafe {
+                let mut action: libc::sigaction = core::mem::zeroed();
+                action.sa_sigaction = faulthandler_user_signal as *const () as libc::sighandler_t;
+                action.sa_flags = libc::SA_NODEFER;
+                libc::sigaction(signum, &action, core::ptr::null_mut());
+            }
+            set_errno(save_errno2);
         }
     }
 
@@ -989,25 +1126,31 @@ mod decl {
 
         // Get current handler to save as previous
         let previous = if !user_signals::is_enabled(signum) {
-            // Install signal handler
-            let prev = unsafe {
-                libc::signal(
-                    args.signum,
-                    faulthandler_user_signal as *const () as libc::sighandler_t,
-                )
-            };
-            if prev == libc::SIG_ERR {
-                return Err(vm.new_os_error(format!(
-                    "Failed to register signal handler for signal {}",
-                    args.signum
-                )));
+            unsafe {
+                let mut action: libc::sigaction = core::mem::zeroed();
+                action.sa_sigaction = faulthandler_user_signal as *const () as libc::sighandler_t;
+                // SA_RESTART by default; SA_NODEFER only when chaining
+                // (faulthandler.c:860-864)
+                action.sa_flags = if args.chain {
+                    libc::SA_NODEFER
+                } else {
+                    libc::SA_RESTART
+                };
+
+                let mut prev: libc::sigaction = core::mem::zeroed();
+                if libc::sigaction(args.signum, &action, &mut prev) != 0 {
+                    return Err(vm.new_os_error(format!(
+                        "Failed to register signal handler for signal {}",
+                        args.signum
+                    )));
+                }
+                prev
             }
-            prev
         } else {
             // Already registered, keep previous handler
             user_signals::get_user_signal(signum)
                 .map(|u| u.previous)
-                .unwrap_or(libc::SIG_DFL)
+                .unwrap_or(unsafe { core::mem::zeroed() })
         };
 
         user_signals::set_user_signal(
@@ -1032,7 +1175,7 @@ mod decl {
         if let Some(old) = user_signals::clear_user_signal(signum as usize) {
             // Restore previous handler
             unsafe {
-                libc::signal(signum, old.previous);
+                libc::sigaction(signum, &old.previous, core::ptr::null_mut());
             }
             Ok(true)
         } else {
@@ -1043,14 +1186,15 @@ mod decl {
     // Test functions for faulthandler testing
 
     #[pyfunction]
-    fn _read_null() {
-        // This function intentionally causes a segmentation fault by reading from NULL
-        // Used for testing faulthandler
+    fn _read_null(_vm: &VirtualMachine) {
         #[cfg(not(target_arch = "wasm32"))]
-        unsafe {
+        {
             suppress_crash_report();
-            let ptr: *const i32 = core::ptr::null();
-            core::ptr::read_volatile(ptr);
+
+            unsafe {
+                let ptr: *const i32 = core::ptr::null();
+                core::ptr::read_volatile(ptr);
+            }
         }
     }
 
@@ -1062,39 +1206,28 @@ mod decl {
     }
 
     #[pyfunction]
-    fn _sigsegv(_args: SigsegvArgs) {
-        // Raise SIGSEGV signal
+    fn _sigsegv(_args: SigsegvArgs, _vm: &VirtualMachine) {
         #[cfg(not(target_arch = "wasm32"))]
         {
             suppress_crash_report();
 
-            // Reset SIGSEGV to default behavior before raising
-            // This ensures the process will actually crash
+            // Write to NULL pointer to trigger a real hardware SIGSEGV,
+            // matching CPython's *((volatile int *)NULL) = 0;
+            // Using raise(SIGSEGV) doesn't work reliably because Rust's runtime
+            // installs its own signal handler that may swallow software signals.
             unsafe {
-                libc::signal(libc::SIGSEGV, libc::SIG_DFL);
-            }
-
-            #[cfg(windows)]
-            {
-                // On Windows, we need to raise SIGSEGV multiple times
-                loop {
-                    unsafe {
-                        libc::raise(libc::SIGSEGV);
-                    }
-                }
-            }
-            #[cfg(not(windows))]
-            unsafe {
-                libc::raise(libc::SIGSEGV);
+                let ptr: *mut i32 = core::ptr::null_mut();
+                core::ptr::write_volatile(ptr, 0);
             }
         }
     }
 
     #[pyfunction]
-    fn _sigabrt() {
+    fn _sigabrt(_vm: &VirtualMachine) {
         #[cfg(not(target_arch = "wasm32"))]
         {
             suppress_crash_report();
+
             unsafe {
                 libc::abort();
             }
@@ -1102,17 +1235,11 @@ mod decl {
     }
 
     #[pyfunction]
-    fn _sigfpe() {
+    fn _sigfpe(_vm: &VirtualMachine) {
         #[cfg(not(target_arch = "wasm32"))]
         {
             suppress_crash_report();
 
-            // Reset SIGFPE to default behavior before raising
-            unsafe {
-                libc::signal(libc::SIGFPE, libc::SIG_DFL);
-            }
-
-            // Raise SIGFPE
             unsafe {
                 libc::raise(libc::SIGFPE);
             }
@@ -1196,7 +1323,7 @@ mod decl {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn _raise_exception(args: RaiseExceptionArgs) {
+    fn _raise_exception(args: RaiseExceptionArgs, _vm: &VirtualMachine) {
         use windows_sys::Win32::System::Diagnostics::Debug::RaiseException;
 
         suppress_crash_report();

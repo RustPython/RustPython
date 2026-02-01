@@ -939,9 +939,16 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         self.with_recursion("", || {
             self.frames.borrow_mut().push(frame.clone());
-            // Update the current frame slot for sys._current_frames()
+            // Update the shared frame stack for sys._current_frames() and faulthandler
             #[cfg(feature = "threading")]
-            crate::vm::thread::update_current_frame(Some(frame.clone()));
+            crate::vm::thread::push_thread_frame(frame.clone());
+            // Link frame into the signal-safe frame chain (previous pointer)
+            let frame_ptr: *const Frame = &**frame;
+            let old_frame = crate::vm::thread::set_current_frame(frame_ptr);
+            frame.previous.store(
+                old_frame as *mut Frame,
+                core::sync::atomic::Ordering::Relaxed,
+            );
             // Push a new exception context for frame isolation
             // Each frame starts with no active exception (None)
             // This prevents exceptions from leaking between function calls
@@ -949,11 +956,13 @@ impl VirtualMachine {
             let result = f(frame);
             // Pop the exception context - restores caller's exception state
             self.pop_exception();
+            // Restore previous frame as current (unlink from chain)
+            crate::vm::thread::set_current_frame(old_frame);
             // defer dec frame
             let _popped = self.frames.borrow_mut().pop();
-            // Update the frame slot to the new top frame (or None if empty)
+            // Pop from shared frame stack
             #[cfg(feature = "threading")]
-            crate::vm::thread::update_current_frame(self.frames.borrow().last().cloned());
+            crate::vm::thread::pop_thread_frame();
             result
         })
     }

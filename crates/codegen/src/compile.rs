@@ -4638,7 +4638,7 @@ impl Compiler {
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             if let Some(arguments) = arguments {
-                self.codegen_call_helper(2, arguments)?;
+                self.codegen_call_helper(2, arguments, self.current_source_range)?;
             } else {
                 emit!(self, Instruction::Call { nargs: 2 });
             }
@@ -7079,6 +7079,10 @@ impl Compiler {
     }
 
     fn compile_call(&mut self, func: &ast::Expr, args: &ast::Arguments) -> CompileResult<()> {
+        // Save the call expression's source range so CALL instructions use the
+        // call start line, not the last argument's line.
+        let call_range = self.current_source_range;
+
         // Method call: obj → LOAD_ATTR_METHOD → [method, self_or_null] → args → CALL
         // Regular call: func → PUSH_NULL → args → CALL
         if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = &func {
@@ -7096,21 +7100,21 @@ impl Compiler {
                         self.emit_load_zero_super_method(idx);
                     }
                 }
-                self.codegen_call_helper(0, args)?;
+                self.codegen_call_helper(0, args, call_range)?;
             } else {
                 // Normal method call: compile object, then LOAD_ATTR with method flag
                 // LOAD_ATTR(method=1) pushes [method, self_or_null] on stack
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
                 self.emit_load_attr_method(idx);
-                self.codegen_call_helper(0, args)?;
+                self.codegen_call_helper(0, args, call_range)?;
             }
         } else {
             // Regular call: push func, then NULL for self_or_null slot
             // Stack layout: [func, NULL, args...] - same as method call [func, self, args...]
             self.compile_expression(func)?;
             emit!(self, Instruction::PushNull);
-            self.codegen_call_helper(0, args)?;
+            self.codegen_call_helper(0, args, call_range)?;
         }
         Ok(())
     }
@@ -7152,10 +7156,13 @@ impl Compiler {
     }
 
     /// Compile call arguments and emit the appropriate CALL instruction.
+    /// `call_range` is the source range of the call expression, used to set
+    /// the correct line number on the CALL instruction.
     fn codegen_call_helper(
         &mut self,
         additional_positional: u32,
         arguments: &ast::Arguments,
+        call_range: TextRange,
     ) -> CompileResult<()> {
         let nelts = arguments.args.len();
         let nkwelts = arguments.keywords.len();
@@ -7186,6 +7193,8 @@ impl Compiler {
                     self.compile_expression(&keyword.value)?;
                 }
 
+                // Restore call expression range for kwnames and CALL_KW
+                self.set_source_range(call_range);
                 self.emit_load_const(ConstantData::Tuple {
                     elements: kwarg_names,
                 });
@@ -7193,6 +7202,7 @@ impl Compiler {
                 let nargs = additional_positional + nelts.to_u32() + nkwelts.to_u32();
                 emit!(self, Instruction::CallKw { nargs });
             } else {
+                self.set_source_range(call_range);
                 let nargs = additional_positional + nelts.to_u32();
                 emit!(self, Instruction::Call { nargs });
             }
@@ -7284,6 +7294,7 @@ impl Compiler {
                 emit!(self, Instruction::PushNull);
             }
 
+            self.set_source_range(call_range);
             emit!(self, Instruction::CallFunctionEx);
         }
 

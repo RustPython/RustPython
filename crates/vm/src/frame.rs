@@ -25,8 +25,8 @@ use crate::{
 };
 use alloc::fmt;
 use core::iter::zip;
-#[cfg(feature = "threading")]
 use core::sync::atomic;
+use core::sync::atomic::AtomicPtr;
 use indexmap::IndexMap;
 use itertools::Itertools;
 
@@ -90,6 +90,9 @@ pub struct Frame {
     /// Borrowed reference (not ref-counted) to avoid Generator↔Frame cycle.
     /// Cleared by the generator's Drop impl.
     pub generator: PyAtomicBorrow,
+    /// Previous frame in the call chain for signal-safe traceback walking.
+    /// Mirrors `_PyInterpreterFrame.previous`.
+    pub(crate) previous: AtomicPtr<Frame>,
 }
 
 impl PyPayload for Frame {
@@ -179,6 +182,7 @@ impl Frame {
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
             generator: PyAtomicBorrow::new(),
+            previous: AtomicPtr::new(core::ptr::null_mut()),
         }
     }
 
@@ -195,6 +199,11 @@ impl Frame {
 
     pub fn current_location(&self) -> SourceLocation {
         self.code.locations[self.lasti() as usize - 1].0
+    }
+
+    /// Get the previous frame pointer for signal-safe traceback walking.
+    pub fn previous_frame(&self) -> *const Frame {
+        self.previous.load(atomic::Ordering::Relaxed)
     }
 
     pub fn lasti(&self) -> u32 {
