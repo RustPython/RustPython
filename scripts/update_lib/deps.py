@@ -227,6 +227,7 @@ DEPENDENCIES = {
         "test": [
             "test_int.py",
             "test_long.py",
+            "test_int_literal.py",
         ],
     },
     "exception": {
@@ -276,12 +277,21 @@ DEPENDENCIES = {
     },
     "pickle": {
         "hard_deps": ["_compat_pickle.py"],
+        "test": [
+            "test_pickle.py",
+            "test_picklebuffer.py",
+            "test_pickletools.py",
+        ],
     },
     "re": {
         "hard_deps": ["sre_compile.py", "sre_constants.py", "sre_parse.py"],
     },
     "weakref": {
         "hard_deps": ["_weakrefset.py"],
+        "test": [
+            "test_weakref.py",
+            "test_weakset.py",
+        ],
     },
     "codecs": {
         "test": [
@@ -308,6 +318,7 @@ DEPENDENCIES = {
         "test": [
             "test_ast.py",
             "test_unparse.py",
+            "test_type_comments.py",
         ],
     },
     # Data directories
@@ -316,6 +327,22 @@ DEPENDENCIES = {
     },
     "turtle": {
         "hard_deps": ["turtledemo"],
+    },
+    "sysconfig": {
+        "hard_deps": ["_aix_support.py", "_osx_support.py"],
+        "test": [
+            "test_sysconfig.py",
+            "test__osx_support.py",
+        ],
+    },
+    "tkinter": {
+        "test": [
+            "test_tkinter",
+            "test_ttk",
+            "test_ttk_textonly.py",
+            "test_tcl.py",
+            "test_idle",
+        ],
     },
     # Test support library (like regrtest)
     "support": {
@@ -339,6 +366,8 @@ DEPENDENCIES = {
             "test_pulldom.py",
             "test_pyexpat.py",
             "test_sax.py",
+            "test_xml_dom_minicompat.py",
+            "test_xml_dom_xmlbuilder.py",
         ],
     },
     "multiprocessing": {
@@ -346,6 +375,7 @@ DEPENDENCIES = {
             "test_multiprocessing_fork",
             "test_multiprocessing_forkserver",
             "test_multiprocessing_spawn",
+            "test_multiprocessing_main_handling.py",
         ],
     },
     "urllib": {
@@ -361,6 +391,7 @@ DEPENDENCIES = {
         ],
     },
     "collections": {
+        "hard_deps": ["_collections_abc.py"],
         "test": [
             "test_collections.py",
             "test_deque.py",
@@ -489,8 +520,10 @@ DEPENDENCIES = {
     "dbm": {
         "test": [
             "test_dbm.py",
+            "test_dbm_dumb.py",
             "test_dbm_gnu.py",
             "test_dbm_ndbm.py",
+            "test_dbm_sqlite3.py",
         ],
     },
     "datetime": {
@@ -498,11 +531,6 @@ DEPENDENCIES = {
         "test": [
             "test_datetime.py",
             "test_strptime.py",
-        ],
-    },
-    "concurrent": {
-        "test": [
-            "test_concurrent_futures",
         ],
     },
     "locale": {
@@ -548,6 +576,75 @@ DEPENDENCIES = {
         "test": [
             "test_ctypes",
             "test_stable_abi_ctypes.py",
+        ],
+    },
+    # Grouped tests for modules without custom lib paths
+    "compile": {
+        "lib": [],
+        "test": [
+            "test_compile.py",
+            "test_compiler_assemble.py",
+            "test_compiler_codegen.py",
+            "test_peepholer.py",
+        ],
+    },
+    "math": {
+        "lib": [],
+        "test": [
+            "test_math.py",
+            "test_math_property.py",
+        ],
+    },
+    "float": {
+        "lib": [],
+        "test": [
+            "test_float.py",
+            "test_strtod.py",
+        ],
+    },
+    "zipfile": {
+        "test": [
+            "test_zipfile.py",
+            "test_zipfile64.py",
+        ],
+    },
+    "smtplib": {
+        "test": [
+            "test_smtplib.py",
+            "test_smtpnet.py",
+        ],
+    },
+    "profile": {
+        "test": [
+            "test_profile.py",
+            "test_cprofile.py",
+        ],
+    },
+    "string": {
+        "test": [
+            "test_string.py",
+            "test_userstring.py",
+        ],
+    },
+    "os": {
+        "test": [
+            "test_os.py",
+            "test_popen.py",
+        ],
+    },
+    "pyrepl": {
+        "test": [
+            "test_pyrepl",
+            "test_repl.py",
+        ],
+    },
+    "concurrent": {
+        "test": [
+            "test_concurrent_futures",
+            "test_interpreters",
+            "test__interpreters.py",
+            "test__interpchannels.py",
+            "test_crossinterp.py",
         ],
     },
 }
