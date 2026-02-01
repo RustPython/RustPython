@@ -214,9 +214,13 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
 )]
 impl PyFloat {
     #[pymethod]
-    fn __format__(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn __format__(zelf: &Py<Self>, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+        // Empty format spec: equivalent to str(self)
+        if spec.is_empty() {
+            return Ok(zelf.as_object().str(vm)?.as_str().to_owned());
+        }
         FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_float(self.value))
+            .and_then(|format_spec| format_spec.format_float(zelf.value))
             .map_err(|err| err.into_pyexception(vm))
     }
 
