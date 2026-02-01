@@ -257,6 +257,13 @@ jobs:
       - name: Check compilation for freeBSD
         run: cargo check --target x86_64-unknown-freebsd ${{ env.CARGO_ARGS_NO_SSL }}
 
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: wasm32-wasip2
+
+      - name: Check compilation for wasip2
+        run: cargo check --target wasm32-wasip2 ${{ env.CARGO_ARGS_NO_SSL }}
+
       # - name: Prepare repository for redox compilation
       #   run: bash scripts/redox/uncomment-cargo.sh
       # - name: Check compilation for Redox
