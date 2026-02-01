@@ -705,5 +705,28 @@ mod _codecs {
     fn utf_16_ex_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         delegate_pycodecs!(utf_16_ex_decode, args, vm)
     }
-    // TODO: utf-32 functions
+    #[pyfunction]
+    fn utf_32_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_le_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_le_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_be_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_be_decode, args, vm)
+    }
 }

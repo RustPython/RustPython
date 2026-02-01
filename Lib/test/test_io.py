@@ -780,8 +780,8 @@ class IOTest(unittest.TestCase):
             file = self.open(f.fileno(), "r", encoding="utf-8", closefd=False)
             self.assertEqual(file.buffer.raw.closefd, False)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_garbage_collection(self):
         # FileIO objects are collected, and collecting them flushes
         # all data to disk.
@@ -1803,8 +1803,8 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
         # checking this is not so easy.
         self.assertRaises(OSError, bufio.read, 10)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_garbage_collection(self):
         # C BufferedReader objects are collected.
         # The Python version has __del__, so it ends into gc.garbage instead
@@ -1839,13 +1839,13 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
             bufio.readline()
         self.assertIsInstance(cm.exception.__cause__, TypeError)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pickling_subclass(self):
         return super().test_pickling_subclass()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
 
 
 class PyBufferedReaderTest(BufferedReaderTest):
@@ -2161,8 +2161,8 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
         self.assertRaises(ValueError, bufio.__init__, rawio, buffer_size=-1)
         self.assertRaises(ValueError, bufio.write, b"def")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_garbage_collection(self):
         # C BufferedWriter objects are collected, and collecting them flushes
         # all data to disk.
@@ -2185,13 +2185,13 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
         with self.assertRaisesRegex(TypeError, "BufferedWriter"):
             self.tp(self.BytesIO(), 1024, 1024, 1024)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pickling_subclass(self):
         return super().test_pickling_subclass()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
 
 class PyBufferedWriterTest(BufferedWriterTest):
     tp = pyio.BufferedWriter
@@ -2669,8 +2669,8 @@ class BufferedRandomTest(BufferedReaderTest, BufferedWriterTest):
 class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     tp = io.BufferedRandom
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_garbage_collection(self):
         CBufferedReaderTest.test_garbage_collection(self)
         CBufferedWriterTest.test_garbage_collection(self)
@@ -2680,13 +2680,13 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
         with self.assertRaisesRegex(TypeError, "BufferedRandom"):
             self.tp(self.BytesIO(), 1024, 1024, 1024)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pickling_subclass(self):
         return super().test_pickling_subclass()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
 
 
 class PyBufferedRandomTest(BufferedRandomTest):
@@ -2847,6 +2847,7 @@ class TextIOWrapperTest(unittest.TestCase):
     def tearDown(self):
         os_helper.unlink(os_helper.TESTFN)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnicodeEncodeError not raised
     def test_constructor(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -3069,6 +3070,7 @@ class TextIOWrapperTest(unittest.TestCase):
         t.flush()
         self.assertEqual(b.getvalue(), b"abc?def\n")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_ex_decode'. Did you mean: 'utf_16_ex_decode'?
     def test_newlines(self):
         input_lines = [ "unix\n", "windows\r\n", "os9\r", "last\n", "nonl" ]
 
@@ -3340,7 +3342,7 @@ class TextIOWrapperTest(unittest.TestCase):
         finally:
             StatefulIncrementalDecoder.codecEnabled = 0
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
     def test_multibyte_seek_and_tell(self):
         f = self.open(os_helper.TESTFN, "w", encoding="euc_jp")
         f.write("AB\n\u3046\u3048\n")
@@ -3387,7 +3389,7 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(f.readline(), "\u00e6\u0300\u0300")
         f.close()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_ex_decode'. Did you mean: 'utf_16_ex_decode'?
     def test_encoded_writes(self):
         data = "1234567890"
         tests = ("utf-16",
@@ -3526,7 +3528,6 @@ class TextIOWrapperTest(unittest.TestCase):
 
         self.assertEqual(buffer.seekable(), txt.seekable())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_append_bom(self):
         # The BOM is not written again when appending to a non-empty file
         filename = os_helper.TESTFN
@@ -3542,7 +3543,6 @@ class TextIOWrapperTest(unittest.TestCase):
             with self.open(filename, 'rb') as f:
                 self.assertEqual(f.read(), 'aaaxxx'.encode(charset))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_seek_bom(self):
         # Same test, but when seeking manually
         filename = os_helper.TESTFN
@@ -3558,7 +3558,6 @@ class TextIOWrapperTest(unittest.TestCase):
             with self.open(filename, 'rb') as f:
                 self.assertEqual(f.read(), 'bbbzzz'.encode(charset))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_seek_append_bom(self):
         # Same test, but first seek to the start and then to the end
         filename = os_helper.TESTFN
@@ -3826,7 +3825,7 @@ class TextIOWrapperTest(unittest.TestCase):
             """.format(iomod=iomod, kwargs=kwargs)
         return assert_python_ok("-c", code)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'LookupError: unknown encoding: ascii' not found in "Exception ignored in: <function C.__del__ at 0x72d8eea80>\nAttributeError: 'NoneType' object has no attribute 'TextIOWrapper'\n"
     def test_create_at_shutdown_without_encoding(self):
         rc, out, err = self._check_create_at_shutdown()
         if err:
@@ -3836,7 +3835,7 @@ class TextIOWrapperTest(unittest.TestCase):
         else:
             self.assertEqual("ok", out.decode().strip())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b"Exception ignored in: <function C.__del__ at 0xbc2a2e940>\nAttributeError: 'NoneType' object has no attribute 'TextIOWrapper'\n" is not false
     def test_create_at_shutdown_with_encoding(self):
         rc, out, err = self._check_create_at_shutdown(encoding='utf-8',
                                                       errors='strict')
@@ -4108,7 +4107,7 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     io = io
     shutdown_error = "LookupError: unknown encoding: ascii"
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by read
     def test_initialization(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -4119,8 +4118,8 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         t = self.TextIOWrapper.__new__(self.TextIOWrapper)
         self.assertRaises(Exception, repr, t)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_garbage_collection(self):
         # C TextIOWrapper objects are collected, and collecting them flushes
         # all data to disk.
@@ -4184,7 +4183,7 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         t.write("x"*chunk_size)
         self.assertEqual([b"abcdef", b"ghi", b"x"*chunk_size], buf._write_stack)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: reentrant call inside textio
     def test_issue119506(self):
         chunk_size = 8192
 
@@ -4207,78 +4206,74 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         self.assertEqual([b"abcdef", b"middle", b"g"*chunk_size],
                          buf._write_stack)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_constructor(self):
-        return super().test_constructor()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_newlines(self):
-        return super().test_newlines()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_newlines_input(self):
-        return super().test_newlines_input()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_non_text_encoding_codecs_are_rejected(self):
-        return super().test_non_text_encoding_codecs_are_rejected()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_reconfigure_defaults(self):
-        return super().test_reconfigure_defaults()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_reconfigure_encoding_read(self):
-        return super().test_reconfigure_encoding_read()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_reconfigure_errors(self):
-        return super().test_reconfigure_errors()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_reconfigure_line_buffering(self):
-        return super().test_reconfigure_line_buffering()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_reconfigure_locale(self):
-        return super().test_reconfigure_locale()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_reconfigure_newline(self):
-        return super().test_reconfigure_newline()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_reconfigure_write(self):
-        return super().test_reconfigure_write()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_reconfigure_write_fromascii(self):
-        return super().test_reconfigure_write_fromascii()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_reconfigure_write_through(self):
-        return super().test_reconfigure_write_through()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_repr(self):
-        return super().test_repr()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_recursive_repr(self):
-        return super().test_recursive_repr()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_pickling_subclass(self):
-        return super().test_pickling_subclass()
-
     # TODO: RUSTPYTHON; euc_jis_2004 encoding not supported
     @unittest.expectedFailure
     def test_seek_with_encoder_state(self):
         return super().test_seek_with_encoder_state()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_pickling_subclass(self):
+        return super().test_pickling_subclass()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
+    def test_reconfigure_newline(self):
+        return super().test_reconfigure_newline()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + ['AAA\nBB\x00B\nCCC\r', 'DDD\r', 'EEE\r', '\nFFF\r', '\nGGG']
+    def test_newlines_input(self):
+        return super().test_newlines_input()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + strict
+    def test_reconfigure_defaults(self):
+        return super().test_reconfigure_defaults()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: LookupError not raised
+    def test_non_text_encoding_codecs_are_rejected(self):
+        return super().test_non_text_encoding_codecs_are_rejected()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: "<(_io\\.)?TextIOWrapper name='dummy' mode='r' encoding='utf-8'>" not found in "<_io.TextIOWrapper name='dummy' encoding='utf-8'>"
+    def test_repr(self):
+        return super().test_repr()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
+    def test_recursive_repr(self):
+        return super().test_recursive_repr()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnicodeEncodeError not raised
+    def test_reconfigure_errors(self):
+        return super().test_reconfigure_errors()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnsupportedOperation not raised
+    def test_reconfigure_encoding_read(self):
+        return super().test_reconfigure_encoding_read()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'' != b'1'
+    def test_reconfigure_write_through(self):
+        return super().test_reconfigure_write_through()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'' != b'AB\nC'
+    def test_reconfigure_line_buffering(self):
+        return super().test_reconfigure_line_buffering()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'' != b'abc\xe9\n'
+    def test_reconfigure_write(self):
+        return super().test_reconfigure_write()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'\xef\xbb\xbfaaa\xef\xbb\xbfxxx' != b'\xef\xbb\xbfaaaxxx'
+    def test_append_bom(self):
+        return super().test_append_bom()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'foo\n\xef\xbb\xbf\xc3\xa9\n' != b'foo\n\xc3\xa9\n'
+    def test_reconfigure_write_fromascii(self):
+        return super().test_reconfigure_write_fromascii()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: locale
+    def test_reconfigure_locale(self):
+        return super().test_reconfigure_locale()
 
 
 class PyTextIOWrapperTest(TextIOWrapperTest):
@@ -4288,10 +4283,6 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
     @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     def test_constructor(self):
         return super().test_constructor()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_newlines(self):
-        return super().test_newlines()
 
     # TODO: RUSTPYTHON; euc_jis_2004 encoding not supported
     @unittest.expectedFailure
@@ -4376,7 +4367,7 @@ class IncrementalNewlineDecoderTest(unittest.TestCase):
         self.assertEqual(decoder.decode(input), "abc")
         self.assertEqual(decoder.newlines, None)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_ex_decode'. Did you mean: 'utf_16_ex_decode'?
     def test_newline_decoder(self):
         encodings = (
             # None meaning the IncrementalNewlineDecoder takes unicode input
@@ -4797,7 +4788,7 @@ class MiscIOTest(unittest.TestCase):
         self.assertTrue(
             warnings[1].startswith(b"<string>:8: EncodingWarning: "))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'locale' != b'utf-8'
     def test_text_encoding(self):
         # PEP 597, bpo-47000. io.text_encoding() returns "locale" or "utf-8"
         # based on sys.flags.utf8_mode

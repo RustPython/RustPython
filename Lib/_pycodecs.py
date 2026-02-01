@@ -357,6 +357,145 @@ def utf_16_be_decode( data, errors='strict', byteorder=0, final = 0):
     return res, consumed
 
 
+def STORECHAR32(ch, byteorder):
+    """Store a 32-bit character as 4 bytes in the specified byte order."""
+    b0 = ch & 0xff
+    b1 = (ch >> 8) & 0xff
+    b2 = (ch >> 16) & 0xff
+    b3 = (ch >> 24) & 0xff
+    if byteorder == 'little':
+        return [b0, b1, b2, b3]
+    else:  # big-endian
+        return [b3, b2, b1, b0]
+
+
+def PyUnicode_EncodeUTF32(s, size, errors, byteorder='little'):
+    """Encode a Unicode string to UTF-32."""
+    p = []
+    bom = sys.byteorder
+
+    if byteorder == 'native':
+        bom = sys.byteorder
+        # Add BOM for native encoding
+        p += STORECHAR32(0xFEFF, bom)
+
+    if size == 0:
+        return []
+
+    if byteorder == 'little':
+        bom = 'little'
+    elif byteorder == 'big':
+        bom = 'big'
+
+    for c in s:
+        ch = ord(c)
+        # UTF-32 doesn't need surrogate pairs, each character is encoded directly
+        p += STORECHAR32(ch, bom)
+
+    return p
+
+
+def utf_32_encode(obj, errors='strict'):
+    """UTF-32 encoding with BOM."""
+    res = PyUnicode_EncodeUTF32(obj, len(obj), errors, 'native')
+    res = bytes(res)
+    return res, len(obj)
+
+
+def utf_32_le_encode(obj, errors='strict'):
+    """UTF-32 little-endian encoding without BOM."""
+    res = PyUnicode_EncodeUTF32(obj, len(obj), errors, 'little')
+    res = bytes(res)
+    return res, len(obj)
+
+
+def utf_32_be_encode(obj, errors='strict'):
+    """UTF-32 big-endian encoding without BOM."""
+    res = PyUnicode_EncodeUTF32(obj, len(obj), errors, 'big')
+    res = bytes(res)
+    return res, len(obj)
+
+
+def PyUnicode_DecodeUTF32Stateful(data, size, errors, byteorder='little', final=0):
+    """Decode UTF-32 encoded bytes to Unicode string."""
+    if size == 0:
+        return [], 0, 0
+
+    if size % 4 != 0:
+        if not final:
+            # Incomplete data, return what we can decode
+            size = (size // 4) * 4
+            if size == 0:
+                return [], 0, 0
+        else:
+            # Final data must be complete
+            if errors == 'strict':
+                raise UnicodeDecodeError('utf-32', bytes(data), size - (size % 4), size,
+                                        'truncated data')
+            elif errors == 'ignore':
+                size = (size // 4) * 4
+            elif errors == 'replace':
+                size = (size // 4) * 4
+
+    result = []
+    pos = 0
+
+    while pos + 3 < size:
+        if byteorder == 'little':
+            ch = data[pos] | (data[pos+1] << 8) | (data[pos+2] << 16) | (data[pos+3] << 24)
+        else:  # big-endian
+            ch = (data[pos] << 24) | (data[pos+1] << 16) | (data[pos+2] << 8) | data[pos+3]
+
+        # Validate code point
+        if ch > 0x10FFFF:
+            if errors == 'strict':
+                raise UnicodeDecodeError('utf-32', bytes(data), pos, pos+4,
+                                        'codepoint not in range(0x110000)')
+            elif errors == 'replace':
+                result.append('\ufffd')
+            # 'ignore' - skip this character
+        else:
+            result.append(chr(ch))
+
+        pos += 4
+
+    return result, pos, 0
+
+
+def utf_32_decode(data, errors='strict', final=0):
+    """UTF-32 decoding with BOM detection."""
+    if len(data) >= 4:
+        # Check for BOM
+        if data[0:4] == b'\xff\xfe\x00\x00':
+            # UTF-32 LE BOM
+            res, consumed, _ = PyUnicode_DecodeUTF32Stateful(data[4:], len(data)-4, errors, 'little', final)
+            res = ''.join(res)
+            return res, consumed + 4
+        elif data[0:4] == b'\x00\x00\xfe\xff':
+            # UTF-32 BE BOM
+            res, consumed, _ = PyUnicode_DecodeUTF32Stateful(data[4:], len(data)-4, errors, 'big', final)
+            res = ''.join(res)
+            return res, consumed + 4
+
+    # Default to little-endian if no BOM
+    byteorder = 'little' if sys.byteorder == 'little' else 'big'
+    res, consumed, _ = PyUnicode_DecodeUTF32Stateful(data, len(data), errors, byteorder, final)
+    res = ''.join(res)
+    return res, consumed
+
+
+def utf_32_le_decode(data, errors='strict', final=0):
+    """UTF-32 little-endian decoding without BOM."""
+    res, consumed, _ = PyUnicode_DecodeUTF32Stateful(data, len(data), errors, 'little', final)
+    res = ''.join(res)
+    return res, consumed
+
+
+def utf_32_be_decode(data, errors='strict', final=0):
+    """UTF-32 big-endian decoding without BOM."""
+    res, consumed, _ = PyUnicode_DecodeUTF32Stateful(data, len(data), errors, 'big', final)
+    res = ''.join(res)
+    return res, consumed
 
 
 #  ----------------------------------------------------------------------
@@ -677,8 +816,8 @@ def PyUnicode_AsASCIIString(unistr):
 
     if not type(unistr) == str:
         raise TypeError
-    return PyUnicode_EncodeASCII(str(unistr),
-                                 len(str),
+    return PyUnicode_EncodeASCII(unistr,
+                                 len(unistr),
                                 None)
 
 def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=True):
@@ -815,7 +954,7 @@ def PyUnicode_EncodeUTF16(s, size, errors, byteorder='little'):
         p += STORECHAR(0xFEFF, bom)
         
     if (size == 0):
-        return ""
+        return []
 
     if (byteorder == 'little' ):
         bom = 'little'
@@ -1084,7 +1223,7 @@ def PyUnicode_EncodeRawUnicodeEscape(s, size):
 def charmapencode_output(c, mapping):
 
     rep = mapping[c]
-    if isinstance(rep, int) or isinstance(rep, int):
+    if isinstance(rep, int):
         if rep < 256:
             return [rep]
         else:

@@ -94,7 +94,6 @@ class TestUnicode:
         self.assertRaises(TypeError, self.dumps, b"hi")
         self.assertRaises(TypeError, self.dumps, [b"hi"])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bytes_decode(self):
         for encoding, bom in [
                 ('utf-8', codecs.BOM_UTF8),

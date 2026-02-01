@@ -4094,7 +4094,6 @@ class ElementSlicingTest(unittest.TestCase):
             e[:1] = (f() for i in range(2))
 
 class IOTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_encoding(self):
         # Test encoding issues.
         elem = ET.Element("tag")
