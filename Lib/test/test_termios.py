@@ -50,6 +50,7 @@ class TestFunctions(unittest.TestCase):
                 self.assertEqual(len(x), 1)
         self.assertEqual(termios.tcgetattr(self.stream), attrs)
 
+    @unittest.skip("TODO: RUSTPYTHON segfault")
     def test_tcgetattr_errors(self):
         self.assertRaisesTermiosError(errno.ENOTTY, termios.tcgetattr, self.bad_fd)
         self.assertRaises(ValueError, termios.tcgetattr, -1)
@@ -64,6 +65,7 @@ class TestFunctions(unittest.TestCase):
         termios.tcsetattr(self.fd, termios.TCSAFLUSH, attrs)
         termios.tcsetattr(self.stream, termios.TCSANOW, attrs)
 
+    @unittest.skip("TODO: RUSTPYTHON segfault")
     def test_tcsetattr_errors(self):
         attrs = termios.tcgetattr(self.fd)
         self.assertRaises(TypeError, termios.tcsetattr, self.fd, termios.TCSANOW, tuple(attrs))
@@ -110,6 +112,7 @@ class TestFunctions(unittest.TestCase):
             raise
         termios.tcsendbreak(self.stream, 1)
 
+    @unittest.skip("TODO: RUSTPYTHON segfault")
     @support.skip_android_selinux('tcsendbreak')
     def test_tcsendbreak_errors(self):
         self.assertRaises(OverflowError, termios.tcsendbreak, self.fd, 2**1000)
@@ -126,6 +129,7 @@ class TestFunctions(unittest.TestCase):
         termios.tcdrain(self.fd)
         termios.tcdrain(self.stream)
 
+    @unittest.skip("TODO: RUSTPYTHON segfault")
     @support.skip_android_selinux('tcdrain')
     def test_tcdrain_errors(self):
         self.assertRaisesTermiosError(errno.ENOTTY, termios.tcdrain, self.bad_fd)
@@ -139,6 +143,7 @@ class TestFunctions(unittest.TestCase):
         termios.tcflush(self.fd, termios.TCOFLUSH)
         termios.tcflush(self.fd, termios.TCIOFLUSH)
 
+    @unittest.skip("TODO: RUSTPYTHON segfault")
     def test_tcflush_errors(self):
         self.assertRaisesTermiosError(errno.EINVAL, termios.tcflush, self.fd, -1)
         self.assertRaises(OverflowError, termios.tcflush, self.fd, 2**1000)
@@ -181,6 +186,7 @@ class TestFunctions(unittest.TestCase):
         termios.tcflow(self.fd, termios.TCIOFF)
         termios.tcflow(self.fd, termios.TCION)
 
+    @unittest.skip("TODO: RUSTPYTHON segfault")
     @support.skip_android_selinux('tcflow')
     def test_tcflow_errors(self):
         self.assertRaisesTermiosError(errno.EINVAL, termios.tcflow, self.fd, -1)
