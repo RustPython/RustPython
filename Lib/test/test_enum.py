@@ -445,7 +445,7 @@ class _EnumTests:
         with self.assertRaises(AttributeError):
             del Season.SPRING.name
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: Error calling __set_name__ on '_proto_member' instance failed in 'BadSuper'
     def test_bad_new_super(self):
         with self.assertRaisesRegex(
                 TypeError,
