@@ -672,7 +672,6 @@ class TestRetrievingSourceCode(GetSourceBase):
                                      ('lobbest', mod.lobbest),
                                      ('spam', mod.spam)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_getdoc(self):
