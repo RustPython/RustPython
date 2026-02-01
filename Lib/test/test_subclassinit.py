@@ -129,7 +129,6 @@ class Test(unittest.TestCase):
             d = Descriptor()
         self.assertEqual(A, 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; ZeroDivisionError: division by zero
     def test_set_name_error(self):
         class Descriptor:
             def __set_name__(self, owner, name):
@@ -144,7 +143,6 @@ class Test(unittest.TestCase):
         self.assertRegex(str(notes), r'\battr\b')
         self.assertRegex(str(notes), r'\bDescriptor\b')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; RuntimeError: Error calling __set_name__ on 'Descriptor' instance attr in 'NotGoingToWork'
     def test_set_name_wrong(self):
         class Descriptor:
             def __set_name__(self):
