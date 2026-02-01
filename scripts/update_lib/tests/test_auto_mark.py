@@ -6,6 +6,7 @@ import unittest
 from update_lib.cmd_auto_mark import (
     Test,
     TestResult,
+    _expand_stripped_to_children,
     _is_super_call_only,
     apply_test_changes,
     collect_test_changes,
@@ -13,6 +14,7 @@ from update_lib.cmd_auto_mark import (
     parse_results,
     path_to_test_parts,
     remove_expected_failures,
+    strip_reasonless_expected_failures,
 )
 from update_lib.patch_spec import COMMENT
 
@@ -456,6 +458,21 @@ class TestFoo(unittest.TestCase):
         result = remove_expected_failures(code, {("TestFoo", "test_one")})
         self.assertNotIn("def test_one", result)
 
+    def test_remove_with_comment_after(self):
+        """Test removing expectedFailure with reason comment on the line after."""
+        code = f"""import unittest
+
+class TestFoo(unittest.TestCase):
+    @unittest.expectedFailure  # {COMMENT}
+    # RuntimeError: something went wrong
+    def test_one(self):
+        pass
+"""
+        result = remove_expected_failures(code, {("TestFoo", "test_one")})
+        self.assertNotIn("@unittest.expectedFailure", result)
+        self.assertNotIn("RuntimeError: something went wrong", result)
+        self.assertIn("def test_one(self):", result)
+
     def test_no_removal_without_comment(self):
         """Test that decorators without COMMENT are not removed."""
         code = """import unittest
@@ -468,6 +485,216 @@ class TestFoo(unittest.TestCase):
         result = remove_expected_failures(code, {("TestFoo", "test_one")})
         # Should still have the decorator
         self.assertIn("@unittest.expectedFailure", result)
+
+
+class TestStripReasonlessExpectedFailures(unittest.TestCase):
+    """Tests for strip_reasonless_expected_failures function."""
+
+    def test_strip_no_reason(self):
+        """Test stripping expectedFailure with no reason."""
+        code = f"""import unittest
+
+class TestFoo(unittest.TestCase):
+    @unittest.expectedFailure  # {COMMENT}
+    def test_one(self):
+        pass
+"""
+        result, stripped = strip_reasonless_expected_failures(code)
+        self.assertNotIn("@unittest.expectedFailure", result)
+        self.assertIn("def test_one(self):", result)
+        self.assertEqual(stripped, {("TestFoo", "test_one")})
+
+    def test_keep_with_reason(self):
+        """Test that markers with a reason are NOT stripped."""
+        code = f"""import unittest
+
+class TestFoo(unittest.TestCase):
+    @unittest.expectedFailure  # {COMMENT}; AssertionError: 1 != 2
+    def test_one(self):
+        pass
+"""
+        result, stripped = strip_reasonless_expected_failures(code)
+        self.assertIn("@unittest.expectedFailure", result)
+        self.assertEqual(stripped, set())
+
+    def test_strip_with_comment_after(self):
+        """Test stripping also removes old-format reason comment on next line."""
+        code = f"""import unittest
+
+class TestFoo(unittest.TestCase):
+    @unittest.expectedFailure  # {COMMENT}
+    # RuntimeError: something went wrong
+    def test_one(self):
+        pass
+"""
+        result, stripped = strip_reasonless_expected_failures(code)
+        self.assertNotIn("@unittest.expectedFailure", result)
+        self.assertNotIn("RuntimeError", result)
+        self.assertIn("def test_one(self):", result)
+        self.assertEqual(stripped, {("TestFoo", "test_one")})
+
+    def test_strip_with_comment_before(self):
+        """Test stripping also removes comment-before line."""
+        code = f"""import unittest
+
+class TestFoo(unittest.TestCase):
+    # {COMMENT}
+    @unittest.expectedFailure
+    def test_one(self):
+        pass
+"""
+        result, stripped = strip_reasonless_expected_failures(code)
+        self.assertNotIn("@unittest.expectedFailure", result)
+        self.assertNotIn(COMMENT, result)
+        self.assertIn("def test_one(self):", result)
+        self.assertEqual(stripped, {("TestFoo", "test_one")})
+
+    def test_strip_super_call_override(self):
+        """Test stripping removes entire super-call-only override."""
+        code = f"""import unittest
+
+class _BaseTests:
+    def test_foo(self):
+        pass
+
+class TestChild(_BaseTests, unittest.TestCase):
+    # {COMMENT}
+    @unittest.expectedFailure
+    def test_foo(self):
+        return super().test_foo()
+"""
+        result, stripped = strip_reasonless_expected_failures(code)
+        self.assertNotIn("return super().test_foo()", result)
+        self.assertNotIn("@unittest.expectedFailure", result)
+        self.assertEqual(stripped, {("TestChild", "test_foo")})
+        # Base class method still present
+        self.assertIn("class _BaseTests:", result)
+
+    def test_strip_super_call_override_inline_comment(self):
+        """Test stripping super-call override with inline comment format."""
+        code = f"""import unittest
+
+class _BaseTests:
+    def test_foo(self):
+        pass
+
+class TestChild(_BaseTests, unittest.TestCase):
+    @unittest.expectedFailure  # {COMMENT}
+    def test_foo(self):
+        return super().test_foo()
+"""
+        result, stripped = strip_reasonless_expected_failures(code)
+        self.assertNotIn("return super().test_foo()", result)
+        self.assertEqual(stripped, {("TestChild", "test_foo")})
+
+    def test_no_strip_without_comment(self):
+        """Test that markers without COMMENT are NOT stripped."""
+        code = """import unittest
+
+class TestFoo(unittest.TestCase):
+    @unittest.expectedFailure
+    def test_one(self):
+        pass
+"""
+        result, stripped = strip_reasonless_expected_failures(code)
+        self.assertIn("@unittest.expectedFailure", result)
+        self.assertEqual(stripped, set())
+
+    def test_mixed_with_and_without_reason(self):
+        """Test file with both reason-less and reason-ful markers."""
+        code = f"""import unittest
+
+class TestFoo(unittest.TestCase):
+    @unittest.expectedFailure  # {COMMENT}
+    def test_no_reason(self):
+        pass
+
+    @unittest.expectedFailure  # {COMMENT}; has a reason
+    def test_has_reason(self):
+        pass
+"""
+        result, stripped = strip_reasonless_expected_failures(code)
+        # test_no_reason stripped, test_has_reason kept
+        self.assertEqual(stripped, {("TestFoo", "test_no_reason")})
+        self.assertIn("has a reason", result)
+        # Only one expectedFailure should remain
+        self.assertEqual(result.count("@unittest.expectedFailure"), 1)
+
+
+class TestExpandStrippedToChildren(unittest.TestCase):
+    """Tests for _expand_stripped_to_children function."""
+
+    def test_parent_stripped_maps_to_children(self):
+        """When a parent marker is stripped, child failures are returned."""
+        code = """import unittest
+
+class _BaseTests:
+    def test_foo(self):
+        pass
+
+class ChildA(_BaseTests, unittest.TestCase):
+    pass
+
+class ChildB(_BaseTests, unittest.TestCase):
+    pass
+"""
+        stripped = {("_BaseTests", "test_foo")}
+        all_failing = {("ChildA", "test_foo"), ("ChildB", "test_foo")}
+        result = _expand_stripped_to_children(code, stripped, all_failing)
+        self.assertEqual(result, {("ChildA", "test_foo"), ("ChildB", "test_foo")})
+
+    def test_direct_match_still_works(self):
+        """Direct matches (stripped == failing) are included."""
+        code = """import unittest
+
+class TestFoo(unittest.TestCase):
+    def test_one(self):
+        pass
+"""
+        stripped = {("TestFoo", "test_one")}
+        all_failing = {("TestFoo", "test_one")}
+        result = _expand_stripped_to_children(code, stripped, all_failing)
+        self.assertEqual(result, {("TestFoo", "test_one")})
+
+    def test_partial_child_failures(self):
+        """Only failing children are returned, not all inheritors."""
+        code = """import unittest
+
+class _BaseTests:
+    def test_foo(self):
+        pass
+
+class ChildA(_BaseTests, unittest.TestCase):
+    pass
+
+class ChildB(_BaseTests, unittest.TestCase):
+    pass
+"""
+        stripped = {("_BaseTests", "test_foo")}
+        all_failing = {("ChildA", "test_foo")}  # ChildB passes
+        result = _expand_stripped_to_children(code, stripped, all_failing)
+        self.assertEqual(result, {("ChildA", "test_foo")})
+
+    def test_child_with_own_override_excluded(self):
+        """Children that define the method themselves are not matched."""
+        code = """import unittest
+
+class _BaseTests:
+    def test_foo(self):
+        pass
+
+class ChildA(_BaseTests, unittest.TestCase):
+    pass
+
+class ChildB(_BaseTests, unittest.TestCase):
+    def test_foo(self):
+        pass
+"""
+        stripped = {("_BaseTests", "test_foo")}
+        all_failing = {("ChildA", "test_foo"), ("ChildB", "test_foo")}
+        result = _expand_stripped_to_children(code, stripped, all_failing)
+        # ChildA inherits → included; ChildB has own method → excluded
+        self.assertEqual(result, {("ChildA", "test_foo")})
 
 
 class TestApplyTestChanges(unittest.TestCase):
@@ -540,6 +767,138 @@ class TestFoo(unittest.TestCase):
         self.assertIn("@unittest.expectedFailure", result)
         self.assertIn("AssertionError: 1 != 2", result)
         self.assertIn(COMMENT, result)
+
+
+class TestConsolidateToParent(unittest.TestCase):
+    """Tests for consolidation of failures to parent class."""
+
+    def test_all_children_fail_marks_parent(self):
+        """When all subclasses fail an inherited method, mark on parent."""
+        code = """import unittest
+
+class Base:
+    def test_foo(self):
+        pass
+
+class ChildA(Base, unittest.TestCase):
+    pass
+
+class ChildB(Base, unittest.TestCase):
+    pass
+"""
+        failing = {("ChildA", "test_foo"), ("ChildB", "test_foo")}
+        result = apply_test_changes(code, failing, set())
+
+        # Should mark on Base, not create overrides
+        self.assertIn("class Base:", result)
+        self.assertIn("@unittest.expectedFailure", result)
+        self.assertEqual(result.count("@unittest.expectedFailure"), 1)
+        self.assertNotIn("return super()", result)
+
+    def test_partial_children_fail_marks_children(self):
+        """When only some subclasses fail, mark individually."""
+        code = """import unittest
+
+class Base:
+    def test_foo(self):
+        pass
+
+class ChildA(Base, unittest.TestCase):
+    pass
+
+class ChildB(Base, unittest.TestCase):
+    pass
+"""
+        failing = {("ChildA", "test_foo")}
+        result = apply_test_changes(code, failing, set())
+
+        # Should create override in ChildA only
+        self.assertIn("return super().test_foo()", result)
+        self.assertEqual(result.count("@unittest.expectedFailure"), 1)
+
+    def test_consolidate_preserves_error_message(self):
+        """Error message from a child should be transferred to parent."""
+        code = """import unittest
+
+class Base:
+    def test_foo(self):
+        pass
+
+class ChildA(Base, unittest.TestCase):
+    pass
+
+class ChildB(Base, unittest.TestCase):
+    pass
+"""
+        failing = {("ChildA", "test_foo"), ("ChildB", "test_foo")}
+        error_messages = {("ChildA", "test_foo"): "RuntimeError: boom"}
+        result = apply_test_changes(code, failing, set(), error_messages)
+
+        self.assertIn("RuntimeError: boom", result)
+        self.assertEqual(result.count("@unittest.expectedFailure"), 1)
+
+    def test_child_with_own_override_not_consolidated(self):
+        """If a child overrides the method, don't consolidate to parent."""
+        code = """import unittest
+
+class Base:
+    def test_foo(self):
+        pass
+
+class ChildA(Base, unittest.TestCase):
+    pass
+
+class ChildB(Base, unittest.TestCase):
+    def test_foo(self):
+        # own implementation
+        pass
+"""
+        failing = {("ChildA", "test_foo"), ("ChildB", "test_foo")}
+        result = apply_test_changes(code, failing, set())
+
+        # ChildB has its own method, so can't consolidate
+        # Each should be marked individually
+        self.assertEqual(result.count("@unittest.expectedFailure"), 2)
+
+    def test_strip_then_consolidate_restores_parent_marker(self):
+        """End-to-end: strip parent marker → child failures → re-mark on parent."""
+        code = f"""import unittest
+
+class _BaseTests:
+    @unittest.expectedFailure  # {COMMENT}
+    def test_foo(self):
+        pass
+
+class ChildA(_BaseTests, unittest.TestCase):
+    pass
+
+class ChildB(_BaseTests, unittest.TestCase):
+    pass
+"""
+        # Step 1: strip (simulates strip_reasonless_expected_failures)
+        stripped_code, stripped_tests = strip_reasonless_expected_failures(code)
+        self.assertEqual(stripped_tests, {("_BaseTests", "test_foo")})
+
+        # Step 2: simulate test run → all children fail
+        all_failing = {("ChildA", "test_foo"), ("ChildB", "test_foo")}
+        error_messages = {("ChildA", "test_foo"): "RuntimeError: boom"}
+
+        # Step 3: expand stripped to children
+        to_remark = _expand_stripped_to_children(
+            stripped_code, stripped_tests, all_failing
+        )
+        self.assertEqual(to_remark, all_failing)
+
+        # Step 4: apply (consolidation happens inside)
+        result = apply_test_changes(
+            stripped_code, to_remark, set(), error_messages
+        )
+
+        # Should consolidate to parent with error message
+        self.assertIn("@unittest.expectedFailure", result)
+        self.assertIn("RuntimeError: boom", result)
+        self.assertEqual(result.count("@unittest.expectedFailure"), 1)
+        self.assertNotIn("return super()", result)
 
 
 class TestSmartAutoMarkFiltering(unittest.TestCase):
@@ -748,8 +1107,8 @@ class Foo:
 class TestAsyncInheritedOverride(unittest.TestCase):
     """Tests for async inherited method override generation."""
 
-    def test_inherited_async_method_generates_async_override(self):
-        """Test that inherited async methods get async def + await override."""
+    def test_inherited_async_method_marks_parent(self):
+        """Test that inherited async methods are marked on parent when all children fail."""
         code = """import unittest
 
 class BaseTest:
@@ -762,12 +1121,33 @@ class TestChild(BaseTest, unittest.TestCase):
         failing = {("TestChild", "test_async_one")}
         result = apply_test_changes(code, failing, set())
 
+        # Consolidated to parent — no override needed
+        self.assertIn("@unittest.expectedFailure", result)
+        self.assertNotIn("return await super()", result)
+
+    def test_inherited_async_method_generates_override_when_partial(self):
+        """Test that async override is created when only some children fail."""
+        code = """import unittest
+
+class BaseTest:
+    async def test_async_one(self):
+        pass
+
+class ChildA(BaseTest, unittest.TestCase):
+    pass
+
+class ChildB(BaseTest, unittest.TestCase):
+    pass
+"""
+        # Only ChildA fails, ChildB passes
+        failing = {("ChildA", "test_async_one")}
+        result = apply_test_changes(code, failing, set())
+
         self.assertIn("async def test_async_one(self):", result)
         self.assertIn("return await super().test_async_one()", result)
-        self.assertIn("@unittest.expectedFailure", result)
 
-    def test_inherited_sync_method_generates_sync_override(self):
-        """Test that inherited sync methods get sync def override."""
+    def test_inherited_sync_method_marks_parent(self):
+        """Test that inherited sync methods are marked on parent when all children fail."""
         code = """import unittest
 
 class BaseTest:
@@ -780,10 +1160,9 @@ class TestChild(BaseTest, unittest.TestCase):
         failing = {("TestChild", "test_sync_one")}
         result = apply_test_changes(code, failing, set())
 
-        self.assertIn("def test_sync_one(self):", result)
-        self.assertIn("return super().test_sync_one()", result)
-        self.assertNotIn("async def test_sync_one", result)
-        self.assertNotIn("await", result)
+        # Consolidated to parent — no override needed
+        self.assertIn("@unittest.expectedFailure", result)
+        self.assertNotIn("return super()", result)
 
     def test_remove_async_super_call_override(self):
         """Test removing async super call override on unexpected success."""
