@@ -408,6 +408,9 @@ pub(crate) fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
     s: &T,
 ) -> impl Iterator<Item = std::path::PathBuf> + '_ {
     let s = s.as_ref().as_encoded_bytes();
-    s.split(|b| *b == b':')
-        .map(|x| unsafe { std::ffi::OsStr::from_encoded_bytes_unchecked(x) }.to_owned().into())
+    s.split(|b| *b == b':').map(|x| {
+        unsafe { std::ffi::OsStr::from_encoded_bytes_unchecked(x) }
+            .to_owned()
+            .into()
+    })
 }
