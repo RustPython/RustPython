@@ -155,7 +155,6 @@ class _LocaleTests(unittest.TestCase):
         if not tested:
             self.skipTest('no suitable locales')
 
-    @unittest.skipIf(sys.platform in ('darwin', 'win32'), "TODO: RUSTPYTHON thread 'main' (18894384) panicked at crates/stdlib/src/locale.rs:106:14: localeconv always return decodable string: Utf8Error { valid_up_to: 0, error_len: Some(1) }")
     @unittest.skipIf(support.linked_to_musl(), "musl libc issue, bpo-46390")
     def test_lc_numeric_localeconv(self):
         # Test localeconv against known values
@@ -269,7 +268,6 @@ class _LocaleTests(unittest.TestCase):
         if not tested:
             self.skipTest('no suitable locales')
 
-    @unittest.skipIf(sys.platform in ('darwin', 'win32'), "TODO: RUSTPYTHON thread 'main' (18894384) panicked at crates/stdlib/src/locale.rs:106:14: localeconv always return decodable string: Utf8Error { valid_up_to: 0, error_len: Some(1) }")
     def test_float_parsing(self):
         # Bug #1391872: Test whether float parsing is okay on European
         # locales.
