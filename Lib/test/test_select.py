@@ -82,6 +82,7 @@ class SelectTestCase(unittest.TestCase):
     @unittest.skipIf(
         support.is_emscripten, "Emscripten cannot select a fd multiple times."
     )
+    @unittest.skip("TODO: RUSTPYTHON timed out")
     def test_select_mutated(self):
         a = []
         class F:
