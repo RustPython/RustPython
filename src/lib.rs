@@ -238,7 +238,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
             RunMode::Module(_) => env::current_dir()
                 .ok()
                 .and_then(|p| p.to_str().map(|s| s.to_owned())),
-            RunMode::Script(_) | RunMode::InstallPip(_) => None, // handled by run_script
+            RunMode::Script(_) | RunMode::InstallPip(_) | RunMode::CompileOnly(_) => None, // handled by run_script
             RunMode::Repl => Some(String::new()),
         };
 
@@ -287,6 +287,38 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
             run_file(vm, scope.clone(), &script_path)
         }
         RunMode::Repl => Ok(()),
+        RunMode::CompileOnly(files) => {
+            debug!("Compiling {} file(s)", files.len());
+            if files.is_empty() {
+                eprintln!("No files specified for --compile-only");
+                return Ok(());
+            }
+            let mut success = true;
+            for file in files {
+                match std::fs::read_to_string(&file) {
+                    Ok(source) => {
+                        if let Err(err) =
+                            vm.compile(&source, vm::compiler::Mode::Exec, file.clone())
+                        {
+                            eprintln!("Error compiling {file}: {err}");
+                            success = false;
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("Error reading {file}: {err}");
+                        success = false;
+                    }
+                }
+            }
+            if !success {
+                let exit_code = vm.ctx.new_int(1);
+                return Err(vm.new_exception(
+                    vm.ctx.exceptions.system_exit.to_owned(),
+                    vec![exit_code.into()],
+                ));
+            }
+            Ok(())
+        }
     };
     let result = if is_repl || vm.state.config.settings.inspect {
         shell::run_shell(vm, scope)
