@@ -333,7 +333,7 @@ impl<T> Pointers<T> {
         }
     }
 
-    const fn get_prev(&self) -> Option<NonNull<T>> {
+    pub const fn get_prev(&self) -> Option<NonNull<T>> {
         // SAFETY: prev is the first field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
@@ -341,7 +341,7 @@ impl<T> Pointers<T> {
             ptr::read(prev)
         }
     }
-    const fn get_next(&self) -> Option<NonNull<T>> {
+    pub const fn get_next(&self) -> Option<NonNull<T>> {
         // SAFETY: next is the second field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
@@ -351,7 +351,7 @@ impl<T> Pointers<T> {
         }
     }
 
-    const fn set_prev(&mut self, value: Option<NonNull<T>>) {
+    pub const fn set_prev(&mut self, value: Option<NonNull<T>>) {
         // SAFETY: prev is the first field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
@@ -359,7 +359,7 @@ impl<T> Pointers<T> {
             ptr::write(prev, value);
         }
     }
-    const fn set_next(&mut self, value: Option<NonNull<T>>) {
+    pub const fn set_next(&mut self, value: Option<NonNull<T>>) {
         // SAFETY: next is the second field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();

@@ -1079,7 +1079,6 @@ class SubclassableWeakrefTestCase(TestBase):
         self.assertIsNone(mr())
         self.assertTrue(mr.called)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_subclass_refs_dont_replace_standard_refs(self):
         class MyRef(weakref.ref):
             pass

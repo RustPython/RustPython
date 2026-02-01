@@ -19,9 +19,9 @@ use crate::object::traverse_object::PyObjVTable;
 use crate::{
     builtins::{PyDictRef, PyType, PyTypeRef},
     common::{
-        atomic::{OncePtr, PyAtomic, Radium},
-        linked_list::{Link, LinkedList, Pointers},
-        lock::{PyMutex, PyMutexGuard, PyRwLock},
+        atomic::{Ordering, PyAtomic, Radium},
+        linked_list::{Link, Pointers},
+        lock::PyRwLock,
         refcount::RefCount,
     },
     vm::VirtualMachine,
@@ -165,8 +165,61 @@ unsafe impl Traverse for PyObject {
     }
 }
 
+// === Stripe lock for weakref list protection (WEAKREF_LIST_LOCK) ===
+
+#[cfg(feature = "threading")]
+mod weakref_lock {
+    use core::sync::atomic::{AtomicU8, Ordering};
+
+    const NUM_WEAKREF_LOCKS: usize = 64;
+
+    static LOCKS: [AtomicU8; NUM_WEAKREF_LOCKS] = [const { AtomicU8::new(0) }; NUM_WEAKREF_LOCKS];
+
+    pub(super) struct WeakrefLockGuard {
+        idx: usize,
+    }
+
+    impl Drop for WeakrefLockGuard {
+        fn drop(&mut self) {
+            LOCKS[self.idx].store(0, Ordering::Release);
+        }
+    }
+
+    pub(super) fn lock(addr: usize) -> WeakrefLockGuard {
+        let idx = (addr >> 4) % NUM_WEAKREF_LOCKS;
+        loop {
+            if LOCKS[idx]
+                .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
+                return WeakrefLockGuard { idx };
+            }
+            core::hint::spin_loop();
+        }
+    }
+}
+
+#[cfg(not(feature = "threading"))]
+mod weakref_lock {
+    pub(super) struct WeakrefLockGuard;
+
+    impl Drop for WeakrefLockGuard {
+        fn drop(&mut self) {}
+    }
+
+    pub(super) fn lock(_addr: usize) -> WeakrefLockGuard {
+        WeakrefLockGuard
+    }
+}
+
+// === WeakRefList: inline on every object (tp_weaklist) ===
+
 pub(super) struct WeakRefList {
-    inner: OncePtr<PyMutex<WeakListInner>>,
+    /// Head of the intrusive doubly-linked list of weakrefs.
+    head: PyAtomic<*mut Py<PyWeak>>,
+    /// Cached generic weakref (no callback, exact weakref type).
+    /// Matches try_reuse_basic_ref in weakrefobject.c.
+    generic: PyAtomic<*mut Py<PyWeak>>,
 }
 
 impl fmt::Debug for WeakRefList {
@@ -175,33 +228,43 @@ impl fmt::Debug for WeakRefList {
     }
 }
 
-struct WeakListInner {
-    list: LinkedList<WeakLink, Py<PyWeak>>,
-    generic_weakref: Option<NonNull<Py<PyWeak>>>,
-    obj: Option<NonNull<PyObject>>,
-    // one for each live PyWeak with a reference to this, + 1 for the referent object if it's not dead
-    ref_count: usize,
-}
+/// Unlink a node from the weakref list. Must be called under stripe lock.
+///
+/// # Safety
+/// `node` must be a valid pointer to a node currently in the list owned by `wrl`.
+unsafe fn unlink_weakref(wrl: &WeakRefList, node: NonNull<Py<PyWeak>>) {
+    unsafe {
+        let mut ptrs = WeakLink::pointers(node);
+        let prev = ptrs.as_ref().get_prev();
+        let next = ptrs.as_ref().get_next();
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
-        unsafe impl Send for WeakListInner {}
-        unsafe impl Sync for WeakListInner {}
+        if let Some(prev) = prev {
+            WeakLink::pointers(prev).as_mut().set_next(next);
+        } else {
+            // node is the head
+            wrl.head.store(
+                next.map_or(ptr::null_mut(), |p| p.as_ptr()),
+                Ordering::Relaxed,
+            );
+        }
+        if let Some(next) = next {
+            WeakLink::pointers(next).as_mut().set_prev(prev);
+        }
+
+        ptrs.as_mut().set_prev(None);
+        ptrs.as_mut().set_next(None);
     }
 }
 
 impl WeakRefList {
     pub fn new() -> Self {
         Self {
-            inner: OncePtr::new(),
+            head: Radium::new(ptr::null_mut()),
+            generic: Radium::new(ptr::null_mut()),
         }
     }
 
-    /// returns None if there have never been any weakrefs in this list
-    fn try_lock(&self) -> Option<PyMutexGuard<'_, WeakListInner>> {
-        self.inner.get().map(|mu| unsafe { mu.as_ref().lock() })
-    }
-
+    /// get_or_create_weakref
     fn add(
         &self,
         obj: &PyObject,
@@ -211,125 +274,150 @@ impl WeakRefList {
         dict: Option<PyDictRef>,
     ) -> PyRef<PyWeak> {
         let is_generic = cls_is_weakref && callback.is_none();
-        let inner_ptr = self.inner.get_or_init(|| {
-            Box::new(PyMutex::new(WeakListInner {
-                list: LinkedList::default(),
-                generic_weakref: None,
-                obj: Some(NonNull::from(obj)),
-                ref_count: 1,
-            }))
-        });
-        let mut inner = unsafe { inner_ptr.as_ref().lock() };
-        // If obj was cleared but object is still alive (e.g., new weakref
-        // created during __del__), restore the obj pointer
-        if inner.obj.is_none() {
-            inner.obj = Some(NonNull::from(obj));
-            inner.ref_count += 1;
-        }
-        if is_generic && let Some(generic_weakref) = inner.generic_weakref {
-            let generic_weakref = unsafe { generic_weakref.as_ref() };
-            if generic_weakref.0.ref_count.get() != 0 {
-                return generic_weakref.to_owned();
+        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
+
+        // try_reuse_basic_ref: reuse cached generic weakref
+        if is_generic {
+            let generic_ptr = self.generic.load(Ordering::Relaxed);
+            if !generic_ptr.is_null() {
+                let generic = unsafe { &*generic_ptr };
+                if generic.0.ref_count.safe_inc() {
+                    return unsafe { PyRef::from_raw(generic_ptr) };
+                }
             }
         }
-        let obj = PyWeak {
+
+        // Allocate new PyWeak with wr_object pointing to referent
+        let weak_payload = PyWeak {
             pointers: Pointers::new(),
-            parent: inner_ptr,
+            wr_object: Radium::new(obj as *const PyObject as *mut PyObject),
             callback: UnsafeCell::new(callback),
             hash: Radium::new(crate::common::hash::SENTINEL),
         };
-        let weak = PyRef::new_ref(obj, cls, dict);
-        // SAFETY: we don't actually own the PyObjectWeak's inside `list`, and every time we take
-        // one out of the list we immediately wrap it in ManuallyDrop or forget it
-        inner.list.push_front(unsafe { ptr::read(&weak) });
-        inner.ref_count += 1;
-        if is_generic {
-            inner.generic_weakref = Some(NonNull::from(&*weak));
+        let weak = PyRef::new_ref(weak_payload, cls, dict);
+
+        // Insert into linked list under stripe lock
+        let node_ptr = NonNull::from(&*weak);
+        unsafe {
+            let mut ptrs = WeakLink::pointers(node_ptr);
+            if is_generic {
+                // Generic ref goes to head (insert_head for basic ref)
+                let old_head = self.head.load(Ordering::Relaxed);
+                ptrs.as_mut().set_next(NonNull::new(old_head));
+                ptrs.as_mut().set_prev(None);
+                if let Some(old_head) = NonNull::new(old_head) {
+                    WeakLink::pointers(old_head)
+                        .as_mut()
+                        .set_prev(Some(node_ptr));
+                }
+                self.head.store(node_ptr.as_ptr(), Ordering::Relaxed);
+                self.generic.store(node_ptr.as_ptr(), Ordering::Relaxed);
+            } else {
+                // Non-generic refs go after generic ref (insert_after)
+                let generic_ptr = self.generic.load(Ordering::Relaxed);
+                if let Some(after) = NonNull::new(generic_ptr) {
+                    let after_next = WeakLink::pointers(after).as_ref().get_next();
+                    ptrs.as_mut().set_prev(Some(after));
+                    ptrs.as_mut().set_next(after_next);
+                    WeakLink::pointers(after).as_mut().set_next(Some(node_ptr));
+                    if let Some(next) = after_next {
+                        WeakLink::pointers(next).as_mut().set_prev(Some(node_ptr));
+                    }
+                } else {
+                    // No generic ref; insert at head
+                    let old_head = self.head.load(Ordering::Relaxed);
+                    ptrs.as_mut().set_next(NonNull::new(old_head));
+                    ptrs.as_mut().set_prev(None);
+                    if let Some(old_head) = NonNull::new(old_head) {
+                        WeakLink::pointers(old_head)
+                            .as_mut()
+                            .set_prev(Some(node_ptr));
+                    }
+                    self.head.store(node_ptr.as_ptr(), Ordering::Relaxed);
+                }
+            }
         }
+
         weak
     }
 
-    fn clear(&self) {
-        let to_dealloc = {
-            let ptr = match self.inner.get() {
-                Some(ptr) => ptr,
-                None => return,
-            };
-            let mut inner = unsafe { ptr.as_ref().lock() };
-            inner.obj = None;
-            // TODO: can be an arrayvec
-            let mut v = Vec::with_capacity(16);
-            loop {
-                let inner2 = &mut *inner;
-                let iter = inner2
-                    .list
-                    .drain_filter(|_| true)
-                    .filter_map(|wr| {
-                        // we don't have actual ownership of the reference counts in the list.
-                        // but, now we do want ownership (and so incref these *while the lock
-                        // is held*) to avoid weird things if PyWeakObj::drop happens after
-                        // this but before we reach the loop body below
-                        let wr = ManuallyDrop::new(wr);
+    /// PyObject_ClearWeakRefs: clear all weakrefs when the referent dies.
+    fn clear(&self, obj: &PyObject) {
+        let obj_addr = obj as *const PyObject as usize;
+        let mut to_callback: Vec<(PyRef<PyWeak>, PyObjectRef)> = Vec::new();
 
-                        if Some(NonNull::from(&**wr)) == inner2.generic_weakref {
-                            inner2.generic_weakref = None
-                        }
+        {
+            let _lock = weakref_lock::lock(obj_addr);
 
-                        // if strong_count == 0 there's some reentrancy going on. we don't
-                        // want to call the callback
-                        (wr.as_object().strong_count() > 0).then(|| (*wr).clone())
-                    })
-                    .take(16);
-                v.extend(iter);
-                if v.is_empty() {
-                    break;
+            // Walk the list, collecting weakrefs with callbacks
+            let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
+            while let Some(node) = current {
+                let next = unsafe { WeakLink::pointers(node).as_ref().get_next() };
+
+                let wr = unsafe { node.as_ref() };
+
+                // Set wr_object to null (marks weakref as dead)
+                wr.0.payload
+                    .wr_object
+                    .store(ptr::null_mut(), Ordering::Relaxed);
+
+                // Unlink from list
+                unsafe {
+                    let mut ptrs = WeakLink::pointers(node);
+                    ptrs.as_mut().set_prev(None);
+                    ptrs.as_mut().set_next(None);
                 }
-                PyMutexGuard::unlocked(&mut inner, || {
-                    for wr in v.drain(..) {
-                        let cb = unsafe { wr.callback.get().replace(None) };
-                        if let Some(cb) = cb {
-                            crate::vm::thread::with_vm(&cb, |vm| {
-                                // TODO: handle unraisable exception
-                                let _ = cb.call((wr.clone(),), vm);
-                            });
-                        }
+
+                // Collect callback if weakref is still alive (strong_count > 0)
+                if wr.0.ref_count.get() > 0 {
+                    let cb = unsafe { wr.0.payload.callback.get().replace(None) };
+                    if let Some(cb) = cb {
+                        to_callback.push((wr.to_owned(), cb));
                     }
-                })
+                }
+
+                current = next;
             }
-            inner.ref_count -= 1;
-            (inner.ref_count == 0).then_some(ptr)
-        };
-        if let Some(ptr) = to_dealloc {
-            unsafe { Self::dealloc(ptr) }
+
+            self.head.store(ptr::null_mut(), Ordering::Relaxed);
+            self.generic.store(ptr::null_mut(), Ordering::Relaxed);
+        }
+
+        // Call callbacks without holding the lock
+        for (wr, cb) in to_callback {
+            crate::vm::thread::with_vm(&cb, |vm| {
+                // TODO: handle unraisable exception
+                let wr_obj: PyObjectRef = wr.clone().into();
+                let _ = cb.call((wr_obj,), vm);
+            });
         }
     }
 
-    fn count(&self) -> usize {
-        self.try_lock()
-            // we assume the object is still alive (and this is only
-            // called from PyObject::weak_count so it should be)
-            .map(|inner| inner.ref_count - 1)
-            .unwrap_or(0)
+    fn count(&self, obj: &PyObject) -> usize {
+        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
+        let mut count = 0usize;
+        let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
+        while let Some(node) = current {
+            if unsafe { node.as_ref() }.0.ref_count.get() > 0 {
+                count += 1;
+            }
+            current = unsafe { WeakLink::pointers(node).as_ref().get_next() };
+        }
+        count
     }
 
-    unsafe fn dealloc(ptr: NonNull<PyMutex<WeakListInner>>) {
-        drop(unsafe { Box::from_raw(ptr.as_ptr()) });
-    }
-
-    fn get_weak_references(&self) -> Vec<PyRef<PyWeak>> {
-        let inner = match self.try_lock() {
-            Some(inner) => inner,
-            None => return vec![],
-        };
-        let mut v = Vec::with_capacity(inner.ref_count - 1);
-        v.extend(inner.iter().map(|wr| wr.to_owned()));
+    fn get_weak_references(&self, obj: &PyObject) -> Vec<PyRef<PyWeak>> {
+        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
+        let mut v = Vec::new();
+        let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
+        while let Some(node) = current {
+            let wr = unsafe { node.as_ref() };
+            if wr.0.ref_count.get() > 0 {
+                v.push(wr.to_owned());
+            }
+            current = unsafe { WeakLink::pointers(node).as_ref().get_next() };
+        }
         v
-    }
-}
-
-impl WeakListInner {
-    fn iter(&self) -> impl Iterator<Item = &Py<PyWeak>> {
-        self.list.iter().filter(|wr| wr.0.ref_count.get() > 0)
     }
 }
 
@@ -352,7 +440,6 @@ unsafe impl Link for WeakLink {
 
     #[inline(always)]
     unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self::Handle {
-        // SAFETY: requirements forwarded from caller
         unsafe { PyRef::from_raw(ptr.as_ptr()) }
     }
 
@@ -363,12 +450,15 @@ unsafe impl Link for WeakLink {
     }
 }
 
+/// PyWeakReference: each weakref holds a direct pointer to its referent.
 #[pyclass(name = "weakref", module = false)]
 #[derive(Debug)]
 pub struct PyWeak {
     pointers: Pointers<Py<PyWeak>>,
-    parent: NonNull<PyMutex<WeakListInner>>,
-    // this is treated as part of parent's mutex - you must hold that lock to access it
+    /// Direct pointer to the referent object, null when dead.
+    /// Equivalent to wr_object in PyWeakReference.
+    wr_object: PyAtomic<*mut PyObject>,
+    /// Protected by stripe lock (keyed on wr_object address).
     callback: UnsafeCell<Option<PyObjectRef>>,
     pub(crate) hash: PyAtomic<crate::common::hash::PyHash>,
 }
@@ -382,43 +472,69 @@ cfg_if::cfg_if! {
 }
 
 impl PyWeak {
+    /// _PyWeakref_GET_REF: attempt to upgrade the weakref to a strong reference.
     pub(crate) fn upgrade(&self) -> Option<PyObjectRef> {
-        let guard = unsafe { self.parent.as_ref().lock() };
-        let obj_ptr = guard.obj?;
+        let obj_ptr = self.wr_object.load(Ordering::Acquire);
+        if obj_ptr.is_null() {
+            return None;
+        }
+
+        let _lock = weakref_lock::lock(obj_ptr as usize);
+
+        // Double-check under lock (clear may have run between our check and lock)
+        let obj_ptr = self.wr_object.load(Ordering::Relaxed);
+        if obj_ptr.is_null() {
+            return None;
+        }
+
         unsafe {
-            if !obj_ptr.as_ref().0.ref_count.safe_inc() {
+            if !(*obj_ptr).0.ref_count.safe_inc() {
                 return None;
             }
-            Some(PyObjectRef::from_raw(obj_ptr))
+            Some(PyObjectRef::from_raw(NonNull::new_unchecked(obj_ptr)))
         }
     }
 
     pub(crate) fn is_dead(&self) -> bool {
-        let guard = unsafe { self.parent.as_ref().lock() };
-        guard.obj.is_none()
+        self.wr_object.load(Ordering::Acquire).is_null()
     }
 
+    /// weakref_dealloc: remove from list if still linked.
     fn drop_inner(&self) {
-        let dealloc = {
-            let mut guard = unsafe { self.parent.as_ref().lock() };
-            let offset = std::mem::offset_of!(PyInner<Self>, payload);
-            let py_inner = (self as *const Self)
-                .cast::<u8>()
-                .wrapping_sub(offset)
-                .cast::<PyInner<Self>>();
-            let node_ptr = unsafe { NonNull::new_unchecked(py_inner as *mut Py<Self>) };
-            // the list doesn't have ownership over its PyRef<PyWeak>! we're being dropped
-            // right now so that should be obvious!!
-            core::mem::forget(unsafe { guard.list.remove(node_ptr) });
-            guard.ref_count -= 1;
-            if Some(node_ptr) == guard.generic_weakref {
-                guard.generic_weakref = None;
-            }
-            guard.ref_count == 0
-        };
-        if dealloc {
-            unsafe { WeakRefList::dealloc(self.parent) }
+        let obj_ptr = self.wr_object.load(Ordering::Acquire);
+        if obj_ptr.is_null() {
+            return; // Already cleared by WeakRefList::clear()
         }
+
+        let _lock = weakref_lock::lock(obj_ptr as usize);
+
+        // Double-check under lock
+        let obj_ptr = self.wr_object.load(Ordering::Relaxed);
+        if obj_ptr.is_null() {
+            return; // Cleared between our check and lock acquisition
+        }
+
+        let obj = unsafe { &*obj_ptr };
+        let wrl = &obj.0.weak_list;
+
+        // Compute our Py<PyWeak> node pointer from payload address
+        let offset = std::mem::offset_of!(PyInner<Self>, payload);
+        let py_inner = (self as *const Self)
+            .cast::<u8>()
+            .wrapping_sub(offset)
+            .cast::<PyInner<Self>>();
+        let node_ptr = unsafe { NonNull::new_unchecked(py_inner as *mut Py<Self>) };
+
+        // Unlink from list
+        unsafe { unlink_weakref(wrl, node_ptr) };
+
+        // Update generic cache if this was it
+        if wrl.generic.load(Ordering::Relaxed) == node_ptr.as_ptr() {
+            wrl.generic.store(ptr::null_mut(), Ordering::Relaxed);
+        }
+
+        // Mark as dead
+        self.wr_object.store(ptr::null_mut(), Ordering::Relaxed);
     }
 }
 
@@ -426,7 +542,6 @@ impl Drop for PyWeak {
     #[inline(always)]
     fn drop(&mut self) {
         // we do NOT have actual exclusive access!
-        // no clue if doing this actually reduces chance of UB
         let me: &Self = self;
         me.drop_inner();
     }
@@ -664,7 +779,8 @@ impl PyObject {
     }
 
     pub fn get_weak_references(&self) -> Option<Vec<PyRef<PyWeak>>> {
-        self.weak_ref_list().map(|wrl| wrl.get_weak_references())
+        self.weak_ref_list()
+            .map(|wrl| wrl.get_weak_references(self))
     }
 
     #[deprecated(note = "use downcastable instead")]
@@ -806,7 +922,7 @@ impl PyObject {
 
     #[inline]
     pub fn weak_count(&self) -> Option<usize> {
-        self.weak_ref_list().map(|wrl| wrl.count())
+        self.weak_ref_list().map(|wrl| wrl.count(self))
     }
 
     #[inline(always)]
@@ -818,17 +934,17 @@ impl PyObject {
     /// _PyGC_FINALIZED in Py_GIL_DISABLED mode.
     #[inline]
     pub fn gc_finalized(&self) -> bool {
-        use core::sync::atomic::Ordering::Relaxed;
-        GcBits::from_bits_retain(self.0.gc_bits.load(Relaxed)).contains(GcBits::FINALIZED)
+        GcBits::from_bits_retain(self.0.gc_bits.load(Ordering::Relaxed)).contains(GcBits::FINALIZED)
     }
 
     /// Mark the object as finalized. Should be called before __del__.
     /// _PyGC_SET_FINALIZED in Py_GIL_DISABLED mode.
     #[inline]
     fn set_gc_finalized(&self) {
-        use core::sync::atomic::Ordering::Relaxed;
         // Atomic RMW to avoid clobbering other concurrent bit updates.
-        self.0.gc_bits.fetch_or(GcBits::FINALIZED.bits(), Relaxed);
+        self.0
+            .gc_bits
+            .fetch_or(GcBits::FINALIZED.bits(), Ordering::Relaxed);
     }
 
     #[inline(always)] // the outer function is never inlined
@@ -877,7 +993,7 @@ impl PyObject {
             call_slot_del(self, slot_del)?;
         }
         if let Some(wrl) = self.weak_ref_list() {
-            wrl.clear();
+            wrl.clear(self);
         }
 
         Ok(())
