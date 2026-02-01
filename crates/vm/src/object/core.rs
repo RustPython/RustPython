@@ -933,7 +933,7 @@ impl PyObject {
     /// Check if the object has been finalized (__del__ already called).
     /// _PyGC_FINALIZED in Py_GIL_DISABLED mode.
     #[inline]
-    pub fn gc_finalized(&self) -> bool {
+    pub(crate) fn gc_finalized(&self) -> bool {
         GcBits::from_bits_retain(self.0.gc_bits.load(Ordering::Relaxed)).contains(GcBits::FINALIZED)
     }
 

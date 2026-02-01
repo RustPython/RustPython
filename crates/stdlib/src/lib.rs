@@ -15,13 +15,11 @@ mod _asyncio;
 pub mod array;
 mod binascii;
 mod bisect;
+mod bz2;
 mod cmath;
+mod compression; // internal module
 mod contextvars;
 mod csv;
-mod gc;
-
-mod bz2;
-mod compression; // internal module
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod lzma;
 mod zlib;
@@ -126,7 +124,6 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         faulthandler::module_def(ctx),
         #[cfg(any(unix, target_os = "wasi"))]
         fcntl::module_def(ctx),
-        gc::module_def(ctx),
         #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
         grp::module_def(ctx),
         hashlib::module_def(ctx),

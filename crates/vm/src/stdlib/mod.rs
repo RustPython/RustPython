@@ -7,6 +7,7 @@ mod codecs;
 mod collections;
 pub mod errno;
 mod functools;
+mod gc;
 mod imp;
 pub mod io;
 mod itertools;
@@ -84,6 +85,7 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         ctypes::module_def(ctx),
         errno::module_def(ctx),
         functools::module_def(ctx),
+        gc::module_def(ctx),
         imp::module_def(ctx),
         io::module_def(ctx),
         itertools::module_def(ctx),
