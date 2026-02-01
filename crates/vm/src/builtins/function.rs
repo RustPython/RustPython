@@ -529,13 +529,22 @@ impl Py<PyFunction> {
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
         match (is_gen, is_coro) {
             (true, false) => {
-                Ok(PyGenerator::new(frame, self.__name__(), self.__qualname__()).into_pyobject(vm))
+                let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
+                    .into_pyobject(vm);
+                frame.set_generator(&obj);
+                Ok(obj)
             }
             (false, true) => {
-                Ok(PyCoroutine::new(frame, self.__name__(), self.__qualname__()).into_pyobject(vm))
+                let obj = PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
+                    .into_pyobject(vm);
+                frame.set_generator(&obj);
+                Ok(obj)
             }
             (true, true) => {
-                Ok(PyAsyncGen::new(frame, self.__name__(), self.__qualname__()).into_pyobject(vm))
+                let obj = PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
+                    .into_pyobject(vm);
+                frame.set_generator(&obj);
+                Ok(obj)
             }
             (false, false) => vm.run_frame(frame),
         }

@@ -458,24 +458,18 @@ class BaseEventLoop(events.AbstractEventLoop):
         """Create a Future object attached to the loop."""
         return futures.Future(loop=self)
 
-    def create_task(self, coro, *, name=None, context=None, **kwargs):
-        """Schedule a coroutine object.
+    def create_task(self, coro, **kwargs):
+        """Schedule or begin executing a coroutine object.
 
         Return a task object.
         """
         self._check_closed()
         if self._task_factory is not None:
-            if context is not None:
-                kwargs["context"] = context
+            return self._task_factory(self, coro, **kwargs)
 
-            task = self._task_factory(self, coro, **kwargs)
-            task.set_name(name)
-
-        else:
-            task = tasks.Task(coro, loop=self, name=name, context=context, **kwargs)
-            if task._source_traceback:
-                del task._source_traceback[-1]
-
+        task = tasks.Task(coro, loop=self, **kwargs)
+        if task._source_traceback:
+            del task._source_traceback[-1]
         try:
             return task
         finally:
@@ -841,7 +835,7 @@ class BaseEventLoop(events.AbstractEventLoop):
 
     def _check_callback(self, callback, method):
         if (coroutines.iscoroutine(callback) or
-                coroutines.iscoroutinefunction(callback)):
+                coroutines._iscoroutinefunction(callback)):
             raise TypeError(
                 f"coroutines cannot be used with {method}()")
         if not callable(callback):
@@ -878,7 +872,10 @@ class BaseEventLoop(events.AbstractEventLoop):
         self._check_closed()
         if self._debug:
             self._check_callback(callback, 'call_soon_threadsafe')
-        handle = self._call_soon(callback, args, context)
+        handle = events._ThreadSafeHandle(callback, args, self, context)
+        self._ready.append(handle)
+        if handle._source_traceback:
+            del handle._source_traceback[-1]
         if handle._source_traceback:
             del handle._source_traceback[-1]
         self._write_to_self()
@@ -1677,8 +1674,7 @@ class BaseEventLoop(events.AbstractEventLoop):
             raise ValueError(
                 'ssl_shutdown_timeout is only meaningful with ssl')
 
-        if sock is not None:
-            _check_ssl_socket(sock)
+        _check_ssl_socket(sock)
 
         transport, protocol = await self._create_connection_transport(
             sock, protocol_factory, ssl, '', server_side=True,

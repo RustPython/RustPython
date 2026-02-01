@@ -30,7 +30,7 @@ BUF_MULTIPLIER = 1024 if not MACOS else 64
 
 
 def tearDownModule():
-    asyncio.set_event_loop_policy(None)
+    asyncio.events._set_event_loop_policy(None)
 
 
 class MyBaseProto(asyncio.Protocol):
@@ -741,8 +741,7 @@ class TestSSL(test_utils.TestCase):
                 asyncio.wait_for(client(srv.addr),
                                  timeout=support.SHORT_TIMEOUT))
 
-    # TODO: RUSTPYTHON - gc.collect() doesn't release SSLContext properly
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_create_connection_memory_leak(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -1624,8 +1623,7 @@ class TestSSL(test_utils.TestCase):
             else:
                 self.fail('Unexpected ResourceWarning: {}'.format(cm.warning))
 
-    # TODO: RUSTPYTHON - gc.collect() doesn't release SSLContext properly
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_handshake_timeout_handler_leak(self):
         s = socket.socket(socket.AF_INET)
         s.bind(('127.0.0.1', 0))
@@ -1651,8 +1649,7 @@ class TestSSL(test_utils.TestCase):
         # SSLProtocol should be DECREF to 0
         self.assertIsNone(ctx())
 
-    # TODO: RUSTPYTHON - gc.collect() doesn't release SSLContext properly
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_shutdown_timeout_handler_leak(self):
         loop = self.loop
 
@@ -1857,15 +1854,13 @@ class TestThreadedServer(SocketThread):
                     pass
         finally:
             super().stop()
-
-    def run(self):
-        try:
-            with self._sock:
-                self._sock.setblocking(False)
-                self._run()
-        finally:
+            self._sock.close()
             self._s1.close()
             self._s2.close()
+
+    def run(self):
+        self._sock.setblocking(False)
+        self._run()
 
     def _run(self):
         while self._active:

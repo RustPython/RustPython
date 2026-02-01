@@ -2274,14 +2274,12 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, group=65535)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; observed gids do not match expected gids
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups(self):
         gid = os.getegid()
         group_list = [65534 if gid != 65534 else 65533]
         self._test_extra_groups_impl(gid=gid, group_list=group_list)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups_empty_list(self):
         self._test_extra_groups_impl(gid=os.getegid(), group_list=[])

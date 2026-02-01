@@ -15,6 +15,7 @@ use crate::{
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{ArgMapping, Either, FuncArgs},
+    object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
@@ -85,6 +86,10 @@ pub struct Frame {
     pub trace_lines: PyMutex<bool>,
     pub trace_opcodes: PyMutex<bool>,
     pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
+    /// Back-reference to owning generator/coroutine/async generator.
+    /// Borrowed reference (not ref-counted) to avoid Generator↔Frame cycle.
+    /// Cleared by the generator's Drop impl.
+    pub generator: PyAtomicBorrow,
 }
 
 impl PyPayload for Frame {
@@ -112,6 +117,7 @@ unsafe impl Traverse for Frame {
         self.trace.traverse(tracer_fn);
         self.state.traverse(tracer_fn);
         self.temporary_refs.traverse(tracer_fn);
+        // generator is a borrowed reference, not traversed
     }
 }
 
@@ -172,7 +178,19 @@ impl Frame {
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
+            generator: PyAtomicBorrow::new(),
         }
+    }
+
+    /// Store a borrowed back-reference to the owning generator/coroutine.
+    /// The caller must ensure the generator outlives the frame.
+    pub fn set_generator(&self, generator: &PyObject) {
+        self.generator.store(generator);
+    }
+
+    /// Clear the generator back-reference. Called when the generator is finalized.
+    pub fn clear_generator(&self) {
+        self.generator.clear();
     }
 
     pub fn current_location(&self) -> SourceLocation {
@@ -276,7 +294,21 @@ impl Py<Frame> {
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        self.with_exec(|exec| exec.yield_from_target().map(PyObject::to_owned))
+        // Use try_lock to avoid deadlock when the frame is currently executing.
+        // A running coroutine has no yield-from target.
+        let mut state = self.state.try_lock()?;
+        let exec = ExecutingFrame {
+            code: &self.code,
+            fastlocals: &self.fastlocals,
+            cells_frees: &self.cells_frees,
+            locals: &self.locals,
+            globals: &self.globals,
+            builtins: &self.builtins,
+            lasti: &self.lasti,
+            object: self,
+            state: &mut state,
+        };
+        exec.yield_from_target().map(PyObject::to_owned)
     }
 
     pub fn is_internal_frame(&self) -> bool {

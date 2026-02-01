@@ -180,6 +180,7 @@ impl PyRef<PyAsyncGen> {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult<PyAsyncGenAThrow> {
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         PyAsyncGen::init_hooks(&self, vm)?;
         Ok(PyAsyncGenAThrow {
             ag: self,
@@ -328,7 +329,7 @@ impl PyAsyncGenASend {
         let res = self.ag.inner.send(self.ag.as_object(), val, vm);
         let res = PyAsyncGenWrappedValue::unbox(&self.ag, res, vm);
         if res.is_err() {
-            self.close();
+            self.set_closed();
         }
         res
     }
@@ -341,8 +342,23 @@ impl PyAsyncGenASend {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if let AwaitableState::Closed = self.state.load() {
-            return Err(vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()"));
+        match self.state.load() {
+            AwaitableState::Closed => {
+                return Err(
+                    vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()")
+                );
+            }
+            AwaitableState::Init => {
+                if self.ag.running_async.load() {
+                    self.state.store(AwaitableState::Closed);
+                    return Err(
+                        vm.new_runtime_error("anext(): asynchronous generator is already running")
+                    );
+                }
+                self.ag.running_async.store(true);
+                self.state.store(AwaitableState::Iter);
+            }
+            AwaitableState::Iter => {}
         }
 
         warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
@@ -355,13 +371,36 @@ impl PyAsyncGenASend {
         );
         let res = PyAsyncGenWrappedValue::unbox(&self.ag, res, vm);
         if res.is_err() {
-            self.close();
+            self.set_closed();
         }
         res
     }
 
     #[pymethod]
-    fn close(&self) {
+    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if matches!(self.state.load(), AwaitableState::Closed) {
+            return Ok(());
+        }
+        let result = self.throw(
+            vm.ctx.exceptions.generator_exit.to_owned().into(),
+            OptionalArg::Missing,
+            OptionalArg::Missing,
+            vm,
+        );
+        match result {
+            Ok(_) => Err(vm.new_runtime_error("coroutine ignored GeneratorExit")),
+            Err(e)
+                if e.fast_isinstance(vm.ctx.exceptions.stop_iteration)
+                    || e.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
+                    || e.fast_isinstance(vm.ctx.exceptions.generator_exit) =>
+            {
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn set_closed(&self) {
         self.state.store(AwaitableState::Closed);
     }
 }
@@ -472,6 +511,30 @@ impl PyAsyncGenAThrow {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
+        match self.state.load() {
+            AwaitableState::Closed => {
+                return Err(vm.new_runtime_error("cannot reuse already awaited aclose()/athrow()"));
+            }
+            AwaitableState::Init => {
+                if self.ag.running_async.load() {
+                    self.state.store(AwaitableState::Closed);
+                    let msg = if self.aclose {
+                        "aclose(): asynchronous generator is already running"
+                    } else {
+                        "athrow(): asynchronous generator is already running"
+                    };
+                    return Err(vm.new_runtime_error(msg.to_owned()));
+                }
+                if self.ag.inner.closed() {
+                    self.state.store(AwaitableState::Closed);
+                    return Err(vm.new_stop_iteration(None));
+                }
+                self.ag.running_async.store(true);
+                self.state.store(AwaitableState::Iter);
+            }
+            AwaitableState::Iter => {}
+        }
+
         warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
         let ret = self.ag.inner.throw(
             self.ag.as_object(),
@@ -493,8 +556,27 @@ impl PyAsyncGenAThrow {
     }
 
     #[pymethod]
-    fn close(&self) {
-        self.state.store(AwaitableState::Closed);
+    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if matches!(self.state.load(), AwaitableState::Closed) {
+            return Ok(());
+        }
+        let result = self.throw(
+            vm.ctx.exceptions.generator_exit.to_owned().into(),
+            OptionalArg::Missing,
+            OptionalArg::Missing,
+            vm,
+        );
+        match result {
+            Ok(_) => Err(vm.new_runtime_error("coroutine ignored GeneratorExit")),
+            Err(e)
+                if e.fast_isinstance(vm.ctx.exceptions.stop_iteration)
+                    || e.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
+                    || e.fast_isinstance(vm.ctx.exceptions.generator_exit) =>
+            {
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     fn ignored_close(&self, res: &PyResult<PyIterReturn>) -> bool {
@@ -614,7 +696,7 @@ impl PyAnextAwaitable {
                 await_method?.call((), vm)?
             } else {
                 return Err(vm.new_type_error(format!(
-                    "object {} can't be used in 'await' expression",
+                    "'{}' object can't be awaited",
                     wrapped.class().name()
                 )));
             }
@@ -624,7 +706,7 @@ impl PyAnextAwaitable {
                 await_method?.call((), vm)?
             } else {
                 return Err(vm.new_type_error(format!(
-                    "object {} can't be used in 'await' expression",
+                    "'{}' object can't be awaited",
                     wrapped.class().name()
                 )));
             }
@@ -729,6 +811,12 @@ impl Destructor for PyAsyncGen {
         Self::call_finalizer(zelf, vm);
 
         Ok(())
+    }
+}
+
+impl Drop for PyAsyncGen {
+    fn drop(&mut self) {
+        self.inner.frame().clear_generator();
     }
 }
 

@@ -29,7 +29,7 @@ class CustomError(Exception):
 
 
 def tearDownModule():
-    asyncio.set_event_loop_policy(None)
+    asyncio.events._set_event_loop_policy(None)
 
 
 def mock_socket_module():
@@ -1019,8 +1019,7 @@ class BaseEventLoopTests(test_utils.TestCase):
         asyncio.create_task(iter_one())
         return status
 
-    # TODO: RUSTPYTHON - GC doesn't finalize async generators
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - GC doesn't finalize async generators
     def test_asyncgen_finalization_by_gc(self):
         # Async generators should be finalized when garbage collected.
         self.loop._process_events = mock.Mock()
@@ -1036,8 +1035,7 @@ class BaseEventLoopTests(test_utils.TestCase):
             test_utils.run_briefly(self.loop)
             self.assertTrue(status['finalized'])
 
-    # TODO: RUSTPYTHON - GC doesn't finalize async generators
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - GC doesn't finalize async generators
     def test_asyncgen_finalization_by_gc_in_other_thread(self):
         # Python issue 34769: If garbage collector runs in another
         # thread, async generators will not finalize in debug
@@ -1413,7 +1411,7 @@ class BaseEventLoopWithSelectorTests(test_utils.TestCase):
         with self.assertRaises(OSError) as cm:
             self.loop.run_until_complete(coro)
 
-        self.assertTrue(str(cm.exception).startswith('Multiple exceptions: '))
+        self.assertStartsWith(str(cm.exception), 'Multiple exceptions: ')
         self.assertTrue(m_socket.socket.return_value.close.called)
 
         coro = self.loop.create_connection(

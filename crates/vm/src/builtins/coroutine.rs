@@ -222,6 +222,12 @@ impl IterNext for PyCoroutineWrapper {
     }
 }
 
+impl Drop for PyCoroutine {
+    fn drop(&mut self) {
+        self.inner.frame().clear_generator();
+    }
+}
+
 pub fn init(ctx: &Context) {
     PyCoroutine::extend_class(ctx, ctx.types.coroutine_type);
     PyCoroutineWrapper::extend_class(ctx, ctx.types.coroutine_wrapper_type);

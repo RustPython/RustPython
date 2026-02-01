@@ -17,7 +17,7 @@ from test import support
 
 
 def tearDownModule():
-    asyncio.set_event_loop_policy(None)
+    asyncio.events._set_event_loop_policy(None)
 
 
 def _fakefunc(f):
@@ -242,7 +242,7 @@ class BaseFutureTests:
 
     def test_future_cancel_message_getter(self):
         f = self._new_future(loop=self.loop)
-        self.assertTrue(hasattr(f, '_cancel_message'))
+        self.assertHasAttr(f, '_cancel_message')
         self.assertEqual(f._cancel_message, None)
 
         f.cancel('my message')
@@ -716,14 +716,6 @@ class CFutureTests(BaseFutureTests, test_utils.TestCase):
         with self.assertRaises(AttributeError):
             del fut._log_traceback
 
-    def test_future_iter_get_referents_segfault(self):
-        # See https://github.com/python/cpython/issues/122695
-        import _asyncio
-        it = iter(self._new_future(loop=self.loop))
-        del it
-        evil = gc.get_referents(_asyncio)
-        gc.collect()
-
     def test_callbacks_copy(self):
         # See https://github.com/python/cpython/issues/125789
         # In C implementation, the `_callbacks` attribute
@@ -741,6 +733,10 @@ class CFutureTests(BaseFutureTests, test_utils.TestCase):
         self.assertIsNot(callbacks, fut._callbacks)
         fut.remove_done_callback(f2)
         self.assertIsNone(fut._callbacks)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.get_referents not implemented
+    def test_future_iter_get_referents_segfault(self):
+        return super().test_future_iter_get_referents_segfault()
 
 
 @unittest.skipUnless(hasattr(futures, '_CFuture'),

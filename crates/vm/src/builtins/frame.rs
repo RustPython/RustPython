@@ -152,6 +152,11 @@ impl Frame {
 #[pyclass]
 impl Py<Frame> {
     #[pygetset]
+    fn f_generator(&self) -> Option<PyObjectRef> {
+        self.generator.to_owned()
+    }
+
+    #[pygetset]
     pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<Frame>> {
         // TODO: actually store f_back inside Frame struct
 
