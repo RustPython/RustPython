@@ -3,6 +3,8 @@ import itertools
 import shlex
 import string
 import unittest
+from test.support import cpython_only
+from test.support import import_helper
 
 
 # The original test data set was from shellwords, by Hartmut Goebel.
@@ -165,14 +167,12 @@ class ShlexTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             shlex.split(None)
 
-    # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     def testSplitPosix(self):
         """Test data splitting with posix parser"""
         self.splitTest(self.posix_data, comments=True)
 
-    # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     def testCompat(self):
         """Test compatibility interface"""
         for i in range(len(self.data)):
@@ -313,8 +313,7 @@ class ShlexTest(unittest.TestCase):
         s = shlex.shlex("'')abc", punctuation_chars=True)
         self.assertEqual(list(s), expected)
 
-    # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     def testUnicodeHandling(self):
         """Test punctuation_chars and whitespace_split handle unicode."""
         ss = "\u2119\u01b4\u2602\u210c\u00f8\u1f24"
@@ -334,6 +333,7 @@ class ShlexTest(unittest.TestCase):
         unsafe = '"`$\\!' + unicode_sample
 
         self.assertEqual(shlex.quote(''), "''")
+        self.assertEqual(shlex.quote(None), "''")
         self.assertEqual(shlex.quote(safeunquoted), safeunquoted)
         self.assertEqual(shlex.quote('test file name'), "'test file name'")
         for u in unsafe:
@@ -342,6 +342,8 @@ class ShlexTest(unittest.TestCase):
         for u in unsafe:
             self.assertEqual(shlex.quote("test%s'name'" % u),
                              "'test%s'\"'\"'name'\"'\"''" % u)
+        self.assertRaises(TypeError, shlex.quote, 42)
+        self.assertRaises(TypeError, shlex.quote, b"abc")
 
     def testJoin(self):
         for split_command, command in [
@@ -354,8 +356,7 @@ class ShlexTest(unittest.TestCase):
                 joined = shlex.join(split_command)
                 self.assertEqual(joined, command)
 
-    # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     def testJoinRoundtrip(self):
         all_data = self.data + self.posix_data
         for command, *split_command in all_data:
@@ -370,6 +371,10 @@ class ShlexTest(unittest.TestCase):
         self.assertEqual(shlex_instance.punctuation_chars, punctuation_chars)
         with self.assertRaises(AttributeError):
             shlex_instance.punctuation_chars = False
+
+    @cpython_only
+    def test_lazy_imports(self):
+        import_helper.ensure_lazy_imports('shlex', {'collections', 're', 'os'})
 
 
 # Allow this test to be used with old shlex.py
