@@ -2281,7 +2281,6 @@ class UnionTests(BaseTestCase):
         self.assertEqual(Union[Literal[1], Literal[Ints.B], Literal[True]].__args__,
                          (Literal[1], Literal[Ints.B], Literal[True]))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: types.UnionType[int, str] | float != types.UnionType[int, str, float]
     def test_allow_non_types_in_or(self):
         # gh-140348: Test that using | with a Union object allows things that are
         # not allowed by is_unionable().
