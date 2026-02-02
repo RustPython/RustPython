@@ -2554,7 +2554,6 @@ class TestInvalidFD(unittest.TestCase):
     def test_fchown(self):
         self.check(os.fchown, -1, -1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: [Errno 22] Invalid argument: 0
     @unittest.skipUnless(hasattr(os, 'fpathconf'), 'test needs os.fpathconf()')
     def test_fpathconf(self):
         self.assertIn("PC_NAME_MAX", os.pathconf_names)
