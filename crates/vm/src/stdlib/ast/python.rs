@@ -95,12 +95,11 @@ pub(crate) mod _ast {
                 .is_some();
             if has_field_types {
                 // ASDL list fields (type*) default to empty list,
-                // optional fields (type?) default to None.
+                // optional/required fields default to None.
+                // Fields that are always list-typed regardless of node class.
                 const LIST_FIELDS: &[&str] = &[
-                    "args",
                     "argtypes",
                     "bases",
-                    "body",
                     "cases",
                     "comparators",
                     "decorator_list",
@@ -113,11 +112,13 @@ pub(crate) mod _ast {
                     "items",
                     "keys",
                     "kw_defaults",
+                    "kwd_attrs",
+                    "kwd_patterns",
                     "keywords",
                     "kwonlyargs",
                     "names",
-                    "orelse",
                     "ops",
+                    "patterns",
                     "posonlyargs",
                     "targets",
                     "type_ignores",
@@ -125,19 +126,35 @@ pub(crate) mod _ast {
                     "values",
                 ];
 
+                let class_name = zelf.class().name().to_string();
+
                 for field in &fields {
                     if !set_fields.contains(field.as_str()) {
-                        let default: PyObjectRef = if LIST_FIELDS.contains(&field.as_str()) {
+                        let field_name = field.as_str();
+                        // Some field names have different ASDL types depending on the node.
+                        // For example, "args" is `expr*` in Call but `arguments` in Lambda.
+                        // "body" and "orelse" are `stmt*` in most nodes but `expr` in IfExp.
+                        let is_list_field = if field_name == "args" {
+                            class_name == "Call" || class_name == "arguments"
+                        } else if field_name == "body" || field_name == "orelse" {
+                            !matches!(
+                                class_name.as_str(),
+                                "Lambda" | "Expression" | "IfExp"
+                            )
+                        } else {
+                            LIST_FIELDS.contains(&field_name)
+                        };
+
+                        let default: PyObjectRef = if is_list_field {
                             vm.ctx.new_list(vec![]).into()
                         } else {
                             vm.ctx.none()
                         };
-                        zelf.set_attr(vm.ctx.intern_str(field.as_str()), default, vm)?;
+                        zelf.set_attr(vm.ctx.intern_str(field_name), default, vm)?;
                     }
                 }
 
                 // Special defaults that are not None or empty list
-                let class_name = &*zelf.class().name();
                 if class_name == "ImportFrom" && !set_fields.contains("level") {
                     zelf.set_attr("level", vm.ctx.new_int(0), vm)?;
                 }

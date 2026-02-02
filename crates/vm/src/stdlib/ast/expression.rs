@@ -330,31 +330,7 @@ impl Node for ast::ExprLambda {
         // Lambda with no parameters should have an empty arguments object, not None
         let args = match parameters {
             Some(params) => params.ast_to_object(vm, source_file),
-            None => {
-                // Create an empty arguments object
-                let args_node = NodeAst
-                    .into_ref_with_type(vm, pyast::NodeArguments::static_type().to_owned())
-                    .unwrap();
-                let args_dict = args_node.as_object().dict().unwrap();
-                args_dict
-                    .set_item("posonlyargs", vm.ctx.new_list(vec![]).into(), vm)
-                    .unwrap();
-                args_dict
-                    .set_item("args", vm.ctx.new_list(vec![]).into(), vm)
-                    .unwrap();
-                args_dict.set_item("vararg", vm.ctx.none(), vm).unwrap();
-                args_dict
-                    .set_item("kwonlyargs", vm.ctx.new_list(vec![]).into(), vm)
-                    .unwrap();
-                args_dict
-                    .set_item("kw_defaults", vm.ctx.new_list(vec![]).into(), vm)
-                    .unwrap();
-                args_dict.set_item("kwarg", vm.ctx.none(), vm).unwrap();
-                args_dict
-                    .set_item("defaults", vm.ctx.new_list(vec![]).into(), vm)
-                    .unwrap();
-                args_node.into()
-            }
+            None => empty_arguments_object(vm),
         };
         dict.set_item("args", args, vm).unwrap();
         dict.set_item("body", body.ast_to_object(vm, source_file), vm)
