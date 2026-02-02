@@ -1,15 +1,21 @@
 """Tests for auto_mark.py - test result parsing and auto-marking."""
 
 import ast
+import pathlib
 import subprocess
+import tempfile
 import unittest
+from unittest import mock
 
 from update_lib.cmd_auto_mark import (
     Test,
     TestResult,
+    TestRunError,
     _expand_stripped_to_children,
     _is_super_call_only,
     apply_test_changes,
+    auto_mark_directory,
+    auto_mark_file,
     collect_test_changes,
     extract_test_methods,
     parse_results,
@@ -93,6 +99,34 @@ UNEXPECTED SUCCESS: test_foo (test.test_example.TestClass.test_foo)
     def test_parse_tests_result(self):
         result = parse_results(_make_result("== Tests result: FAILURE ==\n"))
         self.assertEqual(result.tests_result, "FAILURE")
+
+    def test_parse_crashed_run_no_tests_result(self):
+        """Test results are still parsed when the runner crashes (no Tests result line)."""
+        stdout = """\
+Run 1 test sequentially in a single process
+0:00:00 [1/1] test_ast
+test_foo (test.test_ast.test_ast.TestA.test_foo) ... FAIL
+test_bar (test.test_ast.test_ast.TestA.test_bar) ... ok
+test_baz (test.test_ast.test_ast.TestB.test_baz) ... ERROR
+"""
+        result = parse_results(_make_result(stdout))
+        self.assertEqual(result.tests_result, "")
+        self.assertEqual(len(result.tests), 2)
+        names = {t.name for t in result.tests}
+        self.assertIn("test_foo", names)
+        self.assertIn("test_baz", names)
+
+    def test_parse_crashed_run_has_unexpected_success(self):
+        """Unexpected successes are parsed even without Tests result line."""
+        stdout = """\
+Run 1 test sequentially in a single process
+0:00:00 [1/1] test_ast
+test_foo (test.test_ast.test_ast.TestA.test_foo) ... unexpected success
+UNEXPECTED SUCCESS: test_foo (test.test_ast.test_ast.TestA.test_foo)
+"""
+        result = parse_results(_make_result(stdout))
+        self.assertEqual(result.tests_result, "")
+        self.assertEqual(len(result.unexpected_successes), 1)
 
     def test_parse_error_messages(self):
         """Single and multiple error messages are parsed from tracebacks."""
@@ -745,6 +779,153 @@ class Foo:
                 self.assertEqual(
                     _is_super_call_only(self._parse_method(code)), expected
                 )
+
+
+class TestAutoMarkFileWithCrashedRun(unittest.TestCase):
+    """auto_mark_file should process partial results when test runner crashes."""
+
+    CRASHED_STDOUT = """\
+Run 1 test sequentially in a single process
+0:00:00 [1/1] test_example
+test_foo (test.test_example.TestA.test_foo) ... FAIL
+test_bar (test.test_example.TestA.test_bar) ... ok
+======================================================================
+FAIL: test_foo (test.test_example.TestA.test_foo)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "test.py", line 10, in test_foo
+    self.assertEqual(1, 2)
+AssertionError: 1 != 2
+"""
+
+    def test_auto_mark_file_crashed_run(self):
+        """auto_mark_file processes results even when tests_result is empty (crash)."""
+        test_code = f"""import unittest
+
+class TestA(unittest.TestCase):
+    def test_foo(self):
+        pass
+
+    def test_bar(self):
+        pass
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = pathlib.Path(tmpdir) / "test_example.py"
+            test_file.write_text(test_code)
+
+            mock_result = TestResult()
+            mock_result.tests_result = ""
+            mock_result.tests = [
+                Test(
+                    name="test_foo",
+                    path="test.test_example.TestA.test_foo",
+                    result="fail",
+                    error_message="AssertionError: 1 != 2",
+                ),
+            ]
+
+            with mock.patch(
+                "update_lib.cmd_auto_mark.run_test", return_value=mock_result
+            ):
+                added, removed, regressions = auto_mark_file(
+                    test_file, mark_failure=True, verbose=False
+                )
+
+            self.assertEqual(added, 1)
+            contents = test_file.read_text()
+            self.assertIn("expectedFailure", contents)
+
+    def test_auto_mark_file_no_results_at_all_raises(self):
+        """auto_mark_file raises TestRunError when there are zero parsed results."""
+        test_code = """import unittest
+
+class TestA(unittest.TestCase):
+    def test_foo(self):
+        pass
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = pathlib.Path(tmpdir) / "test_example.py"
+            test_file.write_text(test_code)
+
+            mock_result = TestResult()
+            mock_result.tests_result = ""
+            mock_result.tests = []
+            mock_result.stdout = "some crash output"
+
+            with mock.patch(
+                "update_lib.cmd_auto_mark.run_test", return_value=mock_result
+            ):
+                with self.assertRaises(TestRunError):
+                    auto_mark_file(test_file, verbose=False)
+
+
+class TestAutoMarkDirectoryWithCrashedRun(unittest.TestCase):
+    """auto_mark_directory should process partial results when test runner crashes."""
+
+    def test_auto_mark_directory_crashed_run(self):
+        """auto_mark_directory processes results even when tests_result is empty."""
+        test_code = f"""import unittest
+
+class TestA(unittest.TestCase):
+    def test_foo(self):
+        pass
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir) / "test_example"
+            test_dir.mkdir()
+            test_file = test_dir / "test_sub.py"
+            test_file.write_text(test_code)
+
+            mock_result = TestResult()
+            mock_result.tests_result = ""
+            mock_result.tests = [
+                Test(
+                    name="test_foo",
+                    path="test.test_example.test_sub.TestA.test_foo",
+                    result="fail",
+                    error_message="AssertionError: oops",
+                ),
+            ]
+
+            with mock.patch(
+                "update_lib.cmd_auto_mark.run_test", return_value=mock_result
+            ), mock.patch(
+                "update_lib.cmd_auto_mark.get_test_module_name",
+                side_effect=lambda p: (
+                    "test_example"
+                    if p == test_dir
+                    else "test_example.test_sub"
+                ),
+            ):
+                added, removed, regressions = auto_mark_directory(
+                    test_dir, mark_failure=True, verbose=False
+                )
+
+            self.assertEqual(added, 1)
+            contents = test_file.read_text()
+            self.assertIn("expectedFailure", contents)
+
+    def test_auto_mark_directory_no_results_raises(self):
+        """auto_mark_directory raises TestRunError when zero results."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir) / "test_example"
+            test_dir.mkdir()
+            test_file = test_dir / "test_sub.py"
+            test_file.write_text("import unittest\n")
+
+            mock_result = TestResult()
+            mock_result.tests_result = ""
+            mock_result.tests = []
+            mock_result.stdout = "crash"
+
+            with mock.patch(
+                "update_lib.cmd_auto_mark.run_test", return_value=mock_result
+            ), mock.patch(
+                "update_lib.cmd_auto_mark.get_test_module_name",
+                return_value="test_example",
+            ):
+                with self.assertRaises(TestRunError):
+                    auto_mark_directory(test_dir, verbose=False)
 
 
 if __name__ == "__main__":
