@@ -391,6 +391,7 @@ impl Interpreter {
     /// 1. Wait for thread shutdown (call threading._shutdown).
     /// 1. Mark vm as finalizing.
     /// 1. Run atexit exit functions.
+    /// 1. Finalize modules (clear module dicts in reverse import order).
     /// 1. Mark vm as finalized.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
@@ -424,6 +425,9 @@ impl Interpreter {
 
             // Run atexit exit functions
             atexit::_run_exitfuncs(vm);
+
+            // Finalize modules: clear module dicts in reverse import order
+            vm.finalize_modules();
 
             vm.flush_std();
 

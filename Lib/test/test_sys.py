@@ -1172,7 +1172,6 @@ class SysModuleTest(unittest.TestCase):
         else:
             self.assertTrue(sys._is_gil_enabled())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AtExit.__del__ is not invoked because module destruction is missing.
     def test_is_finalizing(self):
         self.assertIs(sys.is_finalizing(), False)
         # Don't use the atexit module because _Py_Finalizing is only set
