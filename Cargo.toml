@@ -91,6 +91,8 @@ lto = "thin"
 [patch.crates-io]
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
+# Fork-safety: expose reinit_after_fork() to reset global hash table after fork
+parking_lot_core = { git = "https://github.com/youknowone/parking_lot", rev = "5953f33ea399365bd15fdd9b6aaf8bc5ad7c8e46" }
 
 [package.metadata.packager]
 product-name = "RustPython"
@@ -184,6 +186,7 @@ num_enum = { version = "0.7", default-features = false }
 optional = "0.5"
 once_cell = "1.20.3"
 parking_lot = "0.12.3"
+parking_lot_core = { version = "0.9.12" }
 paste = "1.0.15"
 proc-macro2 = "1.0.105"
 pymath = { version = "0.1.5", features = ["mul_add", "malachite-bigint", "complex"] }
