@@ -60,8 +60,10 @@ mod _random {
                     let key = if key.is_empty() { &[0] } else { key.as_slice() };
                     MT19937::new_with_slice_seed(key)
                 }
-                None => MT19937::try_from_os_rng()
-                    .map_err(|e| std::io::Error::from(e).to_pyexception(vm))?,
+                None => MT19937::try_from_os_rng().map_err(|e| {
+                    std::io::Error::other(format!("failed to initialize RNG: {}", e))
+                        .to_pyexception(vm)
+                })?,
             };
             Ok(())
         }
