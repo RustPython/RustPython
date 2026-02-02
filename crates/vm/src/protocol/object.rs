@@ -707,6 +707,10 @@ impl PyObject {
                 {
                     return class_getitem.call((needle,), vm);
                 }
+                return Err(vm.new_type_error(format!(
+                    "type '{}' is not subscriptable",
+                    self.downcast_ref::<PyType>().unwrap().name()
+                )));
             }
             Err(vm.new_type_error(format!("'{}' object is not subscriptable", self.class())))
         }
