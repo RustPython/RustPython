@@ -39,19 +39,47 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         self.mock_sys()
 
     def test_ps1(self):
-        self.infunc.side_effect = EOFError('Finished')
+        self.infunc.side_effect = [
+            "import code",
+            "code.sys.ps1",
+            EOFError('Finished')
+        ]
         self.console.interact()
-        self.assertEqual(self.sysmod.ps1, '>>> ')
+        output = ''.join(''.join(call[1]) for call in self.stdout.method_calls)
+        self.assertIn('>>> ', output)
+        self.assertNotHasAttr(self.sysmod, 'ps1')
+
+        self.infunc.side_effect = [
+            "import code",
+            "code.sys.ps1",
+            EOFError('Finished')
+        ]
         self.sysmod.ps1 = 'custom1> '
         self.console.interact()
+        output = ''.join(''.join(call[1]) for call in self.stdout.method_calls)
+        self.assertIn('custom1> ', output)
         self.assertEqual(self.sysmod.ps1, 'custom1> ')
 
     def test_ps2(self):
-        self.infunc.side_effect = EOFError('Finished')
+        self.infunc.side_effect = [
+            "import code",
+            "code.sys.ps2",
+            EOFError('Finished')
+        ]
         self.console.interact()
-        self.assertEqual(self.sysmod.ps2, '... ')
+        output = ''.join(''.join(call[1]) for call in self.stdout.method_calls)
+        self.assertIn('... ', output)
+        self.assertNotHasAttr(self.sysmod, 'ps2')
+
+        self.infunc.side_effect = [
+            "import code",
+            "code.sys.ps2",
+            EOFError('Finished')
+        ]
         self.sysmod.ps2 = 'custom2> '
         self.console.interact()
+        output = ''.join(''.join(call[1]) for call in self.stdout.method_calls)
+        self.assertIn('custom2> ', output)
         self.assertEqual(self.sysmod.ps2, 'custom2> ')
 
     def test_console_stderr(self):
@@ -63,9 +91,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         else:
             raise AssertionError("no console stdout")
 
-    # TODO: RUSTPYTHON
-    # AssertionError: Lists differ: ['  F[27 chars]    x = ?', '        ^', 'SyntaxError: got unexpected token ?'] != ['  F[27 chars]    x = ?', '        ^', 'SyntaxError: invalid syntax']
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  'SyntaxError: invalid syntax']
     def test_syntax_error(self):
         self.infunc.side_effect = ["def f():",
                                    "    x = ?",
@@ -86,9 +112,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         self.assertIsNone(self.sysmod.last_value.__traceback__)
         self.assertIs(self.sysmod.last_exc, self.sysmod.last_value)
 
-    # TODO: RUSTPYTHON
-    # AssertionError: Lists differ: ['  F[15 chars], line 1', '    1', 'IndentationError: unexpected indentation'] != ['  F[15 chars], line 1', '    1', 'IndentationError: unexpected indent']
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; -  'IndentationError: unexpected indentation']
     def test_indentation_error(self):
         self.infunc.side_effect = ["  1", EOFError('Finished')]
         self.console.interact()
@@ -105,16 +129,14 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         self.assertIsNone(self.sysmod.last_value.__traceback__)
         self.assertIs(self.sysmod.last_exc, self.sysmod.last_value)
 
-    # TODO: RUSTPYTHON
-    # AssertionError: False is not true : UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 1
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 1\n\nnow exiti [truncated]... doesn't start with 'UnicodeEncodeError: '
     def test_unicode_error(self):
         self.infunc.side_effect = ["'\ud800'", EOFError('Finished')]
         self.console.interact()
         output = ''.join(''.join(call[1]) for call in self.stderr.method_calls)
         output = output[output.index('(InteractiveConsole)'):]
         output = output[output.index('\n') + 1:]
-        self.assertTrue(output.startswith('UnicodeEncodeError: '), output)
+        self.assertStartsWith(output, 'UnicodeEncodeError: ')
         self.assertIs(self.sysmod.last_type, UnicodeEncodeError)
         self.assertIs(type(self.sysmod.last_value), UnicodeEncodeError)
         self.assertIsNone(self.sysmod.last_traceback)
@@ -144,9 +166,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
             '  File "<console>", line 2, in f\n',
             'ValueError: BOOM!\n'])
 
-    # TODO: RUSTPYTHON
-    # AssertionError: Lists differ: ['  F[35 chars]= ?\n', '        ^\n', 'SyntaxError: got unexpected token ?\n'] != ['  F[35 chars]= ?\n', '        ^\n', 'SyntaxError: invalid syntax\n']
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  'SyntaxError: invalid syntax\n']
     def test_sysexcepthook_syntax_error(self):
         self.infunc.side_effect = ["def f():",
                                    "    x = ?",
@@ -170,9 +190,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
             '        ^\n',
             'SyntaxError: invalid syntax\n'])
 
-    # TODO: RUSTPYTHON
-    # AssertionError: Lists differ: ['  F[21 chars] 1\n', '    1\n', 'IndentationError: unexpected indentation\n'] != ['  F[21 chars] 1\n', '    1\n', 'IndentationError: unexpected indent\n']
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  'IndentationError: unexpected indent\n']
     def test_sysexcepthook_indentation_error(self):
         self.infunc.side_effect = ["  1", EOFError('Finished')]
         hook = mock.Mock()
@@ -267,7 +285,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         self.assertEqual(err_msg, ['write', (expected,), {}])
 
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '\nAttributeError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File "<console>", line 1, in <module>\nValueError\n' not found in 'Python <MagicMock name=\'sys.version\' id=\'94615517503920\'> on <MagicMock name=\'sys.platform\' id=\'94615517656384\'>\nType "help", "copyright", "credits" or "license" for more information.\n(InteractiveConsole)\nAttributeError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File "<console>", line 1, in <module>\nValueError: \n\nnow exiting InteractiveConsole...\n'
     def test_cause_tb(self):
         self.infunc.side_effect = ["raise ValueError('') from AttributeError",
                                     EOFError('Finished')]
