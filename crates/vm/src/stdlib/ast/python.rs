@@ -89,7 +89,10 @@ pub(crate) mod _ast {
 
             // Set default values only for built-in AST nodes (_field_types present).
             // Custom AST subclasses without _field_types do NOT get automatic defaults.
-            let has_field_types = zelf.class().get_attr(vm.ctx.intern_str("_field_types")).is_some();
+            let has_field_types = zelf
+                .class()
+                .get_attr(vm.ctx.intern_str("_field_types"))
+                .is_some();
             if has_field_types {
                 // ASDL list fields (type*) default to empty list,
                 // optional fields (type?) default to None.
