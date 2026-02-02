@@ -1267,13 +1267,24 @@ pub(super) mod _os {
         }
     }
 
-    #[pyfunction]
-    fn link(
+    #[derive(FromArgs)]
+    struct LinkArgs {
+        #[pyarg(any)]
         src: OsPath,
+        #[pyarg(any)]
         dst: OsPath,
-        follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+        #[pyarg(named, name = "follow_symlinks", optional)]
+        follow_symlinks: OptionalArg<bool>,
+    }
+
+    #[pyfunction]
+    fn link(args: LinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let LinkArgs {
+            src,
+            dst,
+            follow_symlinks,
+        } = args;
+
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;
@@ -1282,11 +1293,8 @@ pub(super) mod _os {
             let dst_cstr = std::ffi::CString::new(dst.path.as_os_str().as_bytes())
                 .map_err(|_| vm.new_value_error("embedded null byte"))?;
 
-            let flags = if follow_symlinks.0 {
-                libc::AT_SYMLINK_FOLLOW
-            } else {
-                0
-            };
+            let follow = follow_symlinks.into_option().unwrap_or(true);
+            let flags = if follow { libc::AT_SYMLINK_FOLLOW } else { 0 };
 
             let ret = unsafe {
                 libc::linkat(
@@ -1311,15 +1319,18 @@ pub(super) mod _os {
 
         #[cfg(not(unix))]
         {
-            // On non-Unix platforms, ignore follow_symlinks if it's the default value
-            // or raise NotImplementedError if explicitly set to False
-            if !follow_symlinks.0 {
-                return Err(vm.new_not_implemented_error(
-                    "link: follow_symlinks unavailable on this platform",
-                ));
-            }
+            let src_path = match follow_symlinks.into_option() {
+                Some(true) => {
+                    // Explicit follow_symlinks=True: resolve symlinks
+                    fs::canonicalize(&src.path).unwrap_or_else(|_| PathBuf::from(src.path.clone()))
+                }
+                Some(false) | None => {
+                    // Default or explicit no-follow: native hard_link behavior
+                    PathBuf::from(src.path.clone())
+                }
+            };
 
-            fs::hard_link(&src.path, &dst.path).map_err(|err| {
+            fs::hard_link(&src_path, &dst.path).map_err(|err| {
                 let builder = err.to_os_error_builder(vm);
                 let builder = builder.filename(src.filename(vm));
                 let builder = builder.filename2(dst.filename(vm));
