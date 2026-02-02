@@ -1172,6 +1172,7 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertIsInstance(_name, str)
             self.assertEqual(name, _name)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u32
     @unittest.skipUnless(hasattr(socket, 'if_indextoname'),
                          'socket.if_indextoname() not available.')
     @support.skip_android_selinux('if_indextoname')
@@ -1239,6 +1240,7 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertEqual(swapped & mask, mask)
             self.assertRaises(OverflowError, func, 1<<34)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u16
     def testNtoHErrors(self):
         s_good_values = [0, 1, 2, 0xffff]
         l_good_values = s_good_values + [0xffffffff]
@@ -2377,12 +2379,14 @@ class ISOTPTest(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             pass
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testTooLongInterfaceName(self):
         # most systems limit IFNAMSIZ to 16, take 1024 to be sure
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             with self.assertRaisesRegex(OSError, 'interface name too long'):
                 s.bind(('x' * 1024, 1, 2))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
@@ -2625,6 +2629,7 @@ class BasicVSOCKTest(unittest.TestCase):
                      'Bluetooth sockets required for this test.')
 class BasicBluetoothTest(unittest.TestCase):
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'socket' has no attribute 'BTPROTO_RFCOMM'
     def testBluetoothConstants(self):
         socket.BDADDR_ANY
         socket.BDADDR_LOCAL
