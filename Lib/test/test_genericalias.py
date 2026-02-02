@@ -151,7 +151,6 @@ class BaseTest(unittest.TestCase):
                 self.assertEqual(alias.__args__, (int,))
                 self.assertEqual(alias.__parameters__, ())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; wrong error message
     def test_unsubscriptable(self):
         for t in int, str, float, Sized, Hashable:
             tname = t.__name__
@@ -365,7 +364,6 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(t(test), Test)
         self.assertEqual(t(0), int)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; wrong error message
     def test_type_subclass_generic(self):
         class MyType(type):
             pass

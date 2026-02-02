@@ -127,8 +127,7 @@ impl Node for ast::Parameter {
         )
         .unwrap();
         // Ruff AST doesn't track type_comment, so always set to None
-        dict.set_item("type_comment", _vm.ctx.none(), _vm)
-            .unwrap();
+        dict.set_item("type_comment", _vm.ctx.none(), _vm).unwrap();
         node_add_location(&dict, range, _vm, source_file);
         node.into()
     }

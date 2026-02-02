@@ -363,9 +363,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 self.p(")")?;
             }
             ast::Expr::FString(ast::ExprFString { value, .. }) => self.unparse_fstring(value)?,
-            ast::Expr::TString(ast::ExprTString { value, .. }) => {
-                self.unparse_tstring(value)?
-            }
+            ast::Expr::TString(ast::ExprTString { value, .. }) => self.unparse_tstring(value)?,
             ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
                 if value.is_unicode() {
                     self.p("u")?
