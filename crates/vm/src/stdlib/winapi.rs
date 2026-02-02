@@ -437,7 +437,9 @@ mod _winapi {
             return Err(vm.new_runtime_error("environment changed size during iteration"));
         }
 
-        let mut out = widestring::WideString::new();
+        // Deduplicate case-insensitive keys, keeping the last value
+        use std::collections::HashMap;
+        let mut last_entry: HashMap<String, widestring::WideString> = HashMap::new();
         for (k, v) in keys.into_iter().zip(values.into_iter()) {
             let k = PyStrRef::try_from_object(vm, k)?;
             let k = k.as_str();
@@ -449,10 +451,22 @@ mod _winapi {
             if k.is_empty() || k[1..].contains('=') {
                 return Err(vm.new_value_error("illegal environment variable name"));
             }
-            out.push_str(k);
-            out.push_str("=");
-            out.push_str(v);
-            out.push_str("\0");
+            let key_upper = k.to_uppercase();
+            let mut entry = widestring::WideString::new();
+            entry.push_str(k);
+            entry.push_str("=");
+            entry.push_str(v);
+            entry.push_str("\0");
+            last_entry.insert(key_upper, entry);
+        }
+
+        // Sort by uppercase key for case-insensitive ordering
+        let mut entries: Vec<(String, widestring::WideString)> = last_entry.into_iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut out = widestring::WideString::new();
+        for (_, entry) in entries {
+            out.push(entry);
         }
         out.push_str("\0");
         Ok(out.into_vec())
