@@ -2952,7 +2952,12 @@ impl Compiler {
                         target: cleanup_end
                     }
                 );
-                self.push_fblock(FBlockType::HandlerCleanup, cleanup_end, cleanup_end)?;
+                self.push_fblock_full(
+                    FBlockType::HandlerCleanup,
+                    cleanup_end,
+                    cleanup_end,
+                    FBlockDatum::ExceptionName(name.as_ref().unwrap().as_str().to_owned()),
+                )?;
                 Some(cleanup_end)
             } else {
                 // no SETUP_CLEANUP for unnamed handler
@@ -3324,7 +3329,16 @@ impl Compiler {
                     target: handler_except_block
                 }
             );
-            self.push_fblock(FBlockType::HandlerCleanup, next_block, end_block)?;
+            self.push_fblock_full(
+                FBlockType::HandlerCleanup,
+                next_block,
+                end_block,
+                if let Some(alias) = name {
+                    FBlockDatum::ExceptionName(alias.as_str().to_owned())
+                } else {
+                    FBlockDatum::None
+                },
+            )?;
 
             // Execute handler body
             self.compile_statements(body)?;
