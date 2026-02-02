@@ -87,24 +87,56 @@ pub(crate) mod _ast {
                 zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
             }
 
-            // Set default values for fields that weren't provided
-            let class_name = &*zelf.class().name();
-            if class_name == "Module" && !set_fields.contains("type_ignores") {
-                zelf.set_attr("type_ignores", vm.ctx.new_list(vec![]), vm)?;
-            }
-            if class_name == "ImportFrom" && !set_fields.contains("level") {
-                zelf.set_attr("level", vm.ctx.new_int(0), vm)?;
-            }
-            if class_name == "alias" && !set_fields.contains("asname") {
-                zelf.set_attr("asname", vm.ctx.none(), vm)?;
-            }
-            // Set type_comment to None for nodes that support it
-            if !set_fields.contains("type_comment") {
-                match class_name {
-                    "FunctionDef" | "AsyncFunctionDef" | "For" | "AsyncFor" | "With" | "AsyncWith" | "arg" => {
-                        zelf.set_attr("type_comment", vm.ctx.none(), vm)?;
+            // Set default values only for built-in AST nodes (_field_types present).
+            // Custom AST subclasses without _field_types do NOT get automatic defaults.
+            let has_field_types = zelf.class().get_attr(vm.ctx.intern_str("_field_types")).is_some();
+            if has_field_types {
+                // ASDL list fields (type*) default to empty list,
+                // optional fields (type?) default to None.
+                const LIST_FIELDS: &[&str] = &[
+                    "args",
+                    "argtypes",
+                    "bases",
+                    "body",
+                    "cases",
+                    "comparators",
+                    "decorator_list",
+                    "defaults",
+                    "elts",
+                    "finalbody",
+                    "generators",
+                    "handlers",
+                    "ifs",
+                    "items",
+                    "keys",
+                    "kw_defaults",
+                    "keywords",
+                    "kwonlyargs",
+                    "names",
+                    "orelse",
+                    "ops",
+                    "posonlyargs",
+                    "targets",
+                    "type_ignores",
+                    "type_params",
+                    "values",
+                ];
+
+                for field in &fields {
+                    if !set_fields.contains(field.as_str()) {
+                        let default: PyObjectRef = if LIST_FIELDS.contains(&field.as_str()) {
+                            vm.ctx.new_list(vec![]).into()
+                        } else {
+                            vm.ctx.none()
+                        };
+                        zelf.set_attr(vm.ctx.intern_str(field.as_str()), default, vm)?;
                     }
-                    _ => {}
+                }
+
+                // Special defaults that are not None or empty list
+                let class_name = &*zelf.class().name();
+                if class_name == "ImportFrom" && !set_fields.contains("level") {
+                    zelf.set_attr("level", vm.ctx.new_int(0), vm)?;
                 }
             }
 

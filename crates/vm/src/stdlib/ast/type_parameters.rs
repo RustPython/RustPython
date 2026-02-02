@@ -78,7 +78,7 @@ impl Node for ast::TypeParamTypeVar {
             name,
             bound,
             range: _range,
-            default: _,
+            default,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeTypeParamTypeVar::static_type().to_owned())
@@ -88,6 +88,12 @@ impl Node for ast::TypeParamTypeVar {
             .unwrap();
         dict.set_item("bound", bound.ast_to_object(_vm, source_file), _vm)
             .unwrap();
+        dict.set_item(
+            "default_value",
+            default.ast_to_object(_vm, source_file),
+            _vm,
+        )
+        .unwrap();
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
     }

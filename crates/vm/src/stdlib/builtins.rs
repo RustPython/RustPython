@@ -141,10 +141,27 @@ mod builtins {
                 .source
                 .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
             {
-                // If PyCF_ONLY_AST is set, just return the AST node as-is
                 use num_traits::Zero;
                 let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
+                // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
                 if !(flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
+                    let expected_type = match mode_str {
+                        "exec" => "Module",
+                        "eval" => "Expression",
+                        "single" => "Interactive",
+                        "func_type" => "FunctionType",
+                        _ => {
+                            return Err(vm.new_value_error(format!(
+                                "compile() mode must be 'exec', 'eval', 'single' or 'func_type', got '{mode_str}'"
+                            )));
+                        }
+                    };
+                    let cls_name = args.source.class().name().to_string();
+                    if cls_name != expected_type {
+                        return Err(vm.new_type_error(format!(
+                            "expected {expected_type} node, got {cls_name}"
+                        )));
+                    }
                     return Ok(args.source);
                 }
 
