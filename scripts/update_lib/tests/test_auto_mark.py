@@ -887,14 +887,15 @@ class TestA(unittest.TestCase):
                 ),
             ]
 
-            with mock.patch(
-                "update_lib.cmd_auto_mark.run_test", return_value=mock_result
-            ), mock.patch(
-                "update_lib.cmd_auto_mark.get_test_module_name",
-                side_effect=lambda p: (
-                    "test_example"
-                    if p == test_dir
-                    else "test_example.test_sub"
+            with (
+                mock.patch(
+                    "update_lib.cmd_auto_mark.run_test", return_value=mock_result
+                ),
+                mock.patch(
+                    "update_lib.cmd_auto_mark.get_test_module_name",
+                    side_effect=lambda p: (
+                        "test_example" if p == test_dir else "test_example.test_sub"
+                    ),
                 ),
             ):
                 added, removed, regressions = auto_mark_directory(
@@ -918,11 +919,14 @@ class TestA(unittest.TestCase):
             mock_result.tests = []
             mock_result.stdout = "crash"
 
-            with mock.patch(
-                "update_lib.cmd_auto_mark.run_test", return_value=mock_result
-            ), mock.patch(
-                "update_lib.cmd_auto_mark.get_test_module_name",
-                return_value="test_example",
+            with (
+                mock.patch(
+                    "update_lib.cmd_auto_mark.run_test", return_value=mock_result
+                ),
+                mock.patch(
+                    "update_lib.cmd_auto_mark.get_test_module_name",
+                    return_value="test_example",
+                ),
             ):
                 with self.assertRaises(TestRunError):
                     auto_mark_directory(test_dir, verbose=False)

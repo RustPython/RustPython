@@ -756,7 +756,11 @@ def auto_mark_file(
     results = run_test(test_name, skip_build=skip_build)
 
     # Check if test run failed entirely (e.g., import error, crash)
-    if not results.tests_result and not results.tests and not results.unexpected_successes:
+    if (
+        not results.tests_result
+        and not results.tests
+        and not results.unexpected_successes
+    ):
         raise TestRunError(
             f"Test run failed for {test_name}. "
             f"Output: {results.stdout[-500:] if results.stdout else '(no output)'}"
@@ -873,7 +877,11 @@ def auto_mark_directory(
     results = run_test(test_name, skip_build=skip_build)
 
     # Check if test run failed entirely (e.g., import error, crash)
-    if not results.tests_result and not results.tests and not results.unexpected_successes:
+    if (
+        not results.tests_result
+        and not results.tests
+        and not results.unexpected_successes
+    ):
         raise TestRunError(
             f"Test run failed for {test_name}. "
             f"Output: {results.stdout[-500:] if results.stdout else '(no output)'}"
