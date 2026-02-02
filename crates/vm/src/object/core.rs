@@ -81,8 +81,14 @@ use core::{
 #[derive(Debug)]
 pub(super) struct Erased;
 
-pub(super) unsafe fn drop_dealloc_obj<T: PyPayload>(x: *mut PyObject) {
-    drop(unsafe { Box::from_raw(x as *mut PyInner<T>) });
+/// Default dealloc: handles __del__, weakref clearing, and memory free.
+/// Equivalent to subtype_dealloc in CPython.
+pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
+    let obj_ref = unsafe { &*(obj as *const PyObject) };
+    if let Err(()) = obj_ref.drop_slow_inner() {
+        return; // resurrected by __del__
+    }
+    drop(unsafe { Box::from_raw(obj as *mut PyInner<T>) });
 }
 pub(super) unsafe fn debug_obj<T: PyPayload + core::fmt::Debug>(
     x: &PyObject,
@@ -1015,16 +1021,11 @@ impl PyObject {
         Ok(())
     }
 
-    /// Can only be called when ref_count has dropped to zero. `ptr` must be valid
+    /// _Py_Dealloc: dispatch to type's dealloc
     #[inline(never)]
     unsafe fn drop_slow(ptr: NonNull<Self>) {
-        if let Err(()) = unsafe { ptr.as_ref().drop_slow_inner() } {
-            // abort drop for whatever reason
-            return;
-        }
-        let drop_dealloc = unsafe { ptr.as_ref().0.vtable.drop_dealloc };
-        // call drop only when there are no references in scope - stacked borrows stuff
-        unsafe { drop_dealloc(ptr.as_ptr()) }
+        let dealloc = unsafe { ptr.as_ref().0.vtable.dealloc };
+        unsafe { dealloc(ptr.as_ptr()) }
     }
 
     /// # Safety

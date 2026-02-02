@@ -20,7 +20,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
         self, PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
-        PyStrRef, PyTypeRef,
+        PyStrRef, PyTypeRef, PyWeak,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         pystr::AsPyStr,
@@ -619,6 +619,186 @@ impl VirtualMachine {
         if let Ok(stderr) = self.sys_module.get_attr("stderr", self) {
             let _ = self.call_method(&stderr, identifier!(self, flush).as_str(), ());
         }
+    }
+
+    /// Clear module references during shutdown.
+    /// Follows the same phased algorithm as pylifecycle.c finalize_modules():
+    /// no hardcoded module names, reverse import order, only builtins/sys last.
+    pub fn finalize_modules(&self) {
+        // Phase 1: Set special sys/builtins attributes to None, restore stdio
+        self.finalize_modules_delete_special();
+
+        // Phase 2: Remove all modules from sys.modules (set values to None),
+        // and collect weakrefs to modules preserving import order.
+        // Also keeps strong refs (module_refs) to prevent premature deallocation.
+        // CPython uses _PyGC_CollectNoFail() here to collect __globals__ cycles;
+        // since RustPython has no working GC, we keep modules alive through
+        // Phase 4 so their dicts can be explicitly cleared.
+        let (module_weakrefs, module_refs) = self.finalize_remove_modules();
+
+        // Phase 3: Clear sys.modules dict
+        self.finalize_clear_modules_dict();
+
+        // Phase 4: Clear module dicts in reverse import order using 2-pass algorithm.
+        // All modules are still alive (held by module_refs), so all weakrefs are valid.
+        // This breaks __globals__ cycles: dict entries set to None → functions freed →
+        // __globals__ refs dropped → dict refcount decreases.
+        self.finalize_clear_module_dicts(&module_weakrefs);
+
+        // Drop strong refs → modules freed with already-cleared dicts.
+        // No __globals__ cycles remain (broken by Phase 4).
+        drop(module_refs);
+
+        // Phase 5: Clear sys and builtins dicts last
+        self.finalize_clear_sys_builtins_dict();
+    }
+
+    /// Phase 1: Set special sys attributes to None and restore stdio.
+    fn finalize_modules_delete_special(&self) {
+        let none = self.ctx.none();
+        let sys_dict = self.sys_module.dict();
+
+        // Set special sys attributes to None
+        for attr in &[
+            "path",
+            "argv",
+            "ps1",
+            "ps2",
+            "last_exc",
+            "last_type",
+            "last_value",
+            "last_traceback",
+            "path_importer_cache",
+            "meta_path",
+            "path_hooks",
+        ] {
+            let _ = sys_dict.set_item(*attr, none.clone(), self);
+        }
+
+        // Restore stdin/stdout/stderr from __stdin__/__stdout__/__stderr__
+        for (std_name, dunder_name) in &[
+            ("stdin", "__stdin__"),
+            ("stdout", "__stdout__"),
+            ("stderr", "__stderr__"),
+        ] {
+            let restored = sys_dict
+                .get_item_opt(*dunder_name, self)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| none.clone());
+            let _ = sys_dict.set_item(*std_name, restored, self);
+        }
+
+        // builtins._ = None
+        let _ = self.builtins.dict().set_item("_", none, self);
+    }
+
+    /// Phase 2: Set all sys.modules values to None and collect weakrefs to modules.
+    /// Returns (weakrefs for Phase 4, strong refs to keep modules alive).
+    fn finalize_remove_modules(&self) -> (Vec<(String, PyRef<PyWeak>)>, Vec<PyObjectRef>) {
+        let mut module_weakrefs = Vec::new();
+        let mut module_refs = Vec::new();
+
+        let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self) else {
+            return (module_weakrefs, module_refs);
+        };
+        let Some(modules_dict) = modules.downcast_ref::<PyDict>() else {
+            return (module_weakrefs, module_refs);
+        };
+
+        let none = self.ctx.none();
+        let items: Vec<_> = modules_dict.into_iter().collect();
+
+        for (key, value) in items {
+            let name = key
+                .downcast_ref::<PyStr>()
+                .map(|s| s.as_str().to_owned())
+                .unwrap_or_default();
+
+            // Save weakref and strong ref to module for later clearing
+            if value.downcast_ref::<PyModule>().is_some() {
+                if let Ok(weak) = value.downgrade(None, self) {
+                    module_weakrefs.push((name, weak));
+                }
+                module_refs.push(value.clone());
+            }
+
+            // Set the value to None in sys.modules
+            let _ = modules_dict.set_item(&*key, none.clone(), self);
+        }
+
+        (module_weakrefs, module_refs)
+    }
+
+    /// Phase 3: Clear sys.modules dict.
+    fn finalize_clear_modules_dict(&self) {
+        if let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self)
+            && let Some(modules_dict) = modules.downcast_ref::<PyDict>()
+        {
+            modules_dict.clear();
+        }
+    }
+
+    /// Phase 4: Clear module dicts.
+    /// Without GC, only clear __main__ — other modules' __del__ handlers
+    /// need their globals intact. CPython can clear ALL module dicts because
+    /// _PyGC_CollectNoFail() finalizes cycle-participating objects beforehand.
+    fn finalize_clear_module_dicts(&self, module_weakrefs: &[(String, PyRef<PyWeak>)]) {
+        for (name, weakref) in module_weakrefs.iter().rev() {
+            // Only clear __main__ — user objects with __del__ get finalized
+            // while other modules' globals remain intact for their __del__ handlers.
+            if name != "__main__" {
+                continue;
+            }
+
+            let Some(module_obj) = weakref.upgrade() else {
+                continue;
+            };
+            let Some(module) = module_obj.downcast_ref::<PyModule>() else {
+                continue;
+            };
+
+            Self::module_clear_dict(&module.dict(), self);
+        }
+    }
+
+    /// 2-pass module dict clearing (_PyModule_ClearDict algorithm).
+    /// Pass 1: Set names starting with '_' (except __builtins__) to None.
+    /// Pass 2: Set all remaining names (except __builtins__) to None.
+    pub(crate) fn module_clear_dict(dict: &Py<PyDict>, vm: &VirtualMachine) {
+        let none = vm.ctx.none();
+
+        // Pass 1: names starting with '_' (except __builtins__)
+        for (key, value) in dict.into_iter().collect::<Vec<_>>() {
+            if vm.is_none(&value) {
+                continue;
+            }
+            if let Some(key_str) = key.downcast_ref::<PyStr>() {
+                let name = key_str.as_str();
+                if name.starts_with('_') && name != "__builtins__" && name != "__spec__" {
+                    let _ = dict.set_item(name, none.clone(), vm);
+                }
+            }
+        }
+
+        // Pass 2: all remaining (except __builtins__)
+        for (key, value) in dict.into_iter().collect::<Vec<_>>() {
+            if vm.is_none(&value) {
+                continue;
+            }
+            if let Some(key_str) = key.downcast_ref::<PyStr>()
+                && key_str.as_str() != "__builtins__"
+                && key_str.as_str() != "__spec__"
+            {
+                let _ = dict.set_item(key_str.as_str(), none.clone(), vm);
+            }
+        }
+    }
+
+    /// Phase 5: Clear sys and builtins dicts last.
+    fn finalize_clear_sys_builtins_dict(&self) {
+        Self::module_clear_dict(&self.sys_module.dict(), self);
+        Self::module_clear_dict(&self.builtins.dict(), self);
     }
 
     pub fn current_recursion_depth(&self) -> usize {
