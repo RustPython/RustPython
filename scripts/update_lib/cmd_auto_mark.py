@@ -350,7 +350,7 @@ def build_patches(
     """Convert failing tests to patch format."""
     patches = {}
     error_messages = error_messages or {}
-    for class_name, method_name in test_parts_set:
+    for class_name, method_name in sorted(test_parts_set):
         if class_name not in patches:
             patches[class_name] = {}
         reason = error_messages.get((class_name, method_name), "")
@@ -400,6 +400,9 @@ def _method_removal_range(
         and lines[first - 1].strip().startswith("#")
         and COMMENT in lines[first - 1]
     ):
+        first -= 1
+    # Also remove a preceding blank line to avoid double-blanks after removal
+    if first > 0 and not lines[first - 1].strip():
         first -= 1
     return range(first, func_node.end_lineno)
 
