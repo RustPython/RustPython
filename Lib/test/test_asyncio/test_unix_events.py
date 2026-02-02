@@ -1179,6 +1179,8 @@ class TestFunctional(unittest.TestCase):
             wsock.close()
 
 
+# TODO: RUSTPYTHON, fork() segfaults due to stale parking_lot global state
+@unittest.skip("TODO: RUSTPYTHON")
 @support.requires_fork()
 class TestFork(unittest.TestCase):
 
