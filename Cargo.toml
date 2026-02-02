@@ -161,7 +161,7 @@ constant_time_eq = "0.4"
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 flame = "0.2.2"
-getrandom = { version = "0.3", features = ["std"] }
+getrandom = { version = "0.4", features = ["std"] }
 glob = "0.3"
 hex = "0.4.3"
 indexmap = { version = "2.13.0", features = ["std"] }
