@@ -2956,9 +2956,7 @@ impl Compiler {
                     FBlockType::HandlerCleanup,
                     cleanup_end,
                     cleanup_end,
-                    FBlockDatum::ExceptionName(
-                        name.as_ref().unwrap().as_str().to_owned(),
-                    ),
+                    FBlockDatum::ExceptionName(name.as_ref().unwrap().as_str().to_owned()),
                 )?;
                 Some(cleanup_end)
             } else {
