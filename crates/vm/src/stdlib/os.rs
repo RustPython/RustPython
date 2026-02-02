@@ -87,6 +87,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<'_, AVAILABLE> {
             Some(o) if vm.is_none(&o) => Ok(DEFAULT_DIR_FD),
             None => Ok(DEFAULT_DIR_FD),
             Some(o) => {
+                warn_if_bool_fd(&o, vm).map_err(Into::<ArgumentError>::into)?;
                 let fd = o.try_index_opt(vm).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
                         "argument should be integer or None, not {}",
@@ -118,8 +119,25 @@ fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ff
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
 }
 
+pub(crate) fn warn_if_bool_fd(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    use crate::class::StaticType;
+    if obj
+        .class()
+        .is(crate::builtins::bool_::PyBool::static_type())
+    {
+        crate::stdlib::warnings::warn(
+            vm.ctx.exceptions.runtime_warning,
+            "bool is used as a file descriptor".to_owned(),
+            1,
+            vm,
+        )?;
+    }
+    Ok(())
+}
+
 impl TryFromObject for crt_fd::Owned {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        warn_if_bool_fd(&obj, vm)?;
         let fd = crt_fd::Raw::try_from_object(vm, obj)?;
         unsafe { crt_fd::Owned::try_from_raw(fd) }.map_err(|e| e.into_pyexception(vm))
     }
@@ -127,6 +145,7 @@ impl TryFromObject for crt_fd::Owned {
 
 impl TryFromObject for crt_fd::Borrowed<'_> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        warn_if_bool_fd(&obj, vm)?;
         let fd = crt_fd::Raw::try_from_object(vm, obj)?;
         unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }.map_err(|e| e.into_pyexception(vm))
     }
@@ -165,11 +184,11 @@ pub(super) mod _os {
         },
         convert::{IntoPyException, ToPyObject},
         exceptions::OSErrorBuilder,
-        function::{ArgBytesLike, FsPath, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
+        types::{Destructor, IterNext, Iterable, PyStructSequence, Representable, SelfIter},
         vm::VirtualMachine,
     };
     use core::time::Duration;
@@ -294,6 +313,26 @@ pub(super) mod _os {
                 Err(e) => return Err(e.into_pyexception(vm)),
             }
         }
+    }
+
+    #[pyfunction]
+    fn readinto(
+        fd: crt_fd::Borrowed<'_>,
+        buffer: ArgMemoryBuffer,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        buffer.with_ref(|buf| {
+            loop {
+                match crt_fd::read(fd, buf) {
+                    Ok(n) => return Ok(n),
+                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                        vm.check_signals()?;
+                        continue;
+                    }
+                    Err(e) => return Err(e.into_pyexception(vm)),
+                }
+            }
+        })
     }
 
     #[pyfunction]
@@ -754,7 +793,7 @@ pub(super) mod _os {
         mode: OutputMode,
     }
 
-    #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Destructor, IterNext, Iterable))]
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
@@ -775,6 +814,21 @@ pub(super) mod _os {
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
+        }
+    }
+    impl Destructor for ScandirIterator {
+        fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            // Emit ResourceWarning if the iterator is not yet exhausted/closed
+            if zelf.entries.read().is_some() {
+                let _ = crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.resource_warning,
+                    format!("unclosed scandir iterator {:?}", zelf.as_object()),
+                    1,
+                    vm,
+                );
+                zelf.close();
+            }
+            Ok(())
         }
     }
     impl SelfIter for ScandirIterator {}
@@ -1668,8 +1722,10 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn truncate(path: PyObjectRef, length: crt_fd::Offset, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(fd) = path.clone().try_into_value(vm) {
-            return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm));
+        match path.clone().try_into_value::<crt_fd::Borrowed<'_>>(vm) {
+            Ok(fd) => return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm)),
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.warning) => return Err(e),
+            Err(_) => {}
         }
 
         #[cold]

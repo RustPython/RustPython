@@ -583,7 +583,6 @@ class PosixTester(unittest.TestCase):
         self.assertGreater(len(path), 0)
         self.assertEqual(posix.confstr(posix.confstr_names["CS_PATH"]), path)
 
-    @unittest.expectedFailureIf(sys.platform in ("darwin", "linux"), "TODO: RUSTPYTHON; AssertionError: \"configuration names must be strings or integers\" does not match \"Expected type 'str' but 'float' found.\"")
     @unittest.skipUnless(hasattr(posix, 'sysconf'),
                          'test needs posix.sysconf()')
     def test_sysconf(self):
@@ -1623,7 +1622,6 @@ class TestPosixDirFd(unittest.TestCase):
         with self.prepare_file() as (dir_fd, name, fullname):
             posix.chown(name, os.getuid(), os.getgid(), dir_fd=dir_fd)
 
-    @unittest.expectedFailureIf(sys.platform in ("darwin", "linux"), "TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered")
     @unittest.skipUnless(os.stat in os.supports_dir_fd, "test needs dir_fd support in os.stat()")
     def test_stat_dir_fd(self):
         with self.prepare() as (dir_fd, name, fullname):

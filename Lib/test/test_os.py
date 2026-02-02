@@ -187,7 +187,6 @@ class FileTests(unittest.TestCase):
         os.close(f)
         self.assertTrue(os.access(os_helper.TESTFN, os.W_OK))
 
-    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; BrokenPipeError: (32, 'The process cannot access the file because it is being used by another process. (os error 32)')")
     @unittest.skipIf(
         support.is_wasi, "WASI does not support dup."
     )
@@ -230,7 +229,6 @@ class FileTests(unittest.TestCase):
             self.assertEqual(type(s), bytes)
             self.assertEqual(s, b"spam")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'os' has no attribute 'readinto'. Did you mean: 'readlink'?
     def test_readinto(self):
         with open(os_helper.TESTFN, "w+b") as fobj:
             fobj.write(b"spam")
@@ -262,7 +260,6 @@ class FileTests(unittest.TestCase):
             os.lseek(fd, 0, 0)
             self.assertEqual(os.readinto(fd, bytearray()), 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'os' has no attribute 'readinto'. Did you mean: 'readlink'?
     @unittest.skipUnless(hasattr(os, 'get_blocking'),
                      'needs os.get_blocking() and os.set_blocking()')
     @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
@@ -294,7 +291,6 @@ class FileTests(unittest.TestCase):
             if w is not None:
                 os.close(w)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'os' has no attribute 'readinto'. Did you mean: 'readlink'?
     def test_readinto_badarg(self):
         with open(os_helper.TESTFN, "w+b") as fobj:
             fobj.write(b"spam")
@@ -1423,7 +1419,6 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
         self._test_underlying_process_env('_A_', '')
         self._test_underlying_process_env(overridden_key, original_value)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'os' has no attribute 'reload_environ'
     def test_reload_environ(self):
         # Test os.reload_environ()
         has_environb = hasattr(os, 'environb')
@@ -1887,17 +1882,6 @@ class BytesWalkTests(WalkTests):
             bdirs[:] = list(map(os.fsencode, dirs))
             bfiles[:] = list(map(os.fsencode, files))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; WalkTests doesn't have these methods
-    def test_compare_to_walk(self):
-        return super().test_compare_to_walk()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; WalkTests doesn't have these methods
-    def test_dir_fd(self):
-        return super().test_dir_fd()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; WalkTests doesn't have these methods
-    def test_yields_correct_dir_fd(self):
-        return super().test_yields_correct_dir_fd()
 
 @unittest.skipUnless(hasattr(os, 'fwalk'), "Test needs os.fwalk()")
 class BytesFwalkTests(FwalkTests):
@@ -2586,7 +2570,6 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.pathconf, "PC_NAME_MAX")
         self.check(os.fpathconf, "PC_NAME_MAX")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not raised
     @unittest.skipUnless(hasattr(os, 'ftruncate'), 'test needs os.ftruncate()')
     def test_ftruncate(self):
         self.check(os.truncate, 0)
@@ -2633,13 +2616,6 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.get_blocking)
         self.check(os.set_blocking, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not raised
-    def test_fsync(self):
-        return super().test_fsync()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NotADirectoryError: [Errno 20] Not a directory
-    def test_fchdir(self):
-        return super().test_fchdir()
 
 
 
@@ -3709,7 +3685,6 @@ class SpawnTests(unittest.TestCase):
         pid = os.spawnv(os.P_NOWAIT, program, args)
         support.wait_process(pid, exitcode=self.exitcode)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; fix spawnv bytes
     @requires_os_func('spawnve')
     def test_spawnve_bytes(self):
         # Test bytes handling in parse_arglist and parse_envlist (#28114)
@@ -5423,7 +5398,6 @@ class TestScandir(unittest.TestCase):
         with self.check_no_resource_warning():
             del iterator
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ResourceWarning not triggered
     def test_resource_warning(self):
         self.create_file("file.txt")
         self.create_file("file2.txt")

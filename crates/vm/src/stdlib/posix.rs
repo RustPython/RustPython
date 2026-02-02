@@ -19,12 +19,15 @@ pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()>
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyType, PyUtf8StrRef},
+        builtins::{PyDictRef, PyInt, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{Either, KwArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
-        stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata},
+        stdlib::os::{
+            _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata,
+            warn_if_bool_fd,
+        },
         types::{Constructor, Representable},
         utils::ToCString,
     };
@@ -41,7 +44,7 @@ pub mod module {
     };
     use strum_macros::{EnumIter, EnumString};
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
     use libc::{SCHED_DEADLINE, SCHED_NORMAL};
 
@@ -443,6 +446,19 @@ pub mod module {
         environ
     }
 
+    #[pyfunction]
+    fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
+        use rustpython_common::os::ffi::OsStringExt;
+
+        let environ = vm.ctx.new_dict();
+        for (key, value) in env::vars_os() {
+            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
+            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
+            environ.set_item(&*key, value, vm).unwrap();
+        }
+        environ
+    }
+
     #[derive(FromArgs)]
     pub(super) struct SymlinkArgs<'fd> {
         src: OsPath,
@@ -483,8 +499,15 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchdir(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<()> {
-        nix::unistd::fchdir(fd).map_err(|err| err.into_pyexception(vm))
+    fn fchdir(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        warn_if_bool_fd(&fd, vm)?;
+        let fd = i32::try_from_object(vm, fd)?;
+        let ret = unsafe { libc::fchdir(fd) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error().into_pyexception(vm))
+        }
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1183,7 +1206,7 @@ pub mod module {
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
+            OsPath::try_from_object(vm, obj)?.into_cstring(vm)
         })?;
         let argv: Vec<&CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
@@ -1209,7 +1232,7 @@ pub mod module {
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
+            OsPath::try_from_object(vm, obj)?.into_cstring(vm)
         })?;
         let argv: Vec<&CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
@@ -2462,7 +2485,11 @@ pub mod module {
             let i = match obj.downcast::<PyInt>() {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
-                    let s = PyUtf8StrRef::try_from_object(vm, obj)?;
+                    let s = obj.downcast::<PyStr>().map_err(|_| {
+                        vm.new_type_error(
+                            "configuration names must be strings or integers".to_owned(),
+                        )
+                    })?;
                     s.as_str().parse::<SysconfVar>().or_else(|_| {
                         if s.as_str() == "SC_PAGESIZE" {
                             Ok(SysconfVar::SC_PAGESIZE)
