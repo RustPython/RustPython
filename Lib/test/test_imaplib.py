@@ -517,6 +517,7 @@ class NewIMAPTestsMixin:
         with self.imap_class(*server.server_address):
             pass
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'socket' object has no attribute 'timeout'. Did you mean: 'gettimeout'?
     def test_imaplib_timeout_test(self):
         _, server = self._setup(SimpleIMAPHandler, connect=False)
         with self.imap_class(*server.server_address, timeout=None) as client:
