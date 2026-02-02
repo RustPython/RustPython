@@ -19,7 +19,7 @@ pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()>
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType},
+        builtins::{PyDictRef, PyInt, PyListRef, PyStr, PyTupleRef, PyType},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{Either, KwArgs, OptionalArg},
@@ -29,8 +29,14 @@ pub mod module {
             warn_if_bool_fd,
         },
         types::{Constructor, Representable},
-        utils::ToCString,
     };
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    use crate::{builtins::PyStrRef, utils::ToCString};
     use alloc::ffi::CString;
     use bitflags::bitflags;
     use core::ffi::CStr;
@@ -281,6 +287,7 @@ pub mod module {
 
     impl TryFromObject for BorrowedFd<'_> {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            crate::stdlib::os::warn_if_bool_fd(&obj, vm)?;
             let fd = i32::try_from_object(vm, obj)?;
             if fd == -1 {
                 return Err(io::Error::from_raw_os_error(libc::EBADF).into_pyexception(vm));
@@ -902,6 +909,37 @@ pub mod module {
         #[pygetset]
         fn sched_priority(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.sched_priority.clone().to_pyobject(vm)
+        }
+
+        #[pymethod]
+        fn __reduce__(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+            vm.new_tuple((zelf.class().to_owned(), (zelf.sched_priority.clone(),)))
+        }
+
+        #[pymethod]
+        fn __replace__(
+            zelf: crate::PyRef<Self>,
+            args: crate::function::FuncArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            if !args.args.is_empty() {
+                return Err(
+                    vm.new_type_error("__replace__() takes no positional arguments".to_owned())
+                );
+            }
+            let sched_priority = match args.kwargs.get("sched_priority") {
+                Some(v) => v.clone(),
+                None => zelf.sched_priority.clone(),
+            };
+            // Check for unexpected keyword arguments
+            for key in args.kwargs.keys() {
+                if key.as_str() != "sched_priority" {
+                    return Err(vm.new_type_error(format!(
+                        "__replace__() got an unexpected keyword argument '{key}'"
+                    )));
+                }
+            }
+            Ok(Self { sched_priority })
         }
 
         #[cfg(any(
@@ -2091,7 +2129,11 @@ pub mod module {
             let i = match obj.downcast::<PyInt>() {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
-                    let s = PyStrRef::try_from_object(vm, obj)?;
+                    let s = obj.downcast::<PyStr>().map_err(|_| {
+                        vm.new_type_error(
+                            "configuration names must be strings or integers".to_owned(),
+                        )
+                    })?;
                     s.as_str()
                         .parse::<PathconfVar>()
                         .map_err(|_| vm.new_value_error("unrecognized configuration name"))?

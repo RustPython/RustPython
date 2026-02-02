@@ -170,7 +170,6 @@ class GenericTest:
             os.close(w)
         self.assertFalse(self.pathmodule.exists(r))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exists_bool(self):
         for fd in False, True:
             with self.assertWarnsRegex(RuntimeWarning,
