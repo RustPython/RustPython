@@ -503,6 +503,11 @@ DEPENDENCIES = {
             "test_descrtut.py",
         ],
     },
+    "code": {
+        "test": [
+            "test_code_module.py",
+        ],
+    },
     "contextlib": {
         "test": [
             "test_contextlib.py",

@@ -282,13 +282,13 @@ def _iter_patch_lines(
         yield (lineno - 1, textwrap.indent(patch_lines, indent))
 
     # Phase 2: Iterate and mark inherited tests
-    for cls_name, tests in patches.items():
+    for cls_name, tests in sorted(patches.items()):
         lineno = cache.get(cls_name)
         if not lineno:
             print(f"WARNING: {cls_name} does not exist in remote file", file=sys.stderr)
             continue
 
-        for test_name, specs in tests.items():
+        for test_name, specs in sorted(tests.items()):
             decorators = "\n".join(spec.as_decorator() for spec in specs)
             # Check current class and ancestors for async method
             is_async = False
