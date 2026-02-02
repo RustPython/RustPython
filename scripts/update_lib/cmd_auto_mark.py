@@ -745,6 +745,7 @@ def auto_mark_file(
     # Strip reason-less markers so those tests fail normally and we capture
     # their error messages during the test run.
     contents = test_path.read_text(encoding="utf-8")
+    original_contents = contents
     contents, stripped_tests = strip_reasonless_expected_failures(contents)
     if stripped_tests:
         test_path.write_text(contents, encoding="utf-8")
@@ -761,10 +762,20 @@ def auto_mark_file(
         and not results.tests
         and not results.unexpected_successes
     ):
+        # Restore original contents before raising
+        if stripped_tests:
+            test_path.write_text(original_contents, encoding="utf-8")
         raise TestRunError(
             f"Test run failed for {test_name}. "
             f"Output: {results.stdout[-500:] if results.stdout else '(no output)'}"
         )
+
+    # If the run crashed (incomplete), restore original file so that markers
+    # for tests that never ran are preserved.  Only observed results will be
+    # re-applied below.
+    if not results.tests_result and stripped_tests:
+        test_path.write_text(original_contents, encoding="utf-8")
+        stripped_tests = set()
 
     contents = test_path.read_text(encoding="utf-8")
 
@@ -863,11 +874,13 @@ def auto_mark_directory(
     # Strip reason-less markers from ALL files before running tests so those
     # tests fail normally and we capture their error messages.
     stripped_per_file: dict[pathlib.Path, set[tuple[str, str]]] = {}
+    original_per_file: dict[pathlib.Path, str] = {}
     for test_file in test_files:
         contents = test_file.read_text(encoding="utf-8")
-        contents, stripped = strip_reasonless_expected_failures(contents)
+        stripped_contents, stripped = strip_reasonless_expected_failures(contents)
         if stripped:
-            test_file.write_text(contents, encoding="utf-8")
+            original_per_file[test_file] = contents
+            test_file.write_text(stripped_contents, encoding="utf-8")
             stripped_per_file[test_file] = stripped
 
     test_name = get_test_module_name(test_dir)
@@ -882,10 +895,20 @@ def auto_mark_directory(
         and not results.tests
         and not results.unexpected_successes
     ):
+        # Restore original contents before raising
+        for fpath, original in original_per_file.items():
+            fpath.write_text(original, encoding="utf-8")
         raise TestRunError(
             f"Test run failed for {test_name}. "
             f"Output: {results.stdout[-500:] if results.stdout else '(no output)'}"
         )
+
+    # If the run crashed (incomplete), restore original files so that markers
+    # for tests that never ran are preserved.
+    if not results.tests_result and original_per_file:
+        for fpath, original in original_per_file.items():
+            fpath.write_text(original, encoding="utf-8")
+        stripped_per_file.clear()
 
     total_added = 0
     total_removed = 0

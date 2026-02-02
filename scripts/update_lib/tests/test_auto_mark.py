@@ -932,5 +932,154 @@ class TestA(unittest.TestCase):
                     auto_mark_directory(test_dir, verbose=False)
 
 
+class TestAutoMarkFileRestoresOnCrash(unittest.TestCase):
+    """Stripped markers must be restored when the test runner crashes."""
+
+    def test_stripped_markers_restored_when_crash(self):
+        """Markers stripped before run must be restored for unobserved tests on crash."""
+        test_code = f"""\
+import unittest
+
+class TestA(unittest.TestCase):
+    @unittest.expectedFailure  # {COMMENT}
+    def test_foo(self):
+        pass
+
+    @unittest.expectedFailure  # {COMMENT}
+    def test_bar(self):
+        pass
+
+    @unittest.expectedFailure  # {COMMENT}
+    def test_baz(self):
+        pass
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = pathlib.Path(tmpdir) / "test_example.py"
+            test_file.write_text(test_code)
+
+            # Simulate a crashed run that only observed test_foo (failed)
+            # test_bar and test_baz never ran due to crash
+            mock_result = TestResult()
+            mock_result.tests_result = ""  # no Tests result line (crash)
+            mock_result.tests = [
+                Test(
+                    name="test_foo",
+                    path="test.test_example.TestA.test_foo",
+                    result="fail",
+                    error_message="AssertionError: 1 != 2",
+                ),
+            ]
+
+            with mock.patch(
+                "update_lib.cmd_auto_mark.run_test", return_value=mock_result
+            ):
+                auto_mark_file(test_file, verbose=False)
+
+            contents = test_file.read_text()
+            # test_bar and test_baz were not observed — their markers must be restored
+            self.assertIn("def test_bar", contents)
+            self.assertIn("def test_baz", contents)
+            # Count expectedFailure markers: all 3 should be present
+            self.assertEqual(contents.count("expectedFailure"), 3, contents)
+
+    def test_stripped_markers_removed_when_complete_run(self):
+        """Markers are properly removed when the run completes normally."""
+        test_code = f"""\
+import unittest
+
+class TestA(unittest.TestCase):
+    @unittest.expectedFailure  # {COMMENT}
+    def test_foo(self):
+        pass
+
+    @unittest.expectedFailure  # {COMMENT}
+    def test_bar(self):
+        pass
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = pathlib.Path(tmpdir) / "test_example.py"
+            test_file.write_text(test_code)
+
+            # Simulate a complete run where test_foo fails but test_bar passes
+            mock_result = TestResult()
+            mock_result.tests_result = "FAILURE"  # normal completion
+            mock_result.tests = [
+                Test(
+                    name="test_foo",
+                    path="test.test_example.TestA.test_foo",
+                    result="fail",
+                    error_message="AssertionError",
+                ),
+            ]
+            # test_bar passes → shows as unexpected success
+            mock_result.unexpected_successes = [
+                Test(
+                    name="test_bar",
+                    path="test.test_example.TestA.test_bar",
+                    result="unexpected success",
+                ),
+            ]
+
+            with mock.patch(
+                "update_lib.cmd_auto_mark.run_test", return_value=mock_result
+            ):
+                auto_mark_file(test_file, verbose=False)
+
+            contents = test_file.read_text()
+            # test_foo should still have marker (re-added)
+            self.assertEqual(contents.count("expectedFailure"), 1, contents)
+            self.assertIn("def test_foo", contents)
+
+
+class TestAutoMarkDirectoryRestoresOnCrash(unittest.TestCase):
+    """Stripped markers must be restored for directory runs that crash."""
+
+    def test_stripped_markers_restored_when_crash(self):
+        test_code = f"""\
+import unittest
+
+class TestA(unittest.TestCase):
+    @unittest.expectedFailure  # {COMMENT}
+    def test_foo(self):
+        pass
+
+    @unittest.expectedFailure  # {COMMENT}
+    def test_bar(self):
+        pass
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir) / "test_example"
+            test_dir.mkdir()
+            test_file = test_dir / "test_sub.py"
+            test_file.write_text(test_code)
+
+            mock_result = TestResult()
+            mock_result.tests_result = ""  # crash
+            mock_result.tests = [
+                Test(
+                    name="test_foo",
+                    path="test.test_example.test_sub.TestA.test_foo",
+                    result="fail",
+                ),
+            ]
+
+            with (
+                mock.patch(
+                    "update_lib.cmd_auto_mark.run_test", return_value=mock_result
+                ),
+                mock.patch(
+                    "update_lib.cmd_auto_mark.get_test_module_name",
+                    side_effect=lambda p: (
+                        "test_example" if p == test_dir else "test_example.test_sub"
+                    ),
+                ),
+            ):
+                auto_mark_directory(test_dir, verbose=False)
+
+            contents = test_file.read_text()
+            # Both markers must be present (unobserved test_bar restored)
+            self.assertEqual(contents.count("expectedFailure"), 2, contents)
+
+
 if __name__ == "__main__":
     unittest.main()
