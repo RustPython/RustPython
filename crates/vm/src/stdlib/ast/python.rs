@@ -5,6 +5,7 @@ pub(crate) mod _ast {
     use crate::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyTupleRef, PyType, PyTypeRef},
+        class::PyClassImpl,
         function::FuncArgs,
         types::{Constructor, Initializer},
     };
@@ -87,73 +88,36 @@ pub(crate) mod _ast {
                 zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
             }
 
-            // Set default values only for built-in AST nodes (_field_types present).
-            // Custom AST subclasses without _field_types do NOT get automatic defaults.
-            let has_field_types = zelf
-                .class()
-                .get_attr(vm.ctx.intern_str("_field_types"))
-                .is_some();
-            if has_field_types {
-                // ASDL list fields (type*) default to empty list,
-                // optional/required fields default to None.
-                // Fields that are always list-typed regardless of node class.
-                const LIST_FIELDS: &[&str] = &[
-                    "argtypes",
-                    "bases",
-                    "cases",
-                    "comparators",
-                    "decorator_list",
-                    "defaults",
-                    "elts",
-                    "finalbody",
-                    "generators",
-                    "handlers",
-                    "ifs",
-                    "items",
-                    "keys",
-                    "kw_defaults",
-                    "kwd_attrs",
-                    "kwd_patterns",
-                    "keywords",
-                    "kwonlyargs",
-                    "names",
-                    "ops",
-                    "patterns",
-                    "posonlyargs",
-                    "targets",
-                    "type_ignores",
-                    "type_params",
-                    "values",
-                ];
-
-                let class_name = zelf.class().name().to_string();
+            // Use _field_types to determine defaults for unset fields.
+            // Only built-in AST node classes have _field_types populated.
+            let field_types = zelf.class().get_attr(vm.ctx.intern_str("_field_types"));
+            if let Some(Ok(ft_dict)) =
+                field_types.map(|ft| ft.downcast::<crate::builtins::PyDict>())
+            {
+                let expr_ctx_type: PyObjectRef =
+                    super::super::pyast::NodeExprContext::make_class(&vm.ctx).into();
 
                 for field in &fields {
-                    if !set_fields.contains(field.as_str()) {
-                        let field_name = field.as_str();
-                        // Some field names have different ASDL types depending on the node.
-                        // For example, "args" is `expr*` in Call but `arguments` in Lambda.
-                        // "body" and "orelse" are `stmt*` in most nodes but `expr` in IfExp.
-                        let is_list_field = if field_name == "args" {
-                            class_name == "Call" || class_name == "arguments"
-                        } else if field_name == "body" || field_name == "orelse" {
-                            !matches!(class_name.as_str(), "Lambda" | "Expression" | "IfExp")
-                        } else {
-                            LIST_FIELDS.contains(&field_name)
-                        };
-
-                        let default: PyObjectRef = if is_list_field {
-                            vm.ctx.new_list(vec![]).into()
-                        } else {
-                            vm.ctx.none()
-                        };
-                        zelf.set_attr(vm.ctx.intern_str(field_name), default, vm)?;
+                    if set_fields.contains(field.as_str()) {
+                        continue;
                     }
-                }
-
-                // Special defaults that are not None or empty list
-                if class_name == "ImportFrom" && !set_fields.contains("level") {
-                    zelf.set_attr("level", vm.ctx.new_int(0), vm)?;
+                    if let Some(ftype) = ft_dict.get_item_opt::<str>(field.as_str(), vm)? {
+                        if ftype.fast_isinstance(vm.ctx.types.union_type) {
+                            // Optional field (T | None) — no default
+                        } else if ftype.fast_isinstance(vm.ctx.types.generic_alias_type) {
+                            // List field (list[T]) — default to []
+                            let empty_list: PyObjectRef = vm.ctx.new_list(vec![]).into();
+                            zelf.set_attr(vm.ctx.intern_str(field.as_str()), empty_list, vm)?;
+                        } else if ftype.is(&expr_ctx_type) {
+                            // expr_context — default to Load()
+                            let load_type =
+                                super::super::pyast::NodeExprContextLoad::make_class(&vm.ctx);
+                            let load_instance =
+                                vm.ctx.new_base_object(load_type, Some(vm.ctx.new_dict()));
+                            zelf.set_attr(vm.ctx.intern_str(field.as_str()), load_instance, vm)?;
+                        }
+                        // else: required field, no default set
+                    }
                 }
             }
 
