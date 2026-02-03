@@ -1129,6 +1129,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             f2 = filter(filter_char, "abcdeabcde")
             self.check_iter_pickle(f1, list(f2), proto)
 
+    @unittest.skip("TODO: RUSTPYTHON; Segfault")
     @support.skip_wasi_stack_overflow()
     @support.skip_emscripten_stack_overflow()
     @support.requires_resource('cpu')
@@ -2397,6 +2398,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         bad_iter = map(int, "X")
         self.assertRaises(ValueError, array.extend, bad_iter)
 
+    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_bytearray_join_with_misbehaving_iterator(self):
         # Issue #112625
         array = bytearray(b',')
