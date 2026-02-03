@@ -43,7 +43,12 @@ fn probe() -> &'static ProbeResult {
 }
 
 #[allow(non_upper_case_globals)]
-#[pymodule(with(cert::ssl_cert, ssl_error::ssl_error, ossl101, ossl111, windows))]
+#[pymodule(with(
+    cert::ssl_cert,
+    ssl_error::ssl_error,
+    #[cfg(ossl101)] ossl101,
+    #[cfg(ossl111)] ossl111,
+    #[cfg(windows)] windows))]
 mod _ssl {
     use super::{bio, probe};
 
@@ -4069,18 +4074,6 @@ mod _ssl {
         }
     }
 }
-
-#[cfg(not(ossl101))]
-#[pymodule(sub)]
-mod ossl101 {}
-
-#[cfg(not(ossl111))]
-#[pymodule(sub)]
-mod ossl111 {}
-
-#[cfg(not(windows))]
-#[pymodule(sub)]
-mod windows {}
 
 #[allow(non_upper_case_globals)]
 #[cfg(ossl101)]
