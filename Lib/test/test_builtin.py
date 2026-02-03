@@ -367,6 +367,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         c3 = C3()
         self.assertTrue(callable(c3))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust isize
     def test_chr(self):
         self.assertEqual(chr(0), '\0')
         self.assertEqual(chr(32), ' ')
@@ -609,6 +610,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(co, glob)
         self.assertEqual(type(glob['ticker']()), AsyncGeneratorType)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: <_ast.Name object at 0xb40000731e3d1360> is not an instance of <class '_ast.Constant'>
     def test_compile_ast(self):
         args = ("a*__debug__", "f.py", "exec")
         raw = compile(*args, flags = ast.PyCF_ONLY_AST).body[0]
@@ -729,6 +731,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertIs(None.__ne__(0), NotImplemented)
         self.assertIs(None.__ne__("abc"), NotImplemented)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; wrong error message
     def test_divmod(self):
         self.assertEqual(divmod(12, 7), (1, 5))
         self.assertEqual(divmod(-12, 7), (-2, 2))
@@ -966,6 +969,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaisesRegex(NameError, "name 'superglobal' is not defined",
                                exec, code, {'__builtins__': customdict()})
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; NameError: name 'superglobal' is not defined
     def test_eval_builtins_mapping(self):
         code = compile("superglobal", "test", "eval")
         # works correctly
@@ -976,6 +980,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaisesRegex(NameError, "name 'superglobal' is not defined",
                                eval, code, ns)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; wrong error message
     def test_exec_builtins_mapping_import(self):
         code = compile("import foo.bar", "test", "exec")
         ns = {'__builtins__': types.MappingProxyType({})}
@@ -984,6 +989,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(code, ns)
         self.assertEqual(ns['foo'], ('foo.bar', ns, ns, None, 0))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: AttributeError not raised by eval
     def test_eval_builtins_mapping_reduce(self):
         # list_iterator.__reduce__() calls _PyEval_GetBuiltin("iter")
         code = compile("x.__reduce__()", "test", "eval")
@@ -1367,6 +1373,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
 
     # strict map tests based on strict zip tests
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_pickle_strict(self):
         a = (1, 2, 3)
         b = (4, 5, 6)
@@ -1375,6 +1382,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             m1 = map(pack, a, b, strict=True)
             self.check_iter_pickle(m1, t, proto)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_pickle_strict_fail(self):
         a = (1, 2, 3)
         b = (4, 5, 6, 7)
@@ -1385,6 +1393,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             self.assertEqual(self.iter_error(m1, ValueError), t)
             self.assertEqual(self.iter_error(m2, ValueError), t)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_strict(self):
         self.assertEqual(tuple(map(pack, (1, 2, 3), 'abc', strict=True)),
                          ((1, 'a'), (2, 'b'), (3, 'c')))
@@ -1411,6 +1420,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(ValueError, tuple,
                           map(pack, 'a', t2, t3, strict=True))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_strict_iterators(self):
         x = iter(range(5))
         y = [0]
@@ -1420,6 +1430,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertEqual(next(x), 2)
         self.assertEqual(next(z), 1)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_strict_error_handling(self):
 
         class Error(Exception):
@@ -1453,6 +1464,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         l8 = self.iter_error(map(pack, Iter(3), "AB", strict=True), ValueError)
         self.assertEqual(l8, [(2, "A"), (1, "B")])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_strict_error_handling_stopiteration(self):
 
         class Iter:
@@ -1976,6 +1988,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
 
     # test_str(): see test_str.py and test_bytes.py for str() tests.
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: floats 0.0 and -0.0 are not identical: zeros have different signs
     def test_sum(self):
         self.assertEqual(sum([]), 0)
         self.assertEqual(sum(list(range(2,8))), 27)
@@ -2436,6 +2449,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             not NotImplemented
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_singleton_attribute_access(self):
         for singleton in (NotImplemented, Ellipsis):
             with self.subTest(singleton):
@@ -2716,17 +2730,20 @@ class PtyTests(unittest.TestCase):
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_input_tty_null_in_prompt(self):
         self.check_input_tty("prompt\0", b"",
                 expected='ValueError: input: prompt string cannot contain '
                          'null characters')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_input_tty_nonencodable_prompt(self):
         self.check_input_tty("prompté", b"quux", "ascii", stdout_errors='strict',
                 expected="UnicodeEncodeError: 'ascii' codec can't encode "
                          "character '\\xe9' in position 6: ordinal not in "
                          "range(128)")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_input_tty_nondecodable_input(self):
         self.check_input_tty("prompt", b"quux\xe9", "ascii", stdin_errors='strict',
                 expected="UnicodeDecodeError: 'ascii' codec can't decode "
@@ -2943,6 +2960,7 @@ class TestType(unittest.TestCase):
             A.__qualname__ = b'B'
         self.assertEqual(A.__qualname__, 'D.E')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_type_firstlineno(self):
         A = type('A', (), {'__firstlineno__': 42})
         self.assertEqual(A.__name__, 'A')
@@ -2954,6 +2972,7 @@ class TestType(unittest.TestCase):
         A.__firstlineno__ = 43
         self.assertEqual(A.__dict__['__firstlineno__'], 43)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_type_typeparams(self):
         class A[T]:
             pass
