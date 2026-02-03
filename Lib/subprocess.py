@@ -79,7 +79,7 @@ _can_fork_exec = sys.platform not in {"emscripten", "wasi", "ios", "tvos", "watc
 
 if _mswindows:
     import _winapi
-    from _winapi import (CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP,
+    from _winapi import (CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP,  # noqa: F401
                          STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
                          STD_ERROR_HANDLE, SW_HIDE,
                          STARTF_USESTDHANDLES, STARTF_USESHOWWINDOW,
@@ -752,7 +752,6 @@ def _use_posix_spawn():
 # These are primarily fail-safe knobs for negatives. A True value does not
 # guarantee the given libc/syscall API will be used.
 _USE_POSIX_SPAWN = _use_posix_spawn()
-_USE_VFORK = True
 _HAVE_POSIX_SPAWN_CLOSEFROM = hasattr(os, 'POSIX_SPAWN_CLOSEFROM')
 
 
@@ -1125,10 +1124,9 @@ class Popen:
                     except TimeoutExpired:
                         pass
                 self._sigint_wait_secs = 0  # Note that this has been done.
-                return  # resume the KeyboardInterrupt
-
-            # Wait for the process to terminate, to avoid zombies.
-            self.wait()
+            else:
+                # Wait for the process to terminate, to avoid zombies.
+                self.wait()
 
     def __del__(self, _maxsize=sys.maxsize, _warn=warnings.warn):
         if not self._child_created:
@@ -1927,7 +1925,7 @@ class Popen:
                             errpipe_read, errpipe_write,
                             restore_signals, start_new_session,
                             process_group, gid, gids, uid, umask,
-                            preexec_fn, _USE_VFORK)
+                            preexec_fn)
                     self._child_created = True
                 finally:
                     # be sure the FD is closed no matter what
