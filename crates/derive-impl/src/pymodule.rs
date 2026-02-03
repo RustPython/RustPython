@@ -7,12 +7,97 @@ use crate::util::{
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
-use quote::{ToTokens, quote, quote_spanned};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use rustpython_doc::DB;
 use std::collections::HashSet;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
-use syn_ext::types::PunctuatedNestedMeta;
+use syn_ext::types::NestedMeta;
+
+/// A `with(...)` item that may be gated by `#[cfg(...)]` attributes.
+pub struct WithItem {
+    pub cfg_attrs: Vec<Attribute>,
+    pub path: syn::Path,
+}
+
+impl syn::parse::Parse for WithItem {
+    fn parse(input: syn::parse::ParseStream<'_>) -> Result<Self> {
+        let cfg_attrs = Attribute::parse_outer(input)?;
+        for attr in &cfg_attrs {
+            if !attr.path().is_ident("cfg") {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "only #[cfg(...)] is supported in with()",
+                ));
+            }
+        }
+        let path = input.parse()?;
+        Ok(WithItem { cfg_attrs, path })
+    }
+}
+
+/// Parsed arguments for `#[pymodule(...)]`, supporting `#[cfg]` inside `with(...)`.
+pub struct PyModuleArgs {
+    pub metas: Vec<NestedMeta>,
+    pub with_items: Vec<WithItem>,
+}
+
+impl syn::parse::Parse for PyModuleArgs {
+    fn parse(input: syn::parse::ParseStream<'_>) -> Result<Self> {
+        let mut metas = Vec::new();
+        let mut with_items = Vec::new();
+
+        while !input.is_empty() {
+            // Detect `with(...)` — an ident "with" followed by a paren group
+            if input.peek(Ident) && input.peek2(syn::token::Paren) {
+                let fork = input.fork();
+                let ident: Ident = fork.parse()?;
+                if ident == "with" {
+                    // Advance past "with"
+                    let _: Ident = input.parse()?;
+                    let content;
+                    syn::parenthesized!(content in input);
+                    let items =
+                        syn::punctuated::Punctuated::<WithItem, syn::Token![,]>::parse_terminated(
+                            &content,
+                        )?;
+                    with_items.extend(items);
+                    if !input.is_empty() {
+                        input.parse::<syn::Token![,]>()?;
+                    }
+                    continue;
+                }
+            }
+            metas.push(input.parse::<NestedMeta>()?);
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<syn::Token![,]>()?;
+        }
+
+        Ok(PyModuleArgs { metas, with_items })
+    }
+}
+
+/// Generate `#[cfg(not(...))]` attributes that negate the given `#[cfg(...)]` attributes.
+fn negate_cfg_attrs(cfg_attrs: &[Attribute]) -> Vec<Attribute> {
+    if cfg_attrs.is_empty() {
+        return vec![];
+    }
+    let predicates: Vec<_> = cfg_attrs
+        .iter()
+        .map(|attr| match &attr.meta {
+            syn::Meta::List(list) => list.tokens.clone(),
+            _ => unreachable!("only #[cfg(...)] should be here"),
+        })
+        .collect();
+    if predicates.len() == 1 {
+        let predicate = &predicates[0];
+        vec![parse_quote!(#[cfg(not(#predicate))])]
+    } else {
+        vec![parse_quote!(#[cfg(not(all(#(#predicates),*)))])]
+    }
+}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum AttrName {
@@ -62,14 +147,15 @@ struct ModuleContext {
     errors: Vec<syn::Error>,
 }
 
-pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<TokenStream> {
+pub fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<TokenStream> {
+    let PyModuleArgs { metas, with_items } = args;
     let (doc, mut module_item) = match module_item {
         Item::Mod(m) => (m.attrs.doc(), m),
         other => bail_span!(other, "#[pymodule] can only be on a full module"),
     };
     let fake_ident = Ident::new("pymodule", module_item.span());
     let module_meta =
-        ModuleItemMeta::from_nested(module_item.ident.clone(), fake_ident, attr.into_iter())?;
+        ModuleItemMeta::from_nested(module_item.ident.clone(), fake_ident, metas.into_iter())?;
 
     // generation resources
     let mut context = ModuleContext {
@@ -119,7 +205,6 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
         quote!(None)
     };
     let is_submodule = module_meta.sub()?;
-    let withs = module_meta.with()?;
     if !is_submodule {
         items.extend([
             parse_quote! {
@@ -154,16 +239,66 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
             }
         });
     }
-    let method_defs = if withs.is_empty() {
+    // Split with_items into unconditional and cfg-gated groups
+    let (uncond_withs, cond_withs): (Vec<_>, Vec<_>) =
+        with_items.iter().partition(|w| w.cfg_attrs.is_empty());
+    let uncond_paths: Vec<_> = uncond_withs.iter().map(|w| &w.path).collect();
+
+    let method_defs = if with_items.is_empty() {
         quote!(#function_items)
     } else {
+        // For cfg-gated with items, generate conditional const declarations
+        // so the total array size adapts to the cfg at compile time
+        let cond_const_names: Vec<_> = cond_withs
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format_ident!("__WITH_METHODS_{}", i))
+            .collect();
+        let cond_const_decls: Vec<_> = cond_withs
+            .iter()
+            .zip(&cond_const_names)
+            .map(|(w, name)| {
+                let cfg_attrs = &w.cfg_attrs;
+                let neg_attrs = negate_cfg_attrs(&w.cfg_attrs);
+                let path = &w.path;
+                quote! {
+                    #(#cfg_attrs)*
+                    const #name: &'static [::rustpython_vm::function::PyMethodDef] = super::#path::METHOD_DEFS;
+                    #(#neg_attrs)*
+                    const #name: &'static [::rustpython_vm::function::PyMethodDef] = &[];
+                }
+            })
+            .collect();
+
         quote!({
             const OWN_METHODS: &'static [::rustpython_vm::function::PyMethodDef] = &#function_items;
+            #(#cond_const_decls)*
             rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
-                { OWN_METHODS.len() #(+ super::#withs::METHOD_DEFS.len())* },
-            >(&[#(super::#withs::METHOD_DEFS,)* OWN_METHODS])
+                { OWN_METHODS.len()
+                    #(+ super::#uncond_paths::METHOD_DEFS.len())*
+                    #(+ #cond_const_names.len())*
+                },
+            >(&[
+                #(super::#uncond_paths::METHOD_DEFS,)*
+                #(#cond_const_names,)*
+                OWN_METHODS
+            ])
         })
     };
+
+    // Generate __init_attributes calls, wrapping cfg-gated items
+    let init_with_calls: Vec<_> = with_items
+        .iter()
+        .map(|w| {
+            let cfg_attrs = &w.cfg_attrs;
+            let path = &w.path;
+            quote! {
+                #(#cfg_attrs)*
+                super::#path::__init_attributes(vm, module);
+            }
+        })
+        .collect();
+
     items.extend([
         parse_quote! {
             ::rustpython_vm::common::static_cell! {
@@ -178,9 +313,7 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
                 vm: &::rustpython_vm::VirtualMachine,
                 module: &::rustpython_vm::Py<::rustpython_vm::builtins::PyModule>,
             ) {
-                #(
-                    super::#withs::__init_attributes(vm, module);
-                )*
+                #(#init_with_calls)*
                 let ctx = &vm.ctx;
                 #attribute_items
             }

@@ -209,7 +209,7 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - `name`: the name of the function in Python, by default it is the same as the associated Rust function.
 #[proc_macro_attribute]
 pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let attr = parse_macro_input!(attr with Punctuated::parse_terminated);
+    let attr = parse_macro_input!(attr as derive_impl::PyModuleArgs);
     let item = parse_macro_input!(item);
     derive_impl::pymodule(attr, item).into()
 }
