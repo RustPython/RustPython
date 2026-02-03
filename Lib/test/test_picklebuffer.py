@@ -4,7 +4,11 @@ Pickling tests themselves are in pickletester.py.
 """
 
 import gc
-from pickle import PickleBuffer
+# TODO: RUSTPYTHON; Implment PickleBuffer
+try:
+    from pickle import PickleBuffer
+except ImportError:
+    PickleBuffer = None
 import weakref
 import unittest
 

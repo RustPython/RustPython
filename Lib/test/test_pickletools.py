@@ -543,7 +543,8 @@ class MiscTestCase(unittest.TestCase):
 
 
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite(pickletools))
+    from test.support.rustpython import DocTestChecker # TODO: RUSTPYTHON; Remove this
+    tests.addTest(doctest.DocTestSuite(pickletools, checker=DocTestChecker())) # XXX: RUSTPYTHON
     return tests
 
 

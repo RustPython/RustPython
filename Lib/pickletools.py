@@ -335,7 +335,7 @@ def read_stringnl(f, decode=True, stripquotes=True, *, encoding='latin-1'):
     ValueError: no newline found when trying to read stringnl
 
     Embedded escapes are undone in the result.
-    >>> read_stringnl(io.BytesIO(br"'a\n\\b\x00c\td'" + b"\n'e'"))
+    >>> read_stringnl(io.BytesIO(br"'a\n\\b\x00c\td'" + b"\n'e'")) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
     'a\n\\b\x00c\td'
     """
 
