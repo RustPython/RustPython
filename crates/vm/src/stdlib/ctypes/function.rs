@@ -567,10 +567,8 @@ fn extract_ptr_from_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<usize> 
     }
     if let Some(simple) = arg.downcast_ref::<PyCSimple>() {
         let buffer = simple.0.buffer.read();
-        if buffer.len() >= core::mem::size_of::<usize>() {
-            return Ok(usize::from_ne_bytes(
-                buffer[..core::mem::size_of::<usize>()].try_into().unwrap(),
-            ));
+        if let Some(&bytes) = buffer.first_chunk::<{ size_of::<usize>() }>() {
+            return Ok(usize::from_ne_bytes(bytes));
         }
     }
     if let Some(cdata) = arg.downcast_ref::<PyCData>() {

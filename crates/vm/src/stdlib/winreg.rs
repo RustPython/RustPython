@@ -905,20 +905,18 @@ mod winreg {
         match typ {
             REG_DWORD => {
                 // If there isn’t enough data, return 0.
-                if ret_data.len() < std::mem::size_of::<u32>() {
-                    Ok(vm.ctx.new_int(0).into())
-                } else {
-                    let val = u32::from_ne_bytes(ret_data[..4].try_into().unwrap());
-                    Ok(vm.ctx.new_int(val).into())
-                }
+                let val = ret_data
+                    .first_chunk::<4>()
+                    .copied()
+                    .map_or(0, u32::from_ne_bytes);
+                Ok(vm.ctx.new_int(val).into())
             }
             REG_QWORD => {
-                if ret_data.len() < std::mem::size_of::<u64>() {
-                    Ok(vm.ctx.new_int(0).into())
-                } else {
-                    let val = u64::from_ne_bytes(ret_data[..8].try_into().unwrap());
-                    Ok(vm.ctx.new_int(val).into())
-                }
+                let val = ret_data
+                    .first_chunk::<8>()
+                    .copied()
+                    .map_or(0, u64::from_ne_bytes);
+                Ok(vm.ctx.new_int(val).into())
             }
             REG_SZ | REG_EXPAND_SZ => {
                 let u16_slice = bytes_as_wide_slice(ret_data);

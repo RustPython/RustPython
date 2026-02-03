@@ -712,27 +712,22 @@ impl PyCArray {
             }
             Some("f") => {
                 // c_float
-                if offset + 4 <= buffer.len() {
-                    let bytes: [u8; 4] = buffer[offset..offset + 4].try_into().unwrap();
-                    let val = f32::from_ne_bytes(bytes);
-                    Ok(vm.ctx.new_float(val as f64).into())
-                } else {
-                    Ok(vm.ctx.new_float(0.0).into())
-                }
+                let val = buffer[offset..]
+                    .first_chunk::<4>()
+                    .copied()
+                    .map_or(0.0, f32::from_ne_bytes);
+                Ok(vm.ctx.new_float(val as f64).into())
             }
             Some("d") | Some("g") => {
                 // c_double / c_longdouble - read f64 from first 8 bytes
-                if offset + 8 <= buffer.len() {
-                    let bytes: [u8; 8] = buffer[offset..offset + 8].try_into().unwrap();
-                    let val = f64::from_ne_bytes(bytes);
-                    Ok(vm.ctx.new_float(val).into())
-                } else {
-                    Ok(vm.ctx.new_float(0.0).into())
-                }
+                let val = buffer[offset..]
+                    .first_chunk::<8>()
+                    .copied()
+                    .map_or(0.0, f64::from_ne_bytes);
+                Ok(vm.ctx.new_float(val).into())
             }
             _ => {
-                if offset + element_size <= buffer.len() {
-                    let bytes = &buffer[offset..offset + element_size];
+                if let Some(bytes) = buffer[offset..].get(..element_size) {
                     Ok(Self::bytes_to_int(bytes, element_size, type_code, vm))
                 } else {
                     Ok(vm.ctx.new_int(0).into())
