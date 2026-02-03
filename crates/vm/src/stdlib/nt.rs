@@ -988,9 +988,10 @@ pub(crate) mod module {
             let key_str = key.to_string_lossy();
             let value_str = value.to_string_lossy();
 
-            // Validate: no '=' in key (search from index 1 because on Windows
-            // starting '=' is allowed for defining hidden environment variables)
-            if key_str.get(1..).is_some_and(|s| s.contains('=')) {
+            // Validate: empty key or '=' in key after position 0
+            // (search from index 1 because on Windows starting '=' is allowed
+            // for defining hidden environment variables)
+            if key_str.is_empty() || key_str.get(1..).is_some_and(|s| s.contains('=')) {
                 return Err(vm.new_value_error("illegal environment variable name"));
             }
 
@@ -1108,9 +1109,10 @@ pub(crate) mod module {
             if key_str.contains('\0') || value_str.contains('\0') {
                 return Err(vm.new_value_error("embedded null character"));
             }
-            // Validate: no '=' in key (search from index 1 because on Windows
-            // starting '=' is allowed for defining hidden environment variables)
-            if key_str.get(1..).is_some_and(|s| s.contains('=')) {
+            // Validate: empty key or '=' in key after position 0
+            // (search from index 1 because on Windows starting '=' is allowed
+            // for defining hidden environment variables)
+            if key_str.is_empty() || key_str.get(1..).is_some_and(|s| s.contains('=')) {
                 return Err(vm.new_value_error("illegal environment variable name"));
             }
 
@@ -1379,6 +1381,173 @@ pub(crate) mod module {
             )
         } else {
             (Wtf8Buf::new(), Wtf8Buf::from_wide(&orig))
+        }
+    }
+
+    /// Normalize a wide-char path (faithful port of _Py_normpath_and_size).
+    /// Uses lastC tracking like the C implementation.
+    fn normpath_wide(path: &[u16]) -> Vec<u16> {
+        if path.is_empty() {
+            return vec![b'.' as u16];
+        }
+
+        const SEP: u16 = b'\\' as u16;
+        const ALTSEP: u16 = b'/' as u16;
+        const DOT: u16 = b'.' as u16;
+
+        let is_sep = |c: u16| c == SEP || c == ALTSEP;
+        let sep_or_end = |input: &[u16], idx: usize| idx >= input.len() || is_sep(input[idx]);
+
+        // Work on a mutable copy with normalized separators
+        let mut buf: Vec<u16> = path
+            .iter()
+            .map(|&c| if c == ALTSEP { SEP } else { c })
+            .collect();
+
+        let (drv_size, root_size) = skiproot(&buf);
+        let prefix_len = drv_size + root_size;
+
+        // p1 = read cursor, p2 = write cursor
+        let mut p1 = prefix_len;
+        let mut p2 = prefix_len;
+        let mut min_p2 = if prefix_len > 0 { prefix_len } else { 0 };
+        let mut last_c: u16 = if prefix_len > 0 {
+            min_p2 = prefix_len - 1;
+            let c = buf[min_p2];
+            // On Windows, if last char of prefix is not SEP, advance min_p2
+            if c != SEP {
+                min_p2 = prefix_len;
+            }
+            c
+        } else {
+            0
+        };
+
+        // Skip leading ".\" after prefix
+        if p1 < buf.len() && buf[p1] == DOT && sep_or_end(&buf, p1 + 1) {
+            p1 += 1;
+            last_c = SEP; // treat as if we consumed a separator
+            while p1 < buf.len() && buf[p1] == SEP {
+                p1 += 1;
+            }
+        }
+
+        while p1 < buf.len() {
+            let c = buf[p1];
+
+            if last_c == SEP {
+                if c == DOT {
+                    let sep_at_1 = sep_or_end(&buf, p1 + 1);
+                    let sep_at_2 = !sep_at_1 && sep_or_end(&buf, p1 + 2);
+                    if sep_at_2 && buf[p1 + 1] == DOT {
+                        // ".." component
+                        let mut p3 = p2;
+                        while p3 != min_p2 && buf[p3 - 1] == SEP {
+                            p3 -= 1;
+                        }
+                        while p3 != min_p2 && buf[p3 - 1] != SEP {
+                            p3 -= 1;
+                        }
+                        if p2 == min_p2
+                            || (buf[p3] == DOT
+                                && p3 + 1 < buf.len()
+                                && buf[p3 + 1] == DOT
+                                && (p3 + 2 >= buf.len() || buf[p3 + 2] == SEP))
+                        {
+                            // Previous segment is also ../ or at minimum
+                            buf[p2] = DOT;
+                            p2 += 1;
+                            buf[p2] = DOT;
+                            p2 += 1;
+                            last_c = DOT;
+                        } else if buf[p3] == SEP {
+                            // Absolute path - absorb segment
+                            p2 = p3 + 1;
+                            // last_c stays SEP
+                        } else {
+                            p2 = p3;
+                            // last_c stays SEP
+                        }
+                        p1 += 1; // skip second dot (first dot is current p1)
+                    } else if sep_at_1 {
+                        // "." component - skip
+                    } else {
+                        buf[p2] = c;
+                        p2 += 1;
+                        last_c = c;
+                    }
+                } else if c == SEP {
+                    // Collapse multiple separators - skip
+                } else {
+                    buf[p2] = c;
+                    p2 += 1;
+                    last_c = c;
+                }
+            } else {
+                buf[p2] = c;
+                p2 += 1;
+                last_c = c;
+            }
+
+            p1 += 1;
+        }
+
+        // Null-terminate style: trim trailing separators
+        if p2 != min_p2 {
+            while p2 > min_p2 + 1 && buf[p2 - 1] == SEP {
+                p2 -= 1;
+            }
+        }
+
+        buf.truncate(p2);
+
+        if buf.is_empty() { vec![DOT] } else { buf }
+    }
+
+    #[pyfunction]
+    fn _path_normpath(path: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        use crate::builtins::{PyBytes, PyStr};
+        use rustpython_common::wtf8::Wtf8Buf;
+
+        // Handle path-like objects via os.fspath
+        let path = if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
+            fspath?.call((), vm)?
+        } else {
+            path
+        };
+
+        let (wide, is_bytes): (Vec<u16>, bool) = if let Some(s) = path.downcast_ref::<PyStr>() {
+            let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
+            (wide, false)
+        } else if let Some(b) = path.downcast_ref::<PyBytes>() {
+            let s = std::str::from_utf8(b.as_bytes()).map_err(|e| {
+                vm.new_exception_msg(
+                    vm.ctx.exceptions.unicode_decode_error.to_owned(),
+                    format!(
+                        "'utf-8' codec can't decode byte {:#x} in position {}: invalid start byte",
+                        b.as_bytes().get(e.valid_up_to()).copied().unwrap_or(0),
+                        e.valid_up_to()
+                    ),
+                )
+            })?;
+            let wide: Vec<u16> = s.encode_utf16().collect();
+            (wide, true)
+        } else {
+            return Err(vm.new_type_error(format!(
+                "expected str or bytes, not {}",
+                path.class().name()
+            )));
+        };
+
+        let normalized = normpath_wide(&wide);
+
+        if is_bytes {
+            let s = String::from_utf16(&normalized)
+                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
+            Ok(vm.ctx.new_bytes(s.into_bytes()).into())
+        } else {
+            let s = Wtf8Buf::from_wide(&normalized);
+            Ok(vm.ctx.new_str(s).into())
         }
     }
 
