@@ -49,8 +49,7 @@ unsafe impl crate::object::Traverse for PyType {
     fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
         self.base.traverse(tracer_fn);
         self.bases.traverse(tracer_fn);
-        // mro contains self as mro[0], so skip traversing to avoid circular reference
-        // self.mro.traverse(tracer_fn);
+        self.mro.traverse(tracer_fn);
         self.subclasses.traverse(tracer_fn);
         self.attributes
             .read_recursive()
