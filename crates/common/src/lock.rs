@@ -40,3 +40,34 @@ pub type PyRwLockWriteGuard<'a, T> = RwLockWriteGuard<'a, RawRwLock, T>;
 pub type PyMappedRwLockWriteGuard<'a, T> = MappedRwLockWriteGuard<'a, RawRwLock, T>;
 
 // can add fn const_{mutex,rw_lock}() if necessary, but we probably won't need to
+
+/// Reset a `PyMutex` to its initial (unlocked) state after `fork()`.
+///
+/// After `fork()`, locks held by dead parent threads would deadlock in the
+/// child. This zeroes the raw lock bytes directly, bypassing the normal unlock
+/// path which may interact with parking_lot's internal waiter queues.
+///
+/// # Safety
+///
+/// Must only be called from the single-threaded child process immediately
+/// after `fork()`, before any other thread is created.
+#[cfg(unix)]
+pub unsafe fn reinit_mutex_after_fork<T: ?Sized>(mutex: &PyMutex<T>) {
+    // lock_api::Mutex<R, T> layout: raw R at offset 0, then UnsafeCell<T>.
+    // Zeroing R resets to unlocked for both parking_lot::RawMutex (AtomicU8)
+    // and RawCellMutex (Cell<bool>).
+    unsafe {
+        let ptr = mutex as *const PyMutex<T> as *mut u8;
+        core::ptr::write_bytes(ptr, 0, core::mem::size_of::<RawMutex>());
+    }
+}
+
+/// Return the current thread's parking_lot thread ID.
+///
+/// This is the same ID stored in the `owner` field of `RawReentrantMutex`
+/// when the current thread holds it.
+#[cfg(all(unix, feature = "threading"))]
+pub fn current_thread_id() -> core::num::NonZeroUsize {
+    use lock_api::GetThreadId;
+    RawThreadId.nonzero_thread_id()
+}

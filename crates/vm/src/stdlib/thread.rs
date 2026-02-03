@@ -147,15 +147,9 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            if self.mu.is_locked() {
-                unsafe {
-                    self.mu.unlock();
-                };
-            }
-            // Casting to AtomicCell is as unsafe as CPython code.
-            // Using AtomicCell will prevent compiler optimizer move it to somewhere later unsafe place.
-            // It will be not under the cell anymore after init call.
-
+            // Reset the mutex to unlocked by directly writing the INIT value.
+            // Do NOT call unlock() here — after fork(), unlock_slow() would
+            // try to unpark stale waiters from dead parent threads.
             let new_mut = RawMutex::INIT;
             unsafe {
                 let old_mutex: &AtomicCell<RawMutex> = core::mem::transmute(&self.mu);
@@ -247,11 +241,9 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            if self.mu.is_locked() {
-                unsafe {
-                    self.mu.unlock();
-                };
-            }
+            // Reset the reentrant mutex to unlocked by directly writing INIT.
+            // Do NOT call unlock() — after fork(), the slow path would try
+            // to unpark stale waiters from dead parent threads.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
             let new_mut = RawRMutex::INIT;
             unsafe {
@@ -884,6 +876,9 @@ pub(crate) mod _thread {
 
     /// Called after fork() in child process to mark all other threads as done.
     /// This prevents join() from hanging on threads that don't exist in the child.
+    ///
+    /// Precondition: `reinit_locks_after_fork()` has already been called, so all
+    /// parking_lot-based locks in VmState are in unlocked state.
     #[cfg(unix)]
     pub fn after_fork_child(vm: &VirtualMachine) {
         let current_ident = get_ident();
@@ -891,29 +886,27 @@ pub(crate) mod _thread {
         // Update main thread ident - after fork, the current thread becomes the main thread
         vm.state.main_thread_ident.store(current_ident);
 
-        // Reinitialize frame slot for current thread
+        // Reinitialize frame slot for current thread.
+        // Locks are already reinit'd, so lock() is safe.
         crate::vm::thread::reinit_frame_slot_after_fork(vm);
 
-        // Clean up thread handles if we can acquire the lock.
-        // Use try_lock because the mutex might have been held during fork.
-        // If we can't acquire it, just skip - the child process will work
-        // correctly with new handles it creates.
-        if let Some(mut handles) = vm.state.thread_handles.try_lock() {
-            // Clean up dead weak refs and mark non-current threads as done
+        // Clean up thread handles. All VmState locks were reinit'd to unlocked,
+        // so lock() won't deadlock. Per-thread Arc<Mutex<ThreadHandleInner>>
+        // locks are also reinit'd below before use.
+        {
+            let mut handles = vm.state.thread_handles.lock();
             handles.retain(|(inner_weak, done_event_weak): &HandleEntry| {
                 let Some(inner) = inner_weak.upgrade() else {
-                    return false; // Remove dead entries
+                    return false;
                 };
                 let Some(done_event) = done_event_weak.upgrade() else {
                     return false;
                 };
 
-                // Try to lock the inner state - skip if we can't
-                let Some(mut inner_guard) = inner.try_lock() else {
-                    return false;
-                };
+                // Reinit this per-handle lock in case a dead thread held it
+                reinit_parking_lot_mutex(&inner);
+                let mut inner_guard = inner.lock();
 
-                // Skip current thread and not-started threads
                 if inner_guard.ident == current_ident {
                     return true;
                 }
@@ -921,64 +914,60 @@ pub(crate) mod _thread {
                     return true;
                 }
 
-                // Mark as done and notify waiters
                 inner_guard.state = ThreadHandleState::Done;
-                inner_guard.join_handle = None; // Can't join OS thread from child
+                inner_guard.join_handle = None;
                 drop(inner_guard);
 
-                // Try to notify waiters - skip if we can't acquire the lock
+                // Reinit and set the done event
                 let (lock, cvar) = &*done_event;
-                if let Some(mut done) = lock.try_lock() {
-                    *done = true;
-                    cvar.notify_all();
-                }
+                reinit_parking_lot_mutex(lock);
+                *lock.lock() = true;
+                cvar.notify_all();
 
                 true
             });
         }
 
-        // Clean up shutdown_handles as well.
-        // This is critical to prevent _shutdown() from waiting on threads
-        // that don't exist in the child process after fork.
-        if let Some(mut handles) = vm.state.shutdown_handles.try_lock() {
-            // Mark all non-current threads as done in shutdown_handles
+        // Clean up shutdown_handles.
+        {
+            let mut handles = vm.state.shutdown_handles.lock();
             handles.retain(|(inner_weak, done_event_weak): &ShutdownEntry| {
                 let Some(inner) = inner_weak.upgrade() else {
-                    return false; // Remove dead entries
+                    return false;
                 };
                 let Some(done_event) = done_event_weak.upgrade() else {
                     return false;
                 };
 
-                // Try to lock the inner state - skip if we can't
-                let Some(mut inner_guard) = inner.try_lock() else {
-                    return false;
-                };
+                reinit_parking_lot_mutex(&inner);
+                let mut inner_guard = inner.lock();
 
-                // Skip current thread
                 if inner_guard.ident == current_ident {
                     return true;
                 }
-
-                // Keep handles for threads that have not been started yet.
-                // They are safe to start in the child process.
                 if inner_guard.state == ThreadHandleState::NotStarted {
                     return true;
                 }
 
-                // Mark as done so _shutdown() won't wait on it
                 inner_guard.state = ThreadHandleState::Done;
                 drop(inner_guard);
 
-                // Notify waiters
                 let (lock, cvar) = &*done_event;
-                if let Some(mut done) = lock.try_lock() {
-                    *done = true;
-                    cvar.notify_all();
-                }
+                reinit_parking_lot_mutex(lock);
+                *lock.lock() = true;
+                cvar.notify_all();
 
-                false // Remove from shutdown_handles - these threads don't exist in child
+                false
             });
+        }
+    }
+
+    /// Reset a parking_lot::Mutex to unlocked state after fork.
+    #[cfg(unix)]
+    fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
+        unsafe {
+            let ptr = mutex as *const parking_lot::Mutex<T> as *mut u8;
+            core::ptr::write_bytes(ptr, 0, core::mem::size_of::<parking_lot::RawMutex>());
         }
     }
 

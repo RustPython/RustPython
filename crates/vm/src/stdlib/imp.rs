@@ -30,6 +30,41 @@ mod lock {
     fn lock_held(_vm: &VirtualMachine) -> bool {
         IMP_LOCK.is_locked()
     }
+
+    /// Reset import lock after fork() — only if held by a dead thread.
+    ///
+    /// `IMP_LOCK` is a reentrant mutex. If the *current* (surviving) thread
+    /// held it at fork time, the child must be able to release it normally.
+    /// Only reset if a now-dead thread was the owner.
+    ///
+    /// # Safety
+    ///
+    /// Must only be called from single-threaded child after fork().
+    #[cfg(unix)]
+    pub(crate) unsafe fn reinit_after_fork() {
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        unsafe {
+            // RawReentrantMutex layout: owner: AtomicUsize at offset 0
+            let owner_ptr = &IMP_LOCK as *const RawRMutex as *const AtomicUsize;
+            let owner = (*owner_ptr).load(Ordering::Relaxed);
+
+            if owner != 0 {
+                let current = rustpython_common::lock::current_thread_id().get();
+                if owner != current {
+                    // Held by a dead thread — reset to unlocked
+                    let ptr = &IMP_LOCK as *const RawRMutex as *mut u8;
+                    core::ptr::write_bytes(ptr, 0, core::mem::size_of::<RawRMutex>());
+                }
+            }
+        }
+    }
+}
+
+/// Re-export for fork safety code in posix.rs
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) unsafe fn reinit_imp_lock_after_fork() {
+    unsafe { lock::reinit_after_fork() }
 }
 
 #[cfg(not(feature = "threading"))]

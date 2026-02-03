@@ -86,19 +86,20 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 
 /// Reinitialize frame slot after fork. Called in child process.
 /// Creates a fresh slot and registers it for the current thread.
+///
+/// Precondition: `reinit_locks_after_fork()` has already reset all
+/// VmState locks to unlocked.
 #[cfg(feature = "threading")]
 pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     let current_ident = crate::stdlib::thread::get_ident();
     let new_slot = Arc::new(parking_lot::Mutex::new(None));
 
-    // Try to update the global registry. If we can't get the lock
-    // (parent thread might have been holding it during fork), skip.
-    if let Some(mut registry) = vm.state.thread_frames.try_lock() {
-        registry.clear();
-        registry.insert(current_ident, new_slot.clone());
-    }
+    // Lock is safe: reinit_locks_after_fork() already reset it to unlocked.
+    let mut registry = vm.state.thread_frames.lock();
+    registry.clear();
+    registry.insert(current_ident, new_slot.clone());
+    drop(registry);
 
-    // Always update thread-local to point to the new slot
     CURRENT_FRAME_SLOT.with(|s| {
         *s.borrow_mut() = Some(new_slot);
     });

@@ -660,8 +660,13 @@ pub mod module {
     }
 
     fn py_os_after_fork_child(vm: &VirtualMachine) {
-        // Reset low-level state before any Python code runs in the child.
-        // Signal triggers from the parent must not fire in the child.
+        // Phase 1: Reset all internal locks FIRST.
+        // After fork(), locks held by dead parent threads would deadlock
+        // if we try to acquire them. This must happen before anything else.
+        #[cfg(feature = "threading")]
+        reinit_locks_after_fork(vm);
+
+        // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
         crate::stdlib::signal::_signal::clear_wakeup_fd_after_fork();
 
@@ -669,12 +674,43 @@ pub mod module {
         #[cfg(feature = "threading")]
         crate::object::reset_weakref_locks_after_fork();
 
-        // Mark all other threads as done before running Python callbacks
+        // Phase 3: Clean up thread state. Locks are now reinit'd so we can
+        // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
         crate::stdlib::thread::after_fork_child(vm);
 
+        // Phase 4: Run Python-level at-fork callbacks.
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
         run_at_forkers(after_forkers_child, false, vm);
+    }
+
+    /// Reset all parking_lot-based locks in the interpreter state after fork().
+    ///
+    /// After fork(), only the calling thread survives. Any locks held by other
+    /// (now-dead) threads would cause deadlocks. We unconditionally reset them
+    /// to unlocked by zeroing the raw lock bytes, following CPython's
+    /// `_PyRuntimeState_ReInitThreads` pattern.
+    #[cfg(all(unix, feature = "threading"))]
+    fn reinit_locks_after_fork(vm: &VirtualMachine) {
+        use rustpython_common::lock::reinit_mutex_after_fork;
+
+        unsafe {
+            // PyGlobalState PyMutex locks
+            reinit_mutex_after_fork(&vm.state.before_forkers);
+            reinit_mutex_after_fork(&vm.state.after_forkers_child);
+            reinit_mutex_after_fork(&vm.state.after_forkers_parent);
+            reinit_mutex_after_fork(&vm.state.atexit_funcs);
+            reinit_mutex_after_fork(&vm.state.global_trace_func);
+            reinit_mutex_after_fork(&vm.state.global_profile_func);
+
+            // PyGlobalState parking_lot::Mutex locks (same type as PyMutex)
+            reinit_mutex_after_fork(&vm.state.thread_frames);
+            reinit_mutex_after_fork(&vm.state.thread_handles);
+            reinit_mutex_after_fork(&vm.state.shutdown_handles);
+
+            // Import lock (RawReentrantMutex<RawMutex, RawThreadId>)
+            crate::stdlib::imp::reinit_imp_lock_after_fork();
+        }
     }
 
     fn py_os_after_fork_parent(vm: &VirtualMachine) {
