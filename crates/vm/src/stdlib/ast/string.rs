@@ -426,6 +426,107 @@ pub(super) struct TemplateStr {
     pub(super) values: Box<[TemplateStrPart]>,
 }
 
+pub(super) fn template_str_to_expr(
+    vm: &VirtualMachine,
+    template: TemplateStr,
+) -> PyResult<ast::Expr> {
+    let TemplateStr { range, values } = template;
+    let elements = template_parts_to_elements(vm, values)?;
+    let tstring = ast::TString {
+        range,
+        node_index: Default::default(),
+        elements,
+        flags: ast::TStringFlags::empty(),
+    };
+    Ok(ast::Expr::TString(ast::ExprTString {
+        node_index: Default::default(),
+        range,
+        value: ast::TStringValue::single(tstring),
+    }))
+}
+
+pub(super) fn interpolation_to_expr(
+    vm: &VirtualMachine,
+    interpolation: TStringInterpolation,
+) -> PyResult<ast::Expr> {
+    let part = TemplateStrPart::Interpolation(interpolation);
+    let elements = template_parts_to_elements(vm, vec![part].into_boxed_slice())?;
+    let range = TextRange::default();
+    let tstring = ast::TString {
+        range,
+        node_index: Default::default(),
+        elements,
+        flags: ast::TStringFlags::empty(),
+    };
+    Ok(ast::Expr::TString(ast::ExprTString {
+        node_index: Default::default(),
+        range,
+        value: ast::TStringValue::single(tstring),
+    }))
+}
+
+fn template_parts_to_elements(
+    vm: &VirtualMachine,
+    values: Box<[TemplateStrPart]>,
+) -> PyResult<ast::InterpolatedStringElements> {
+    let mut elements = Vec::with_capacity(values.len());
+    for value in values.into_vec() {
+        elements.push(template_part_to_element(vm, value)?);
+    }
+    Ok(ast::InterpolatedStringElements::from(elements))
+}
+
+fn template_part_to_element(
+    vm: &VirtualMachine,
+    part: TemplateStrPart,
+) -> PyResult<ast::InterpolatedStringElement> {
+    match part {
+        TemplateStrPart::Constant(constant) => {
+            let ConstantLiteral::Str { value, .. } = constant.value else {
+                return Err(
+                    vm.new_type_error("TemplateStr constant values must be strings".to_owned())
+                );
+            };
+            Ok(ast::InterpolatedStringElement::Literal(
+                ast::InterpolatedStringLiteralElement {
+                    range: constant.range,
+                    node_index: Default::default(),
+                    value,
+                },
+            ))
+        }
+        TemplateStrPart::Interpolation(interpolation) => {
+            let TStringInterpolation {
+                value,
+                conversion,
+                format_spec,
+                range,
+                ..
+            } = interpolation;
+            let format_spec = format_spec
+                .map(|spec| {
+                    let values = template_parts_to_elements(vm, spec.values)?;
+                    Ok(Box::new(ast::InterpolatedStringFormatSpec {
+                        range: spec.range,
+                        node_index: Default::default(),
+                        elements: values,
+                    }))
+                })
+                .transpose()?;
+            Ok(ast::InterpolatedStringElement::Interpolation(
+                ast::InterpolatedElement {
+                    range,
+                    node_index: Default::default(),
+                    expression: value,
+                    debug_text: None,
+                    conversion,
+                    format_spec,
+                },
+            ))
+        }
+    }
+}
+
 // constructor
 impl Node for TemplateStr {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {

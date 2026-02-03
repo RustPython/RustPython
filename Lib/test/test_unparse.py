@@ -527,7 +527,6 @@ class UnparseTestCase(ASTTestCase):
             locs(ast.Module([ast.Expr(ast.Constant(value=(1, 2, 3)))])), "(1, 2, 3)"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_function_type(self):
         for function_type in (
             "() -> int",
@@ -567,7 +566,6 @@ class UnparseTestCase(ASTTestCase):
         ):
             self.check_ast_roundtrip(statement, type_comments=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'TypeVar' object has no attribute 'default_value'
     def test_unparse_interactive_semicolons(self):
         # gh-129598: Fix ast.unparse() when ast.Interactive contains multiple statements
         self.check_src_roundtrip("i = 1; 'expr'; raise Exception", mode='single')

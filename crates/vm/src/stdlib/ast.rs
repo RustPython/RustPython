@@ -4,12 +4,31 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
-pub(crate) use python::_ast::module_def;
+use crate::builtins::{PyModuleDef, PyModuleSlots};
+use rustpython_common::static_cell;
+
+pub(crate) fn module_def(ctx: &Context) -> &'static PyModuleDef {
+    static_cell! {
+        static MODULE_DEF: PyModuleDef;
+    }
+    MODULE_DEF.get_or_init(|| {
+        let base = python::_ast::module_def(ctx);
+        PyModuleDef {
+            name: base.name,
+            doc: base.doc,
+            methods: base.methods,
+            slots: PyModuleSlots {
+                create: base.slots.create,
+                exec: Some(python::_ast::module_exec),
+            },
+        }
+    })
+}
 
 mod pyast;
 
 use crate::builtins::{PyInt, PyStr};
-use crate::stdlib::ast::module::{Mod, ModInteractive};
+use crate::stdlib::ast::module::{Mod, ModFunctionType, ModInteractive};
 use crate::stdlib::ast::node::BoxedSlice;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -36,10 +55,13 @@ use rustpython_codegen as codegen;
 pub(crate) use python::_ast::NodeAst;
 
 mod python;
+mod repr;
+mod validate;
 
 mod argument;
 mod basic;
 mod constant;
+mod docstrings;
 mod elif_else_clause;
 mod exception;
 mod expression;
@@ -196,6 +218,27 @@ fn range_from_object(
     let start_col_val: i32 = start_column.try_to_primitive(vm)?;
     let end_col_val: i32 = end_column.try_to_primitive(vm)?;
 
+    if start_row_val > end_row_val {
+        return Err(vm.new_value_error(format!(
+            "AST node line range ({}, {}) is not valid",
+            start_row_val, end_row_val
+        )));
+    }
+    if (start_row_val < 0 && end_row_val != start_row_val)
+        || (start_col_val < 0 && end_col_val != start_col_val)
+    {
+        return Err(vm.new_value_error(format!(
+            "AST node column range ({}, {}) for line range ({}, {}) is not valid",
+            start_col_val, end_col_val, start_row_val, end_row_val
+        )));
+    }
+    if start_row_val == end_row_val && start_col_val > end_col_val {
+        return Err(vm.new_value_error(format!(
+            "line {}, column {}-{} is not a valid range",
+            start_row_val, start_col_val, end_col_val
+        )));
+    }
+
     let location = PySourceRange {
         start: PySourceLocation {
             row: Row(if start_row_val > 0 {
@@ -306,10 +349,113 @@ pub(crate) fn parse(
     vm: &VirtualMachine,
     source: &str,
     mode: parser::Mode,
+    optimize: bool,
+    target_version: Option<ast::PythonVersion>,
+    type_comments: bool,
 ) -> Result<PyObjectRef, CompileError> {
     let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
-    let top = parser::parse(source, mode.into())
-        .map_err(|parse_error| {
+    let mut options = parser::ParseOptions::from(mode);
+    let target_version = target_version.unwrap_or(ast::PythonVersion::PY314);
+    options = options.with_target_version(target_version);
+    let parsed = parser::parse(source, options).map_err(|parse_error| {
+        let range = text_range_to_source_range(&source_file, parse_error.location);
+        ParseError {
+            error: parse_error.error,
+            raw_location: parse_error.location,
+            location: range.start.to_source_location(),
+            end_location: range.end.to_source_location(),
+            source_path: "<unknown>".to_string(),
+        }
+    })?;
+
+    if let Some(error) = parsed.unsupported_syntax_errors().first() {
+        let range = text_range_to_source_range(&source_file, error.range());
+        return Err(ParseError {
+            error: parser::ParseErrorType::OtherError(error.to_string()),
+            raw_location: error.range(),
+            location: range.start.to_source_location(),
+            end_location: range.end.to_source_location(),
+            source_path: "<unknown>".to_string(),
+        }
+        .into());
+    }
+
+    let mut top = parsed.into_syntax();
+    if optimize {
+        fold_match_value_constants(&mut top);
+    }
+    let top = match top {
+        ast::Mod::Module(m) => Mod::Module(m),
+        ast::Mod::Expression(e) => Mod::Expression(e),
+    };
+    let obj = top.ast_to_object(vm, &source_file);
+    if type_comments && obj.class().is(pyast::NodeModModule::static_type()) {
+        let type_ignores = type_ignores_from_source(vm, source)?;
+        let dict = obj.as_object().dict().unwrap();
+        dict.set_item("type_ignores", vm.ctx.new_list(type_ignores).into(), vm)
+            .unwrap();
+    }
+    Ok(obj)
+}
+
+#[cfg(feature = "parser")]
+pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: PyObjectRef) -> PyResult {
+    if !module_obj.class().is(pyast::NodeModModule::static_type()) {
+        return Err(vm.new_type_error("expected Module node".to_owned()));
+    }
+    let body = get_node_field(vm, &module_obj, "body", "Module")?;
+    let node = NodeAst
+        .into_ref_with_type(vm, pyast::NodeModInteractive::static_type().to_owned())
+        .unwrap();
+    let dict = node.as_object().dict().unwrap();
+    dict.set_item("body", body, vm).unwrap();
+    Ok(node.into())
+}
+
+#[cfg(feature = "parser")]
+pub(crate) fn parse_func_type(
+    vm: &VirtualMachine,
+    source: &str,
+    optimize: bool,
+    target_version: Option<ast::PythonVersion>,
+) -> Result<PyObjectRef, CompileError> {
+    let _ = optimize;
+    let _ = target_version;
+    let source = source.trim();
+    let mut depth = 0i32;
+    let mut split_at = None;
+    let mut chars = source.chars().peekable();
+    let mut idx = 0usize;
+    while let Some(ch) = chars.next() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            '-' if depth == 0 && chars.peek() == Some(&'>') => {
+                split_at = Some(idx);
+                break;
+            }
+            _ => {}
+        }
+        idx += ch.len_utf8();
+    }
+
+    let Some(split_at) = split_at else {
+        return Err(ParseError {
+            error: parser::ParseErrorType::OtherError("invalid func_type".to_owned()),
+            raw_location: TextRange::default(),
+            location: SourceLocation::default(),
+            end_location: SourceLocation::default(),
+            source_path: "<unknown>".to_owned(),
+        }
+        .into());
+    };
+
+    let left = source[..split_at].trim();
+    let right = source[split_at + 2..].trim();
+
+    let parse_expr = |expr_src: &str| -> Result<ast::Expr, CompileError> {
+        let source_file = SourceFileBuilder::new("".to_owned(), expr_src.to_owned()).finish();
+        let parsed = parser::parse_expression(expr_src).map_err(|parse_error| {
             let range = text_range_to_source_range(&source_file, parse_error.location);
             ParseError {
                 error: parse_error.error,
@@ -318,13 +464,214 @@ pub(crate) fn parse(
                 end_location: range.end.to_source_location(),
                 source_path: "<unknown>".to_string(),
             }
-        })?
-        .into_syntax();
-    let top = match top {
-        ast::Mod::Module(m) => Mod::Module(m),
-        ast::Mod::Expression(e) => Mod::Expression(e),
+        })?;
+        Ok(*parsed.into_syntax().body)
     };
-    Ok(top.ast_to_object(vm, &source_file))
+
+    let arg_expr = parse_expr(left)?;
+    let returns = parse_expr(right)?;
+
+    let argtypes: Vec<ast::Expr> = match arg_expr {
+        ast::Expr::Tuple(tup) => tup.elts,
+        ast::Expr::Name(_) | ast::Expr::Subscript(_) | ast::Expr::Attribute(_) => vec![arg_expr],
+        other => vec![other],
+    };
+
+    let func_type = ModFunctionType {
+        argtypes: argtypes.into_boxed_slice(),
+        returns,
+        range: TextRange::default(),
+    };
+    let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
+    Ok(func_type.ast_to_object(vm, &source_file))
+}
+
+fn type_ignores_from_source(
+    vm: &VirtualMachine,
+    source: &str,
+) -> Result<Vec<PyObjectRef>, CompileError> {
+    let mut ignores = Vec::new();
+    for (idx, line) in source.lines().enumerate() {
+        let Some(pos) = line.find("#") else {
+            continue;
+        };
+        let comment = &line[pos + 1..];
+        let comment = comment.trim_start();
+        let Some(rest) = comment.strip_prefix("type: ignore") else {
+            continue;
+        };
+        let tag = rest.trim_start();
+        let tag = if tag.is_empty() { "" } else { tag };
+        let node = NodeAst
+            .into_ref_with_type(
+                vm,
+                pyast::NodeTypeIgnoreTypeIgnore::static_type().to_owned(),
+            )
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        let lineno = idx + 1;
+        dict.set_item("lineno", vm.ctx.new_int(lineno).into(), vm)
+            .unwrap();
+        dict.set_item("tag", vm.ctx.new_str(tag).into(), vm)
+            .unwrap();
+        ignores.push(node.into());
+    }
+    Ok(ignores)
+}
+
+#[cfg(feature = "parser")]
+fn fold_match_value_constants(top: &mut ast::Mod) {
+    match top {
+        ast::Mod::Module(module) => fold_stmts(&mut module.body),
+        ast::Mod::Expression(_expr) => {}
+    }
+}
+
+#[cfg(feature = "parser")]
+fn fold_stmts(stmts: &mut [ast::Stmt]) {
+    for stmt in stmts {
+        fold_stmt(stmt);
+    }
+}
+
+#[cfg(feature = "parser")]
+fn fold_stmt(stmt: &mut ast::Stmt) {
+    use ast::Stmt;
+    match stmt {
+        Stmt::FunctionDef(def) => fold_stmts(&mut def.body),
+        Stmt::ClassDef(def) => fold_stmts(&mut def.body),
+        Stmt::For(stmt) => {
+            fold_stmts(&mut stmt.body);
+            fold_stmts(&mut stmt.orelse);
+        }
+        Stmt::While(stmt) => {
+            fold_stmts(&mut stmt.body);
+            fold_stmts(&mut stmt.orelse);
+        }
+        Stmt::If(stmt) => {
+            fold_stmts(&mut stmt.body);
+            for clause in &mut stmt.elif_else_clauses {
+                fold_stmts(&mut clause.body);
+            }
+        }
+        Stmt::With(stmt) => {
+            fold_stmts(&mut stmt.body);
+        }
+        Stmt::Try(stmt) => {
+            fold_stmts(&mut stmt.body);
+            fold_stmts(&mut stmt.orelse);
+            fold_stmts(&mut stmt.finalbody);
+        }
+        Stmt::Match(stmt) => {
+            for case in &mut stmt.cases {
+                fold_pattern(&mut case.pattern);
+                if let Some(expr) = case.guard.as_deref_mut() {
+                    fold_expr(expr);
+                }
+                fold_stmts(&mut case.body);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(feature = "parser")]
+fn fold_pattern(pattern: &mut ast::Pattern) {
+    use ast::Pattern;
+    match pattern {
+        Pattern::MatchValue(value) => fold_expr(&mut value.value),
+        Pattern::MatchSequence(seq) => {
+            for pattern in &mut seq.patterns {
+                fold_pattern(pattern);
+            }
+        }
+        Pattern::MatchMapping(mapping) => {
+            for key in &mut mapping.keys {
+                fold_expr(key);
+            }
+            for pattern in &mut mapping.patterns {
+                fold_pattern(pattern);
+            }
+        }
+        Pattern::MatchClass(class) => {
+            for pattern in &mut class.arguments.patterns {
+                fold_pattern(pattern);
+            }
+            for keyword in &mut class.arguments.keywords {
+                fold_pattern(&mut keyword.pattern);
+            }
+        }
+        Pattern::MatchAs(match_as) => {
+            if let Some(pattern) = match_as.pattern.as_deref_mut() {
+                fold_pattern(pattern);
+            }
+        }
+        Pattern::MatchOr(match_or) => {
+            for pattern in &mut match_or.patterns {
+                fold_pattern(pattern);
+            }
+        }
+        Pattern::MatchSingleton(_) | Pattern::MatchStar(_) => {}
+    }
+}
+
+#[cfg(feature = "parser")]
+fn fold_expr(expr: &mut ast::Expr) {
+    use ast::Expr;
+    if let Expr::BinOp(binop) = expr {
+        fold_expr(&mut binop.left);
+        fold_expr(&mut binop.right);
+
+        let Expr::NumberLiteral(left) = binop.left.as_ref() else {
+            return;
+        };
+        let Expr::NumberLiteral(right) = binop.right.as_ref() else {
+            return;
+        };
+
+        if let Some(number) = fold_number_binop(&left.value, &binop.op, &right.value) {
+            *expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
+                node_index: binop.node_index.clone(),
+                range: binop.range,
+                value: number,
+            });
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+fn fold_number_binop(
+    left: &ast::Number,
+    op: &ast::Operator,
+    right: &ast::Number,
+) -> Option<ast::Number> {
+    let (left_real, left_imag, left_is_complex) = number_to_complex(left)?;
+    let (right_real, right_imag, right_is_complex) = number_to_complex(right)?;
+
+    if !(left_is_complex || right_is_complex) {
+        return None;
+    }
+
+    match op {
+        ast::Operator::Add => Some(ast::Number::Complex {
+            real: left_real + right_real,
+            imag: left_imag + right_imag,
+        }),
+        ast::Operator::Sub => Some(ast::Number::Complex {
+            real: left_real - right_real,
+            imag: left_imag - right_imag,
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "parser")]
+fn number_to_complex(number: &ast::Number) -> Option<(f64, f64, bool)> {
+    match number {
+        ast::Number::Complex { real, imag } => Some((*real, *imag, true)),
+        ast::Number::Float(value) => Some((*value, 0.0, false)),
+        ast::Number::Int(value) => value.as_i64().map(|value| (value as f64, 0.0, false)),
+    }
 }
 
 #[cfg(feature = "codegen")]
@@ -342,6 +689,7 @@ pub(crate) fn compile(
 
     let source_file = SourceFileBuilder::new(filename.to_owned(), "".to_owned()).finish();
     let ast: Mod = Node::ast_from_object(vm, &source_file, object)?;
+    validate::validate_mod(vm, &ast)?;
     let ast = match ast {
         Mod::Module(m) => ast::Mod::Module(m),
         Mod::Interactive(ModInteractive { range, body }) => ast::Mod::Module(ast::ModModule {
@@ -360,16 +708,27 @@ pub(crate) fn compile(
     Ok(vm.ctx.new_code(code).into())
 }
 
+#[cfg(feature = "codegen")]
+pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<()> {
+    let source_file = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned()).finish();
+    let ast: Mod = Node::ast_from_object(vm, &source_file, object)?;
+    validate::validate_mod(vm, &ast)?;
+    Ok(())
+}
+
 // Used by builtins::compile()
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 
 // The following flags match the values from Include/cpython/compile.h
 // Caveat emptor: These flags are undocumented on purpose and depending
 // on their effect outside the standard library is **unsupported**.
+pub const PY_CF_SOURCE_IS_UTF8: i32 = 0x0100;
 pub const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
+pub const PY_CF_IGNORE_COOKIE: i32 = 0x0800;
 pub const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
 pub const PY_CF_OPTIMIZED_AST: i32 = 0x8000 | PY_COMPILE_FLAG_AST_ONLY;
 pub const PY_CF_TYPE_COMMENTS: i32 = 0x1000;
+pub const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = 0x2000;
 
 // __future__ flags - sync with Lib/__future__.py
 // TODO: These flags aren't being used in rust code
@@ -389,7 +748,10 @@ const CO_FUTURE_ANNOTATIONS: i32 = 0x1000000;
 
 // Used by builtins::compile() - the summary of all flags
 pub const PY_COMPILE_FLAGS_MASK: i32 = PY_COMPILE_FLAG_AST_ONLY
+    | PY_CF_SOURCE_IS_UTF8
     | PY_CF_DONT_IMPLY_DEDENT
+    | PY_CF_IGNORE_COOKIE
+    | PY_CF_ALLOW_TOP_LEVEL_AWAIT
     | PY_CF_ALLOW_INCOMPLETE_INPUT
     | PY_CF_OPTIMIZED_AST
     | PY_CF_TYPE_COMMENTS

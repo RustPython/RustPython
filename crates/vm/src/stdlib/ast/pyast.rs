@@ -1,7 +1,7 @@
 #![allow(clippy::all)]
 
 use super::*;
-use crate::builtins::{PyGenericAlias, PyTuple, PyTypeRef, make_union};
+use crate::builtins::{PyGenericAlias, PyTuple, PyTupleRef, PyTypeRef, make_union};
 use crate::common::ascii;
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
@@ -20,6 +20,16 @@ macro_rules! impl_node {
 
         #[pyclass(flags(HAS_DICT, BASETYPE))]
         impl $name {
+            #[pymethod]
+            fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                super::python::_ast::ast_reduce(zelf, vm)
+            }
+
+            #[pymethod]
+            fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+                super::python::_ast::ast_replace(zelf, args, vm)
+            }
+
             #[extend_class]
             fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
                 class.set_attr(
@@ -28,16 +38,28 @@ macro_rules! impl_node {
                         $(
                             ctx.new_str(ascii!($field)).into()
                         ),*
-                    ]).into(),
+                    ])
+                    .into(),
+                );
+
+                class.set_str_attr(
+                    "__match_args__",
+                    ctx.new_tuple(vec![
+                        $(
+                            ctx.new_str(ascii!($field)).into()
+                        ),*
+                    ]),
+                    ctx,
                 );
 
                 class.set_attr(
                     identifier!(ctx, _attributes),
-                    ctx.new_list(vec![
+                    ctx.new_tuple(vec![
                         $(
                             ctx.new_str(ascii!($attr)).into()
                         ),*
-                    ]).into(),
+                    ])
+                    .into(),
                 );
 
                 // Signal that this is a built-in AST node with field defaults
@@ -47,6 +69,7 @@ macro_rules! impl_node {
                 );
             }
         }
+
     };
     // Without attributes
     (
@@ -88,11 +111,27 @@ macro_rules! impl_node {
     };
 }
 
+macro_rules! impl_base_node {
+    ($name:ident) => {
+        #[pyclass(flags(HAS_DICT, BASETYPE))]
+        impl $name {
+            #[pymethod]
+            fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                super::python::_ast::ast_reduce(zelf, vm)
+            }
+
+            #[pymethod]
+            fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+                super::python::_ast::ast_replace(zelf, args, vm)
+            }
+        }
+    };
+}
+
 #[pyclass(module = "_ast", name = "mod", base = NodeAst)]
 pub(crate) struct NodeMod(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeMod {}
+impl_base_node!(NodeMod);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "Module", base = NodeMod)]
@@ -116,8 +155,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeStmt(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeStmt {}
+impl_base_node!(NodeStmt);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "FunctionType", base = NodeMod)]
@@ -316,8 +354,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeExpr(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeExpr {}
+impl_base_node!(NodeExpr);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "Continue", base = NodeStmt)]
@@ -490,9 +527,18 @@ impl NodeExprConstant {
             .into(),
         );
 
+        class.set_str_attr(
+            "__match_args__",
+            ctx.new_tuple(vec![
+                ctx.new_str(ascii!("value")).into(),
+                ctx.new_str(ascii!("kind")).into(),
+            ]),
+            ctx,
+        );
+
         class.set_attr(
             identifier!(ctx, _attributes),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("lineno")).into(),
                 ctx.new_str(ascii!("col_offset")).into(),
                 ctx.new_str(ascii!("end_lineno")).into(),
@@ -567,8 +613,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeExprContext(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeExprContext {}
+impl_base_node!(NodeExprContext);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "Slice", base = NodeExpr)]
@@ -591,8 +636,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeBoolOp(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeBoolOp {}
+impl_base_node!(NodeBoolOp);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "Del", base = NodeExprContext)]
@@ -608,8 +652,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeOperator(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeOperator {}
+impl_base_node!(NodeOperator);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "Or", base = NodeBoolOp)]
@@ -680,8 +723,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeUnaryOp(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeUnaryOp {}
+impl_base_node!(NodeUnaryOp);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "FloorDiv", base = NodeOperator)]
@@ -707,8 +749,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeCmpOp(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpOp {}
+impl_base_node!(NodeCmpOp);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "USub", base = NodeUnaryOp)]
@@ -769,8 +810,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeExceptHandler(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeExceptHandler {}
+impl_base_node!(NodeExceptHandler);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "comprehension", base = NodeAst)]
@@ -822,8 +862,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodePattern(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodePattern {}
+impl_base_node!(NodePattern);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "match_case", base = NodeAst)]
@@ -884,8 +923,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeTypeIgnore(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeTypeIgnore {}
+impl_base_node!(NodeTypeIgnore);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "MatchOr", base = NodePattern)]
@@ -898,8 +936,7 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeTypeParam(NodeAst);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeTypeParam {}
+impl_base_node!(NodeTypeParam);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "TypeIgnore", base = NodeTypeIgnore)]
@@ -1453,6 +1490,7 @@ const FIELD_TYPES: &[(&str, &[(&str, FieldType)])] = &[
 
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     extend_module!(vm, module, {
+        "AST" => NodeAst::make_class(&vm.ctx),
         "mod" => NodeMod::make_class(&vm.ctx),
         "Module" => NodeModModule::make_class(&vm.ctx),
         "Interactive" => NodeModInteractive::make_class(&vm.ctx),
@@ -1582,6 +1620,10 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
 
     // Populate _field_types with real Python type objects
     populate_field_types(vm, module);
+    populate_singletons(vm, module);
+    populate_docstrings(vm, module);
+    force_ast_module_name(vm, module);
+    populate_match_args_and_attributes(vm, module);
 }
 
 fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
@@ -1609,6 +1651,7 @@ fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
 
     let field_types_attr = vm.ctx.intern_str("_field_types");
     let annotations_attr = vm.ctx.intern_str("__annotations__");
+    let empty_dict: PyObjectRef = vm.ctx.new_dict().into();
 
     for &(class_name, fields) in FIELD_TYPES {
         if fields.is_empty() {
@@ -1677,6 +1720,111 @@ fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
         };
         if let Some(field_types) = type_obj.get_attr(field_types_attr) {
             type_obj.set_attr(annotations_attr, field_types);
+        }
+    }
+
+    // Base AST classes (e.g., expr, stmt) should still expose __annotations__.
+    const BASE_AST_TYPES: &[&str] = &[
+        "mod",
+        "stmt",
+        "expr",
+        "expr_context",
+        "boolop",
+        "operator",
+        "unaryop",
+        "cmpop",
+        "excepthandler",
+        "pattern",
+        "type_ignore",
+        "type_param",
+    ];
+    for &class_name in BASE_AST_TYPES {
+        let class = module
+            .get_attr(class_name, vm)
+            .unwrap_or_else(|_| panic!("AST class '{class_name}' not found in module"));
+        let Some(type_obj) = class.downcast_ref::<PyType>() else {
+            continue;
+        };
+        if type_obj.get_attr(field_types_attr).is_none() {
+            type_obj.set_attr(field_types_attr, empty_dict.clone());
+        }
+        if type_obj.get_attr(annotations_attr).is_none() {
+            type_obj.set_attr(annotations_attr, empty_dict.clone());
+        }
+    }
+}
+
+fn populate_singletons(vm: &VirtualMachine, module: &Py<PyModule>) {
+    let instance_attr = vm.ctx.intern_str("_instance");
+    const SINGLETON_TYPES: &[&str] = &[
+        // expr_context
+        "Load", "Store", "Del", // boolop
+        "And", "Or", // operator
+        "Add", "Sub", "Mult", "MatMult", "Div", "Mod", "Pow", "LShift", "RShift", "BitOr",
+        "BitXor", "BitAnd", "FloorDiv", // unaryop
+        "Invert", "Not", "UAdd", "USub", // cmpop
+        "Eq", "NotEq", "Lt", "LtE", "Gt", "GtE", "Is", "IsNot", "In", "NotIn",
+    ];
+
+    for &class_name in SINGLETON_TYPES {
+        let class = module
+            .get_attr(class_name, vm)
+            .unwrap_or_else(|_| panic!("AST class '{class_name}' not found in module"));
+        let Some(type_obj) = class.downcast_ref::<PyType>() else {
+            continue;
+        };
+        let instance = vm
+            .ctx
+            .new_base_object(type_obj.to_owned(), Some(vm.ctx.new_dict()));
+        type_obj.set_attr(instance_attr, instance);
+    }
+}
+
+fn populate_docstrings(vm: &VirtualMachine, module: &Py<PyModule>) {
+    for &(class_name, doc) in super::docstrings::AST_DOCS {
+        let class = module
+            .get_attr(class_name, vm)
+            .unwrap_or_else(|_| panic!("AST class '{class_name}' not found in module"));
+        if let Some(type_obj) = class.downcast_ref::<PyType>() {
+            type_obj.set_attr(identifier!(vm, __doc__), vm.ctx.new_str(doc).into());
+        }
+    }
+}
+
+fn force_ast_module_name(vm: &VirtualMachine, module: &Py<PyModule>) {
+    let ast_name = vm.ctx.new_str("ast");
+    for (_name, value) in &module.dict() {
+        let Some(type_obj) = value.downcast_ref::<PyType>() else {
+            continue;
+        };
+        type_obj.set_attr(identifier!(vm, __module__), ast_name.clone().into());
+    }
+}
+
+fn populate_match_args_and_attributes(vm: &VirtualMachine, module: &Py<PyModule>) {
+    let fields_attr = vm.ctx.intern_str("_fields");
+    let match_args_attr = vm.ctx.intern_str("__match_args__");
+    let attributes_attr = vm.ctx.intern_str("_attributes");
+    let empty_tuple: PyObjectRef = vm.ctx.empty_tuple.clone().into();
+
+    for (_name, value) in &module.dict() {
+        let Some(type_obj) = value.downcast_ref::<PyType>() else {
+            continue;
+        };
+
+        type_obj
+            .slots
+            .repr
+            .store(Some(super::python::_ast::ast_repr));
+
+        if type_obj.get_attr(match_args_attr).is_none() {
+            if let Some(fields) = type_obj.get_attr(fields_attr) {
+                type_obj.set_attr(match_args_attr, fields);
+            }
+        }
+
+        if type_obj.get_attr(attributes_attr).is_none() {
+            type_obj.set_attr(attributes_attr, empty_tuple.clone());
         }
     }
 }

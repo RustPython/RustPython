@@ -2055,7 +2055,7 @@ pub(super) fn bytes_to_pyobject(
                     unsafe { core::slice::from_raw_parts(ptr as *const libc::wchar_t, len) };
                 let s: String = wchars
                     .iter()
-                    .filter_map(|&c| char::from_u32(c as u32))
+                    .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
                     .collect();
                 Ok(vm.ctx.new_str(s).into())
             }

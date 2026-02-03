@@ -508,7 +508,9 @@ impl PyCPointer {
             for _ in 0..len {
                 let addr = (ptr_value as isize + cur * wchar_size as isize) as *const libc::wchar_t;
                 unsafe {
-                    if let Some(c) = char::from_u32(*addr as u32) {
+                    if let Ok(value) = u32::try_from(*addr)
+                        && let Some(c) = char::from_u32(value)
+                    {
                         result.push(c);
                     }
                 }

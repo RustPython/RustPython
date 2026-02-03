@@ -5,7 +5,7 @@ use rustpython_compiler_core::SourceFile;
 impl Node for ast::Identifier {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let id = self.as_str();
-        vm.ctx.new_str(id).into()
+        vm.ctx.intern_str(id).to_object()
     }
 
     fn ast_from_object(
