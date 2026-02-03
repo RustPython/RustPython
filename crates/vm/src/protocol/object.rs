@@ -704,7 +704,7 @@ impl PyObject {
 
                 if let Some(class_getitem) =
                     vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class_getitem__))?
-                        && !vm.is_none(&class_getitem)
+                    && !vm.is_none(&class_getitem)
                 {
                     return class_getitem.call((needle,), vm);
                 }

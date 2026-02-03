@@ -154,15 +154,13 @@ mod builtins {
 
                 // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
                 if is_ast_only {
-                    let (expected_type, expected_name) = ast::mode_type_and_name(
-                        &vm.ctx, mode_str,
-                    )
-                    .ok_or_else(|| {
-                        vm.new_value_error(
-                            "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
-                                .to_owned(),
-                        )
-                    })?;
+                    let (expected_type, expected_name) = ast::mode_type_and_name(&vm.ctx, mode_str)
+                        .ok_or_else(|| {
+                            vm.new_value_error(
+                                "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
+                                    .to_owned(),
+                            )
+                        })?;
                     if !args.source.fast_isinstance(&expected_type) {
                         return Err(vm.new_type_error(format!(
                             "expected {} node, got {}",

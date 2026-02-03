@@ -137,10 +137,7 @@ pub(crate) mod _ast {
                         let is_list_field = if field_name == "args" {
                             class_name == "Call" || class_name == "arguments"
                         } else if field_name == "body" || field_name == "orelse" {
-                            !matches!(
-                                class_name.as_str(),
-                                "Lambda" | "Expression" | "IfExp"
-                            )
+                            !matches!(class_name.as_str(), "Lambda" | "Expression" | "IfExp")
                         } else {
                             LIST_FIELDS.contains(&field_name)
                         };
