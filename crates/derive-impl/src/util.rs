@@ -315,7 +315,7 @@ impl ItemMeta for SimpleItemMeta {
 pub(crate) struct ModuleItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for ModuleItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "with", "sub"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "sub"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -329,20 +329,6 @@ impl ItemMeta for ModuleItemMeta {
 impl ModuleItemMeta {
     pub fn sub(&self) -> Result<bool> {
         self.inner()._bool("sub")
-    }
-
-    pub fn with(&self) -> Result<Vec<&syn::Path>> {
-        let mut withs = Vec::new();
-        let Some(nested) = self.inner()._optional_list("with")? else {
-            return Ok(withs);
-        };
-        for meta in nested {
-            let NestedMeta::Meta(Meta::Path(path)) = meta else {
-                bail_span!(meta, "#[pymodule(with(...))] arguments should be paths")
-            };
-            withs.push(path);
-        }
-        Ok(withs)
     }
 }
 

@@ -23,7 +23,7 @@ unsafe extern "C" {
     fn c_tzset();
 }
 
-#[pymodule(name = "time", with(platform))]
+#[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
 mod decl {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
@@ -571,6 +571,7 @@ mod decl {
         }
     }
 
+    #[cfg(any(unix, windows))]
     #[allow(unused_imports)]
     use super::platform::*;
 
@@ -986,8 +987,3 @@ mod platform {
         Ok(Duration::from_nanos((k_time + u_time) * 100))
     }
 }
-
-// mostly for wasm32
-#[cfg(not(any(unix, windows)))]
-#[pymodule(sub)]
-mod platform {}
