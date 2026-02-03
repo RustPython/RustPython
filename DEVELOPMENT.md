@@ -65,7 +65,7 @@ $ pytest -v
 Rust unit tests can be run with `cargo`:
 
 ```shell
-$ cargo test --workspace --exclude rustpython_wasm
+$ cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher
 ```
 
 Python unit tests can be run by compiling RustPython and running the test module:
