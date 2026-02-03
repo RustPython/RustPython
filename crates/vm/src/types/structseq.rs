@@ -247,8 +247,8 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             )));
         }
 
-        let n_fields = Self::Data::REQUIRED_FIELD_NAMES.len()
-            + Self::Data::OPTIONAL_FIELD_NAMES.len();
+        let n_fields =
+            Self::Data::REQUIRED_FIELD_NAMES.len() + Self::Data::OPTIONAL_FIELD_NAMES.len();
         let mut items: Vec<PyObjectRef> = zelf.as_slice()[..n_fields].to_vec();
 
         let mut kwargs = args.kwargs.clone();
@@ -268,10 +268,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         // Check for unexpected keyword arguments
         if !kwargs.is_empty() {
             let names: Vec<&str> = kwargs.keys().map(|k| k.as_str()).collect();
-            return Err(vm.new_type_error(format!(
-                "Got unexpected field name(s): {:?}",
-                names
-            )));
+            return Err(vm.new_type_error(format!("Got unexpected field name(s): {:?}", names)));
         }
 
         PyTuple::new_unchecked(items.into_boxed_slice())
