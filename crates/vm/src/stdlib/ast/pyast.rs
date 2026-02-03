@@ -1607,6 +1607,9 @@ fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
             .unwrap_or_else(|_| panic!("AST node type '{name}' not found in module"))
     };
 
+    let field_types_attr = vm.ctx.intern_str("_field_types");
+    let annotations_attr = vm.ctx.intern_str("__annotations__");
+
     for &(class_name, fields) in FIELD_TYPES {
         if fields.is_empty() {
             continue;
@@ -1648,10 +1651,8 @@ fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
 
         let dict_obj: PyObjectRef = dict.into();
         if let Some(type_obj) = class.downcast_ref::<PyType>() {
-            type_obj.set_attr(vm.ctx.intern_str("_field_types"), dict_obj);
-            // NOTE: CPython also sets __annotations__ = _field_types, but
-            // RustPython AST types are not heap types so __annotations__
-            // is not accessible via the type descriptor.
+            type_obj.set_attr(field_types_attr, dict_obj.clone());
+            type_obj.set_attr(annotations_attr, dict_obj);
 
             // Set None as class-level default for optional fields.
             // When ast_type_init skips optional fields, the instance
@@ -1665,6 +1666,17 @@ fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
                     type_obj.set_attr(vm.ctx.intern_str(field_name), none.clone());
                 }
             }
+        }
+    }
+
+    // CPython sets __annotations__ for all built-in AST node classes, even
+    // when _field_types is an empty dict (e.g., operators, Load/Store/Del).
+    for (_name, value) in &module.dict() {
+        let Some(type_obj) = value.downcast_ref::<PyType>() else {
+            continue;
+        };
+        if let Some(field_types) = type_obj.get_attr(field_types_attr) {
+            type_obj.set_attr(annotations_attr, field_types);
         }
     }
 }
