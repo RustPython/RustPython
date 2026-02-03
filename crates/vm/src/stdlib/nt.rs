@@ -183,6 +183,18 @@ pub(crate) mod module {
         environ
     }
 
+    #[pyfunction]
+    fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
+        let environ = vm.ctx.new_dict();
+        for (key, value) in env::vars() {
+            if key.starts_with('=') {
+                continue;
+            }
+            environ.set_item(&key, vm.new_pyobj(value), vm).unwrap();
+        }
+        environ
+    }
+
     #[derive(FromArgs)]
     struct ChmodArgs<'a> {
         #[pyarg(any)]
@@ -903,16 +915,14 @@ pub(crate) mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<intptr_t> {
+        use crate::function::FsPath;
         use std::iter::once;
-
-        let make_widestring =
-            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
         let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            let arg = PyStrRef::try_from_object(vm, obj)?;
-            make_widestring(arg.as_str())
+            let fspath = FsPath::try_from_path_like(obj, true, vm)?;
+            fspath.to_wide_cstring(vm)
         })?;
 
         let first = argv
@@ -946,16 +956,14 @@ pub(crate) mod module {
         env: PyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<intptr_t> {
+        use crate::function::FsPath;
         use std::iter::once;
-
-        let make_widestring =
-            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
         let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            let arg = PyStrRef::try_from_object(vm, obj)?;
-            make_widestring(arg.as_str())
+            let fspath = FsPath::try_from_path_like(obj, true, vm)?;
+            fspath.to_wide_cstring(vm)
         })?;
 
         let first = argv
@@ -975,15 +983,11 @@ pub(crate) mod module {
         // Build environment strings as "KEY=VALUE\0" wide strings
         let mut env_strings: Vec<widestring::WideCString> = Vec::new();
         for (key, value) in env.into_iter() {
-            let key = PyStrRef::try_from_object(vm, key)?;
-            let value = PyStrRef::try_from_object(vm, value)?;
-            let key_str = key.as_str();
-            let value_str = value.as_str();
+            let key = FsPath::try_from_path_like(key, true, vm)?;
+            let value = FsPath::try_from_path_like(value, true, vm)?;
+            let key_str = key.to_string_lossy();
+            let value_str = value.to_string_lossy();
 
-            // Validate: no null characters in key or value
-            if key_str.contains('\0') || value_str.contains('\0') {
-                return Err(vm.new_value_error("embedded null character"));
-            }
             // Validate: no '=' in key (search from index 1 because on Windows
             // starting '=' is allowed for defining hidden environment variables)
             if key_str.get(1..).is_some_and(|s| s.contains('=')) {
@@ -991,7 +995,10 @@ pub(crate) mod module {
             }
 
             let env_str = format!("{}={}", key_str, value_str);
-            env_strings.push(make_widestring(&env_str)?);
+            env_strings.push(
+                widestring::WideCString::from_os_str(&*std::ffi::OsString::from(env_str))
+                    .map_err(|err| err.to_pyexception(vm))?,
+            );
         }
 
         let envp: Vec<*const u16> = env_strings
