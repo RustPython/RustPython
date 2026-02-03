@@ -45,9 +45,16 @@ unsafe impl Traverse for InstanceDict {
 unsafe impl Traverse for PyInner<Erased> {
     /// Because PyObject hold a `PyInner<Erased>`, so we need to trace it
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        // 1. trace `dict` and `slots` field(`typ` can't trace for it's a AtomicRef while is leaked by design)
-        // 2. call vtable's trace function to trace payload
-        // self.typ.trace(tracer_fn);
+        // For heap type instances, traverse the type reference.
+        // PyAtomicRef holds a strong reference (via PyRef::leak), so GC must
+        // account for it to correctly detect instance ↔ type cycles.
+        // Static types are always alive and don't need this.
+        let typ = &*self.typ;
+        if typ.heaptype_ext.is_some() {
+            // Safety: Py<PyType> and PyObject share the same memory layout
+            let typ_obj: &PyObject = unsafe { &*(typ as *const _ as *const PyObject) };
+            tracer_fn(typ_obj);
+        }
         self.dict.traverse(tracer_fn);
         // weak_list is inline atomic pointers, no heap allocation, no trace
         self.slots.traverse(tracer_fn);
@@ -64,10 +71,12 @@ unsafe impl Traverse for PyInner<Erased> {
 unsafe impl<T: MaybeTraverse> Traverse for PyInner<T> {
     /// Type is known, so we can call `try_trace` directly instead of using erased type vtable
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        // 1. trace `dict` and `slots` field(`typ` can't trace for it's a AtomicRef while is leaked by design)
-        // 2. call corresponding `try_trace` function to trace payload
-        // (No need to call vtable's trace function because we already know the type)
-        // self.typ.trace(tracer_fn);
+        // For heap type instances, traverse the type reference (same as erased version)
+        let typ = &*self.typ;
+        if typ.heaptype_ext.is_some() {
+            let typ_obj: &PyObject = unsafe { &*(typ as *const _ as *const PyObject) };
+            tracer_fn(typ_obj);
+        }
         self.dict.traverse(tracer_fn);
         // weak_list is inline atomic pointers, no heap allocation, no trace
         self.slots.traverse(tracer_fn);
