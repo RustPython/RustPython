@@ -1,6 +1,8 @@
 pub(crate) use _codecs::module_def;
 
-#[pymodule]
+use crate::common::static_cell::StaticCell;
+
+#[pymodule(with(_codecs_windows))]
 mod _codecs {
     use crate::codecs::{ErrorsHandler, PyDecodeContext, PyEncodeContext};
     use crate::common::encodings;
@@ -202,26 +204,146 @@ mod _codecs {
 
     // TODO: implement these codecs in Rust!
 
-    use crate::common::static_cell::StaticCell;
-    #[inline]
-    fn delegate_pycodecs(
-        cell: &'static StaticCell<PyObjectRef>,
-        name: &'static str,
-        args: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let f = cell.get_or_try_init(|| {
-            let module = vm.import("_pycodecs", 0)?;
-            module.get_attr(name, vm)
-        })?;
-        f.call(args, vm)
-    }
     macro_rules! delegate_pycodecs {
         ($name:ident, $args:ident, $vm:ident) => {{
             rustpython_common::static_cell!(
                 static FUNC: PyObjectRef;
             );
-            delegate_pycodecs(&FUNC, stringify!($name), $args, $vm)
+            super::delegate_pycodecs(&FUNC, stringify!($name), $args, $vm)
+        }};
+    }
+
+    #[pyfunction]
+    fn readbuffer_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(readbuffer_encode, args, vm)
+    }
+    #[pyfunction]
+    fn escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(escape_encode, args, vm)
+    }
+    #[pyfunction]
+    fn escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(escape_decode, args, vm)
+    }
+    #[pyfunction]
+    fn unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(unicode_escape_encode, args, vm)
+    }
+    #[pyfunction]
+    fn unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(unicode_escape_decode, args, vm)
+    }
+    #[pyfunction]
+    fn raw_unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(raw_unicode_escape_encode, args, vm)
+    }
+    #[pyfunction]
+    fn raw_unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(raw_unicode_escape_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_7_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_7_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_7_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_7_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_decode, args, vm)
+    }
+    #[pyfunction]
+    fn charmap_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(charmap_encode, args, vm)
+    }
+    #[pyfunction]
+    fn charmap_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(charmap_decode, args, vm)
+    }
+    #[pyfunction]
+    fn charmap_build(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(charmap_build, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_le_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_le_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_be_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_be_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_ex_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_ex_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_le_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_le_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_be_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_be_decode, args, vm)
+    }
+}
+
+#[inline]
+fn delegate_pycodecs(
+    cell: &'static StaticCell<crate::PyObjectRef>,
+    name: &'static str,
+    args: crate::function::FuncArgs,
+    vm: &crate::VirtualMachine,
+) -> crate::PyResult {
+    let f = cell.get_or_try_init(|| {
+        let module = vm.import("_pycodecs", 0)?;
+        module.get_attr(name, vm)
+    })?;
+    f.call(args, vm)
+}
+
+#[pymodule(sub)]
+mod _codecs_windows {
+    #[cfg(not(windows))]
+    use crate::{PyObjectRef, function::FuncArgs};
+    use crate::{PyResult, VirtualMachine};
+    #[cfg(windows)]
+    use crate::{builtins::PyStrRef, function::ArgBytesLike};
+
+    #[cfg(not(windows))]
+    macro_rules! delegate_pycodecs {
+        ($name:ident, $args:ident, $vm:ident) => {{
+            rustpython_common::static_cell!(
+                static FUNC: PyObjectRef;
+            );
+            super::delegate_pycodecs(&FUNC, stringify!($name), $args, $vm)
         }};
     }
 
@@ -868,106 +990,5 @@ mod _codecs {
     #[pyfunction]
     fn code_page_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         delegate_pycodecs!(code_page_decode, args, vm)
-    }
-
-    #[pyfunction]
-    fn readbuffer_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(readbuffer_encode, args, vm)
-    }
-    #[pyfunction]
-    fn escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(unicode_escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(unicode_escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn raw_unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(raw_unicode_escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn raw_unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(raw_unicode_escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_7_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_7_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_7_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_7_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_decode, args, vm)
-    }
-    #[pyfunction]
-    fn charmap_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(charmap_encode, args, vm)
-    }
-    #[pyfunction]
-    fn charmap_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(charmap_decode, args, vm)
-    }
-    #[pyfunction]
-    fn charmap_build(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(charmap_build, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_be_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_be_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_ex_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_ex_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_le_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_le_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_be_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_be_decode, args, vm)
     }
 }
