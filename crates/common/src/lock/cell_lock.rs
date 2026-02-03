@@ -89,7 +89,7 @@ unsafe impl RawRwLock for RawCellRwLock {
 
     #[inline]
     unsafe fn unlock_shared(&self) {
-        self.state.set(self.state.get() - ONE_READER)
+        self.state.update(|x| x - ONE_READER)
     }
 
     #[inline]

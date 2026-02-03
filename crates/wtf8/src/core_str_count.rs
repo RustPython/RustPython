@@ -60,7 +60,7 @@ fn do_count_chars(s: &Wtf8) -> usize {
         // a subset of the sum of this chunk, like a `[u8; size_of::<usize>()]`.
         let mut counts = 0;
 
-        let (unrolled_chunks, remainder) = slice_as_chunks::<_, UNROLL_INNER>(chunk);
+        let (unrolled_chunks, remainder) = chunk.as_chunks::<UNROLL_INNER>();
         for unrolled in unrolled_chunks {
             for &word in unrolled {
                 // Because `CHUNK_SIZE` is < 256, this addition can't cause the
@@ -137,26 +137,6 @@ const fn usize_repeat_u16(x: u16) -> usize {
     }
     r
 }
-
-fn slice_as_chunks<T, const N: usize>(slice: &[T]) -> (&[[T; N]], &[T]) {
-    assert!(N != 0, "chunk size must be non-zero");
-    let len_rounded_down = slice.len() / N * N;
-    // SAFETY: The rounded-down value is always the same or smaller than the
-    // original length, and thus must be in-bounds of the slice.
-    let (multiple_of_n, remainder) = unsafe { slice.split_at_unchecked(len_rounded_down) };
-    // SAFETY: We already panicked for zero, and ensured by construction
-    // that the length of the subslice is a multiple of N.
-    let array_slice = unsafe { slice_as_chunks_unchecked(multiple_of_n) };
-    (array_slice, remainder)
-}
-
-unsafe fn slice_as_chunks_unchecked<T, const N: usize>(slice: &[T]) -> &[[T; N]] {
-    let new_len = slice.len() / N;
-    // SAFETY: We cast a slice of `new_len * N` elements into
-    // a slice of `new_len` many `N` elements chunks.
-    unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), new_len) }
-}
-
 const fn unlikely(x: bool) -> bool {
     x
 }

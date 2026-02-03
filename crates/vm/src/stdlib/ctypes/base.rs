@@ -1836,71 +1836,53 @@ pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue
             FfiArgValue::U8(v)
         }
         "h" => {
-            let v = if buffer.len() >= 2 {
-                i16::from_ne_bytes(buffer[..2].try_into().unwrap())
-            } else {
-                0
-            };
+            let v = buffer.first_chunk().copied().map_or(0, i16::from_ne_bytes);
             FfiArgValue::I16(v)
         }
         "H" => {
-            let v = if buffer.len() >= 2 {
-                u16::from_ne_bytes(buffer[..2].try_into().unwrap())
-            } else {
-                0
-            };
+            let v = buffer.first_chunk().copied().map_or(0, u16::from_ne_bytes);
             FfiArgValue::U16(v)
         }
         "i" => {
-            let v = if buffer.len() >= 4 {
-                i32::from_ne_bytes(buffer[..4].try_into().unwrap())
-            } else {
-                0
-            };
+            let v = buffer.first_chunk().copied().map_or(0, i32::from_ne_bytes);
             FfiArgValue::I32(v)
         }
         "I" => {
-            let v = if buffer.len() >= 4 {
-                u32::from_ne_bytes(buffer[..4].try_into().unwrap())
-            } else {
-                0
-            };
+            let v = buffer.first_chunk().copied().map_or(0, u32::from_ne_bytes);
             FfiArgValue::U32(v)
         }
         "l" | "q" => {
-            let v = if buffer.len() >= 8 {
-                i64::from_ne_bytes(buffer[..8].try_into().unwrap())
-            } else if buffer.len() >= 4 {
-                i32::from_ne_bytes(buffer[..4].try_into().unwrap()) as i64
+            let v = if let Some(&bytes) = buffer.first_chunk::<8>() {
+                i64::from_ne_bytes(bytes)
+            } else if let Some(&bytes) = buffer.first_chunk::<4>() {
+                i32::from_ne_bytes(bytes).into()
             } else {
                 0
             };
             FfiArgValue::I64(v)
         }
         "L" | "Q" => {
-            let v = if buffer.len() >= 8 {
-                u64::from_ne_bytes(buffer[..8].try_into().unwrap())
-            } else if buffer.len() >= 4 {
-                u32::from_ne_bytes(buffer[..4].try_into().unwrap()) as u64
+            let v = if let Some(&bytes) = buffer.first_chunk::<8>() {
+                u64::from_ne_bytes(bytes)
+            } else if let Some(&bytes) = buffer.first_chunk::<4>() {
+                u32::from_ne_bytes(bytes).into()
             } else {
                 0
             };
             FfiArgValue::U64(v)
         }
         "f" => {
-            let v = if buffer.len() >= 4 {
-                f32::from_ne_bytes(buffer[..4].try_into().unwrap())
-            } else {
-                0.0
-            };
+            let v = buffer
+                .first_chunk::<4>()
+                .copied()
+                .map_or(0.0, f32::from_ne_bytes);
             FfiArgValue::F32(v)
         }
         "d" | "g" => {
-            let v = if buffer.len() >= 8 {
-                f64::from_ne_bytes(buffer[..8].try_into().unwrap())
-            } else {
-                0.0
-            };
+            let v = buffer
+                .first_chunk::<8>()
+                .copied()
+                .map_or(0.0, f64::from_ne_bytes);
             FfiArgValue::F64(v)
         }
         "z" | "Z" | "P" | "O" => FfiArgValue::Pointer(read_ptr_from_buffer(buffer)),
@@ -1910,11 +1892,7 @@ pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue
         }
         "u" => {
             // wchar_t - 4 bytes on most platforms
-            let v = if buffer.len() >= 4 {
-                u32::from_ne_bytes(buffer[..4].try_into().unwrap())
-            } else {
-                0
-            };
+            let v = buffer.first_chunk().copied().map_or(0, u32::from_ne_bytes);
             FfiArgValue::U32(v)
         }
         _ => FfiArgValue::Pointer(0),
@@ -2135,11 +2113,10 @@ pub(super) fn get_usize_attr(
 #[inline]
 pub(super) fn read_ptr_from_buffer(buffer: &[u8]) -> usize {
     const PTR_SIZE: usize = core::mem::size_of::<usize>();
-    if buffer.len() >= PTR_SIZE {
-        usize::from_ne_bytes(buffer[..PTR_SIZE].try_into().unwrap())
-    } else {
-        0
-    }
+    buffer
+        .first_chunk::<PTR_SIZE>()
+        .copied()
+        .map_or(0, usize::from_ne_bytes)
 }
 
 /// Check if a type is a "simple instance" (direct subclass of a simple type)
