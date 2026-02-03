@@ -26,6 +26,8 @@ use quote::ToTokens;
 use syn::{DeriveInput, Item};
 use syn_ext::types::PunctuatedNestedMeta;
 
+pub use pymodule::PyModuleArgs;
+
 pub use compile_bytecode::Compiler;
 
 fn result_to_tokens(result: Result<TokenStream, impl Into<Diagnostic>>) -> TokenStream {
@@ -54,7 +56,7 @@ pub fn pyexception(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     }
 }
 
-pub fn pymodule(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
+pub fn pymodule(attr: PyModuleArgs, item: Item) -> TokenStream {
     result_to_tokens(pymodule::impl_pymodule(attr, item))
 }
 
