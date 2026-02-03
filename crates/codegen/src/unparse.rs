@@ -363,7 +363,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 self.p(")")?;
             }
             ast::Expr::FString(ast::ExprFString { value, .. }) => self.unparse_fstring(value)?,
-            ast::Expr::TString(_) => self.p("t\"\"")?,
+            ast::Expr::TString(ast::ExprTString { value, .. }) => self.unparse_tstring(value)?,
             ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
                 if value.is_unicode() {
                     self.p("u")?
@@ -622,6 +622,19 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         })
         .to_string();
         // .unparse_fstring_body(elements));
+        UnicodeEscape::new_repr(body.as_str().as_ref())
+            .str_repr()
+            .write(self.f)
+    }
+
+    fn unparse_tstring(&mut self, value: &ast::TStringValue) -> fmt::Result {
+        self.p("t")?;
+        let body = fmt::from_fn(|f| {
+            value.iter().try_for_each(|tstring| {
+                Unparser::new(f, self.source).unparse_fstring_body(&tstring.elements)
+            })
+        })
+        .to_string();
         UnicodeEscape::new_repr(body.as_str().as_ref())
             .str_repr()
             .write(self.f)

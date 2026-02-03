@@ -65,8 +65,13 @@ pub(crate) mod _ast {
                     if fields.len() == 1 { "" } else { "s" },
                 )));
             }
+
+            // Track which fields were set
+            let mut set_fields = std::collections::HashSet::new();
+
             for (name, arg) in fields.iter().zip(args.args) {
                 zelf.set_attr(name, arg, vm)?;
+                set_fields.insert(name.as_str().to_string());
             }
             for (key, value) in args.kwargs {
                 if let Some(pos) = fields.iter().position(|f| f.as_str() == key)
@@ -78,7 +83,78 @@ pub(crate) mod _ast {
                         key
                     )));
                 }
+                set_fields.insert(key.clone());
                 zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
+            }
+
+            // Set default values only for built-in AST nodes (_field_types present).
+            // Custom AST subclasses without _field_types do NOT get automatic defaults.
+            let has_field_types = zelf
+                .class()
+                .get_attr(vm.ctx.intern_str("_field_types"))
+                .is_some();
+            if has_field_types {
+                // ASDL list fields (type*) default to empty list,
+                // optional/required fields default to None.
+                // Fields that are always list-typed regardless of node class.
+                const LIST_FIELDS: &[&str] = &[
+                    "argtypes",
+                    "bases",
+                    "cases",
+                    "comparators",
+                    "decorator_list",
+                    "defaults",
+                    "elts",
+                    "finalbody",
+                    "generators",
+                    "handlers",
+                    "ifs",
+                    "items",
+                    "keys",
+                    "kw_defaults",
+                    "kwd_attrs",
+                    "kwd_patterns",
+                    "keywords",
+                    "kwonlyargs",
+                    "names",
+                    "ops",
+                    "patterns",
+                    "posonlyargs",
+                    "targets",
+                    "type_ignores",
+                    "type_params",
+                    "values",
+                ];
+
+                let class_name = zelf.class().name().to_string();
+
+                for field in &fields {
+                    if !set_fields.contains(field.as_str()) {
+                        let field_name = field.as_str();
+                        // Some field names have different ASDL types depending on the node.
+                        // For example, "args" is `expr*` in Call but `arguments` in Lambda.
+                        // "body" and "orelse" are `stmt*` in most nodes but `expr` in IfExp.
+                        let is_list_field = if field_name == "args" {
+                            class_name == "Call" || class_name == "arguments"
+                        } else if field_name == "body" || field_name == "orelse" {
+                            !matches!(class_name.as_str(), "Lambda" | "Expression" | "IfExp")
+                        } else {
+                            LIST_FIELDS.contains(&field_name)
+                        };
+
+                        let default: PyObjectRef = if is_list_field {
+                            vm.ctx.new_list(vec![]).into()
+                        } else {
+                            vm.ctx.none()
+                        };
+                        zelf.set_attr(vm.ctx.intern_str(field_name), default, vm)?;
+                    }
+                }
+
+                // Special defaults that are not None or empty list
+                if class_name == "ImportFrom" && !set_fields.contains("level") {
+                    zelf.set_attr("level", vm.ctx.new_int(0), vm)?;
+                }
             }
 
             Ok(())

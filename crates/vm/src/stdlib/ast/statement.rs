@@ -182,9 +182,8 @@ impl Node for ast::StmtFunctionDef {
         .unwrap();
         dict.set_item("returns", returns.ast_to_object(vm, source_file), vm)
             .unwrap();
-        // TODO: Ruff ignores type_comment during parsing
-        // dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-        //     .unwrap();
+        // Ruff AST doesn't track type_comment, so always set to None
+        dict.set_item("type_comment", vm.ctx.none(), vm).unwrap();
         dict.set_item(
             "type_params",
             type_params
@@ -647,8 +646,8 @@ impl Node for ast::StmtFor {
             .unwrap();
         dict.set_item("orelse", orelse.ast_to_object(_vm, source_file), _vm)
             .unwrap();
-        // dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-        //     .unwrap();
+        // Ruff AST doesn't track type_comment, so always set to None
+        dict.set_item("type_comment", _vm.ctx.none(), _vm).unwrap();
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
     }
@@ -799,8 +798,8 @@ impl Node for ast::StmtWith {
             .unwrap();
         dict.set_item("body", body.ast_to_object(_vm, source_file), _vm)
             .unwrap();
-        // dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-        //     .unwrap();
+        // Ruff AST doesn't track type_comment, so always set to None
+        dict.set_item("type_comment", _vm.ctx.none(), _vm).unwrap();
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
     }

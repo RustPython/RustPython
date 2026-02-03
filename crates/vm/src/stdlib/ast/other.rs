@@ -3,7 +3,7 @@ use rustpython_compiler_core::SourceFile;
 
 impl Node for ast::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
-        vm.ctx.new_int(self as u8).into()
+        vm.ctx.new_int(self as i8).into()
     }
 
     fn ast_from_object(

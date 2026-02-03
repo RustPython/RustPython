@@ -37,6 +37,12 @@ macro_rules! impl_node {
                         ),*
                     ]).into(),
                 );
+
+                // Signal that this is a built-in AST node with field defaults
+                class.set_attr(
+                    ctx.intern_str("_field_types"),
+                    ctx.new_dict().into(),
+                );
             }
         }
     };
@@ -902,21 +908,21 @@ impl_node!(
 impl_node!(
     #[pyclass(module = "_ast", name = "TypeVar", base = NodeTypeParam)]
     pub(crate) struct NodeTypeParamTypeVar,
-    fields: ["name", "bound"],
+    fields: ["name", "bound", "default_value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
     #[pyclass(module = "_ast", name = "ParamSpec", base = NodeTypeParam)]
     pub(crate) struct NodeTypeParamParamSpec,
-    fields: ["name"],
+    fields: ["name", "default_value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
     #[pyclass(module = "_ast", name = "TypeVarTuple", base = NodeTypeParam)]
     pub(crate) struct NodeTypeParamTypeVarTuple,
-    fields: ["name"],
+    fields: ["name", "default_value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
