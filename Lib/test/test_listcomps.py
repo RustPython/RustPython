@@ -716,8 +716,6 @@ class ListComprehensionTest(unittest.TestCase):
         self._check_in_scopes(code, {"x": 2, "y": [3]}, ns={"x": 3}, scopes=["class"])
         self._check_in_scopes(code, {"x": 2, "y": [2]}, ns={"x": 3}, scopes=["function", "module"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_locations(self):
         # The location of an exception raised from __init__ or
         # __next__ should should be the iterator expression

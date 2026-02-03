@@ -540,7 +540,6 @@ class TestInterpreterStack(IsTestBase):
         self.istest(inspect.istraceback, 'git.ex.__traceback__')
         self.istest(inspect.isframe, 'mod.fr')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_stack(self):
         self.assertTrue(len(mod.st) >= 5)
         frame1, frame2, frame3, frame4, *_ = mod.st
