@@ -14,6 +14,7 @@ license.workspace = true
 default = ["compiler"]
 compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
+wasm_js = ["rustpython-common/wasm_js"]
 sqlite = ["dep:libsqlite3-sys"]
 # SSL backends - default to rustls
 ssl = []
@@ -138,6 +139,10 @@ pkcs8 = { version = "0.10", features = ["encryption", "pkcs5", "pem"], optional 
 libsqlite3-sys = { version = "0.36", features = ["bundled"], optional = true }
 lzma-sys = "0.1"
 xz2 = "0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Enable wasm_js feature for getrandom 0.3.x (transitive dependency from mt19937/ahash)
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }
