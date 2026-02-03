@@ -2,10 +2,10 @@ use alloc::fmt;
 use core::any::TypeId;
 
 use crate::{
-    PyObject,
+    PyObject, PyObjectRef,
     object::{
         Erased, InstanceDict, MaybeTraverse, PyInner, PyObjectPayload, debug_obj, default_dealloc,
-        try_traverse_obj,
+        try_clear_obj, try_traverse_obj,
     },
 };
 
@@ -17,6 +17,9 @@ pub(in crate::object) struct PyObjVTable {
     pub(in crate::object) dealloc: unsafe fn(*mut PyObject),
     pub(in crate::object) debug: unsafe fn(&PyObject, &mut fmt::Formatter<'_>) -> fmt::Result,
     pub(in crate::object) trace: Option<unsafe fn(&PyObject, &mut TraverseFn<'_>)>,
+    /// Clear for circular reference resolution (tp_clear).
+    /// Called just before deallocation to extract child references.
+    pub(in crate::object) clear: Option<unsafe fn(*mut PyObject, &mut Vec<PyObjectRef>)>,
 }
 
 impl PyObjVTable {
@@ -28,6 +31,13 @@ impl PyObjVTable {
             trace: const {
                 if T::HAS_TRAVERSE {
                     Some(try_traverse_obj::<T>)
+                } else {
+                    None
+                }
+            },
+            clear: const {
+                if T::HAS_CLEAR {
+                    Some(try_clear_obj::<T>)
                 } else {
                     None
                 }

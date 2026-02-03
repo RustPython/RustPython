@@ -57,6 +57,33 @@ unsafe impl crate::object::Traverse for PyType {
             .map(|(_, v)| v.traverse(tracer_fn))
             .count();
     }
+
+    /// type_clear: break reference cycles in type objects
+    fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+        if let Some(base) = self.base.take() {
+            out.push(base.into());
+        }
+        if let Some(mut guard) = self.bases.try_write() {
+            for base in guard.drain(..) {
+                out.push(base.into());
+            }
+        }
+        if let Some(mut guard) = self.mro.try_write() {
+            for typ in guard.drain(..) {
+                out.push(typ.into());
+            }
+        }
+        if let Some(mut guard) = self.subclasses.try_write() {
+            for weak in guard.drain(..) {
+                out.push(weak.into());
+            }
+        }
+        if let Some(mut guard) = self.attributes.try_write() {
+            for (_, val) in guard.drain(..) {
+                out.push(val);
+            }
+        }
+    }
 }
 
 // PyHeapTypeObject in CPython
@@ -393,6 +420,11 @@ impl PyType {
             metaclass,
             None,
         );
+
+        // Static types are not tracked by GC.
+        // They are immortal and never participate in collectable cycles.
+        new_type.as_object().clear_gc_tracked();
+
         new_type.mro.write().insert(0, new_type.clone());
 
         // Note: inherit_slots is called in PyClassImpl::init_class after

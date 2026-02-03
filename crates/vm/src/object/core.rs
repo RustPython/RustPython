@@ -81,14 +81,28 @@ use core::{
 #[derive(Debug)]
 pub(super) struct Erased;
 
-/// Default dealloc: handles __del__, weakref clearing, and memory free.
+/// Default dealloc: handles __del__, weakref clearing, tp_clear, and memory free.
 /// Equivalent to subtype_dealloc in CPython.
 pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     let obj_ref = unsafe { &*(obj as *const PyObject) };
     if let Err(()) = obj_ref.drop_slow_inner() {
         return; // resurrected by __del__
     }
+
+    // Extract child references before deallocation to break circular refs (tp_clear).
+    // This ensures that when edges are dropped after the object is freed,
+    // any pointers back to this object are already gone.
+    let mut edges = Vec::new();
+    if let Some(clear_fn) = obj_ref.0.vtable.clear {
+        unsafe { clear_fn(obj, &mut edges) };
+    }
+
+    // Deallocate the object memory
     drop(unsafe { Box::from_raw(obj as *mut PyInner<T>) });
+
+    // Drop child references - may trigger recursive destruction.
+    // The object is already deallocated, so circular refs are broken.
+    drop(edges);
 }
 pub(super) unsafe fn debug_obj<T: PyPayload + core::fmt::Debug>(
     x: &PyObject,
@@ -103,6 +117,12 @@ pub(super) unsafe fn try_traverse_obj<T: PyPayload>(x: &PyObject, tracer_fn: &mu
     let x = unsafe { &*(x as *const PyObject as *const PyInner<T>) };
     let payload = &x.payload;
     payload.try_traverse(tracer_fn)
+}
+
+/// Call `try_clear` on payload to extract child references (tp_clear)
+pub(super) unsafe fn try_clear_obj<T: PyPayload>(x: *mut PyObject, out: &mut Vec<PyObjectRef>) {
+    let x = unsafe { &mut *(x as *mut PyInner<T>) };
+    x.payload.try_clear(out);
 }
 
 bitflags::bitflags! {
@@ -963,10 +983,27 @@ impl PyObject {
     /// _PyGC_SET_FINALIZED in Py_GIL_DISABLED mode.
     #[inline]
     fn set_gc_finalized(&self) {
-        // Atomic RMW to avoid clobbering other concurrent bit updates.
+        self.set_gc_bit(GcBits::FINALIZED);
+    }
+
+    /// Set a GC bit atomically.
+    #[inline]
+    pub(crate) fn set_gc_bit(&self, bit: GcBits) {
+        self.0.gc_bits.fetch_or(bit.bits(), Ordering::Relaxed);
+    }
+
+    /// _PyObject_GC_TRACK
+    #[inline]
+    pub(crate) fn set_gc_tracked(&self) {
+        self.set_gc_bit(GcBits::TRACKED);
+    }
+
+    /// _PyObject_GC_UNTRACK
+    #[inline]
+    pub(crate) fn clear_gc_tracked(&self) {
         self.0
             .gc_bits
-            .fetch_or(GcBits::FINALIZED.bits(), Ordering::Relaxed);
+            .fetch_and(!GcBits::TRACKED.bits(), Ordering::Relaxed);
     }
 
     #[inline(always)] // the outer function is never inlined
@@ -1046,13 +1083,9 @@ impl PyObject {
         *self.0.slots[offset].write() = value;
     }
 
-    /// Check if this object is tracked by the garbage collector.
-    /// Returns true if the object has a trace function or has an instance dict.
+    /// _PyObject_GC_IS_TRACKED
     pub fn is_gc_tracked(&self) -> bool {
-        if self.0.vtable.trace.is_some() {
-            return true;
-        }
-        self.0.dict.is_some()
+        GcBits::from_bits_retain(self.0.gc_bits.load(Ordering::Relaxed)).contains(GcBits::TRACKED)
     }
 
     /// Get the referents (objects directly referenced) of this object.
@@ -1277,13 +1310,28 @@ impl<T: PyPayload> PyRef<T> {
     }
 }
 
-impl<T: PyPayload + core::fmt::Debug> PyRef<T> {
+impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
     #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
+        let has_dict = dict.is_some();
+        let is_heaptype = typ.heaptype_ext.is_some();
         let inner = Box::into_raw(PyInner::new(payload, typ, dict));
-        Self {
-            ptr: unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) },
+        let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
+
+        // Track object if:
+        // - HAS_TRAVERSE is true (Rust payload implements Traverse), OR
+        // - has instance dict (user-defined class instances), OR
+        // - heap type (all heap type instances are GC-tracked, like Py_TPFLAGS_HAVE_GC)
+        if <T as crate::object::MaybeTraverse>::HAS_TRAVERSE || has_dict || is_heaptype {
+            let gc = crate::gc_state::gc_state();
+            unsafe {
+                gc.track_object(ptr.cast());
+            }
+            // Check if automatic GC should run
+            gc.maybe_collect();
         }
+
+        Self { ptr }
     }
 }
 
@@ -1546,6 +1594,12 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         heaptype_ext: None,
     };
     let weakref_type = PyRef::new_ref(weakref_type, type_type.clone(), None);
+    // Static type: untrack from GC (was tracked by new_ref because PyType has HAS_TRAVERSE)
+    unsafe {
+        crate::gc_state::gc_state()
+            .untrack_object(core::ptr::NonNull::from(weakref_type.as_object()));
+    }
+    weakref_type.as_object().clear_gc_tracked();
     // weakref's mro is [weakref, object]
     weakref_type.mro.write().insert(0, weakref_type.clone());
 
