@@ -2,6 +2,7 @@
 use crate::{PyResult, VirtualMachine};
 use alloc::fmt;
 use core::sync::atomic::{AtomicBool, Ordering};
+use std::cell::Cell;
 use std::sync::mpsc;
 
 pub(crate) const NSIG: usize = 64;
@@ -10,6 +11,20 @@ static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
 #[allow(clippy::declare_interior_mutable_const)]
 const ATOMIC_FALSE: AtomicBool = AtomicBool::new(false);
 pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
+
+thread_local! {
+    /// Prevent recursive signal handler invocation. When a Python signal
+    /// handler is running, new signals are deferred until it completes.
+    static IN_SIGNAL_HANDLER: Cell<bool> = const { Cell::new(false) };
+}
+
+struct SignalHandlerGuard;
+
+impl Drop for SignalHandlerGuard {
+    fn drop(&mut self) {
+        IN_SIGNAL_HANDLER.with(|h| h.set(false));
+    }
+}
 
 #[cfg_attr(feature = "flame-it", flame)]
 #[inline(always)]
@@ -27,6 +42,13 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
 #[inline(never)]
 #[cold]
 fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
+    if IN_SIGNAL_HANDLER.with(|h| h.replace(true)) {
+        // Already inside a signal handler — defer pending signals
+        set_triggered();
+        return Ok(());
+    }
+    let _guard = SignalHandlerGuard;
+
     // unwrap should never fail since we check above
     let signal_handlers = vm.signal_handlers.as_ref().unwrap().borrow();
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {

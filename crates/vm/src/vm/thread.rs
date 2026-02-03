@@ -1,9 +1,11 @@
+use crate::frame::Frame;
 #[cfg(feature = "threading")]
 use crate::frame::FrameRef;
 use crate::{AsObject, PyObject, VirtualMachine};
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
+    sync::atomic::{AtomicPtr, Ordering},
 };
 use itertools::Itertools;
 #[cfg(feature = "threading")]
@@ -11,8 +13,10 @@ use std::sync::Arc;
 use std::thread_local;
 
 /// Type for current frame slot - shared between threads for sys._current_frames()
+/// Stores the full frame stack so faulthandler can dump complete tracebacks
+/// for all threads.
 #[cfg(feature = "threading")]
-pub type CurrentFrameSlot = Arc<parking_lot::Mutex<Option<FrameRef>>>;
+pub type CurrentFrameSlot = Arc<parking_lot::Mutex<Vec<FrameRef>>>;
 
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
@@ -22,6 +26,14 @@ thread_local! {
     /// Current thread's frame slot for sys._current_frames()
     #[cfg(feature = "threading")]
     static CURRENT_FRAME_SLOT: RefCell<Option<CurrentFrameSlot>> = const { RefCell::new(None) };
+
+    /// Current top frame for signal-safe traceback walking.
+    /// Mirrors `PyThreadState.current_frame`. Read by faulthandler's signal
+    /// handler to dump tracebacks without accessing RefCell or locks.
+    /// Uses AtomicPtr for async-signal-safety (signal handlers may read this
+    /// while the owning thread is writing).
+    pub(crate) static CURRENT_FRAME: AtomicPtr<Frame> =
+        const { AtomicPtr::new(core::ptr::null_mut()) };
 }
 
 scoped_tls::scoped_thread_local!(static VM_CURRENT: VirtualMachine);
@@ -53,7 +65,7 @@ fn init_frame_slot_if_needed(vm: &VirtualMachine) {
     CURRENT_FRAME_SLOT.with(|slot| {
         if slot.borrow().is_none() {
             let thread_id = crate::stdlib::thread::get_ident();
-            let new_slot = Arc::new(parking_lot::Mutex::new(None));
+            let new_slot = Arc::new(parking_lot::Mutex::new(Vec::new()));
             vm.state
                 .thread_frames
                 .lock()
@@ -63,15 +75,38 @@ fn init_frame_slot_if_needed(vm: &VirtualMachine) {
     });
 }
 
-/// Update the current thread's frame. Called when frames are pushed/popped.
-/// This is a hot path - uses only thread-local storage, no locks.
+/// Push a frame onto the current thread's shared frame stack.
+/// Called when a new frame is entered.
 #[cfg(feature = "threading")]
-pub fn update_current_frame(frame: Option<FrameRef>) {
+pub fn push_thread_frame(frame: FrameRef) {
     CURRENT_FRAME_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
-            *s.lock() = frame;
+            s.lock().push(frame);
         }
     });
+}
+
+/// Pop a frame from the current thread's shared frame stack.
+/// Called when a frame is exited.
+#[cfg(feature = "threading")]
+pub fn pop_thread_frame() {
+    CURRENT_FRAME_SLOT.with(|slot| {
+        if let Some(s) = slot.borrow().as_ref() {
+            s.lock().pop();
+        }
+    });
+}
+
+/// Set the current thread's top frame pointer for signal-safe traceback walking.
+/// Returns the previous frame pointer so it can be restored on pop.
+pub fn set_current_frame(frame: *const Frame) -> *const Frame {
+    CURRENT_FRAME.with(|c| c.swap(frame as *mut Frame, Ordering::Relaxed) as *const Frame)
+}
+
+/// Get the current thread's top frame pointer.
+/// Used by faulthandler's signal handler to start traceback walking.
+pub fn get_current_frame() -> *const Frame {
+    CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed) as *const Frame)
 }
 
 /// Cleanup frame tracking for the current thread. Called at thread exit.
@@ -85,20 +120,31 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 }
 
 /// Reinitialize frame slot after fork. Called in child process.
-/// Creates a fresh slot and registers it for the current thread.
+/// Creates a fresh slot and registers it for the current thread,
+/// preserving the current thread's frames from `vm.frames`.
 #[cfg(feature = "threading")]
 pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     let current_ident = crate::stdlib::thread::get_ident();
-    let new_slot = Arc::new(parking_lot::Mutex::new(None));
+    // Preserve the current thread's frames across fork
+    let current_frames: Vec<FrameRef> = vm.frames.borrow().clone();
+    let new_slot = Arc::new(parking_lot::Mutex::new(current_frames));
 
-    // Try to update the global registry. If we can't get the lock
-    // (parent thread might have been holding it during fork), skip.
-    if let Some(mut registry) = vm.state.thread_frames.try_lock() {
-        registry.clear();
-        registry.insert(current_ident, new_slot.clone());
-    }
+    // After fork, only the current thread exists. If the lock was held by
+    // another thread during fork, force unlock it.
+    let mut registry = match vm.state.thread_frames.try_lock() {
+        Some(guard) => guard,
+        None => {
+            // SAFETY: After fork in child process, only the current thread
+            // exists. The lock holder no longer exists.
+            unsafe { vm.state.thread_frames.force_unlock() };
+            vm.state.thread_frames.lock()
+        }
+    };
+    registry.clear();
+    registry.insert(current_ident, new_slot.clone());
+    drop(registry);
 
-    // Always update thread-local to point to the new slot
+    // Update thread-local to point to the new slot
     CURRENT_FRAME_SLOT.with(|s| {
         *s.borrow_mut() = Some(new_slot);
     });

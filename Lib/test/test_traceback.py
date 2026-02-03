@@ -3423,8 +3423,6 @@ class TestStack(unittest.TestCase):
         s = traceback.StackSummary.extract(iter([(f, 6)]))
         self.assertEqual(s[0].locals, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_locals(self):
         def some_inner(k, v):
             a = 1
@@ -3441,8 +3439,6 @@ class TestStack(unittest.TestCase):
              '    v = 4\n' % (__file__, some_inner.__code__.co_firstlineno + 3)
             ], s.format())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_custom_format_frame(self):
         class CustomStackSummary(traceback.StackSummary):
             def format_frame_summary(self, frame_summary, colorize=False):
