@@ -2,7 +2,7 @@ pub(crate) use _codecs::module_def;
 
 use crate::common::static_cell::StaticCell;
 
-#[pymodule(with(_codecs_windows))]
+#[pymodule(with(#[cfg(windows)] _codecs_windows))]
 mod _codecs {
     use crate::codecs::{ErrorsHandler, PyDecodeContext, PyEncodeContext};
     use crate::common::encodings;
@@ -329,23 +329,11 @@ fn delegate_pycodecs(
     f.call(args, vm)
 }
 
+#[cfg(windows)]
 #[pymodule(sub)]
 mod _codecs_windows {
-    #[cfg(not(windows))]
-    use crate::{PyObjectRef, function::FuncArgs};
     use crate::{PyResult, VirtualMachine};
-    #[cfg(windows)]
     use crate::{builtins::PyStrRef, function::ArgBytesLike};
-
-    #[cfg(not(windows))]
-    macro_rules! delegate_pycodecs {
-        ($name:ident, $args:ident, $vm:ident) => {{
-            rustpython_common::static_cell!(
-                static FUNC: PyObjectRef;
-            );
-            super::delegate_pycodecs(&FUNC, stringify!($name), $args, $vm)
-        }};
-    }
 
     #[cfg(windows)]
     #[derive(FromArgs)]
@@ -435,12 +423,6 @@ mod _codecs_windows {
 
         buffer.truncate(result as usize);
         Ok((buffer, char_len))
-    }
-
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn mbcs_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(mbcs_encode, args, vm)
     }
 
     #[cfg(windows)]
@@ -543,12 +525,6 @@ mod _codecs_windows {
         Ok((s, len))
     }
 
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn mbcs_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(mbcs_decode, args, vm)
-    }
-
     #[cfg(windows)]
     #[derive(FromArgs)]
     struct OemEncodeArgs {
@@ -637,12 +613,6 @@ mod _codecs_windows {
 
         buffer.truncate(result as usize);
         Ok((buffer, char_len))
-    }
-
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn oem_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(oem_encode, args, vm)
     }
 
     #[cfg(windows)]
@@ -743,12 +713,6 @@ mod _codecs_windows {
             .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {}", e)))?;
 
         Ok((s, len))
-    }
-
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn oem_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(oem_decode, args, vm)
     }
 
     #[cfg(windows)]
@@ -859,12 +823,6 @@ mod _codecs_windows {
 
         buffer.truncate(result as usize);
         Ok((buffer, char_len))
-    }
-
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn code_page_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(code_page_encode, args, vm)
     }
 
     #[cfg(windows)]
@@ -984,11 +942,5 @@ mod _codecs_windows {
             .map_err(|e| vm.new_unicode_decode_error(format!("code_page_decode failed: {e}")))?;
 
         Ok((s, len))
-    }
-
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn code_page_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(code_page_decode, args, vm)
     }
 }
