@@ -589,7 +589,11 @@ impl fmt::Display for UnpackExArgs {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
+/// use num_enum::TryFromPrimitive;
+///
+/// use rustpython_compiler_core::marshal::MarshalError;
+///
 /// #[derive(TryFromPrimitive)]
 /// #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
 /// #[repr(u8)]
