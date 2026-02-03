@@ -226,7 +226,6 @@ gen_args! {
     uid: Option<Uid>,
     child_umask: i32,
     preexec_fn: Option<PyObjectRef>,
-    _use_vfork: bool,
 }
 
 // can't reallocate inside of exec(), so we reallocate prior to fork() and pass this along
