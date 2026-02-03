@@ -19,7 +19,7 @@ no-start-func = []
 [dependencies]
 rustpython-common = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
-rustpython-stdlib = { workspace = true, default-features = false, features = ["wasm_js"], optional = true }
+rustpython-stdlib = { workspace = true, default-features = false, optional = true }
 # make sure no threading! otherwise wasm build will fail
 rustpython-vm = { workspace = true, features = ["compiler", "encodings", "serde", "wasmbind"] }
 

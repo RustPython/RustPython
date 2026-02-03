@@ -16,7 +16,7 @@ mod _random {
     use malachite_bigint::{BigInt, BigUint, Sign};
     use mt19937::MT19937;
     use num_traits::{Signed, Zero};
-    use rand_core::{RngCore, SeedableRng};
+    use rand_core::{Rng, SeedableRng};
     use rustpython_vm::types::DefaultConstructor;
 
     #[pyattr]
@@ -60,7 +60,7 @@ mod _random {
                     let key = if key.is_empty() { &[0] } else { key.as_slice() };
                     MT19937::new_with_slice_seed(key)
                 }
-                None => MT19937::try_from_os_rng().map_err(|e| {
+                None => MT19937::try_from_rng(&mut getrandom::SysRng).map_err(|e| {
                     std::io::Error::other(format!("failed to initialize RNG: {}", e))
                         .to_pyexception(vm)
                 })?,

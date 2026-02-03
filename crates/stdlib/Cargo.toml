@@ -14,7 +14,6 @@ license.workspace = true
 default = ["compiler"]
 compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
-wasm_js = ["rustpython-common/wasm_js"]
 sqlite = ["dep:libsqlite3-sys"]
 # SSL backends - default to rustls
 ssl = []
@@ -57,8 +56,9 @@ pymath = { workspace = true }
 xml = "1.2"
 
 # random
+getrandom = { workspace = true }
 rand_core = { workspace = true }
-mt19937 = "3.1"
+mt19937 = { git = "https://github.com/RustPython/mt19937.git", branch = "version" }
 
 # Crypto:
 digest = "0.10.3"
@@ -141,7 +141,8 @@ lzma-sys = "0.1"
 xz2 = "0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# Enable wasm_js feature for getrandom 0.3.x (transitive dependency from mt19937/ahash)
+# Enable wasm_js feature for getrandom 0.3.x (transitive dependency from ahash)
+# This is needed until ahash updates to getrandom 0.4
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [target.'cfg(windows)'.dependencies]
