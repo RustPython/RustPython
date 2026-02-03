@@ -2206,9 +2206,9 @@ mod _socket {
                 Some(t) => {
                     let f = t.into_float();
                     if f.is_nan() {
-                        return Err(vm.new_value_error(
-                            "Invalid value NaN (not a number)".to_owned(),
-                        ));
+                        return Err(
+                            vm.new_value_error("Invalid value NaN (not a number)".to_owned())
+                        );
                     }
                     if f < 0.0 || !f.is_finite() {
                         return Err(vm.new_value_error("Timeout value out of range".to_owned()));
@@ -3388,9 +3388,7 @@ mod _socket {
             Some(t) => {
                 let f = t.into_float();
                 if f.is_nan() {
-                    return Err(vm.new_value_error(
-                        "Invalid value NaN (not a number)".to_owned(),
-                    ));
+                    return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
                 }
                 if f < 0.0 || !f.is_finite() {
                     return Err(vm.new_value_error("Timeout value out of range".to_owned()));

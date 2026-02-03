@@ -127,9 +127,7 @@ impl TryFromObject for core::time::Duration {
         if let Some(float) = obj.downcast_ref::<PyFloat>() {
             let f = float.to_f64();
             if f.is_nan() {
-                return Err(
-                    vm.new_value_error("Invalid value NaN (not a number)".to_owned())
-                );
+                return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
             }
             if f < 0.0 {
                 return Err(vm.new_value_error("negative duration".to_owned()));
