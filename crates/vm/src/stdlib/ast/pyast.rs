@@ -1,7 +1,9 @@
 #![allow(clippy::all)]
 
 use super::*;
+use crate::builtins::{PyGenericAlias, PyTuple, PyTypeRef, make_union};
 use crate::common::ascii;
+use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
 use crate::types::Initializer;
 
@@ -926,6 +928,529 @@ impl_node!(
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
+/// Marker for how to resolve an ASDL field type into a Python type object.
+#[derive(Clone, Copy)]
+enum FieldType {
+    /// AST node type reference (e.g. "expr", "stmt")
+    Node(&'static str),
+    /// Built-in type reference (e.g. "str", "int", "object")
+    Builtin(&'static str),
+    /// list[NodeType] — Py_GenericAlias(list, node_type)
+    ListOf(&'static str),
+    /// list[BuiltinType] — Py_GenericAlias(list, builtin_type)
+    ListOfBuiltin(&'static str),
+    /// NodeType | None — Union[node_type, None]
+    Optional(&'static str),
+    /// BuiltinType | None — Union[builtin_type, None]
+    OptionalBuiltin(&'static str),
+}
+
+/// Field type annotations for all concrete AST node classes.
+/// Derived from add_ast_annotations() in Python-ast.c.
+const FIELD_TYPES: &[(&str, &[(&str, FieldType)])] = &[
+    // -- mod --
+    (
+        "Module",
+        &[
+            ("body", FieldType::ListOf("stmt")),
+            ("type_ignores", FieldType::ListOf("type_ignore")),
+        ],
+    ),
+    ("Interactive", &[("body", FieldType::ListOf("stmt"))]),
+    ("Expression", &[("body", FieldType::Node("expr"))]),
+    (
+        "FunctionType",
+        &[
+            ("argtypes", FieldType::ListOf("expr")),
+            ("returns", FieldType::Node("expr")),
+        ],
+    ),
+    // -- stmt --
+    (
+        "FunctionDef",
+        &[
+            ("name", FieldType::Builtin("str")),
+            ("args", FieldType::Node("arguments")),
+            ("body", FieldType::ListOf("stmt")),
+            ("decorator_list", FieldType::ListOf("expr")),
+            ("returns", FieldType::Optional("expr")),
+            ("type_comment", FieldType::OptionalBuiltin("str")),
+            ("type_params", FieldType::ListOf("type_param")),
+        ],
+    ),
+    (
+        "AsyncFunctionDef",
+        &[
+            ("name", FieldType::Builtin("str")),
+            ("args", FieldType::Node("arguments")),
+            ("body", FieldType::ListOf("stmt")),
+            ("decorator_list", FieldType::ListOf("expr")),
+            ("returns", FieldType::Optional("expr")),
+            ("type_comment", FieldType::OptionalBuiltin("str")),
+            ("type_params", FieldType::ListOf("type_param")),
+        ],
+    ),
+    (
+        "ClassDef",
+        &[
+            ("name", FieldType::Builtin("str")),
+            ("bases", FieldType::ListOf("expr")),
+            ("keywords", FieldType::ListOf("keyword")),
+            ("body", FieldType::ListOf("stmt")),
+            ("decorator_list", FieldType::ListOf("expr")),
+            ("type_params", FieldType::ListOf("type_param")),
+        ],
+    ),
+    ("Return", &[("value", FieldType::Optional("expr"))]),
+    ("Delete", &[("targets", FieldType::ListOf("expr"))]),
+    (
+        "Assign",
+        &[
+            ("targets", FieldType::ListOf("expr")),
+            ("value", FieldType::Node("expr")),
+            ("type_comment", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    (
+        "TypeAlias",
+        &[
+            ("name", FieldType::Node("expr")),
+            ("type_params", FieldType::ListOf("type_param")),
+            ("value", FieldType::Node("expr")),
+        ],
+    ),
+    (
+        "AugAssign",
+        &[
+            ("target", FieldType::Node("expr")),
+            ("op", FieldType::Node("operator")),
+            ("value", FieldType::Node("expr")),
+        ],
+    ),
+    (
+        "AnnAssign",
+        &[
+            ("target", FieldType::Node("expr")),
+            ("annotation", FieldType::Node("expr")),
+            ("value", FieldType::Optional("expr")),
+            ("simple", FieldType::Builtin("int")),
+        ],
+    ),
+    (
+        "For",
+        &[
+            ("target", FieldType::Node("expr")),
+            ("iter", FieldType::Node("expr")),
+            ("body", FieldType::ListOf("stmt")),
+            ("orelse", FieldType::ListOf("stmt")),
+            ("type_comment", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    (
+        "AsyncFor",
+        &[
+            ("target", FieldType::Node("expr")),
+            ("iter", FieldType::Node("expr")),
+            ("body", FieldType::ListOf("stmt")),
+            ("orelse", FieldType::ListOf("stmt")),
+            ("type_comment", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    (
+        "While",
+        &[
+            ("test", FieldType::Node("expr")),
+            ("body", FieldType::ListOf("stmt")),
+            ("orelse", FieldType::ListOf("stmt")),
+        ],
+    ),
+    (
+        "If",
+        &[
+            ("test", FieldType::Node("expr")),
+            ("body", FieldType::ListOf("stmt")),
+            ("orelse", FieldType::ListOf("stmt")),
+        ],
+    ),
+    (
+        "With",
+        &[
+            ("items", FieldType::ListOf("withitem")),
+            ("body", FieldType::ListOf("stmt")),
+            ("type_comment", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    (
+        "AsyncWith",
+        &[
+            ("items", FieldType::ListOf("withitem")),
+            ("body", FieldType::ListOf("stmt")),
+            ("type_comment", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    (
+        "Match",
+        &[
+            ("subject", FieldType::Node("expr")),
+            ("cases", FieldType::ListOf("match_case")),
+        ],
+    ),
+    (
+        "Raise",
+        &[
+            ("exc", FieldType::Optional("expr")),
+            ("cause", FieldType::Optional("expr")),
+        ],
+    ),
+    (
+        "Try",
+        &[
+            ("body", FieldType::ListOf("stmt")),
+            ("handlers", FieldType::ListOf("excepthandler")),
+            ("orelse", FieldType::ListOf("stmt")),
+            ("finalbody", FieldType::ListOf("stmt")),
+        ],
+    ),
+    (
+        "TryStar",
+        &[
+            ("body", FieldType::ListOf("stmt")),
+            ("handlers", FieldType::ListOf("excepthandler")),
+            ("orelse", FieldType::ListOf("stmt")),
+            ("finalbody", FieldType::ListOf("stmt")),
+        ],
+    ),
+    (
+        "Assert",
+        &[
+            ("test", FieldType::Node("expr")),
+            ("msg", FieldType::Optional("expr")),
+        ],
+    ),
+    ("Import", &[("names", FieldType::ListOf("alias"))]),
+    (
+        "ImportFrom",
+        &[
+            ("module", FieldType::OptionalBuiltin("str")),
+            ("names", FieldType::ListOf("alias")),
+            ("level", FieldType::OptionalBuiltin("int")),
+        ],
+    ),
+    ("Global", &[("names", FieldType::ListOfBuiltin("str"))]),
+    ("Nonlocal", &[("names", FieldType::ListOfBuiltin("str"))]),
+    ("Expr", &[("value", FieldType::Node("expr"))]),
+    // -- expr --
+    (
+        "BoolOp",
+        &[
+            ("op", FieldType::Node("boolop")),
+            ("values", FieldType::ListOf("expr")),
+        ],
+    ),
+    (
+        "NamedExpr",
+        &[
+            ("target", FieldType::Node("expr")),
+            ("value", FieldType::Node("expr")),
+        ],
+    ),
+    (
+        "BinOp",
+        &[
+            ("left", FieldType::Node("expr")),
+            ("op", FieldType::Node("operator")),
+            ("right", FieldType::Node("expr")),
+        ],
+    ),
+    (
+        "UnaryOp",
+        &[
+            ("op", FieldType::Node("unaryop")),
+            ("operand", FieldType::Node("expr")),
+        ],
+    ),
+    (
+        "Lambda",
+        &[
+            ("args", FieldType::Node("arguments")),
+            ("body", FieldType::Node("expr")),
+        ],
+    ),
+    (
+        "IfExp",
+        &[
+            ("test", FieldType::Node("expr")),
+            ("body", FieldType::Node("expr")),
+            ("orelse", FieldType::Node("expr")),
+        ],
+    ),
+    (
+        "Dict",
+        &[
+            ("keys", FieldType::ListOf("expr")),
+            ("values", FieldType::ListOf("expr")),
+        ],
+    ),
+    ("Set", &[("elts", FieldType::ListOf("expr"))]),
+    (
+        "ListComp",
+        &[
+            ("elt", FieldType::Node("expr")),
+            ("generators", FieldType::ListOf("comprehension")),
+        ],
+    ),
+    (
+        "SetComp",
+        &[
+            ("elt", FieldType::Node("expr")),
+            ("generators", FieldType::ListOf("comprehension")),
+        ],
+    ),
+    (
+        "DictComp",
+        &[
+            ("key", FieldType::Node("expr")),
+            ("value", FieldType::Node("expr")),
+            ("generators", FieldType::ListOf("comprehension")),
+        ],
+    ),
+    (
+        "GeneratorExp",
+        &[
+            ("elt", FieldType::Node("expr")),
+            ("generators", FieldType::ListOf("comprehension")),
+        ],
+    ),
+    ("Await", &[("value", FieldType::Node("expr"))]),
+    ("Yield", &[("value", FieldType::Optional("expr"))]),
+    ("YieldFrom", &[("value", FieldType::Node("expr"))]),
+    (
+        "Compare",
+        &[
+            ("left", FieldType::Node("expr")),
+            ("ops", FieldType::ListOf("cmpop")),
+            ("comparators", FieldType::ListOf("expr")),
+        ],
+    ),
+    (
+        "Call",
+        &[
+            ("func", FieldType::Node("expr")),
+            ("args", FieldType::ListOf("expr")),
+            ("keywords", FieldType::ListOf("keyword")),
+        ],
+    ),
+    (
+        "FormattedValue",
+        &[
+            ("value", FieldType::Node("expr")),
+            ("conversion", FieldType::Builtin("int")),
+            ("format_spec", FieldType::Optional("expr")),
+        ],
+    ),
+    ("JoinedStr", &[("values", FieldType::ListOf("expr"))]),
+    ("TemplateStr", &[("values", FieldType::ListOf("expr"))]),
+    (
+        "Interpolation",
+        &[
+            ("value", FieldType::Node("expr")),
+            ("str", FieldType::Builtin("object")),
+            ("conversion", FieldType::Builtin("int")),
+            ("format_spec", FieldType::Optional("expr")),
+        ],
+    ),
+    (
+        "Constant",
+        &[
+            ("value", FieldType::Builtin("object")),
+            ("kind", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    (
+        "Attribute",
+        &[
+            ("value", FieldType::Node("expr")),
+            ("attr", FieldType::Builtin("str")),
+            ("ctx", FieldType::Node("expr_context")),
+        ],
+    ),
+    (
+        "Subscript",
+        &[
+            ("value", FieldType::Node("expr")),
+            ("slice", FieldType::Node("expr")),
+            ("ctx", FieldType::Node("expr_context")),
+        ],
+    ),
+    (
+        "Starred",
+        &[
+            ("value", FieldType::Node("expr")),
+            ("ctx", FieldType::Node("expr_context")),
+        ],
+    ),
+    (
+        "Name",
+        &[
+            ("id", FieldType::Builtin("str")),
+            ("ctx", FieldType::Node("expr_context")),
+        ],
+    ),
+    (
+        "List",
+        &[
+            ("elts", FieldType::ListOf("expr")),
+            ("ctx", FieldType::Node("expr_context")),
+        ],
+    ),
+    (
+        "Tuple",
+        &[
+            ("elts", FieldType::ListOf("expr")),
+            ("ctx", FieldType::Node("expr_context")),
+        ],
+    ),
+    (
+        "Slice",
+        &[
+            ("lower", FieldType::Optional("expr")),
+            ("upper", FieldType::Optional("expr")),
+            ("step", FieldType::Optional("expr")),
+        ],
+    ),
+    // -- misc --
+    (
+        "comprehension",
+        &[
+            ("target", FieldType::Node("expr")),
+            ("iter", FieldType::Node("expr")),
+            ("ifs", FieldType::ListOf("expr")),
+            ("is_async", FieldType::Builtin("int")),
+        ],
+    ),
+    (
+        "ExceptHandler",
+        &[
+            ("type", FieldType::Optional("expr")),
+            ("name", FieldType::OptionalBuiltin("str")),
+            ("body", FieldType::ListOf("stmt")),
+        ],
+    ),
+    (
+        "arguments",
+        &[
+            ("posonlyargs", FieldType::ListOf("arg")),
+            ("args", FieldType::ListOf("arg")),
+            ("vararg", FieldType::Optional("arg")),
+            ("kwonlyargs", FieldType::ListOf("arg")),
+            ("kw_defaults", FieldType::ListOf("expr")),
+            ("kwarg", FieldType::Optional("arg")),
+            ("defaults", FieldType::ListOf("expr")),
+        ],
+    ),
+    (
+        "arg",
+        &[
+            ("arg", FieldType::Builtin("str")),
+            ("annotation", FieldType::Optional("expr")),
+            ("type_comment", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    (
+        "keyword",
+        &[
+            ("arg", FieldType::OptionalBuiltin("str")),
+            ("value", FieldType::Node("expr")),
+        ],
+    ),
+    (
+        "alias",
+        &[
+            ("name", FieldType::Builtin("str")),
+            ("asname", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    (
+        "withitem",
+        &[
+            ("context_expr", FieldType::Node("expr")),
+            ("optional_vars", FieldType::Optional("expr")),
+        ],
+    ),
+    (
+        "match_case",
+        &[
+            ("pattern", FieldType::Node("pattern")),
+            ("guard", FieldType::Optional("expr")),
+            ("body", FieldType::ListOf("stmt")),
+        ],
+    ),
+    // -- pattern --
+    ("MatchValue", &[("value", FieldType::Node("expr"))]),
+    ("MatchSingleton", &[("value", FieldType::Builtin("object"))]),
+    (
+        "MatchSequence",
+        &[("patterns", FieldType::ListOf("pattern"))],
+    ),
+    (
+        "MatchMapping",
+        &[
+            ("keys", FieldType::ListOf("expr")),
+            ("patterns", FieldType::ListOf("pattern")),
+            ("rest", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    (
+        "MatchClass",
+        &[
+            ("cls", FieldType::Node("expr")),
+            ("patterns", FieldType::ListOf("pattern")),
+            ("kwd_attrs", FieldType::ListOfBuiltin("str")),
+            ("kwd_patterns", FieldType::ListOf("pattern")),
+        ],
+    ),
+    ("MatchStar", &[("name", FieldType::OptionalBuiltin("str"))]),
+    (
+        "MatchAs",
+        &[
+            ("pattern", FieldType::Optional("pattern")),
+            ("name", FieldType::OptionalBuiltin("str")),
+        ],
+    ),
+    ("MatchOr", &[("patterns", FieldType::ListOf("pattern"))]),
+    // -- type_ignore --
+    (
+        "TypeIgnore",
+        &[
+            ("lineno", FieldType::Builtin("int")),
+            ("tag", FieldType::Builtin("str")),
+        ],
+    ),
+    // -- type_param --
+    (
+        "TypeVar",
+        &[
+            ("name", FieldType::Builtin("str")),
+            ("bound", FieldType::Optional("expr")),
+            ("default_value", FieldType::Optional("expr")),
+        ],
+    ),
+    (
+        "ParamSpec",
+        &[
+            ("name", FieldType::Builtin("str")),
+            ("default_value", FieldType::Optional("expr")),
+        ],
+    ),
+    (
+        "TypeVarTuple",
+        &[
+            ("name", FieldType::Builtin("str")),
+            ("default_value", FieldType::Optional("expr")),
+        ],
+    ),
+];
+
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     extend_module!(vm, module, {
         "mod" => NodeMod::make_class(&vm.ctx),
@@ -1053,5 +1578,93 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "TypeVar" => NodeTypeParamTypeVar::make_class(&vm.ctx),
         "ParamSpec" => NodeTypeParamParamSpec::make_class(&vm.ctx),
         "TypeVarTuple" => NodeTypeParamTypeVarTuple::make_class(&vm.ctx),
-    })
+    });
+
+    // Populate _field_types with real Python type objects
+    populate_field_types(vm, module);
+}
+
+fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
+    let list_type: PyTypeRef = vm.ctx.types.list_type.to_owned();
+    let none_type: PyObjectRef = vm.ctx.types.none_type.to_owned().into();
+
+    // Resolve a builtin type name to a Python type object
+    let resolve_builtin = |name: &str| -> PyObjectRef {
+        let ty: &Py<PyType> = match name {
+            "str" => vm.ctx.types.str_type,
+            "int" => vm.ctx.types.int_type,
+            "object" => vm.ctx.types.object_type,
+            "bool" => vm.ctx.types.bool_type,
+            _ => unreachable!("unknown builtin type: {name}"),
+        };
+        ty.to_owned().into()
+    };
+
+    // Resolve an AST node type name by looking it up from the module
+    let resolve_node = |name: &str| -> PyObjectRef {
+        module
+            .get_attr(vm.ctx.intern_str(name), vm)
+            .unwrap_or_else(|_| panic!("AST node type '{name}' not found in module"))
+    };
+
+    for &(class_name, fields) in FIELD_TYPES {
+        if fields.is_empty() {
+            continue;
+        }
+
+        let class = module
+            .get_attr(class_name, vm)
+            .unwrap_or_else(|_| panic!("AST class '{class_name}' not found in module"));
+        let dict = vm.ctx.new_dict();
+
+        for &(field_name, ref field_type) in fields {
+            let type_obj = match field_type {
+                FieldType::Node(name) => resolve_node(name),
+                FieldType::Builtin(name) => resolve_builtin(name),
+                FieldType::ListOf(name) => {
+                    let elem = resolve_node(name);
+                    let args = PyTuple::new_ref(vec![elem], &vm.ctx);
+                    PyGenericAlias::new(list_type.clone(), args, false, vm).to_pyobject(vm)
+                }
+                FieldType::ListOfBuiltin(name) => {
+                    let elem = resolve_builtin(name);
+                    let args = PyTuple::new_ref(vec![elem], &vm.ctx);
+                    PyGenericAlias::new(list_type.clone(), args, false, vm).to_pyobject(vm)
+                }
+                FieldType::Optional(name) => {
+                    let base = resolve_node(name);
+                    let union_args = PyTuple::new_ref(vec![base, none_type.clone()], &vm.ctx);
+                    make_union(&union_args, vm).expect("failed to create union type")
+                }
+                FieldType::OptionalBuiltin(name) => {
+                    let base = resolve_builtin(name);
+                    let union_args = PyTuple::new_ref(vec![base, none_type.clone()], &vm.ctx);
+                    make_union(&union_args, vm).expect("failed to create union type")
+                }
+            };
+            dict.set_item(vm.ctx.intern_str(field_name), type_obj, vm)
+                .expect("failed to set field type");
+        }
+
+        let dict_obj: PyObjectRef = dict.into();
+        if let Some(type_obj) = class.downcast_ref::<PyType>() {
+            type_obj.set_attr(vm.ctx.intern_str("_field_types"), dict_obj);
+            // NOTE: CPython also sets __annotations__ = _field_types, but
+            // RustPython AST types are not heap types so __annotations__
+            // is not accessible via the type descriptor.
+
+            // Set None as class-level default for optional fields.
+            // When ast_type_init skips optional fields, the instance
+            // inherits None from the class (init_types in Python-ast.c).
+            let none = vm.ctx.none();
+            for &(field_name, ref field_type) in fields {
+                if matches!(
+                    field_type,
+                    FieldType::Optional(_) | FieldType::OptionalBuiltin(_)
+                ) {
+                    type_obj.set_attr(vm.ctx.intern_str(field_name), none.clone());
+                }
+            }
+        }
+    }
 }

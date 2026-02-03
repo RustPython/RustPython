@@ -1480,7 +1480,6 @@ class ASTHelpers_Test(unittest.TestCase):
                 ast.literal_eval(r"'\U'")
             self.assertIsNotNone(e.exception.__context__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + Module(body=[Expr(value=Call(func=Name(id='spam', ctx=Load()), args=[Name(id='eggs', ctx=Load()), Constant(value='and cheese')]))])
     def test_dump(self):
         node = ast.parse('spam(eggs, "and cheese")')
         self.assertEqual(ast.dump(node),
@@ -1501,7 +1500,6 @@ class ASTHelpers_Test(unittest.TestCase):
             "lineno=1, col_offset=0, end_lineno=1, end_col_offset=24)])"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; -    type_ignores=[])
     def test_dump_indent(self):
         node = ast.parse('spam(eggs, "and cheese")')
         self.assertEqual(ast.dump(node, indent=3), """\
@@ -1557,7 +1555,6 @@ Module(
          end_lineno=1,
          end_col_offset=24)])""")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + Raise()
     def test_dump_incomplete(self):
         node = ast.Raise(lineno=3, col_offset=4)
         self.assertEqual(ast.dump(node),
@@ -1622,7 +1619,6 @@ Module(
             "ClassDef('T', [], [keyword('a', Constant(None))], [], [Name('dataclass', Load())])",
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dump_show_empty(self):
         def check_node(node, empty, full, **kwargs):
             with self.subTest(show_empty=False):
@@ -1743,7 +1739,6 @@ Module(
         self.assertEqual(new.lineno, 1)
         self.assertEqual(new.col_offset, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + Module(body=[Expr(value=Call(func=Name(id='write', ctx=Load(), lineno=1, col_offset=0, end_lineno=1, end_col_offset=5), args=[Constant(value='spam', lineno=1, col_offset=6, end_lineno=1, end_col_offset=12)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=13), lineno=1, col_offset=0, end_lineno=1, end_col_offset=13), Expr(value=Call(func=Name(id='spam', ctx=Load(), lineno=1, col_offset=0, end_lineno=1, end_col_offset=0), args=[Constant(value='eggs', lineno=1, col_offset=0, end_lineno=1, end_col_offset=0)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=0), lineno=1, col_offset=0, end_lineno=1, end_col_offset=0)])
     def test_fix_missing_locations(self):
         src = ast.parse('write("spam")')
         src.body.append(ast.Expr(ast.Call(ast.Name('spam', ast.Load()),
@@ -1807,7 +1802,6 @@ Module(
         self.assertEqual(d.pop('func').id, 'foo')
         self.assertEqual(d, {'keywords': [], 'args': []})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + keyword(arg='eggs', value=Constant(value='leek'))
     def test_iter_child_nodes(self):
         node = ast.parse("spam(23, 42, eggs='leek')", mode='eval')
         self.assertEqual(len(list(ast.iter_child_nodes(node.body))), 4)
@@ -3149,7 +3143,6 @@ class NodeTransformerTests(ASTTestMixin, unittest.TestCase):
 
         self.assertASTEqual(result_ast, expected_ast)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; <class 'object'> is not <class 'NoneType'>
     def test_node_remove_single(self):
         code = 'def func(arg) -> SomeType: ...'
         expected = 'def func(arg): ...'
@@ -3376,7 +3369,6 @@ class ASTConstructorTests(unittest.TestCase):
         with self.assertWarnsRegex(DeprecationWarning, r"Field b'\\xff\\xff.*' .*"):
             obj = BadFields()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != []
     def test_complete_field_types(self):
         class _AllFieldTypes(ast.AST):
             _fields = ('a', 'b')
@@ -3569,7 +3561,6 @@ class CommandLineTests(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.check_output(source, expect, flag)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_eval_mode_flag(self):
         # test 'python -m ast -m/--mode eval'
         source = 'print(1, 2, 3)'
@@ -3604,7 +3595,6 @@ class CommandLineTests(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.check_output(source, expect, flag)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object '_ast.Module' has no attribute '_field_types'
     def test_no_type_comments_flag(self):
         # test 'python -m ast --no-type-comments'
         source = 'x: bool = 1 # type: ignore[assignment]'
@@ -3619,7 +3609,6 @@ class CommandLineTests(unittest.TestCase):
         '''
         self.check_output(source, expect, '--no-type-comments')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_include_attributes_flag(self):
         # test 'python -m ast -a/--include-attributes'
         source = 'pass'
@@ -3636,7 +3625,6 @@ class CommandLineTests(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.check_output(source, expect, flag)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_indent_flag(self):
         # test 'python -m ast -i/--indent 0'
         source = 'pass'
@@ -3673,7 +3661,6 @@ class CommandLineTests(unittest.TestCase):
         with self.assertRaises(SyntaxError):
             self.invoke_ast('--feature-version=3.9')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_no_optimize_flag(self):
         # test 'python -m ast -O/--optimize -1/0'
         source = '''
@@ -3724,7 +3711,6 @@ class CommandLineTests(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.check_output(source, expect, flag)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; type_ignores=[])
     def test_show_empty_flag(self):
         # test 'python -m ast --show-empty'
         source = 'print(1, 2, 3)'
