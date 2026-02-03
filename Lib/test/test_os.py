@@ -104,7 +104,7 @@ requires_splice_pipe = unittest.skipIf(sys.platform.startswith("aix"),
 
 
 def tearDownModule():
-    asyncio.set_event_loop_policy(None)
+    asyncio.events._set_event_loop_policy(None)
 
 
 class MiscTests(unittest.TestCase):
@@ -187,10 +187,6 @@ class FileTests(unittest.TestCase):
         os.close(f)
         self.assertTrue(os.access(os_helper.TESTFN, os.W_OK))
 
-    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; BrokenPipeError: (32, 'The process cannot access the file because it is being used by another process. (os error 32)')")
-    @unittest.skipIf(
-        support.is_emscripten, "Test is unstable under Emscripten."
-    )
     @unittest.skipIf(
         support.is_wasi, "WASI does not support dup."
     )
@@ -233,6 +229,94 @@ class FileTests(unittest.TestCase):
             self.assertEqual(type(s), bytes)
             self.assertEqual(s, b"spam")
 
+    def test_readinto(self):
+        with open(os_helper.TESTFN, "w+b") as fobj:
+            fobj.write(b"spam")
+            fobj.flush()
+            fd = fobj.fileno()
+            os.lseek(fd, 0, 0)
+            # Oversized so readinto without hitting end.
+            buffer = bytearray(7)
+            s = os.readinto(fd, buffer)
+            self.assertEqual(type(s), int)
+            self.assertEqual(s, 4)
+            # Should overwrite the first 4 bytes of the buffer.
+            self.assertEqual(buffer[:4], b"spam")
+
+            # Readinto at EOF should return 0 and not touch buffer.
+            buffer[:] = b"notspam"
+            s = os.readinto(fd, buffer)
+            self.assertEqual(type(s), int)
+            self.assertEqual(s, 0)
+            self.assertEqual(bytes(buffer), b"notspam")
+            s = os.readinto(fd, buffer)
+            self.assertEqual(s, 0)
+            self.assertEqual(bytes(buffer), b"notspam")
+
+            # Readinto a 0 length bytearray when at EOF should return 0
+            self.assertEqual(os.readinto(fd, bytearray()), 0)
+
+            # Readinto a 0 length bytearray with data available should return 0.
+            os.lseek(fd, 0, 0)
+            self.assertEqual(os.readinto(fd, bytearray()), 0)
+
+    @unittest.skipUnless(hasattr(os, 'get_blocking'),
+                     'needs os.get_blocking() and os.set_blocking()')
+    @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
+    @unittest.skipIf(support.is_emscripten, "set_blocking does not work correctly")
+    def test_readinto_non_blocking(self):
+        # Verify behavior of a readinto which would block on a non-blocking fd.
+        r, w = os.pipe()
+        try:
+            os.set_blocking(r, False)
+            with self.assertRaises(BlockingIOError):
+                os.readinto(r, bytearray(5))
+
+            # Pass some data through
+            os.write(w, b"spam")
+            self.assertEqual(os.readinto(r, bytearray(4)), 4)
+
+            # Still don't block or return 0.
+            with self.assertRaises(BlockingIOError):
+                os.readinto(r, bytearray(5))
+
+            # At EOF should return size 0
+            os.close(w)
+            w = None
+            self.assertEqual(os.readinto(r, bytearray(5)), 0)
+            self.assertEqual(os.readinto(r, bytearray(5)), 0)  # Still EOF
+
+        finally:
+            os.close(r)
+            if w is not None:
+                os.close(w)
+
+    def test_readinto_badarg(self):
+        with open(os_helper.TESTFN, "w+b") as fobj:
+            fobj.write(b"spam")
+            fobj.flush()
+            fd = fobj.fileno()
+            os.lseek(fd, 0, 0)
+
+            for bad_arg in ("test", bytes(), 14):
+                with self.subTest(f"bad buffer {type(bad_arg)}"):
+                    with self.assertRaises(TypeError):
+                        os.readinto(fd, bad_arg)
+
+            with self.subTest("doesn't work on file objects"):
+                with self.assertRaises(TypeError):
+                    os.readinto(fobj, bytearray(5))
+
+            # takes two args
+            with self.assertRaises(TypeError):
+                os.readinto(fd)
+
+            # No data should have been read with the bad arguments.
+            buffer = bytearray(4)
+            s = os.readinto(fd, buffer)
+            self.assertEqual(s, 4)
+            self.assertEqual(buffer, b"spam")
+
     @support.cpython_only
     # Skip the test on 32-bit platforms: the number of bytes must fit in a
     # Py_ssize_t type
@@ -251,6 +335,29 @@ class FileTests(unittest.TestCase):
         # The test does not try to read more than 2 GiB at once because the
         # operating system is free to return less bytes than requested.
         self.assertEqual(data, b'test')
+
+
+    @support.cpython_only
+    # Skip the test on 32-bit platforms: the number of bytes must fit in a
+    # Py_ssize_t type
+    @unittest.skipUnless(INT_MAX < PY_SSIZE_T_MAX,
+                         "needs INT_MAX < PY_SSIZE_T_MAX")
+    @support.bigmemtest(size=INT_MAX + 10, memuse=1, dry_run=False)
+    def test_large_readinto(self, size):
+        self.addCleanup(os_helper.unlink, os_helper.TESTFN)
+        create_file(os_helper.TESTFN, b'test')
+
+        # Issue #21932: For readinto the buffer contains the length rather than
+        # a length being passed explicitly to read, should still get capped to a
+        # valid size / not raise an OverflowError for sizes larger than INT_MAX.
+        buffer = bytearray(INT_MAX + 10)
+        with open(os_helper.TESTFN, "rb") as fp:
+            length = os.readinto(fp.fileno(), buffer)
+
+        # The test does not try to read more than 2 GiB at once because the
+        # operating system is free to return less bytes than requested.
+        self.assertEqual(length, 4)
+        self.assertEqual(buffer[:4], b'test')
 
     def test_write(self):
         # os.write() accepts bytes- and buffer-like objects but not strings
@@ -710,7 +817,7 @@ class StatAttributeTests(unittest.TestCase):
         self.assertEqual(ctx.exception.errno, errno.EBADF)
 
     def check_file_attributes(self, result):
-        self.assertTrue(hasattr(result, 'st_file_attributes'))
+        self.assertHasAttr(result, 'st_file_attributes')
         self.assertTrue(isinstance(result.st_file_attributes, int))
         self.assertTrue(0 <= result.st_file_attributes <= 0xFFFFFFFF)
 
@@ -805,14 +912,28 @@ class UtimeTests(unittest.TestCase):
         set_time(filename, (atime_ns, mtime_ns))
         st = os.stat(filename)
 
-        if support_subsecond:
-            self.assertAlmostEqual(st.st_atime, atime_ns * 1e-9, delta=1e-6)
-            self.assertAlmostEqual(st.st_mtime, mtime_ns * 1e-9, delta=1e-6)
+        if support.is_emscripten:
+            # Emscripten timestamps are roundtripped through a 53 bit integer of
+            # nanoseconds. If we want to represent ~50 years which is an 11
+            # digits number of seconds:
+            # 2*log10(60) + log10(24) + log10(365) + log10(60) + log10(50)
+            # is about 11. Because 53 * log10(2) is about 16, we only have 5
+            # digits worth of sub-second precision.
+            # Some day it would be good to fix this upstream.
+            delta=1e-5
+            self.assertAlmostEqual(st.st_atime, atime_ns * 1e-9, delta=1e-5)
+            self.assertAlmostEqual(st.st_mtime, mtime_ns * 1e-9, delta=1e-5)
+            self.assertAlmostEqual(st.st_atime_ns, atime_ns, delta=1e9 * 1e-5)
+            self.assertAlmostEqual(st.st_mtime_ns, mtime_ns, delta=1e9 * 1e-5)
         else:
-            self.assertEqual(st.st_atime, atime_ns * 1e-9)
-            self.assertEqual(st.st_mtime, mtime_ns * 1e-9)
-        self.assertEqual(st.st_atime_ns, atime_ns)
-        self.assertEqual(st.st_mtime_ns, mtime_ns)
+            if support_subsecond:
+                self.assertAlmostEqual(st.st_atime, atime_ns * 1e-9, delta=1e-6)
+                self.assertAlmostEqual(st.st_mtime, mtime_ns * 1e-9, delta=1e-6)
+            else:
+                self.assertEqual(st.st_atime, atime_ns * 1e-9)
+                self.assertEqual(st.st_mtime, mtime_ns * 1e-9)
+            self.assertEqual(st.st_atime_ns, atime_ns)
+            self.assertEqual(st.st_mtime_ns, mtime_ns)
 
     def test_utime(self):
         def set_time(filename, ns):
@@ -825,9 +946,7 @@ class UtimeTests(unittest.TestCase):
         # Convert a number of nanosecond (int) to a number of seconds (float).
         # Round towards infinity by adding 0.5 nanosecond to avoid rounding
         # issue, os.utime() rounds towards minus infinity.
-        # XXX: RUSTPYTHON os.utime() use `[Duration::from_secs_f64](https://doc.rust-lang.org/std/time/struct.Duration.html#method.try_from_secs_f64)`
-        # return (ns * 1e-9) + 0.5e-9
-        return (ns * 1e-9)
+        return (ns * 1e-9) + 0.5e-9
 
     def test_utime_by_indexed(self):
         # pass times as floating-point seconds as the second indexed parameter
@@ -1300,6 +1419,52 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
         self._test_underlying_process_env('_A_', '')
         self._test_underlying_process_env(overridden_key, original_value)
 
+    def test_reload_environ(self):
+        # Test os.reload_environ()
+        has_environb = hasattr(os, 'environb')
+
+        # Test with putenv() which doesn't update os.environ
+        os.environ['test_env'] = 'python_value'
+        os.putenv("test_env", "new_value")
+        self.assertEqual(os.environ['test_env'], 'python_value')
+        if has_environb:
+            self.assertEqual(os.environb[b'test_env'], b'python_value')
+
+        os.reload_environ()
+        self.assertEqual(os.environ['test_env'], 'new_value')
+        if has_environb:
+            self.assertEqual(os.environb[b'test_env'], b'new_value')
+
+        # Test with unsetenv() which doesn't update os.environ
+        os.unsetenv('test_env')
+        self.assertEqual(os.environ['test_env'], 'new_value')
+        if has_environb:
+            self.assertEqual(os.environb[b'test_env'], b'new_value')
+
+        os.reload_environ()
+        self.assertNotIn('test_env', os.environ)
+        if has_environb:
+            self.assertNotIn(b'test_env', os.environb)
+
+        if has_environb:
+            # test reload_environ() on os.environb with putenv()
+            os.environb[b'test_env'] = b'python_value2'
+            os.putenv("test_env", "new_value2")
+            self.assertEqual(os.environb[b'test_env'], b'python_value2')
+            self.assertEqual(os.environ['test_env'], 'python_value2')
+
+            os.reload_environ()
+            self.assertEqual(os.environb[b'test_env'], b'new_value2')
+            self.assertEqual(os.environ['test_env'], 'new_value2')
+
+            # test reload_environ() on os.environb with unsetenv()
+            os.unsetenv('test_env')
+            self.assertEqual(os.environb[b'test_env'], b'new_value2')
+            self.assertEqual(os.environ['test_env'], 'new_value2')
+
+            os.reload_environ()
+            self.assertNotIn(b'test_env', os.environb)
+            self.assertNotIn('test_env', os.environ)
 
 class WalkTests(unittest.TestCase):
     """Tests for os.walk()."""
@@ -1370,9 +1535,7 @@ class WalkTests(unittest.TestCase):
         else:
             self.sub2_tree = (sub2_path, ["SUB21"], ["tmp3"])
 
-        if not support.is_emscripten:
-            # Emscripten fails with inaccessible directory
-            os.chmod(sub21_path, 0)
+        os.chmod(sub21_path, 0)
         try:
             os.listdir(sub21_path)
         except PermissionError:
@@ -1669,9 +1832,6 @@ class FwalkTests(WalkTests):
                 self.assertEqual(set(os.listdir(rootfd)), set(dirs) | set(files))
 
     @unittest.skipIf(
-        support.is_emscripten, "Cannot dup stdout on Emscripten"
-    )
-    @unittest.skipIf(
         support.is_android, "dup return value is unpredictable on Android"
     )
     def test_fd_leak(self):
@@ -1687,9 +1847,6 @@ class FwalkTests(WalkTests):
         self.addCleanup(os.close, newfd)
         self.assertEqual(newfd, minfd)
 
-    @unittest.skipIf(
-        support.is_emscripten, "Cannot dup stdout on Emscripten"
-    )
     @unittest.skipIf(
         support.is_android, "dup return value is unpredictable on Android"
     )
@@ -1725,17 +1882,6 @@ class BytesWalkTests(WalkTests):
             bdirs[:] = list(map(os.fsencode, dirs))
             bfiles[:] = list(map(os.fsencode, files))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; WalkTests doesn't have these methods
-    def test_compare_to_walk(self):
-        return super().test_compare_to_walk()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON; WalkTests doesn't have these methods
-    def test_dir_fd(self):
-        return super().test_dir_fd()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON; WalkTests doesn't have these methods
-    def test_yields_correct_dir_fd(self):
-        return super().test_yields_correct_dir_fd()
 
 @unittest.skipUnless(hasattr(os, 'fwalk'), "Test needs os.fwalk()")
 class BytesFwalkTests(FwalkTests):
@@ -1770,10 +1916,12 @@ class MakedirTests(unittest.TestCase):
         os.makedirs(path)
 
     @unittest.skipIf(
-        support.is_emscripten or support.is_wasi,
-        "Emscripten's/WASI's umask is a stub."
+        support.is_wasi,
+        "WASI's umask is a stub."
     )
     def test_mode(self):
+        # Note: in some cases, the umask might already be 2 in which case this
+        # will pass even if os.umask is actually broken.
         with os_helper.temp_umask(0o002):
             base = os_helper.TESTFN
             parent = os.path.join(base, 'dir1')
@@ -1786,8 +1934,8 @@ class MakedirTests(unittest.TestCase):
                 self.assertEqual(os.stat(parent).st_mode & 0o777, 0o775)
 
     @unittest.skipIf(
-        support.is_emscripten or support.is_wasi,
-        "Emscripten's/WASI's umask is a stub."
+        support.is_wasi,
+        "WASI's umask is a stub."
     )
     def test_exist_ok_existing_directory(self):
         path = os.path.join(os_helper.TESTFN, 'dir1')
@@ -1804,8 +1952,8 @@ class MakedirTests(unittest.TestCase):
         os.makedirs(os.path.abspath('/'), exist_ok=True)
 
     @unittest.skipIf(
-        support.is_emscripten or support.is_wasi,
-        "Emscripten's/WASI's umask is a stub."
+        support.is_wasi,
+        "WASI's umask is a stub."
     )
     def test_exist_ok_s_isgid_directory(self):
         path = os.path.join(os_helper.TESTFN, 'dir1')
@@ -2035,7 +2183,7 @@ class GetRandomTests(unittest.TestCase):
         self.assertEqual(empty, b'')
 
     def test_getrandom_random(self):
-        self.assertTrue(hasattr(os, 'GRND_RANDOM'))
+        self.assertHasAttr(os, 'GRND_RANDOM')
 
         # Don't test os.getrandom(1, os.GRND_RANDOM) to not consume the rare
         # resource /dev/random
@@ -2319,9 +2467,13 @@ class Win32ErrorTests(unittest.TestCase):
 
 @unittest.skipIf(support.is_wasi, "Cannot create invalid FD on WASI.")
 class TestInvalidFD(unittest.TestCase):
-    singles = ["fchdir", "dup", "fdatasync", "fstat",
-               "fstatvfs", "fsync", "tcgetpgrp", "ttyname"]
-    singles_fildes = {"fchdir", "fdatasync", "fsync"}
+    singles = ["fchdir", "dup", "fstat", "fstatvfs", "tcgetpgrp", "ttyname"]
+    singles_fildes = {"fchdir"}
+    # systemd-nspawn --suppress-sync=true does not verify fd passed
+    # fdatasync() and fsync(), and always returns success
+    if not support.in_systemd_nspawn_sync_suppressed():
+        singles += ["fdatasync", "fsync"]
+        singles_fildes |= {"fdatasync", "fsync"}
     #singles.append("close")
     #We omit close because it doesn't raise an exception on some platforms
     def get_single(f):
@@ -2379,10 +2531,6 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.dup2, 20)
 
     @unittest.skipUnless(hasattr(os, 'dup2'), 'test needs os.dup2()')
-    @unittest.skipIf(
-        support.is_emscripten,
-        "dup2() with negative fds is broken on Emscripten (see gh-102179)"
-    )
     def test_dup2_negative_fd(self):
         valid_fd = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, valid_fd)
@@ -2406,20 +2554,21 @@ class TestInvalidFD(unittest.TestCase):
     def test_fchown(self):
         self.check(os.fchown, -1, -1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(os, 'fpathconf'), 'test needs os.fpathconf()')
-    @unittest.skipIf(
-        support.is_emscripten or support.is_wasi,
-        "musl libc issue on Emscripten/WASI, bpo-46390"
-    )
     def test_fpathconf(self):
         self.assertIn("PC_NAME_MAX", os.pathconf_names)
-        self.check(os.pathconf, "PC_NAME_MAX")
-        self.check(os.fpathconf, "PC_NAME_MAX")
         self.check_bool(os.pathconf, "PC_NAME_MAX")
         self.check_bool(os.fpathconf, "PC_NAME_MAX")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.skipUnless(hasattr(os, 'fpathconf'), 'test needs os.fpathconf()')
+    @unittest.skipIf(
+        support.linked_to_musl(),
+        'musl pathconf ignores the file descriptor and returns a constant',
+        )
+    def test_fpathconf_bad_fd(self):
+        self.check(os.pathconf, "PC_NAME_MAX")
+        self.check(os.fpathconf, "PC_NAME_MAX")
+
     @unittest.skipUnless(hasattr(os, 'ftruncate'), 'test needs os.ftruncate()')
     def test_ftruncate(self):
         self.check(os.truncate, 0)
@@ -2433,6 +2582,10 @@ class TestInvalidFD(unittest.TestCase):
     @unittest.skipUnless(hasattr(os, 'read'), 'test needs os.read()')
     def test_read(self):
         self.check(os.read, 1)
+
+    @unittest.skipUnless(hasattr(os, 'readinto'), 'test needs os.readinto()')
+    def test_readinto(self):
+        self.check(os.readinto, bytearray(5))
 
     @unittest.skipUnless(hasattr(os, 'readv'), 'test needs os.readv()')
     def test_readv(self):
@@ -2462,13 +2615,8 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.get_blocking)
         self.check(os.set_blocking, True)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_fchdir(self):
-        return super().test_fchdir()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_fsync(self):
-        return super().test_fsync()
+
 
 
 @unittest.skipUnless(hasattr(os, 'link'), 'requires os.link')
@@ -3355,9 +3503,6 @@ class DeviceEncodingTests(unittest.TestCase):
     @unittest.skipUnless(os.isatty(0) and not win32_is_iot() and (sys.platform.startswith('win') or
             (hasattr(locale, 'nl_langinfo') and hasattr(locale, 'CODESET'))),
             'test requires a tty and either Windows or nl_langinfo(CODESET)')
-    @unittest.skipIf(
-        support.is_emscripten, "Cannot get encoding of stdin on Emscripten"
-    )
     def test_device_encoding(self):
         encoding = os.device_encoding(0)
         self.assertIsNotNone(encoding)
@@ -3485,8 +3630,8 @@ class SpawnTests(unittest.TestCase):
         exitcode = os.spawnl(os.P_WAIT, program, *args)
         self.assertEqual(exitcode, self.exitcode)
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; fix spawnve on Windows")
     @requires_os_func('spawnle')
-    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; fix spawnve on Windows")
     def test_spawnle(self):
         program, args = self.create_args(with_env=True)
         exitcode = os.spawnle(os.P_WAIT, program, *args, self.env)
@@ -3514,8 +3659,8 @@ class SpawnTests(unittest.TestCase):
         exitcode = os.spawnv(os.P_WAIT, FakePath(program), args)
         self.assertEqual(exitcode, self.exitcode)
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; fix spawnve on Windows")
     @requires_os_func('spawnve')
-    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; fix spawnve on Windows")
     def test_spawnve(self):
         program, args = self.create_args(with_env=True)
         exitcode = os.spawnve(os.P_WAIT, program, args, self.env)
@@ -3539,7 +3684,6 @@ class SpawnTests(unittest.TestCase):
         pid = os.spawnv(os.P_NOWAIT, program, args)
         support.wait_process(pid, exitcode=self.exitcode)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; fix spawnv bytes
     @requires_os_func('spawnve')
     def test_spawnve_bytes(self):
         # Test bytes handling in parse_arglist and parse_envlist (#28114)
@@ -3623,8 +3767,8 @@ class SpawnTests(unittest.TestCase):
         exitcode = spawn(os.P_WAIT, program, args, newenv)
         self.assertEqual(exitcode, 0)
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; fix spawnve on Windows")
     @requires_os_func('spawnve')
-    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; fix spawnve on Windows")
     def test_spawnve_invalid_env(self):
         self._test_invalid_env(os.spawnve)
 
@@ -4989,7 +5133,7 @@ class TestScandir(unittest.TestCase):
                                entry_lstat,
                                os.name == 'nt')
 
-    @unittest.skipIf(sys.platform == 'linux', 'TODO: RUSTPYTHON; flaky test')
+    @unittest.skipIf(sys.platform == "linux", "TODO: RUSTPYTHON; flaky test")
     def test_attributes(self):
         link = os_helper.can_hardlink()
         symlink = os_helper.can_symlink()
@@ -5171,7 +5315,7 @@ class TestScandir(unittest.TestCase):
             with self.assertRaises(TypeError):
                 os.scandir(path_bytes)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <builtin_function_or_method object at 0xba3106920> not found in {<builtin_function_or_method object at 0xba31078e0>, <builtin_function_or_method object at 0xba31079c0>, <builtin_function_or_method object at 0xba3107b10>, <builtin_function_or_method object at 0xba3159500>, <builtin_function_or_method object at 0xba3159570>, <builtin_function_or_method object at 0xba3107800>, <builtin_function_or_method object at 0xba3106760>, <builtin_function_or_method object at 0xba3106a00>, <builtin_function_or_method object at 0xba3106990>, <builtin_function_or_method object at 0xba3107330>, <builtin_function_or_method object at 0xba31072c0>, <builtin_function_or_method object at 0xba31064c0>}
     @unittest.skipUnless(os.listdir in os.supports_fd,
                          'fd support for listdir required for this test.')
     def test_fd(self):
@@ -5253,7 +5397,6 @@ class TestScandir(unittest.TestCase):
         with self.check_no_resource_warning():
             del iterator
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_resource_warning(self):
         self.create_file("file.txt")
         self.create_file("file2.txt")
@@ -5293,8 +5436,8 @@ class TestPEP519(unittest.TestCase):
 
     def test_pathlike(self):
         self.assertEqual('#feelthegil', self.fspath(FakePath('#feelthegil')))
-        self.assertTrue(issubclass(FakePath, os.PathLike))
-        self.assertTrue(isinstance(FakePath('x'), os.PathLike))
+        self.assertIsSubclass(FakePath, os.PathLike)
+        self.assertIsInstance(FakePath('x'), os.PathLike)
 
     def test_garbage_in_exception_out(self):
         vapor = type('blah', (), {})
@@ -5320,8 +5463,8 @@ class TestPEP519(unittest.TestCase):
         # true on abstract implementation.
         class A(os.PathLike):
             pass
-        self.assertFalse(issubclass(FakePath, A))
-        self.assertTrue(issubclass(FakePath, os.PathLike))
+        self.assertNotIsSubclass(FakePath, A)
+        self.assertIsSubclass(FakePath, os.PathLike)
 
     def test_pathlike_class_getitem(self):
         self.assertIsInstance(os.PathLike[bytes], types.GenericAlias)
@@ -5331,7 +5474,7 @@ class TestPEP519(unittest.TestCase):
             __slots__ = ()
             def __fspath__(self):
                 return ''
-        self.assertFalse(hasattr(A(), '__dict__'))
+        self.assertNotHasAttr(A(), '__dict__')
 
     def test_fspath_set_to_None(self):
         class Foo:
@@ -5435,7 +5578,7 @@ class ForkTests(unittest.TestCase):
         self.assertEqual(err.decode("utf-8"), "")
         self.assertEqual(out.decode("utf-8"), "")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b"can't fork at interpreter shutdown" not found in b"Exception ignored in: <function AtFinalization.__del__ at 0xc508b30c0>\nAttributeError: 'NoneType' object has no attribute 'fork'\n"
     def test_fork_at_finalization(self):
         code = """if 1:
             import atexit

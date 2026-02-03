@@ -16,8 +16,8 @@ mod _socket {
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
-            ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath, OptionalArg,
-            OptionalOption,
+            ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
+            OptionalArg, OptionalOption,
         },
         types::{Constructor, DefaultConstructor, Initializer, Representable},
         utils::ToCString,
@@ -2201,12 +2201,29 @@ mod _socket {
         }
 
         #[pymethod]
-        fn settimeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-            self.timeout
-                .store(timeout.map_or(-1.0, |d| d.as_secs_f64()));
+        fn settimeout(&self, timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+            let timeout = match timeout {
+                Some(t) => {
+                    let f = t.into_float();
+                    if f.is_nan() {
+                        return Err(
+                            vm.new_value_error("Invalid value NaN (not a number)".to_owned())
+                        );
+                    }
+                    if f < 0.0 || !f.is_finite() {
+                        return Err(vm.new_value_error("Timeout value out of range".to_owned()));
+                    }
+                    Some(f)
+                }
+                None => None,
+            };
+            self.timeout.store(timeout.unwrap_or(-1.0));
             // even if timeout is > 0 the socket needs to be nonblocking in order for us to select() on
             // it
-            self.sock()?.set_nonblocking(timeout.is_some())
+            self.sock()
+                .map_err(|e| e.into_pyexception(vm))?
+                .set_nonblocking(timeout.is_some())
+                .map_err(|e| e.into_pyexception(vm))
         }
 
         #[pymethod]
@@ -3366,8 +3383,22 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn setdefaulttimeout(timeout: Option<Duration>) {
-        DEFAULT_TIMEOUT.store(timeout.map_or(-1.0, |d| d.as_secs_f64()));
+    fn setdefaulttimeout(timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+        let val = match timeout {
+            Some(t) => {
+                let f = t.into_float();
+                if f.is_nan() {
+                    return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
+                }
+                if f < 0.0 || !f.is_finite() {
+                    return Err(vm.new_value_error("Timeout value out of range".to_owned()));
+                }
+                f
+            }
+            None => -1.0,
+        };
+        DEFAULT_TIMEOUT.store(val);
+        Ok(())
     }
 
     #[pyfunction]

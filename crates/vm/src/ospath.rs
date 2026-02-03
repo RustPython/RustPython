@@ -1,8 +1,9 @@
 use rustpython_common::crt_fd;
 
 use crate::{
-    PyObjectRef, PyResult, VirtualMachine,
+    AsObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyBytes, PyStr},
+    class::StaticType,
     convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
     function::FsPath,
 };
@@ -80,6 +81,18 @@ impl PathConverter {
     ) -> PyResult<OsPathOrFd<'fd>> {
         // Handle fd (before __fspath__ check, like CPython)
         if let Some(int) = obj.try_index_opt(vm) {
+            // Warn if bool is used as a file descriptor
+            if obj
+                .class()
+                .is(crate::builtins::bool_::PyBool::static_type())
+            {
+                crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.runtime_warning,
+                    "bool is used as a file descriptor".to_owned(),
+                    1,
+                    vm,
+                )?;
+            }
             let fd = int?.try_to_primitive(vm)?;
             return unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
                 .map(OsPathOrFd::Fd)
