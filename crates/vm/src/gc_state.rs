@@ -236,6 +236,10 @@ impl GcState {
     pub unsafe fn track_object(&self, obj: NonNull<PyObject>) {
         let gc_ptr = GcObjectPtr(obj);
 
+        // _PyObject_GC_TRACK
+        let obj_ref = unsafe { obj.as_ref() };
+        obj_ref.set_gc_tracked();
+
         // Add to generation 0 tracking first (for correct gc_refs algorithm)
         // Only increment count if we successfully add to the set
         if let Ok(mut gen0) = self.generation_objects[0].write()
