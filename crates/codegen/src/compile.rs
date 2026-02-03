@@ -5039,8 +5039,9 @@ impl Compiler {
     }
 
     fn compile_error_forbidden_name(&mut self, name: &str) -> CodegenError {
-        // TODO: make into error (fine for now since it realistically errors out earlier)
-        panic!("Failing due to forbidden name {name:?}");
+        self.error(CodegenErrorType::SyntaxError(format!(
+            "cannot use forbidden name '{name}' in pattern"
+        )))
     }
 
     /// Ensures that `pc.fail_pop` has at least `n + 1` entries.
@@ -5387,12 +5388,9 @@ impl Compiler {
 
         // Check for too many sub-patterns.
         if nargs > u32::MAX as usize || (nargs + n_attrs).saturating_sub(1) > i32::MAX as usize {
-            let msg = format!(
-                "too many sub-patterns in class pattern {:?}",
-                match_class.cls
-            );
-            panic!("{}", msg);
-            // return self.compiler_error(&msg);
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "too many sub-patterns in class pattern".to_owned(),
+            )));
         }
 
         // Validate keyword attributes if any.
@@ -5677,7 +5675,11 @@ impl Compiler {
         // Ensure the pattern is a MatchOr.
         let end = self.new_block(); // Create a new jump target label.
         let size = p.patterns.len();
-        assert!(size > 1, "MatchOr must have more than one alternative");
+        if size <= 1 {
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "MatchOr requires at least 2 patterns".to_owned(),
+            )));
+        }
 
         // Save the current pattern context.
         let old_pc = pc.clone();

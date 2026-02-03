@@ -228,7 +228,6 @@ class TestClassGetitem(unittest.TestCase):
         with self.assertRaises(TypeError):
             C_too_many[int]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_class_getitem_errors_2(self):
         class C:
             def __class_getitem__(cls, item):

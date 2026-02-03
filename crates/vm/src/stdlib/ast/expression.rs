@@ -327,8 +327,12 @@ impl Node for ast::ExprLambda {
             .into_ref_with_type(vm, pyast::NodeExprLambda::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("args", parameters.ast_to_object(vm, source_file), vm)
-            .unwrap();
+        // Lambda with no parameters should have an empty arguments object, not None
+        let args = match parameters {
+            Some(params) => params.ast_to_object(vm, source_file),
+            None => empty_arguments_object(vm),
+        };
+        dict.set_item("args", args, vm).unwrap();
         dict.set_item("body", body.ast_to_object(vm, source_file), vm)
             .unwrap();
         node_add_location(&dict, _range, vm, source_file);

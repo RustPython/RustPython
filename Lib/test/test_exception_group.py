@@ -9,8 +9,6 @@ class TestExceptionGroupTypeHierarchy(unittest.TestCase):
         self.assertTrue(issubclass(ExceptionGroup, BaseExceptionGroup))
         self.assertTrue(issubclass(BaseExceptionGroup, BaseException))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_is_not_generic_type(self):
         with self.assertRaisesRegex(TypeError, 'Exception'):
             Exception[OSError]

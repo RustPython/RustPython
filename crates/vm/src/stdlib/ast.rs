@@ -265,6 +265,42 @@ fn node_add_location(
     .unwrap();
 }
 
+/// Return the expected AST mod type class for a compile() mode string.
+pub(crate) fn mode_type_and_name(
+    ctx: &Context,
+    mode: &str,
+) -> Option<(PyRef<PyType>, &'static str)> {
+    match mode {
+        "exec" => Some((pyast::NodeModModule::make_class(ctx), "Module")),
+        "eval" => Some((pyast::NodeModExpression::make_class(ctx), "Expression")),
+        "single" => Some((pyast::NodeModInteractive::make_class(ctx), "Interactive")),
+        "func_type" => Some((pyast::NodeModFunctionType::make_class(ctx), "FunctionType")),
+        _ => None,
+    }
+}
+
+/// Create an empty `arguments` AST node (no parameters).
+fn empty_arguments_object(vm: &VirtualMachine) -> PyObjectRef {
+    let node = NodeAst
+        .into_ref_with_type(vm, pyast::NodeArguments::static_type().to_owned())
+        .unwrap();
+    let dict = node.as_object().dict().unwrap();
+    for list_field in [
+        "posonlyargs",
+        "args",
+        "kwonlyargs",
+        "kw_defaults",
+        "defaults",
+    ] {
+        dict.set_item(list_field, vm.ctx.new_list(vec![]).into(), vm)
+            .unwrap();
+    }
+    for none_field in ["vararg", "kwarg"] {
+        dict.set_item(none_field, vm.ctx.none(), vm).unwrap();
+    }
+    node.into()
+}
+
 #[cfg(feature = "parser")]
 pub(crate) fn parse(
     vm: &VirtualMachine,

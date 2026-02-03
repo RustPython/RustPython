@@ -93,7 +93,7 @@ rm -r target/debug/build/rustpython-* && find . | grep -E "\.pyc$" | xargs rm -r
 
 ```bash
 # Run Rust unit tests
-cargo test --workspace --exclude rustpython_wasm
+cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher
 
 # Run Python snippets tests (debug mode recommended for faster compilation)
 cargo run -- extra_tests/snippets/builtin_bytes.py

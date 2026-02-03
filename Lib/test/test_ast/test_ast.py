@@ -97,7 +97,7 @@ class AST_Tests(unittest.TestCase):
             # "ast.AST constructor takes 0 positional arguments"
             ast.AST(2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "type object 'ast.AST' has no attribute '_fields'" does not match "'AST' object has no attribute '_fields'"
     def test_AST_fields_NULL_check(self):
         # See: https://github.com/python/cpython/issues/126105
         old_value = ast.AST._fields
@@ -115,7 +115,7 @@ class AST_Tests(unittest.TestCase):
         with self.assertRaisesRegex(AttributeError, msg):
             ast.AST()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <test.test_ast.test_ast.AST_Tests.test_AST_garbage_collection.<locals>.X object at 0x7e85c3a80> is not None
     def test_AST_garbage_collection(self):
         class X:
             pass
@@ -140,7 +140,7 @@ class AST_Tests(unittest.TestCase):
                 with self.subTest(action="compiling", input=i, kind=kind):
                     compile(ast_tree, "?", kind)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got <_ast.TemplateStr object at 0x7e85c34e0>
     def test_ast_validation(self):
         # compile() is the only function that calls PyAST_Validate
         snippets_to_validate = exec_tests + single_tests + eval_tests
@@ -439,7 +439,7 @@ class AST_Tests(unittest.TestCase):
                 kwargs[name] = self._construct_ast_class(typ)
         return cls(**kwargs)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'arguments' has no attribute '__annotations__'
     def test_arguments(self):
         x = ast.arguments()
         self.assertEqual(x._fields, ('posonlyargs', 'args', 'vararg', 'kwonlyargs',
@@ -590,7 +590,7 @@ class AST_Tests(unittest.TestCase):
         x = ast.Sub()
         self.assertEqual(x._fields, ())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'but got expr()' not found in 'expected some sort of expr, but got <_ast.expr object at 0x7e911a9a0>'
     def test_invalid_sum(self):
         pos = dict(lineno=2, col_offset=3)
         m = ast.Module([ast.Expr(ast.expr(**pos), **pos)], [])
@@ -598,7 +598,7 @@ class AST_Tests(unittest.TestCase):
             compile(m, "<test>", "exec")
         self.assertIn("but got expr()", str(cm.exception))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: expected str for name
     def test_invalid_identifier(self):
         m = ast.Module([ast.Expr(ast.Name(42, ast.Load()))], [])
         ast.fix_missing_locations(m)
@@ -615,7 +615,7 @@ class AST_Tests(unittest.TestCase):
             ):
                 compile(e, "<test>", "eval")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_empty_yield_from(self):
         # Issue 16546: yield from value is not optional.
         empty_yield_from = ast.parse("def f():\n yield from g()")
@@ -670,7 +670,7 @@ class AST_Tests(unittest.TestCase):
         attr_b = tree.body[0].decorator_list[0].value
         self.assertEqual(attr_b.end_col_offset, 4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != 'withitem(expr context_expr, expr? optional_vars)'
     def test_ast_asdl_signature(self):
         self.assertEqual(ast.withitem.__doc__, "withitem(expr context_expr, expr? optional_vars)")
         self.assertEqual(ast.GtE.__doc__, "GtE")
@@ -776,7 +776,6 @@ class AST_Tests(unittest.TestCase):
         del a2.id
         self.assertTrue(ast.compare(a1, a2))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object '_ast.Module' has no attribute '_field_types'
     def test_compare_modes(self):
         for mode, sources in (
             ("exec", exec_tests),
@@ -1099,10 +1098,6 @@ class AST_Tests(unittest.TestCase):
         self.assertIsInstance(tree.body[0].value, ast.TemplateStr)
         self.assertIsInstance(tree.body[0].value.values[0], ast.Constant)
         self.assertIsInstance(tree.body[0].value.values[1], ast.Interpolation)
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_classattrs_deprecated(self):
-        return super().test_classattrs_deprecated()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
     def test_optimization_levels_const_folding(self):
@@ -1472,7 +1467,6 @@ class CopyTests(unittest.TestCase):
 class ASTHelpers_Test(unittest.TestCase):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse(self):
         a = ast.parse('foo(1 + 1)')
         b = compile('foo(1 + 1)', '<unknown>', 'exec', ast.PyCF_ONLY_AST)
@@ -1486,7 +1480,7 @@ class ASTHelpers_Test(unittest.TestCase):
                 ast.literal_eval(r"'\U'")
             self.assertIsNotNone(e.exception.__context__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + Module(body=[Expr(value=Call(func=Name(id='spam', ctx=Load()), args=[Name(id='eggs', ctx=Load()), Constant(value='and cheese')]))])
     def test_dump(self):
         node = ast.parse('spam(eggs, "and cheese")')
         self.assertEqual(ast.dump(node),
@@ -1507,7 +1501,7 @@ class ASTHelpers_Test(unittest.TestCase):
             "lineno=1, col_offset=0, end_lineno=1, end_col_offset=24)])"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; -    type_ignores=[])
     def test_dump_indent(self):
         node = ast.parse('spam(eggs, "and cheese")')
         self.assertEqual(ast.dump(node, indent=3), """\
@@ -1563,7 +1557,7 @@ Module(
          end_lineno=1,
          end_col_offset=24)])""")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + Raise()
     def test_dump_incomplete(self):
         node = ast.Raise(lineno=3, col_offset=4)
         self.assertEqual(ast.dump(node),
@@ -1731,7 +1725,7 @@ Module(
             full="Module(body=[Import(names=[alias(name='_ast', asname='ast')]), ImportFrom(module='module', names=[alias(name='sub')], level=0)], type_ignores=[])",
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                                              ^^^^^^^^^                                                                                  ^^^^^^^^^
     def test_copy_location(self):
         src = ast.parse('1 + 1', mode='eval')
         src.body.right = ast.copy_location(ast.Constant(2), src.body.right)
@@ -1749,7 +1743,7 @@ Module(
         self.assertEqual(new.lineno, 1)
         self.assertEqual(new.col_offset, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + Module(body=[Expr(value=Call(func=Name(id='write', ctx=Load(), lineno=1, col_offset=0, end_lineno=1, end_col_offset=5), args=[Constant(value='spam', lineno=1, col_offset=6, end_lineno=1, end_col_offset=12)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=13), lineno=1, col_offset=0, end_lineno=1, end_col_offset=13), Expr(value=Call(func=Name(id='spam', ctx=Load(), lineno=1, col_offset=0, end_lineno=1, end_col_offset=0), args=[Constant(value='eggs', lineno=1, col_offset=0, end_lineno=1, end_col_offset=0)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=0), lineno=1, col_offset=0, end_lineno=1, end_col_offset=0)])
     def test_fix_missing_locations(self):
         src = ast.parse('write("spam")')
         src.body.append(ast.Expr(ast.Call(ast.Name('spam', ast.Load()),
@@ -1769,7 +1763,7 @@ Module(
             "end_col_offset=0), lineno=1, col_offset=0, end_lineno=1, end_col_offset=0)])"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                                              ^^^^^^^^^                                                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     def test_increment_lineno(self):
         src = ast.parse('1 + 1', mode='eval')
         self.assertEqual(ast.increment_lineno(src, n=3), src)
@@ -1813,7 +1807,7 @@ Module(
         self.assertEqual(d.pop('func').id, 'foo')
         self.assertEqual(d, {'keywords': [], 'args': []})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + keyword(arg='eggs', value=Constant(value='leek'))
     def test_iter_child_nodes(self):
         node = ast.parse("spam(23, 42, eggs='leek')", mode='eval')
         self.assertEqual(len(list(ast.iter_child_nodes(node.body))), 4)
@@ -1966,7 +1960,7 @@ Module(
         malformed = ast.Dict(keys=[ast.Constant(1)], values=[ast.Constant(2), ast.Constant(3)])
         self.assertRaises(ValueError, ast.literal_eval, malformed)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: expected an expression
     def test_literal_eval_trailing_ws(self):
         self.assertEqual(ast.literal_eval("    -1"), -1)
         self.assertEqual(ast.literal_eval("\t\t-1"), -1)
@@ -1985,7 +1979,7 @@ Module(
         with self.assertRaisesRegex(ValueError, msg):
             ast.literal_eval(node)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "unexpected indent" does not match "expected an expression (<unknown>, line 2)"
     def test_literal_eval_syntax_errors(self):
         with self.assertRaisesRegex(SyntaxError, "unexpected indent"):
             ast.literal_eval(r'''
@@ -1993,7 +1987,7 @@ Module(
                 (\
             \ ''')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: required field "lineno" missing from alias
     def test_bad_integer(self):
         # issue13436: Bad error message with invalid numeric values
         body = [ast.ImportFrom(module='time',
@@ -2222,7 +2216,7 @@ class ASTValidatorTests(unittest.TestCase):
                    [ast.Expr(ast.Name("x", ast.Store()))])
         self.stmt(i, "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: empty items on With
     def test_with(self):
         p = ast.Pass()
         self.stmt(ast.With([], [p]), "empty items on With")
@@ -2263,7 +2257,7 @@ class ASTValidatorTests(unittest.TestCase):
         t = ast.Try([p], e, [p], [ast.Expr(ast.Name("x", ast.Store()))])
         self.stmt(t, "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     def test_try_star(self):
         p = ast.Pass()
         t = ast.TryStar([], [], [], [p])
@@ -2296,7 +2290,7 @@ class ASTValidatorTests(unittest.TestCase):
     def test_import(self):
         self.stmt(ast.Import([]), "empty names on Import")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u32
     def test_importfrom(self):
         imp = ast.ImportFrom(None, [ast.alias("x", None)], -42)
         self.stmt(imp, "Negative ImportFrom level")
@@ -2354,7 +2348,7 @@ class ASTValidatorTests(unittest.TestCase):
         d = ast.Dict([ast.Name("x", ast.Load())], [None])
         self.expr(d, "None disallowed")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_set(self):
         self.expr(ast.Set([None]), "None disallowed")
         s = ast.Set([ast.Name("x", ast.Store())])
@@ -2412,7 +2406,7 @@ class ASTValidatorTests(unittest.TestCase):
             return ast.DictComp(k, v, comps)
         self._check_comprehension(factory)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: 'yield' outside function
     def test_yield(self):
         self.expr(ast.Yield(ast.Name("x", ast.Store())), "must have Load")
         self.expr(ast.YieldFrom(ast.Name("x", ast.Store())), "must have Load")
@@ -2478,11 +2472,11 @@ class ASTValidatorTests(unittest.TestCase):
         self.expr(fac([ast.Name("x", ast.Store())], ast.Load()),
                   "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_list(self):
         self._sequence(ast.List)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_tuple(self):
         self._sequence(ast.Tuple)
 
@@ -3264,7 +3258,7 @@ class NodeTransformerTests(ASTTestMixin, unittest.TestCase):
 class ASTConstructorTests(unittest.TestCase):
     """Test the autogenerated constructors for AST nodes."""
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: DeprecationWarning not triggered
     def test_FunctionDef(self):
         args = ast.arguments()
         self.assertEqual(args.args, [])
@@ -3278,7 +3272,7 @@ class ASTConstructorTests(unittest.TestCase):
         self.assertEqual(node.name, 'foo')
         self.assertEqual(node.decorator_list, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None is not an instance of <class '_ast.Load'>
     def test_expr_context(self):
         name = ast.Name("x")
         self.assertEqual(name.id, "x")
@@ -3382,7 +3376,7 @@ class ASTConstructorTests(unittest.TestCase):
         with self.assertWarnsRegex(DeprecationWarning, r"Field b'\\xff\\xff.*' .*"):
             obj = BadFields()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != []
     def test_complete_field_types(self):
         class _AllFieldTypes(ast.AST):
             _fields = ('a', 'b')
@@ -3508,7 +3502,6 @@ class CommandLineTests(unittest.TestCase):
         expect = self.text_normalize(expect)
         self.assertEqual(res, expect)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.requires_resource('cpu')
     def test_invocation(self):
         # test various combinations of parameters

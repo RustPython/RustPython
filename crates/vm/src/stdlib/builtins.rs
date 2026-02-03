@@ -141,6 +141,36 @@ mod builtins {
                 .source
                 .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
             {
+                use num_traits::Zero;
+                let flags: i32 = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
+                let is_ast_only = !(flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero();
+
+                // func_type mode requires PyCF_ONLY_AST
+                if mode_str == "func_type" && !is_ast_only {
+                    return Err(vm.new_value_error(
+                        "compile() mode 'func_type' requires flag PyCF_ONLY_AST".to_owned(),
+                    ));
+                }
+
+                // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
+                if is_ast_only {
+                    let (expected_type, expected_name) = ast::mode_type_and_name(&vm.ctx, mode_str)
+                        .ok_or_else(|| {
+                            vm.new_value_error(
+                                "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
+                                    .to_owned(),
+                            )
+                        })?;
+                    if !args.source.fast_isinstance(&expected_type) {
+                        return Err(vm.new_type_error(format!(
+                            "expected {} node, got {}",
+                            expected_name,
+                            args.source.class().name()
+                        )));
+                    }
+                    return Ok(args.source);
+                }
+
                 #[cfg(not(feature = "rustpython-codegen"))]
                 {
                     return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned()));
