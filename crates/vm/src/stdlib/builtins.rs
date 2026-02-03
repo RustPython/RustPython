@@ -658,7 +658,7 @@ mod builtins {
             Some(x) => x,
             None => {
                 return default.ok_or_else(|| {
-                    vm.new_value_error(format!("{func_name}() arg is an empty sequence"))
+                    vm.new_value_error(format!("{func_name}() iterable argument is empty"))
                 });
             }
         };
