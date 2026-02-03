@@ -800,7 +800,6 @@ class ProcessTestCase(BaseTestCase):
             stdout, stderr = p.communicate()
             self.assertEqual(stdout, b"orange")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.platform == "win32", "Windows only issue")
     def test_win32_duplicate_envs(self):
         newenv = os.environ.copy()

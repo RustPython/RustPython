@@ -126,10 +126,23 @@ impl TryFromObject for core::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if let Some(float) = obj.downcast_ref::<PyFloat>() {
             let f = float.to_f64();
-            if f < 0.0 {
-                return Err(vm.new_value_error("negative duration"));
+            if f.is_nan() {
+                return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
             }
-            Ok(Self::from_secs_f64(f))
+            if f < 0.0 {
+                return Err(vm.new_value_error("negative duration".to_owned()));
+            }
+            if !f.is_finite() || f > u64::MAX as f64 {
+                return Err(vm.new_overflow_error(
+                    "timestamp too large to convert to C PyTime_t".to_owned(),
+                ));
+            }
+            // Convert float to Duration using floor rounding (_PyTime_ROUND_FLOOR)
+            let secs = f.trunc() as u64;
+            let frac = f.fract();
+            // Use floor to round down the nanoseconds
+            let nanos = (frac * 1_000_000_000.0).floor() as u32;
+            Ok(Self::new(secs, nanos))
         } else if let Some(int) = obj.try_index_opt(vm) {
             let int = int?;
             let bigint = int.as_bigint();

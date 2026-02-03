@@ -15,19 +15,36 @@ pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()>
     Ok(())
 }
 
-#[pymodule(name = "posix", with(super::os::_os))]
+#[pymodule(name = "posix", with(
+    super::os::_os,
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "freebsd",
+        target_os = "android"
+    ))]
+    posix_sched
+))]
 pub mod module {
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyType, PyUtf8StrRef},
+        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
+        builtins::{PyDictRef, PyInt, PyListRef, PyStr, PyTupleRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{Either, KwArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
-        stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata},
-        types::{Constructor, Representable},
-        utils::ToCString,
+        stdlib::os::{
+            _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata,
+            warn_if_bool_fd,
+        },
     };
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    use crate::{builtins::PyStrRef, utils::ToCString};
     use alloc::ffi::CString;
     use bitflags::bitflags;
     use core::ffi::CStr;
@@ -41,7 +58,7 @@ pub mod module {
     };
     use strum_macros::{EnumIter, EnumString};
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
     use libc::{SCHED_DEADLINE, SCHED_NORMAL};
 
@@ -278,6 +295,7 @@ pub mod module {
 
     impl TryFromObject for BorrowedFd<'_> {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            crate::stdlib::os::warn_if_bool_fd(&obj, vm)?;
             let fd = i32::try_from_object(vm, obj)?;
             if fd == -1 {
                 return Err(io::Error::from_raw_os_error(libc::EBADF).into_pyexception(vm));
@@ -443,6 +461,19 @@ pub mod module {
         environ
     }
 
+    #[pyfunction]
+    fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
+        use rustpython_common::os::ffi::OsStringExt;
+
+        let environ = vm.ctx.new_dict();
+        for (key, value) in env::vars_os() {
+            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
+            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
+            environ.set_item(&*key, value, vm).unwrap();
+        }
+        environ
+    }
+
     #[derive(FromArgs)]
     pub(super) struct SymlinkArgs<'fd> {
         src: OsPath,
@@ -483,8 +514,15 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchdir(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<()> {
-        nix::unistd::fchdir(fd).map_err(|err| err.into_pyexception(vm))
+    fn fchdir(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        warn_if_bool_fd(&fd, vm)?;
+        let fd = i32::try_from_object(vm, fd)?;
+        let ret = unsafe { libc::fchdir(fd) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error().into_pyexception(vm))
+        }
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -859,175 +897,6 @@ pub mod module {
         nix::sched::sched_yield().map_err(|e| e.into_pyexception(vm))
     }
 
-    #[pyattr]
-    #[pyclass(name = "sched_param")]
-    #[derive(Debug, PyPayload)]
-    struct SchedParam {
-        sched_priority: PyObjectRef,
-    }
-
-    impl TryFromObject for SchedParam {
-        fn try_from_object(_vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            Ok(Self {
-                sched_priority: obj,
-            })
-        }
-    }
-
-    #[pyclass(with(Constructor, Representable))]
-    impl SchedParam {
-        #[pygetset]
-        fn sched_priority(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.sched_priority.clone().to_pyobject(vm)
-        }
-
-        #[cfg(any(
-            target_os = "linux",
-            target_os = "netbsd",
-            target_os = "freebsd",
-            target_os = "android"
-        ))]
-        #[cfg(not(target_env = "musl"))]
-        fn try_to_libc(&self, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
-            use crate::AsObject;
-            let priority_class = self.sched_priority.class();
-            let priority_type = priority_class.name();
-            let priority = self.sched_priority.clone();
-            let value = priority.downcast::<PyInt>().map_err(|_| {
-                vm.new_type_error(format!("an integer is required (got type {priority_type})"))
-            })?;
-            let sched_priority = value.try_to_primitive(vm)?;
-            Ok(libc::sched_param { sched_priority })
-        }
-    }
-
-    #[derive(FromArgs)]
-    pub struct SchedParamArg {
-        sched_priority: PyObjectRef,
-    }
-
-    impl Constructor for SchedParam {
-        type Args = SchedParamArg;
-
-        fn py_new(_cls: &Py<PyType>, arg: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(Self {
-                sched_priority: arg.sched_priority,
-            })
-        }
-    }
-
-    impl Representable for SchedParam {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let sched_priority_repr = zelf.sched_priority.repr(vm)?;
-            Ok(format!(
-                "posix.sched_param(sched_priority = {})",
-                sched_priority_repr.as_str()
-            ))
-        }
-    }
-
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "netbsd",
-        target_os = "freebsd",
-        target_os = "android"
-    ))]
-    #[pyfunction]
-    fn sched_getscheduler(pid: libc::pid_t, vm: &VirtualMachine) -> PyResult<i32> {
-        let policy = unsafe { libc::sched_getscheduler(pid) };
-        if policy == -1 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(policy)
-        }
-    }
-
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "netbsd",
-        target_os = "freebsd",
-        target_os = "android"
-    ))]
-    #[derive(FromArgs)]
-    struct SchedSetschedulerArgs {
-        #[pyarg(positional)]
-        pid: i32,
-        #[pyarg(positional)]
-        policy: i32,
-        #[pyarg(positional)]
-        sched_param_obj: crate::PyRef<SchedParam>,
-    }
-
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "netbsd",
-        target_os = "freebsd",
-        target_os = "android"
-    ))]
-    #[cfg(not(target_env = "musl"))]
-    #[pyfunction]
-    fn sched_setscheduler(args: SchedSetschedulerArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let libc_sched_param = args.sched_param_obj.try_to_libc(vm)?;
-        let policy = unsafe { libc::sched_setscheduler(args.pid, args.policy, &libc_sched_param) };
-        if policy == -1 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(policy)
-        }
-    }
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "netbsd",
-        target_os = "freebsd",
-        target_os = "android"
-    ))]
-    #[pyfunction]
-    fn sched_getparam(pid: libc::pid_t, vm: &VirtualMachine) -> PyResult<SchedParam> {
-        let param = unsafe {
-            let mut param = core::mem::MaybeUninit::uninit();
-            if -1 == libc::sched_getparam(pid, param.as_mut_ptr()) {
-                return Err(vm.new_last_errno_error());
-            }
-            param.assume_init()
-        };
-        Ok(SchedParam {
-            sched_priority: param.sched_priority.to_pyobject(vm),
-        })
-    }
-
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "netbsd",
-        target_os = "freebsd",
-        target_os = "android"
-    ))]
-    #[derive(FromArgs)]
-    struct SchedSetParamArgs {
-        #[pyarg(positional)]
-        pid: i32,
-        #[pyarg(positional)]
-        sched_param_obj: crate::PyRef<SchedParam>,
-    }
-
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "netbsd",
-        target_os = "freebsd",
-        target_os = "android"
-    ))]
-    #[cfg(not(target_env = "musl"))]
-    #[pyfunction]
-    fn sched_setparam(args: SchedSetParamArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let libc_sched_param = args.sched_param_obj.try_to_libc(vm)?;
-        let ret = unsafe { libc::sched_setparam(args.pid, &libc_sched_param) };
-        if ret == -1 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(ret)
-        }
-    }
-
     #[pyfunction]
     fn get_inheritable(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<bool> {
         let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFD);
@@ -1183,7 +1052,7 @@ pub mod module {
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
+            OsPath::try_from_object(vm, obj)?.into_cstring(vm)
         })?;
         let argv: Vec<&CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
@@ -1209,7 +1078,7 @@ pub mod module {
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
+            OsPath::try_from_object(vm, obj)?.into_cstring(vm)
         })?;
         let argv: Vec<&CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
@@ -2068,7 +1937,11 @@ pub mod module {
             let i = match obj.downcast::<PyInt>() {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
-                    let s = PyStrRef::try_from_object(vm, obj)?;
+                    let s = obj.downcast::<PyStr>().map_err(|_| {
+                        vm.new_type_error(
+                            "configuration names must be strings or integers".to_owned(),
+                        )
+                    })?;
                     s.as_str()
                         .parse::<PathconfVar>()
                         .map_err(|_| vm.new_value_error("unrecognized configuration name"))?
@@ -2462,7 +2335,11 @@ pub mod module {
             let i = match obj.downcast::<PyInt>() {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
-                    let s = PyUtf8StrRef::try_from_object(vm, obj)?;
+                    let s = obj.downcast::<PyStr>().map_err(|_| {
+                        vm.new_type_error(
+                            "configuration names must be strings or integers".to_owned(),
+                        )
+                    })?;
                     s.as_str().parse::<SysconfVar>().or_else(|_| {
                         if s.as_str() == "SC_PAGESIZE" {
                             Ok(SysconfVar::SC_PAGESIZE)
@@ -2628,5 +2505,161 @@ pub mod module {
         __module_exec(vm, module);
         super::super::os::module_exec(vm, module)?;
         Ok(())
+    }
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "freebsd",
+    target_os = "android"
+))]
+#[pymodule(sub)]
+mod posix_sched {
+    use crate::{
+        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
+        builtins::{PyInt, PyTupleRef},
+        convert::ToPyObject,
+        function::FuncArgs,
+        types::PyStructSequence,
+    };
+
+    #[derive(FromArgs)]
+    struct SchedParamArgs {
+        #[pyarg(any)]
+        sched_priority: PyObjectRef,
+    }
+
+    #[pystruct_sequence_data]
+    struct SchedParamData {
+        pub sched_priority: PyObjectRef,
+    }
+
+    #[pyattr]
+    #[pystruct_sequence(name = "sched_param", module = "posix", data = "SchedParamData")]
+    struct PySchedParam;
+
+    #[pyclass(with(PyStructSequence))]
+    impl PySchedParam {
+        #[pyslot]
+        fn slot_new(
+            cls: crate::builtins::PyTypeRef,
+            args: FuncArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            use crate::PyPayload;
+            let SchedParamArgs { sched_priority } = args.bind(vm)?;
+            let items = vec![sched_priority];
+            crate::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+        }
+
+        #[extend_class]
+        fn extend_pyclass(ctx: &crate::vm::Context, class: &'static Py<crate::builtins::PyType>) {
+            // Override __reduce__ to return (type, (sched_priority,))
+            // instead of the generic structseq (type, ((sched_priority,),)).
+            // The trait's extend_class checks contains_key before setting default.
+            const SCHED_PARAM_REDUCE: crate::function::PyMethodDef =
+                crate::function::PyMethodDef::new_const(
+                    "__reduce__",
+                    |zelf: crate::PyRef<crate::builtins::PyTuple>,
+                     vm: &VirtualMachine|
+                     -> PyTupleRef {
+                        vm.new_tuple((zelf.class().to_owned(), (zelf[0].clone(),)))
+                    },
+                    crate::function::PyMethodFlags::METHOD,
+                    None,
+                );
+            class.set_attr(
+                ctx.intern_str("__reduce__"),
+                SCHED_PARAM_REDUCE.to_proper_method(class, ctx),
+            );
+        }
+    }
+
+    #[cfg(not(target_env = "musl"))]
+    fn convert_sched_param(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
+        use crate::{builtins::PyTuple, class::StaticType};
+        if !obj.fast_isinstance(PySchedParam::static_type()) {
+            return Err(vm.new_type_error("must have a sched_param object".to_owned()));
+        }
+        let tuple = obj.downcast_ref::<PyTuple>().unwrap();
+        let priority = tuple[0].clone();
+        let priority_type = priority.class().name().to_string();
+        let value = priority.downcast::<PyInt>().map_err(|_| {
+            vm.new_type_error(format!("an integer is required (got type {priority_type})"))
+        })?;
+        let sched_priority = value.try_to_primitive(vm)?;
+        Ok(libc::sched_param { sched_priority })
+    }
+
+    #[pyfunction]
+    fn sched_getscheduler(pid: libc::pid_t, vm: &VirtualMachine) -> PyResult<i32> {
+        let policy = unsafe { libc::sched_getscheduler(pid) };
+        if policy == -1 {
+            Err(vm.new_last_errno_error())
+        } else {
+            Ok(policy)
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct SchedSetschedulerArgs {
+        #[pyarg(positional)]
+        pid: i32,
+        #[pyarg(positional)]
+        policy: i32,
+        #[pyarg(positional)]
+        sched_param: PyObjectRef,
+    }
+
+    #[cfg(not(target_env = "musl"))]
+    #[pyfunction]
+    fn sched_setscheduler(args: SchedSetschedulerArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let libc_sched_param = convert_sched_param(&args.sched_param, vm)?;
+        let policy = unsafe { libc::sched_setscheduler(args.pid, args.policy, &libc_sched_param) };
+        if policy == -1 {
+            Err(vm.new_last_errno_error())
+        } else {
+            Ok(policy)
+        }
+    }
+
+    #[pyfunction]
+    fn sched_getparam(pid: libc::pid_t, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let param = unsafe {
+            let mut param = core::mem::MaybeUninit::uninit();
+            if -1 == libc::sched_getparam(pid, param.as_mut_ptr()) {
+                return Err(vm.new_last_errno_error());
+            }
+            param.assume_init()
+        };
+        Ok(PySchedParam::from_data(
+            SchedParamData {
+                sched_priority: param.sched_priority.to_pyobject(vm),
+            },
+            vm,
+        ))
+    }
+
+    #[derive(FromArgs)]
+    struct SchedSetParamArgs {
+        #[pyarg(positional)]
+        pid: i32,
+        #[pyarg(positional)]
+        sched_param: PyObjectRef,
+    }
+
+    #[cfg(not(target_env = "musl"))]
+    #[pyfunction]
+    fn sched_setparam(args: SchedSetParamArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let libc_sched_param = convert_sched_param(&args.sched_param, vm)?;
+        let ret = unsafe { libc::sched_setparam(args.pid, &libc_sched_param) };
+        if ret == -1 {
+            Err(vm.new_last_errno_error())
+        } else {
+            Ok(ret)
+        }
     }
 }
