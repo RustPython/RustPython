@@ -210,8 +210,8 @@ impl VirtualMachine {
         }
 
         if let Some(text) = maybe_text {
-            // if text ends with \n, remove it
-            let r_text = text.as_str().trim_end_matches('\n');
+            // if text ends with \n or \r\n, remove it
+            let r_text = text.as_str().trim_end_matches(['\n', '\r']);
             let l_text = r_text.trim_start_matches([' ', '\n', '\x0c']); // \x0c is \f
             let spaces = (r_text.len() - l_text.len()) as isize;
 

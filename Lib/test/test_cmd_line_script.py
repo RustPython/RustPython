@@ -620,7 +620,6 @@ class CmdLineTest(unittest.TestCase):
             # Confirm that the caret is located under the '=' sign
             self.assertIn("\n    ^^^^^\n", text)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_syntaxerror_indented_caret_position(self):
         script = textwrap.dedent("""\
             if True:

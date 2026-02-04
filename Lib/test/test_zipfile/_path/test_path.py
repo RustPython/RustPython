@@ -567,7 +567,6 @@ class TestPath(unittest.TestCase):
         file = cls(alpharep).joinpath('some dir').parent
         assert isinstance(file, cls)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; fails on Windows')
     @parameterize(
         ['alpharep', 'path_type', 'subpath'],
         itertools.product(
