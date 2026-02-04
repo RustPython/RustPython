@@ -659,8 +659,16 @@ impl Node for ast::ExprGenerator {
             elt,
             generators,
             range,
-            parenthesized: _,
+            parenthesized,
         } = self;
+        let range = if parenthesized {
+            range
+        } else {
+            TextRange::new(
+                range.start().saturating_sub(ruff_text_size::TextSize::from(1)),
+                range.end() + ruff_text_size::TextSize::from(1),
+            )
+        };
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprGeneratorExp::static_type().to_owned())
             .unwrap();

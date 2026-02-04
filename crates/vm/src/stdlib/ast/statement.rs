@@ -159,6 +159,9 @@ impl Node for ast::StmtFunctionDef {
             is_async,
             range: _range,
         } = self;
+        let source_code = source_file.to_source_code();
+        let def_line = source_code.line_index(name.range.start());
+        let range = TextRange::new(source_code.line_start(def_line), _range.end());
 
         let cls = if !is_async {
             pyast::NodeStmtFunctionDef::static_type().to_owned()
@@ -192,7 +195,7 @@ impl Node for ast::StmtFunctionDef {
             vm,
         )
         .unwrap();
-        node_add_location(&dict, _range, vm, source_file);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
@@ -234,7 +237,8 @@ impl Node for ast::StmtFunctionDef {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
+                get_node_field_opt(_vm, &_object, "type_params")?
+                    .unwrap_or_else(|| _vm.ctx.new_list(Vec::new()).into()),
             )?,
             range: range_from_object(_vm, source_file, _object, "FunctionDef")?,
             is_async,
@@ -255,6 +259,9 @@ impl Node for ast::StmtClassDef {
             range: _range,
         } = self;
         let (bases, keywords) = split_class_def_args(arguments);
+        let source_code = source_file.to_source_code();
+        let class_line = source_code.line_index(name.range.start());
+        let range = TextRange::new(source_code.line_start(class_line), _range.end());
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtClassDef::static_type().to_owned())
             .unwrap();
@@ -293,7 +300,7 @@ impl Node for ast::StmtClassDef {
             _vm,
         )
         .unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        node_add_location(&dict, range, _vm, source_file);
         node.into()
     }
     fn ast_from_object(
@@ -332,7 +339,8 @@ impl Node for ast::StmtClassDef {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
+                get_node_field_opt(_vm, &_object, "type_params")?
+                    .unwrap_or_else(|| _vm.ctx.new_list(Vec::new()).into()),
             )?,
             range: range_from_object(_vm, source_file, _object, "ClassDef")?,
         })
@@ -469,7 +477,9 @@ impl Node for ast::StmtTypeAlias {
             .unwrap();
         dict.set_item(
             "type_params",
-            type_params.ast_to_object(_vm, source_file),
+            type_params
+                .map(|tp| tp.ast_to_object(_vm, source_file))
+                .unwrap_or_else(|| _vm.ctx.new_list(Vec::new()).into()),
             _vm,
         )
         .unwrap();

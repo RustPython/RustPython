@@ -4,26 +4,7 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
-use crate::builtins::{PyModuleDef, PyModuleSlots};
-use rustpython_common::static_cell;
-
-pub(crate) fn module_def(ctx: &Context) -> &'static PyModuleDef {
-    static_cell! {
-        static MODULE_DEF: PyModuleDef;
-    }
-    MODULE_DEF.get_or_init(|| {
-        let base = python::_ast::module_def(ctx);
-        PyModuleDef {
-            name: base.name,
-            doc: base.doc,
-            methods: base.methods,
-            slots: PyModuleSlots {
-                create: base.slots.create,
-                exec: Some(python::_ast::module_exec),
-            },
-        }
-    })
-}
+pub(crate) use python::_ast::module_def;
 
 mod pyast;
 
@@ -34,7 +15,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, VirtualMachine,
     builtins::PyIntRef,
-    builtins::{PyDict, PyModule, PyStrRef, PyType},
+    builtins::{PyDict, PyModule, PyModuleDef, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
     compiler::{CompileError, ParseError},
     convert::ToPyObject,
@@ -61,7 +42,6 @@ mod validate;
 mod argument;
 mod basic;
 mod constant;
-mod docstrings;
 mod elif_else_clause;
 mod exception;
 mod expression;
@@ -349,7 +329,7 @@ pub(crate) fn parse(
     vm: &VirtualMachine,
     source: &str,
     mode: parser::Mode,
-    optimize: bool,
+    optimize: u8,
     target_version: Option<ast::PythonVersion>,
     type_comments: bool,
 ) -> Result<PyObjectRef, CompileError> {
@@ -381,8 +361,11 @@ pub(crate) fn parse(
     }
 
     let mut top = parsed.into_syntax();
-    if optimize {
+    if optimize > 0 {
         fold_match_value_constants(&mut top);
+    }
+    if optimize >= 2 {
+        strip_docstrings(&mut top);
     }
     let top = match top {
         ast::Mod::Module(m) => Mod::Module(m),
@@ -416,7 +399,7 @@ pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: PyObjectRef) -> 
 pub(crate) fn parse_func_type(
     vm: &VirtualMachine,
     source: &str,
-    optimize: bool,
+    optimize: u8,
     target_version: Option<ast::PythonVersion>,
 ) -> Result<PyObjectRef, CompileError> {
     let _ = optimize;
@@ -528,6 +511,50 @@ fn fold_match_value_constants(top: &mut ast::Mod) {
 }
 
 #[cfg(feature = "parser")]
+fn strip_docstrings(top: &mut ast::Mod) {
+    match top {
+        ast::Mod::Module(module) => strip_docstring_in_body(&mut module.body),
+        ast::Mod::Expression(_expr) => {}
+    }
+}
+
+#[cfg(feature = "parser")]
+fn strip_docstring_in_body(body: &mut Vec<ast::Stmt>) {
+    if let Some(range) = take_docstring(body) {
+        if body.is_empty() {
+            let pass_range = TextRange::new(
+                range.start(),
+                range.start() + TextSize::from(4),
+            );
+            body.push(ast::Stmt::Pass(ast::StmtPass {
+                node_index: Default::default(),
+                range: pass_range,
+            }));
+        }
+    }
+    for stmt in body {
+        match stmt {
+            ast::Stmt::FunctionDef(def) => strip_docstring_in_body(&mut def.body),
+            ast::Stmt::ClassDef(def) => strip_docstring_in_body(&mut def.body),
+            _ => {}
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+fn take_docstring(body: &mut Vec<ast::Stmt>) -> Option<TextRange> {
+    let ast::Stmt::Expr(expr_stmt) = body.first()? else {
+        return None;
+    };
+    if matches!(expr_stmt.value.as_ref(), ast::Expr::StringLiteral(_)) {
+        let range = expr_stmt.range;
+        body.remove(0);
+        return Some(range);
+    }
+    None
+}
+
+#[cfg(feature = "parser")]
 fn fold_stmts(stmts: &mut [ast::Stmt]) {
     for stmt in stmts {
         fold_stmt(stmt);
@@ -618,6 +645,35 @@ fn fold_pattern(pattern: &mut ast::Pattern) {
 #[cfg(feature = "parser")]
 fn fold_expr(expr: &mut ast::Expr) {
     use ast::Expr;
+    if let Expr::UnaryOp(unary) = expr {
+        fold_expr(&mut unary.operand);
+        if matches!(unary.op, ast::UnaryOp::USub) {
+            if let Expr::NumberLiteral(number_literal) = unary.operand.as_ref() {
+                let number = match &number_literal.value {
+                    ast::Number::Int(value) => {
+                        if *value == ast::Int::ZERO {
+                            Some(ast::Number::Int(ast::Int::ZERO))
+                        } else {
+                            None
+                        }
+                    }
+                    ast::Number::Float(value) => Some(ast::Number::Float(-value)),
+                    ast::Number::Complex { real, imag } => Some(ast::Number::Complex {
+                        real: -real,
+                        imag: -imag,
+                    }),
+                };
+                if let Some(number) = number {
+                    *expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
+                        node_index: unary.node_index.clone(),
+                        range: unary.range,
+                        value: number,
+                    });
+                    return;
+                }
+            }
+        }
+    }
     if let Expr::BinOp(binop) = expr {
         fold_expr(&mut binop.left);
         fold_expr(&mut binop.right);

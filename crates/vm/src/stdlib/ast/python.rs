@@ -23,6 +23,39 @@ pub(crate) mod _ast {
 
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
     impl NodeAst {
+        #[extend_class]
+        fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
+            let empty_tuple = ctx.empty_tuple.clone();
+            class.set_str_attr("_fields", empty_tuple.clone(), ctx);
+            class.set_str_attr("_attributes", empty_tuple.clone(), ctx);
+            class.set_str_attr("__match_args__", empty_tuple.clone(), ctx);
+
+            const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
+                "__reduce__",
+                |zelf: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyTupleRef> {
+                    ast_reduce(zelf, vm)
+                },
+                PyMethodFlags::METHOD,
+                None,
+            );
+            const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
+                "__replace__",
+                |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+                    ast_replace(zelf, args, vm)
+                },
+                PyMethodFlags::METHOD,
+                None,
+            );
+
+            class.set_str_attr("__reduce__", AST_REDUCE.to_proper_method(class, ctx), ctx);
+            class.set_str_attr(
+                "__replace__",
+                AST_REPLACE.to_proper_method(class, ctx),
+                ctx,
+            );
+            class.slots.repr.store(Some(ast_repr));
+        }
+
         #[pyattr]
         fn _fields(ctx: &Context) -> PyTupleRef {
             ctx.empty_tuple.clone()
@@ -406,8 +439,10 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
         module: &Py<crate::builtins::PyModule>,
     ) -> PyResult<()> {
         __module_exec(vm, module);
-        let _ast_type = NodeAst::make_class(&vm.ctx);
-        let ast_type = NodeAst::static_type();
+        super::super::pyast::extend_module_nodes(vm, module);
+        module.set_attr("_module_exec_ran", vm.ctx.new_bool(true), vm)?;
+
+        let ast_type = module.get_attr("AST", vm)?.downcast::<PyType>()?;
         let ctx = &vm.ctx;
         let empty_tuple = ctx.empty_tuple.clone();
         ast_type.set_str_attr("_fields", empty_tuple.clone(), ctx);
@@ -432,14 +467,32 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
         );
         ast_type.set_attr(
             identifier!(ctx, __reduce__),
-            AST_REDUCE.to_proper_method(ast_type, ctx),
+            AST_REDUCE.to_proper_method(&ast_type, ctx),
         );
         ast_type.set_attr(
-            ctx.intern_str("__replace__"),
-            AST_REPLACE.to_proper_method(ast_type, ctx),
+            identifier!(ctx, __replace__),
+            AST_REPLACE.to_proper_method(&ast_type, ctx),
         );
         ast_type.slots.repr.store(Some(ast_repr));
-        super::super::pyast::extend_module_nodes(vm, module);
+
+        let expr_type = super::super::pyast::NodeExpr::static_type();
+        if let Ok(doc) = expr_type.get_attr("__doc__", vm) {
+            if let Ok(doc) = doc.downcast::<crate::builtins::PyStr>() {
+                let updated = doc
+                    .as_str()
+                    .split('\n')
+                    .map(|line| {
+                        if line.starts_with('|') {
+                            format!("     {line}")
+                        } else {
+                            line.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                expr_type.set_attr("__doc__", vm.ctx.new_str(updated).into());
+            }
+        }
         Ok(())
     }
 }

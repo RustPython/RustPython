@@ -4,7 +4,7 @@ use super::*;
 use crate::builtins::{PyGenericAlias, PyTuple, PyTupleRef, PyTypeRef, make_union};
 use crate::common::ascii;
 use crate::convert::ToPyObject;
-use crate::function::FuncArgs;
+use crate::function::{FuncArgs, PyMethodDef, PyMethodFlags};
 use crate::types::Initializer;
 
 macro_rules! impl_node {
@@ -66,6 +66,29 @@ macro_rules! impl_node {
                 class.set_attr(
                     ctx.intern_str("_field_types"),
                     ctx.new_dict().into(),
+                );
+
+                const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
+                    "__reduce__",
+                    |zelf: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyTupleRef> {
+                        super::python::_ast::ast_reduce(zelf, vm)
+                    },
+                    PyMethodFlags::METHOD,
+                    None,
+                );
+                const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
+                    "__replace__",
+                    |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+                        super::python::_ast::ast_replace(zelf, args, vm)
+                    },
+                    PyMethodFlags::METHOD,
+                    None,
+                );
+                class.set_str_attr("__reduce__", AST_REDUCE.to_proper_method(class, ctx), ctx);
+                class.set_str_attr(
+                    "__replace__",
+                    AST_REPLACE.to_proper_method(class, ctx),
+                    ctx,
                 );
             }
         }
@@ -1621,7 +1644,6 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     // Populate _field_types with real Python type objects
     populate_field_types(vm, module);
     populate_singletons(vm, module);
-    populate_docstrings(vm, module);
     force_ast_module_name(vm, module);
     populate_match_args_and_attributes(vm, module);
 }
@@ -1777,17 +1799,6 @@ fn populate_singletons(vm: &VirtualMachine, module: &Py<PyModule>) {
             .ctx
             .new_base_object(type_obj.to_owned(), Some(vm.ctx.new_dict()));
         type_obj.set_attr(instance_attr, instance);
-    }
-}
-
-fn populate_docstrings(vm: &VirtualMachine, module: &Py<PyModule>) {
-    for &(class_name, doc) in super::docstrings::AST_DOCS {
-        let class = module
-            .get_attr(class_name, vm)
-            .unwrap_or_else(|_| panic!("AST class '{class_name}' not found in module"));
-        if let Some(type_obj) = class.downcast_ref::<PyType>() {
-            type_obj.set_attr(identifier!(vm, __doc__), vm.ctx.new_str(doc).into());
-        }
     }
 }
 

@@ -56,6 +56,14 @@ fn ruff_format_spec_to_joined_str(
                 elements,
                 node_index: _,
             } = *format_spec;
+            let range = if range.start() > ruff_text_size::TextSize::from(0) {
+                TextRange::new(
+                    range.start() - ruff_text_size::TextSize::from(1),
+                    range.end(),
+                )
+            } else {
+                range
+            };
             let values: Vec<_> = ruff_fstring_element_into_iter(elements)
                 .map(ruff_fstring_element_to_joined_str_part)
                 .collect();
@@ -392,30 +400,9 @@ fn ruff_tstring_element_to_template_str_part(
                 value: expression,
                 str: expr_str,
                 conversion,
-                format_spec: ruff_format_spec_to_template_str(format_spec, source_file),
+                format_spec: ruff_format_spec_to_joined_str(format_spec),
                 range,
             })
-        }
-    }
-}
-
-fn ruff_format_spec_to_template_str(
-    format_spec: Option<Box<ast::InterpolatedStringFormatSpec>>,
-    source_file: &SourceFile,
-) -> Option<Box<TemplateStr>> {
-    match format_spec {
-        None => None,
-        Some(format_spec) => {
-            let ast::InterpolatedStringFormatSpec {
-                range,
-                elements,
-                node_index: _,
-            } = *format_spec;
-            let values: Vec<_> = ruff_fstring_element_into_iter(elements)
-                .map(|e| ruff_tstring_element_to_template_str_part(e, source_file))
-                .collect();
-            let values = values.into_boxed_slice();
-            Some(Box::new(TemplateStr { range, values }))
         }
     }
 }
@@ -503,16 +490,7 @@ fn template_part_to_element(
                 range,
                 ..
             } = interpolation;
-            let format_spec = format_spec
-                .map(|spec| {
-                    let values = template_parts_to_elements(vm, spec.values)?;
-                    Ok(Box::new(ast::InterpolatedStringFormatSpec {
-                        range: spec.range,
-                        node_index: Default::default(),
-                        elements: values,
-                    }))
-                })
-                .transpose()?;
+            let format_spec = joined_str_to_ruff_format_spec(format_spec);
             Ok(ast::InterpolatedStringElement::Interpolation(
                 ast::InterpolatedElement {
                     range,
@@ -602,7 +580,7 @@ pub(super) struct TStringInterpolation {
     value: Box<ast::Expr>,
     str: String,
     conversion: ast::ConversionFlag,
-    format_spec: Option<Box<TemplateStr>>,
+    format_spec: Option<Box<JoinedStr>>,
     range: TextRange,
 }
 

@@ -216,6 +216,8 @@ mod builtins {
                 let allow_incomplete = !(flags & ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
                 let type_comments = !(flags & ast::PY_CF_TYPE_COMMENTS).is_zero();
 
+                let optimize_level = optimize;
+
                 if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
                     #[cfg(not(feature = "compiler"))]
                     {
@@ -231,7 +233,7 @@ mod builtins {
                                 vm,
                                 source,
                                 mode,
-                                optimize > 0,
+                                optimize_level,
                                 Some(feature_version),
                                 type_comments,
                             )
@@ -259,7 +261,7 @@ mod builtins {
                     }
                 } else {
                     if mode_str == "func_type" {
-                        return ast::parse_func_type(vm, source, optimize > 0, feature_version)
+                        return ast::parse_func_type(vm, source, optimize_level, feature_version)
                             .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm));
                     }
 
@@ -270,7 +272,7 @@ mod builtins {
                         vm,
                         source,
                         mode,
-                        optimize > 0,
+                        optimize_level,
                         feature_version,
                         type_comments,
                     )

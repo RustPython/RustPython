@@ -530,7 +530,6 @@ class AST_Tests(unittest.TestCase):
         x = ast.Module(body, [])
         self.assertEqual(x.body, body)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_nodeclasses(self):
         # Zero arguments constructor explicitly allowed (but deprecated)
         with self.assertWarns(DeprecationWarning):

@@ -42,7 +42,7 @@ impl Node for ast::Parameters {
             .unwrap();
         dict.set_item("defaults", defaults.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        let _ = range;
         node.into()
     }
 
