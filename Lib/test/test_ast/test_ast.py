@@ -2185,7 +2185,6 @@ class ASTValidatorTests(unittest.TestCase):
         i = ast.withitem(ast.Constant(3), ast.Name("x", ast.Load()))
         self.stmt(ast.With([i], [p]), "must have Store context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_raise(self):
         r = ast.Raise(None, ast.Constant(3))
         self.stmt(r, "Raise with cause but no exception")
@@ -2194,7 +2193,6 @@ class ASTValidatorTests(unittest.TestCase):
         r = ast.Raise(ast.Constant(4), ast.Name("x", ast.Store()))
         self.stmt(r, "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_try(self):
         p = ast.Pass()
         t = ast.Try([], [], [], [p])
@@ -2215,7 +2213,6 @@ class ASTValidatorTests(unittest.TestCase):
         t = ast.Try([p], e, [p], [ast.Expr(ast.Name("x", ast.Store()))])
         self.stmt(t, "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     def test_try_star(self):
         p = ast.Pass()
         t = ast.TryStar([], [], [], [p])
@@ -2246,7 +2243,6 @@ class ASTValidatorTests(unittest.TestCase):
     def test_import(self):
         self.stmt(ast.Import([]), "empty names on Import")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u32
     def test_importfrom(self):
         imp = ast.ImportFrom(None, [ast.alias("x", None)], -42)
         self.stmt(imp, "Negative ImportFrom level")

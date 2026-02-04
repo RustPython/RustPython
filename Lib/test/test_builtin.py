@@ -900,7 +900,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(TypeError,
                           exec, code, {'__builtins__': 123})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: NameError not raised by exec
     def test_exec_globals_frozen(self):
         class frozendict_error(Exception):
             pass
@@ -933,7 +932,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(frozendict_error,
                           exec, code, namespace)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name 'superglobal' is not defined
     def test_exec_globals_error_on_get(self):
         # custom `globals` or `builtins` can raise errors on item access
         class setonlyerror(Exception):
@@ -953,7 +951,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(setonlyerror, exec, code,
                           {'__builtins__': setonlydict({'superglobal': 1})})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name 'superglobal' is not defined
     def test_exec_globals_dict_subclass(self):
         class customdict(dict):  # this one should not do anything fancy
             pass
@@ -965,7 +962,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaisesRegex(NameError, "name 'superglobal' is not defined",
                                exec, code, {'__builtins__': customdict()})
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; NameError: name 'superglobal' is not defined
     def test_eval_builtins_mapping(self):
         code = compile("superglobal", "test", "eval")
         # works correctly

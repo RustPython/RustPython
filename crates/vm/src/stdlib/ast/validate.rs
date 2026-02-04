@@ -342,9 +342,7 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
     match expr {
         ast::Expr::BoolOp(op) => {
             if op.values.len() < 2 {
-                return Err(vm.new_value_error(
-                    "BoolOp with less than 2 values".to_owned(),
-                ));
+                return Err(vm.new_value_error("BoolOp with less than 2 values".to_owned()));
             }
             validate_exprs(vm, &op.values, ast::ExprContext::Load, false)
         }
@@ -521,9 +519,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
         }
         ast::Stmt::AnnAssign(assign) => {
             if assign.simple && !matches!(&*assign.target, ast::Expr::Name(_)) {
-                return Err(
-                    vm.new_type_error("AnnAssign with simple non-Name target".to_owned())
-                );
+                return Err(vm.new_type_error("AnnAssign with simple non-Name target".to_owned()));
             }
             validate_expr(vm, &assign.target, ast::ExprContext::Store)?;
             if let Some(value) = &assign.value {
@@ -596,9 +592,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                     validate_expr(vm, cause, ast::ExprContext::Load)?;
                 }
             } else if raise.cause.is_some() {
-                return Err(
-                    vm.new_value_error("Raise with cause but no exception".to_owned())
-                );
+                return Err(vm.new_value_error("Raise with cause but no exception".to_owned()));
             }
             Ok(())
         }
@@ -611,9 +605,9 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 )));
             }
             if try_stmt.handlers.is_empty() && !try_stmt.orelse.is_empty() {
-                return Err(vm.new_value_error(format!(
-                    "{owner} has orelse but no except handlers"
-                )));
+                return Err(
+                    vm.new_value_error(format!("{owner} has orelse but no except handlers"))
+                );
             }
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;

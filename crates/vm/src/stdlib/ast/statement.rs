@@ -206,17 +206,6 @@ impl Node for ast::StmtFunctionDef {
         let _cls = _object.class();
         let is_async = _cls.is(pyast::NodeStmtAsyncFunctionDef::static_type());
         let range = range_from_object(_vm, source_file, _object.clone(), "FunctionDef")?;
-        let mut body: Vec<ast::Stmt> = Node::ast_from_object(
-            _vm,
-            source_file,
-            get_node_field(_vm, &_object, "body", "FunctionDef")?,
-        )?;
-        if body.is_empty() {
-            body.push(ast::Stmt::Pass(ast::StmtPass {
-                node_index: Default::default(),
-                range,
-            }));
-        }
         Ok(Self {
             node_index: Default::default(),
             name: Node::ast_from_object(
@@ -229,7 +218,11 @@ impl Node for ast::StmtFunctionDef {
                 source_file,
                 get_node_field(_vm, &_object, "args", "FunctionDef")?,
             )?,
-            body,
+            body: Node::ast_from_object(
+                _vm,
+                source_file,
+                get_node_field(_vm, &_object, "body", "FunctionDef")?,
+            )?,
             decorator_list: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -1119,9 +1112,7 @@ impl Node for ast::StmtImportFrom {
                     let int: PyRef<PyInt> = obj.try_into_value(vm)?;
                     let value: i64 = int.try_to_primitive(vm)?;
                     if value < 0 {
-                        return Err(vm.new_value_error(
-                            "Negative ImportFrom level".to_owned(),
-                        ));
+                        return Err(vm.new_value_error("Negative ImportFrom level".to_owned()));
                     }
                     u32::try_from(value).map_err(|_| {
                         vm.new_overflow_error("ImportFrom level out of range".to_owned())

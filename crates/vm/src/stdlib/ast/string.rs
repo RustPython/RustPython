@@ -589,11 +589,21 @@ fn ruff_tstring_element_to_template_str_part(
             format_spec,
             node_index: _,
         }) => {
-            let expr_source =
-                tstring_interpolation_expr_str(source_file, range, expression.range());
-            let expr_str = debug_text
-                .map(|dt| dt.leading.to_string() + &expr_source + &dt.trailing)
-                .unwrap_or(expr_source);
+            let expr_range =
+                extend_expr_range_with_wrapping_parens(source_file, range, expression.range())
+                    .unwrap_or_else(|| expression.range());
+            let expr_str = if let Some(debug_text) = debug_text {
+                let expr_source = source_file.slice(expr_range);
+                let mut expr_with_debug = String::with_capacity(
+                    debug_text.leading.len() + expr_source.len() + debug_text.trailing.len(),
+                );
+                expr_with_debug.push_str(&debug_text.leading);
+                expr_with_debug.push_str(expr_source);
+                expr_with_debug.push_str(&debug_text.trailing);
+                strip_interpolation_expr(&expr_with_debug)
+            } else {
+                tstring_interpolation_expr_str(source_file, range, expr_range)
+            };
             TemplateStrPart::Interpolation(TStringInterpolation {
                 value: expression,
                 str: expr_str,
@@ -610,12 +620,9 @@ fn tstring_interpolation_expr_str(
     interpolation_range: TextRange,
     expr_range: TextRange,
 ) -> String {
-    let expr_range = extend_expr_range_with_wrapping_parens(
-        source_file,
-        interpolation_range,
-        expr_range,
-    )
-    .unwrap_or(expr_range);
+    let expr_range =
+        extend_expr_range_with_wrapping_parens(source_file, interpolation_range, expr_range)
+            .unwrap_or(expr_range);
     let start = interpolation_range.start() + TextSize::from(1);
     let start = if start > expr_range.end() {
         expr_range.start()
