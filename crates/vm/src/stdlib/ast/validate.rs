@@ -1,3 +1,5 @@
+// spell-checker: ignore assignlist ifexp
+
 use super::module::Mod;
 use crate::{PyResult, VirtualMachine};
 use ruff_python_ast as ast;
