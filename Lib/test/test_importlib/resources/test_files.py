@@ -50,10 +50,6 @@ class FilesTests:
 class OpenDiskTests(FilesTests, util.DiskSetup, unittest.TestCase):
     pass
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; line ending issue")
-    def test_read_bytes(self):
-        return super().test_read_bytes()
-
 
 class OpenZipTests(FilesTests, util.ZipSetup, unittest.TestCase):
     pass
@@ -81,10 +77,6 @@ class OpenNamespaceTests(FilesTests, util.DiskSetup, unittest.TestCase):
         )
 
         resources.files(namespacedata01)
-
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; line ending issue")
-    def test_read_bytes(self):
-        return super().test_read_bytes()
 
 
 class OpenNamespaceZipTests(FilesTests, util.ZipSetup, unittest.TestCase):
