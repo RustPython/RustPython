@@ -1,5 +1,7 @@
 use super::constant::{Constant, ConstantLiteral};
 use super::*;
+use crate::warn;
+use ast::str_prefix::StringLiteralPrefix;
 
 fn ruff_fstring_element_into_iter(
     mut fstring_element: ast::InterpolatedStringElements,
@@ -42,6 +44,193 @@ fn ruff_fstring_element_to_joined_str_part(
             format_spec: ruff_format_spec_to_joined_str(format_spec),
             range,
         }),
+    }
+}
+
+fn push_joined_str_literal(
+    output: &mut Vec<JoinedStrPart>,
+    pending: &mut Option<(String, StringLiteralPrefix, TextRange)>,
+) {
+    if let Some((value, prefix, range)) = pending.take()
+        && !value.is_empty()
+    {
+        output.push(JoinedStrPart::Constant(Constant::new_str(
+            value, prefix, range,
+        )));
+    }
+}
+
+fn normalize_joined_str_parts(values: Vec<JoinedStrPart>) -> Vec<JoinedStrPart> {
+    let mut output = Vec::with_capacity(values.len());
+    let mut pending: Option<(String, StringLiteralPrefix, TextRange)> = None;
+
+    for part in values {
+        match part {
+            JoinedStrPart::Constant(constant) => {
+                let ConstantLiteral::Str { value, prefix } = constant.value else {
+                    push_joined_str_literal(&mut output, &mut pending);
+                    output.push(JoinedStrPart::Constant(constant));
+                    continue;
+                };
+                let value: String = value.into();
+                if let Some((pending_value, _, _)) = pending.as_mut() {
+                    pending_value.push_str(&value);
+                } else {
+                    pending = Some((value, prefix, constant.range));
+                }
+            }
+            JoinedStrPart::FormattedValue(value) => {
+                push_joined_str_literal(&mut output, &mut pending);
+                output.push(JoinedStrPart::FormattedValue(value));
+            }
+        }
+    }
+
+    push_joined_str_literal(&mut output, &mut pending);
+    output
+}
+
+fn push_template_str_literal(
+    output: &mut Vec<TemplateStrPart>,
+    pending: &mut Option<(String, StringLiteralPrefix, TextRange)>,
+) {
+    if let Some((value, prefix, range)) = pending.take()
+        && !value.is_empty()
+    {
+        output.push(TemplateStrPart::Constant(Constant::new_str(
+            value, prefix, range,
+        )));
+    }
+}
+
+fn normalize_template_str_parts(values: Vec<TemplateStrPart>) -> Vec<TemplateStrPart> {
+    let mut output = Vec::with_capacity(values.len());
+    let mut pending: Option<(String, StringLiteralPrefix, TextRange)> = None;
+
+    for part in values {
+        match part {
+            TemplateStrPart::Constant(constant) => {
+                let ConstantLiteral::Str { value, prefix } = constant.value else {
+                    push_template_str_literal(&mut output, &mut pending);
+                    output.push(TemplateStrPart::Constant(constant));
+                    continue;
+                };
+                let value: String = value.into();
+                if let Some((pending_value, _, _)) = pending.as_mut() {
+                    pending_value.push_str(&value);
+                } else {
+                    pending = Some((value, prefix, constant.range));
+                }
+            }
+            TemplateStrPart::Interpolation(value) => {
+                push_template_str_literal(&mut output, &mut pending);
+                output.push(TemplateStrPart::Interpolation(value));
+            }
+        }
+    }
+
+    push_template_str_literal(&mut output, &mut pending);
+    output
+}
+
+fn warn_invalid_escape_sequences_in_format_spec(
+    vm: &VirtualMachine,
+    source_file: &SourceFile,
+    range: TextRange,
+) {
+    let source = source_file.source_text();
+    let start = range.start().to_usize();
+    let end = range.end().to_usize();
+    if start >= end || end > source.len() {
+        return;
+    }
+    let mut raw = &source[start..end];
+    if raw.starts_with(':') {
+        raw = &raw[1..];
+    }
+
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            continue;
+        }
+        let Some(next) = chars.next() else {
+            break;
+        };
+        let valid = match next {
+            '\\' | '\'' | '"' | 'a' | 'b' | 'f' | 'n' | 'r' | 't' | 'v' => true,
+            '\n' => true,
+            '\r' => {
+                if let Some('\n') = chars.peek().copied() {
+                    chars.next();
+                }
+                true
+            }
+            '0'..='7' => {
+                for _ in 0..2 {
+                    if let Some('0'..='7') = chars.peek().copied() {
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                true
+            }
+            'x' => {
+                for _ in 0..2 {
+                    if chars.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                true
+            }
+            'u' => {
+                for _ in 0..4 {
+                    if chars.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                true
+            }
+            'U' => {
+                for _ in 0..8 {
+                    if chars.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                true
+            }
+            'N' => {
+                if let Some('{') = chars.peek().copied() {
+                    chars.next();
+                    for c in chars.by_ref() {
+                        if c == '}' {
+                            break;
+                        }
+                    }
+                }
+                true
+            }
+            _ => false,
+        };
+        if !valid {
+            let message = vm.ctx.new_str(format!(
+                "\"\\{next}\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\{next}\"? A raw string is also an option."
+            ));
+            let _ = warn::warn(
+                message,
+                Some(vm.ctx.exceptions.syntax_warning.to_owned()),
+                1,
+                None,
+                vm,
+            );
+        }
     }
 }
 
@@ -361,6 +550,14 @@ pub(super) fn fstring_to_object(
             }
         }
     }
+    let values = normalize_joined_str_parts(values);
+    for part in &values {
+        if let JoinedStrPart::FormattedValue(value) = part
+            && let Some(format_spec) = &value.format_spec
+        {
+            warn_invalid_escape_sequences_in_format_spec(vm, source_file, format_spec.range);
+        }
+    }
     let c = JoinedStr {
         range,
         values: values.into_boxed_slice(),
@@ -392,10 +589,11 @@ fn ruff_tstring_element_to_template_str_part(
             format_spec,
             node_index: _,
         }) => {
-            // Get the expression source text for the "str" field
+            let expr_source =
+                tstring_interpolation_expr_str(source_file, range, expression.range());
             let expr_str = debug_text
-                .map(|dt| dt.leading.to_string() + &dt.trailing)
-                .unwrap_or_else(|| source_file.slice(expression.range()).to_string());
+                .map(|dt| dt.leading.to_string() + &expr_source + &dt.trailing)
+                .unwrap_or(expr_source);
             TemplateStrPart::Interpolation(TStringInterpolation {
                 value: expression,
                 str: expr_str,
@@ -405,6 +603,76 @@ fn ruff_tstring_element_to_template_str_part(
             })
         }
     }
+}
+
+fn tstring_interpolation_expr_str(
+    source_file: &SourceFile,
+    interpolation_range: TextRange,
+    expr_range: TextRange,
+) -> String {
+    let expr_range =
+        extend_expr_range_with_wrapping_parens(source_file, interpolation_range, expr_range)
+            .unwrap_or(expr_range);
+    let expr_source = source_file.slice(expr_range);
+    strip_interpolation_expr(expr_source)
+}
+
+fn extend_expr_range_with_wrapping_parens(
+    source_file: &SourceFile,
+    interpolation_range: TextRange,
+    expr_range: TextRange,
+) -> Option<TextRange> {
+    let left_slice = source_file.slice(TextRange::new(
+        interpolation_range.start(),
+        expr_range.start(),
+    ));
+    let mut left_char: Option<(usize, char)> = None;
+    for (idx, ch) in left_slice
+        .char_indices()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
+        if !ch.is_whitespace() {
+            left_char = Some((idx, ch));
+            break;
+        }
+    }
+    let (left_idx, left_ch) = left_char?;
+    if left_ch != '(' {
+        return None;
+    }
+
+    let right_slice =
+        source_file.slice(TextRange::new(expr_range.end(), interpolation_range.end()));
+    let mut right_char: Option<(usize, char)> = None;
+    for (idx, ch) in right_slice.char_indices() {
+        if !ch.is_whitespace() {
+            right_char = Some((idx, ch));
+            break;
+        }
+    }
+    let (right_idx, right_ch) = right_char?;
+    if right_ch != ')' {
+        return None;
+    }
+
+    let left_pos = interpolation_range.start() + TextSize::from(left_idx as u32);
+    let right_pos = expr_range.end() + TextSize::from(right_idx as u32);
+    Some(TextRange::new(left_pos, right_pos + TextSize::from(1)))
+}
+
+fn strip_interpolation_expr(expr_source: &str) -> String {
+    let mut end = expr_source.len();
+    for (idx, ch) in expr_source.char_indices().rev() {
+        if ch.is_whitespace() || ch == '=' {
+            end = idx;
+        } else {
+            end = idx + ch.len_utf8();
+            break;
+        }
+    }
+    expr_source[..end].to_owned()
 }
 
 #[derive(Debug)]
@@ -666,6 +934,7 @@ pub(super) fn tstring_to_object(
             ));
         }
     }
+    let values = normalize_template_str_parts(values);
     let c = TemplateStr {
         range,
         values: values.into_boxed_slice(),
