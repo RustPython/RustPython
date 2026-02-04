@@ -6,22 +6,13 @@ pub use typevar::*;
 pub(crate) mod typevar {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyTuple, PyTupleRef, PyType, PyTypeRef, make_union, pystr::AsPyStr},
+        builtins::{PyTuple, PyTupleRef, PyType, PyTypeRef, make_union},
         common::lock::PyMutex,
-        function::{FuncArgs, IntoFuncArgs, PyComparisonValue},
+        function::{FuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
+        stdlib::typing::call_typing_func_object,
         types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
     };
-
-    pub(crate) fn _call_typing_func_object<'a>(
-        vm: &VirtualMachine,
-        func_name: impl AsPyStr<'a>,
-        args: impl IntoFuncArgs,
-    ) -> PyResult {
-        let module = vm.import("typing", 0)?;
-        let func = module.get_attr(func_name.as_pystr(&vm.ctx), vm)?;
-        func.call(args, vm)
-    }
 
     fn type_check(arg: PyObjectRef, msg: &str, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // Calling typing.py here leads to bootstrapping problems
@@ -29,7 +20,7 @@ pub(crate) mod typevar {
             return Ok(arg.class().to_owned().into());
         }
         let message_str: PyObjectRef = vm.ctx.new_str(msg).into();
-        _call_typing_func_object(vm, "_type_check", (arg, message_str))
+        call_typing_func_object(vm, "_type_check", (arg, message_str))
     }
 
     /// Get the module of the caller frame, similar to CPython's caller() function.
@@ -169,7 +160,7 @@ pub(crate) mod typevar {
             vm: &VirtualMachine,
         ) -> PyResult {
             let self_obj: PyObjectRef = zelf.into();
-            _call_typing_func_object(vm, "_typevar_subst", (self_obj, arg))
+            call_typing_func_object(vm, "_typevar_subst", (self_obj, arg))
         }
 
         #[pymethod]
@@ -514,7 +505,7 @@ pub(crate) mod typevar {
             vm: &VirtualMachine,
         ) -> PyResult {
             let self_obj: PyObjectRef = zelf.into();
-            _call_typing_func_object(vm, "_paramspec_subst", (self_obj, arg))
+            call_typing_func_object(vm, "_paramspec_subst", (self_obj, arg))
         }
 
         #[pymethod]
@@ -525,7 +516,7 @@ pub(crate) mod typevar {
             vm: &VirtualMachine,
         ) -> PyResult {
             let self_obj: PyObjectRef = zelf.into();
-            _call_typing_func_object(vm, "_paramspec_prepare_subst", (self_obj, alias, args))
+            call_typing_func_object(vm, "_paramspec_prepare_subst", (self_obj, alias, args))
         }
     }
 
@@ -711,7 +702,7 @@ pub(crate) mod typevar {
             vm: &VirtualMachine,
         ) -> PyResult {
             let self_obj: PyObjectRef = zelf.into();
-            _call_typing_func_object(vm, "_typevartuple_prepare_subst", (self_obj, alias, args))
+            call_typing_func_object(vm, "_typevartuple_prepare_subst", (self_obj, alias, args))
         }
     }
 
