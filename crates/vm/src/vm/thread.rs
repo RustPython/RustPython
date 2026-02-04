@@ -34,9 +34,51 @@ thread_local! {
     /// while the owning thread is writing).
     pub(crate) static CURRENT_FRAME: AtomicPtr<Frame> =
         const { AtomicPtr::new(core::ptr::null_mut()) };
+
+    /// Thread-local EBR guard for Coarse-grained pinning strategy.
+    /// Holds the EBR critical section guard for this thread.
+    pub(crate) static EBR_GUARD: RefCell<Option<rustpython_common::epoch::Guard>> =
+        const { RefCell::new(None) };
 }
 
 scoped_tls::scoped_thread_local!(static VM_CURRENT: VirtualMachine);
+
+/// Ensure the current thread is pinned for EBR.
+/// Call this at the start of operations that access Python objects.
+///
+/// This is part of the Coarse-grained pinning strategy where threads
+/// are pinned at entry and periodically reactivate at safe points.
+#[inline]
+pub fn ensure_pinned() {
+    EBR_GUARD.with(|guard| {
+        if guard.borrow().is_none() {
+            *guard.borrow_mut() = Some(rustpython_common::epoch::pin());
+        }
+    });
+}
+
+/// Reactivate the EBR guard to allow epoch advancement.
+/// Call this at safe points where no object references are held temporarily.
+///
+/// This unblocks GC from advancing epochs, allowing deferred objects to be freed.
+/// The guard remains active after reactivation.
+#[inline]
+pub fn reactivate_guard() {
+    EBR_GUARD.with(|guard| {
+        if let Some(ref mut g) = *guard.borrow_mut() {
+            g.repin();
+        }
+    });
+}
+
+/// Drop the EBR guard, unpinning this thread.
+/// Call this when the thread is exiting or no longer needs EBR protection.
+#[inline]
+pub fn drop_guard() {
+    EBR_GUARD.with(|guard| {
+        *guard.borrow_mut() = None;
+    });
+}
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
     if !VM_CURRENT.is_set() {
