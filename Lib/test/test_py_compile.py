@@ -109,12 +109,7 @@ class PyCompileTestsBase:
         self.assertTrue(os.path.exists(self.pyc_path))
         self.assertFalse(os.path.exists(self.cache_path))
 
-    @unittest.expectedFailureIf(
-        sys.platform == "darwin" and int( 
-            __import__("platform").release().split(".")[0]
-        ) < 20, 
-        "TODO: RUSTPYTHON"
-    )
+    @unittest.expectedFailureIf(sys.platform == "darwin" and int(__import__("platform").release().split(".")[0]) < 20, "TODO: RUSTPYTHON")
     def test_relative_path(self):
         py_compile.compile(os.path.relpath(self.source_path),
                            os.path.relpath(self.pyc_path))
@@ -203,7 +198,7 @@ class PyCompileTestsBase:
                 fp.read(), 'test', {})
         self.assertEqual(flags, 0b1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_quiet(self):
         bad_coding = os.path.join(os.path.dirname(__file__),
                                   'tokenizedata',

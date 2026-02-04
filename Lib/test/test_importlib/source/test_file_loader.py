@@ -359,6 +359,7 @@ class SimpleTest(abc.LoaderTests):
  ) = util.test_both(SimpleTest, importlib=importlib, machinery=machinery,
                     abc=importlib_abc, util=importlib_util)
 
+
 class SourceDateEpochTestMeta(SourceDateEpochTestMeta,
                               type(Source_SimpleTest)):
     pass
@@ -679,6 +680,7 @@ class SourceLoaderBadBytecodeTestPEP451(
                     machinery=machinery, abc=importlib_abc,
                     util=importlib_util)
 
+
 class SourceLoaderBadBytecodeTestPEP302(
         SourceLoaderBadBytecodeTest, BadBytecodeTestPEP302):
     pass
@@ -689,6 +691,7 @@ class SourceLoaderBadBytecodeTestPEP302(
  ) = util.test_both(SourceLoaderBadBytecodeTestPEP302, importlib=importlib,
                     machinery=machinery, abc=importlib_abc,
                     util=importlib_util)
+
 
 class SourcelessLoaderBadBytecodeTest:
 
@@ -775,6 +778,7 @@ class SourcelessLoaderBadBytecodeTestPEP451(SourcelessLoaderBadBytecodeTest,
                     machinery=machinery, abc=importlib_abc,
                     util=importlib_util)
 
+
 class SourcelessLoaderBadBytecodeTestPEP302(SourcelessLoaderBadBytecodeTest,
         BadBytecodeTestPEP302):
     pass
@@ -785,6 +789,7 @@ class SourcelessLoaderBadBytecodeTestPEP302(SourcelessLoaderBadBytecodeTest,
  ) = util.test_both(SourcelessLoaderBadBytecodeTestPEP302, importlib=importlib,
                     machinery=machinery, abc=importlib_abc,
                     util=importlib_util)
+
 
 if __name__ == '__main__':
     unittest.main()

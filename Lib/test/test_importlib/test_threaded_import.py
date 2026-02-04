@@ -6,7 +6,6 @@
 # randrange, and then Python hangs.
 
 import _imp as imp
-import _multiprocessing  # TODO: RUSTPYTHON
 import os
 import importlib
 import sys
@@ -14,7 +13,7 @@ import time
 import shutil
 import threading
 import unittest
-from unittest import mock
+from test import support
 from test.support import verbose
 from test.support.import_helper import forget, mock_register_at_fork
 from test.support.os_helper import (TESTFN, unlink, rmtree)
@@ -137,12 +136,12 @@ class ThreadedImportTests(unittest.TestCase):
                 print("OK.")
 
     @unittest.skip("TODO: RUSTPYTHON; flaky")
-    def test_parallel_module_init(self):
+    @support.bigmemtest(size=50, memuse=76*2**20, dry_run=False)
+    def test_parallel_module_init(self, size):
         self.check_parallel_module_init()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_parallel_meta_path(self):
+    @support.bigmemtest(size=50, memuse=76*2**20, dry_run=False)
+    def test_parallel_meta_path(self, size):
         finder = Finder()
         sys.meta_path.insert(0, finder)
         try:
@@ -152,9 +151,9 @@ class ThreadedImportTests(unittest.TestCase):
         finally:
             sys.meta_path.remove(finder)
 
-    # TODO: RUSTPYTHON; maybe hang?
-    @unittest.expectedFailure
-    def test_parallel_path_hooks(self):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; maybe hang?
+    @support.bigmemtest(size=50, memuse=76*2**20, dry_run=False)
+    def test_parallel_path_hooks(self, size):
         # Here the Finder instance is only used to check concurrent calls
         # to path_hook().
         finder = Finder()
@@ -248,15 +247,17 @@ class ThreadedImportTests(unittest.TestCase):
             __import__(TESTFN)
         del sys.modules[TESTFN]
 
-    @unittest.skip('TODO: RUSTPYTHON; hang; Suspected cause of crashes in Windows CI - PermissionError: [WinError 32] Permission denied: "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\test_python_0cdrhhs_\\test_python_6340æ"')
-    def test_concurrent_futures_circular_import(self):
+    @unittest.skip("TODO: RUSTPYTHON; hang; Suspected cause of crashes in Windows CI - PermissionError: [WinError 32] Permission denied: \"C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\test_python_0cdrhhs_\\test_python_6340æ\"")
+    @support.bigmemtest(size=1, memuse=1.8*2**30, dry_run=False)
+    def test_concurrent_futures_circular_import(self, size):
         # Regression test for bpo-43515
         fn = os.path.join(os.path.dirname(__file__),
                           'partial', 'cfimport.py')
         script_helper.assert_python_ok(fn)
 
-    @unittest.skip('TODO: RUSTPYTHON; hang')
-    def test_multiprocessing_pool_circular_import(self):
+    @unittest.skip("TODO: RUSTPYTHON; hang")
+    @support.bigmemtest(size=1, memuse=1.8*2**30, dry_run=False)
+    def test_multiprocessing_pool_circular_import(self, size):
         # Regression test for bpo-41567
         fn = os.path.join(os.path.dirname(__file__),
                           'partial', 'pool_in_threads.py')
@@ -269,7 +270,7 @@ def setUpModule():
     try:
         old_switchinterval = sys.getswitchinterval()
         unittest.addModuleCleanup(sys.setswitchinterval, old_switchinterval)
-        sys.setswitchinterval(1e-5)
+        support.setswitchinterval(1e-5)
     except AttributeError:
         pass
 
