@@ -3451,7 +3451,6 @@ class ExceptionNotesTest(unittest.TestCase):
 class CodePageTest(unittest.TestCase):
     CP_UTF8 = 65001
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_code_page(self):
         self.assertRaises(ValueError, codecs.code_page_encode, -1, 'a')
         self.assertRaises(ValueError, codecs.code_page_decode, -1, b'a')
@@ -3670,7 +3669,6 @@ class CodePageTest(unittest.TestCase):
             ('[\U0010ffff\uDC80]', 'replace', b'[\xf4\x8f\xbf\xbf?]'),
         ))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_code_page_decode_flags(self):
         # Issue #36312: For some code pages (e.g. UTF-7) flags for
         # MultiByteToWideChar() must be set to 0.

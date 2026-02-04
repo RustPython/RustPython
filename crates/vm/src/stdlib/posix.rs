@@ -1098,7 +1098,7 @@ pub mod module {
                     OsPath::try_from_object(vm, v)?.into_bytes(),
                 );
 
-                if memchr::memchr(b'=', &key).is_some() {
+                if key.is_empty() || memchr::memchr(b'=', &key).is_some() {
                     return Err(vm.new_value_error("illegal environment variable name"));
                 }
 
