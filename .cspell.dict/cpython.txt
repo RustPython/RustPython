@@ -55,6 +55,7 @@ fielddesc
 fieldlist
 fileutils
 finalbody
+finalizers
 flowgraph
 formatfloat
 freevar
