@@ -54,7 +54,8 @@ __all__ = ['register', 'lookup', 'lookup_error', 'register_error', 'encode', 'de
            'unicode_internal_encode', 'unicode_internal_decode', 'utf_16_ex_decode',
            'escape_decode', 'charmap_decode', 'utf_7_encode', 'mbcs_encode',
            'ascii_encode', 'utf_16_encode', 'raw_unicode_escape_encode', 'utf_8_encode',
-           'utf_16_le_encode', 'utf_16_be_encode', 'utf_16_le_decode', 'utf_16_be_decode',]
+           'utf_16_le_encode', 'utf_16_be_encode', 'utf_16_le_decode', 'utf_16_be_decode',
+           'utf_32_ex_decode',]
 
 import sys
 import warnings
@@ -100,12 +101,12 @@ def raw_unicode_escape_decode( data, errors='strict', final=False):
     res = ''.join(res)
     return res, len(data)
 
-def utf_7_decode( data, errors='strict'):
+def utf_7_decode( data, errors='strict', final=False):
     """None
     """
-    res = PyUnicode_DecodeUTF7(data, len(data), errors)
+    res, consumed = PyUnicode_DecodeUTF7(data, len(data), errors, final)
     res = ''.join(res)
-    return res, len(data)
+    return res, consumed
 
 def unicode_escape_encode( obj, errors='strict'):
     """None
@@ -225,6 +226,45 @@ def utf_16_ex_decode( data, errors='strict', byteorder=0, final=0):
     res = ''.join(res)
     return res, consumed, byteorder
 
+def utf_32_ex_decode( data, errors='strict', byteorder=0, final=0):
+    """None
+    """
+    if byteorder == 0:
+        if len(data) < 4:
+            if final and len(data):
+                if sys.byteorder == 'little':
+                    bm = 'little'
+                else:
+                    bm = 'big'
+                res, consumed, _ = PyUnicode_DecodeUTF32Stateful(
+                    data, len(data), errors, bm, final
+                )
+                return ''.join(res), consumed, 0
+            return '', 0, 0
+        if data[0:4] == b'\xff\xfe\x00\x00':
+            res, consumed, _ = PyUnicode_DecodeUTF32Stateful(
+                data[4:], len(data) - 4, errors, 'little', final
+            )
+            return ''.join(res), consumed + 4, -1
+        if data[0:4] == b'\x00\x00\xfe\xff':
+            res, consumed, _ = PyUnicode_DecodeUTF32Stateful(
+                data[4:], len(data) - 4, errors, 'big', final
+            )
+            return ''.join(res), consumed + 4, 1
+        if sys.byteorder == 'little':
+            bm = 'little'
+        else:
+            bm = 'big'
+        res, consumed, _ = PyUnicode_DecodeUTF32Stateful(data, len(data), errors, bm, final)
+        return ''.join(res), consumed, 0
+
+    if byteorder == -1:
+        res, consumed, _ = PyUnicode_DecodeUTF32Stateful(data, len(data), errors, 'little', final)
+        return ''.join(res), consumed, -1
+
+    res, consumed, _ = PyUnicode_DecodeUTF32Stateful(data, len(data), errors, 'big', final)
+    return ''.join(res), consumed, 1
+
 # XXX needs error messages when the input is invalid
 def escape_decode(data, errors='strict'):
     """None
@@ -336,22 +376,12 @@ def utf_16_be_encode( obj, errors='strict'):
     res = bytes(res)
     return res, len(obj)
 
-def utf_16_le_decode( data, errors='strict', byteorder=0, final = 0):
-    """None
-    """
-    consumed = len(data)
-    if final:
-        consumed = 0
+def utf_16_le_decode(data, errors='strict', final=0):
     res, consumed, byteorder = PyUnicode_DecodeUTF16Stateful(data, len(data), errors, 'little', final)
     res = ''.join(res)
     return res, consumed
 
-def utf_16_be_decode( data, errors='strict', byteorder=0, final = 0):
-    """None
-    """
-    consumed = len(data)
-    if final:
-        consumed = 0
+def utf_16_be_decode(data, errors='strict', final=0):
     res, consumed, byteorder = PyUnicode_DecodeUTF16Stateful(data, len(data), errors, 'big', final)
     res = ''.join(res)
     return res, consumed
@@ -379,34 +409,41 @@ def PyUnicode_EncodeUTF32(s, size, errors, byteorder='little'):
         # Add BOM for native encoding
         p += STORECHAR32(0xFEFF, bom)
 
-    if size == 0:
-        return []
-
     if byteorder == 'little':
         bom = 'little'
     elif byteorder == 'big':
         bom = 'big'
 
-    for c in s:
-        ch = ord(c)
-        # UTF-32 doesn't need surrogate pairs, each character is encoded directly
-        p += STORECHAR32(ch, bom)
+    pos = 0
+    while pos < len(s):
+        ch = ord(s[pos])
+        if 0xD800 <= ch <= 0xDFFF:
+            if errors == 'surrogatepass':
+                p += STORECHAR32(ch, bom)
+                pos += 1
+            else:
+                res, pos = unicode_call_errorhandler(
+                    errors, 'utf-32', 'surrogates not allowed',
+                    s, pos, pos + 1, False)
+                for c in res:
+                    p += STORECHAR32(ord(c), bom)
+        else:
+            p += STORECHAR32(ch, bom)
+            pos += 1
 
     return p
 
 
 def utf_32_encode(obj, errors='strict'):
     """UTF-32 encoding with BOM."""
-    res = PyUnicode_EncodeUTF32(obj, len(obj), errors, 'native')
-    res = bytes(res)
-    return res, len(obj)
+    encoded = PyUnicode_EncodeUTF32(obj, len(obj), errors, 'native')
+    return bytes(encoded), len(obj)
 
 
 def utf_32_le_encode(obj, errors='strict'):
     """UTF-32 little-endian encoding without BOM."""
-    res = PyUnicode_EncodeUTF32(obj, len(obj), errors, 'little')
-    res = bytes(res)
-    return res, len(obj)
+    encoded = PyUnicode_EncodeUTF32(obj, len(obj), errors, 'little')
+    return bytes(encoded), len(obj)
 
 
 def utf_32_be_encode(obj, errors='strict'):
@@ -421,26 +458,11 @@ def PyUnicode_DecodeUTF32Stateful(data, size, errors, byteorder='little', final=
     if size == 0:
         return [], 0, 0
 
-    if size % 4 != 0:
-        if not final:
-            # Incomplete data, return what we can decode
-            size = (size // 4) * 4
-            if size == 0:
-                return [], 0, 0
-        else:
-            # Final data must be complete
-            if errors == 'strict':
-                raise UnicodeDecodeError('utf-32', bytes(data), size - (size % 4), size,
-                                        'truncated data')
-            elif errors == 'ignore':
-                size = (size // 4) * 4
-            elif errors == 'replace':
-                size = (size // 4) * 4
-
     result = []
     pos = 0
+    aligned_size = (size // 4) * 4
 
-    while pos + 3 < size:
+    while pos + 3 < aligned_size:
         if byteorder == 'little':
             ch = data[pos] | (data[pos+1] << 8) | (data[pos+2] << 16) | (data[pos+3] << 24)
         else:  # big-endian
@@ -454,10 +476,28 @@ def PyUnicode_DecodeUTF32Stateful(data, size, errors, byteorder='little', final=
             elif errors == 'replace':
                 result.append('\ufffd')
             # 'ignore' - skip this character
+            pos += 4
+        elif 0xD800 <= ch <= 0xDFFF:
+            if errors == 'surrogatepass':
+                result.append(chr(ch))
+                pos += 4
+            else:
+                msg = 'code point in surrogate code point range(0xd800, 0xe000)'
+                res, pos = unicode_call_errorhandler(
+                    errors, 'utf-32', msg, data, pos, pos + 4, True)
+                result.append(res)
         else:
             result.append(chr(ch))
+            pos += 4
 
-        pos += 4
+    # Handle trailing incomplete bytes
+    if pos < size:
+        if final:
+            res, pos = unicode_call_errorhandler(
+                errors, 'utf-32', 'truncated data',
+                data, pos, size, True)
+            if res:
+                result.append(res)
 
     return result, pos, 0
 
@@ -519,7 +559,7 @@ def utf_32_be_decode(data, errors='strict', final=0):
 utf7_special = [
     1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1, 1, 2, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    2, 3, 3, 3, 3, 3, 3, 0, 0, 0, 3, 1, 0, 0, 0, 1,
+    2, 3, 3, 3, 3, 3, 3, 0, 0, 0, 3, 1, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 0,
     3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1, 3, 3, 3,
@@ -557,162 +597,214 @@ def ENCODE( ch, bits) :
         bits -= 6 
     return out, bits
 
-def PyUnicode_DecodeUTF7(s, size, errors):
+def _IS_BASE64(ch):
+    return (ord('A') <= ch <= ord('Z')) or (ord('a') <= ch <= ord('z')) or \
+           (ord('0') <= ch <= ord('9')) or ch == ord('+') or ch == ord('/')
 
-    starts = s
-    errmsg = ""
-    inShift = 0
-    bitsleft = 0
-    charsleft = 0
-    surrogate = 0
+def _FROM_BASE64(ch):
+    if ch == ord('+'): return 62
+    if ch == ord('/'): return 63
+    if ch >= ord('a'): return ch - 71
+    if ch >= ord('A'): return ch - 65
+    if ch >= ord('0'): return ch - ord('0') + 52
+    return -1
+
+def _DECODE_DIRECT(ch):
+    return ch <= 127 and ch != ord('+')
+
+def PyUnicode_DecodeUTF7(s, size, errors, final=False):
+    if size == 0:
+        return [], 0
+
     p = []
-    errorHandler = None
-    exc = None
-
-    if (size == 0):
-        return ''
+    inShift = False
+    base64bits = 0
+    base64buffer = 0
+    surrogate = 0
+    startinpos = 0
+    shiftOutStart = 0
     i = 0
-    while i < size:
-        
-        ch = bytes([s[i]])
-        if (inShift):
-            if ((ch == b'-') or not B64CHAR(ch)):
-                inShift = 0
-                i += 1
-                
-                while (bitsleft >= 16):
-                    outCh =  ((charsleft) >> (bitsleft-16)) & 0xffff
-                    bitsleft -= 16
-                    
-                    if (surrogate):
-                        ##            We have already generated an error for the high surrogate
-                        ##            so let's not bother seeing if the low surrogate is correct or not 
-                        surrogate = 0
-                    elif (0xDC00 <= (outCh) and (outCh) <= 0xDFFF):
-            ##             This is a surrogate pair. Unfortunately we can't represent 
-            ##               it in a 16-bit character 
-                        surrogate = 1
-                        msg = "code pairs are not supported"
-                        out, x = unicode_call_errorhandler(errors, 'utf-7', msg, s, i-1, i)
-                        p.append(out)
-                        bitsleft = 0
-                        break
-                    else:
-                        p.append(chr(outCh ))
-                        #p += out
-                if (bitsleft >= 6):
-##                    /* The shift sequence has a partial character in it. If
-##                       bitsleft < 6 then we could just classify it as padding
-##                       but that is not the case here */
-                    msg = "partial character in shift sequence"
-                    out, x = unicode_call_errorhandler(errors, 'utf-7', msg, s, i-1, i)
-                    
-##                /* According to RFC2152 the remaining bits should be zero. We
-##                   choose to signal an error/insert a replacement character
-##                   here so indicate the potential of a misencoded character. */
 
-##                /* On x86, a << b == a << (b%32) so make sure that bitsleft != 0 */
-##                if (bitsleft and (charsleft << (sizeof(charsleft) * 8 - bitsleft))):
-##                    raise UnicodeDecodeError, "non-zero padding bits in shift sequence"
-                if (ch == b'-') :
-                    if ((i < size) and (s[i] == '-')) :
-                        p +=  '-'
-                        inShift = 1
-                    
-                elif SPECIAL(ch, 0, 0) :
-                    raise  UnicodeDecodeError("unexpected special character")
-                        
-                else:  
-                    p.append(chr(ord(ch)))
-            else:
-                charsleft = (charsleft << 6) | UB64(ch)
-                bitsleft += 6
+    while i < size:
+        ch = s[i]
+        if inShift:
+            if _IS_BASE64(ch):
+                base64buffer = (base64buffer << 6) | _FROM_BASE64(ch)
+                base64bits += 6
                 i += 1
-##                /* p, charsleft, bitsleft, surrogate = */ DECODE(p, charsleft, bitsleft, surrogate);
-        elif ( ch == b'+' ):
+                if base64bits >= 16:
+                    outCh = (base64buffer >> (base64bits - 16)) & 0xffff
+                    base64bits -= 16
+                    base64buffer &= (1 << base64bits) - 1
+                    if surrogate:
+                        if 0xDC00 <= outCh <= 0xDFFF:
+                            ch2 = 0x10000 + ((surrogate - 0xD800) << 10) + (outCh - 0xDC00)
+                            p.append(chr(ch2))
+                            surrogate = 0
+                            continue
+                        else:
+                            p.append(chr(surrogate))
+                            surrogate = 0
+                    if 0xD800 <= outCh <= 0xDBFF:
+                        surrogate = outCh
+                    else:
+                        p.append(chr(outCh))
+            else:
+                inShift = False
+                if base64bits > 0:
+                    if base64bits >= 6:
+                        i += 1
+                        errmsg = "partial character in shift sequence"
+                        out, i = unicode_call_errorhandler(
+                            errors, 'utf-7', errmsg, s, startinpos, i)
+                        p.append(out)
+                        continue
+                    else:
+                        if base64buffer != 0:
+                            i += 1
+                            errmsg = "non-zero padding bits in shift sequence"
+                            out, i = unicode_call_errorhandler(
+                                errors, 'utf-7', errmsg, s, startinpos, i)
+                            p.append(out)
+                            continue
+                if surrogate and _DECODE_DIRECT(ch):
+                    p.append(chr(surrogate))
+                surrogate = 0
+                if ch == ord('-'):
+                    i += 1
+        elif ch == ord('+'):
             startinpos = i
             i += 1
-            if (i<size and s[i] == '-'):
+            if i < size and s[i] == ord('-'):
                 i += 1
-                p.append(b'+')
+                p.append('+')
+            elif i < size and not _IS_BASE64(s[i]):
+                i += 1
+                errmsg = "ill-formed sequence"
+                out, i = unicode_call_errorhandler(
+                    errors, 'utf-7', errmsg, s, startinpos, i)
+                p.append(out)
             else:
-                inShift = 1
-                bitsleft = 0
-                
-        elif (SPECIAL(ch, 0, 0)):
+                inShift = True
+                surrogate = 0
+                shiftOutStart = len(p)
+                base64bits = 0
+                base64buffer = 0
+        elif _DECODE_DIRECT(ch):
             i += 1
-            raise UnicodeDecodeError("unexpected special character")
+            p.append(chr(ch))
         else:
-            p.append(chr(ord(ch)))
+            startinpos = i
             i += 1
+            errmsg = "unexpected special character"
+            out, i = unicode_call_errorhandler(
+                errors, 'utf-7', errmsg, s, startinpos, i)
+            p.append(out)
 
-    if (inShift) :
-        #XXX This aint right
-        endinpos = size
-        raise UnicodeDecodeError("unterminated shift sequence")
-        
-    return p
+    if inShift and not final:
+        return p[:shiftOutStart], startinpos
+
+    if inShift and final:
+        if surrogate or base64bits >= 6 or (base64bits > 0 and base64buffer != 0):
+            errmsg = "unterminated shift sequence"
+            out, i = unicode_call_errorhandler(
+                errors, 'utf-7', errmsg, s, startinpos, size)
+            p.append(out)
+
+    return p, size
+
+def _ENCODE_DIRECT(ch, encodeSetO, encodeWhiteSpace):
+    c = ord(ch) if isinstance(ch, str) else ch
+    if c > 127:
+        return False
+    if utf7_special[c] == 0:
+        return True
+    if utf7_special[c] == 2:
+        return not encodeWhiteSpace
+    if utf7_special[c] == 3:
+        return not encodeSetO
+    return False
 
 def PyUnicode_EncodeUTF7(s, size, encodeSetO, encodeWhiteSpace, errors):
-
-#    /* It might be possible to tighten this worst case */
     inShift = False
-    i = 0
-    bitsleft = 0
-    charsleft = 0
+    base64bits = 0
+    base64buffer = 0
     out = []
-    for ch in s:
-        if (not inShift) :
-            if (ch == '+'):
-                out.append(b'+-')
-            elif (SPECIAL(ch, encodeSetO, encodeWhiteSpace)):
-                charsleft = ord(ch)
-                bitsleft = 16
-                out.append(b'+')
-                p, bitsleft = ENCODE( charsleft, bitsleft)
-                out.append(p)
-                inShift = bitsleft > 0
-            else:
-                out.append(bytes([ord(ch)]))
-        else:
-            if (not SPECIAL(ch, encodeSetO, encodeWhiteSpace)):
-                out.append(B64((charsleft) << (6-bitsleft)))
-                charsleft = 0
-                bitsleft = 0
-##                /* Characters not in the BASE64 set implicitly unshift the sequence
-##                   so no '-' is required, except if the character is itself a '-' */
-                if (B64CHAR(ch) or ch == '-'):
-                    out.append(b'-')
+
+    for i, ch in enumerate(s):
+        ch_ord = ord(ch)
+        if inShift:
+            if _ENCODE_DIRECT(ch, encodeSetO, encodeWhiteSpace):
+                # shifting out
+                if base64bits:
+                    out.append(B64(base64buffer << (6 - base64bits)))
+                    base64buffer = 0
+                    base64bits = 0
                 inShift = False
-                out.append(bytes([ord(ch)]))
+                if B64CHAR(ch) or ch == '-':
+                    out.append(b'-')
+                out.append(bytes([ch_ord]))
             else:
-                bitsleft += 16
-                charsleft = (((charsleft) << 16) | ord(ch))
-                p, bitsleft =  ENCODE(charsleft, bitsleft)
-                out.append(p)
-##                /* If the next character is special then we dont' need to terminate
-##                   the shift sequence. If the next character is not a BASE64 character
-##                   or '-' then the shift sequence will be terminated implicitly and we
-##                   don't have to insert a '-'. */
+                # encode character in base64
+                if ch_ord >= 0x10000:
+                    # split into surrogate pair
+                    hi = 0xD800 | ((ch_ord - 0x10000) >> 10)
+                    lo = 0xDC00 | ((ch_ord - 0x10000) & 0x3FF)
+                    base64bits += 16
+                    base64buffer = (base64buffer << 16) | hi
+                    while base64bits >= 6:
+                        out.append(B64(base64buffer >> (base64bits - 6)))
+                        base64bits -= 6
+                    base64buffer &= (1 << base64bits) - 1 if base64bits else 0
+                    ch_ord = lo
 
-                if (bitsleft == 0):
-                    if (i + 1 < size):
-                        ch2 = s[i+1]
+                base64bits += 16
+                base64buffer = (base64buffer << 16) | ch_ord
+                while base64bits >= 6:
+                    out.append(B64(base64buffer >> (base64bits - 6)))
+                    base64bits -= 6
+                base64buffer &= (1 << base64bits) - 1 if base64bits else 0
+        else:
+            if ch == '+':
+                out.append(b'+-')
+            elif _ENCODE_DIRECT(ch, encodeSetO, encodeWhiteSpace):
+                out.append(bytes([ch_ord]))
+            else:
+                out.append(b'+')
+                inShift = True
+                # encode character in base64
+                if ch_ord >= 0x10000:
+                    hi = 0xD800 | ((ch_ord - 0x10000) >> 10)
+                    lo = 0xDC00 | ((ch_ord - 0x10000) & 0x3FF)
+                    base64bits += 16
+                    base64buffer = (base64buffer << 16) | hi
+                    while base64bits >= 6:
+                        out.append(B64(base64buffer >> (base64bits - 6)))
+                        base64bits -= 6
+                    base64buffer &= (1 << base64bits) - 1 if base64bits else 0
+                    ch_ord = lo
 
-                        if (SPECIAL(ch2, encodeSetO, encodeWhiteSpace)):
-                            pass
-                        elif (B64CHAR(ch2) or ch2 == '-'):
-                            out.append(b'-')
-                            inShift = False
-                        else:
+                base64bits += 16
+                base64buffer = (base64buffer << 16) | ch_ord
+                while base64bits >= 6:
+                    out.append(B64(base64buffer >> (base64bits - 6)))
+                    base64bits -= 6
+                base64buffer &= (1 << base64bits) - 1 if base64bits else 0
+
+                if base64bits == 0:
+                    if i + 1 < size:
+                        ch2 = s[i + 1]
+                        if _ENCODE_DIRECT(ch2, encodeSetO, encodeWhiteSpace):
+                            if B64CHAR(ch2) or ch2 == '-':
+                                out.append(b'-')
                             inShift = False
                     else:
                         out.append(b'-')
                         inShift = False
-        i += 1
-            
-    if (bitsleft):
-        out.append(B64(charsleft << (6-bitsleft) ) )
+
+    if base64bits:
+        out.append(B64(base64buffer << (6 - base64bits)))
+    if inShift:
         out.append(b'-')
 
     return out
@@ -879,55 +971,66 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
         ilo = 1
 
     while (q < len(s)):
-    
+
         #/* remaining bytes at the end? (size should be even) */
-        if (len(s)-q<2):
+        if (len(s) - q < 2):
             if not final:
                 break
-            errmsg = "truncated data"
-            startinpos = q
-            endinpos = len(s)
-            unicode_call_errorhandler(errors, 'utf-16', errmsg, s, startinpos, endinpos, True)
-#           /* The remaining input chars are ignored if the callback
-##             chooses to skip the input */
-    
+            res, q = unicode_call_errorhandler(
+                errors, 'utf-16', "truncated data",
+                s, q, len(s), True)
+            p.append(res)
+            break
+
         ch = (s[q+ihi] << 8) | s[q+ilo]
-        q += 2
-    
+
         if (ch < 0xD800 or ch > 0xDFFF):
             p.append(chr(ch))
-            continue
-    
-        #/* UTF-16 code pair: */
-        if (q >= len(s)):
-            errmsg = "unexpected end of data"
-            startinpos = q-2
-            endinpos = len(s)
-            unicode_call_errorhandler(errors, 'utf-16', errmsg, s, startinpos, endinpos, True)
-
-        if (0xD800 <= ch and ch <= 0xDBFF):
-            ch2 = (s[q+ihi] << 8) | s[q+ilo]
             q += 2
-            if (0xDC00 <= ch2 and ch2 <= 0xDFFF):
-    #ifndef Py_UNICODE_WIDE
-                if sys.maxunicode < 65536:
-                    p += [chr(ch), chr(ch2)]
-                else:
-                    p.append(chr((((ch & 0x3FF)<<10) | (ch2 & 0x3FF)) + 0x10000))
-    #endif
-                continue
+            continue
 
+        #/* UTF-16 code pair: high surrogate */
+        if (0xD800 <= ch <= 0xDBFF):
+            if (q + 4 <= len(s)):
+                ch2 = (s[q+2+ihi] << 8) | s[q+2+ilo]
+                if (0xDC00 <= ch2 <= 0xDFFF):
+                    # Valid surrogate pair - always assemble
+                    p.append(chr((((ch & 0x3FF) << 10) | (ch2 & 0x3FF)) + 0x10000))
+                    q += 4
+                    continue
+                else:
+                    # High surrogate followed by non-low-surrogate
+                    if errors == 'surrogatepass':
+                        p.append(chr(ch))
+                        q += 2
+                        continue
+                    res, q = unicode_call_errorhandler(
+                        errors, 'utf-16', "illegal UTF-16 surrogate",
+                        s, q, q + 2, True)
+                    p.append(res)
             else:
-                errmsg = "illegal UTF-16 surrogate"
-                startinpos = q-4
-                endinpos = startinpos+2
-                unicode_call_errorhandler(errors, 'utf-16', errmsg, s, startinpos, endinpos, True)
-           
-        errmsg = "illegal encoding"
-        startinpos = q-2
-        endinpos = startinpos+2
-        unicode_call_errorhandler(errors, 'utf-16', errmsg, s, startinpos, endinpos, True)
-        
+                # High surrogate at end of data
+                if not final:
+                    break
+                if errors == 'surrogatepass':
+                    p.append(chr(ch))
+                    q += 2
+                    continue
+                res, q = unicode_call_errorhandler(
+                    errors, 'utf-16', "unexpected end of data",
+                    s, q, len(s), True)
+                p.append(res)
+        else:
+            # Low surrogate without preceding high surrogate
+            if errors == 'surrogatepass':
+                p.append(chr(ch))
+                q += 2
+                continue
+            res, q = unicode_call_errorhandler(
+                errors, 'utf-16', "illegal encoding",
+                s, q, q + 2, True)
+            p.append(res)
+
     return p, q, bo
 
 # moved out of local scope, especially because it didn't
@@ -953,25 +1056,40 @@ def PyUnicode_EncodeUTF16(s, size, errors, byteorder='little'):
         bom = sys.byteorder
         p += STORECHAR(0xFEFF, bom)
         
-    if (size == 0):
-        return []
-
     if (byteorder == 'little' ):
         bom = 'little'
     elif (byteorder == 'big'):
         bom = 'big'
 
-
-    for c in s:
-        ch = ord(c)
-        ch2 = 0
-        if (ch >= 0x10000) :
-            ch2 = 0xDC00 | ((ch-0x10000) & 0x3FF)
-            ch  = 0xD800 | ((ch-0x10000) >> 10)
-
-        p += STORECHAR(ch, bom)
-        if (ch2):
-            p += STORECHAR(ch2, bom)
+    pos = 0
+    while pos < len(s):
+        ch = ord(s[pos])
+        if 0xD800 <= ch <= 0xDFFF:
+            if errors == 'surrogatepass':
+                p += STORECHAR(ch, bom)
+                pos += 1
+            else:
+                res, pos = unicode_call_errorhandler(
+                    errors, 'utf-16', 'surrogates not allowed',
+                    s, pos, pos + 1, False)
+                for c in res:
+                    cp = ord(c)
+                    cp2 = 0
+                    if cp >= 0x10000:
+                        cp2 = 0xDC00 | ((cp - 0x10000) & 0x3FF)
+                        cp = 0xD800 | ((cp - 0x10000) >> 10)
+                    p += STORECHAR(cp, bom)
+                    if cp2:
+                        p += STORECHAR(cp2, bom)
+        else:
+            ch2 = 0
+            if ch >= 0x10000:
+                ch2 = 0xDC00 | ((ch - 0x10000) & 0x3FF)
+                ch = 0xD800 | ((ch - 0x10000) >> 10)
+            p += STORECHAR(ch, bom)
+            if ch2:
+                p += STORECHAR(ch2, bom)
+            pos += 1
 
     return p
 

@@ -441,13 +441,22 @@ pub mod errors {
             let err_str = &ctx.full_data()[range.start.bytes..range.end.bytes];
             let num_chars = range.end.chars - range.start.chars;
             let mut out = Vec::with_capacity(num_chars);
+            let mut pos = range.start;
             for ch in err_str.code_points() {
-                let ch = ch.to_u32();
-                if !(0xdc80..=0xdcff).contains(&ch) {
-                    // Not a UTF-8b surrogate, fail with original exception
-                    return Err(ctx.error_encoding(range, reason));
+                let ch_u32 = ch.to_u32();
+                if !(0xdc80..=0xdcff).contains(&ch_u32) {
+                    if out.is_empty() {
+                        // Can't handle even the first character
+                        return Err(ctx.error_encoding(range, reason));
+                    }
+                    // Return partial result, restart from this character
+                    return Ok((EncodeReplace::Bytes(ctx.bytes(out)), pos));
                 }
-                out.push((ch - 0xdc00) as u8);
+                out.push((ch_u32 - 0xdc00) as u8);
+                pos += StrSize {
+                    bytes: ch.len_wtf8(),
+                    chars: 1,
+                };
             }
             Ok((EncodeReplace::Bytes(ctx.bytes(out)), range.end))
         }

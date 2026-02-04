@@ -752,7 +752,6 @@ class TestPlistlib(unittest.TestCase):
                 data = plistlib.dumps(pl, fmt=fmt)
                 self.assertEqual(plistlib.loads(data), pl)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_lone_surrogates(self):
         for fmt in ALL_FORMATS:
             with self.subTest(fmt=fmt):

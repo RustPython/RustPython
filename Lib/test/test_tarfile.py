@@ -1988,8 +1988,6 @@ class UnicodeTest:
     def test_iso8859_1_filename(self):
         self._test_unicode_filename("iso8859-1")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_utf7_filename(self):
         self._test_unicode_filename("utf7")
 
@@ -2416,8 +2414,7 @@ class MiscTest(unittest.TestCase):
             'SubsequentHeaderError', 'ExFileObject', 'main'}
         support.check__all__(self, tarfile, not_exported=not_exported)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; FileNotFoundError: [Errno 2] No such file or directory: '/Users/al03219714/Projects/RustPython3/crates/pylib/Lib/test/testtar.tar.xz'
     def test_useful_error_message_when_modules_missing(self):
         fname = os.path.join(os.path.dirname(__file__), 'testtar.tar.xz')
         with self.assertRaises(tarfile.ReadError) as excinfo:
