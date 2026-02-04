@@ -155,6 +155,7 @@ ahash = "0.8.12"
 ascii = "1.1"
 bitflags = "2.9.4"
 bstr = "1"
+bytes = "1.11.1"
 cfg-if = "1.0"
 chrono = { version = "0.4.43", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
