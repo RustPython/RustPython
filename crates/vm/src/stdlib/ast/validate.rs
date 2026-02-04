@@ -340,7 +340,14 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
     }
 
     match expr {
-        ast::Expr::BoolOp(op) => validate_exprs(vm, &op.values, ast::ExprContext::Load, false),
+        ast::Expr::BoolOp(op) => {
+            if op.values.len() < 2 {
+                return Err(vm.new_value_error(
+                    "BoolOp with less than 2 values".to_owned(),
+                ));
+            }
+            validate_exprs(vm, &op.values, ast::ExprContext::Load, false)
+        }
         ast::Expr::Named(named) => {
             if !matches!(&*named.target, ast::Expr::Name(_)) {
                 return Err(vm.new_type_error("NamedExpr target must be a Name".to_owned()));
@@ -513,6 +520,11 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
             validate_expr(vm, &assign.value, ast::ExprContext::Load)
         }
         ast::Stmt::AnnAssign(assign) => {
+            if assign.simple && !matches!(&*assign.target, ast::Expr::Name(_)) {
+                return Err(
+                    vm.new_type_error("AnnAssign with simple non-Name target".to_owned())
+                );
+            }
             validate_expr(vm, &assign.target, ast::ExprContext::Store)?;
             if let Some(value) = &assign.value {
                 validate_expr(vm, value, ast::ExprContext::Load)?;
@@ -520,6 +532,9 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
             validate_expr(vm, &assign.annotation, ast::ExprContext::Load)
         }
         ast::Stmt::TypeAlias(alias) => {
+            if !matches!(&*alias.name, ast::Expr::Name(_)) {
+                return Err(vm.new_type_error("TypeAlias with non-Name name".to_owned()));
+            }
             validate_expr(vm, &alias.name, ast::ExprContext::Store)?;
             validate_type_params(vm, &alias.type_params)?;
             validate_expr(vm, &alias.value, ast::ExprContext::Load)
@@ -580,12 +595,26 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 if let Some(cause) = &raise.cause {
                     validate_expr(vm, cause, ast::ExprContext::Load)?;
                 }
+            } else if raise.cause.is_some() {
+                return Err(
+                    vm.new_value_error("Raise with cause but no exception".to_owned())
+                );
             }
             Ok(())
         }
         ast::Stmt::Try(try_stmt) => {
             let owner = if try_stmt.is_star { "TryStar" } else { "Try" };
             validate_body(vm, &try_stmt.body, owner)?;
+            if try_stmt.handlers.is_empty() && try_stmt.finalbody.is_empty() {
+                return Err(vm.new_value_error(format!(
+                    "{owner} has neither except handlers nor finalbody"
+                )));
+            }
+            if try_stmt.handlers.is_empty() && !try_stmt.orelse.is_empty() {
+                return Err(vm.new_value_error(format!(
+                    "{owner} has orelse but no except handlers"
+                )));
+            }
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
                 if let Some(type_expr) = &handler.type_ {
