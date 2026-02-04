@@ -4,7 +4,7 @@ use super::*;
 use crate::builtins::{PyGenericAlias, PyTuple, PyTupleRef, PyTypeRef, make_union};
 use crate::common::ascii;
 use crate::convert::ToPyObject;
-use crate::function::{FuncArgs, PyMethodDef, PyMethodFlags};
+use crate::function::FuncArgs;
 use crate::types::Initializer;
 
 macro_rules! impl_node {
@@ -18,6 +18,69 @@ macro_rules! impl_node {
         #[repr(transparent)]
         $vis struct $name($base);
 
+        impl_base_node!($name, fields: [$($field),*], attributes: [$($attr),*]);
+    };
+    // Without attributes
+    (
+        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
+        $vis:vis struct $name:ident,
+        fields: [$($field:expr),* $(,)?] $(,)?
+    ) => {
+        impl_node!(
+            #[pyclass(module = $_mod, name = $_name, base = $base)]
+            $vis struct $name,
+            fields: [$($field),*],
+            attributes: [],
+        );
+    };
+    // Without fields
+    (
+        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
+        $vis:vis struct $name:ident,
+        attributes: [$($attr:expr),* $(,)?] $(,)?
+    ) => {
+        impl_node!(
+            #[pyclass(module = $_mod, name = $_name, base = $base)]
+            $vis struct $name,
+            fields: [],
+            attributes: [$($attr),*],
+        );
+    };
+    // Without fields and attributes
+    (
+        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
+        $vis:vis struct $name:ident $(,)?
+    ) => {
+        impl_node!(
+            #[pyclass(module = $_mod, name = $_name, base = $base)]
+            $vis struct $name,
+            fields: [],
+            attributes: [],
+        );
+    };
+}
+
+macro_rules! impl_base_node {
+    // Base node without fields/attributes (e.g. NodeMod, NodeExpr)
+    ($name:ident) => {
+        #[pyclass(flags(HAS_DICT, BASETYPE))]
+        impl $name {
+            #[pymethod]
+            fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                super::python::_ast::ast_reduce(zelf, vm)
+            }
+
+            #[pymethod]
+            fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+                super::python::_ast::ast_replace(zelf, args, vm)
+            }
+
+            #[extend_class]
+            fn extend_class(_ctx: &Context, _class: &'static Py<PyType>) {}
+        }
+    };
+    // Leaf node with fields and attributes
+    ($name:ident, fields: [$($field:expr),*], attributes: [$($attr:expr),*]) => {
         #[pyclass(flags(HAS_DICT, BASETYPE))]
         impl $name {
             #[pymethod]
@@ -67,85 +130,6 @@ macro_rules! impl_node {
                     ctx.intern_str("_field_types"),
                     ctx.new_dict().into(),
                 );
-
-                const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
-                    "__reduce__",
-                    |zelf: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyTupleRef> {
-                        super::python::_ast::ast_reduce(zelf, vm)
-                    },
-                    PyMethodFlags::METHOD,
-                    None,
-                );
-                const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
-                    "__replace__",
-                    |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                        super::python::_ast::ast_replace(zelf, args, vm)
-                    },
-                    PyMethodFlags::METHOD,
-                    None,
-                );
-                class.set_str_attr("__reduce__", AST_REDUCE.to_proper_method(class, ctx), ctx);
-                class.set_str_attr(
-                    "__replace__",
-                    AST_REPLACE.to_proper_method(class, ctx),
-                    ctx,
-                );
-            }
-        }
-
-    };
-    // Without attributes
-    (
-        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
-        $vis:vis struct $name:ident,
-        fields: [$($field:expr),* $(,)?] $(,)?
-    ) => {
-        impl_node!(
-            #[pyclass(module = $_mod, name = $_name, base = $base)]
-            $vis struct $name,
-            fields: [$($field),*],
-            attributes: [],
-        );
-    };
-    // Without fields
-    (
-        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
-        $vis:vis struct $name:ident,
-        attributes: [$($attr:expr),* $(,)?] $(,)?
-    ) => {
-        impl_node!(
-            #[pyclass(module = $_mod, name = $_name, base = $base)]
-            $vis struct $name,
-            fields: [],
-            attributes: [$($attr),*],
-        );
-    };
-    // Without fields and attributes
-    (
-        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
-        $vis:vis struct $name:ident $(,)?
-    ) => {
-        impl_node!(
-            #[pyclass(module = $_mod, name = $_name, base = $base)]
-            $vis struct $name,
-            fields: [],
-            attributes: [],
-        );
-    };
-}
-
-macro_rules! impl_base_node {
-    ($name:ident) => {
-        #[pyclass(flags(HAS_DICT, BASETYPE))]
-        impl $name {
-            #[pymethod]
-            fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-                super::python::_ast::ast_reduce(zelf, vm)
-            }
-
-            #[pymethod]
-            fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-                super::python::_ast::ast_replace(zelf, args, vm)
             }
         }
     };

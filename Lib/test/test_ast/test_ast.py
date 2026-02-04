@@ -138,7 +138,6 @@ class AST_Tests(unittest.TestCase):
                 with self.subTest(action="compiling", input=i, kind=kind):
                     compile(ast_tree, "?", kind)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got <_ast.TemplateStr object at 0x7e85c34e0>
     def test_ast_validation(self):
         # compile() is the only function that calls PyAST_Validate
         snippets_to_validate = exec_tests + single_tests + eval_tests
@@ -581,7 +580,6 @@ class AST_Tests(unittest.TestCase):
         x = ast.Sub()
         self.assertEqual(x._fields, ())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'but got expr()' not found in 'expected some sort of expr, but got <_ast.expr object at 0x7e911a9a0>'
     def test_invalid_sum(self):
         pos = dict(lineno=2, col_offset=3)
         m = ast.Module([ast.Expr(ast.expr(**pos), **pos)], [])
@@ -1053,7 +1051,6 @@ class AST_Tests(unittest.TestCase):
         for node, attr, source in tests:
             self.assert_none_check(node, attr, source)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; FileNotFoundError: [Errno 2] No such file or directory: '/Users/youknowone/Projects/RustPython/crates/pylib/Lib/test/test_ast/data/ast_repr.txt'
     def test_repr(self) -> None:
         snapshots = AST_REPR_DATA_FILE.read_text().split("\n")
         for test, snapshot in zip(ast_repr_get_test_cases(), snapshots, strict=True):

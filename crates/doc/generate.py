@@ -49,7 +49,7 @@ class DocEntry(typing.NamedTuple):
     def doc(self) -> str:
         assert self.raw_doc is not None
 
-        return re.sub(UNICODE_ESCAPE, r"\\u{\1}", inspect.cleandoc(self.raw_doc))
+        return re.sub(UNICODE_ESCAPE, r"\\u{\1}", self.raw_doc.strip())
 
 
 def is_c_extension(module: types.ModuleType) -> bool:

@@ -15,7 +15,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, VirtualMachine,
     builtins::PyIntRef,
-    builtins::{PyDict, PyModule, PyModuleDef, PyStrRef, PyType},
+    builtins::{PyDict, PyModule, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
     compiler::{CompileError, ParseError},
     convert::ToPyObject,
@@ -520,17 +520,16 @@ fn strip_docstrings(top: &mut ast::Mod) {
 
 #[cfg(feature = "parser")]
 fn strip_docstring_in_body(body: &mut Vec<ast::Stmt>) {
-    if let Some(range) = take_docstring(body) {
-        if body.is_empty() {
-            let pass_range = TextRange::new(
-                range.start(),
-                range.start() + TextSize::from(4),
-            );
-            body.push(ast::Stmt::Pass(ast::StmtPass {
-                node_index: Default::default(),
-                range: pass_range,
-            }));
-        }
+    if let Some(range) = take_docstring(body)
+        && body.is_empty()
+    {
+        let start_offset = range.start();
+        let end_offset = start_offset + TextSize::from(4);
+        let pass_range = TextRange::new(start_offset, end_offset);
+        body.push(ast::Stmt::Pass(ast::StmtPass {
+            node_index: Default::default(),
+            range: pass_range,
+        }));
     }
     for stmt in body {
         match stmt {
@@ -647,30 +646,30 @@ fn fold_expr(expr: &mut ast::Expr) {
     use ast::Expr;
     if let Expr::UnaryOp(unary) = expr {
         fold_expr(&mut unary.operand);
-        if matches!(unary.op, ast::UnaryOp::USub) {
-            if let Expr::NumberLiteral(number_literal) = unary.operand.as_ref() {
-                let number = match &number_literal.value {
-                    ast::Number::Int(value) => {
-                        if *value == ast::Int::ZERO {
-                            Some(ast::Number::Int(ast::Int::ZERO))
-                        } else {
-                            None
-                        }
+        if matches!(unary.op, ast::UnaryOp::USub)
+            && let Expr::NumberLiteral(number_literal) = unary.operand.as_ref()
+        {
+            let number = match &number_literal.value {
+                ast::Number::Int(value) => {
+                    if *value == ast::Int::ZERO {
+                        Some(ast::Number::Int(ast::Int::ZERO))
+                    } else {
+                        None
                     }
-                    ast::Number::Float(value) => Some(ast::Number::Float(-value)),
-                    ast::Number::Complex { real, imag } => Some(ast::Number::Complex {
-                        real: -real,
-                        imag: -imag,
-                    }),
-                };
-                if let Some(number) = number {
-                    *expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
-                        node_index: unary.node_index.clone(),
-                        range: unary.range,
-                        value: number,
-                    });
-                    return;
                 }
+                ast::Number::Float(value) => Some(ast::Number::Float(-value)),
+                ast::Number::Complex { real, imag } => Some(ast::Number::Complex {
+                    real: -real,
+                    imag: -imag,
+                }),
+            };
+            if let Some(number) = number {
+                *expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
+                    node_index: unary.node_index.clone(),
+                    range: unary.range,
+                    value: number,
+                });
+                return;
             }
         }
     }

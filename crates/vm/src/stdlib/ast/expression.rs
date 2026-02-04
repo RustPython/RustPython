@@ -665,7 +665,9 @@ impl Node for ast::ExprGenerator {
             range
         } else {
             TextRange::new(
-                range.start().saturating_sub(ruff_text_size::TextSize::from(1)),
+                range
+                    .start()
+                    .saturating_sub(ruff_text_size::TextSize::from(1)),
                 range.end() + ruff_text_size::TextSize::from(1),
             )
         };

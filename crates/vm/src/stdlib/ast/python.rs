@@ -48,11 +48,7 @@ pub(crate) mod _ast {
             );
 
             class.set_str_attr("__reduce__", AST_REDUCE.to_proper_method(class, ctx), ctx);
-            class.set_str_attr(
-                "__replace__",
-                AST_REPLACE.to_proper_method(class, ctx),
-                ctx,
-            );
+            class.set_str_attr("__replace__", AST_REPLACE.to_proper_method(class, ctx), ctx);
             class.slots.repr.store(Some(ast_repr));
         }
 
@@ -440,9 +436,11 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
     ) -> PyResult<()> {
         __module_exec(vm, module);
         super::super::pyast::extend_module_nodes(vm, module);
-        module.set_attr("_module_exec_ran", vm.ctx.new_bool(true), vm)?;
 
-        let ast_type = module.get_attr("AST", vm)?.downcast::<PyType>()?;
+        let ast_type = module
+            .get_attr("AST", vm)?
+            .downcast::<PyType>()
+            .map_err(|_| vm.new_type_error("AST is not a type".to_owned()))?;
         let ctx = &vm.ctx;
         let empty_tuple = ctx.empty_tuple.clone();
         ast_type.set_str_attr("_fields", empty_tuple.clone(), ctx);
@@ -465,34 +463,53 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
             PyMethodFlags::METHOD,
             None,
         );
-        ast_type.set_attr(
-            identifier!(ctx, __reduce__),
-            AST_REDUCE.to_proper_method(&ast_type, ctx),
+        let base_type = NodeAst::static_type();
+        ast_type.set_str_attr(
+            "__reduce__",
+            AST_REDUCE.to_proper_method(base_type, ctx),
+            ctx,
         );
-        ast_type.set_attr(
-            identifier!(ctx, __replace__),
-            AST_REPLACE.to_proper_method(&ast_type, ctx),
+        ast_type.set_str_attr(
+            "__replace__",
+            AST_REPLACE.to_proper_method(base_type, ctx),
+            ctx,
         );
         ast_type.slots.repr.store(Some(ast_repr));
 
+        const EXPR_DOC: &str = "expr = BoolOp(boolop op, expr* values)\n\
+     | NamedExpr(expr target, expr value)\n\
+     | BinOp(expr left, operator op, expr right)\n\
+     | UnaryOp(unaryop op, expr operand)\n\
+     | Lambda(arguments args, expr body)\n\
+     | IfExp(expr test, expr body, expr orelse)\n\
+     | Dict(expr?* keys, expr* values)\n\
+     | Set(expr* elts)\n\
+     | ListComp(expr elt, comprehension* generators)\n\
+     | SetComp(expr elt, comprehension* generators)\n\
+     | DictComp(expr key, expr value, comprehension* generators)\n\
+     | GeneratorExp(expr elt, comprehension* generators)\n\
+     | Await(expr value)\n\
+     | Yield(expr? value)\n\
+     | YieldFrom(expr value)\n\
+     | Compare(expr left, cmpop* ops, expr* comparators)\n\
+     | Call(expr func, expr* args, keyword* keywords)\n\
+     | FormattedValue(expr value, int conversion, expr? format_spec)\n\
+     | Interpolation(expr value, constant str, int conversion, expr? format_spec)\n\
+     | JoinedStr(expr* values)\n\
+     | TemplateStr(expr* values)\n\
+     | Constant(constant value, string? kind)\n\
+     | Attribute(expr value, identifier attr, expr_context ctx)\n\
+     | Subscript(expr value, expr slice, expr_context ctx)\n\
+     | Starred(expr value, expr_context ctx)\n\
+     | Name(identifier id, expr_context ctx)\n\
+     | List(expr* elts, expr_context ctx)\n\
+     | Tuple(expr* elts, expr_context ctx)\n\
+     | Slice(expr? lower, expr? upper, expr? step)";
         let expr_type = super::super::pyast::NodeExpr::static_type();
-        if let Ok(doc) = expr_type.get_attr("__doc__", vm) {
-            if let Ok(doc) = doc.downcast::<crate::builtins::PyStr>() {
-                let updated = doc
-                    .as_str()
-                    .split('\n')
-                    .map(|line| {
-                        if line.starts_with('|') {
-                            format!("     {line}")
-                        } else {
-                            line.to_string()
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                expr_type.set_attr("__doc__", vm.ctx.new_str(updated).into());
-            }
-        }
+        expr_type.set_attr(
+            identifier!(vm.ctx, __doc__),
+            vm.ctx.new_str(EXPR_DOC).into(),
+        );
         Ok(())
     }
 }
