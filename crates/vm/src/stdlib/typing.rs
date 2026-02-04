@@ -1,5 +1,8 @@
 // spell-checker:ignore typevarobject funcobj
-use crate::{Context, class::PyClassImpl};
+use crate::{
+    Context, PyResult, VirtualMachine, builtins::pystr::AsPyStr, class::PyClassImpl,
+    function::IntoFuncArgs,
+};
 
 pub use crate::stdlib::typevar::{
     Generic, ParamSpec, ParamSpecArgs, ParamSpecKwargs, TypeVar, TypeVarTuple,
@@ -13,25 +16,25 @@ pub fn init(ctx: &Context) {
     NoDefault::extend_class(ctx, ctx.types.typing_no_default_type);
 }
 
+pub fn call_typing_func_object<'a>(
+    vm: &VirtualMachine,
+    func_name: impl AsPyStr<'a>,
+    args: impl IntoFuncArgs,
+) -> PyResult {
+    let module = vm.import("typing", 0)?;
+    let func = module.get_attr(func_name.as_pystr(&vm.ctx), vm)?;
+    func.call(args, vm)
+}
+
 #[pymodule(name = "_typing", with(super::typevar::typevar))]
 pub(crate) mod decl {
     use crate::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTupleRef, PyType, PyTypeRef, pystr::AsPyStr, type_},
-        function::{FuncArgs, IntoFuncArgs},
+        builtins::{PyStrRef, PyTupleRef, PyType, PyTypeRef, type_},
+        function::FuncArgs,
         protocol::PyNumberMethods,
         types::{AsNumber, Constructor, Representable},
     };
-
-    pub(crate) fn _call_typing_func_object<'a>(
-        vm: &VirtualMachine,
-        func_name: impl AsPyStr<'a>,
-        args: impl IntoFuncArgs,
-    ) -> PyResult {
-        let module = vm.import("typing", 0)?;
-        let func = module.get_attr(func_name.as_pystr(&vm.ctx), vm)?;
-        func.call(args, vm)
-    }
 
     #[pyfunction]
     pub(crate) fn _idfunc(args: FuncArgs, _vm: &VirtualMachine) -> PyObjectRef {
