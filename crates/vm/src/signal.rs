@@ -1,6 +1,8 @@
 #![cfg_attr(target_os = "wasi", allow(dead_code))]
 use crate::{PyResult, VirtualMachine};
 use alloc::fmt;
+#[cfg(windows)]
+use core::sync::atomic::AtomicIsize;
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::cell::Cell;
 use std::sync::mpsc;
@@ -11,6 +13,9 @@ static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
 #[allow(clippy::declare_interior_mutable_const)]
 const ATOMIC_FALSE: AtomicBool = AtomicBool::new(false);
 pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
+
+#[cfg(windows)]
+static SIGINT_EVENT: AtomicIsize = AtomicIsize::new(0);
 
 thread_local! {
     /// Prevent recursive signal handler invocation. When a Python signal
@@ -149,4 +154,15 @@ impl fmt::Display for UserSignalSendError {
 pub fn user_signal_channel() -> (UserSignalSender, UserSignalReceiver) {
     let (tx, rx) = mpsc::channel();
     (UserSignalSender { tx }, UserSignalReceiver { rx })
+}
+
+#[cfg(windows)]
+pub fn set_sigint_event(handle: isize) {
+    SIGINT_EVENT.store(handle, Ordering::Release);
+}
+
+#[cfg(windows)]
+pub fn get_sigint_event() -> Option<isize> {
+    let handle = SIGINT_EVENT.load(Ordering::Acquire);
+    if handle == 0 { None } else { Some(handle) }
 }
