@@ -722,7 +722,6 @@ class CommandLineTestsBase:
         self.assertCompiled(spamfn)
         self.assertCompiled(eggfn)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON hangs')
     @os_helper.skip_unless_symlink
     def test_symlink_loop(self):
         # Currently, compileall ignores symlinks to directories.

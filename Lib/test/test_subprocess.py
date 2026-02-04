@@ -4,6 +4,7 @@ from test import support
 from test.support import check_sanitizer
 from test.support import import_helper
 from test.support import os_helper
+from test.support import strace_helper
 from test.support import warnings_helper
 from test.support.script_helper import assert_python_ok
 import subprocess
@@ -1288,7 +1289,7 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual("line1\nline2\nline3\nline4\nline5\n", stdout)
         # Python debug build push something like "[42442 refs]\n"
         # to stderr at exit of subprocess.
-        self.assertTrue(stderr.startswith("eline2\neline6\neline7\n"))
+        self.assertStartsWith(stderr, "eline2\neline6\neline7\n")
 
     def test_universal_newlines_communicate_encodings(self):
         # Check that universal newlines mode works for various encodings,
@@ -1620,7 +1621,7 @@ class ProcessTestCase(BaseTestCase):
                 "[sys.executable, '-c', 'print(\"Hello World!\")'])",
             'assert retcode == 0'))
         output = subprocess.check_output([sys.executable, '-c', code])
-        self.assertTrue(output.startswith(b'Hello World!'), ascii(output))
+        self.assertStartsWith(output, b'Hello World!')
 
     def test_handles_closed_on_exception(self):
         # If CreateProcess exits with an error, ensure the
@@ -1784,7 +1785,7 @@ print()
             self.assertEqual(
                     proc.returncode, 0,
                     msg=f"STDERR:\n{stderr}\nSTDOUT:\n{stdout}")
-            self.assertTrue(stdout.startswith("spam"), msg=stdout)
+            self.assertStartsWith(stdout, "spam")
             self.assertIn("beans", stdout)
 
 
@@ -1902,7 +1903,7 @@ class RunFuncTestCase(BaseTestCase):
         res = subprocess.run(args)
         self.assertEqual(res.returncode, 57)
 
-    @unittest.skipIf(mswindows, 'TODO: RUSTPYTHON; Flakey')
+    @unittest.skipIf(mswindows, 'TODO: RUSTPYTHON; empty env block fails nondeterministically')
     @unittest.skipUnless(mswindows, "Maybe test trigger a leak on Ubuntu")
     def test_run_with_an_empty_env(self):
         # gh-105436: fix subprocess.run(..., env={}) broken on Windows
@@ -1980,8 +1981,8 @@ class RunFuncTestCase(BaseTestCase):
                             capture_output=True)
         lines = cp.stderr.splitlines()
         self.assertEqual(len(lines), 2, lines)
-        self.assertTrue(lines[0].startswith(b"<string>:2: EncodingWarning: "))
-        self.assertTrue(lines[1].startswith(b"<string>:3: EncodingWarning: "))
+        self.assertStartsWith(lines[0], b"<string>:2: EncodingWarning: ")
+        self.assertStartsWith(lines[1], b"<string>:3: EncodingWarning: ")
 
 
 def _get_test_grp_name():
@@ -2314,7 +2315,7 @@ class POSIXProcessTestCase(BaseTestCase):
                                       extra_groups=[name_group])
 
     # No skip necessary, this test won't make it to a setgroup() call.
-    @unittest.skip('TODO: RUSTPYTHON; clarify failure condition')
+    @unittest.skip("TODO: RUSTPYTHON; clarify failure condition")
     def test_extra_groups_invalid_gid_t_values(self):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, extra_groups=[-1])
@@ -3011,7 +3012,7 @@ class POSIXProcessTestCase(BaseTestCase):
         p1.stdout.close()
         p2.stdout.close()
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_close_fds(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")
 
@@ -3143,7 +3144,7 @@ class POSIXProcessTestCase(BaseTestCase):
     # descriptor of a pipe closed in the parent process is valid in the
     # child process according to fstat(), but the mode of the file
     # descriptor is invalid, and read or write raise an error.
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @support.requires_mac_ver(10, 5)
     def test_pass_fds(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")
@@ -3440,7 +3441,7 @@ class POSIXProcessTestCase(BaseTestCase):
                         1, 2, 3, 4,
                         True, True, 0,
                         None, None, None, -1,
-                        None, True)
+                        None)
                 self.assertIn('fds_to_keep', str(c.exception))
         finally:
             if not gc_enabled:
@@ -3556,7 +3557,7 @@ class POSIXProcessTestCase(BaseTestCase):
             except subprocess.TimeoutExpired:
                 pass
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'preexec_fn not supported at interpreter shutdown' not found in b"Exception ignored in: <function AtFinalization.__del__ at 0xa92f93840>\nAttributeError: 'NoneType' object has no attribute 'Popen'\n"
     def test_preexec_at_exit(self):
         code = f"""if 1:
         import atexit
@@ -3578,26 +3579,7 @@ class POSIXProcessTestCase(BaseTestCase):
 
     @unittest.skipIf(not sysconfig.get_config_var("HAVE_VFORK"),
                      "vfork() not enabled by configure.")
-    @mock.patch("subprocess._fork_exec")
-    @mock.patch("subprocess._USE_POSIX_SPAWN", new=False)
-    def test__use_vfork(self, mock_fork_exec):
-        self.assertTrue(subprocess._USE_VFORK)  # The default value regardless.
-        mock_fork_exec.side_effect = RuntimeError("just testing args")
-        with self.assertRaises(RuntimeError):
-            subprocess.run([sys.executable, "-c", "pass"])
-        mock_fork_exec.assert_called_once()
-        # NOTE: These assertions are *ugly* as they require the last arg
-        # to remain the have_vfork boolean. We really need to refactor away
-        # from the giant "wall of args" internal C extension API.
-        self.assertTrue(mock_fork_exec.call_args.args[-1])
-        with mock.patch.object(subprocess, '_USE_VFORK', False):
-            with self.assertRaises(RuntimeError):
-                subprocess.run([sys.executable, "-c", "pass"])
-            self.assertFalse(mock_fork_exec.call_args_list[-1].args[-1])
-
-    @unittest.skipIf(not sysconfig.get_config_var("HAVE_VFORK"),
-                     "vfork() not enabled by configure.")
-    @unittest.skipIf(sys.platform != "linux", "Linux only, requires strace.")
+    @strace_helper.requires_strace()
     @mock.patch("subprocess._USE_POSIX_SPAWN", new=False)
     def test_vfork_used_when_expected(self):
         # This is a performance regression test to ensure we default to using
@@ -3605,52 +3587,39 @@ class POSIXProcessTestCase(BaseTestCase):
         # Technically this test could pass when posix_spawn is used as well
         # because libc tends to implement that internally using vfork. But
         # that'd just be testing a libc+kernel implementation detail.
-        strace_binary = "/usr/bin/strace"
-        # The only system calls we are interested in.
-        strace_filter = "--trace=clone,clone2,clone3,fork,vfork,exit,exit_group"
-        true_binary = "/bin/true"
-        strace_command = [strace_binary, strace_filter]
 
-        try:
-            does_strace_work_process = subprocess.run(
-                    strace_command + [true_binary],
-                    stderr=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-            )
-            rc = does_strace_work_process.returncode
-            stderr = does_strace_work_process.stderr
-        except OSError:
-            rc = -1
-            stderr = ""
-        if rc or (b"+++ exited with 0 +++" not in stderr):
-            self.skipTest("strace not found or not working as expected.")
+        # Are intersted in the system calls:
+        # clone,clone2,clone3,fork,vfork,exit,exit_group
+        # Unfortunately using `--trace` with that list to strace fails because
+        # not all are supported on all platforms (ex. clone2 is ia64 only...)
+        # So instead use `%process` which is recommended by strace, and contains
+        # the above.
+        true_binary = "/bin/true"
+        strace_args = ["--trace=%process"]
 
         with self.subTest(name="default_is_vfork"):
-            vfork_result = assert_python_ok(
-                    "-c",
-                    textwrap.dedent(f"""\
-                    import subprocess
-                    subprocess.check_call([{true_binary!r}])"""),
-                    __run_using_command=strace_command,
+            vfork_result = strace_helper.strace_python(
+                f"""\
+                import subprocess
+                subprocess.check_call([{true_binary!r}])""",
+                strace_args
             )
             # Match both vfork() and clone(..., flags=...|CLONE_VFORK|...)
-            self.assertRegex(vfork_result.err, br"(?i)vfork")
+            self.assertRegex(vfork_result.event_bytes, br"(?i)vfork")
             # Do NOT check that fork() or other clones did not happen.
             # If the OS denys the vfork it'll fallback to plain fork().
 
         # Test that each individual thing that would disable the use of vfork
         # actually disables it.
         for sub_name, preamble, sp_kwarg, expect_permission_error in (
-                ("!use_vfork", "subprocess._USE_VFORK = False", "", False),
                 ("preexec", "", "preexec_fn=lambda: None", False),
                 ("setgid", "", f"group={os.getgid()}", True),
                 ("setuid", "", f"user={os.getuid()}", True),
                 ("setgroups", "", "extra_groups=[]", True),
         ):
             with self.subTest(name=sub_name):
-                non_vfork_result = assert_python_ok(
-                    "-c",
-                    textwrap.dedent(f"""\
+                non_vfork_result = strace_helper.strace_python(
+                    f"""\
                     import subprocess
                     {preamble}
                     try:
@@ -3658,11 +3627,11 @@ class POSIXProcessTestCase(BaseTestCase):
                                 [{true_binary!r}], **dict({sp_kwarg}))
                     except PermissionError:
                         if not {expect_permission_error}:
-                            raise"""),
-                    __run_using_command=strace_command,
+                            raise""",
+                    strace_args
                 )
                 # Ensure neither vfork() or clone(..., flags=...|CLONE_VFORK|...).
-                self.assertNotRegex(non_vfork_result.err, br"(?i)vfork")
+                self.assertNotRegex(non_vfork_result.event_bytes, br"(?i)vfork")
 
 
 @unittest.skipUnless(mswindows, "Windows specific tests")

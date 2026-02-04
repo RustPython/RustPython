@@ -2663,7 +2663,6 @@ class ConstantTests(unittest.TestCase):
         self.assertEqual(str(cm.exception),
                          "got an invalid type in Constant: list")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; b'' is not b''
     def test_singletons(self):
         for const in (None, False, True, Ellipsis, b''):
             with self.subTest(const=const):

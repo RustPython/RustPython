@@ -1074,7 +1074,6 @@ class PosixTester(unittest.TestCase):
             self.check_chmod_link(posix.chmod, target, link)
         self.check_chmod_link(posix.chmod, target, link, follow_symlinks=True)
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; flaky")
     @os_helper.skip_unless_symlink
     def test_chmod_dir_symlink(self):
         target = self.tempdir()

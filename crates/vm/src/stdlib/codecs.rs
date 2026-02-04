@@ -1,6 +1,8 @@
 pub(crate) use _codecs::module_def;
 
-#[pymodule]
+use crate::common::static_cell::StaticCell;
+
+#[pymodule(with(#[cfg(windows)] _codecs_windows))]
 mod _codecs {
     use crate::codecs::{ErrorsHandler, PyDecodeContext, PyEncodeContext};
     use crate::common::encodings;
@@ -202,28 +204,136 @@ mod _codecs {
 
     // TODO: implement these codecs in Rust!
 
-    use crate::common::static_cell::StaticCell;
-    #[inline]
-    fn delegate_pycodecs(
-        cell: &'static StaticCell<PyObjectRef>,
-        name: &'static str,
-        args: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let f = cell.get_or_try_init(|| {
-            let module = vm.import("_pycodecs", 0)?;
-            module.get_attr(name, vm)
-        })?;
-        f.call(args, vm)
-    }
     macro_rules! delegate_pycodecs {
         ($name:ident, $args:ident, $vm:ident) => {{
             rustpython_common::static_cell!(
                 static FUNC: PyObjectRef;
             );
-            delegate_pycodecs(&FUNC, stringify!($name), $args, $vm)
+            super::delegate_pycodecs(&FUNC, stringify!($name), $args, $vm)
         }};
     }
+
+    #[pyfunction]
+    fn readbuffer_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(readbuffer_encode, args, vm)
+    }
+    #[pyfunction]
+    fn escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(escape_encode, args, vm)
+    }
+    #[pyfunction]
+    fn escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(escape_decode, args, vm)
+    }
+    #[pyfunction]
+    fn unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(unicode_escape_encode, args, vm)
+    }
+    #[pyfunction]
+    fn unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(unicode_escape_decode, args, vm)
+    }
+    #[pyfunction]
+    fn raw_unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(raw_unicode_escape_encode, args, vm)
+    }
+    #[pyfunction]
+    fn raw_unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(raw_unicode_escape_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_7_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_7_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_7_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_7_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_decode, args, vm)
+    }
+    #[pyfunction]
+    fn charmap_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(charmap_encode, args, vm)
+    }
+    #[pyfunction]
+    fn charmap_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(charmap_decode, args, vm)
+    }
+    #[pyfunction]
+    fn charmap_build(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(charmap_build, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_le_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_le_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_be_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_be_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_16_ex_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_16_ex_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_le_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_le_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_be_encode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_be_decode, args, vm)
+    }
+}
+
+#[inline]
+fn delegate_pycodecs(
+    cell: &'static StaticCell<crate::PyObjectRef>,
+    name: &'static str,
+    args: crate::function::FuncArgs,
+    vm: &crate::VirtualMachine,
+) -> crate::PyResult {
+    let f = cell.get_or_try_init(|| {
+        let module = vm.import("_pycodecs", 0)?;
+        module.get_attr(name, vm)
+    })?;
+    f.call(args, vm)
+}
+
+#[cfg(windows)]
+#[pymodule(sub)]
+mod _codecs_windows {
+    use crate::{PyResult, VirtualMachine};
+    use crate::{builtins::PyStrRef, function::ArgBytesLike};
 
     #[cfg(windows)]
     #[derive(FromArgs)]
@@ -313,12 +423,6 @@ mod _codecs {
 
         buffer.truncate(result as usize);
         Ok((buffer, char_len))
-    }
-
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn mbcs_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(mbcs_encode, args, vm)
     }
 
     #[cfg(windows)]
@@ -421,12 +525,6 @@ mod _codecs {
         Ok((s, len))
     }
 
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn mbcs_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(mbcs_decode, args, vm)
-    }
-
     #[cfg(windows)]
     #[derive(FromArgs)]
     struct OemEncodeArgs {
@@ -515,12 +613,6 @@ mod _codecs {
 
         buffer.truncate(result as usize);
         Ok((buffer, char_len))
-    }
-
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn oem_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(oem_encode, args, vm)
     }
 
     #[cfg(windows)]
@@ -623,110 +715,232 @@ mod _codecs {
         Ok((s, len))
     }
 
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn oem_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(oem_decode, args, vm)
+    #[cfg(windows)]
+    #[derive(FromArgs)]
+    struct CodePageEncodeArgs {
+        #[pyarg(positional)]
+        code_page: i32,
+        #[pyarg(positional)]
+        s: PyStrRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyStrRef>,
     }
 
+    #[cfg(windows)]
     #[pyfunction]
-    fn readbuffer_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(readbuffer_encode, args, vm)
+    fn code_page_encode(
+        args: CodePageEncodeArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<u8>, usize)> {
+        use crate::common::windows::ToWideString;
+        use windows_sys::Win32::Globalization::{WC_NO_BEST_FIT_CHARS, WideCharToMultiByte};
+
+        if args.code_page < 0 {
+            return Err(vm.new_value_error("invalid code page number".to_owned()));
+        }
+        let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+        let code_page = args.code_page as u32;
+        let s = match args.s.to_str() {
+            Some(s) => s,
+            None => {
+                return Err(vm.new_unicode_encode_error(format!(
+                    "'cp{code_page}' codec can't encode character: surrogates not allowed"
+                )));
+            }
+        };
+        let char_len = args.s.char_len();
+
+        if s.is_empty() {
+            return Ok((Vec::new(), char_len));
+        }
+
+        let wide: Vec<u16> = std::ffi::OsStr::new(s).to_wide();
+
+        // Some code pages (like UTF-7/8, 50220-50222, etc.) don't support WC_NO_BEST_FIT_CHARS
+        let flags = if code_page == 65000
+            || code_page == 65001
+            || code_page == 42
+            || (50220..=50222).contains(&code_page)
+            || code_page == 50225
+            || code_page == 50227
+            || code_page == 50229
+            || (57002..=57011).contains(&code_page)
+            || code_page == 54936
+        {
+            0
+        } else {
+            WC_NO_BEST_FIT_CHARS
+        };
+
+        let size = unsafe {
+            WideCharToMultiByte(
+                code_page,
+                flags,
+                wide.as_ptr(),
+                wide.len() as i32,
+                std::ptr::null_mut(),
+                0,
+                core::ptr::null(),
+                std::ptr::null_mut(),
+            )
+        };
+
+        if size == 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(vm.new_os_error(format!("code_page_encode failed: {err}")));
+        }
+
+        let mut buffer = vec![0u8; size as usize];
+        let mut used_default_char: i32 = 0;
+
+        let result = unsafe {
+            WideCharToMultiByte(
+                code_page,
+                flags,
+                wide.as_ptr(),
+                wide.len() as i32,
+                buffer.as_mut_ptr().cast(),
+                size,
+                core::ptr::null(),
+                if errors == "strict" && flags != 0 {
+                    &mut used_default_char
+                } else {
+                    std::ptr::null_mut()
+                },
+            )
+        };
+
+        if result == 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(vm.new_os_error(format!("code_page_encode failed: {err}")));
+        }
+
+        if errors == "strict" && used_default_char != 0 {
+            return Err(vm.new_unicode_encode_error(format!(
+                "'cp{code_page}' codec can't encode characters: invalid character"
+            )));
+        }
+
+        buffer.truncate(result as usize);
+        Ok((buffer, char_len))
     }
-    #[pyfunction]
-    fn escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(escape_encode, args, vm)
+
+    #[cfg(windows)]
+    #[derive(FromArgs)]
+    struct CodePageDecodeArgs {
+        #[pyarg(positional)]
+        code_page: i32,
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(positional, optional)]
+        errors: Option<PyStrRef>,
+        #[pyarg(positional, default = false)]
+        #[allow(dead_code)]
+        r#final: bool,
     }
+
+    #[cfg(windows)]
     #[pyfunction]
-    fn escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(unicode_escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(unicode_escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn raw_unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(raw_unicode_escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn raw_unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(raw_unicode_escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_7_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_7_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_7_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_7_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_decode, args, vm)
-    }
-    #[pyfunction]
-    fn charmap_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(charmap_encode, args, vm)
-    }
-    #[pyfunction]
-    fn charmap_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(charmap_decode, args, vm)
-    }
-    #[pyfunction]
-    fn charmap_build(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(charmap_build, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_be_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_be_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_ex_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_ex_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_le_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_le_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_be_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_be_decode, args, vm)
+    fn code_page_decode(
+        args: CodePageDecodeArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(String, usize)> {
+        use windows_sys::Win32::Globalization::{MB_ERR_INVALID_CHARS, MultiByteToWideChar};
+
+        if args.code_page < 0 {
+            return Err(vm.new_value_error("invalid code page number".to_owned()));
+        }
+        let _errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+        let code_page = args.code_page as u32;
+        let data = args.data.borrow_buf();
+        let len = data.len();
+
+        if data.is_empty() {
+            return Ok((String::new(), 0));
+        }
+
+        // Some code pages don't support MB_ERR_INVALID_CHARS
+        let strict_flags = if code_page == 65000
+            || code_page == 42
+            || (50220..=50222).contains(&code_page)
+            || code_page == 50225
+            || code_page == 50227
+            || code_page == 50229
+            || (57002..=57011).contains(&code_page)
+        {
+            0
+        } else {
+            MB_ERR_INVALID_CHARS
+        };
+
+        let size = unsafe {
+            MultiByteToWideChar(
+                code_page,
+                strict_flags,
+                data.as_ptr().cast(),
+                len as i32,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+
+        if size == 0 {
+            let size = unsafe {
+                MultiByteToWideChar(
+                    code_page,
+                    0,
+                    data.as_ptr().cast(),
+                    len as i32,
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
+            if size == 0 {
+                let err = std::io::Error::last_os_error();
+                return Err(vm.new_os_error(format!("code_page_decode failed: {err}")));
+            }
+
+            let mut buffer = vec![0u16; size as usize];
+            let result = unsafe {
+                MultiByteToWideChar(
+                    code_page,
+                    0,
+                    data.as_ptr().cast(),
+                    len as i32,
+                    buffer.as_mut_ptr(),
+                    size,
+                )
+            };
+            if result == 0 {
+                let err = std::io::Error::last_os_error();
+                return Err(vm.new_os_error(format!("code_page_decode failed: {err}")));
+            }
+            buffer.truncate(result as usize);
+            let s = String::from_utf16(&buffer).map_err(|e| {
+                vm.new_unicode_decode_error(format!("code_page_decode failed: {e}"))
+            })?;
+            return Ok((s, len));
+        }
+
+        let mut buffer = vec![0u16; size as usize];
+        let result = unsafe {
+            MultiByteToWideChar(
+                code_page,
+                strict_flags,
+                data.as_ptr().cast(),
+                len as i32,
+                buffer.as_mut_ptr(),
+                size,
+            )
+        };
+        if result == 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(vm.new_os_error(format!("code_page_decode failed: {err}")));
+        }
+        buffer.truncate(result as usize);
+        let s = String::from_utf16(&buffer)
+            .map_err(|e| vm.new_unicode_decode_error(format!("code_page_decode failed: {e}")))?;
+
+        Ok((s, len))
     }
 }

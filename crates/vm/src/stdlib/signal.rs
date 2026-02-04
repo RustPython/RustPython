@@ -682,6 +682,14 @@ pub(crate) mod _signal {
     pub extern "C" fn run_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
+        #[cfg(windows)]
+        if signum == libc::SIGINT
+            && let Some(handle) = signal::get_sigint_event()
+        {
+            unsafe {
+                windows_sys::Win32::System::Threading::SetEvent(handle as _);
+            }
+        }
         let wakeup_fd = WAKEUP.load(Ordering::Relaxed);
         if wakeup_fd != INVALID_WAKEUP {
             let sigbyte = signum as u8;
