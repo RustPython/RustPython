@@ -403,6 +403,14 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
             validate_expr(vm, &await_expr.value, ast::ExprContext::Load)
         }
         ast::Expr::Compare(compare) => {
+            if compare.comparators.is_empty() {
+                return Err(vm.new_value_error("Compare with no comparators".to_owned()));
+            }
+            if compare.comparators.len() != compare.ops.len() {
+                return Err(vm.new_value_error(
+                    "Compare has a different number of comparators and operands".to_owned(),
+                ));
+            }
             validate_exprs(vm, &compare.comparators, ast::ExprContext::Load, false)?;
             validate_expr(vm, &compare.left, ast::ExprContext::Load)
         }

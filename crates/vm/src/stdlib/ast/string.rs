@@ -256,7 +256,7 @@ fn ruff_format_spec_to_joined_str(
             let values: Vec<_> = ruff_fstring_element_into_iter(elements)
                 .map(ruff_fstring_element_to_joined_str_part)
                 .collect();
-            let values = values.into_boxed_slice();
+            let values = normalize_joined_str_parts(values).into_boxed_slice();
             Some(Box::new(JoinedStr { range, values }))
         }
     }
@@ -610,10 +610,19 @@ fn tstring_interpolation_expr_str(
     interpolation_range: TextRange,
     expr_range: TextRange,
 ) -> String {
-    let expr_range =
-        extend_expr_range_with_wrapping_parens(source_file, interpolation_range, expr_range)
-            .unwrap_or(expr_range);
-    let expr_source = source_file.slice(expr_range);
+    let expr_range = extend_expr_range_with_wrapping_parens(
+        source_file,
+        interpolation_range,
+        expr_range,
+    )
+    .unwrap_or(expr_range);
+    let start = interpolation_range.start() + TextSize::from(1);
+    let start = if start > expr_range.end() {
+        expr_range.start()
+    } else {
+        start
+    };
+    let expr_source = source_file.slice(TextRange::new(start, expr_range.end()));
     strip_interpolation_expr(expr_source)
 }
 
@@ -667,10 +676,10 @@ fn strip_interpolation_expr(expr_source: &str) -> String {
     for (idx, ch) in expr_source.char_indices().rev() {
         if ch.is_whitespace() || ch == '=' {
             end = idx;
-        } else {
-            end = idx + ch.len_utf8();
-            break;
+            continue;
         }
+        end = idx + ch.len_utf8();
+        break;
     }
     expr_source[..end].to_owned()
 }
