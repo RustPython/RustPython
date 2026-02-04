@@ -455,7 +455,11 @@ impl Context {
 
     #[inline]
     pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<PyBytes> {
-        PyBytes::from(data).into_ref(self)
+        if data.is_empty() {
+            self.empty_bytes.clone()
+        } else {
+            PyBytes::from(data).into_ref(self)
+        }
     }
 
     #[inline]
