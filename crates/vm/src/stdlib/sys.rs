@@ -1,4 +1,4 @@
-use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
+use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
 
@@ -29,7 +29,7 @@ mod sys_jit {
 #[pymodule]
 mod sys {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
+        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
             PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTupleRef,
             PyTypeRef,
@@ -50,7 +50,7 @@ mod sys {
     use num_traits::ToPrimitive;
     use std::{
         env::{self, VarError},
-        io::Read,
+        io::{Read, Write},
     };
 
     #[cfg(windows)]
@@ -69,6 +69,26 @@ mod sys {
     /// e.g., "x86_64-unknown-linux-gnu" -> "x86_64-linux-gnu"
     pub(crate) fn multiarch() -> String {
         RUST_MULTIARCH.replace("-unknown", "")
+    }
+
+    #[pyclass(no_attr, name = "_BootstrapStderr", module = "sys")]
+    #[derive(Debug, PyPayload)]
+    pub(super) struct BootstrapStderr;
+
+    #[pyclass]
+    impl BootstrapStderr {
+        #[pymethod]
+        fn write(&self, s: PyStrRef) -> PyResult<usize> {
+            let bytes = s.as_bytes();
+            let _ = std::io::stderr().write_all(bytes);
+            Ok(bytes.len())
+        }
+
+        #[pymethod]
+        fn flush(&self) -> PyResult<()> {
+            let _ = std::io::stderr().flush();
+            Ok(())
+        }
     }
 
     #[pyattr(name = "_rustpython_debugbuild")]
@@ -1629,6 +1649,14 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
         "modules" => modules,
         "_jit" => jit_module,
     });
+}
+
+pub(crate) fn set_bootstrap_stderr(vm: &VirtualMachine) -> PyResult<()> {
+    let stderr = sys::BootstrapStderr.into_ref(&vm.ctx);
+    let stderr_obj: crate::PyObjectRef = stderr.into();
+    vm.sys_module.set_attr("stderr", stderr_obj.clone(), vm)?;
+    vm.sys_module.set_attr("__stderr__", stderr_obj, vm)?;
+    Ok(())
 }
 
 /// Similar to PySys_WriteStderr in CPython.

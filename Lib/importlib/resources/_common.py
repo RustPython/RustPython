@@ -77,12 +77,12 @@ def resolve(cand: Optional[Anchor]) -> types.ModuleType:
     return cast(types.ModuleType, cand)
 
 
-@resolve.register(str)  # TODO: RUSTPYTHON; manual type annotation
+@resolve.register
 def _(cand: str) -> types.ModuleType:
     return importlib.import_module(cand)
 
 
-@resolve.register(type(None))  # TODO: RUSTPYTHON; manual type annotation
+@resolve.register
 def _(cand: None) -> types.ModuleType:
     return resolve(_infer_caller().f_globals['__name__'])
 
@@ -183,7 +183,7 @@ def _(path):
 @contextlib.contextmanager
 def _temp_path(dir: tempfile.TemporaryDirectory):
     """
-    Wrap tempfile.TemporyDirectory to return a pathlib object.
+    Wrap tempfile.TemporaryDirectory to return a pathlib object.
     """
     with dir as result:
         yield pathlib.Path(result)

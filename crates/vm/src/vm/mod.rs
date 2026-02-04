@@ -304,6 +304,10 @@ impl VirtualMachine {
 
         stdlib::builtins::init_module(self, &self.builtins);
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
+        self.expect_pyresult(
+            stdlib::sys::set_bootstrap_stderr(self),
+            "failed to initialize bootstrap stderr",
+        );
 
         let mut essential_init = || -> PyResult {
             import::import_builtin(self, "_typing")?;
