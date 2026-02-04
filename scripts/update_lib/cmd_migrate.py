@@ -13,6 +13,7 @@ This will:
 
 import argparse
 import pathlib
+import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
@@ -92,23 +93,29 @@ def patch_directory(
     if lib_dir is None:
         lib_dir = parse_lib_path(src_dir)
 
-    src_files = sorted(src_dir.glob("**/*.py"))
+    src_files = sorted(f for f in src_dir.glob("**/*") if f.is_file())
 
     for src_file in src_files:
         rel_path = src_file.relative_to(src_dir)
         lib_file = lib_dir / rel_path
 
-        if lib_file.exists():
-            if verbose:
-                print(f"Patching: {src_file} -> {lib_file}")
-            content = patch_single_content(src_file, lib_file)
+        if src_file.suffix == ".py":
+            if lib_file.exists():
+                if verbose:
+                    print(f"Patching: {src_file} -> {lib_file}")
+                content = patch_single_content(src_file, lib_file)
+            else:
+                if verbose:
+                    print(f"Copying: {src_file} -> {lib_file}")
+                content = src_file.read_text(encoding="utf-8")
+
+            lib_file.parent.mkdir(parents=True, exist_ok=True)
+            lib_file.write_text(content, encoding="utf-8")
         else:
             if verbose:
                 print(f"Copying: {src_file} -> {lib_file}")
-            content = src_file.read_text(encoding="utf-8")
-
-        lib_file.parent.mkdir(parents=True, exist_ok=True)
-        lib_file.write_text(content, encoding="utf-8")
+            lib_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_file, lib_file)
 
 
 def main(argv: list[str] | None = None) -> int:
