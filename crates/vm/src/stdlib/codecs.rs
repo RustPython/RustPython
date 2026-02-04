@@ -11,6 +11,7 @@ mod _codecs {
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyUtf8StrRef},
         codecs,
+        exceptions::cstring_error,
         function::{ArgBytesLike, FuncArgs},
     };
 
@@ -26,6 +27,9 @@ mod _codecs {
 
     #[pyfunction]
     fn lookup(encoding: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+        if encoding.as_str().contains('\0') {
+            return Err(cstring_error(vm));
+        }
         vm.state
             .codec_registry
             .lookup(encoding.as_str(), vm)
@@ -81,6 +85,14 @@ mod _codecs {
 
     #[pyfunction]
     fn lookup_error(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        if name.as_wtf8().as_bytes().contains(&0) {
+            return Err(cstring_error(vm));
+        }
+        if !name.as_wtf8().is_utf8() {
+            return Err(vm.new_unicode_encode_error(
+                "'utf-8' codec can't encode character: surrogates not allowed".to_owned(),
+            ));
+        }
         vm.state.codec_registry.lookup_error(name.as_str(), vm)
     }
 
@@ -288,6 +300,10 @@ mod _codecs {
     #[pyfunction]
     fn utf_16_ex_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         delegate_pycodecs!(utf_16_ex_decode, args, vm)
+    }
+    #[pyfunction]
+    fn utf_32_ex_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        delegate_pycodecs!(utf_32_ex_decode, args, vm)
     }
     #[pyfunction]
     fn utf_32_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
