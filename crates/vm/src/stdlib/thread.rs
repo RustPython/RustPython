@@ -430,6 +430,10 @@ pub(crate) mod _thread {
         // Increment thread count when thread actually starts executing
         vm.state.thread_count.fetch_add(1);
 
+        // Enter EBR critical section for this thread (Coarse-grained pinning)
+        // This ensures GC won't free objects while this thread might access them
+        crate::vm::thread::ensure_pinned();
+
         match func.invoke(args, vm) {
             Ok(_obj) => {}
             Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
@@ -452,6 +456,9 @@ pub(crate) mod _thread {
         // Clean up frame tracking
         crate::vm::thread::cleanup_current_thread_frames(vm);
         vm.state.thread_count.fetch_sub(1);
+
+        // Drop EBR guard when thread exits, allowing epoch advancement
+        crate::vm::thread::drop_guard();
     }
 
     /// Clean up thread-local data for the current thread.

@@ -4856,13 +4856,15 @@ class CMiscIOTest(MiscIOTest):
         else:
             self.assertFalse(err.strip('.!'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; without GC+GIL, finalize_modules clears __main__ globals while daemon threads are still running
+    # TODO: RUSTPYTHON; daemon thread exception during shutdown due to finalizing order change
+    @unittest.expectedFailure
     @threading_helper.requires_working_threading()
     @support.requires_resource('walltime')
     def test_daemon_threads_shutdown_stdout_deadlock(self):
         self.check_daemon_threads_shutdown_deadlock('stdout')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; without GC+GIL, finalize_modules clears __main__ globals while daemon threads are still running
+    # TODO: RUSTPYTHON; daemon thread exception during shutdown due to finalizing order change
+    @unittest.expectedFailure
     @threading_helper.requires_working_threading()
     @support.requires_resource('walltime')
     def test_daemon_threads_shutdown_stderr_deadlock(self):

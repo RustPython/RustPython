@@ -3118,6 +3118,7 @@ dependencies = [
  "ascii",
  "bitflags 2.10.0",
  "cfg-if",
+ "crossbeam-epoch",
  "getrandom 0.3.4",
  "itertools 0.14.0",
  "libc",
