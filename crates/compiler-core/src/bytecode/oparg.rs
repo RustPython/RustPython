@@ -104,14 +104,34 @@ impl OpArgState {
     }
 }
 
+macro_rules! impl_oparg_enum_traits {
+    ($name:ty) => {
+        impl From<$name> for u32 {
+            fn from(value: $name) -> Self {
+                Self::from(u8::from(value))
+            }
+        }
+
+        impl TryFrom<u32> for $name {
+            type Error = $crate::marshal::MarshalError;
+
+            fn try_from(value: u32) -> Result<Self, Self::Error> {
+                u8::try_from(value)
+                    .map_err(|_| Self::Error::InvalidBytecode)
+                    .map(TryInto::try_into)?
+            }
+        }
+    };
+}
+
 /// Oparg values for [`Instruction::ConvertValue`].
 ///
 /// ## See also
 ///
 /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
-#[repr(u32)]
 pub enum ConvertValueOparg {
     /// No conversion.
     ///
@@ -145,6 +165,8 @@ pub enum ConvertValueOparg {
     Ascii = 3,
 }
 
+impl_oparg_enum_traits!(ConvertValueOparg);
+
 impl fmt::Display for ConvertValueOparg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let out = match self {
@@ -162,9 +184,9 @@ impl fmt::Display for ConvertValueOparg {
 impl OpArgType for ConvertValueOparg {}
 
 /// Resume type for the RESUME instruction
+#[repr(u8)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
-#[repr(u32)]
 pub enum ResumeType {
     AtFuncStart = 0,
     AfterYield = 1,
@@ -208,9 +230,9 @@ impl fmt::Display for Label {
 }
 
 /// The kind of Raise that occurred.
+#[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, TryFromPrimitive, IntoPrimitive, Eq)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
-#[repr(u32)]
 pub enum RaiseKind {
     /// Bare `raise` statement with no arguments.
     /// Gets the current exception from VM state (topmost_exception).
@@ -229,12 +251,13 @@ pub enum RaiseKind {
     ReraiseFromStack = 3,
 }
 
+impl_oparg_enum_traits!(RaiseKind);
 impl OpArgType for RaiseKind {}
 
 /// Intrinsic function for CALL_INTRINSIC_1
+#[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
-#[repr(u32)]
 pub enum IntrinsicFunction1 {
     // Invalid = 0,
     Print = 1,
@@ -255,12 +278,13 @@ pub enum IntrinsicFunction1 {
     TypeAlias = 11,
 }
 
+impl_oparg_enum_traits!(IntrinsicFunction1);
 impl OpArgType for IntrinsicFunction1 {}
 
 /// Intrinsic function for CALL_INTRINSIC_2
+#[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
-#[repr(u32)]
 pub enum IntrinsicFunction2 {
     PrepReraiseStar = 1,
     TypeVarWithBound = 2,
@@ -270,6 +294,7 @@ pub enum IntrinsicFunction2 {
     SetTypeparamDefault = 5,
 }
 
+impl_oparg_enum_traits!(IntrinsicFunction2);
 impl OpArgType for IntrinsicFunction2 {}
 
 bitflags! {
@@ -301,10 +326,10 @@ impl From<MakeFunctionFlags> for u32 {
 
 impl OpArgType for MakeFunctionFlags {}
 
-/// The possible comparison operators
+/// The possible comparison operators.
+#[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
-#[repr(u32)]
 pub enum ComparisonOperator {
     // be intentional with bits so that we can do eval_ord with just a bitwise and
     // bits: | Equal | Greater | Less |
@@ -316,6 +341,7 @@ pub enum ComparisonOperator {
     GreaterOrEqual = 0b110,
 }
 
+impl_oparg_enum_traits!(ComparisonOperator);
 impl OpArgType for ComparisonOperator {}
 
 /// The possible Binary operators
@@ -330,7 +356,7 @@ impl OpArgType for ComparisonOperator {}
 ///
 /// See also:
 /// - [_PyEval_BinaryOps](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Python/ceval.c#L316-L343)
-#[repr(u32)]
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
 pub enum BinaryOperator {
@@ -423,6 +449,7 @@ impl BinaryOperator {
     }
 }
 
+impl_oparg_enum_traits!(BinaryOperator);
 impl OpArgType for BinaryOperator {}
 
 impl fmt::Display for BinaryOperator {
@@ -461,7 +488,7 @@ impl fmt::Display for BinaryOperator {
 }
 
 /// Whether or not to invert the operation.
-#[repr(u32)]
+#[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
 pub enum Invert {
@@ -477,10 +504,11 @@ pub enum Invert {
     Yes = 1,
 }
 
+impl_oparg_enum_traits!(Invert);
 impl OpArgType for Invert {}
 
 /// Special method for LOAD_SPECIAL opcode (context managers).
-#[repr(u32)]
+#[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
 pub enum SpecialMethod {
@@ -494,6 +522,7 @@ pub enum SpecialMethod {
     AExit = 3,
 }
 
+impl_oparg_enum_traits!(SpecialMethod);
 impl OpArgType for SpecialMethod {}
 
 impl fmt::Display for SpecialMethod {
@@ -510,7 +539,7 @@ impl fmt::Display for SpecialMethod {
 
 /// Common constants for LOAD_COMMON_CONSTANT opcode.
 /// pycore_opcode_utils.h CONSTANT_*
-#[repr(u32)]
+#[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
 pub enum CommonConstant {
@@ -526,6 +555,7 @@ pub enum CommonConstant {
     BuiltinAny = 4,
 }
 
+impl_oparg_enum_traits!(CommonConstant);
 impl OpArgType for CommonConstant {}
 
 impl fmt::Display for CommonConstant {
@@ -542,7 +572,7 @@ impl fmt::Display for CommonConstant {
 }
 
 /// Specifies if a slice is built with either 2 or 3 arguments.
-#[repr(u32)]
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
 #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
 pub enum BuildSliceArgCount {
@@ -555,6 +585,8 @@ pub enum BuildSliceArgCount {
     /// ```
     Three = 3,
 }
+
+impl_oparg_enum_traits!(BuildSliceArgCount);
 
 impl OpArgType for BuildSliceArgCount {}
 
@@ -594,9 +626,9 @@ impl fmt::Display for UnpackExArgs {
 ///
 /// use rustpython_compiler_core::marshal::MarshalError;
 ///
+/// #[repr(u8)]
 /// #[derive(TryFromPrimitive)]
 /// #[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
-/// #[repr(u8)]
 /// enum Foo {
 ///   A = 1,
 ///   B = 2
