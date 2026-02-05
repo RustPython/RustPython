@@ -355,6 +355,17 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
         settings.warnoptions.push(warn.to_owned());
     }
+    if let Some(val) = get_env("PYTHONWARNINGS")
+        && let Some(val_str) = val.to_str()
+        && !val_str.is_empty()
+    {
+        for warning in val_str.split(',') {
+            let warning = warning.trim();
+            if !warning.is_empty() {
+                settings.warnoptions.push(warning.to_owned());
+            }
+        }
+    }
     settings.warnoptions.extend(args.warning_control);
 
     settings.hash_seed = match (!args.random_hash_seed)

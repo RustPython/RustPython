@@ -224,7 +224,7 @@ fn warn_invalid_escape_sequences_in_format_spec(
                 "\"\\{next}\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\{next}\"? A raw string is also an option."
             ));
             let _ = warn::warn(
-                message,
+                message.into(),
                 Some(vm.ctx.exceptions.syntax_warning.to_owned()),
                 1,
                 None,
