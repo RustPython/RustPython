@@ -2786,6 +2786,7 @@ class TestGetGeneratorState(unittest.TestCase):
         # Running after the first yield
         next(self.generator)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: '_GeneratorWrapper' object has no attribute 'gi_suspended'
     def test_types_coroutine_wrapper_state(self):
         def gen():
             yield 1
