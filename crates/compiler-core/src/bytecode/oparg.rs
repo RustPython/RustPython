@@ -572,21 +572,48 @@ impl fmt::Display for CommonConstant {
 }
 
 /// Specifies if a slice is built with either 2 or 3 arguments.
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
-#[num_enum(error_type(name = MarshalError, constructor = new_invalid_bytecode))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildSliceArgCount {
     /// ```py
     /// x[5:10]
     /// ```
-    Two = 2,
+    Two,
     /// ```py
     /// x[5:10:2]
     /// ```
-    Three = 3,
+    Three,
 }
 
-impl_oparg_enum_traits!(BuildSliceArgCount);
+impl TryFrom<u8> for BuildSliceArgCount {
+    type Error = MarshalError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            2 => Self::Two,
+            3 => Self::Three,
+            _ => return Err(Self::Error::InvalidBytecode),
+        })
+    }
+}
+
+impl TryFrom<u32> for BuildSliceArgCount {
+    type Error = MarshalError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        u8::try_from(value)
+            .map_err(|_| Self::Error::InvalidBytecode)
+            .map(TryInto::try_into)?
+    }
+}
+
+impl From<BuildSliceArgCount> for u32 {
+    fn from(value: BuildSliceArgCount) -> Self {
+        match value {
+            BuildSliceArgCount::Two => 2,
+            BuildSliceArgCount::Three => 3,
+        }
+    }
+}
 
 impl OpArgType for BuildSliceArgCount {}
 
