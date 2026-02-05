@@ -62,40 +62,33 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
         self.assertIs(unpickled2[1], unpickled2[2])
         self.assertNotIn(pickle.BINPUT, pickled2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_buffers_error(self):
         return super().test_buffers_error()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bytearray_memoization(self):
         return super().test_bytearray_memoization()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bytes_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bytes_memoization(self):
         return super().test_bytes_memoization()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_in_band_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_c_methods(self):
+        return super().test_c_methods()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_in_band_buffers(self):
         return super().test_in_band_buffers()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_oob_buffers(self):
         return super().test_oob_buffers()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_oob_buffers_writable_to_readonly(self):
         return super().test_oob_buffers_writable_to_readonly()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_c_methods()
 
 
 class SimpleReader:
@@ -241,7 +234,7 @@ highest protocol among opcodes = 0
     def test_no_mark(self):
         self.check_dis_error(b'Nt.', '''\
     0: N    NONE
-    1: t    TUPLE      no MARK exists on stack
+    1: t    TUPLE
 ''', 'no MARK exists on stack')
 
     def test_put(self):
@@ -256,26 +249,16 @@ highest protocol among opcodes = 4
 ''')
 
     def test_put_redefined(self):
-        self.check_dis_error(b'Np1\np1\n.', '''\
+        self.check_dis(b'Np1\np1\nq\x01r\x01\x00\x00\x00\x94.', '''\
     0: N    NONE
     1: p    PUT        1
     4: p    PUT        1
-''', 'memo key 1 already defined')
-        self.check_dis_error(b'Np1\nq\x01.', '''\
-    0: N    NONE
-    1: p    PUT        1
-    4: q    BINPUT     1
-''', 'memo key 1 already defined')
-        self.check_dis_error(b'Np1\nr\x01\x00\x00\x00.', '''\
-    0: N    NONE
-    1: p    PUT        1
-    4: r    LONG_BINPUT 1
-''', 'memo key 1 already defined')
-        self.check_dis_error(b'Np1\n\x94.', '''\
-    0: N    NONE
-    1: p    PUT        1
-    4: \\x94 MEMOIZE    (as 1)
-''', 'memo key None already defined')
+    7: q    BINPUT     1
+    9: r    LONG_BINPUT 1
+   14: \\x94 MEMOIZE    (as 1)
+   15: .    STOP
+highest protocol among opcodes = 4
+''')
 
     def test_put_empty_stack(self):
         self.check_dis_error(b'p0\n', '''\
@@ -429,13 +412,13 @@ highest protocol among opcodes = 0
         self.check_dis_error(b'Sabc"\n.', '',
                              "no string quotes around b'abc\"'")
         self.check_dis_error(b"S'abc\n.", '',
-                             '''strinq quote b"'" not found at both ends of b"'abc"''')
+                             '''string quote b"'" not found at both ends of b"'abc"''')
         self.check_dis_error(b'S"abc\n.', '',
-                             r"""strinq quote b'"' not found at both ends of b'"abc'""")
+                             r"""string quote b'"' not found at both ends of b'"abc'""")
         self.check_dis_error(b"S'abc\"\n.", '',
-                             r"""strinq quote b"'" not found at both ends of b'\\'abc"'""")
+                             r"""string quote b"'" not found at both ends of b'\\'abc"'""")
         self.check_dis_error(b"S\"abc'\n.", '',
-                             r"""strinq quote b'"' not found at both ends of b'"abc\\''""")
+                             r"""string quote b'"' not found at both ends of b'"abc\\''""")
 
     def test_binstring(self):
         self.check_dis(b"T\x03\x00\x00\x00abc.", '''\
@@ -488,6 +471,44 @@ highest protocol among opcodes = 0
 highest protocol among opcodes = 0
 ''')
 
+    def test_constants(self):
+        self.check_dis(b"(NI00\nI01\n\x89\x88t.", '''\
+    0: (    MARK
+    1: N        NONE
+    2: I        INT        False
+    6: I        INT        True
+   10: \\x89     NEWFALSE
+   11: \\x88     NEWTRUE
+   12: t        TUPLE      (MARK at 0)
+   13: .    STOP
+highest protocol among opcodes = 2
+''')
+
+    def test_integers(self):
+        self.check_dis(b"(I0\nI1\nI10\nI011\nL12\nL13L\nL014\nL015L\nt.", '''\
+    0: (    MARK
+    1: I        INT        0
+    4: I        INT        1
+    7: I        INT        10
+   11: I        INT        11
+   16: L        LONG       12
+   20: L        LONG       13
+   25: L        LONG       14
+   30: L        LONG       15
+   36: t        TUPLE      (MARK at 0)
+   37: .    STOP
+highest protocol among opcodes = 0
+''')
+
+    def test_nondecimal_integers(self):
+        self.check_dis_error(b'I0b10\n.', '', 'invalid literal for int')
+        self.check_dis_error(b'I0o10\n.', '', 'invalid literal for int')
+        self.check_dis_error(b'I0x10\n.', '', 'invalid literal for int')
+        self.check_dis_error(b'L0b10L\n.', '', 'invalid literal for int')
+        self.check_dis_error(b'L0o10L\n.', '', 'invalid literal for int')
+        self.check_dis_error(b'L0x10L\n.', '', 'invalid literal for int')
+
+
 class MiscTestCase(unittest.TestCase):
     def test__all__(self):
         not_exported = {
@@ -522,8 +543,8 @@ class MiscTestCase(unittest.TestCase):
 
 
 def load_tests(loader, tests, pattern):
-    # TODO: RUSTPYTHON
-    # tests.addTest(doctest.DocTestSuite(pickletools))
+    from test.support.rustpython import DocTestChecker # TODO: RUSTPYTHON; Remove this
+    tests.addTest(doctest.DocTestSuite(pickletools, checker=DocTestChecker())) # XXX: RUSTPYTHON
     return tests
 
 

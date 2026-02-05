@@ -34,8 +34,7 @@ class PickleBufferTest(unittest.TestCase):
                 self.assertEqual(m.format, expected.format)
                 self.assertEqual(m.tobytes(), expected.tobytes())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constructor_failure(self):
         with self.assertRaises(TypeError):
             PickleBuffer()
@@ -47,8 +46,7 @@ class PickleBufferTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             PickleBuffer(m)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_basics(self):
         pb = PickleBuffer(b"foo")
         self.assertEqual(b"foo", bytes(pb))
@@ -62,8 +60,7 @@ class PickleBufferTest(unittest.TestCase):
             m[0] = 48
         self.assertEqual(b"0oo", bytes(pb))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_release(self):
         pb = PickleBuffer(b"foo")
         pb.release()
@@ -74,8 +71,7 @@ class PickleBufferTest(unittest.TestCase):
         # Idempotency
         pb.release()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cycle(self):
         b = B(b"foo")
         pb = PickleBuffer(b)
@@ -85,8 +81,7 @@ class PickleBufferTest(unittest.TestCase):
         gc.collect()
         self.assertIsNone(wpb())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ndarray_2d(self):
         # C-contiguous
         ndarray = import_helper.import_module("_testbuffer").ndarray
@@ -110,23 +105,20 @@ class PickleBufferTest(unittest.TestCase):
 
     # Tests for PickleBuffer.raw()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def check_raw(self, obj, equiv):
         pb = PickleBuffer(obj)
         with pb.raw() as m:
             self.assertIsInstance(m, memoryview)
             self.check_memoryview(m, equiv)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_raw(self):
         for obj in (b"foo", bytearray(b"foo")):
             with self.subTest(obj=obj):
                 self.check_raw(obj, obj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_raw_ndarray(self):
         # 1-D, contiguous
         ndarray = import_helper.import_module("_testbuffer").ndarray
@@ -148,15 +140,13 @@ class PickleBufferTest(unittest.TestCase):
         equiv = b'\xc8\x01\x00\x00'
         self.check_raw(arr, equiv)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def check_raw_non_contiguous(self, obj):
         pb = PickleBuffer(obj)
         with self.assertRaisesRegex(BufferError, "non-contiguous"):
             pb.raw()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_raw_non_contiguous(self):
         # 1-D
         ndarray = import_helper.import_module("_testbuffer").ndarray
@@ -166,8 +156,7 @@ class PickleBufferTest(unittest.TestCase):
         arr = ndarray(list(range(12)), shape=(4, 3), format='<i')[::2]
         self.check_raw_non_contiguous(arr)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_raw_released(self):
         pb = PickleBuffer(b"foo")
         pb.release()
