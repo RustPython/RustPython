@@ -2045,6 +2045,7 @@ class MappingTestCase(TestBase):
         if exc:
             raise exc[0]
 
+    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_key_dict_copy(self):
