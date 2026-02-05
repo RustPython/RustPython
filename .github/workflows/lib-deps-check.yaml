@@ -4,11 +4,14 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened]
     paths:
-      - 'Lib/**'
+      - "Lib/**"
 
 concurrency:
   group: lib-deps-${{ github.event.pull_request.number }}
   cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.14.3"
 
 jobs:
   check_deps:
@@ -35,7 +38,7 @@ jobs:
 
       - name: Checkout CPython
         run: |
-          git clone --depth 1 --branch v3.14.2 https://github.com/python/cpython.git cpython
+          git clone --depth 1 --branch "v${{ env.PYTHON_VERSION }}" https://github.com/python/cpython.git cpython
 
       - name: Get changed Lib files
         id: changed-files
@@ -72,7 +75,7 @@ jobs:
         if: steps.changed-files.outputs.modules != ''
         uses: actions/setup-python@v6.2.0
         with:
-          python-version: "3.12"
+          python-version: "${{ env.PYTHON_VERSION }}"
 
       - name: Run deps check
         if: steps.changed-files.outputs.modules != ''
