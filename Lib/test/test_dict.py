@@ -3,12 +3,22 @@ import collections.abc
 import gc
 import pickle
 import random
+import re
 import string
 import sys
 import unittest
 import weakref
 from test import support
-from test.support import import_helper, get_c_recursion_limit
+from test.support import import_helper
+
+
+class CustomHash:
+    def __init__(self, hash):
+        self.hash = hash
+    def __hash__(self):
+        return self.hash
+    def __repr__(self):
+        return f'<CustomHash {self.hash} at {id(self):#x}>'
 
 
 class DictTest(unittest.TestCase):
@@ -264,6 +274,64 @@ class DictTest(unittest.TestCase):
         self.assertRaises(Exc, {}.update, badseq())
 
         self.assertRaises(ValueError, {}.update, [(1, 2, 3)])
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_update_type_error(self):
+        with self.assertRaises(TypeError) as cm:
+            {}.update([object() for _ in range(3)])
+
+        self.assertEqual(str(cm.exception), "object is not iterable")
+        self.assertEqual(
+            cm.exception.__notes__,
+            ['Cannot convert dictionary update sequence element #0 to a sequence'],
+        )
+
+        def badgen():
+            yield "key"
+            raise TypeError("oops")
+            yield "value"
+
+        with self.assertRaises(TypeError) as cm:
+            dict([badgen() for _ in range(3)])
+
+        self.assertEqual(str(cm.exception), "oops")
+        self.assertEqual(
+            cm.exception.__notes__,
+            ['Cannot convert dictionary update sequence element #0 to a sequence'],
+        )
+
+    def test_update_shared_keys(self):
+        class MyClass: pass
+
+        # Subclass str to enable us to create an object during the
+        # dict.update() call.
+        class MyStr(str):
+            def __hash__(self):
+                return super().__hash__()
+
+            def __eq__(self, other):
+                # Create an object that shares the same PyDictKeysObject as
+                # obj.__dict__.
+                obj2 = MyClass()
+                obj2.a = "a"
+                obj2.b = "b"
+                obj2.c = "c"
+                return super().__eq__(other)
+
+        obj = MyClass()
+        obj.a = "a"
+        obj.b = "b"
+
+        x = {}
+        x[MyStr("a")] = MyStr("a")
+
+        # gh-132617: this previously raised "dict mutated during update" error
+        x.update(obj.__dict__)
+
+        self.assertEqual(x, {
+            MyStr("a"): "a",
+            "b": "b",
+        })
 
     def test_fromkeys(self):
         self.assertEqual(dict.fromkeys('abc'), {'a':None, 'b':None, 'c':None})
@@ -611,9 +679,12 @@ class DictTest(unittest.TestCase):
         d = {1: BadRepr()}
         self.assertRaises(Exc, repr, d)
 
+    @unittest.skip("TODO: RUSTPYTHON; segfault")
+    @support.skip_wasi_stack_overflow()
+    @support.skip_emscripten_stack_overflow()
     def test_repr_deep(self):
         d = {}
-        for i in range(get_c_recursion_limit() + 1):
+        for i in range(support.exceeds_recursion_limit()):
             d = {1: d}
         self.assertRaises(RecursionError, repr, d)
 
@@ -759,8 +830,8 @@ class DictTest(unittest.TestCase):
 
     def test_missing(self):
         # Make sure dict doesn't have a __missing__ method
-        self.assertFalse(hasattr(dict, "__missing__"))
-        self.assertFalse(hasattr({}, "__missing__"))
+        self.assertNotHasAttr(dict, "__missing__")
+        self.assertNotHasAttr({}, "__missing__")
         # Test several cases:
         # (D) subclass defines __missing__ method returning a value
         # (E) subclass defines __missing__ method raising RuntimeError
@@ -881,8 +952,7 @@ class DictTest(unittest.TestCase):
                  'f': None, 'g': None, 'h': None}
         d = {}
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_container_iterator(self):
         # Bug #3680: tp_traverse was not implemented for dictiter and
         # dictview objects.
@@ -898,127 +968,6 @@ class DictTest(unittest.TestCase):
             del obj, container
             gc.collect()
             self.assertIs(ref(), None, "Cycle was not collected")
-
-    def _not_tracked(self, t):
-        # Nested containers can take several collections to untrack
-        gc.collect()
-        gc.collect()
-        self.assertFalse(gc.is_tracked(t), t)
-
-    def _tracked(self, t):
-        self.assertTrue(gc.is_tracked(t), t)
-        gc.collect()
-        gc.collect()
-        self.assertTrue(gc.is_tracked(t), t)
-
-    def test_string_keys_can_track_values(self):
-        # Test that this doesn't leak.
-        for i in range(10):
-            d = {}
-            for j in range(10):
-                d[str(j)] = j
-            d["foo"] = d
-
-    @support.cpython_only
-    def test_track_literals(self):
-        # Test GC-optimization of dict literals
-        x, y, z, w = 1.5, "a", (1, None), []
-
-        self._not_tracked({})
-        self._not_tracked({x:(), y:x, z:1})
-        self._not_tracked({1: "a", "b": 2})
-        self._not_tracked({1: 2, (None, True, False, ()): int})
-        self._not_tracked({1: object()})
-
-        # Dicts with mutable elements are always tracked, even if those
-        # elements are not tracked right now.
-        self._tracked({1: []})
-        self._tracked({1: ([],)})
-        self._tracked({1: {}})
-        self._tracked({1: set()})
-
-    @support.cpython_only
-    def test_track_dynamic(self):
-        # Test GC-optimization of dynamically-created dicts
-        class MyObject(object):
-            pass
-        x, y, z, w, o = 1.5, "a", (1, object()), [], MyObject()
-
-        d = dict()
-        self._not_tracked(d)
-        d[1] = "a"
-        self._not_tracked(d)
-        d[y] = 2
-        self._not_tracked(d)
-        d[z] = 3
-        self._not_tracked(d)
-        self._not_tracked(d.copy())
-        d[4] = w
-        self._tracked(d)
-        self._tracked(d.copy())
-        d[4] = None
-        self._not_tracked(d)
-        self._not_tracked(d.copy())
-
-        # dd isn't tracked right now, but it may mutate and therefore d
-        # which contains it must be tracked.
-        d = dict()
-        dd = dict()
-        d[1] = dd
-        self._not_tracked(dd)
-        self._tracked(d)
-        dd[1] = d
-        self._tracked(dd)
-
-        d = dict.fromkeys([x, y, z])
-        self._not_tracked(d)
-        dd = dict()
-        dd.update(d)
-        self._not_tracked(dd)
-        d = dict.fromkeys([x, y, z, o])
-        self._tracked(d)
-        dd = dict()
-        dd.update(d)
-        self._tracked(dd)
-
-        d = dict(x=x, y=y, z=z)
-        self._not_tracked(d)
-        d = dict(x=x, y=y, z=z, w=w)
-        self._tracked(d)
-        d = dict()
-        d.update(x=x, y=y, z=z)
-        self._not_tracked(d)
-        d.update(w=w)
-        self._tracked(d)
-
-        d = dict([(x, y), (z, 1)])
-        self._not_tracked(d)
-        d = dict([(x, y), (z, w)])
-        self._tracked(d)
-        d = dict()
-        d.update([(x, y), (z, 1)])
-        self._not_tracked(d)
-        d.update([(x, y), (z, w)])
-        self._tracked(d)
-
-    @support.cpython_only
-    def test_track_subtypes(self):
-        # Dict subtypes are always tracked
-        class MyDict(dict):
-            pass
-        self._tracked(MyDict())
-
-    @support.cpython_only
-    def test_track_lazy_instance_dicts(self):
-        class C:
-            pass
-        o = C()
-        d = o.__dict__
-        self._not_tracked(d)
-        o.untracked = 42
-        self._not_tracked(d)
-        o.tracked = []
-        self._tracked(d)
 
     def make_shared_key_dict(self, n):
         class C:
@@ -1310,16 +1259,14 @@ class DictTest(unittest.TestCase):
         d = {X(): 0, 1: 1}
         self.assertRaises(RuntimeError, d.update, other)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, dict)
         support.check_free_after_iterating(self, lambda d: iter(d.keys()), dict)
         support.check_free_after_iterating(self, lambda d: iter(d.values()), dict)
         support.check_free_after_iterating(self, lambda d: iter(d.items()), dict)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_equal_operator_modifying_operand(self):
         # test fix for seg fault reported in bpo-27945 part 3.
         class X():
@@ -1626,6 +1573,118 @@ class DictTest(unittest.TestCase):
                 eq_count = 0
                 self.assertEqual(d.get(key3_3), 44)
                 self.assertGreaterEqual(eq_count, 1)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_unhashable_key(self):
+        d = {'a': 1}
+        key = [1, 2, 3]
+
+        def check_unhashable_key():
+            msg = "cannot use 'list' as a dict key (unhashable type: 'list')"
+            return self.assertRaisesRegex(TypeError, re.escape(msg))
+
+        with check_unhashable_key():
+            key in d
+        with check_unhashable_key():
+            d[key]
+        with check_unhashable_key():
+            d[key] = 2
+        with check_unhashable_key():
+            d.setdefault(key, 2)
+        with check_unhashable_key():
+            d.pop(key)
+        with check_unhashable_key():
+            d.get(key)
+
+        # Only TypeError exception is overriden,
+        # other exceptions are left unchanged.
+        class HashError:
+            def __hash__(self):
+                raise KeyError('error')
+
+        key2 = HashError()
+        with self.assertRaises(KeyError):
+            key2 in d
+        with self.assertRaises(KeyError):
+            d[key2]
+        with self.assertRaises(KeyError):
+            d[key2] = 2
+        with self.assertRaises(KeyError):
+            d.setdefault(key2, 2)
+        with self.assertRaises(KeyError):
+            d.pop(key2)
+        with self.assertRaises(KeyError):
+            d.get(key2)
+
+    def test_clear_at_lookup(self):
+        # gh-140551 dict crash if clear is called at lookup stage
+        class X:
+            def __hash__(self):
+                return 1
+            def __eq__(self, other):
+                nonlocal d
+                d.clear()
+
+        d = {}
+        for _ in range(10):
+            d[X()] = None
+
+        self.assertEqual(len(d), 1)
+
+        d = {}
+        for _ in range(10):
+            d.setdefault(X(), None)
+
+        self.assertEqual(len(d), 1)
+
+    def test_split_table_update_with_str_subclass(self):
+        # gh-142218: inserting into a split table dictionary with a non str
+        # key that matches an existing key.
+        class MyStr(str): pass
+        class MyClass: pass
+        obj = MyClass()
+        obj.attr = 1
+        obj.__dict__[MyStr('attr')] = 2
+        self.assertEqual(obj.attr, 2)
+
+    def test_split_table_insert_with_str_subclass(self):
+        # gh-143189: inserting into split table dictionary with a non str
+        # key that matches an existing key in the shared table but not in
+        # the dict yet.
+
+        class MyStr(str): pass
+        class MyClass: pass
+
+        obj = MyClass()
+        obj.attr1 = 1
+
+        obj2 = MyClass()
+        d = obj2.__dict__
+        d[MyStr("attr1")] = 2
+        self.assertIsInstance(list(d)[0], MyStr)
+
+    def test_hash_collision_remove_add(self):
+        self.maxDiff = None
+        # There should be enough space, so all elements with unique hash
+        # will be placed in corresponding cells without collision.
+        n = 64
+        items = [(CustomHash(h), h) for h in range(n)]
+        # Keys with hash collision.
+        a = CustomHash(n)
+        b = CustomHash(n)
+        items += [(a, 'a'), (b, 'b')]
+        d = dict(items)
+        self.assertEqual(len(d), len(items), d)
+        del d[a]
+        # "a" has been replaced with a dummy.
+        del items[n]
+        self.assertEqual(len(d), len(items), d)
+        self.assertEqual(d, dict(items))
+        d[b] = 'c'
+        # "b" should not replace the dummy.
+        items[n] = (b, 'c')
+        self.assertEqual(len(d), len(items), d)
+        self.assertEqual(d, dict(items))
 
 
 class CAPITest(unittest.TestCase):
