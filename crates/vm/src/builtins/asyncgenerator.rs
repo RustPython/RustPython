@@ -678,29 +678,19 @@ impl PyAnextAwaitable {
         let awaitable = if wrapped.class().is(vm.ctx.types.coroutine_type) {
             // Coroutine - get __await__ later
             wrapped.clone()
-        } else if let Some(generator) = wrapped.downcast_ref::<PyGenerator>() {
-            // Generator with CO_ITERABLE_COROUTINE flag can be awaited
-            // (e.g., generators decorated with @types.coroutine)
-            if generator
-                .as_coro()
-                .frame()
-                .code
-                .flags
-                .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
+        } else {
+            // Check for generator with CO_ITERABLE_COROUTINE flag
+            if let Some(generator) = wrapped.downcast_ref::<PyGenerator>()
+                && generator
+                    .as_coro()
+                    .frame()
+                    .code
+                    .flags
+                    .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             {
                 // Return the generator itself as the iterator
                 return Ok(wrapped.clone());
             }
-            // Fall through: try to get __await__ method for generator subclasses
-            if let Some(await_method) = vm.get_method(wrapped.clone(), identifier!(vm, __await__)) {
-                await_method?.call((), vm)?
-            } else {
-                return Err(vm.new_type_error(format!(
-                    "'{}' object can't be awaited",
-                    wrapped.class().name()
-                )));
-            }
-        } else {
             // Try to get __await__ method
             if let Some(await_method) = vm.get_method(wrapped.clone(), identifier!(vm, __await__)) {
                 await_method?.call((), vm)?

@@ -568,7 +568,6 @@ class TestInterpreterStack(IsTestBase):
         self.assertIn('inspect.stack()', record.code_context[0])
         self.assertEqual(record.index, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_trace(self):
         self.assertEqual(len(git.tr), 3)
         frame1, frame2, frame3, = git.tr

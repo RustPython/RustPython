@@ -88,7 +88,6 @@ class TracebackCases(unittest.TestCase):
     def tokenizer_error_with_caret_range(self):
         compile("blech  (  ", "?", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 11 != 14
     def test_caret(self):
         err = self.get_exception_format(self.syntax_error_with_caret,
                                         SyntaxError)
@@ -201,7 +200,6 @@ class TracebackCases(unittest.TestCase):
         finally:
             unlink(TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 3 != 4
     def test_bad_indentation(self):
         err = self.get_exception_format(self.syntax_error_bad_indentation,
                                         IndentationError)
@@ -1797,7 +1795,6 @@ class TestKeywordTypoSuggestions(unittest.TestCase):
         ("for x im n:\n  pass", "in"),
     ]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keyword_suggestions_from_file(self):
         with tempfile.TemporaryDirectory() as script_dir:
             for i, (code, expected_kw) in enumerate(self.TYPO_CASES):
@@ -1808,7 +1805,6 @@ class TestKeywordTypoSuggestions(unittest.TestCase):
                     stderr_text = stderr.decode('utf-8')
                     self.assertIn(f"Did you mean '{expected_kw}'", stderr_text)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keyword_suggestions_from_command_string(self):
         for code, expected_kw in self.TYPO_CASES:
             with self.subTest(typo=expected_kw):
@@ -3352,7 +3348,6 @@ class MiscTracebackCases(unittest.TestCase):
     # Check non-printing functions in traceback module
     #
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 0
     def test_clear(self):
         def outer():
             middle()
@@ -3574,7 +3569,6 @@ class TestStack(unittest.TestCase):
             f'  File "{__file__}", line {lno}, in f\n    1/0\n'
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: _should_show_carets(13, 14, ['# this line will be used during rendering'], None)
     def test_summary_should_show_carets(self):
         # See: https://github.com/python/cpython/issues/122353
 
@@ -3731,7 +3725,6 @@ class TestTracebackException(unittest.TestCase):
         self.assertEqual(type(exc_obj).__name__, exc.exc_type_str)
         self.assertEqual(str(exc_obj), str(exc))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 11 not greater than 1000
     def test_long_context_chain(self):
         def f():
             try:
@@ -4059,7 +4052,6 @@ class TestTracebackException_ExceptionGroups(unittest.TestCase):
 
         self.assertEqual(formatted, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 2265 characters long. Set self.maxDiff to None to see it.
     def test_exception_group_format(self):
         teg = traceback.TracebackException.from_exception(self.eg)
 
@@ -4841,22 +4833,6 @@ class PurePythonSuggestionFormattingTests(
     traceback printing in traceback.py.
     """
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "'bluch'" not found in "ImportError: cannot import name 'blach'"
-    def test_import_from_suggestions_underscored(self):
-        return super().test_import_from_suggestions_underscored()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "'bluch'" not found in "ImportError: cannot import name 'blech'"
-    def test_import_from_suggestions_non_string(self):
-        return super().test_import_from_suggestions_non_string()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "'bluchin'?" not found in "ImportError: cannot import name 'bluch'"
-    def test_import_from_suggestions(self):
-        return super().test_import_from_suggestions()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'Did you mean' not found in "AttributeError: 'A' object has no attribute 'blich'"
-    def test_attribute_error_inside_nested_getattr(self):
-        return super().test_attribute_error_inside_nested_getattr()
-
 
 @cpython_only
 class CPythonSuggestionFormattingTests(
@@ -4969,7 +4945,6 @@ class MiscTest(unittest.TestCase):
 class TestColorizedTraceback(unittest.TestCase):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "y = \x1b[31mx['a']['b']\x1b[0m\x1b[1;31m['c']\x1b[0m" not found in 'Traceback (most recent call last):\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4764\x1b[0m, in \x1b[35mtest_colorized_traceback\x1b[0m\n    \x1b[31mbar\x1b[0m\x1b[1;31m()\x1b[0m\n    \x1b[31m~~~\x1b[0m\x1b[1;31m^^\x1b[0m\n    bar = <function TestColorizedTraceback.test_colorized_traceback.<locals>.bar at 0xb57b09180>\n    baz1 = <function TestColorizedTraceback.test_colorized_traceback.<locals>.baz1 at 0xb57b09e00>\n    baz2 = <function TestColorizedTraceback.test_colorized_traceback.<locals>.baz2 at 0xb57b09cc0>\n    e = TypeError("\'NoneType\' object is not subscriptable")\n    foo = <function TestColorizedTraceback.test_colorized_traceback.<locals>.foo at 0xb57b08140>\n    self = <test.test_traceback.TestColorizedTraceback testMethod=test_colorized_traceback>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4760\x1b[0m, in \x1b[35mbar\x1b[0m\n    return baz1(1,\n            2,3\n            ,4)\n    baz1 = <function TestColorizedTraceback.test_colorized_traceback.<locals>.baz1 at 0xb57b09e00>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4757\x1b[0m, in \x1b[35mbaz1\x1b[0m\n    return baz2(1,2,3,4)\n    args = (1, 2, 3, 4)\n    baz2 = <function TestColorizedTraceback.test_colorized_traceback.<locals>.baz2 at 0xb57b09cc0>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4754\x1b[0m, in \x1b[35mbaz2\x1b[0m\n    return \x1b[31m(lambda *args: foo(*args))\x1b[0m\x1b[1;31m(1,2,3,4)\x1b[0m\n           \x1b[31m~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[0m\x1b[1;31m^^^^^^^^^\x1b[0m\n    args = (1, 2, 3, 4)\n    foo = <function TestColorizedTraceback.test_colorized_traceback.<locals>.foo at 0xb57b08140>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4754\x1b[0m, in \x1b[35m<lambda>\x1b[0m\n    return (lambda *args: \x1b[31mfoo\x1b[0m\x1b[1;31m(*args)\x1b[0m)(1,2,3,4)\n                          \x1b[31m~~~\x1b[0m\x1b[1;31m^^^^^^^\x1b[0m\n    args = (1, 2, 3, 4)\n    foo = <function TestColorizedTraceback.test_colorized_traceback.<locals>.foo at 0xb57b08140>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4751\x1b[0m, in \x1b[35mfoo\x1b[0m\n    y = x[\'a\'][\'b\'][\x1b[1;31m\'c\'\x1b[0m]\n                    \x1b[1;31m^^^\x1b[0m\n    args = (1, 2, 3, 4)\n    x = {\'a\': {\'b\': None}}\n\x1b[1;35mTypeError\x1b[0m: \x1b[35m\'NoneType\' object is not subscriptable\x1b[0m\n'
     def test_colorized_traceback(self):
         def foo(*args):
             x = {'a':{'b': None}}
@@ -5002,7 +4977,6 @@ class TestColorizedTraceback(unittest.TestCase):
         self.assertIn("return baz1(1,\n            2,3\n            ,4)", lines)
         self.assertIn(red + "bar" + reset + boldr + "()" + reset, lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '  File \x1b[35m"<string>"\x1b[0m, line \x1b[35m1\x1b[0m\n    a \x1b[1;31m$\x1b[0m b\n      \x1b[1;31m^\x1b[0m\n\x1b[1;35mSyntaxError\x1b[0m: \x1b[35minvalid syntax\x1b[0m\n' not found in 'Traceback (most recent call last):\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4782\x1b[0m, in \x1b[35mtest_colorized_syntax_error\x1b[0m\n    \x1b[31mcompile\x1b[0m\x1b[1;31m("a $ b", "<string>", "exec")\x1b[0m\n    \x1b[31m~~~~~~~\x1b[0m\x1b[1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\x1b[0m\n    e = SyntaxError(\'got unexpected token $\')\n    self = <test.test_traceback.TestColorizedTraceback testMethod=test_colorized_syntax_error>\n  File \x1b[35m"<string>"\x1b[0m, line \x1b[35m1\x1b[0m\n    a \x1b[1;31m$\x1b[0m b\n      \x1b[1;31m^\x1b[0m\n\x1b[1;35mSyntaxError\x1b[0m: \x1b[35mgot unexpected token $\x1b[0m\n'
     def test_colorized_syntax_error(self):
         try:
             compile("a $ b", "<string>", "exec")
@@ -5053,7 +5027,6 @@ class TestColorizedTraceback(unittest.TestCase):
             ]
         self.assertEqual(actual, expected(**colors))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 1795 characters long. Set self.maxDiff to None to see it.
     def test_colorized_traceback_from_exception_group(self):
         def foo():
             exceptions = []
