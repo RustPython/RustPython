@@ -4,7 +4,7 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened]
     paths:
-      - 'Lib/**'
+      - "Lib/**"
 
 concurrency:
   group: lib-deps-${{ github.event.pull_request.number }}
@@ -38,7 +38,7 @@ jobs:
 
       - name: Checkout CPython
         run: |
-          git clone --depth 1 --branch "${{ env.PYTHON_VERSION }}" https://github.com/python/cpython.git cpython
+          git clone --depth 1 --branch "v${{ env.PYTHON_VERSION }}" https://github.com/python/cpython.git cpython
 
       - name: Get changed Lib files
         id: changed-files
