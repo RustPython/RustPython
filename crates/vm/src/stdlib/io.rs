@@ -21,7 +21,7 @@ cfg_if::cfg_if! {
 }
 
 use crate::{
-    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyModule},
     common::os::ErrorExt,
     convert::{IntoPyException, ToPyException},
@@ -111,7 +111,14 @@ fn iobase_finalize(zelf: &PyObject, vm: &VirtualMachine) {
         // finalization process.
         let _ = zelf.set_attr("_finalizing", vm.ctx.true_value.clone(), vm);
         if let Err(e) = vm.call_method(zelf, "close", ()) {
-            vm.run_unraisable(e, None, zelf.to_owned());
+            // BrokenPipeError during GC finalization is expected when pipe
+            // buffer objects are collected after the subprocess dies. The
+            // underlying fd is still properly closed by raw.close().
+            // Popen.__del__ catches BrokenPipeError, but our tracing GC may
+            // finalize pipe buffers before Popen.__del__ runs.
+            if !e.fast_isinstance(vm.ctx.exceptions.broken_pipe_error) {
+                vm.run_unraisable(e, None, zelf.to_owned());
+            }
         }
     }
 }
@@ -643,7 +650,7 @@ mod _io {
             // slot_del that calls iobase_finalize with proper _finalizing flag
             // and _dealloc_warn chain. This base fallback is only reached by
             // Python-level subclasses, where we silently discard close() errors
-            // to avoid surfacing unraisables from partially initialized objects.
+            // to avoid surfacing unraisable from partially initialized objects.
             let _ = vm.call_method(zelf, "close", ());
             Ok(())
         }
@@ -2801,6 +2808,14 @@ mod _io {
             encoding: Option<PyUtf8StrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyUtf8StrRef> {
+            if encoding.is_none() && vm.state.config.settings.warn_default_encoding {
+                crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.encoding_warning,
+                    "'encoding' argument not specified".to_owned(),
+                    1,
+                    vm,
+                )?;
+            }
             let encoding = match encoding {
                 None if vm.state.config.settings.utf8_mode > 0 => {
                     identifier_utf8!(vm, utf_8).to_owned()
@@ -5041,7 +5056,7 @@ mod _io {
                 let stacklevel = usize::try_from(stacklevel).unwrap_or(0);
                 crate::stdlib::warnings::warn(
                     vm.ctx.exceptions.encoding_warning,
-                    "'encoding' argument not specified.".to_owned(),
+                    "'encoding' argument not specified".to_owned(),
                     stacklevel,
                     vm,
                 )?;
@@ -5344,6 +5359,12 @@ mod fileio {
             #[cfg(windows)]
             {
                 if let Err(err) = fd_fstat {
+                    // If the fd is invalid, prevent destructor from trying to close it
+                    if err.raw_os_error()
+                        == Some(windows_sys::Win32::Foundation::ERROR_INVALID_HANDLE as i32)
+                    {
+                        zelf.fd.store(-1);
+                    }
                     return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                 }
             }

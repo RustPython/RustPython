@@ -3399,7 +3399,6 @@ class CodePageTest(unittest.TestCase):
         self.assertRaises(OSError, codecs.code_page_encode, 123, 'a')
         self.assertRaises(OSError, codecs.code_page_decode, 123, b'a')
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_code_page_name(self):
         self.assertRaisesRegex(UnicodeEncodeError, 'cp932',
             codecs.code_page_encode, 932, '\xff')
@@ -3501,7 +3500,6 @@ class CodePageTest(unittest.TestCase):
             (b'\x81\x00abc', 'backslashreplace', '\\x81\x00abc'),
         ))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_cp1252(self):
         self.check_encode(1252, (
             ('abc', 'strict', b'abc'),
@@ -3520,7 +3518,6 @@ class CodePageTest(unittest.TestCase):
             (b'\xff', 'strict', '\xff'),
         ))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_cp708(self):
         self.check_encode(708, (
             ('abc2%', 'strict', b'abc2%'),
@@ -3550,7 +3547,6 @@ class CodePageTest(unittest.TestCase):
             (b'[\xa0]', 'surrogatepass', None),
         ))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_cp20106(self):
         self.check_encode(20106, (
             ('abc', 'strict', b'abc'),
@@ -3596,7 +3592,6 @@ class CodePageTest(unittest.TestCase):
             (b'[\xff]', 'strict', '[\xff]'),
         ))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_multibyte_encoding(self):
         self.check_decode(932, (
             (b'\x84\xe9\x80', 'ignore', '\u9a3e'),
@@ -3630,7 +3625,6 @@ class CodePageTest(unittest.TestCase):
         self.assertEqual(codecs.code_page_decode(42, b'abc'),
                          ('\uf061\uf062\uf063', 3))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_incremental(self):
         decoded = codecs.code_page_decode(932, b'\x82', 'strict', False)
         self.assertEqual(decoded, ('', 0))
