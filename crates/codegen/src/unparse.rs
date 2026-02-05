@@ -561,7 +561,19 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             // put a space to avoid escaping the bracket
             "{ "
         } else {
-            "{"
+            // Preserve leading whitespace between '{' and the expression
+            let source_text = self.source.source_text();
+            let start = val.range().start().to_usize();
+            if start > 0
+                && source_text
+                    .as_bytes()
+                    .get(start - 1)
+                    .is_some_and(|b| b.is_ascii_whitespace())
+            {
+                "{ "
+            } else {
+                "{"
+            }
         };
         self.p(brace)?;
         self.p(&buffered)?;

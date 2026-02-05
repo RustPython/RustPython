@@ -22,7 +22,7 @@ use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast as ast;
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 use std::collections::HashSet;
 
 use rustpython_compiler_core::{
@@ -30,8 +30,8 @@ use rustpython_compiler_core::{
     bytecode::{
         self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
         ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, IntrinsicFunction1,
-        Invert, OpArg, OpArgType, PseudoInstruction, SpecialMethod, UnpackExArgs,
-        encode_load_attr_arg, encode_load_super_attr_arg,
+        Invert, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction, SpecialMethod, UnpackExArgs,
+        encode_load_attr_arg,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -7818,28 +7818,44 @@ impl Compiler {
     /// Emit LOAD_SUPER_ATTR for 2-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b10 (method=0, class=1)
     fn emit_load_super_attr(&mut self, name_idx: u32) {
-        let encoded = encode_load_super_attr_arg(name_idx, false, true);
+        let encoded = LoadSuperAttr::builder()
+            .name_idx(name_idx)
+            .is_load_method(false)
+            .has_class(true)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b11 (method=1, class=1)
     fn emit_load_super_method(&mut self, name_idx: u32) {
-        let encoded = encode_load_super_attr_arg(name_idx, true, true);
+        let encoded = LoadSuperAttr::builder()
+            .name_idx(name_idx)
+            .is_load_method(true)
+            .has_class(true)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b00 (method=0, class=0)
     fn emit_load_zero_super_attr(&mut self, name_idx: u32) {
-        let encoded = encode_load_super_attr_arg(name_idx, false, false);
+        let encoded = LoadSuperAttr::builder()
+            .name_idx(name_idx)
+            .is_load_method(false)
+            .has_class(false)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b01 (method=1, class=0)
     fn emit_load_zero_super_method(&mut self, name_idx: u32) {
-        let encoded = encode_load_super_attr_arg(name_idx, true, false);
+        let encoded = LoadSuperAttr::builder()
+            .name_idx(name_idx)
+            .is_load_method(true)
+            .has_class(false)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
     }
 
@@ -8366,9 +8382,19 @@ impl Compiler {
                     // Compile the interpolation value
                     self.compile_expression(&interp.expression)?;
 
-                    // Load the expression source string
+                    // Load the expression source string, including any
+                    // whitespace between '{' and the expression start
                     let expr_range = interp.expression.range();
-                    let expr_source = self.source_file.slice(expr_range);
+                    let expr_source = if interp.range.start() < expr_range.start()
+                        && interp.range.end() >= expr_range.end()
+                    {
+                        let after_brace = interp.range.start() + TextSize::new(1);
+                        self.source_file
+                            .slice(TextRange::new(after_brace, expr_range.end()))
+                    } else {
+                        // Fallback for programmatically constructed ASTs with dummy ranges
+                        self.source_file.slice(expr_range)
+                    };
                     self.emit_load_const(ConstantData::Str {
                         value: expr_source.to_string().into(),
                     });
