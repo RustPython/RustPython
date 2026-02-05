@@ -202,7 +202,6 @@ class UnparseTestCase(ASTTestCase):
         self.check_ast_roundtrip('f" something { my_dict["key"] } something else "')
         self.check_ast_roundtrip('f"{f"{f"{f"{f"{f"{1+1}"}"}"}"}"}"')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tstrings(self):
         self.check_ast_roundtrip("t'foo'")
         self.check_ast_roundtrip("t'foo {bar}'")
@@ -527,7 +526,6 @@ class UnparseTestCase(ASTTestCase):
             locs(ast.Module([ast.Expr(ast.Constant(value=(1, 2, 3)))])), "(1, 2, 3)"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_function_type(self):
         for function_type in (
             "() -> int",
@@ -567,7 +565,6 @@ class UnparseTestCase(ASTTestCase):
         ):
             self.check_ast_roundtrip(statement, type_comments=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'TypeVar' object has no attribute 'default_value'
     def test_unparse_interactive_semicolons(self):
         # gh-129598: Fix ast.unparse() when ast.Interactive contains multiple statements
         self.check_src_roundtrip("i = 1; 'expr'; raise Exception", mode='single')
@@ -853,7 +850,6 @@ class CosmeticTestCase(ASTTestCase):
         self.check_src_roundtrip("[a, b] = [c, d] = [e, f] = g")
         self.check_src_roundtrip("a, b = [c, d] = e, f = g")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiquote_joined_string(self):
         self.check_ast_roundtrip("f\"'''{1}\\\"\\\"\\\"\" ")
         self.check_ast_roundtrip("""f"'''{1}""\\"" """)
@@ -868,7 +864,6 @@ class CosmeticTestCase(ASTTestCase):
         self.check_ast_roundtrip("""f'''""\"''\\'{"\\n\\"'"}''' """)
         self.check_ast_roundtrip("""f'''""\"''\\'{""\"\\n\\"'''""\" '''\\n'''}''' """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxWarning not triggered
     def test_backslash_in_format_spec(self):
         import re
         msg = re.escape('"\\ " is an invalid escape sequence. '
@@ -1054,7 +1049,6 @@ class DirectoryTestCase(ASTTestCase):
 
         return items
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_files(self):
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', SyntaxWarning)

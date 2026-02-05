@@ -357,16 +357,21 @@ impl Node for ast::PatternMatchClass {
             source_file,
             get_node_field(vm, &object, "patterns", "MatchClass")?,
         )?;
-        let kwd_attrs = Node::ast_from_object(
+        let kwd_attrs: PatternMatchClassKeywordAttributes = Node::ast_from_object(
             vm,
             source_file,
             get_node_field(vm, &object, "kwd_attrs", "MatchClass")?,
         )?;
-        let kwd_patterns = Node::ast_from_object(
+        let kwd_patterns: PatternMatchClassKeywordPatterns = Node::ast_from_object(
             vm,
             source_file,
             get_node_field(vm, &object, "kwd_patterns", "MatchClass")?,
         )?;
+        if kwd_attrs.0.len() != kwd_patterns.0.len() {
+            return Err(vm.new_value_error(
+                "MatchClass has mismatched kwd_attrs and kwd_patterns".to_owned(),
+            ));
+        }
         let (patterns, keywords) = merge_pattern_match_class(patterns, kwd_attrs, kwd_patterns);
 
         Ok(Self {

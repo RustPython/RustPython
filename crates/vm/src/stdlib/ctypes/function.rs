@@ -645,7 +645,7 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
     {
         let s: String = wchars
             .iter()
-            .filter_map(|&c| char::from_u32(c as u32))
+            .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
             .collect();
         Ok(vm.ctx.new_str(s).into())
     }
@@ -1938,7 +1938,7 @@ fn ffi_to_python(ty: &Py<PyType>, ptr: *const c_void, vm: &VirtualMachine) -> Py
                     {
                         let s: String = slice
                             .iter()
-                            .filter_map(|&c| char::from_u32(c as u32))
+                            .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
                             .collect();
                         vm.ctx.new_str(s).into()
                     }

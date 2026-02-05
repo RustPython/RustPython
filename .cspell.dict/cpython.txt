@@ -10,6 +10,7 @@ badcert
 badsyntax
 baseinfo
 basetype
+binop
 boolop
 BUILDSTDLIB
 bxor
@@ -73,6 +74,7 @@ HASPOINTER
 HASSTRUCT
 HASUNION
 heaptype
+hexdigit
 HIGHRES
 IFUNC
 IMMUTABLETYPE

@@ -76,8 +76,6 @@ class FunctionPropertiesTest(FuncAttrsTest):
         self.cannot_set_attr(self.b, '__globals__', 2,
                              (AttributeError, TypeError))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___builtins__(self):
         self.assertIs(self.b.__builtins__, __builtins__)
         self.cannot_set_attr(self.b, '__builtins__', 2,

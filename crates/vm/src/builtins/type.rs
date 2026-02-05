@@ -937,23 +937,43 @@ impl PyType {
 
     #[pygetset]
     fn __annotations__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let attrs = self.attributes.read();
+        if let Some(annotations) = attrs.get(identifier!(vm, __annotations__)).cloned() {
+            // Ignore the __annotations__ descriptor stored on type itself.
+            if !annotations.class().is(vm.ctx.types.getset_type) {
+                if vm.is_none(&annotations)
+                    || annotations.class().is(vm.ctx.types.dict_type)
+                    || self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                {
+                    return Ok(annotations);
+                }
+                return Err(vm.new_attribute_error(format!(
+                    "type object '{}' has no attribute '__annotations__'",
+                    self.name()
+                )));
+            }
+        }
+        // Then try __annotations_cache__
+        if let Some(annotations) = attrs.get(identifier!(vm, __annotations_cache__)).cloned() {
+            if vm.is_none(&annotations)
+                || annotations.class().is(vm.ctx.types.dict_type)
+                || self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+            {
+                return Ok(annotations);
+            }
+            return Err(vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '__annotations__'",
+                self.name()
+            )));
+        }
+        drop(attrs);
+
         if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
             return Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '__annotations__'",
                 self.name()
             )));
         }
-
-        // First try __annotations__ (e.g. for "from __future__ import annotations")
-        let attrs = self.attributes.read();
-        if let Some(annotations) = attrs.get(identifier!(vm, __annotations__)).cloned() {
-            return Ok(annotations);
-        }
-        // Then try __annotations_cache__
-        if let Some(annotations) = attrs.get(identifier!(vm, __annotations_cache__)).cloned() {
-            return Ok(annotations);
-        }
-        drop(attrs);
 
         // Get __annotate__ and call it if callable
         let annotate = self.__annotate__(vm)?;

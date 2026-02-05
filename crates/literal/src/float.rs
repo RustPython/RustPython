@@ -23,7 +23,7 @@ fn parse_inner(literal: &[u8]) -> Option<f64> {
 }
 
 pub fn is_integer(v: f64) -> bool {
-    (v - v.round()).abs() < f64::EPSILON
+    v.is_finite() && v.fract() == 0.0
 }
 
 fn format_nan(case: Case) -> String {

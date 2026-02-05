@@ -42,7 +42,7 @@ impl Node for ast::Parameters {
             .unwrap();
         dict.set_item("defaults", defaults.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        let _ = range;
         node.into()
     }
 
@@ -61,7 +61,7 @@ impl Node for ast::Parameters {
             source_file,
             get_node_field(vm, &object, "kw_defaults", "arguments")?,
         )?;
-        let kwonlyargs = merge_keyword_parameter_defaults(kwonlyargs, kw_defaults);
+        let kwonlyargs = merge_keyword_parameter_defaults(vm, kwonlyargs, kw_defaults)?;
 
         let posonlyargs = Node::ast_from_object(
             vm,
@@ -78,7 +78,8 @@ impl Node for ast::Parameters {
             source_file,
             get_node_field(vm, &object, "defaults", "arguments")?,
         )?;
-        let (posonlyargs, args) = merge_positional_parameter_defaults(posonlyargs, args, defaults);
+        let (posonlyargs, args) =
+            merge_positional_parameter_defaults(vm, posonlyargs, args, defaults)?;
 
         Ok(Self {
             node_index: Default::default(),
@@ -321,13 +322,14 @@ fn extract_positional_parameter_defaults(
 
 /// Merges the keyword parameters with their default values, opposite of [`extract_positional_parameter_defaults`].
 fn merge_positional_parameter_defaults(
+    vm: &VirtualMachine,
     posonlyargs: PositionalParameters,
     args: PositionalParameters,
     defaults: ParameterDefaults,
-) -> (
+) -> PyResult<(
     Vec<ast::ParameterWithDefault>,
     Vec<ast::ParameterWithDefault>,
-) {
+)> {
     let posonlyargs = posonlyargs.args;
     let args = args.args;
     let defaults = defaults.defaults;
@@ -352,7 +354,11 @@ fn merge_positional_parameter_defaults(
     // If an argument has a default value, insert it
     // Note that "defaults" will only contain default values for the last "n" parameters
     // so we need to skip the first "total_argument_count - n" arguments.
-    let default_argument_count = posonlyargs.len() + args.len() - defaults.len();
+    let total_args = posonlyargs.len() + args.len();
+    if defaults.len() > total_args {
+        return Err(vm.new_value_error("more positional defaults than args on arguments"));
+    }
+    let default_argument_count = total_args - defaults.len();
     for (arg, default) in posonlyargs
         .iter_mut()
         .chain(args.iter_mut())
@@ -362,7 +368,7 @@ fn merge_positional_parameter_defaults(
         arg.default = default;
     }
 
-    (posonlyargs, args)
+    Ok((posonlyargs, args))
 }
 
 fn extract_keyword_parameter_defaults(
@@ -400,15 +406,21 @@ fn extract_keyword_parameter_defaults(
 
 /// Merges the keyword parameters with their default values, opposite of [`extract_keyword_parameter_defaults`].
 fn merge_keyword_parameter_defaults(
+    vm: &VirtualMachine,
     kw_only_args: KeywordParameters,
     defaults: ParameterDefaults,
-) -> Vec<ast::ParameterWithDefault> {
-    core::iter::zip(kw_only_args.keywords, defaults.defaults)
+) -> PyResult<Vec<ast::ParameterWithDefault>> {
+    if kw_only_args.keywords.len() != defaults.defaults.len() {
+        return Err(
+            vm.new_value_error("length of kwonlyargs is not the same as kw_defaults on arguments")
+        );
+    }
+    Ok(core::iter::zip(kw_only_args.keywords, defaults.defaults)
         .map(|(parameter, default)| ast::ParameterWithDefault {
             node_index: Default::default(),
             parameter,
             default,
             range: Default::default(),
         })
-        .collect()
+        .collect())
 }

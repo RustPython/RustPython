@@ -8,6 +8,9 @@ impl Node for ast::BoolOp {
             Self::And => pyast::NodeBoolOpAnd::static_type(),
             Self::Or => pyast::NodeBoolOpOr::static_type(),
         };
+        if let Some(instance) = node_type.get_attr(vm.ctx.intern_str("_instance")) {
+            return instance;
+        }
         NodeAst
             .into_ref_with_type(vm, node_type.to_owned())
             .unwrap()
@@ -51,6 +54,9 @@ impl Node for ast::Operator {
             Self::BitAnd => pyast::NodeOperatorBitAnd::static_type(),
             Self::FloorDiv => pyast::NodeOperatorFloorDiv::static_type(),
         };
+        if let Some(instance) = node_type.get_attr(vm.ctx.intern_str("_instance")) {
+            return instance;
+        }
         NodeAst
             .into_ref_with_type(vm, node_type.to_owned())
             .unwrap()
@@ -107,6 +113,9 @@ impl Node for ast::UnaryOp {
             Self::UAdd => pyast::NodeUnaryOpUAdd::static_type(),
             Self::USub => pyast::NodeUnaryOpUSub::static_type(),
         };
+        if let Some(instance) = node_type.get_attr(vm.ctx.intern_str("_instance")) {
+            return instance;
+        }
         NodeAst
             .into_ref_with_type(vm, node_type.to_owned())
             .unwrap()
@@ -151,6 +160,9 @@ impl Node for ast::CmpOp {
             Self::In => pyast::NodeCmpOpIn::static_type(),
             Self::NotIn => pyast::NodeCmpOpNotIn::static_type(),
         };
+        if let Some(instance) = node_type.get_attr(vm.ctx.intern_str("_instance")) {
+            return instance;
+        }
         NodeAst
             .into_ref_with_type(vm, node_type.to_owned())
             .unwrap()

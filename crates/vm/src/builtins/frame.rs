@@ -42,7 +42,7 @@ impl Frame {
     }
 
     #[pygetset]
-    fn f_builtins(&self) -> PyDictRef {
+    fn f_builtins(&self) -> PyObjectRef {
         self.builtins.clone()
     }
 

@@ -49,7 +49,7 @@ class DocEntry(typing.NamedTuple):
     def doc(self) -> str:
         assert self.raw_doc is not None
 
-        return re.sub(UNICODE_ESCAPE, r"\\u{\1}", inspect.cleandoc(self.raw_doc))
+        return re.sub(UNICODE_ESCAPE, r"\\u{\1}", self.raw_doc.strip())
 
 
 def is_c_extension(module: types.ModuleType) -> bool:
@@ -90,7 +90,15 @@ def is_child_of(obj: typing.Any, module: types.ModuleType) -> bool:
     -------
     bool
     """
-    return inspect.getmodule(obj) is module
+    if inspect.getmodule(obj) is module:
+        return True
+    # Some C modules (e.g. _ast) set __module__ to a different name (e.g. "ast"),
+    # causing inspect.getmodule() to return a different module object.
+    # Fall back to checking the module's namespace directly.
+    obj_name = getattr(obj, "__name__", None)
+    if obj_name is not None:
+        return module.__dict__.get(obj_name) is obj
+    return False
 
 
 def iter_modules() -> "Iterable[types.ModuleType]":

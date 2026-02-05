@@ -68,7 +68,7 @@ pub fn offer_suggestions(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Opti
             return Some(suggestions);
         };
 
-        let builtins: Vec<_> = tb.frame.builtins.as_object().try_to_value(vm).ok()?;
+        let builtins: Vec<_> = tb.frame.builtins.try_to_value(vm).ok()?;
         calculate_suggestions(builtins.iter(), &name)
     } else {
         None

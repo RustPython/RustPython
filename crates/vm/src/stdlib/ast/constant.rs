@@ -301,31 +301,41 @@ fn constant_to_ruff_expr(value: Constant) -> ast::Expr {
             // TODO: Does this matter?
             parenthesized: true,
         }),
-        ConstantLiteral::FrozenSet(value) => ast::Expr::Call(ast::ExprCall {
-            node_index: Default::default(),
-            range,
-            // idk lol
-            func: Box::new(ast::Expr::Name(ast::ExprName {
-                node_index: Default::default(),
-                range: TextRange::default(),
-                id: ast::name::Name::new_static("frozenset"),
-                ctx: ast::ExprContext::Load,
-            })),
-            arguments: ast::Arguments {
+        ConstantLiteral::FrozenSet(value) => {
+            let args = if value.is_empty() {
+                Vec::new()
+            } else {
+                vec![ast::Expr::Set(ast::ExprSet {
+                    node_index: Default::default(),
+                    range: TextRange::default(),
+                    elts: value
+                        .into_iter()
+                        .map(|value| {
+                            constant_to_ruff_expr(Constant {
+                                range: TextRange::default(),
+                                value,
+                            })
+                        })
+                        .collect(),
+                })]
+            };
+            ast::Expr::Call(ast::ExprCall {
                 node_index: Default::default(),
                 range,
-                args: value
-                    .into_iter()
-                    .map(|value| {
-                        constant_to_ruff_expr(Constant {
-                            range: TextRange::default(),
-                            value,
-                        })
-                    })
-                    .collect(),
-                keywords: Box::default(),
-            },
-        }),
+                func: Box::new(ast::Expr::Name(ast::ExprName {
+                    node_index: Default::default(),
+                    range: TextRange::default(),
+                    id: ast::name::Name::new_static("frozenset"),
+                    ctx: ast::ExprContext::Load,
+                })),
+                arguments: ast::Arguments {
+                    node_index: Default::default(),
+                    range,
+                    args: args.into(),
+                    keywords: Box::default(),
+                },
+            })
+        }
         ConstantLiteral::Float(value) => ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
             node_index: Default::default(),
             range,
