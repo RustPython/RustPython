@@ -236,6 +236,10 @@ impl GcState {
     pub unsafe fn track_object(&self, obj: NonNull<PyObject>) {
         let gc_ptr = GcObjectPtr(obj);
 
+        // _PyObject_GC_TRACK
+        let obj_ref = unsafe { obj.as_ref() };
+        obj_ref.set_gc_tracked();
+
         // Add to generation 0 tracking first (for correct gc_refs algorithm)
         // Only increment count if we successfully add to the set
         if let Ok(mut gen0) = self.generation_objects[0].write()
@@ -362,8 +366,22 @@ impl GcState {
 
     /// Check if automatic GC should run and run it if needed.
     /// Called after object allocation.
-    /// Currently a stub — returns false.
+    /// Returns true if GC was run, false otherwise.
     pub fn maybe_collect(&self) -> bool {
+        if !self.is_enabled() {
+            return false;
+        }
+
+        // _PyObject_GC_Alloc checks thresholds
+
+        // Check gen0 threshold
+        let count0 = self.generations[0].count.load(Ordering::SeqCst) as u32;
+        let threshold0 = self.generations[0].threshold();
+        if threshold0 > 0 && count0 >= threshold0 {
+            self.collect(0);
+            return true;
+        }
+
         false
     }
 
@@ -373,12 +391,18 @@ impl GcState {
     /// Currently a stub — the actual collection algorithm requires EBR
     /// and will be added in a follow-up.
     pub fn collect(&self, _generation: usize) -> (usize, usize) {
+        // gc_collect_main
+        // Reset gen0 count even though we're not actually collecting
+        self.generations[0].count.store(0, Ordering::SeqCst);
         (0, 0)
     }
 
     /// Force collection even if GC is disabled (for manual gc.collect() calls).
+    /// gc.collect() always runs regardless of gc.isenabled()
     /// Currently a stub.
     pub fn collect_force(&self, _generation: usize) -> (usize, usize) {
+        // Reset gen0 count even though we're not actually collecting
+        self.generations[0].count.store(0, Ordering::SeqCst);
         (0, 0)
     }
 

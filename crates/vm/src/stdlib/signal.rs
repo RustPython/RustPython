@@ -101,6 +101,10 @@ pub(crate) mod _signal {
     #[pyattr]
     pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
+    #[cfg(windows)]
+    #[pyattr]
+    const SIGBREAK: i32 = 21; // _SIGBREAK
+
     // Windows-specific control events for GenerateConsoleCtrlEvent
     #[cfg(windows)]
     #[pyattr]
@@ -201,6 +205,21 @@ pub(crate) mod _signal {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         signal::assert_in_range(signalnum, vm)?;
+        #[cfg(windows)]
+        {
+            const VALID_SIGNALS: &[i32] = &[
+                libc::SIGINT,
+                libc::SIGILL,
+                libc::SIGFPE,
+                libc::SIGSEGV,
+                libc::SIGTERM,
+                SIGBREAK,
+                libc::SIGABRT,
+            ];
+            if !VALID_SIGNALS.contains(&signalnum) {
+                return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
+            }
+        }
         let signal_handlers = vm
             .signal_handlers
             .as_deref()
@@ -482,18 +501,20 @@ pub(crate) mod _signal {
         // On Windows, only certain signals are supported
         #[cfg(windows)]
         {
-            use crate::convert::IntoPyException;
-            // Windows supports: SIGINT(2), SIGILL(4), SIGFPE(8), SIGSEGV(11), SIGTERM(15), SIGABRT(22)
+            // Windows supports: SIGINT(2), SIGILL(4), SIGFPE(8), SIGSEGV(11), SIGTERM(15), SIGBREAK(21), SIGABRT(22)
             const VALID_SIGNALS: &[i32] = &[
                 libc::SIGINT,
                 libc::SIGILL,
                 libc::SIGFPE,
                 libc::SIGSEGV,
                 libc::SIGTERM,
+                SIGBREAK,
                 libc::SIGABRT,
             ];
             if !VALID_SIGNALS.contains(&signalnum) {
-                return Err(std::io::Error::from_raw_os_error(libc::EINVAL).into_pyexception(vm));
+                return Err(vm
+                    .new_errno_error(libc::EINVAL, "Invalid argument")
+                    .upcast());
             }
         }
 
@@ -537,6 +558,7 @@ pub(crate) mod _signal {
             libc::SIGFPE => "Floating-point exception",
             libc::SIGSEGV => "Segmentation fault",
             libc::SIGTERM => "Terminated",
+            SIGBREAK => "Break",
             libc::SIGABRT => "Aborted",
             _ => return Ok(None),
         };
@@ -573,6 +595,7 @@ pub(crate) mod _signal {
                 libc::SIGFPE,
                 libc::SIGSEGV,
                 libc::SIGTERM,
+                SIGBREAK,
                 libc::SIGABRT,
             ] {
                 set.add(vm.ctx.new_int(signum).into(), vm)?;
@@ -659,6 +682,14 @@ pub(crate) mod _signal {
     pub extern "C" fn run_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
+        #[cfg(windows)]
+        if signum == libc::SIGINT
+            && let Some(handle) = signal::get_sigint_event()
+        {
+            unsafe {
+                windows_sys::Win32::System::Threading::SetEvent(handle as _);
+            }
+        }
         let wakeup_fd = WAKEUP.load(Ordering::Relaxed);
         if wakeup_fd != INVALID_WAKEUP {
             let sigbyte = signum as u8;

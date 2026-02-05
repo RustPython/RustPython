@@ -304,6 +304,10 @@ impl VirtualMachine {
 
         stdlib::builtins::init_module(self, &self.builtins);
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
+        self.expect_pyresult(
+            stdlib::sys::set_bootstrap_stderr(self),
+            "failed to initialize bootstrap stderr",
+        );
 
         let mut essential_init = || -> PyResult {
             import::import_builtin(self, "_typing")?;
@@ -473,14 +477,29 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
-        use crate::builtins::PyFunction;
+        use crate::builtins::{PyFunction, PyModule};
 
         // Create a function object for module code, similar to CPython's PyEval_EvalCode
         let func = PyFunction::new(code.clone(), scope.globals.clone(), self)?;
         let func_obj = func.into_ref(&self.ctx).into();
 
-        let frame = Frame::new(code, scope, self.builtins.dict(), &[], Some(func_obj), self)
-            .into_ref(&self.ctx);
+        // Extract builtins from globals["__builtins__"], like PyEval_EvalCode
+        let builtins = match scope
+            .globals
+            .get_item_opt(identifier!(self, __builtins__), self)?
+        {
+            Some(b) => {
+                if let Some(module) = b.downcast_ref::<PyModule>() {
+                    module.dict().into()
+                } else {
+                    b
+                }
+            }
+            None => self.builtins.dict().into(),
+        };
+
+        let frame =
+            Frame::new(code, scope, builtins, &[], Some(func_obj), self).into_ref(&self.ctx);
         self.run_frame(frame)
     }
 

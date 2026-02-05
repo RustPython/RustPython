@@ -545,17 +545,9 @@ Same with keyword only args:
 import doctest
 import unittest
 
-EXPECTED_FAILURE = doctest.register_optionflag('EXPECTED_FAILURE') # TODO: RUSTPYTHON
-class CustomOutputChecker(doctest.OutputChecker): # TODO: RUSTPYTHON
-    def check_output(self, want, got, optionflags): # TODO: RUSTPYTHON
-        if optionflags & EXPECTED_FAILURE: # TODO: RUSTPYTHON
-            if want == got: # TODO: RUSTPYTHON
-                return False # TODO: RUSTPYTHON
-            return True # TODO: RUSTPYTHON
-        return super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
-
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite(checker=CustomOutputChecker())) # TODO: RUSTPYTHON
+    from test.support.rustpython import DocTestChecker # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker())) # XXX: RUSTPYTHON
     return tests
 
 

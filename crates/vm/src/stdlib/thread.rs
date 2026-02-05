@@ -291,7 +291,19 @@ pub(crate) mod _thread {
     impl Representable for RLock {
         #[inline]
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            repr_lock_impl!(zelf)
+            let count = zelf.count.load(core::sync::atomic::Ordering::Relaxed);
+            let status = if zelf.mu.is_locked() {
+                "locked"
+            } else {
+                "unlocked"
+            };
+            Ok(format!(
+                "<{} {} object count={} at {:#x}>",
+                status,
+                zelf.class().name(),
+                count,
+                zelf.get_id()
+            ))
         }
     }
 

@@ -57,6 +57,33 @@ unsafe impl crate::object::Traverse for PyType {
             .map(|(_, v)| v.traverse(tracer_fn))
             .count();
     }
+
+    /// type_clear: break reference cycles in type objects
+    fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+        if let Some(base) = self.base.take() {
+            out.push(base.into());
+        }
+        if let Some(mut guard) = self.bases.try_write() {
+            for base in guard.drain(..) {
+                out.push(base.into());
+            }
+        }
+        if let Some(mut guard) = self.mro.try_write() {
+            for typ in guard.drain(..) {
+                out.push(typ.into());
+            }
+        }
+        if let Some(mut guard) = self.subclasses.try_write() {
+            for weak in guard.drain(..) {
+                out.push(weak.into());
+            }
+        }
+        if let Some(mut guard) = self.attributes.try_write() {
+            for (_, val) in guard.drain(..) {
+                out.push(val);
+            }
+        }
+    }
 }
 
 // PyHeapTypeObject in CPython
@@ -393,6 +420,11 @@ impl PyType {
             metaclass,
             None,
         );
+
+        // Static types are not tracked by GC.
+        // They are immortal and never participate in collectable cycles.
+        new_type.as_object().clear_gc_tracked();
+
         new_type.mro.write().insert(0, new_type.clone());
 
         // Note: inherit_slots is called in PyClassImpl::init_class after
@@ -905,23 +937,43 @@ impl PyType {
 
     #[pygetset]
     fn __annotations__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let attrs = self.attributes.read();
+        if let Some(annotations) = attrs.get(identifier!(vm, __annotations__)).cloned() {
+            // Ignore the __annotations__ descriptor stored on type itself.
+            if !annotations.class().is(vm.ctx.types.getset_type) {
+                if vm.is_none(&annotations)
+                    || annotations.class().is(vm.ctx.types.dict_type)
+                    || self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                {
+                    return Ok(annotations);
+                }
+                return Err(vm.new_attribute_error(format!(
+                    "type object '{}' has no attribute '__annotations__'",
+                    self.name()
+                )));
+            }
+        }
+        // Then try __annotations_cache__
+        if let Some(annotations) = attrs.get(identifier!(vm, __annotations_cache__)).cloned() {
+            if vm.is_none(&annotations)
+                || annotations.class().is(vm.ctx.types.dict_type)
+                || self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+            {
+                return Ok(annotations);
+            }
+            return Err(vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '__annotations__'",
+                self.name()
+            )));
+        }
+        drop(attrs);
+
         if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
             return Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '__annotations__'",
                 self.name()
             )));
         }
-
-        // First try __annotations__ (e.g. for "from __future__ import annotations")
-        let attrs = self.attributes.read();
-        if let Some(annotations) = attrs.get(identifier!(vm, __annotations__)).cloned() {
-            return Ok(annotations);
-        }
-        // Then try __annotations_cache__
-        if let Some(annotations) = attrs.get(identifier!(vm, __annotations_cache__)).cloned() {
-            return Ok(annotations);
-        }
-        drop(attrs);
 
         // Get __annotate__ and call it if callable
         let annotate = self.__annotate__(vm)?;
@@ -2016,12 +2068,7 @@ pub(crate) fn call_slot_new(
 }
 
 pub(crate) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
-        return Ok(vm.ctx.not_implemented());
-    }
-
-    let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
-    union_::make_union(&tuple, vm)
+    union_::or_op(zelf, other, vm)
 }
 
 fn take_next_base(bases: &mut [Vec<PyTypeRef>]) -> Option<PyTypeRef> {

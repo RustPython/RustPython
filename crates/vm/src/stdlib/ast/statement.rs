@@ -159,6 +159,9 @@ impl Node for ast::StmtFunctionDef {
             is_async,
             range: _range,
         } = self;
+        let source_code = source_file.to_source_code();
+        let def_line = source_code.line_index(name.range.start());
+        let range = TextRange::new(source_code.line_start(def_line), _range.end());
 
         let cls = if !is_async {
             pyast::NodeStmtFunctionDef::static_type().to_owned()
@@ -192,7 +195,7 @@ impl Node for ast::StmtFunctionDef {
             vm,
         )
         .unwrap();
-        node_add_location(&dict, _range, vm, source_file);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
@@ -202,6 +205,7 @@ impl Node for ast::StmtFunctionDef {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         let is_async = _cls.is(pyast::NodeStmtAsyncFunctionDef::static_type());
+        let range = range_from_object(_vm, source_file, _object.clone(), "FunctionDef")?;
         Ok(Self {
             node_index: Default::default(),
             name: Node::ast_from_object(
@@ -234,9 +238,10 @@ impl Node for ast::StmtFunctionDef {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
+                get_node_field_opt(_vm, &_object, "type_params")?
+                    .unwrap_or_else(|| _vm.ctx.new_list(Vec::new()).into()),
             )?,
-            range: range_from_object(_vm, source_file, _object, "FunctionDef")?,
+            range,
             is_async,
         })
     }
@@ -255,6 +260,9 @@ impl Node for ast::StmtClassDef {
             range: _range,
         } = self;
         let (bases, keywords) = split_class_def_args(arguments);
+        let source_code = source_file.to_source_code();
+        let class_line = source_code.line_index(name.range.start());
+        let range = TextRange::new(source_code.line_start(class_line), _range.end());
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtClassDef::static_type().to_owned())
             .unwrap();
@@ -293,7 +301,7 @@ impl Node for ast::StmtClassDef {
             _vm,
         )
         .unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        node_add_location(&dict, range, _vm, source_file);
         node.into()
     }
     fn ast_from_object(
@@ -332,7 +340,8 @@ impl Node for ast::StmtClassDef {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
+                get_node_field_opt(_vm, &_object, "type_params")?
+                    .unwrap_or_else(|| _vm.ctx.new_list(Vec::new()).into()),
             )?,
             range: range_from_object(_vm, source_file, _object, "ClassDef")?,
         })
@@ -469,7 +478,9 @@ impl Node for ast::StmtTypeAlias {
             .unwrap();
         dict.set_item(
             "type_params",
-            type_params.ast_to_object(_vm, source_file),
+            type_params
+                .map(|tp| tp.ast_to_object(_vm, source_file))
+                .unwrap_or_else(|| _vm.ctx.new_list(Vec::new()).into()),
             _vm,
         )
         .unwrap();
@@ -1099,7 +1110,13 @@ impl Node for ast::StmtImportFrom {
             level: get_node_field_opt(vm, &_object, "level")?
                 .map(|obj| -> PyResult<u32> {
                     let int: PyRef<PyInt> = obj.try_into_value(vm)?;
-                    int.try_to_primitive(vm)
+                    let value: i64 = int.try_to_primitive(vm)?;
+                    if value < 0 {
+                        return Err(vm.new_value_error("Negative ImportFrom level".to_owned()));
+                    }
+                    u32::try_from(value).map_err(|_| {
+                        vm.new_overflow_error("ImportFrom level out of range".to_owned())
+                    })
                 })
                 .transpose()?
                 .unwrap_or(0),
@@ -1217,7 +1234,28 @@ impl Node for ast::StmtPass {
             .into_ref_with_type(_vm, pyast::NodeStmtPass::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        let location = super::text_range_to_source_range(source_file, _range);
+        let start_row = location.start.row.get();
+        let start_col = location.start.column.get();
+        let mut end_row = location.end.row.get();
+        let mut end_col = location.end.column.get();
+
+        // Align with CPython: when docstring optimization replaces a lone
+        // docstring with `pass`, the end position is on the same line even if
+        // it extends past the physical line length.
+        if end_row != start_row && _range.len() == TextSize::from(4) {
+            end_row = start_row;
+            end_col = start_col + 4;
+        }
+
+        dict.set_item("lineno", _vm.ctx.new_int(start_row).into(), _vm)
+            .unwrap();
+        dict.set_item("col_offset", _vm.ctx.new_int(start_col).into(), _vm)
+            .unwrap();
+        dict.set_item("end_lineno", _vm.ctx.new_int(end_row).into(), _vm)
+            .unwrap();
+        dict.set_item("end_col_offset", _vm.ctx.new_int(end_col).into(), _vm)
+            .unwrap();
         node.into()
     }
     fn ast_from_object(

@@ -29,6 +29,10 @@ pub(super) fn ast_to_object(
 
     let orelse = if let Some(next) = rest.next() {
         if next.test.is_some() {
+            let next = ast::ElifElseClause {
+                range: TextRange::new(next.range.start(), range.end()),
+                ..next
+            };
             vm.ctx
                 .new_list(vec![ast_to_object(next, rest, vm, source_file)])
                 .into()
@@ -58,7 +62,9 @@ pub(super) fn ast_from_object(
     )?;
     let range = range_from_object(vm, source_file, object, "If")?;
 
-    let elif_else_clauses = if let [ast::Stmt::If(_)] = &*orelse {
+    let elif_else_clauses = if orelse.is_empty() {
+        vec![]
+    } else if let [ast::Stmt::If(_)] = &*orelse {
         let Some(ast::Stmt::If(ast::StmtIf {
             node_index: _,
             range,
