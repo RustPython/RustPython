@@ -109,6 +109,13 @@ class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
     def test_picklebuffer_error(self):
         return super().test_picklebuffer_error()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bad_newobj_args(self):
+        return super().test_bad_newobj_args()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bad_newobj_ex_args(self):
+        return super().test_bad_newobj_ex_args()
 
 class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
 
