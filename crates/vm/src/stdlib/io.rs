@@ -639,7 +639,12 @@ mod _io {
 
     impl Destructor for _IOBase {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            iobase_finalize(zelf, vm);
+            // C-level IO types (FileIO, Buffered*, TextIOWrapper) have their own
+            // slot_del that calls iobase_finalize with proper _finalizing flag
+            // and _dealloc_warn chain. This base fallback is only reached by
+            // Python-level subclasses, where we silently discard close() errors
+            // to avoid surfacing unraisables from partially initialized objects.
+            let _ = vm.call_method(zelf, "close", ());
             Ok(())
         }
 
@@ -4591,10 +4596,8 @@ mod _io {
         }
 
         #[pymethod]
-        fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
-            drop(self.try_resizable(vm)?);
+        fn close(&self) {
             self.closed.store(true);
-            Ok(())
         }
 
         #[pymethod]

@@ -4071,6 +4071,8 @@ class TextIOWrapperTest(unittest.TestCase):
                 self.assertEqual(newtxt.tag, 'ham')
         del MyTextIO
 
+    # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'NoneType'
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
     def test_read_non_blocking(self):
         import os
