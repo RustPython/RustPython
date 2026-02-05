@@ -1109,7 +1109,7 @@ def unicode_call_errorhandler(errors,  encoding,
     else:
         exceptionObject = UnicodeEncodeError(encoding, input, startinpos, endinpos, reason)
     res = errorHandler(exceptionObject)
-    if isinstance(res, tuple) and isinstance(res[0], str) and isinstance(res[1], int):
+    if isinstance(res, tuple) and isinstance(res[0], (str, bytes)) and isinstance(res[1], int):
         newpos = res[1]
         if (newpos < 0):
             newpos = len(input) + newpos
@@ -1159,7 +1159,11 @@ def unicode_encode_ucs1(p, size, errors, limit):
             while collend < len(p) and ord(p[collend]) >= limit:
                 collend += 1
             x = unicode_call_errorhandler(errors, encoding, reason, p, collstart, collend, False)
-            res += x[0].encode()
+            replacement = x[0]
+            if isinstance(replacement, bytes):
+                res += replacement
+            else:
+                res += replacement.encode()
             pos = x[1]
     
     return res
@@ -1376,12 +1380,16 @@ def PyUnicode_EncodeCharmap(p, size, mapping='latin-1', errors='strict'):
         except KeyError:
             x = unicode_call_errorhandler(errors, "charmap",
             "character maps to <undefined>", p, inpos, inpos+1, False)
-            try:
-                for y in x[0]:
-                    res += charmapencode_output(ord(y), mapping)
-            except KeyError:
-                raise UnicodeEncodeError("charmap", p, inpos, inpos+1,
-                                        "character maps to <undefined>")
+            replacement = x[0]
+            if isinstance(replacement, bytes):
+                res += list(replacement)
+            else:
+                try:
+                    for y in replacement:
+                        res += charmapencode_output(ord(y), mapping)
+                except KeyError:
+                    raise UnicodeEncodeError("charmap", p, inpos, inpos+1,
+                                            "character maps to <undefined>")
         inpos += 1
     return res
 
