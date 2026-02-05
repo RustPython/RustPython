@@ -130,7 +130,7 @@ impl PyFunction {
         let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
             // If not in globals, inherit from current execution context
             if let Some(frame) = vm.current_frame() {
-                frame.builtins.clone().into()
+                frame.builtins.clone()
             } else {
                 vm.builtins.dict().into()
             }
@@ -515,7 +515,7 @@ impl Py<PyFunction> {
         let frame = Frame::new(
             code.clone(),
             Scope::new(Some(locals), self.globals.clone()),
-            vm.builtins.dict(),
+            self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
             vm,

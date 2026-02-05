@@ -82,8 +82,7 @@ class TracebackCases(unittest.TestCase):
     def tokenizer_error_with_caret_range(self):
         compile("blech  (  ", "?", "exec")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 11 != 14
     def test_caret(self):
         err = self.get_exception_format(self.syntax_error_with_caret,
                                         SyntaxError)
@@ -196,8 +195,7 @@ class TracebackCases(unittest.TestCase):
         finally:
             unlink(TESTFN)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 3 != 4
     def test_bad_indentation(self):
         err = self.get_exception_format(self.syntax_error_bad_indentation,
                                         IndentationError)
@@ -477,8 +475,7 @@ class TracebackCases(unittest.TestCase):
         # Issue #18960: coding spec should have no effect
         do_test("x=0\n# coding: GBK\n", "h\xe9 ho", 'utf-8', 5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  b'ZeroDivisionError: division by zero']
     def test_print_traceback_at_exit(self):
         # Issue #22599: Ensure that it is possible to use the traceback module
         # to display an exception at Python exit
@@ -619,8 +616,6 @@ class TracebackErrorLocationCaretTestBase:
     """
     Tests for printing code error expressions as part of PEP 657
     """
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_caret(self):
         # NOTE: In caret tests, "if True:" is used as a way to force indicator
         #   display, since the raising expression spans only part of the line.
@@ -640,8 +635,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f)
         self.assertEqual(result_lines, expected_f.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_line_with_unicode(self):
         # Make sure that even if a line contains multi-byte unicode characters
         # the correct carets are printed.
@@ -661,8 +654,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_unicode)
         self.assertEqual(result_lines, expected_f.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_in_type_annotation(self):
         def f_with_type():
             def foo(a: THIS_DOES_NOT_EXIST ) -> int:
@@ -681,8 +672,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_type)
         self.assertEqual(result_lines, expected_f.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_multiline_expression(self):
         # Make sure no carets are printed for expressions spanning multiple
         # lines.
@@ -708,8 +697,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_multiline)
         self.assertEqual(result_lines, expected_f.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_multiline_expression_syntax_error(self):
         # Make sure an expression spanning multiple lines that has
         # a syntax error is correctly marked with carets.
@@ -774,8 +761,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_multiline)
         self.assertEqual(result_lines, expected_f.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_multiline_expression_bin_op(self):
         # Make sure no carets are printed for expressions spanning multiple
         # lines.
@@ -800,8 +785,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_multiline)
         self.assertEqual(result_lines, expected_f.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_binary_operators(self):
         def f_with_binary_operator():
             divisor = 20
@@ -820,8 +803,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_binary_operators_with_unicode(self):
         def f_with_binary_operator():
             áóí = 20
@@ -840,8 +821,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_binary_operators_two_char(self):
         def f_with_binary_operator():
             divisor = 20
@@ -860,8 +839,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_binary_operators_with_spaces_and_parenthesis(self):
         def f_with_binary_operator():
             a = 1
@@ -881,8 +858,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_binary_operators_multiline(self):
         def f_with_binary_operator():
             b = 1
@@ -909,8 +884,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_binary_operators_multiline_two_char(self):
         def f_with_binary_operator():
             b = 1
@@ -948,8 +921,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_binary_operators_multiline_with_unicode(self):
         def f_with_binary_operator():
             b = 1
@@ -972,8 +943,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_subscript(self):
         def f_with_subscript():
             some_dict = {'x': {'y': None}}
@@ -992,8 +961,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_subscript)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_subscript_unicode(self):
         def f_with_subscript():
             some_dict = {'ó': {'á': {'í': {'theta': 1}}}}
@@ -1012,8 +979,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_subscript)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_subscript_with_spaces_and_parenthesis(self):
         def f_with_binary_operator():
             a = []
@@ -1033,8 +998,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_subscript_multiline(self):
         def f_with_subscript():
             bbbbb = {}
@@ -1071,8 +1034,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_subscript)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_call(self):
         def f_with_call():
             def f1(a):
@@ -1096,8 +1057,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_call)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_call_unicode(self):
         def f_with_call():
             def f1(a):
@@ -1121,8 +1080,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_call)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_call_with_spaces_and_parenthesis(self):
         def f_with_binary_operator():
             def f(a):
@@ -1144,8 +1101,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_for_call_multiline(self):
         def f_with_call():
             class C:
@@ -1179,8 +1134,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_call)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_many_lines(self):
         def f():
             x = 1
@@ -1205,8 +1158,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_many_lines_no_caret(self):
         def f():
             x = 1
@@ -1229,8 +1180,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_many_lines_binary_op(self):
         def f_with_binary_operator():
             b = 1
@@ -1269,8 +1218,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_binary_operator)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_traceback_specialization_with_syntax_error(self):
         bytecode = compile("1 / 0 / 1 / 2\n", TESTFN, "exec")
 
@@ -1294,8 +1241,6 @@ class TracebackErrorLocationCaretTestBase:
         )
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_traceback_very_long_line(self):
         source = "if True: " + "a" * 256
         bytecode = compile(source, TESTFN, "exec")
@@ -1319,8 +1264,6 @@ class TracebackErrorLocationCaretTestBase:
         )
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_secondary_caret_not_elided(self):
         # Always show a line's indicators if they include the secondary character.
         def f_with_subscript():
@@ -1340,8 +1283,6 @@ class TracebackErrorLocationCaretTestBase:
         result_lines = self.get_exception(f_with_subscript)
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret_exception_group(self):
         # Notably, this covers whether indicators handle margin strings correctly.
         # (Exception groups use margin strings to display vertical indicators.)
@@ -1372,8 +1313,6 @@ class TracebackErrorLocationCaretTestBase:
         specialization_line = result_lines[-1]
         self.assertEqual(specialization_line.lstrip(), expected_specialization)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_specialization_variations(self):
         self.assertSpecialized(lambda: 1/0,
                                       "~^~")
@@ -1406,8 +1345,6 @@ class TracebackErrorLocationCaretTestBase:
         self.assertSpecialized(lambda: 1// 0,
                                       "~^^~~")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decorator_application_lineno_correct(self):
         def dec_error(func):
             raise TypeError
@@ -1452,8 +1389,6 @@ class TracebackErrorLocationCaretTestBase:
         )
         self.assertEqual(result_lines, expected_error.splitlines())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiline_method_call_a(self):
         def f():
             (None
@@ -1471,8 +1406,6 @@ class TracebackErrorLocationCaretTestBase:
         ]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiline_method_call_b(self):
         def f():
             (None.
@@ -1489,8 +1422,6 @@ class TracebackErrorLocationCaretTestBase:
         ]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiline_method_call_c(self):
         def f():
             (None
@@ -1508,8 +1439,6 @@ class TracebackErrorLocationCaretTestBase:
         ]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_wide_characters_unicode_with_problematic_byte_offset(self):
         def f():
             ｗｉｄｔｈ
@@ -1526,8 +1455,6 @@ class TracebackErrorLocationCaretTestBase:
         self.assertEqual(actual, expected)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_byte_offset_with_wide_characters_middle(self):
         def f():
             ｗｉｄｔｈ = 1
@@ -1544,8 +1471,6 @@ class TracebackErrorLocationCaretTestBase:
         ]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_byte_offset_multiline(self):
         def f():
             ｗｗｗ = 1
@@ -1568,8 +1493,6 @@ class TracebackErrorLocationCaretTestBase:
         ]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_byte_offset_with_wide_characters_term_highlight(self):
         def f():
             说明说明 = 1
@@ -1588,8 +1511,6 @@ class TracebackErrorLocationCaretTestBase:
         ]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_byte_offset_with_emojis_term_highlight(self):
         def f():
             return "✨🐍" + func_说明说明("📗🚛",
@@ -1607,8 +1528,6 @@ class TracebackErrorLocationCaretTestBase:
         ]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_byte_offset_wide_chars_subscript(self):
         def f():
             my_dct = {
@@ -1632,8 +1551,6 @@ class TracebackErrorLocationCaretTestBase:
         ]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_memory_error(self):
         def f():
             raise MemoryError()
@@ -1647,8 +1564,6 @@ class TracebackErrorLocationCaretTestBase:
             '    raise MemoryError()']
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_anchors_for_simple_return_statements_are_elided(self):
         def g():
             1/0
@@ -1738,8 +1653,6 @@ class TracebackErrorLocationCaretTestBase:
         ]
         self.assertEqual(result_lines, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_anchors_for_simple_assign_statements_are_elided(self):
         def g():
             1/0
@@ -1841,6 +1754,118 @@ class PurePythonTracebackErrorCaretTests(
     Same set of tests as above using the pure Python implementation of
     traceback printing in traceback.py.
     """
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '                ~~~~~~~~^^~~']
+    def test_caret_for_binary_operators_two_char(self):
+        return super().test_caret_for_binary_operators_two_char()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '                ~~~~~~~~^~~']
+    def test_caret_for_binary_operators(self):
+        return super().test_caret_for_binary_operators()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '           ~~~~~~^^^^^^^^^']
+    def test_caret_for_subscript_with_spaces_and_parenthesis(self):
+        return super().test_caret_for_subscript_with_spaces_and_parenthesis()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '           ~~~~~~~~~^~~~~~~~~~~~']
+    def test_byte_offset_with_wide_characters_term_highlight(self):
+        return super().test_byte_offset_with_wide_characters_term_highlight()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '           ~~~~~~~~~~^~']
+    def test_caret_for_binary_operators_with_spaces_and_parenthesis(self):
+        return super().test_caret_for_binary_operators_with_spaces_and_parenthesis()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '           ~~~~~~~~~~~~~~~~~~~^^^^^']
+    def test_caret_for_subscript(self):
+        return super().test_caret_for_subscript()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^']
+    def test_byte_offset_wide_chars_subscript(self):
+        return super().test_byte_offset_wide_chars_subscript()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^']
+    def test_caret_for_subscript_unicode(self):
+        return super().test_caret_for_subscript_unicode()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '          ~']
+    def test_caret_for_binary_operators_multiline(self):
+        return super().test_caret_for_binary_operators_multiline()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '        ~~~~~~^~~']
+    def test_caret_for_binary_operators_multiline_with_unicode(self):
+        return super().test_caret_for_binary_operators_multiline_with_unicode()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '    ^^^^^']
+    def test_traceback_specialization_with_syntax_error(self):
+        return super().test_traceback_specialization_with_syntax_error()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '    ^^^^^^^^^^^^^']
+    def test_caret_multiline_expression_syntax_error(self):
+        return super().test_caret_multiline_expression_syntax_error()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '    ~']
+    def test_caret_multiline_expression_bin_op(self):
+        return super().test_caret_multiline_expression_bin_op()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  '    ~~~~~~~~~~~~~~~~~~~^^^^^']
+    def test_secondary_caret_not_elided(self):
+        return super().test_secondary_caret_not_elided()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + ~^~
+    def test_specialization_variations(self):
+        return super().test_specialization_variations()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; -  '     ^^^^']
+    def test_multiline_method_call_b(self):
+        return super().test_multiline_method_call_b()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                   ^^^^ ++
+    def test_caret_for_binary_operators_with_unicode(self):
+        return super().test_caret_for_binary_operators_with_unicode()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?        ++
+    def test_multiline_method_call_a(self):
+        return super().test_multiline_method_call_a()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?        +++
+    def test_multiline_method_call_c(self):
+        return super().test_multiline_method_call_c()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?       ^
+    def test_many_lines(self):
+        return super().test_many_lines()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?       ^
+    def test_many_lines_no_caret(self):
+        return super().test_many_lines_no_caret()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?       ^ +
+    def test_anchors_for_simple_assign_statements_are_elided(self):
+        return super().test_anchors_for_simple_assign_statements_are_elided()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?       ^ +
+    def test_anchors_for_simple_return_statements_are_elided(self):
+        return super().test_anchors_for_simple_return_statements_are_elided()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: No exception thrown.
+    def test_caret_in_type_annotation(self):
+        return super().test_caret_in_type_annotation()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 652 characters long. Set self.maxDiff to None to see it.
+    def test_decorator_application_lineno_correct(self):
+        return super().test_decorator_application_lineno_correct()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 684 characters long. Set self.maxDiff to None to see it.
+    def test_many_lines_binary_op(self):
+        return super().test_many_lines_binary_op()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 726 characters long. Set self.maxDiff to None to see it.
+    def test_caret_for_binary_operators_multiline_two_char(self):
+        return super().test_caret_for_binary_operators_multiline_two_char()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 732 characters long. Set self.maxDiff to None to see it.
+    def test_caret_for_subscript_multiline(self):
+        return super().test_caret_for_subscript_multiline()
 
 
 @cpython_only
@@ -2163,8 +2188,6 @@ class TracebackFormatMixin:
         actual = stderr_g.getvalue().splitlines()
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # @requires_debug_ranges() # XXX: RUSTPYTHON patch
     def test_recursive_traceback(self):
         if self.DEBUG_RANGES:
@@ -2653,8 +2676,6 @@ class BaseExceptionReportingTests:
 
     # #### Exception Groups ####
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_group_basic(self):
         def exc():
             raise ExceptionGroup("eg", [ValueError(1), TypeError(2)])
@@ -2676,8 +2697,6 @@ class BaseExceptionReportingTests:
         report = self.get_report(exc)
         self.assertEqual(report, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_group_cause(self):
         def exc():
             EG = ExceptionGroup
@@ -2714,8 +2733,6 @@ class BaseExceptionReportingTests:
         report = self.get_report(exc)
         self.assertEqual(report, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_group_context_with_context(self):
         def exc():
             EG = ExceptionGroup
@@ -2763,8 +2780,6 @@ class BaseExceptionReportingTests:
         report = self.get_report(exc)
         self.assertEqual(report, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_group_nested(self):
         def exc():
             EG = ExceptionGroup
@@ -2941,8 +2956,6 @@ class BaseExceptionReportingTests:
         report = self.get_report(exc)
         self.assertEqual(report, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_group_with_notes(self):
         def exc():
             try:
@@ -2993,8 +3006,6 @@ class BaseExceptionReportingTests:
         report = self.get_report(exc)
         self.assertEqual(report, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_group_with_multiple_notes(self):
         def exc():
             try:
@@ -3172,8 +3183,7 @@ class LimitTests(unittest.TestCase):
     def last_returns_frame5(self):
         return self.last_returns_frame4()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 not greater than 5
     def test_extract_stack(self):
         frame = self.last_returns_frame5()
         def extract(**kwargs):
@@ -3264,8 +3274,7 @@ class MiscTracebackCases(unittest.TestCase):
     # Check non-printing functions in traceback module
     #
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 0
     def test_clear(self):
         def outer():
             middle()
@@ -3481,8 +3490,7 @@ class TestStack(unittest.TestCase):
             f'  File "{__file__}", line {lno}, in f\n    1/0\n'
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: _should_show_carets(13, 14, ['# this line will be used during rendering'], None)
     def test_summary_should_show_carets(self):
         # See: https://github.com/python/cpython/issues/122353
 
@@ -3639,8 +3647,7 @@ class TestTracebackException(unittest.TestCase):
         self.assertEqual(type(exc_obj).__name__, exc.exc_type_str)
         self.assertEqual(str(exc_obj), str(exc))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 11 not greater than 1000
     def test_long_context_chain(self):
         def f():
             try:
@@ -3864,8 +3871,7 @@ class TestTracebackException(unittest.TestCase):
         self.assertEqual(list(exc.format()), ["Exception: haven\n"])
 
     # @requires_debug_ranges() # XXX: RUSTPYTHON patch
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                  ^ +
     def test_print(self):
         def f():
             x = 12
@@ -3968,8 +3974,7 @@ class TestTracebackException_ExceptionGroups(unittest.TestCase):
 
         self.assertEqual(formatted, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 2265 characters long. Set self.maxDiff to None to see it.
     def test_exception_group_format(self):
         teg = traceback.TracebackException.from_exception(self.eg)
 
@@ -4314,8 +4319,6 @@ class SuggestionFormattingTestBase:
         )
         self.assertNotIn("?", result_lines[-1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attribute_error_inside_nested_getattr(self):
         class A:
             bluch = 1
@@ -4359,8 +4362,6 @@ class SuggestionFormattingTestBase:
         )
         return result_lines[0]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_import_from_suggestions(self):
         substitution = textwrap.dedent("""\
             noise = more_noise = a = bc = None
@@ -4411,8 +4412,6 @@ class SuggestionFormattingTestBase:
             actual = self.get_import_from_suggestion(code, 'bluch')
             self.assertIn(suggestion, actual)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_import_from_suggestions_underscored(self):
         code = "bluch = None"
         self.assertIn("'bluch'", self.get_import_from_suggestion(code, 'blach'))
@@ -4424,8 +4423,6 @@ class SuggestionFormattingTestBase:
         self.assertIn("'_bluch'", self.get_import_from_suggestion(code, '_luch'))
         self.assertNotIn("'_bluch'", self.get_import_from_suggestion(code, 'bluch'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_import_from_suggestions_non_string(self):
         modWithNonStringAttr = textwrap.dedent("""\
             globals()[0] = 1
@@ -4759,6 +4756,22 @@ class PurePythonSuggestionFormattingTests(
     traceback printing in traceback.py.
     """
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "'bluch'" not found in "ImportError: cannot import name 'blach'"
+    def test_import_from_suggestions_underscored(self):
+        return super().test_import_from_suggestions_underscored()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "'bluch'" not found in "ImportError: cannot import name 'blech'"
+    def test_import_from_suggestions_non_string(self):
+        return super().test_import_from_suggestions_non_string()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "'bluchin'?" not found in "ImportError: cannot import name 'bluch'"
+    def test_import_from_suggestions(self):
+        return super().test_import_from_suggestions()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'Did you mean' not found in "AttributeError: 'A' object has no attribute 'blich'"
+    def test_attribute_error_inside_nested_getattr(self):
+        return super().test_attribute_error_inside_nested_getattr()
+
 
 @cpython_only
 class CPythonSuggestionFormattingTests(
@@ -4813,8 +4826,7 @@ class MiscTest(unittest.TestCase):
         CHECK("AttributeError", "AttributeErrorTests", 10)
         CHECK("ABA", "AAB", 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: /Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/levenshtein_examples.json is missing. Run `make regen-test-levenshtein`
     @support.requires_resource('cpu')
     def test_levenshtein_distance_short_circuit(self):
         if not LEVENSHTEIN_DATA_FILE.is_file():
@@ -4871,8 +4883,7 @@ class MiscTest(unittest.TestCase):
 
 
 class TestColorizedTraceback(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "y = \x1b[31mx['a']['b']\x1b[0m\x1b[1;31m['c']\x1b[0m" not found in 'Traceback (most recent call last):\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4764\x1b[0m, in \x1b[35mtest_colorized_traceback\x1b[0m\n    \x1b[31mbar\x1b[0m\x1b[1;31m()\x1b[0m\n    \x1b[31m~~~\x1b[0m\x1b[1;31m^^\x1b[0m\n    bar = <function TestColorizedTraceback.test_colorized_traceback.<locals>.bar at 0xb57b09180>\n    baz1 = <function TestColorizedTraceback.test_colorized_traceback.<locals>.baz1 at 0xb57b09e00>\n    baz2 = <function TestColorizedTraceback.test_colorized_traceback.<locals>.baz2 at 0xb57b09cc0>\n    e = TypeError("\'NoneType\' object is not subscriptable")\n    foo = <function TestColorizedTraceback.test_colorized_traceback.<locals>.foo at 0xb57b08140>\n    self = <test.test_traceback.TestColorizedTraceback testMethod=test_colorized_traceback>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4760\x1b[0m, in \x1b[35mbar\x1b[0m\n    return baz1(1,\n            2,3\n            ,4)\n    baz1 = <function TestColorizedTraceback.test_colorized_traceback.<locals>.baz1 at 0xb57b09e00>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4757\x1b[0m, in \x1b[35mbaz1\x1b[0m\n    return baz2(1,2,3,4)\n    args = (1, 2, 3, 4)\n    baz2 = <function TestColorizedTraceback.test_colorized_traceback.<locals>.baz2 at 0xb57b09cc0>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4754\x1b[0m, in \x1b[35mbaz2\x1b[0m\n    return \x1b[31m(lambda *args: foo(*args))\x1b[0m\x1b[1;31m(1,2,3,4)\x1b[0m\n           \x1b[31m~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[0m\x1b[1;31m^^^^^^^^^\x1b[0m\n    args = (1, 2, 3, 4)\n    foo = <function TestColorizedTraceback.test_colorized_traceback.<locals>.foo at 0xb57b08140>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4754\x1b[0m, in \x1b[35m<lambda>\x1b[0m\n    return (lambda *args: \x1b[31mfoo\x1b[0m\x1b[1;31m(*args)\x1b[0m)(1,2,3,4)\n                          \x1b[31m~~~\x1b[0m\x1b[1;31m^^^^^^^\x1b[0m\n    args = (1, 2, 3, 4)\n    foo = <function TestColorizedTraceback.test_colorized_traceback.<locals>.foo at 0xb57b08140>\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4751\x1b[0m, in \x1b[35mfoo\x1b[0m\n    y = x[\'a\'][\'b\'][\x1b[1;31m\'c\'\x1b[0m]\n                    \x1b[1;31m^^^\x1b[0m\n    args = (1, 2, 3, 4)\n    x = {\'a\': {\'b\': None}}\n\x1b[1;35mTypeError\x1b[0m: \x1b[35m\'NoneType\' object is not subscriptable\x1b[0m\n'
     def test_colorized_traceback(self):
         def foo(*args):
             x = {'a':{'b': None}}
@@ -4905,8 +4916,7 @@ class TestColorizedTraceback(unittest.TestCase):
         self.assertIn("return baz1(1,\n            2,3\n            ,4)", lines)
         self.assertIn(red + "bar" + reset + boldr + "()" + reset, lines)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '  File \x1b[35m"<string>"\x1b[0m, line \x1b[35m1\x1b[0m\n    a \x1b[1;31m$\x1b[0m b\n      \x1b[1;31m^\x1b[0m\n\x1b[1;35mSyntaxError\x1b[0m: \x1b[35minvalid syntax\x1b[0m\n' not found in 'Traceback (most recent call last):\n  File \x1b[35m"/Users/al03219714/Projects/RustPython/crates/pylib/Lib/test/test_traceback.py"\x1b[0m, line \x1b[35m4782\x1b[0m, in \x1b[35mtest_colorized_syntax_error\x1b[0m\n    \x1b[31mcompile\x1b[0m\x1b[1;31m("a $ b", "<string>", "exec")\x1b[0m\n    \x1b[31m~~~~~~~\x1b[0m\x1b[1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\x1b[0m\n    e = SyntaxError(\'got unexpected token $\')\n    self = <test.test_traceback.TestColorizedTraceback testMethod=test_colorized_syntax_error>\n  File \x1b[35m"<string>"\x1b[0m, line \x1b[35m1\x1b[0m\n    a \x1b[1;31m$\x1b[0m b\n      \x1b[1;31m^\x1b[0m\n\x1b[1;35mSyntaxError\x1b[0m: \x1b[35mgot unexpected token $\x1b[0m\n'
     def test_colorized_syntax_error(self):
         try:
             compile("a $ b", "<string>", "exec")
@@ -4928,8 +4938,7 @@ class TestColorizedTraceback(unittest.TestCase):
         )
         self.assertIn(expected, actual)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ModuleNotFoundError: No module named '_testcapi'
     def test_colorized_traceback_is_the_default(self):
         def foo():
             1/0
@@ -4962,8 +4971,7 @@ class TestColorizedTraceback(unittest.TestCase):
             f'{boldm}ZeroDivisionError{reset}: {magenta}division by zero{reset}']
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 1795 characters long. Set self.maxDiff to None to see it.
     def test_colorized_traceback_from_exception_group(self):
         def foo():
             exceptions = []

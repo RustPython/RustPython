@@ -445,7 +445,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
                     rv = ns['f']()
                     self.assertEqual(rv, tuple(expected))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compile_top_level_await_no_coro(self):
         """Make sure top level non-await codes get the correct coroutine flags"""
         modes = ('single', 'exec')
@@ -552,7 +551,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
                 run_yielding_async_fn(lambda: eval(co, globals_))
                 self.assertEqual(globals_['a'], 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compile_top_level_await_invalid_cases(self):
          # helper function just to check we can run top=level async-for
         async def arange(n):
@@ -593,7 +591,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
                          mode,
                          flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compile_async_generator(self):
         """
         With the PyCF_ALLOW_TOP_LEVEL_AWAIT flag added in 3.8, we want to
@@ -640,7 +637,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         msg = r"^attribute name must be string, not 'int'$"
         self.assertRaisesRegex(TypeError, msg, delattr, sys, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '__repr__' unexpectedly found in ['__class__', '__delattr__', '__dict__', '__dir__', '__doc__', '__eq__', '__firstlineno__', '__format__', '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__le__', '__lt__', '__module__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__slots__', '__str__', '__subclasshook__', 'bar']
     def test_dir(self):
         # dir(wrong number of arguments)
         self.assertRaises(TypeError, dir, 42, 42)
@@ -894,7 +891,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec('global z\nz = 1', locals=g)
         self.assertEqual(g, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exec_globals(self):
         code = compile("print('Hello World!')", "", "exec")
         # no builtin function
@@ -904,7 +900,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(TypeError,
                           exec, code, {'__builtins__': 123})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exec_globals_frozen(self):
         class frozendict_error(Exception):
             pass
@@ -937,7 +932,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(frozendict_error,
                           exec, code, namespace)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exec_globals_error_on_get(self):
         # custom `globals` or `builtins` can raise errors on item access
         class setonlyerror(Exception):
@@ -957,7 +951,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(setonlyerror, exec, code,
                           {'__builtins__': setonlydict({'superglobal': 1})})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exec_globals_dict_subclass(self):
         class customdict(dict):  # this one should not do anything fancy
             pass
@@ -969,7 +962,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaisesRegex(NameError, "name 'superglobal' is not defined",
                                exec, code, {'__builtins__': customdict()})
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; NameError: name 'superglobal' is not defined
     def test_eval_builtins_mapping(self):
         code = compile("superglobal", "test", "eval")
         # works correctly
@@ -1009,7 +1001,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         finally:
             sys.stdout = savestdout
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument closure
     def test_exec_closure(self):
         def function_without_closures():
             return 3 * 5
@@ -1680,7 +1672,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(ValueError, open, 'a\x00b')
         self.assertRaises(ValueError, open, b'a\x00b')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.flags.utf8_mode, "utf-8 mode is enabled")
     def test_open_default_encoding(self):
         with EnvironmentVarGuard() as env:
@@ -2715,7 +2706,6 @@ class PtyTests(unittest.TestCase):
         else:
             yield
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_input_tty(self):
         # Test input() functionality when wired to a tty
         self.check_input_tty("prompt", b"quux")
@@ -2730,20 +2720,17 @@ class PtyTests(unittest.TestCase):
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_input_tty_null_in_prompt(self):
         self.check_input_tty("prompt\0", b"",
                 expected='ValueError: input: prompt string cannot contain '
                          'null characters')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_input_tty_nonencodable_prompt(self):
         self.check_input_tty("prompté", b"quux", "ascii", stdout_errors='strict',
                 expected="UnicodeEncodeError: 'ascii' codec can't encode "
                          "character '\\xe9' in position 6: ordinal not in "
                          "range(128)")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_input_tty_nondecodable_input(self):
         self.check_input_tty("prompt", b"quux\xe9", "ascii", stdin_errors='strict',
                 expected="UnicodeDecodeError: 'ascii' codec can't decode "
@@ -2960,7 +2947,7 @@ class TestType(unittest.TestCase):
             A.__qualname__ = b'B'
         self.assertEqual(A.__qualname__, 'D.E')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '__firstlineno__' unexpectedly found in mappingproxy({'__firstlineno__': 42, '__module__': 'testmodule', '__dict__': <attribute '__dict__' of 'A' objects>, '__doc__': None})
     def test_type_firstlineno(self):
         A = type('A', (), {'__firstlineno__': 42})
         self.assertEqual(A.__name__, 'A')
@@ -2972,7 +2959,7 @@ class TestType(unittest.TestCase):
         A.__firstlineno__ = 43
         self.assertEqual(A.__dict__['__firstlineno__'], 43)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'tuple' but 'str' found.
     def test_type_typeparams(self):
         class A[T]:
             pass

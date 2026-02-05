@@ -126,6 +126,13 @@ impl Node for ast::Expr {
             Constant::ast_from_object(vm, source_file, object)?.into_expr()
         } else if cls.is(pyast::NodeExprJoinedStr::static_type()) {
             JoinedStr::ast_from_object(vm, source_file, object)?.into_expr()
+        } else if cls.is(pyast::NodeExprTemplateStr::static_type()) {
+            let template = string::TemplateStr::ast_from_object(vm, source_file, object)?;
+            return string::template_str_to_expr(vm, template);
+        } else if cls.is(pyast::NodeExprInterpolation::static_type()) {
+            let interpolation =
+                string::TStringInterpolation::ast_from_object(vm, source_file, object)?;
+            return string::interpolation_to_expr(vm, interpolation);
         } else {
             return Err(vm.new_type_error(format!(
                 "expected some sort of expr, but got {}",
@@ -455,6 +462,11 @@ impl Node for ast::ExprDict {
             source_file,
             get_node_field(vm, &object, "values", "Dict")?,
         )?;
+        if keys.len() != values.len() {
+            return Err(vm.new_value_error(
+                "Dict doesn't have the same number of keys as values".to_owned(),
+            ));
+        }
         let items = keys
             .into_iter()
             .zip(values)
@@ -647,8 +659,18 @@ impl Node for ast::ExprGenerator {
             elt,
             generators,
             range,
-            parenthesized: _,
+            parenthesized,
         } = self;
+        let range = if parenthesized {
+            range
+        } else {
+            TextRange::new(
+                range
+                    .start()
+                    .saturating_sub(ruff_text_size::TextSize::from(1)),
+                range.end() + ruff_text_size::TextSize::from(1),
+            )
+        };
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprGeneratorExp::static_type().to_owned())
             .unwrap();
@@ -1234,6 +1256,9 @@ impl Node for ast::ExprContext {
                 unimplemented!("Invalid expression context is not allowed in Python AST")
             }
         };
+        if let Some(instance) = node_type.get_attr(vm.ctx.intern_str("_instance")) {
+            return instance;
+        }
         NodeAst
             .into_ref_with_type(vm, node_type.to_owned())
             .unwrap()

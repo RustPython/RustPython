@@ -86,7 +86,7 @@ impl Node for ast::ModModule {
             vm,
         )
         .unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        let _ = range;
         node.into()
     }
 
@@ -126,7 +126,7 @@ impl Node for ModInteractive {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("body", body.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        let _ = range;
         node.into()
     }
 
@@ -160,7 +160,7 @@ impl Node for ast::ModExpression {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("body", body.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        let _ = range;
         node.into()
     }
 
@@ -207,7 +207,7 @@ impl Node for ModFunctionType {
         .unwrap();
         dict.set_item("returns", returns.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        let _ = range;
         node.into()
     }
 

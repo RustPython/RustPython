@@ -1813,7 +1813,7 @@ pub(super) mod _os {
             } else {
                 let encoding = unsafe {
                     let encoding = libc::nl_langinfo(libc::CODESET);
-                    if encoding.is_null() || encoding.read() == '\0' as libc::c_char {
+                    if encoding.is_null() || encoding.read() == b'\0' as libc::c_char {
                         "UTF-8".to_owned()
                     } else {
                         core::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
