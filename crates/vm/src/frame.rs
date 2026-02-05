@@ -328,19 +328,14 @@ impl Py<Frame> {
     }
 
     pub fn next_external_frame(&self, vm: &VirtualMachine) -> Option<FrameRef> {
-        self.f_back(vm).map(|mut back| {
-            loop {
-                back = if let Some(back) = back.to_owned().f_back(vm) {
-                    back
-                } else {
-                    break back;
-                };
-
-                if !back.is_internal_frame() {
-                    break back;
-                }
+        let mut frame = self.f_back(vm);
+        while let Some(ref f) = frame {
+            if !f.is_internal_frame() {
+                break;
             }
-        })
+            frame = f.f_back(vm);
+        }
+        frame
     }
 }
 
