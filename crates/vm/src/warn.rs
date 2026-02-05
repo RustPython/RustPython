@@ -1,27 +1,69 @@
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{
-        PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+        PyBaseExceptionRef, PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple,
+        PyTupleRef, PyTypeRef,
     },
-    convert::{IntoObject, TryFromObject},
-    types::PyComparisonOp,
+    convert::TryFromObject,
 };
+use core::sync::atomic::{AtomicUsize, Ordering};
+use rustpython_common::lock::OnceCell;
 
 pub struct WarningsState {
-    filters: PyListRef,
-    _once_registry: PyDictRef,
-    default_action: PyStrRef,
-    filters_version: usize,
+    pub filters: PyListRef,
+    pub once_registry: PyDictRef,
+    pub default_action: PyStrRef,
+    pub filters_version: AtomicUsize,
+    pub context_var: OnceCell<PyObjectRef>,
+    lock_count: AtomicUsize,
 }
 
 impl WarningsState {
-    fn create_filter(ctx: &Context) -> PyListRef {
+    fn create_default_filters(ctx: &Context) -> PyListRef {
+        // Default filters matching _Py_InitWarningsFilters.
+        // The module field uses plain strings (not regex); check_matched handles
+        // both plain strings (exact comparison) and regex objects (.match()).
         ctx.new_list(vec![
             ctx.new_tuple(vec![
+                ctx.new_str("default").into(),
+                ctx.none(),
+                ctx.exceptions.deprecation_warning.as_object().to_owned(),
                 ctx.new_str("__main__").into(),
-                ctx.types.none_type.as_object().to_owned(),
-                ctx.exceptions.warning.as_object().to_owned(),
-                ctx.new_str("ACTION").into(),
+                ctx.new_int(0).into(),
+            ])
+            .into(),
+            ctx.new_tuple(vec![
+                ctx.new_str("ignore").into(),
+                ctx.none(),
+                ctx.exceptions.deprecation_warning.as_object().to_owned(),
+                ctx.none(),
+                ctx.new_int(0).into(),
+            ])
+            .into(),
+            ctx.new_tuple(vec![
+                ctx.new_str("ignore").into(),
+                ctx.none(),
+                ctx.exceptions
+                    .pending_deprecation_warning
+                    .as_object()
+                    .to_owned(),
+                ctx.none(),
+                ctx.new_int(0).into(),
+            ])
+            .into(),
+            ctx.new_tuple(vec![
+                ctx.new_str("ignore").into(),
+                ctx.none(),
+                ctx.exceptions.import_warning.as_object().to_owned(),
+                ctx.none(),
+                ctx.new_int(0).into(),
+            ])
+            .into(),
+            ctx.new_tuple(vec![
+                ctx.new_str("ignore").into(),
+                ctx.none(),
+                ctx.exceptions.resource_warning.as_object().to_owned(),
+                ctx.none(),
                 ctx.new_int(0).into(),
             ])
             .into(),
@@ -30,25 +72,53 @@ impl WarningsState {
 
     pub fn init_state(ctx: &Context) -> Self {
         Self {
-            filters: Self::create_filter(ctx),
-            _once_registry: ctx.new_dict(),
+            filters: Self::create_default_filters(ctx),
+            once_registry: ctx.new_dict(),
             default_action: ctx.new_str("default"),
-            filters_version: 0,
+            filters_version: AtomicUsize::new(0),
+            context_var: OnceCell::new(),
+            lock_count: AtomicUsize::new(0),
         }
+    }
+
+    pub fn acquire_lock(&self) {
+        self.lock_count.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn release_lock(&self) -> bool {
+        let prev = self.lock_count.load(Ordering::SeqCst);
+        if prev == 0 {
+            return false;
+        }
+        self.lock_count.fetch_sub(1, Ordering::SeqCst);
+        true
+    }
+
+    pub fn filters_mutated(&self) {
+        self.filters_version.fetch_add(1, Ordering::SeqCst);
     }
 }
 
+/// Match a filter field against an argument.
+/// - None matches everything
+/// - Plain strings do exact comparison
+/// - Regex objects use .match() method
 fn check_matched(obj: &PyObject, arg: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-    if obj.class().is(vm.ctx.types.none_type) {
+    if vm.is_none(obj) {
         return Ok(true);
     }
 
-    if obj.rich_compare_bool(arg, PyComparisonOp::Eq, vm)? {
-        return Ok(false);
+    // Plain string: exact comparison
+    if obj.class().is(vm.ctx.types.str_type) {
+        let result = obj.rich_compare_bool(arg, crate::types::PyComparisonOp::Eq, vm)?;
+        return Ok(result);
     }
 
-    let result = obj.call((arg.to_owned(),), vm);
-    Ok(result.is_ok())
+    // Regex or other object: call .match() method
+    match vm.call_method(obj, "match", (arg.to_owned(),)) {
+        Ok(result) => Ok(result.is_true(vm)?),
+        Err(_) => Ok(false),
+    }
 }
 
 fn get_warnings_attr(
@@ -68,7 +138,6 @@ fn get_warnings_attr(
         }
     } else {
         // Check sys.modules for already-imported warnings module
-        // This is what CPython does with PyImport_GetModule
         match vm.sys_module.get_attr(identifier!(vm, modules), vm) {
             Ok(modules) => match modules.get_item(vm.ctx.intern_str("warnings"), vm) {
                 Ok(module) => module,
@@ -77,30 +146,73 @@ fn get_warnings_attr(
             Err(_) => return Ok(None),
         }
     };
-    Ok(Some(module.get_attr(attr_name, vm)?))
+    match module.get_attr(attr_name, vm) {
+        Ok(attr) => Ok(Some(attr)),
+        Err(_) => Ok(None),
+    }
 }
 
+/// Get the warnings filters list from sys.modules['warnings'].filters,
+/// falling back to vm.state.warnings.filters.
+fn get_warnings_filters(vm: &VirtualMachine) -> PyResult<PyListRef> {
+    if let Ok(Some(filters_obj)) = get_warnings_attr(vm, identifier!(&vm.ctx, filters), false)
+        && let Ok(filters) = filters_obj.try_into_value::<PyListRef>(vm)
+    {
+        return Ok(filters);
+    }
+    Ok(vm.state.warnings.filters.clone())
+}
+
+/// Get the default action from sys.modules['warnings']._defaultaction,
+/// falling back to vm.state.warnings.default_action.
+fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    if let Ok(Some(action)) = get_warnings_attr(vm, identifier!(&vm.ctx, _defaultaction), false) {
+        return Ok(action);
+    }
+    Ok(vm.state.warnings.default_action.clone().into())
+}
+
+/// Get the once registry from sys.modules['warnings']._onceregistry,
+/// falling back to vm.state.warnings.once_registry.
+fn get_once_registry(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    if let Ok(Some(registry)) = get_warnings_attr(vm, identifier!(&vm.ctx, _onceregistry), false) {
+        return Ok(registry);
+    }
+    Ok(vm.state.warnings.once_registry.clone().into())
+}
+
+/// Called from Rust code to issue a warning via the Python warnings module.
 pub fn warn(
-    message: PyStrRef,
+    message: PyObjectRef,
     category: Option<PyTypeRef>,
     stack_level: isize,
     source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let (filename, lineno, module, registry) = setup_context(stack_level, vm)?;
+    warn_with_skip(message, category, stack_level, source, None, vm)
+}
+
+/// warn() with skip_file_prefixes support.
+pub fn warn_with_skip(
+    message: PyObjectRef,
+    category: Option<PyTypeRef>,
+    mut stack_level: isize,
+    source: Option<PyObjectRef>,
+    skip_file_prefixes: Option<PyTupleRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    // When skip_file_prefixes is active and non-empty, clamp stacklevel to at least 2.
+    if let Some(ref prefixes) = skip_file_prefixes
+        && !prefixes.is_empty()
+        && stack_level < 2
+    {
+        stack_level = 2;
+    }
+    let (filename, lineno, module, registry) =
+        setup_context(stack_level, skip_file_prefixes.as_ref(), vm)?;
     warn_explicit(
         category, message, filename, lineno, module, registry, None, source, vm,
     )
-}
-
-fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-    Ok(vm.state.warnings.default_action.clone().into())
-    // .map_err(|_| {
-    //     vm.new_value_error(format!(
-    //         "_warnings.defaultaction must be a string, not '{}'",
-    //         vm.state.warnings.default_action
-    //     ))
-    // })
 }
 
 fn get_filter(
@@ -108,31 +220,28 @@ fn get_filter(
     text: PyObjectRef,
     lineno: usize,
     module: PyObjectRef,
-    mut _item: PyTupleRef,
     vm: &VirtualMachine,
 ) -> PyResult {
-    let filters = vm.state.warnings.filters.as_object().to_owned();
+    let filters = get_warnings_filters(vm)?;
 
-    let filters: PyListRef = filters
-        .try_into_value(vm)
-        .map_err(|_| vm.new_value_error("_warnings.filters must be a list"))?;
-
-    /* WarningsState.filters could change while we are iterating over it. */
-    for i in 0..filters.borrow_vec().len() {
-        let tmp_item = if let Some(tmp_item) = filters.borrow_vec().get(i).cloned() {
-            let tmp_item = PyTupleRef::try_from_object(vm, tmp_item)?;
-            (tmp_item.len() == 5).then_some(tmp_item)
-        } else {
-            None
-        }
-        .ok_or_else(|| vm.new_value_error(format!("_warnings.filters item {i} isn't a 5-tuple")))?;
+    // filters could change while we are iterating over it.
+    // Re-check list length each iteration (matches C behavior).
+    let mut i = 0;
+    while i < filters.borrow_vec().len() {
+        let Some(tmp_item) = filters.borrow_vec().get(i).cloned() else {
+            break;
+        };
+        let tmp_item = PyTupleRef::try_from_object(vm, tmp_item.clone())
+            .ok()
+            .filter(|t| t.len() == 5)
+            .ok_or_else(|| {
+                vm.new_value_error(format!("_warnings.filters item {i} isn't a 5-tuple"))
+            })?;
 
         /* Python code: action, msg, cat, mod, ln = item */
-        let action = if let Some(action) = tmp_item.first() {
-            action.str_utf8(vm).map(|action| action.into_object())
-        } else {
-            Err(vm.new_type_error("action must be a string"))
-        };
+        let action = tmp_item
+            .first()
+            .ok_or_else(|| vm.new_type_error("action must be a string".to_owned()))?;
 
         let good_msg = if let Some(msg) = tmp_item.get(1) {
             check_matched(msg, &text, vm)?
@@ -141,7 +250,7 @@ fn get_filter(
         };
 
         let is_subclass = if let Some(cat) = tmp_item.get(2) {
-            category.fast_isinstance(cat.class())
+            category.is_subclass(cat, vm)?
         } else {
             false
         };
@@ -157,54 +266,58 @@ fn get_filter(
         });
 
         if good_msg && good_mod && is_subclass && (ln == 0 || lineno == ln) {
-            _item = tmp_item;
-            return action;
+            return Ok(action.to_owned());
         }
+        i += 1;
     }
 
     get_default_action(vm)
 }
 
 fn already_warned(
-    registry: PyObjectRef,
+    registry: &PyObject,
     key: PyObjectRef,
     should_set: bool,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
-    let version_obj = registry.get_item(identifier!(&vm.ctx, version), vm).ok();
-    let filters_version = vm.ctx.new_int(vm.state.warnings.filters_version).into();
+    if vm.is_none(registry) {
+        return Ok(false);
+    }
 
-    match version_obj {
-        Some(version_obj)
-            if version_obj.try_int(vm).is_ok() || version_obj.is(&filters_version) =>
+    let current_version = vm.state.warnings.filters_version.load(Ordering::SeqCst);
+    let version_obj = registry.get_item(identifier!(&vm.ctx, version), vm).ok();
+
+    let version_matches = version_obj.as_ref().is_some_and(|v| {
+        v.try_int(vm)
+            .map(|i| i.as_u32_mask() as usize == current_version)
+            .unwrap_or(false)
+    });
+
+    if version_matches {
+        // Version matches: check if key is already in the registry
+        if let Ok(val) = registry.get_item(key.as_ref(), vm)
+            && val.is_true(vm)?
         {
-            // Use .ok() to handle KeyError when key doesn't exist (like Python's dict.get())
-            if let Ok(already_warned) = registry.get_item(key.as_ref(), vm)
-                && already_warned.is_true(vm)?
-            {
-                return Ok(true);
-            }
+            return Ok(true); // was already warned
         }
-        _ => {
-            let registry = registry.dict();
-            if let Some(registry) = registry.as_ref() {
-                registry.clear();
-                let r = registry.set_item("version", filters_version, vm);
-                if r.is_err() {
-                    return Ok(false);
-                }
-            }
+    } else {
+        // Version mismatch or missing: clear registry and set new version
+        if let Ok(dict) = PyDictRef::try_from_object(vm, registry.to_owned()) {
+            dict.clear();
+            let _ = dict.set_item(
+                identifier!(&vm.ctx, version),
+                vm.ctx.new_int(current_version).into(),
+                vm,
+            );
         }
     }
 
-    /* This warning wasn't found in the registry, set it. */
     if !should_set {
         return Ok(false);
     }
 
-    let item = vm.ctx.true_value.clone().into();
-    let _ = registry.set_item(key.as_ref(), item, vm); // ignore set error
-    Ok(true)
+    let _ = registry.set_item(key.as_ref(), vm.ctx.true_value.clone().into(), vm);
+    Ok(false) // was NOT previously warned (but now it's recorded)
 }
 
 fn normalize_module(filename: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
@@ -218,10 +331,11 @@ fn normalize_module(filename: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjec
     Some(obj)
 }
 
+/// Core warning logic. message can be either a string or a Warning instance.
 #[allow(clippy::too_many_arguments)]
-fn warn_explicit(
+pub(crate) fn warn_explicit(
     category: Option<PyTypeRef>,
-    message: PyStrRef,
+    message: PyObjectRef,
     filename: PyStrRef,
     lineno: usize,
     module: Option<PyObjectRef>,
@@ -230,9 +344,29 @@ fn warn_explicit(
     source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let registry: PyObjectRef = registry
-        .try_into_value(vm)
-        .map_err(|_| vm.new_type_error("'registry' must be a dict or None"))?;
+    // Determine text and category based on whether message is a Warning instance
+    let is_warning = message.fast_isinstance(vm.ctx.exceptions.warning);
+
+    let (text, category) = if is_warning {
+        let text = message.str(vm)?;
+        let cat = message.class().to_owned();
+        (text, cat)
+    } else {
+        // For non-Warning messages, convert to string via str()
+        let text = message.str(vm)?;
+        let cat = if let Some(category) = category {
+            if !category.fast_issubclass(vm.ctx.exceptions.warning) {
+                return Err(vm.new_type_error(format!(
+                    "category must be a Warning subclass, not '{}'",
+                    category.class().name()
+                )));
+            }
+            category
+        } else {
+            vm.ctx.exceptions.user_warning.to_owned()
+        };
+        (text, cat)
+    };
 
     // Normalize module.
     let module = match module.or_else(|| normalize_module(&filename, vm)) {
@@ -240,76 +374,110 @@ fn warn_explicit(
         None => return Ok(()),
     };
 
-    // Normalize message.
-    let text = message.as_wtf8();
-
-    let category = if let Some(category) = category {
-        if !category.fast_issubclass(vm.ctx.exceptions.warning) {
-            return Err(vm.new_type_error(format!(
-                "category must be a Warning subclass, not '{}'",
-                category.class().name()
-            )));
-        }
-        category
-    } else {
-        vm.ctx.exceptions.user_warning.to_owned()
-    };
-
-    let category = if message.fast_isinstance(vm.ctx.exceptions.warning) {
-        message.class().to_owned()
-    } else {
-        category
-    };
-
-    // Create key.
-    let key = PyTuple::new_ref(
+    // Create key: (text, category, lineno) - used for "default" and "module" actions
+    let key: PyObjectRef = PyTuple::new_ref(
         vec![
-            vm.ctx.new_int(3).into(),
-            vm.ctx.new_str(text).into(),
+            text.clone().into(),
             category.as_object().to_owned(),
             vm.ctx.new_int(lineno).into(),
         ],
         &vm.ctx,
-    );
+    )
+    .into();
 
-    if !vm.is_none(registry.as_object()) && already_warned(registry, key.into_object(), false, vm)?
-    {
+    // Check if already warned
+    if !vm.is_none(&registry) && already_warned(&registry, key.clone(), false, vm)? {
         return Ok(());
     }
 
-    let item = vm.ctx.new_tuple(vec![]);
+    // Get filter action
     let action = get_filter(
         category.as_object().to_owned(),
-        vm.ctx.new_str(text).into(),
+        text.clone().into(),
         lineno,
         module,
-        item,
         vm,
     )?;
 
-    if action.str_utf8(vm)?.as_str().eq("error") {
-        return Err(vm.new_type_error(message.to_string()));
+    let action_str = PyStrRef::try_from_object(vm, action)
+        .map_err(|_| vm.new_type_error("action must be a string".to_owned()))?;
+
+    match action_str.as_str() {
+        "error" => {
+            // Raise the Warning as an exception
+            let exc = if is_warning {
+                PyBaseExceptionRef::try_from_object(vm, message)?
+            } else {
+                vm.invoke_exception(category.clone(), vec![text.into()])?
+            };
+            return Err(exc);
+        }
+        "ignore" => return Ok(()),
+        "once" => {
+            // "once" uses (text, category) as key — no lineno
+            let once_key: PyObjectRef = PyTuple::new_ref(
+                vec![text.clone().into(), category.as_object().to_owned()],
+                &vm.ctx,
+            )
+            .into();
+            let reg = get_once_registry(vm)?;
+            if already_warned(&reg, once_key, true, vm)? {
+                return Ok(()); // already warned once
+            }
+        }
+        "always" | "all" => { /* fall through to show warning */ }
+        "module" => {
+            if !vm.is_none(&registry) {
+                // Record with the full key (text, category, lineno)
+                already_warned(&registry, key, true, vm)?;
+                // Check/set altkey (text, category) — without lineno.
+                // If the altkey is already recorded, suppress.
+                let alt_key: PyObjectRef = PyTuple::new_ref(
+                    vec![text.clone().into(), category.as_object().to_owned()],
+                    &vm.ctx,
+                )
+                .into();
+                if already_warned(&registry, alt_key, true, vm)? {
+                    return Ok(());
+                }
+            }
+        }
+        "default" => {
+            if !vm.is_none(&registry) && already_warned(&registry, key, true, vm)? {
+                return Ok(());
+            }
+        }
+        other => {
+            return Err(vm.new_runtime_error(format!(
+                "Unrecognized action ({other}) in warnings.filters:\n {other}"
+            )));
+        }
     }
 
-    if action.str_utf8(vm)?.as_str().eq("ignore") {
-        return Ok(());
-    }
+    // Create Warning instance if message is a string
+    let warning_instance = if is_warning {
+        message
+    } else {
+        category.as_object().call((text.clone(),), vm)?
+    };
 
     call_show_warning(
-        // t_state,
         category,
-        message,
+        text,
+        warning_instance,
         filename,
-        lineno, // lineno_obj,
+        lineno,
         source_line,
         source,
         vm,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn call_show_warning(
     category: PyTypeRef,
-    message: PyStrRef,
+    text: PyStrRef,
+    warning_instance: PyObjectRef,
     filename: PyStrRef,
     lineno: usize,
     source_line: Option<PyObjectRef>,
@@ -319,19 +487,17 @@ fn call_show_warning(
     let Some(show_fn) =
         get_warnings_attr(vm, identifier!(&vm.ctx, _showwarnmsg), source.is_some())?
     else {
-        return show_warning(filename, lineno, message, category, source_line, vm);
+        return show_warning(filename, lineno, text, category, source_line, vm);
     };
     if !show_fn.is_callable() {
-        return Err(vm.new_type_error("warnings._showwarnmsg() must be set to a callable"));
+        return Err(
+            vm.new_type_error("warnings._showwarnmsg() must be set to a callable".to_owned())
+        );
     }
     let Some(warnmsg_cls) = get_warnings_attr(vm, identifier!(&vm.ctx, WarningMessage), false)?
     else {
-        return Err(vm.new_type_error("unable to get warnings.WarningMessage"));
+        return Err(vm.new_type_error("unable to get warnings.WarningMessage".to_owned()));
     };
-
-    // Create a Warning instance by calling category(message)
-    // This is what warnings module does
-    let warning_instance = category.as_object().call((message,), vm)?;
 
     let msg = warnmsg_cls.call(
         vec![
@@ -362,10 +528,41 @@ fn show_warning(
     Ok(())
 }
 
+/// Check if a frame's filename starts with any of the given prefixes.
+fn is_filename_to_skip(frame: &crate::frame::Frame, prefixes: &PyTupleRef) -> bool {
+    let filename = frame.f_code().co_filename();
+    let filename_s = filename.as_str();
+    prefixes.iter().any(|prefix| {
+        prefix
+            .downcast_ref::<PyStr>()
+            .is_some_and(|s| filename_s.starts_with(s.as_str()))
+    })
+}
+
+/// Like Frame::next_external_frame but also skips frames matching prefixes.
+fn next_external_frame_with_skip(
+    frame: &crate::frame::FrameRef,
+    skip_file_prefixes: Option<&PyTupleRef>,
+    vm: &VirtualMachine,
+) -> Option<crate::frame::FrameRef> {
+    let mut f = frame.f_back(vm);
+    loop {
+        let current: crate::frame::FrameRef = f.take()?;
+        let should_skip = current.is_internal_frame()
+            || skip_file_prefixes.is_some_and(|prefixes| is_filename_to_skip(&current, prefixes));
+        if should_skip {
+            f = current.f_back(vm);
+        } else {
+            return Some(current);
+        }
+    }
+}
+
 /// filename, module, and registry are new refs, globals is borrowed
 /// Returns `Ok` on success, or `Err` on error (no new refs)
 fn setup_context(
     mut stack_level: isize,
+    skip_file_prefixes: Option<&PyTupleRef>,
     vm: &VirtualMachine,
 ) -> PyResult<
     // filename, lineno, module, registry
@@ -397,7 +594,7 @@ fn setup_context(
                 break;
             }
             if let Some(tmp) = f {
-                f = tmp.next_external_frame(vm);
+                f = next_external_frame_with_skip(&tmp, skip_file_prefixes, vm);
             } else {
                 break;
             }
@@ -417,7 +614,7 @@ fn setup_context(
             .get_attr(identifier!(vm, __dict__), vm)
             .and_then(|d| {
                 d.downcast::<crate::builtins::PyDict>()
-                    .map_err(|_| vm.new_type_error("sys.__dict__ is not a dictionary"))
+                    .map_err(|_| vm.new_type_error("sys.__dict__ is not a dictionary".to_owned()))
             })?;
         (globals, vm.ctx.intern_str("<sys>"), 0)
     };
