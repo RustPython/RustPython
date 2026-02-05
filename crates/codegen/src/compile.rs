@@ -22,7 +22,7 @@ use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast as ast;
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 use std::collections::HashSet;
 
 use rustpython_compiler_core::{
@@ -8366,9 +8366,19 @@ impl Compiler {
                     // Compile the interpolation value
                     self.compile_expression(&interp.expression)?;
 
-                    // Load the expression source string
+                    // Load the expression source string, including any
+                    // whitespace between '{' and the expression start
                     let expr_range = interp.expression.range();
-                    let expr_source = self.source_file.slice(expr_range);
+                    let expr_source = if interp.range.start() < expr_range.start()
+                        && interp.range.end() >= expr_range.end()
+                    {
+                        let after_brace = interp.range.start() + TextSize::new(1);
+                        self.source_file
+                            .slice(TextRange::new(after_brace, expr_range.end()))
+                    } else {
+                        // Fallback for programmatically constructed ASTs with dummy ranges
+                        self.source_file.slice(expr_range)
+                    };
                     self.emit_load_const(ConstantData::Str {
                         value: expr_source.to_string().into(),
                     });
