@@ -6,8 +6,8 @@ use crate::{
         oparg::{
             BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator,
             ConvertValueOparg, IntrinsicFunction1, IntrinsicFunction2, Invert, Label,
-            MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind, SpecialMethod,
-            UnpackExArgs,
+            LoadSuperAttr, MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind,
+            SpecialMethod, UnpackExArgs,
         },
     },
     marshal::MarshalError,
@@ -198,7 +198,7 @@ pub enum Instruction {
         method: Arg<SpecialMethod>,
     } = 95,
     LoadSuperAttr {
-        arg: Arg<u32>,
+        arg: Arg<LoadSuperAttr>,
     } = 96,
     MakeCell(Arg<NameIdx>) = 97,
     MapAdd {
@@ -862,13 +862,15 @@ impl InstructionMetadata for Instruction {
             Self::LoadName(idx) => w!(LOAD_NAME, name = idx),
             Self::LoadSpecial { method } => w!(LOAD_SPECIAL, method),
             Self::LoadSuperAttr { arg: idx } => {
-                let encoded = idx.get(arg);
-                let (name_idx, load_method, has_class) = decode_load_super_attr_arg(encoded);
-                let attr_name = name(name_idx);
+                let oparg = idx.get(arg);
                 write!(
                     f,
                     "{:pad$}({}, {}, method={}, class={})",
-                    "LOAD_SUPER_ATTR", encoded, attr_name, load_method, has_class
+                    "LOAD_SUPER_ATTR",
+                    u32::from(oparg),
+                    name(oparg.name_idx()),
+                    oparg.is_load_method(),
+                    oparg.has_class()
                 )
             }
             Self::MakeFunction => w!(MAKE_FUNCTION),
@@ -1303,19 +1305,4 @@ pub const fn decode_load_attr_arg(oparg: u32) -> (u32, bool) {
     let is_method = (oparg & 1) == 1;
     let name_idx = oparg >> 1;
     (name_idx, is_method)
-}
-
-/// Encode LOAD_SUPER_ATTR oparg: bit 0 = load_method, bit 1 = has_class, bits 2+ = name index.
-#[inline]
-pub const fn encode_load_super_attr_arg(name_idx: u32, load_method: bool, has_class: bool) -> u32 {
-    (name_idx << 2) | ((has_class as u32) << 1) | (load_method as u32)
-}
-
-/// Decode LOAD_SUPER_ATTR oparg: returns (name_idx, load_method, has_class).
-#[inline]
-pub const fn decode_load_super_attr_arg(oparg: u32) -> (u32, bool, bool) {
-    let load_method = (oparg & 1) == 1;
-    let has_class = (oparg & 2) == 2;
-    let name_idx = oparg >> 2;
-    (name_idx, load_method, has_class)
 }

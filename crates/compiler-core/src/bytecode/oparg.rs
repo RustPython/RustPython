@@ -655,3 +655,97 @@ impl fmt::Display for UnpackExArgs {
         write!(f, "before: {}, after: {}", self.before, self.after)
     }
 }
+
+#[derive(Clone, Copy)]
+pub struct LoadSuperAttr(u32);
+
+impl LoadSuperAttr {
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub fn builder() -> LoadSuperAttrBuilder {
+        LoadSuperAttrBuilder::default()
+    }
+
+    #[must_use]
+    pub const fn name_idx(self) -> u32 {
+        self.0 >> 2
+    }
+
+    #[must_use]
+    pub const fn is_load_method(self) -> bool {
+        (self.0 & 1) == 1
+    }
+
+    #[must_use]
+    pub const fn has_class(self) -> bool {
+        (self.0 & 2) == 2
+    }
+}
+
+impl OpArgType for LoadSuperAttr {
+    #[inline(always)]
+    fn from_op_arg(x: u32) -> Result<Self, MarshalError> {
+        Ok(x.into())
+    }
+
+    #[inline(always)]
+    fn to_op_arg(self) -> u32 {
+        self.into()
+    }
+}
+
+impl From<u32> for LoadSuperAttr {
+    fn from(value: u32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<LoadSuperAttr> for u32 {
+    fn from(value: LoadSuperAttr) -> Self {
+        value.0
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct LoadSuperAttrBuilder {
+    name_idx: u32,
+    is_load_method: bool,
+    has_class: bool,
+}
+
+impl LoadSuperAttrBuilder {
+    #[must_use]
+    pub const fn build(self) -> LoadSuperAttr {
+        let value =
+            (self.name_idx << 2) | ((self.has_class as u32) << 1) | (self.is_load_method as u32);
+        LoadSuperAttr::new(value)
+    }
+
+    #[must_use]
+    pub const fn name_idx(mut self, value: u32) -> Self {
+        self.name_idx = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn is_load_method(mut self, value: bool) -> Self {
+        self.is_load_method = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn has_class(mut self, value: bool) -> Self {
+        self.has_class = value;
+        self
+    }
+}
+
+impl From<LoadSuperAttrBuilder> for LoadSuperAttr {
+    fn from(builder: LoadSuperAttrBuilder) -> Self {
+        builder.build()
+    }
+}
