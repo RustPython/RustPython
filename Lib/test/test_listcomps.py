@@ -609,7 +609,7 @@ class ListComprehensionTest(unittest.TestCase):
             result = snapshot = None
             try:
                 result = [{func}(value) for value in value]
-            except:
+            except ValueError:
                 snapshot = value
                 raise
         """
@@ -643,13 +643,12 @@ class ListComprehensionTest(unittest.TestCase):
             value = [1, None]
             try:
                 [v for v in value].sort()
-            except:
+            except TypeError:
                 pass
         """
         self._check_in_scopes(code, {"value": [1, None]})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_frame_locals(self):
         code = """
             val = "a" in [sys._getframe().f_locals for a in [0]][0]
@@ -718,7 +717,7 @@ class ListComprehensionTest(unittest.TestCase):
 
     def test_exception_locations(self):
         # The location of an exception raised from __init__ or
-        # __next__ should should be the iterator expression
+        # __next__ should be the iterator expression
 
         def init_raises():
             try:
@@ -751,6 +750,28 @@ class ListComprehensionTest(unittest.TestCase):
                 self.assertEqual(f.end_lineno, co.co_firstlineno + 2)
                 self.assertEqual(f.line[f.colno - indent : f.end_colno - indent],
                                  expected)
+
+    def test_only_calls_dunder_iter_once(self):
+
+        class Iterator:
+
+            def __init__(self):
+                self.val = 0
+
+            def __next__(self):
+                if self.val == 2:
+                    raise StopIteration
+                self.val += 1
+                return self.val
+
+            # No __iter__ method
+
+        class C:
+
+            def __iter__(self):
+                return Iterator()
+
+        self.assertEqual([1, 2], [i for i in C()])
 
 __test__ = {'doctests' : doctests}
 
