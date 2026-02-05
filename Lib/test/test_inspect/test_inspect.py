@@ -13,8 +13,7 @@ import linecache
 import os
 import dis
 from os.path import normcase
-# XXX: RUSTPYTHON
-# import _pickle
+# import _pickle # TODO: RUSTPYTHON
 import pickle
 import shutil
 import stat
@@ -2786,6 +2785,30 @@ class TestGetGeneratorState(unittest.TestCase):
         next(self.generator)
         # Running after the first yield
         next(self.generator)
+
+    def test_types_coroutine_wrapper_state(self):
+        def gen():
+            yield 1
+            yield 2
+
+        @types.coroutine
+        def wrapped_generator_coro():
+            # return a generator iterator so types.coroutine
+            # wraps it into types._GeneratorWrapper.
+            return gen()
+
+        g = wrapped_generator_coro()
+        self.addCleanup(g.close)
+        self.assertIs(type(g), types._GeneratorWrapper)
+
+        # _GeneratorWrapper must provide gi_suspended/cr_suspended
+        # so inspect.get*state() doesn't raise AttributeError.
+        self.assertEqual(inspect.getgeneratorstate(g), inspect.GEN_CREATED)
+        self.assertEqual(inspect.getcoroutinestate(g), inspect.CORO_CREATED)
+
+        next(g)
+        self.assertEqual(inspect.getgeneratorstate(g), inspect.GEN_SUSPENDED)
+        self.assertEqual(inspect.getcoroutinestate(g), inspect.CORO_SUSPENDED)
 
     def test_easy_debugging(self):
         # repr() and str() of a generator state should contain the state name
