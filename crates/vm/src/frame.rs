@@ -10,7 +10,7 @@ use crate::{
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
     },
-    bytecode::{self, Instruction},
+    bytecode::{self, Instruction, LoadSuperAttr},
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
@@ -2859,9 +2859,8 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn load_super_attr(&mut self, vm: &VirtualMachine, oparg: u32) -> FrameResult {
-        let (name_idx, load_method, has_class) = bytecode::decode_load_super_attr_arg(oparg);
-        let attr_name = self.code.names[name_idx as usize];
+    fn load_super_attr(&mut self, vm: &VirtualMachine, oparg: LoadSuperAttr) -> FrameResult {
+        let attr_name = self.code.names[oparg.name_idx() as usize];
 
         // Stack layout (bottom to top): [super, class, self]
         // Pop in LIFO order: self, class, super
@@ -2871,13 +2870,13 @@ impl ExecutingFrame<'_> {
 
         // Create super object - pass args based on has_class flag
         // When super is shadowed, has_class=false means call with 0 args
-        let super_obj = if has_class {
+        let super_obj = if oparg.has_class() {
             global_super.call((class.clone(), self_obj.clone()), vm)?
         } else {
             global_super.call((), vm)?
         };
 
-        if load_method {
+        if oparg.is_load_method() {
             // Method load: push [method, self_or_null]
             let method = PyMethod::get(super_obj, attr_name, vm)?;
             match method {

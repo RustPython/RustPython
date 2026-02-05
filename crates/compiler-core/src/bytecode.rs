@@ -17,13 +17,13 @@ use rustpython_wtf8::{Wtf8, Wtf8Buf};
 pub use crate::bytecode::{
     instruction::{
         AnyInstruction, Arg, Instruction, InstructionMetadata, PseudoInstruction, StackEffect,
-        decode_load_attr_arg, decode_load_super_attr_arg, encode_load_attr_arg,
-        encode_load_super_attr_arg,
+        decode_load_attr_arg, encode_load_attr_arg,
     },
     oparg::{
         BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,
-        IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx, OpArg,
-        OpArgByte, OpArgState, OpArgType, RaiseKind, ResumeType, SpecialMethod, UnpackExArgs,
+        IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadSuperAttr, MakeFunctionFlags,
+        NameIdx, OpArg, OpArgByte, OpArgState, OpArgType, RaiseKind, ResumeType, SpecialMethod,
+        UnpackExArgs,
     },
 };
 
