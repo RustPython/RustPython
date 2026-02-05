@@ -275,7 +275,9 @@ class DictTest(unittest.TestCase):
 
         self.assertRaises(ValueError, {}.update, [(1, 2, 3)])
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON, error message format differs
+    # RustPython: "'object' object is not iterable"
+    # CPython: "object is not iterable"
     @unittest.expectedFailure
     def test_update_type_error(self):
         with self.assertRaises(TypeError) as cm:
@@ -1577,7 +1579,9 @@ class DictTest(unittest.TestCase):
                 self.assertEqual(d.get(key3_3), 44)
                 self.assertGreaterEqual(eq_count, 1)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON, error message format differs
+    # RustPython: "unhashable type: 'list'"
+    # CPython: "cannot use 'list' as a dict key (unhashable type: 'list')"
     @unittest.expectedFailure
     def test_unhashable_key(self):
         d = {'a': 1}
