@@ -336,7 +336,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                             key
                         ));
                         warn::warn(
-                            message,
+                            message.into(),
                             Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
                             1,
                             None,
@@ -387,7 +387,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                                 field.as_str()
                             ));
                             warn::warn(
-                                message,
+                                message.into(),
                                 Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
                                 1,
                                 None,

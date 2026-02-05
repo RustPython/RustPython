@@ -1014,10 +1014,12 @@ pub(crate) mod _asyncio {
             // Warn about deprecated (type, val, tb) signature
             if exc_val.is_present() || exc_tb.is_present() {
                 warn::warn(
-                    vm.ctx.new_str(
-                        "the (type, val, tb) signature of throw() is deprecated, \
+                    vm.ctx
+                        .new_str(
+                            "the (type, val, tb) signature of throw() is deprecated, \
                          use throw(val) instead",
-                    ),
+                        )
+                        .into(),
                     Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
                     1,
                     None,

@@ -591,7 +591,6 @@ class ImportSideEffectTests(unittest.TestCase):
 
 class StartupImportTests(unittest.TestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @support.requires_subprocess()
     def test_startup_imports(self):
         # Get sys.path in isolated mode (python3 -I)
