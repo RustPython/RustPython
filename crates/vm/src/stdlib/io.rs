@@ -2808,14 +2808,10 @@ mod _io {
             encoding: Option<PyUtf8StrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyUtf8StrRef> {
-            if encoding.is_none() && vm.state.config.settings.warn_default_encoding {
-                crate::stdlib::warnings::warn(
-                    vm.ctx.exceptions.encoding_warning,
-                    "'encoding' argument not specified".to_owned(),
-                    1,
-                    vm,
-                )?;
-            }
+            // Note: Do not issue EncodingWarning here. The warning should only
+            // be issued by io.text_encoding(), the public API. This function
+            // is used internally (e.g., for stdin/stdout/stderr initialization)
+            // where no warning should be emitted.
             let encoding = match encoding {
                 None if vm.state.config.settings.utf8_mode > 0 => {
                     identifier_utf8!(vm, utf_8).to_owned()
