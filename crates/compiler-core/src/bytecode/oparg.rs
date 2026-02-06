@@ -169,7 +169,9 @@ macro_rules! impl_oparg_enum {
 
             fn try_from(value: u8) -> Result<Self, Self::Error> {
                 Ok(match value {
-                    $($value => Self::$var,)*
+                    $(
+                        $value => Self::$var,
+                    )*
                     _ => return Err(Self::Error::InvalidBytecode),
                 })
             }
@@ -188,7 +190,9 @@ macro_rules! impl_oparg_enum {
         impl From<$name> for u8 {
             fn from(value: $name) -> Self {
                 match value {
-                    $($name::$var => $value,)*
+                    $(
+                        $name::$var => $value,
+                    )*
                 }
             }
         }
