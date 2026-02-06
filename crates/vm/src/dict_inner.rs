@@ -717,6 +717,121 @@ impl<T: Clone> Dict<T> {
         Some((entry.key, entry.value))
     }
 
+    /// Pop the first (oldest) entry - O(n) worst case due to finding first non-None entry
+    /// Used by OrderedDict.popitem(last=False)
+    pub fn pop_front(&self) -> Option<(PyObjectRef, T)> {
+        let inner = &mut *self.write();
+        // Find first non-None entry (entries are in insertion order)
+        for i in 0..inner.entries.len() {
+            if inner.entries[i].is_some() {
+                let entry = inner.entries[i].take().unwrap();
+                inner.used -= 1;
+                *unsafe {
+                    // entry.index always refers valid index
+                    inner.indices.get_unchecked_mut(entry.index)
+                } = IndexEntry::DUMMY;
+                return Some((entry.key, entry.value));
+            }
+        }
+        None
+    }
+
+    /// Move existing key to end (last=true) or beginning (last=false)
+    /// Returns Ok(true) if key was found and moved, Ok(false) if key was not found
+    /// Used by OrderedDict.move_to_end()
+    pub fn move_to_end<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        last: bool,
+    ) -> PyResult<bool> {
+        let hash_value = key.key_hash(vm)?;
+        loop {
+            let lookup = self.lookup(vm, key, hash_value, None)?;
+            let (index_entry, index_index) = lookup;
+            let Some(entry_index) = index_entry.index() else {
+                return Ok(false); // Key not found
+            };
+
+            let inner = &mut *self.write();
+
+            // Verify the entry still exists at the expected position
+            let slot = match inner.entries.get_mut(entry_index) {
+                Some(slot) => slot,
+                None => continue, // Dict changed, retry
+            };
+            let entry = match slot {
+                Some(entry) if entry.index == index_index => slot.take().unwrap(),
+                _ => continue, // Dict changed, retry
+            };
+
+            // Mark old position as dummy in indices
+            *unsafe { inner.indices.get_unchecked_mut(index_index) } = IndexEntry::DUMMY;
+
+            if last {
+                // Move to end - O(1) amortized
+                let new_entry_index = inner.entries.len();
+                // Find a new index slot for this entry
+                let mask = (inner.indices.len() - 1) as i64;
+                let mut idxs = GenIndexes::new(entry.hash, mask);
+                let new_index_index = loop {
+                    let idx = idxs.next();
+                    let slot = unsafe { inner.indices.get_unchecked_mut(idx) };
+                    if *slot == IndexEntry::FREE || *slot == IndexEntry::DUMMY {
+                        *slot = unsafe { IndexEntry::from_index_unchecked(new_entry_index) };
+                        break idx;
+                    }
+                };
+                inner.entries.push(Some(DictEntry {
+                    hash: entry.hash,
+                    key: entry.key,
+                    value: entry.value,
+                    index: new_index_index,
+                }));
+            } else {
+                // Move to beginning - O(n) due to shifting
+                // We need to insert at position 0 and update all shifted indices
+                let new_entry_index = 0;
+
+                // First, shift all existing entries' positions in the indices table
+                for i in 0..inner.indices.len() {
+                    if let Some(idx) = inner.indices[i].index() {
+                        // Shift by 1 since we're inserting at position 0
+                        inner.indices[i] = unsafe { IndexEntry::from_index_unchecked(idx + 1) };
+                    }
+                }
+
+                // Update the entry indices in entries vector (they point back to indices)
+                // Actually, entry.index points to the indices table, not entry position
+                // So we don't need to update entry.index for existing entries
+
+                // Find a new index slot for the moved entry
+                let mask = (inner.indices.len() - 1) as i64;
+                let mut idxs = GenIndexes::new(entry.hash, mask);
+                let new_index_index = loop {
+                    let idx = idxs.next();
+                    let slot = unsafe { inner.indices.get_unchecked_mut(idx) };
+                    if *slot == IndexEntry::FREE || *slot == IndexEntry::DUMMY {
+                        *slot = unsafe { IndexEntry::from_index_unchecked(new_entry_index) };
+                        break idx;
+                    }
+                };
+
+                inner.entries.insert(
+                    0,
+                    Some(DictEntry {
+                        hash: entry.hash,
+                        key: entry.key,
+                        value: entry.value,
+                        index: new_index_index,
+                    }),
+                );
+            }
+
+            return Ok(true);
+        }
+    }
+
     pub fn sizeof(&self) -> usize {
         let inner = self.read();
         size_of::<Self>()
