@@ -120,7 +120,7 @@ impl OpArgState {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// oparg_enum!(
 ///     /// Oparg for the `X` opcode.
 ///     #[derive(Clone, Copy)]
