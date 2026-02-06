@@ -1,7 +1,7 @@
 use super::{
     PY_CF_ALLOW_INCOMPLETE_INPUT, PY_CF_ALLOW_TOP_LEVEL_AWAIT, PY_CF_DONT_IMPLY_DEDENT,
-    PY_CF_IGNORE_COOKIE, PY_CF_OPTIMIZED_AST, PY_CF_SOURCE_IS_UTF8, PY_CF_TYPE_COMMENTS,
-    PY_COMPILE_FLAG_AST_ONLY,
+    PY_CF_IGNORE_COOKIE, PY_CF_ONLY_AST, PY_CF_OPTIMIZED_AST, PY_CF_SOURCE_IS_UTF8,
+    PY_CF_TYPE_COMMENTS,
 };
 
 #[pymodule]
@@ -92,9 +92,8 @@ pub(crate) mod _ast {
             let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
             let mut positional: Vec<PyObjectRef> = Vec::new();
             for field in fields {
-                if let Some(value) = dict.get_item_opt::<str>(field.as_str(), vm)? {
+                if dict.get_item_opt::<str>(field.as_str(), vm)?.is_some() {
                     positional.push(vm.ctx.none());
-                    drop(value);
                 } else {
                     break;
                 }
@@ -255,8 +254,8 @@ pub(crate) mod _ast {
             };
             let zelf = vm.ctx.new_base_object(cls, dict);
 
-            // Initialize the instance with the provided arguments
-            // FIXME: This is probably incorrect. Please check if init should be called outside of __new__
+            // type.__call__ does not invoke slot_init after slot_new
+            // for types with a custom slot_new, so we must call it here.
             Self::slot_init(zelf.clone(), args, vm)?;
 
             Ok(zelf)
@@ -413,7 +412,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
     use super::PY_CF_DONT_IMPLY_DEDENT;
 
     #[pyattr(name = "PyCF_ONLY_AST")]
-    use super::PY_COMPILE_FLAG_AST_ONLY;
+    use super::PY_CF_ONLY_AST;
 
     #[pyattr(name = "PyCF_IGNORE_COOKIE")]
     use super::PY_CF_IGNORE_COOKIE;
