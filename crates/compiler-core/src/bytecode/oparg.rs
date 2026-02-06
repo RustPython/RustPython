@@ -134,7 +134,7 @@ macro_rules! oparg_enum {
         $vis:vis enum $name:ident {
             $(
                 $(#[$variant_meta:meta])*
-                $variant:ident = $value:literal
+                $variant:ident = $value:literal $(| $alternatives:expr)*
             ),* $(,)?
         }
     ) => {
@@ -160,7 +160,7 @@ macro_rules! impl_oparg_enum {
     (
         enum $name:ident {
             $(
-                $variant:ident = $value:literal
+                $variant:ident = $value:literal $(| $alternatives:expr)*
             ),* $(,)?
         }
     ) => {
@@ -170,7 +170,7 @@ macro_rules! impl_oparg_enum {
             fn try_from(value: u8) -> Result<Self, Self::Error> {
                 Ok(match value {
                     $(
-                        $value => Self::$variant,
+                        $value $(| $alternatives)* => Self::$variant,
                     )*
                     _ => return Err(Self::Error::InvalidBytecode),
                 })
@@ -222,7 +222,7 @@ oparg_enum!(
         /// f"{x:4}"
         /// ```
         // Ruff `ConversionFlag::None` is `-1i8`, when its converted to `u8` its value is `u8::MAX`.
-        None = 0,
+        None = 0 | 255,
         /// Converts by calling `str(<value>)`.
         ///
         /// ```python
