@@ -149,7 +149,7 @@ macro_rules! oparg_enum {
         impl_oparg_enum!(
             enum $name {
                 $(
-                    $variant = $value,
+                    $variant = $value $(| $alternatives)*,
                 )*
             }
         );
