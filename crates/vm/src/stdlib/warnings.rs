@@ -8,13 +8,13 @@ pub fn warn(
     stack_level: usize,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    // TODO: use rust warnings module
-    if let Ok(module) = vm.import("warnings", 0)
-        && let Ok(func) = module.get_attr("warn", vm)
-    {
-        func.call((message, category.to_owned(), stack_level), vm)?;
-    }
-    Ok(())
+    crate::warn::warn(
+        vm.new_pyobj(message),
+        Some(category.to_owned()),
+        isize::try_from(stack_level).unwrap_or(isize::MAX),
+        None,
+        vm,
+    )
 }
 
 #[pymodule]
@@ -31,18 +31,18 @@ mod _warnings {
         vm.state.warnings.filters.clone()
     }
 
-    #[pyattr(name = "_defaultaction")]
-    fn default_action(vm: &VirtualMachine) -> PyStrRef {
+    #[pyattr]
+    fn _defaultaction(vm: &VirtualMachine) -> PyStrRef {
         vm.state.warnings.default_action.clone()
     }
 
-    #[pyattr(name = "_onceregistry")]
-    fn once_registry(vm: &VirtualMachine) -> PyDictRef {
+    #[pyattr]
+    fn _onceregistry(vm: &VirtualMachine) -> PyDictRef {
         vm.state.warnings.once_registry.clone()
     }
 
-    #[pyattr(name = "_warnings_context")]
-    fn warnings_context(vm: &VirtualMachine) -> PyObjectRef {
+    #[pyattr]
+    fn _warnings_context(vm: &VirtualMachine) -> PyObjectRef {
         vm.state
             .warnings
             .context_var
@@ -63,21 +63,21 @@ mod _warnings {
             .clone()
     }
 
-    #[pyfunction(name = "_acquire_lock")]
-    fn acquire_lock(vm: &VirtualMachine) {
+    #[pyfunction]
+    fn _acquire_lock(vm: &VirtualMachine) {
         vm.state.warnings.acquire_lock();
     }
 
-    #[pyfunction(name = "_release_lock")]
-    fn release_lock(vm: &VirtualMachine) -> PyResult<()> {
+    #[pyfunction]
+    fn _release_lock(vm: &VirtualMachine) -> PyResult<()> {
         if !vm.state.warnings.release_lock() {
             return Err(vm.new_runtime_error("cannot release un-acquired lock".to_owned()));
         }
         Ok(())
     }
 
-    #[pyfunction(name = "_filters_mutated_lock_held")]
-    fn filters_mutated_lock_held(vm: &VirtualMachine) {
+    #[pyfunction]
+    fn _filters_mutated_lock_held(vm: &VirtualMachine) {
         vm.state.warnings.filters_mutated();
     }
 
