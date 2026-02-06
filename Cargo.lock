@@ -594,15 +594,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cobs"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fa961b519f0b462e3a3b4a34b64d119eeaca1d59af726fe450bbba07a9fc0a1"
-dependencies = [
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "collection_literals"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -709,9 +700,9 @@ dependencies = [
 
 [[package]]
 name = "cranelift"
-version = "0.128.1"
+version = "0.128.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d483a248b5d971d1ef6a814385502a38d8dde8fbf08b4ad08b78c53b8d66f923"
+checksum = "9aaf0bd3cb9d164f355ecaa41e57de67ada7d5f3f451c8d29376bf6612059036"
 dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
@@ -750,10 +741,6 @@ name = "cranelift-bitset"
 version = "0.128.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db53764b5dad233b37b8f5dc54d3caa9900c54579195e00f17ea21f03f71aaa7"
-dependencies = [
- "serde",
- "serde_derive",
-]
 
 [[package]]
 name = "cranelift-codegen"
@@ -815,15 +802,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0d96496910065d3165f84ff8e1e393916f4c086f88ac8e1b407678bc78735aa"
 dependencies = [
  "cranelift-bitset",
- "serde",
- "serde_derive",
 ]
 
 [[package]]
 name = "cranelift-frontend"
-version = "0.128.1"
+version = "0.128.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "626a46aa207183bae011de3411a40951c494cea3fb2ef223d3118f75e13b23ca"
+checksum = "e303983ad7e23c850f24d9c41fc3cb346e1b930f066d3966545e4c98dac5c9fb"
 dependencies = [
  "cranelift-codegen",
  "log",
@@ -839,9 +824,9 @@ checksum = "24b0cf8d867d891245836cac7abafb0a5b0ea040a019d720702b3b8bcba40bfa"
 
 [[package]]
 name = "cranelift-jit"
-version = "0.128.1"
+version = "0.128.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aaab95b37e712267c51ca968ed4fa83d1a79b9ff3bc86fb9469c764340f486e4"
+checksum = "dcf1e35da6eca2448395f483eb172ce71dd7842f7dc96f44bb8923beafe43c6d"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
@@ -870,9 +855,9 @@ dependencies = [
 
 [[package]]
 name = "cranelift-native"
-version = "0.128.1"
+version = "0.128.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "847b8eaef0f7095b401d3ce80587036495b94e7a051904df9e28d6cd14e69b94"
+checksum = "e24b641e315443e27807b69c440fe766737d7e718c68beb665a2d69259c77bf3"
 dependencies = [
  "cranelift-codegen",
  "libc",
@@ -1117,18 +1102,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
-name = "embedded-io"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef1a6892d9eef45c8fa6b9e0086428a2cca8491aca8f787c534a3d6d0bcb3ced"
-
-[[package]]
-name = "embedded-io"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
-
-[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1277,12 +1250,6 @@ dependencies = [
  "miniz_oxide",
  "zlib-rs 0.6.0",
 ]
-
-[[package]]
-name = "foldhash"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "foldhash"
@@ -1447,10 +1414,6 @@ name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
-dependencies = [
- "foldhash 0.1.5",
- "serde",
-]
 
 [[package]]
 name = "hashbrown"
@@ -1458,7 +1421,7 @@ version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
 dependencies = [
- "foldhash 0.2.0",
+ "foldhash",
 ]
 
 [[package]]
@@ -1535,8 +1498,6 @@ checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
 dependencies = [
  "equivalent",
  "hashbrown 0.16.1",
- "serde",
- "serde_core",
 ]
 
 [[package]]
@@ -2495,18 +2456,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8a2f0d8d040d7848a709caf78912debcc3f33ee4b3cac47d73d1e1069e83507"
 dependencies = [
  "portable-atomic",
-]
-
-[[package]]
-name = "postcard"
-version = "1.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6764c3b5dd454e283a30e6dfe78e9b31096d9e32036b5d1eaac7a6119ccb9a24"
-dependencies = [
- "cobs",
- "embedded-io 0.4.0",
- "embedded-io 0.6.1",
- "serde",
 ]
 
 [[package]]
@@ -3730,9 +3679,6 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "socket2"
@@ -4417,47 +4363,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmparser"
-version = "0.243.0"
+name = "wasmtime-internal-jit-icache-coherence"
+version = "41.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6d8db401b0528ec316dfbe579e6ab4152d61739cfe076706d2009127970159d"
-dependencies = [
- "bitflags 2.10.0",
- "hashbrown 0.15.5",
- "indexmap",
- "serde",
-]
-
-[[package]]
-name = "wasmtime-environ"
-version = "41.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37b9af430b11ff3cd63fbef54cf38e26154089c179316b8a5e400b8ba2d0ebf1"
+checksum = "bada5ca1cc47df7d14100e2254e187c2486b426df813cea2dd2553a7469f7674"
 dependencies = [
  "anyhow",
- "cranelift-bitset",
- "cranelift-entity",
- "gimli",
- "indexmap",
- "log",
- "object",
- "postcard",
- "serde",
- "serde_derive",
- "smallvec",
- "target-lexicon",
- "wasmparser",
-]
-
-[[package]]
-name = "wasmtime-internal-jit-icache-coherence"
-version = "41.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85b46da671c07242b5f5eab491b12d6c25dd26929f1693c055fcca94489ef8f5"
-dependencies = [
  "cfg-if",
  "libc",
- "wasmtime-environ",
  "windows-sys 0.61.2",
 ]
 
