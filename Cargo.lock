@@ -3161,6 +3161,7 @@ dependencies = [
  "lz4_flex",
  "malachite-bigint",
  "num-complex",
+ "num_enum",
  "ruff_source_file",
  "rustpython-wtf8",
 ]
