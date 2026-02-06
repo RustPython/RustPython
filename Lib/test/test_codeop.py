@@ -322,11 +322,12 @@ class CodeopTests(unittest.TestCase):
                 compile_command(code, symbol='exec')
 
     def test_syntax_errors(self):
+        # XXX: RUSTPYTHON uses 'parameter' instead of 'argument'
         self.assertSyntaxErrorMatches(
             dedent("""\
                 def foo(x,x):
                    pass
-            """), "duplicate argument 'x' in function definition")
+            """), "duplicate (argument|parameter) 'x' in function definition")
 
 
 
