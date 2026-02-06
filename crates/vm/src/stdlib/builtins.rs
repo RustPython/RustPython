@@ -141,7 +141,7 @@ mod builtins {
             {
                 use num_traits::Zero;
                 let flags: i32 = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
-                let is_ast_only = !(flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero();
+                let is_ast_only = !(flags & ast::PY_CF_ONLY_AST).is_zero();
 
                 // func_type mode requires PyCF_ONLY_AST
                 if mode_str == "func_type" && !is_ast_only {
@@ -218,7 +218,7 @@ mod builtins {
 
                 let optimize_level = optimize;
 
-                if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
+                if (flags & ast::PY_CF_ONLY_AST).is_zero() {
                     #[cfg(not(feature = "compiler"))]
                     {
                         Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED.to_owned()))

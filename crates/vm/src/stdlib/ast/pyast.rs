@@ -76,7 +76,12 @@ macro_rules! impl_base_node {
             }
 
             #[extend_class]
-            fn extend_class(_ctx: &Context, _class: &'static Py<PyType>) {}
+            fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
+                class.set_attr(
+                    identifier!(ctx, _attributes),
+                    ctx.empty_tuple.clone().into(),
+                );
+            }
         }
     };
     // Leaf node with fields and attributes
@@ -1629,7 +1634,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     populate_field_types(vm, module);
     populate_singletons(vm, module);
     force_ast_module_name(vm, module);
-    populate_match_args_and_attributes(vm, module);
+    populate_repr(vm, module);
 }
 
 fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
@@ -1796,30 +1801,14 @@ fn force_ast_module_name(vm: &VirtualMachine, module: &Py<PyModule>) {
     }
 }
 
-fn populate_match_args_and_attributes(vm: &VirtualMachine, module: &Py<PyModule>) {
-    let fields_attr = vm.ctx.intern_str("_fields");
-    let match_args_attr = vm.ctx.intern_str("__match_args__");
-    let attributes_attr = vm.ctx.intern_str("_attributes");
-    let empty_tuple: PyObjectRef = vm.ctx.empty_tuple.clone().into();
-
+fn populate_repr(_vm: &VirtualMachine, module: &Py<PyModule>) {
     for (_name, value) in &module.dict() {
         let Some(type_obj) = value.downcast_ref::<PyType>() else {
             continue;
         };
-
         type_obj
             .slots
             .repr
             .store(Some(super::python::_ast::ast_repr));
-
-        if type_obj.get_attr(match_args_attr).is_none() {
-            if let Some(fields) = type_obj.get_attr(fields_attr) {
-                type_obj.set_attr(match_args_attr, fields);
-            }
-        }
-
-        if type_obj.get_attr(attributes_attr).is_none() {
-            type_obj.set_attr(attributes_attr, empty_tuple.clone());
-        }
     }
 }
