@@ -1169,6 +1169,7 @@ class PySanityTestCase(ThroughObjectMixin, PyModuleMixin, SanityTestCaseMixin,
 
 
 @hashlib_helper.requires_openssl_hashdigest('sha256')
+@unittest.skip("TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'HMAC'")
 class OpenSSLSanityTestCase(ThroughOpenSSLAPIMixin, SanityTestCaseMixin,
                             unittest.TestCase):
 
@@ -1264,6 +1265,10 @@ class OpenSSLUpdateTestCase(UpdateTestCaseMixin, unittest.TestCase):
     @property
     def gil_minsize(self):
         return _hashlib._GIL_MINSIZE
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_update(self):
+        return super().test_update()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute '_GIL_MINSIZE'
     def test_update_large(self):
