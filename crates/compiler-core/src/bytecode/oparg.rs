@@ -134,8 +134,8 @@ macro_rules! oparg_enum {
         $vis:vis enum $name:ident {
             $(
                 $(#[$variant_meta:meta])*
-                $variant:ident = $value:literal,
-            )*
+                $variant:ident = $value:literal
+            ),* $(,)?
         }
     ) => {
         $(#[$enum_meta])*
@@ -160,8 +160,8 @@ macro_rules! impl_oparg_enum {
     (
         enum $name:ident {
             $(
-                $variant:ident = $value:literal,
-            )*
+                $variant:ident = $value:literal
+            ),* $(,)?
         }
     ) => {
         impl TryFrom<u8> for $name {
