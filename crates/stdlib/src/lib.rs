@@ -28,6 +28,7 @@ mod blake2;
 mod hashlib;
 mod md5;
 mod sha1;
+mod sha2;
 mod sha256;
 mod sha3;
 mod sha512;
@@ -157,6 +158,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         #[cfg(any(unix, windows, target_os = "wasi"))]
         select::module_def(ctx),
         sha1::module_def(ctx),
+        sha2::module_def(ctx),
         sha256::module_def(ctx),
         sha3::module_def(ctx),
         sha512::module_def(ctx),
