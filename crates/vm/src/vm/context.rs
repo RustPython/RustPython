@@ -247,6 +247,8 @@ declare_const_name! {
     _defaultaction,
     _onceregistry,
     _showwarnmsg,
+    defaultaction,
+    onceregistry,
     filters,
     backslashreplace,
     close,
