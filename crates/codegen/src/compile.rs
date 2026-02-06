@@ -1175,7 +1175,7 @@ impl Compiler {
                 arg: OpArgMarker::marker(),
             }
             .into(),
-            arg: OpArg(bytecode::ResumeType::AtFuncStart as u32),
+            arg: OpArg(u32::from(bytecode::ResumeType::AtFuncStart)),
             target: BlockIdx::NULL,
             location,
             end_location,
@@ -6555,9 +6555,9 @@ impl Compiler {
             self,
             Instruction::Resume {
                 arg: if is_await {
-                    bytecode::ResumeType::AfterAwait as u32
+                    u32::from(bytecode::ResumeType::AfterAwait)
                 } else {
-                    bytecode::ResumeType::AfterYieldFrom as u32
+                    u32::from(bytecode::ResumeType::AfterYieldFrom)
                 }
             }
         );
@@ -6710,7 +6710,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterYield as u32
+                        arg: u32::from(bytecode::ResumeType::AfterYield)
                     }
                 );
             }
@@ -6932,7 +6932,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::Resume {
-                                arg: bytecode::ResumeType::AfterYield as u32
+                                arg: u32::from(bytecode::ResumeType::AfterYield)
                             }
                         );
                         emit!(compiler, Instruction::PopTop);
@@ -8420,7 +8420,7 @@ impl Compiler {
 
                     // Emit BUILD_INTERPOLATION
                     // oparg encoding: (conversion << 2) | has_format_spec
-                    let oparg = (conversion << 2) | (has_format_spec as u32);
+                    let oparg = (conversion << 2) | u32::from(has_format_spec);
                     emit!(self, Instruction::BuildInterpolation { oparg });
 
                     *interp_count += 1;
