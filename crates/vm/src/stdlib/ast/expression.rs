@@ -1256,13 +1256,7 @@ impl Node for ast::ExprContext {
                 unimplemented!("Invalid expression context is not allowed in Python AST")
             }
         };
-        if let Some(instance) = node_type.get_attr(vm.ctx.intern_str("_instance")) {
-            return instance;
-        }
-        NodeAst
-            .into_ref_with_type(vm, node_type.to_owned())
-            .unwrap()
-            .into()
+        singleton_node_to_object(vm, node_type)
     }
 
     fn ast_from_object(
@@ -1270,12 +1264,12 @@ impl Node for ast::ExprContext {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let _cls = object.class();
-        Ok(if _cls.is(pyast::NodeExprContextLoad::static_type()) {
+        let cls = object.class();
+        Ok(if cls.is(pyast::NodeExprContextLoad::static_type()) {
             Self::Load
-        } else if _cls.is(pyast::NodeExprContextStore::static_type()) {
+        } else if cls.is(pyast::NodeExprContextStore::static_type()) {
             Self::Store
-        } else if _cls.is(pyast::NodeExprContextDel::static_type()) {
+        } else if cls.is(pyast::NodeExprContextDel::static_type()) {
             Self::Del
         } else {
             return Err(vm.new_type_error(format!(
