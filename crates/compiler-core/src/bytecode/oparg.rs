@@ -114,6 +114,10 @@ impl OpArgState {
 /// - impl [`Into<u32>`]
 /// - impl [`OpArgType`]
 ///
+/// # Note
+/// If an enum variant has "alternative" values (i.e. `Foo = 0 | 1`), the first value will be the
+/// result of converting to a number.
+///
 /// # Examples
 ///
 /// ```rust
@@ -122,9 +126,10 @@ impl OpArgState {
 ///     #[derive(Clone, Copy)]
 ///     pub enum MyOpArg {
 ///         /// Some doc.
-///         Foo = 0,
-///         Bar = 2,
-///         Baz = 5,
+///         Foo = 4,
+///         Bar = 8,
+///         Baz = 15 | 16,
+///         Qux = 23 | 42
 ///     }
 /// );
 /// ```
