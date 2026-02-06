@@ -161,6 +161,34 @@ macro_rules! oparg_enum {
     };
 }
 
+macro_rules! unoptimized_oparg_enum {
+    (
+        $(#[$enum_meta:meta])*
+        $vis:vis enum $name:ident {
+            $(
+                $(#[$variant_meta:meta])*
+                $variant:ident = $value:literal $(| $alternatives:expr)*
+            ),* $(,)?
+        }
+    ) => {
+        $(#[$enum_meta])*
+        $vis enum $name {
+            $(
+                $(#[$variant_meta])*
+                $variant = $value,
+            )*
+        }
+
+        impl_oparg_enum!(
+            enum $name {
+                $(
+                    $variant = $value $(| $alternatives)*,
+                )*
+            }
+        );
+    };
+}
+
 macro_rules! impl_oparg_enum {
     (
         enum $name:ident {
@@ -401,7 +429,8 @@ impl From<MakeFunctionFlags> for u32 {
 
 impl OpArgType for MakeFunctionFlags {}
 
-oparg_enum!(
+// TODO: Make this optimized
+unoptimized_oparg_enum!(
     /// The possible comparison operators.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum ComparisonOperator {
