@@ -1277,8 +1277,6 @@ impl Compiler {
     /// Emit format parameter validation for annotation scope
     /// if format > VALUE_WITH_FAKE_GLOBALS (2): raise NotImplementedError
     fn emit_format_validation(&mut self) -> CompileResult<()> {
-        use bytecode::ComparisonOperator::Greater;
-
         // Load format parameter (first local variable, index 0)
         emit!(self, Instruction::LoadFast(0));
 
@@ -1286,7 +1284,12 @@ impl Compiler {
         self.emit_load_const(ConstantData::Integer { value: 2.into() });
 
         // Compare: format > 2
-        emit!(self, Instruction::CompareOp { op: Greater });
+        emit!(
+            self,
+            Instruction::CompareOp {
+                op: ComparisonOperator::Greater
+            }
+        );
 
         // Jump to body if format <= 2 (comparison is false)
         let body_block = self.new_block();
