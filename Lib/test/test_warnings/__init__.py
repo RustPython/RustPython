@@ -929,7 +929,6 @@ class _WarningsTests(BaseTest, unittest.TestCase):
             self.assertRaises(UserWarning, self.module.warn,
                                 'convert to error')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'warnings' has no attribute 'onceregistry'
     def test_onceregistry(self):
         # Replacing or removing the onceregistry should be okay.
         global __warningregistry__
@@ -959,7 +958,6 @@ class _WarningsTests(BaseTest, unittest.TestCase):
         finally:
             self.module.onceregistry = original_registry
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'warnings' has no attribute 'defaultaction'
     def test_default_action(self):
         # Replacing or removing defaultaction should be okay.
         message = UserWarning("defaultaction test")
@@ -1631,7 +1629,6 @@ a=A()
         self.assertEqual(err.decode().rstrip(),
                          '<string>:7: UserWarning: test')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'' doesn't start with b'<sys>:0: ResourceWarning: unclosed file '
     def test_late_resource_warning(self):
         # Issue #21925: Emitting a ResourceWarning late during the Python
         # shutdown must be logged.
