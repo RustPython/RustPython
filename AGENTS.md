@@ -125,6 +125,11 @@ Run `./scripts/whats_left.py` to get a list of unimplemented methods, which is h
 - Follow Rust best practices for error handling and memory management
 - Use the macro system (`pyclass`, `pymodule`, `pyfunction`, etc.) when implementing Python functionality in Rust
 
+#### Comments
+
+- Do not delete or rewrite existing comments unless they are factually wrong or directly contradict the new code.
+- Do not add decorative section separators (e.g. `// -----------`, `// ===`, `/* *** */`). Use `///` doc-comments or short `//` comments only when they add value.
+
 #### Avoid Duplicate Code in Branches
 
 When branches differ only in a value but share common logic, extract the differing value first, then call the common logic once.
