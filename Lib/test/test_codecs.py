@@ -1239,7 +1239,6 @@ class EscapeDecodeTest(unittest.TestCase):
             if b != b'\\':
                 self.assertEqual(decode(b + b'0'), (b + b'0', 2))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + (b'[]', 4)
     def test_escape(self):
         decode = codecs.escape_decode
         check = coding_checker(self, decode)
@@ -1296,7 +1295,6 @@ class EscapeDecodeTest(unittest.TestCase):
                 r'"\\501" is an invalid octal escape sequence'):
             self.assertEqual(decode(br'\x\501', 'ignore'), (b'A', 6))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: not raised by escape_decode
     def test_errors(self):
         decode = codecs.escape_decode
         self.assertRaises(ValueError, decode, br"\x")
@@ -2387,7 +2385,6 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
 
 
 class CharmapTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: index out of range
     def test_decode_with_string_map(self):
         self.assertEqual(
             codecs.charmap_decode(b"\x00\x01\x02", "strict", "abc"),
@@ -2443,7 +2440,6 @@ class CharmapTest(unittest.TestCase):
             ("", len(allbytes))
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnicodeDecodeError not raised by charmap_decode
     def test_decode_with_int2str_map(self):
         self.assertEqual(
             codecs.charmap_decode(b"\x00\x01\x02", "strict",
@@ -2560,7 +2556,6 @@ class CharmapTest(unittest.TestCase):
             b"\x00\x01\x02", "strict", {0: "A", 1: 'Bb', 2: 999999999}
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: character mapping must be in range(65536)
     def test_decode_with_int2int_map(self):
         a = ord('a')
         b = ord('b')
@@ -2805,7 +2800,6 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
         self.assertEqual(decode(br"\U00110000", "ignore"), ("", 10))
         self.assertEqual(decode(br"\U00110000", "replace"), ("\ufffd", 10))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '\x00\t\n\r\\' != '\x00\t\n\r'
     def test_partial(self):
         self.check_partial(
             "\x00\t\n\r\\\xff\uffff\U00010000",
@@ -2849,7 +2843,6 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
     def test_incremental_surrogatepass(self):
         return super().test_incremental_surrogatepass()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnicodeDecodeError: 'unicodeescape' codec can't decode bytes in position 72-75: truncated \uXXXX escape
     def test_readline(self):
         return super().test_readline()
 
@@ -2908,7 +2901,6 @@ class RawUnicodeEscapeTest(ReadTest, unittest.TestCase):
         self.assertEqual(decode(br"\U00110000", "ignore"), ("", 10))
         self.assertEqual(decode(br"\U00110000", "replace"), ("\ufffd", 10))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - \
     def test_partial(self):
         self.check_partial(
             "\x00\t\n\r\\\xff\uffff\U00010000",
@@ -2938,11 +2930,9 @@ class RawUnicodeEscapeTest(ReadTest, unittest.TestCase):
             ]
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - \
     def test_incremental_surrogatepass(self):
         return super().test_incremental_surrogatepass()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnicodeDecodeError: 'rawunicodeescape' codec can't decode bytes in position 72-76: truncated \uXXXX
     def test_readline(self):
         return super().test_readline()
 
@@ -2990,7 +2980,6 @@ class SurrogateEscapeTest(unittest.TestCase):
         self.assertEqual("foo\udc80bar".encode("ascii", "surrogateescape"),
                          b"foo\x80bar")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Result: FAILURE
     def test_charmap(self):
         # bad byte: \xa5 is unmapped in iso-8859-3
         self.assertEqual(b"foo\xa5bar".decode("iso-8859-3", "surrogateescape"),
@@ -3183,7 +3172,6 @@ class TransformCodecTest(unittest.TestCase):
                     bad_input.decode("rot_13")
                 self.assertIsNone(failure.exception.__cause__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'error' object has no attribute '__notes__'. Did you mean: '__ne__'?
     @unittest.skipUnless(zlib, "Requires zlib support")
     def test_custom_zlib_error_is_noted(self):
         # Check zlib codec gives a good error for malformed input
@@ -3192,7 +3180,6 @@ class TransformCodecTest(unittest.TestCase):
             codecs.decode(b"hello", "zlib_codec")
         self.assertEqual(msg, failure.exception.__notes__[0])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AttributeError: 'Error' object has no attribute '__notes__'
     def test_custom_hex_error_is_noted(self):
         # Check hex codec gives a good error for malformed input
         import binascii
@@ -3292,55 +3279,46 @@ class ExceptionNotesTest(unittest.TestCase):
         with self.assertNoted("decoding", exc_type, msg):
             codecs.decode(b"bytes input", self.codec_name)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'RuntimeError' object has no attribute '__notes__'. Did you mean: '__ne__'?
     def test_raise_by_type(self):
         self.check_note(RuntimeError, "")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'RuntimeError' object has no attribute '__notes__'. Did you mean: '__ne__'?
     def test_raise_by_value(self):
         msg = "This should be noted"
         self.check_note(RuntimeError(msg), msg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'MyRuntimeError' object has no attribute '__notes__'. Did you mean: '__ne__'?
     def test_raise_grandchild_subclass_exact_size(self):
         msg = "This should be noted"
         class MyRuntimeError(RuntimeError):
             __slots__ = ()
         self.check_note(MyRuntimeError(msg), msg, MyRuntimeError)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'MyRuntimeError' object has no attribute '__notes__'. Did you mean: '__ne__'?
     def test_raise_subclass_with_weakref_support(self):
         msg = "This should be noted"
         class MyRuntimeError(RuntimeError):
             pass
         self.check_note(MyRuntimeError(msg), msg, MyRuntimeError)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'CustomInit' object has no attribute '__notes__'. Did you mean: '__ne__'?
     def test_init_override(self):
         class CustomInit(RuntimeError):
             def __init__(self):
                 pass
         self.check_note(CustomInit, "")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'CustomNew' object has no attribute '__notes__'. Did you mean: '__ne__'?
     def test_new_override(self):
         class CustomNew(RuntimeError):
             def __new__(cls):
                 return super().__new__(cls)
         self.check_note(CustomNew, "")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'RuntimeError' object has no attribute '__notes__'. Did you mean: '__ne__'?
     def test_instance_attribute(self):
         msg = "This should be noted"
         exc = RuntimeError(msg)
         exc.attr = 1
         self.check_note(exc, "^{}$".format(msg))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'RuntimeError' object has no attribute '__notes__'. Did you mean: '__ne__'?
     def test_non_str_arg(self):
         self.check_note(RuntimeError(1), "1")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'RuntimeError' object has no attribute '__notes__'. Did you mean: '__ne__'?
     def test_multiple_args(self):
         msg_re = r"^\('a', 'b', 'c'\)$"
         self.check_note(RuntimeError('a', 'b', 'c'), msg_re)
@@ -3357,7 +3335,6 @@ class ExceptionNotesTest(unittest.TestCase):
         with self.assertRaisesRegex(LookupError, msg):
             codecs.decode(b"bytes input", self.codec_name)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "^'exception_notes_test' encoder returned 'str' instead of 'bytes'; use codecs.encode\(\) to encode to arbitrary types$" does not match "'exception_notes_test' encoder returned 'str' instead of 'bytes'; use codecs.encode() to encode arbitrary types"
     def test_unflagged_non_text_codec_handling(self):
         # The stdlib non-text codecs are now marked so they're
         # pre-emptively skipped by the text model related methods
@@ -3985,7 +3962,6 @@ class Rot13UtilTest(unittest.TestCase):
 
 class CodecNameNormalizationTest(unittest.TestCase):
     """Test codec name normalization"""
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Tuples differ: (1, 2, 3, 4) != (None, None, None, None)
     def test_codecs_lookup(self):
         FOUND = (1, 2, 3, 4)
         NOT_FOUND = (None, None, None, None)

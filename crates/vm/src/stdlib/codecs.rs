@@ -98,6 +98,21 @@ mod _codecs {
         vm.state.codec_registry.lookup_error(name.as_str(), vm)
     }
 
+    #[pyfunction]
+    fn _unregister_error(errors: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
+        if errors.as_wtf8().as_bytes().contains(&0) {
+            return Err(cstring_error(vm));
+        }
+        if !errors.as_wtf8().is_utf8() {
+            return Err(vm.new_unicode_encode_error(
+                "'utf-8' codec can't encode character: surrogates not allowed".to_owned(),
+            ));
+        }
+        vm.state
+            .codec_registry
+            .unregister_error(errors.as_str(), vm)
+    }
+
     type EncodeResult = PyResult<(Vec<u8>, usize)>;
 
     #[derive(FromArgs)]
