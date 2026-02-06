@@ -6,7 +6,7 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, bytecode,
     class::PyClassImpl,
     common::lock::PyRwLock,
     function::{FuncArgs, IntoFuncArgs, OptionalArg},
@@ -88,12 +88,14 @@ impl Initializer for PySuper {
             let obj = frame.fastlocals.lock()[0]
                 .clone()
                 .or_else(|| {
-                    if let Some(cell2arg) = frame.code.cell2arg.as_deref() {
-                        cell2arg[..frame.code.cellvars.len()]
-                            .iter()
-                            .enumerate()
-                            .find(|(_, arg_idx)| **arg_idx == 0)
-                            .and_then(|(cell_idx, _)| frame.cells_frees[cell_idx].get())
+                    if frame
+                        .code
+                        .localspluskinds
+                        .first()
+                        .map_or(false, |k| k.contains(bytecode::LocalKind::CELL))
+                    {
+                        // First argument (self) is captured as a cell
+                        frame.cells_frees[0].get()
                     } else {
                         None
                     }
@@ -101,9 +103,9 @@ impl Initializer for PySuper {
                 .ok_or_else(|| vm.new_runtime_error("super(): arg[0] deleted"))?;
 
             let mut typ = None;
-            for (i, var) in frame.code.freevars.iter().enumerate() {
+            for (i, var) in frame.code.freevars().iter().enumerate() {
                 if var.as_bytes() == b"__class__" {
-                    let i = frame.code.cellvars.len() + i;
+                    let i = frame.code.ncellvars as usize + i;
                     let class = frame.cells_frees[i]
                         .get()
                         .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;

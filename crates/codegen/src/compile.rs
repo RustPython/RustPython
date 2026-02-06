@@ -1011,16 +1011,31 @@ impl Compiler {
         // Use varnames from symbol table (already collected in definition order)
         let varname_cache: IndexSet<String> = ste.varnames.iter().cloned().collect();
 
-        // Build cellvars using dictbytype (CELL scope, sorted)
+        // Build cellvars in localsplus order:
+        // 1. cell+local vars in varnames definition order
+        // 2. cell-only vars sorted alphabetically
         let mut cellvar_cache = IndexSet::default();
-        let mut cell_names: Vec<_> = ste
+        let cell_scope_names: IndexSet<String> = ste
             .symbols
             .iter()
             .filter(|(_, s)| s.scope == SymbolScope::Cell)
             .map(|(name, _)| name.clone())
             .collect();
-        cell_names.sort();
-        for name in cell_names {
+
+        // First: cell vars that are also in varnames (in varnames order)
+        for var in varname_cache.iter() {
+            if cell_scope_names.contains(var) {
+                cellvar_cache.insert(var.clone());
+            }
+        }
+        // Second: cell-only vars (not in varnames, sorted for determinism)
+        let mut cell_only: Vec<_> = cell_scope_names
+            .iter()
+            .filter(|name| !varname_cache.contains(name.as_str()))
+            .cloned()
+            .collect();
+        cell_only.sort();
+        for name in cell_only {
             cellvar_cache.insert(name);
         }
 
@@ -4157,11 +4172,11 @@ impl Compiler {
         flags: bytecode::MakeFunctionFlags,
     ) -> CompileResult<()> {
         // Handle free variables (closure)
-        let has_freevars = !code.freevars.is_empty();
+        let has_freevars = !code.freevars().is_empty();
         if has_freevars {
             // Build closure tuple by loading free variables
 
-            for var in &code.freevars {
+            for var in code.freevars() {
                 // Special case: If a class contains a method with a
                 // free variable that has the same name as a method,
                 // the name will be considered free *and* local in the
@@ -4218,7 +4233,7 @@ impl Compiler {
             emit!(
                 self,
                 Instruction::BuildTuple {
-                    size: code.freevars.len().to_u32(),
+                    size: code.freevars().len().to_u32(),
                 }
             );
         }

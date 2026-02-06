@@ -1,4 +1,4 @@
-use crate::{OneIndexed, SourceLocation, bytecode::*};
+use crate::{OneIndexed, SourceLocation, bytecode::LocalKind, bytecode::*};
 use core::convert::Infallible;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
@@ -228,15 +228,6 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let qualname = bag.make_name(rdr.read_str(len)?);
 
     let len = rdr.read_u32()?;
-    let cell2arg = (len != 0)
-        .then(|| {
-            (0..len)
-                .map(|_| Ok(rdr.read_u32()? as i32))
-                .collect::<Result<Box<[i32]>>>()
-        })
-        .transpose()?;
-
-    let len = rdr.read_u32()?;
     let constants = (0..len)
         .map(|_| deserialize_value(rdr, bag))
         .collect::<Result<Box<[_]>>>()?;
@@ -252,9 +243,32 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     };
 
     let names = read_names()?;
-    let varnames = read_names()?;
-    let cellvars = read_names()?;
-    let freevars = read_names()?;
+
+    // Read localsplusnames and localspluskinds
+    let localsplusnames = read_names()?;
+
+    let localspluskinds_len = rdr.read_u32()?;
+    let localspluskinds_raw = rdr.read_slice(localspluskinds_len)?;
+    let localspluskinds: Box<[LocalKind]> = localspluskinds_raw
+        .iter()
+        .map(|&b| LocalKind::from_bits_truncate(b))
+        .collect();
+
+    // Compute counts from localspluskinds
+    let mut nlocals: u32 = 0;
+    let mut ncellvars: u32 = 0;
+    let mut nfreevars: u32 = 0;
+    for &kind in localspluskinds.iter() {
+        if kind.contains(LocalKind::LOCAL) {
+            nlocals += 1;
+        }
+        if kind.contains(LocalKind::CELL) {
+            ncellvars += 1;
+        }
+        if kind.contains(LocalKind::FREE) {
+            nfreevars += 1;
+        }
+    }
 
     // Read linetable and exceptiontable
     let linetable_len = rdr.read_u32()?;
@@ -278,12 +292,13 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
         max_stackdepth,
         obj_name,
         qualname,
-        cell2arg,
+        localsplusnames,
+        localspluskinds,
         constants,
         names,
-        varnames,
-        cellvars,
-        freevars,
+        nlocals,
+        ncellvars,
+        nfreevars,
         linetable,
         exceptiontable,
     })
@@ -687,12 +702,6 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     write_vec(buf, code.obj_name.as_ref().as_bytes());
     write_vec(buf, code.qualname.as_ref().as_bytes());
 
-    let cell2arg = code.cell2arg.as_deref().unwrap_or(&[]);
-    write_len(buf, cell2arg.len());
-    for &i in cell2arg {
-        buf.write_u32(i as u32)
-    }
-
     write_len(buf, code.constants.len());
     for constant in &*code.constants {
         serialize_value(buf, constant.borrow_constant().into()).unwrap_or_else(|x| match x {})
@@ -706,9 +715,15 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     };
 
     write_names(&code.names);
-    write_names(&code.varnames);
-    write_names(&code.cellvars);
-    write_names(&code.freevars);
+
+    // Serialize localsplusnames
+    write_names(&code.localsplusnames);
+
+    // Serialize localspluskinds as raw bytes
+    write_len(buf, code.localspluskinds.len());
+    for kind in &*code.localspluskinds {
+        buf.write_u8(kind.bits());
+    }
 
     // Serialize linetable and exceptiontable
     write_vec(buf, &code.linetable);

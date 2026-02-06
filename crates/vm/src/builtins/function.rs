@@ -247,7 +247,7 @@ impl PyFunction {
         };
 
         let arg_pos = |range: core::ops::Range<_>, name: &str| {
-            code.varnames
+            code.varnames()
                 .iter()
                 .enumerate()
                 .skip(range.start)
@@ -312,7 +312,7 @@ impl PyFunction {
             let mut missing: Vec<_> = (nargs..n_required)
                 .filter_map(|i| {
                     if fastlocals[i].is_none() {
-                        Some(&code.varnames[i])
+                        Some(&code.varnames()[i])
                     } else {
                         None
                     }
@@ -372,7 +372,7 @@ impl PyFunction {
             // Check if kw only arguments are all present:
             for (slot, kwarg) in fastlocals
                 .iter_mut()
-                .zip(&*code.varnames)
+                .zip(code.varnames())
                 .skip(code.arg_count as usize)
                 .take(code.kwonlyarg_count as usize)
                 .filter(|(slot, _)| slot.is_none())
@@ -391,10 +391,24 @@ impl PyFunction {
             }
         }
 
-        if let Some(cell2arg) = code.cell2arg.as_deref() {
-            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
-                let x = fastlocals[*arg_idx as usize].take();
-                frame.cells_frees[cell_idx].set(x);
+        {
+            let total_args = (code.arg_count
+                + code.kwonlyarg_count
+                + code.flags.contains(bytecode::CodeFlags::VARARGS) as u32
+                + code.flags.contains(bytecode::CodeFlags::VARKEYWORDS) as u32)
+                as usize;
+            let mut cell_idx = 0;
+            for (i, &kind) in code.localspluskinds[..code.nlocals as usize]
+                .iter()
+                .enumerate()
+            {
+                if kind.contains(bytecode::LocalKind::CELL) {
+                    if i < total_args {
+                        let arg = fastlocals[i].take();
+                        frame.cells_frees[cell_idx].set(arg);
+                    }
+                    cell_idx += 1;
+                }
             }
         }
 
@@ -881,11 +895,11 @@ impl Constructor for PyFunction {
         // Handle closure - must be a tuple of cells
         let closure = if let Some(closure_tuple) = args.closure {
             // Check that closure length matches code's free variables
-            if closure_tuple.len() != args.code.freevars.len() {
+            if closure_tuple.len() != args.code.nfreevars as usize {
                 return Err(vm.new_value_error(format!(
                     "{} requires closure of length {}, not {}",
                     args.code.obj_name,
-                    args.code.freevars.len(),
+                    args.code.nfreevars,
                     closure_tuple.len()
                 )));
             }
@@ -893,7 +907,7 @@ impl Constructor for PyFunction {
             // Validate that all items are cells and create typed tuple
             let typed_closure = closure_tuple.try_into_typed::<PyCell>(vm)?;
             Some(typed_closure)
-        } else if !args.code.freevars.is_empty() {
+        } else if args.code.nfreevars > 0 {
             return Err(vm.new_type_error("arg 5 (closure) must be tuple"));
         } else {
             None
