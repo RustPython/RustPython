@@ -2534,7 +2534,7 @@ class SubinterpreterTests(unittest.TestCase):
         global interpreters
         try:
             from concurrent import interpreters
-        except ModuleNotFoundError:
+        except (ModuleNotFoundError, ImportError):
             raise unittest.SkipTest('subinterpreters required')
         from test.support import channels  # noqa: F401
         cls.create_channel = staticmethod(channels.create)
