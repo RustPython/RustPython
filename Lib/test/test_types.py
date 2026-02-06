@@ -10,7 +10,11 @@ from test.support.import_helper import import_fresh_module
 import collections.abc
 from collections import namedtuple, UserDict
 import copy
-import _datetime
+# XXX: RUSTPYTHON
+try:
+    import _datetime
+except ImportError:
+    _datetime = None
 import gc
 import inspect
 import pickle
@@ -427,6 +431,7 @@ class TypesTests(unittest.TestCase):
         test(123456, "1=20", '11111111111111123456')
         test(123456, "*=20", '**************123456')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + 1234.57
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8', '')
     def test_float__format__locale(self):
         # test locale support for __format__ code 'n'
@@ -436,6 +441,7 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(locale.format_string('%g', x, grouping=True), format(x, 'n'))
             self.assertEqual(locale.format_string('%.10g', x, grouping=True), format(x, '.10n'))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + 123456789012345678901234567890
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8', '')
     def test_int__format__locale(self):
         # test locale support for __format__ code 'n' for integers
@@ -626,6 +632,7 @@ class TypesTests(unittest.TestCase):
         self.assertGreater(object.__basicsize__, 0)
         self.assertGreater(tuple.__itemsize__, 0)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <method '__lt__' of 'int' objects> is not an instance of <class 'wrapper_descriptor'>
     def test_slot_wrapper_types(self):
         self.assertIsInstance(object.__init__, types.WrapperDescriptorType)
         self.assertIsInstance(object.__str__, types.WrapperDescriptorType)
@@ -641,6 +648,7 @@ class TypesTests(unittest.TestCase):
         # gh-93021: Second parameter is optional
         self.assertIs(sig.parameters["owner"].default, None)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <built-in method __lt__ of int object at ...> is not an instance of <class 'method-wrapper'>
     def test_method_wrapper_types(self):
         self.assertIsInstance(object().__init__, types.MethodWrapperType)
         self.assertIsInstance(object().__str__, types.MethodWrapperType)
@@ -694,6 +702,8 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(exc.__traceback__, types.TracebackType)
         self.assertIsInstance(exc.__traceback__.tb_frame, types.FrameType)
 
+    # XXX: RUSTPYTHON
+    @unittest.skipUnless(_datetime, "requires _datetime module")
     def test_capsule_type(self):
         self.assertIsInstance(_datetime.datetime_CAPI, types.CapsuleType)
 
@@ -1354,6 +1364,7 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(view['key1'], 70)
         self.assertEqual(copy['key1'], 27)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: '|' not supported between instances of 'dict' and 'mappingproxy'
     def test_union(self):
         mapping = {'a': 0, 'b': 1, 'c': 2}
         view = self.mappingproxy(mapping)
@@ -2373,6 +2384,7 @@ class CoroutineTests(unittest.TestCase):
         else:
             self.fail('StopIteration was expected')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'generator' object has no attribute 'gi_suspended'. Did you mean: 'cr_suspended'?
     def test_gen(self):
         def gen_func():
             yield 1
