@@ -12,8 +12,9 @@ impl Node for ast::ConversionFlag {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         // Python's AST uses ASCII codes: 's', 'r', 'a', -1=None
+        // Note: 255 is -1i8 as u8 (ruff's ConversionFlag::None)
         match i32::try_from_object(vm, object)? {
-            -1 => Ok(Self::None),
+            -1 | 255 => Ok(Self::None),
             x if x == b's' as i32 => Ok(Self::Str),
             x if x == b'r' as i32 => Ok(Self::Repr),
             x if x == b'a' as i32 => Ok(Self::Ascii),

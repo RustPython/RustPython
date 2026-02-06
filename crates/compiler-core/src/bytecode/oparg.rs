@@ -130,26 +130,26 @@ impl OpArgState {
 /// ```
 macro_rules! oparg_enum {
     (
-        $(#[$attr:meta])*
+        $(#[$enum_meta:meta])*
         $vis:vis enum $name:ident {
             $(
-                $(#[$var_attr:meta])*
-                $var:ident = $value:literal,
+                $(#[$variant_meta:meta])*
+                $variant:ident = $value:literal,
             )*
         }
     ) => {
-        $(#[$attr])*
+        $(#[$enum_meta])*
         $vis enum $name {
             $(
-                $(#[$var_attr])*
-                $var, // Do assign value to variant.
+                $(#[$variant_meta])*
+                $variant, // Do assign value to variant.
             )*
         }
 
         impl_oparg_enum!(
             enum $name {
                 $(
-                    $var = $value,
+                    $variant = $value,
                 )*
             }
         );
@@ -160,7 +160,7 @@ macro_rules! impl_oparg_enum {
     (
         enum $name:ident {
             $(
-                $var:ident = $value:literal,
+                $variant:ident = $value:literal,
             )*
         }
     ) => {
@@ -170,7 +170,7 @@ macro_rules! impl_oparg_enum {
             fn try_from(value: u8) -> Result<Self, Self::Error> {
                 Ok(match value {
                     $(
-                        $value => Self::$var,
+                        $value => Self::$variant,
                     )*
                     _ => return Err(Self::Error::InvalidBytecode),
                 })
@@ -191,7 +191,7 @@ macro_rules! impl_oparg_enum {
             fn from(value: $name) -> Self {
                 match value {
                     $(
-                        $name::$var => $value,
+                        $name::$variant => $value,
                     )*
                 }
             }
