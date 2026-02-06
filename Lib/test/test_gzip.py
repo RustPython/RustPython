@@ -1036,7 +1036,6 @@ class TestOpen(BaseTest):
                 as f:
             self.assertEqual(f.read(), "foobar")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_newline(self):
         # Test with explicit newline (universal newline mode disabled).
         uncompressed = data1.decode("ascii") * 50

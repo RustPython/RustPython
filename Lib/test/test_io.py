@@ -445,9 +445,25 @@ class IOTest(unittest.TestCase):
             self.assertRaises(exc, fp.seek, 1, self.SEEK_CUR)
             self.assertRaises(exc, fp.seek, -1, self.SEEK_END)
 
-    @unittest.skipIf(
-        support.is_emscripten, "fstat() of a pipe fd is not supported"
-    )
+    @support.cpython_only
+    def test_startup_optimization(self):
+        # gh-132952: Test that `io` is not imported at startup and that the
+        # __module__ of UnsupportedOperation is set to "io".
+        assert_python_ok("-S", "-c", textwrap.dedent(
+            """
+            import sys
+            assert "io" not in sys.modules
+            try:
+                sys.stdin.truncate()
+            except Exception as e:
+                typ = type(e)
+                assert typ.__module__ == "io", (typ, typ.__module__)
+                assert typ.__name__ == "UnsupportedOperation", (typ, typ.__name__)
+            else:
+                raise AssertionError("Expected UnsupportedOperation")
+            """
+        ))
+
     @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
     def test_optional_abilities(self):
         # Test for OSError when optional APIs are not supported
@@ -501,57 +517,65 @@ class IOTest(unittest.TestCase):
             (text_reader, "r"), (text_writer, "w"),
             (self.BytesIO, "rws"), (self.StringIO, "rws"),
         )
+
+        def do_test(test, obj, abilities):
+            readable = "r" in abilities
+            self.assertEqual(obj.readable(), readable)
+            writable = "w" in abilities
+            self.assertEqual(obj.writable(), writable)
+
+            if isinstance(obj, self.TextIOBase):
+                data = "3"
+            elif isinstance(obj, (self.BufferedIOBase, self.RawIOBase)):
+                data = b"3"
+            else:
+                self.fail("Unknown base class")
+
+            if "f" in abilities:
+                obj.fileno()
+            else:
+                self.assertRaises(OSError, obj.fileno)
+
+            if readable:
+                obj.read(1)
+                obj.read()
+            else:
+                self.assertRaises(OSError, obj.read, 1)
+                self.assertRaises(OSError, obj.read)
+
+            if writable:
+                obj.write(data)
+            else:
+                self.assertRaises(OSError, obj.write, data)
+
+            if sys.platform.startswith("win") and test in (
+                    pipe_reader, pipe_writer):
+                # Pipes seem to appear as seekable on Windows
+                return
+            seekable = "s" in abilities
+            self.assertEqual(obj.seekable(), seekable)
+
+            if seekable:
+                obj.tell()
+                obj.seek(0)
+            else:
+                self.assertRaises(OSError, obj.tell)
+                self.assertRaises(OSError, obj.seek, 0)
+
+            if writable and seekable:
+                obj.truncate()
+                obj.truncate(0)
+            else:
+                self.assertRaises(OSError, obj.truncate)
+                self.assertRaises(OSError, obj.truncate, 0)
+
         for [test, abilities] in tests:
-            with self.subTest(test), test() as obj:
-                readable = "r" in abilities
-                self.assertEqual(obj.readable(), readable)
-                writable = "w" in abilities
-                self.assertEqual(obj.writable(), writable)
+            with self.subTest(test):
+                if test == pipe_writer and not threading_helper.can_start_thread:
+                    self.skipTest("Need threads")
+                with test() as obj:
+                    do_test(test, obj, abilities)
 
-                if isinstance(obj, self.TextIOBase):
-                    data = "3"
-                elif isinstance(obj, (self.BufferedIOBase, self.RawIOBase)):
-                    data = b"3"
-                else:
-                    self.fail("Unknown base class")
-
-                if "f" in abilities:
-                    obj.fileno()
-                else:
-                    self.assertRaises(OSError, obj.fileno)
-
-                if readable:
-                    obj.read(1)
-                    obj.read()
-                else:
-                    self.assertRaises(OSError, obj.read, 1)
-                    self.assertRaises(OSError, obj.read)
-
-                if writable:
-                    obj.write(data)
-                else:
-                    self.assertRaises(OSError, obj.write, data)
-
-                if sys.platform.startswith("win") and test in (
-                        pipe_reader, pipe_writer):
-                    # Pipes seem to appear as seekable on Windows
-                    continue
-                seekable = "s" in abilities
-                self.assertEqual(obj.seekable(), seekable)
-
-                if seekable:
-                    obj.tell()
-                    obj.seek(0)
-                else:
-                    self.assertRaises(OSError, obj.tell)
-                    self.assertRaises(OSError, obj.seek, 0)
-
-                if writable and seekable:
-                    obj.truncate()
-                    obj.truncate(0)
-                else:
-                    self.assertRaises(OSError, obj.truncate)
-                    self.assertRaises(OSError, obj.truncate, 0)
 
     def test_open_handles_NUL_chars(self):
         fn_with_NUL = 'foo\0bar'
@@ -781,7 +805,7 @@ class IOTest(unittest.TestCase):
             self.assertEqual(file.buffer.raw.closefd, False)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # FileIO objects are collected, and collecting them flushes
         # all data to disk.
@@ -896,7 +920,7 @@ class IOTest(unittest.TestCase):
             self.BytesIO()
         )
         for obj in test:
-            self.assertTrue(hasattr(obj, "__dict__"))
+            self.assertHasAttr(obj, "__dict__")
 
     def test_opener(self):
         with self.open(os_helper.TESTFN, "w", encoding="utf-8") as f:
@@ -1090,7 +1114,7 @@ class IOTest(unittest.TestCase):
 
 class CIOTest(IOTest):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; cyclic gc
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; cyclic gc
     def test_IOBase_finalize(self):
         # Issue #12149: segmentation fault on _PyIOBase_finalize when both a
         # class which inherits IOBase and an object of this class are caught
@@ -1108,10 +1132,6 @@ class CIOTest(IOTest):
         del obj
         support.gc_collect()
         self.assertIsNone(wr(), wr)
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
-    def test_destructor(self):
-        return super().test_destructor()
 
 @support.cpython_only
 class TestIOCTypes(unittest.TestCase):
@@ -1147,7 +1167,7 @@ class TestIOCTypes(unittest.TestCase):
         def check_subs(types, base):
             for tp in types:
                 with self.subTest(tp=tp, base=base):
-                    self.assertTrue(issubclass(tp, base))
+                    self.assertIsSubclass(tp, base)
 
         def recursive_check(d):
             for k, v in d.items():
@@ -1804,7 +1824,7 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
         self.assertRaises(OSError, bufio.read, 10)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # C BufferedReader objects are collected.
         # The Python version has __del__, so it ends into gc.garbage instead
@@ -1838,14 +1858,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
         with self.assertRaises(OSError) as cm:
             bufio.readline()
         self.assertIsInstance(cm.exception.__cause__, TypeError)
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_pickling_subclass(self):
-        return super().test_pickling_subclass()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
 
 
 class PyBufferedReaderTest(BufferedReaderTest):
@@ -1910,7 +1922,7 @@ class BufferedWriterTest(unittest.TestCase, CommonBufferedTests):
         flushed = b"".join(writer._write_stack)
         # At least (total - 8) bytes were implicitly flushed, perhaps more
         # depending on the implementation.
-        self.assertTrue(flushed.startswith(contents[:-8]), flushed)
+        self.assertStartsWith(flushed, contents[:-8])
 
     def check_writes(self, intermediate_func):
         # Lots of writes, test the flushed output is as expected.
@@ -1980,7 +1992,7 @@ class BufferedWriterTest(unittest.TestCase, CommonBufferedTests):
         self.assertEqual(bufio.write(b"ABCDEFGHI"), 9)
         s = raw.pop_written()
         # Previously buffered bytes were flushed
-        self.assertTrue(s.startswith(b"01234567A"), s)
+        self.assertStartsWith(s, b"01234567A")
 
     def test_write_and_rewind(self):
         raw = self.BytesIO()
@@ -2162,7 +2174,7 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
         self.assertRaises(ValueError, bufio.write, b"def")
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # C BufferedWriter objects are collected, and collecting them flushes
         # all data to disk.
@@ -2185,13 +2197,6 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
         with self.assertRaisesRegex(TypeError, "BufferedWriter"):
             self.tp(self.BytesIO(), 1024, 1024, 1024)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_pickling_subclass(self):
-        return super().test_pickling_subclass()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
 
 class PyBufferedWriterTest(BufferedWriterTest):
     tp = pyio.BufferedWriter
@@ -2285,7 +2290,7 @@ class BufferedRWPairTest(unittest.TestCase):
     def test_peek(self):
         pair = self.tp(self.BytesIO(b"abcdef"), self.MockRawIO())
 
-        self.assertTrue(pair.peek(3).startswith(b"abc"))
+        self.assertStartsWith(pair.peek(3), b"abc")
         self.assertEqual(pair.read(3), b"abc")
 
     def test_readable(self):
@@ -2670,7 +2675,7 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     tp = io.BufferedRandom
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         CBufferedReaderTest.test_garbage_collection(self)
         CBufferedWriterTest.test_garbage_collection(self)
@@ -2679,14 +2684,6 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
         # Issue #17275
         with self.assertRaisesRegex(TypeError, "BufferedRandom"):
             self.tp(self.BytesIO(), 1024, 1024, 1024)
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_pickling_subclass(self):
-        return super().test_pickling_subclass()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
 
 
 class PyBufferedRandomTest(BufferedRandomTest):
@@ -2847,7 +2844,6 @@ class TextIOWrapperTest(unittest.TestCase):
     def tearDown(self):
         os_helper.unlink(os_helper.TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnicodeEncodeError not raised
     def test_constructor(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -2998,14 +2994,11 @@ class TextIOWrapperTest(unittest.TestCase):
 
     @unittest.skipIf(sys.flags.utf8_mode, "utf-8 mode is enabled")
     def test_default_encoding(self):
-        old_environ = dict(os.environ)
-        try:
+        with os_helper.EnvironmentVarGuard() as env:
             # try to get a user preferred encoding different than the current
             # locale encoding to check that TextIOWrapper() uses the current
             # locale encoding and not the user preferred encoding
-            for key in ('LC_ALL', 'LANG', 'LC_CTYPE'):
-                if key in os.environ:
-                    del os.environ[key]
+            env.unset('LC_ALL', 'LANG', 'LC_CTYPE')
 
             current_locale_encoding = locale.getencoding()
             b = self.BytesIO()
@@ -3013,9 +3006,6 @@ class TextIOWrapperTest(unittest.TestCase):
                 warnings.simplefilter("ignore", EncodingWarning)
                 t = self.TextIOWrapper(b)
             self.assertEqual(t.encoding, current_locale_encoding)
-        finally:
-            os.environ.clear()
-            os.environ.update(old_environ)
 
     def test_encoding(self):
         # Check the encoding attribute is always set, and valid
@@ -3070,7 +3060,6 @@ class TextIOWrapperTest(unittest.TestCase):
         t.flush()
         self.assertEqual(b.getvalue(), b"abc?def\n")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_ex_decode'. Did you mean: 'utf_16_ex_decode'?
     def test_newlines(self):
         input_lines = [ "unix\n", "windows\r\n", "os9\r", "last\n", "nonl" ]
 
@@ -3389,7 +3378,6 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(f.readline(), "\u00e6\u0300\u0300")
         f.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_ex_decode'. Did you mean: 'utf_16_ex_decode'?
     def test_encoded_writes(self):
         data = "1234567890"
         tests = ("utf-16",
@@ -3825,7 +3813,7 @@ class TextIOWrapperTest(unittest.TestCase):
             """.format(iomod=iomod, kwargs=kwargs)
         return assert_python_ok("-c", code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'LookupError: unknown encoding: ascii' not found in "Exception ignored in: <function C.__del__ at 0x72d8eea80>\nAttributeError: 'NoneType' object has no attribute 'TextIOWrapper'\n"
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError during module teardown in __del__
     def test_create_at_shutdown_without_encoding(self):
         rc, out, err = self._check_create_at_shutdown()
         if err:
@@ -3835,7 +3823,7 @@ class TextIOWrapperTest(unittest.TestCase):
         else:
             self.assertEqual("ok", out.decode().strip())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b"Exception ignored in: <function C.__del__ at 0xbc2a2e940>\nAttributeError: 'NoneType' object has no attribute 'TextIOWrapper'\n" is not false
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError during module teardown in __del__
     def test_create_at_shutdown_with_encoding(self):
         rc, out, err = self._check_create_at_shutdown(encoding='utf-8',
                                                       errors='strict')
@@ -4083,6 +4071,24 @@ class TextIOWrapperTest(unittest.TestCase):
                 self.assertEqual(newtxt.tag, 'ham')
         del MyTextIO
 
+    # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'NoneType'
+    @unittest.expectedFailure
+    @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
+    def test_read_non_blocking(self):
+        import os
+        r, w = os.pipe()
+        try:
+            os.set_blocking(r, False)
+            with self.io.open(r, 'rt') as textfile:
+                r = None
+                # Nothing has been written so a non-blocking read raises a BlockingIOError exception.
+                with self.assertRaises(BlockingIOError):
+                    textfile.read()
+        finally:
+            if r is not None:
+                os.close(r)
+            os.close(w)
+
 
 class MemviewBytesIO(io.BytesIO):
     '''A BytesIO object whose read method returns memoryviews
@@ -4107,7 +4113,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     io = io
     shutdown_error = "LookupError: unknown encoding: ascii"
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by read
     def test_initialization(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -4119,7 +4124,7 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         self.assertRaises(Exception, repr, t)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # C TextIOWrapper objects are collected, and collecting them flushes
         # all data to disk.
@@ -4183,7 +4188,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         t.write("x"*chunk_size)
         self.assertEqual([b"abcdef", b"ghi", b"x"*chunk_size], buf._write_stack)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: reentrant call inside textio
     def test_issue119506(self):
         chunk_size = 8192
 
@@ -4206,86 +4210,33 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         self.assertEqual([b"abcdef", b"middle", b"g"*chunk_size],
                          buf._write_stack)
 
-    # TODO: RUSTPYTHON; euc_jis_2004 encoding not supported
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'closed'
+    def test_issue142594(self):
+        wrapper = None
+        detached = False
+        class ReentrantRawIO(self.RawIOBase):
+            @property
+            def closed(self):
+                nonlocal detached
+                if wrapper is not None and not detached:
+                    detached = True
+                    wrapper.detach()
+                return False
+
+        raw = ReentrantRawIO()
+        wrapper = self.TextIOWrapper(raw)
+        wrapper.close()  # should not crash
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
     def test_seek_with_encoder_state(self):
         return super().test_seek_with_encoder_state()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_pickling_subclass(self):
-        return super().test_pickling_subclass()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
-    def test_reconfigure_newline(self):
-        return super().test_reconfigure_newline()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + ['AAA\nBB\x00B\nCCC\r', 'DDD\r', 'EEE\r', '\nFFF\r', '\nGGG']
-    def test_newlines_input(self):
-        return super().test_newlines_input()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + strict
-    def test_reconfigure_defaults(self):
-        return super().test_reconfigure_defaults()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: LookupError not raised
-    def test_non_text_encoding_codecs_are_rejected(self):
-        return super().test_non_text_encoding_codecs_are_rejected()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: "<(_io\\.)?TextIOWrapper name='dummy' mode='r' encoding='utf-8'>" not found in "<_io.TextIOWrapper name='dummy' encoding='utf-8'>"
-    def test_repr(self):
-        return super().test_repr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
-    def test_recursive_repr(self):
-        return super().test_recursive_repr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnicodeEncodeError not raised
-    def test_reconfigure_errors(self):
-        return super().test_reconfigure_errors()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnsupportedOperation not raised
-    def test_reconfigure_encoding_read(self):
-        return super().test_reconfigure_encoding_read()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'' != b'1'
-    def test_reconfigure_write_through(self):
-        return super().test_reconfigure_write_through()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'' != b'AB\nC'
-    def test_reconfigure_line_buffering(self):
-        return super().test_reconfigure_line_buffering()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'' != b'abc\xe9\n'
-    def test_reconfigure_write(self):
-        return super().test_reconfigure_write()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'\xef\xbb\xbfaaa\xef\xbb\xbfxxx' != b'\xef\xbb\xbfaaaxxx'
-    def test_append_bom(self):
-        return super().test_append_bom()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'foo\n\xef\xbb\xbf\xc3\xa9\n' != b'foo\n\xc3\xa9\n'
-    def test_reconfigure_write_fromascii(self):
-        return super().test_reconfigure_write_fromascii()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: locale
-    def test_reconfigure_locale(self):
-        return super().test_reconfigure_locale()
 
 
 class PyTextIOWrapperTest(TextIOWrapperTest):
     io = pyio
     shutdown_error = "LookupError: unknown encoding: ascii"
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: ValueError not raised
-    def test_constructor(self):
-        return super().test_constructor()
-
-    # TODO: RUSTPYTHON; euc_jis_2004 encoding not supported
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
     def test_seek_with_encoder_state(self):
         return super().test_seek_with_encoder_state()
 
@@ -4367,7 +4318,6 @@ class IncrementalNewlineDecoderTest(unittest.TestCase):
         self.assertEqual(decoder.decode(input), "abc")
         self.assertEqual(decoder.newlines, None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_ex_decode'. Did you mean: 'utf_16_ex_decode'?
     def test_newline_decoder(self):
         encodings = (
             # None meaning the IncrementalNewlineDecoder takes unicode input
@@ -4465,9 +4415,6 @@ class MiscIOTest(unittest.TestCase):
                 self.open(os_helper.TESTFN, mode)
             self.assertIn('invalid mode', str(cm.exception))
 
-    @unittest.skipIf(
-        support.is_emscripten, "fstat() of a pipe fd is not supported"
-    )
     @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
     def test_open_pipe_with_append(self):
         # bpo-27805: Ignore ESPIPE from lseek() in open().
@@ -4529,7 +4476,7 @@ class MiscIOTest(unittest.TestCase):
             self.assertRaises(ValueError, f.writelines, [])
             self.assertRaises(ValueError, next, f)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; cyclic gc
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; cyclic gc
     def test_blockingioerror(self):
         # Various BlockingIOError issues
         class C(str):
@@ -4637,15 +4584,11 @@ class MiscIOTest(unittest.TestCase):
                         with self.assertRaisesRegex(TypeError, msg):
                             pickle.dumps(f, protocol)
 
-    @unittest.skipIf(
-        support.is_emscripten, "fstat() of a pipe fd is not supported"
-    )
+    @unittest.skipIf(support.is_emscripten, "Emscripten corrupts memory when writing to nonblocking fd")
     def test_nonblock_pipe_write_bigbuf(self):
         self._test_nonblock_pipe_write(16*1024)
 
-    @unittest.skipIf(
-        support.is_emscripten, "fstat() of a pipe fd is not supported"
-    )
+    @unittest.skipIf(support.is_emscripten, "Emscripten corrupts memory when writing to nonblocking fd")
     def test_nonblock_pipe_write_smallbuf(self):
         self._test_nonblock_pipe_write(1024)
 
@@ -4764,7 +4707,6 @@ class MiscIOTest(unittest.TestCase):
         proc = assert_python_failure('-X', 'dev', '-c', code)
         self.assertEqual(proc.rc, 10, proc)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 0 != 2
     def test_check_encoding_warning(self):
         # PEP 597: Raise warning when encoding is not specified
         # and sys.flags.warn_default_encoding is set.
@@ -4783,12 +4725,9 @@ class MiscIOTest(unittest.TestCase):
         proc = assert_python_ok('-X', 'warn_default_encoding', '-c', code)
         warnings = proc.err.splitlines()
         self.assertEqual(len(warnings), 2)
-        self.assertTrue(
-            warnings[0].startswith(b"<string>:5: EncodingWarning: "))
-        self.assertTrue(
-            warnings[1].startswith(b"<string>:8: EncodingWarning: "))
+        self.assertStartsWith(warnings[0], b"<string>:5: EncodingWarning: ")
+        self.assertStartsWith(warnings[1], b"<string>:8: EncodingWarning: ")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'locale' != b'utf-8'
     def test_text_encoding(self):
         # PEP 597, bpo-47000. io.text_encoding() returns "locale" or "utf-8"
         # based on sys.flags.utf8_mode
@@ -4867,20 +4806,6 @@ class CMiscIOTest(MiscIOTest):
     @support.requires_resource('walltime')
     def test_daemon_threads_shutdown_stderr_deadlock(self):
         self.check_daemon_threads_shutdown_deadlock('stderr')
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 22 != 10 : _PythonRunResult(rc=22, out=b'', err=b'')
-    def test_check_encoding_errors(self):
-        return super().test_check_encoding_errors()
-
-    # TODO: RUSTPYTHON; ResourceWarning not triggered by _io.FileIO
-    @unittest.expectedFailure
-    def test_warn_on_dealloc(self):
-        return super().test_warn_on_dealloc()
-
-    # TODO: RUSTPYTHON; ResourceWarning not triggered by _io.FileIO
-    @unittest.expectedFailure
-    def test_warn_on_dealloc_fd(self):
-        return super().test_warn_on_dealloc_fd()
 
 
 class PyMiscIOTest(MiscIOTest):
@@ -5016,7 +4941,7 @@ class SignalsTest(unittest.TestCase):
                     os.read(r, len(data) * 100)
             exc = cm.exception
             if isinstance(exc, RuntimeError):
-                self.assertTrue(str(exc).startswith("reentrant call"), str(exc))
+                self.assertStartsWith(str(exc), "reentrant call")
         finally:
             signal.alarm(0)
             wio.close()
@@ -5134,13 +5059,13 @@ class SignalsTest(unittest.TestCase):
                 if e.errno != errno.EBADF:
                     raise
 
-    @unittest.skip("TODO: RUSTPYTHON thread 'main' (103833) panicked at crates/vm/src/stdlib/signal.rs:233:43: RefCell already borrowed")
+    @unittest.skip("TODO: RUSTPYTHON; thread 'main' (103833) panicked at crates/vm/src/stdlib/signal.rs:233:43: RefCell already borrowed")
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_write_retry_buffered(self):
         self.check_interrupted_write_retry(b"x", mode="wb")
 
-    @unittest.skip("TODO: RUSTPYTHON thread 'main' (103833) panicked at crates/vm/src/stdlib/signal.rs:233:43: RefCell already borrowed")
+    @unittest.skip("TODO: RUSTPYTHON; thread 'main' (103833) panicked at crates/vm/src/stdlib/signal.rs:233:43: RefCell already borrowed")
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_write_retry_text(self):
@@ -5150,9 +5075,9 @@ class SignalsTest(unittest.TestCase):
 class CSignalsTest(SignalsTest):
     io = io
 
-    @unittest.skip("TODO: RUSTPYTHON thread 'main' (103833) panicked at crates/vm/src/stdlib/signal.rs:233:43: RefCell already borrowed")
-    def test_interrupted_read_retry_buffered(self):  # TODO: RUSTPYTHON
-        return super().test_interrupted_read_retry_buffered()  # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; thread 'main' (103833) panicked at crates/vm/src/stdlib/signal.rs:233:43: RefCell already borrowed")
+    def test_interrupted_read_retry_buffered(self):
+        return super().test_interrupted_read_retry_buffered()
 
 class PySignalsTest(SignalsTest):
     io = pyio
@@ -5161,6 +5086,26 @@ class PySignalsTest(SignalsTest):
     # tests are disabled.
     test_reentrant_write_buffered = None
     test_reentrant_write_text = None
+
+
+class ProtocolsTest(unittest.TestCase):
+    class MyReader:
+        def read(self, sz=-1):
+            return b""
+
+    class MyWriter:
+        def write(self, b: bytes):
+            pass
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'io' has no attribute 'Reader'
+    def test_reader_subclass(self):
+        self.assertIsSubclass(self.MyReader, io.Reader)
+        self.assertNotIsSubclass(str, io.Reader)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'io' has no attribute 'Writer'
+    def test_writer_subclass(self):
+        self.assertIsSubclass(self.MyWriter, io.Writer)
+        self.assertNotIsSubclass(str, io.Writer)
 
 
 def load_tests(loader, tests, pattern):
@@ -5174,6 +5119,7 @@ def load_tests(loader, tests, pattern):
              CTextIOWrapperTest, PyTextIOWrapperTest,
              CMiscIOTest, PyMiscIOTest,
              CSignalsTest, PySignalsTest, TestIOCTypes,
+             ProtocolsTest,
              )
 
     # Put the namespaces of the IO module we are testing and some useful mock

@@ -758,7 +758,7 @@ impl VirtualMachine {
         }
     }
 
-    /// Phase 4: Clear module dicts.
+    /// Phase 4: Clear module dicts in reverse import order using 2-pass algorithm.
     /// Without GC, only clear __main__ — other modules' __del__ handlers
     /// need their globals intact. CPython can clear ALL module dicts because
     /// _PyGC_CollectNoFail() finalizes cycle-participating objects beforehand.
