@@ -172,3 +172,23 @@ if sys.platform == 'win32':
             pass
 
     codecs.register(_alias_mbcs)
+
+    from ._win_cp_codecs import create_win32_code_page_codec
+
+    def win32_code_page_search_function(encoding):
+        encoding = encoding.lower()
+        if not encoding.startswith('cp'):
+            return None
+        try:
+            cp = int(encoding[2:])
+        except ValueError:
+            return None
+        # Test if the code page is supported
+        try:
+            codecs.code_page_encode(cp, 'x')
+        except (OverflowError, OSError):
+            return None
+
+        return create_win32_code_page_codec(cp)
+
+    codecs.register(win32_code_page_search_function)
