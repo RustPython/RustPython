@@ -156,23 +156,6 @@ def search_function(encoding):
 codecs.register(search_function)
 
 if sys.platform == 'win32':
-    # bpo-671666, bpo-46668: If Python does not implement a codec for current
-    # Windows ANSI code page, use the "mbcs" codec instead:
-    # WideCharToMultiByte() and MultiByteToWideChar() functions with CP_ACP.
-    # Python does not support custom code pages.
-    def _alias_mbcs(encoding):
-        try:
-            import _winapi
-            ansi_code_page = "cp%s" % _winapi.GetACP()
-            if encoding == ansi_code_page:
-                import encodings.mbcs
-                return encodings.mbcs.getregentry()
-        except ImportError:
-            # Imports may fail while we are shutting down
-            pass
-
-    codecs.register(_alias_mbcs)
-
     from ._win_cp_codecs import create_win32_code_page_codec
 
     def win32_code_page_search_function(encoding):
