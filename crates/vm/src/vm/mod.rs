@@ -76,6 +76,7 @@ pub struct VirtualMachine {
     pub wasm_id: Option<String>,
     exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
+    pub(crate) importlib: PyObjectRef,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
@@ -166,6 +167,7 @@ impl VirtualMachine {
         let sys_module = new_module(stdlib::sys::module_def(&ctx));
 
         let import_func = ctx.none();
+        let importlib = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = Some(Box::new(
@@ -181,6 +183,7 @@ impl VirtualMachine {
             wasm_id: None,
             exceptions: RefCell::default(),
             import_func,
+            importlib,
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
@@ -263,7 +266,9 @@ impl VirtualMachine {
     }
 
     fn import_ascii_utf8_encodings(&mut self) -> PyResult<()> {
-        import::import_frozen(self, "codecs")?;
+        // Use the Python import machinery (FrozenImporter) so modules get
+        // proper __spec__ and __loader__ attributes.
+        self.import("codecs", 0)?;
 
         // Use dotted names when freeze-stdlib is enabled (modules come from Lib/encodings/),
         // otherwise use underscored names (modules come from core_modules/).
@@ -274,20 +279,30 @@ impl VirtualMachine {
         };
 
         // Register ascii encoding
-        let ascii_module = import::import_frozen(self, ascii_module_name)?;
+        // __import__("encodings.ascii") returns top-level "encodings", so
+        // look up the actual submodule in sys.modules.
+        self.import(ascii_module_name, 0)?;
+        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        let ascii_module = sys_modules.get_item(ascii_module_name, self)?;
         let getregentry = ascii_module.get_attr("getregentry", self)?;
         let codec_info = getregentry.call((), self)?;
         self.state
             .codec_registry
             .register_manual("ascii", codec_info.try_into_value(self)?)?;
 
-        // Register utf-8 encoding
-        let utf8_module = import::import_frozen(self, utf8_module_name)?;
+        // Register utf-8 encoding (also as "utf8" alias since normalize_encoding_name
+        // maps "utf-8" → "utf_8" but leaves "utf8" as-is)
+        self.import(utf8_module_name, 0)?;
+        let utf8_module = sys_modules.get_item(utf8_module_name, self)?;
         let getregentry = utf8_module.get_attr("getregentry", self)?;
         let codec_info = getregentry.call((), self)?;
+        let utf8_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
         self.state
             .codec_registry
-            .register_manual("utf-8", codec_info.try_into_value(self)?)?;
+            .register_manual("utf-8", utf8_codec.clone())?;
+        self.state
+            .codec_registry
+            .register_manual("utf8", utf8_codec)?;
         Ok(())
     }
 
@@ -1105,47 +1120,20 @@ impl VirtualMachine {
         from_list: &Py<PyTuple<PyStrRef>>,
         level: usize,
     ) -> PyResult {
-        // if the import inputs seem weird, e.g a package import or something, rather than just
-        // a straight `import ident`
-        let weird = module.as_str().contains('.') || level != 0 || !from_list.is_empty();
+        let import_func = self
+            .builtins
+            .get_attr(identifier!(self, __import__), self)
+            .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
 
-        let cached_module = if weird {
-            None
+        let (locals, globals) = if let Some(frame) = self.current_frame() {
+            (Some(frame.locals.clone()), Some(frame.globals.clone()))
         } else {
-            let sys_modules = self.sys_module.get_attr("modules", self)?;
-            sys_modules.get_item(module, self).ok()
+            (None, None)
         };
-
-        match cached_module {
-            Some(cached_module) => {
-                if self.is_none(&cached_module) {
-                    Err(self.new_import_error(
-                        format!("import of {module} halted; None in sys.modules"),
-                        module.to_owned(),
-                    ))
-                } else {
-                    Ok(cached_module)
-                }
-            }
-            None => {
-                let import_func = self
-                    .builtins
-                    .get_attr(identifier!(self, __import__), self)
-                    .map_err(|_| {
-                        self.new_import_error("__import__ not found", module.to_owned())
-                    })?;
-
-                let (locals, globals) = if let Some(frame) = self.current_frame() {
-                    (Some(frame.locals.clone()), Some(frame.globals.clone()))
-                } else {
-                    (None, None)
-                };
-                let from_list: PyObjectRef = from_list.to_owned().into();
-                import_func
-                    .call((module.to_owned(), globals, locals, from_list, level), self)
-                    .inspect_err(|exc| import::remove_importlib_frames(self, exc))
-            }
-        }
+        let from_list: PyObjectRef = from_list.to_owned().into();
+        import_func
+            .call((module.to_owned(), globals, locals, from_list, level), self)
+            .inspect_err(|exc| import::remove_importlib_frames(self, exc))
     }
 
     pub fn extract_elements_with<T, F>(&self, value: &PyObject, func: F) -> PyResult<Vec<T>>
@@ -1551,6 +1539,10 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
         "_frozen_importlib_external" => "importlib._bootstrap_external",
         "encodings_ascii" => "encodings.ascii",
         "encodings_utf_8" => "encodings.utf_8",
+        "__hello_alias__" | "__phello_alias__" | "__phello_alias__.spam" => "__hello__",
+        "__phello__.__init__" => "<__phello__",
+        "__phello__.ham.__init__" => "<__phello__.ham",
+        "__hello_only__" => "",
         _ => name,
     }
 }

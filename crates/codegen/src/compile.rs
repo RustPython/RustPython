@@ -2065,11 +2065,19 @@ impl Compiler {
                     let idx = self.name(&name.name);
                     emit!(self, Instruction::ImportName { idx });
                     if let Some(alias) = &name.asname {
-                        for part in name.name.split('.').skip(1) {
+                        let parts: Vec<&str> = name.name.split('.').skip(1).collect();
+                        for (i, part) in parts.iter().enumerate() {
                             let idx = self.name(part);
-                            self.emit_load_attr(idx);
+                            emit!(self, Instruction::ImportFrom { idx });
+                            if i < parts.len() - 1 {
+                                emit!(self, Instruction::Swap { index: 2 });
+                                emit!(self, Instruction::PopTop);
+                            }
                         }
-                        self.store_name(alias.as_str())?
+                        self.store_name(alias.as_str())?;
+                        if !parts.is_empty() {
+                            emit!(self, Instruction::PopTop);
+                        }
                     } else {
                         self.store_name(name.name.split('.').next().unwrap())?
                     }

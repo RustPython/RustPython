@@ -1,5 +1,8 @@
+use crate::builtins::{PyCode, PyStrInterned};
 use crate::frozen::FrozenModule;
 use crate::{VirtualMachine, builtins::PyBaseExceptionRef};
+use core::borrow::Borrow;
+
 pub(crate) use _imp::module_def;
 
 pub use crate::vm::resolve_frozen_alias;
@@ -72,13 +75,31 @@ impl FrozenError {
     }
 }
 
-// find_frozen in frozen.c
+// look_up_frozen + use_frozen in import.c
 fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenError> {
-    vm.state
+    let frozen = vm
+        .state
         .frozen
         .get(name)
         .copied()
-        .ok_or(FrozenError::NotFound)
+        .ok_or(FrozenError::NotFound)?;
+
+    // Bootstrap modules are always available regardless of override flag
+    if matches!(
+        name,
+        "_frozen_importlib" | "_frozen_importlib_external" | "zipimport"
+    ) {
+        return Ok(frozen);
+    }
+
+    // use_frozen(): override > 0 → true, override < 0 → false, 0 → default (true)
+    // When disabled, non-bootstrap modules are simply not found (same as look_up_frozen)
+    let override_val = vm.state.override_frozen_modules.load();
+    if override_val < 0 {
+        return Err(FrozenError::NotFound);
+    }
+
+    Ok(frozen)
 }
 
 #[pymodule(with(lock))]
@@ -86,6 +107,7 @@ mod _imp {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef},
+        convert::TryFromBorrowedObject,
         function::OptionalArg,
         import, version,
     };
@@ -111,7 +133,7 @@ mod _imp {
 
     #[pyfunction]
     fn is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
-        vm.state.frozen.contains_key(name.as_str())
+        super::find_frozen(name.as_str(), vm).is_ok()
     }
 
     #[pyfunction]
@@ -161,7 +183,30 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn get_frozen_object(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyCode>> {
+    fn get_frozen_object(
+        name: PyStrRef,
+        data: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyCode>> {
+        if let OptionalArg::Present(data) = data
+            && !vm.is_none(&data)
+        {
+            let buf = crate::protocol::PyBuffer::try_from_borrowed_object(vm, &data)?;
+            let contiguous = buf.as_contiguous().ok_or_else(|| {
+                vm.new_buffer_error("get_frozen_object() requires a contiguous buffer")
+            })?;
+            let invalid_err = || {
+                vm.new_import_error(
+                    format!("Frozen object named '{}' is invalid", name.as_str()),
+                    name.clone(),
+                )
+            };
+            let bag = crate::builtins::code::PyObjBag(&vm.ctx);
+            let code =
+                rustpython_compiler_core::marshal::deserialize_code(&mut &contiguous[..], bag)
+                    .map_err(|_| invalid_err())?;
+            return Ok(vm.ctx.new_code(code));
+        }
         import::make_frozen(vm, name.as_str())
     }
 
@@ -183,8 +228,10 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn _fix_co_filename(_code: PyObjectRef, _path: PyStrRef) {
-        // TODO:
+    fn _fix_co_filename(code: PyRef<PyCode>, path: PyStrRef, vm: &VirtualMachine) {
+        let old_name = code.code.source_path;
+        let new_name = vm.ctx.intern_str(path.as_str());
+        super::update_code_filenames(&code, old_name, new_name);
     }
 
     #[pyfunction]
@@ -204,7 +251,7 @@ mod _imp {
         name: PyStrRef,
         withdata: OptionalArg<bool>,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, PyStrRef)>> {
+    ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
         use super::FrozenError::*;
 
         if withdata.into_option().is_some() {
@@ -218,7 +265,14 @@ mod _imp {
             Err(e) => return Err(e.to_pyexception(name.as_str(), vm)),
         };
 
-        let origname = vm.ctx.new_str(super::resolve_frozen_alias(name.as_str()));
+        // When origname is empty (e.g. __hello_only__), return None.
+        // Otherwise return the resolved alias name.
+        let origname_str = super::resolve_frozen_alias(name.as_str());
+        let origname = if origname_str.is_empty() {
+            None
+        } else {
+            Some(vm.ctx.new_str(origname_str))
+        };
         Ok(Some((None, info.package, origname)))
     }
 
@@ -226,5 +280,30 @@ mod _imp {
     fn source_hash(key: u64, source: PyBytesRef) -> Vec<u8> {
         let hash: u64 = crate::common::hash::keyed_hash(key, source.as_bytes());
         hash.to_le_bytes().to_vec()
+    }
+}
+
+fn update_code_filenames(
+    code: &PyCode,
+    old_name: &'static PyStrInterned,
+    new_name: &'static PyStrInterned,
+) {
+    if !core::ptr::eq(code.code.source_path, old_name)
+        && code.code.source_path.as_str() != old_name.as_str()
+    {
+        return;
+    }
+    // SAFETY: called during import before the code object is shared.
+    // Mutates co_filename in place.
+    #[allow(invalid_reference_casting)]
+    unsafe {
+        let source_path_ptr = &code.code.source_path as *const _ as *mut &'static PyStrInterned;
+        core::ptr::write_volatile(source_path_ptr, new_name);
+    }
+    for constant in code.code.constants.iter() {
+        let obj: &crate::PyObject = constant.borrow();
+        if let Some(inner_code) = obj.downcast_ref::<PyCode>() {
+            update_code_filenames(inner_code, old_name, new_name);
+        }
     }
 }
