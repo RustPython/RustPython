@@ -493,56 +493,46 @@ impl Compiler {
         slice: &ast::Expr,
         ctx: ast::ExprContext,
     ) -> CompileResult<()> {
-        // 1. Check subscripter and index for Load context
-        // 2. VISIT value
-        // 3. Handle two-element slice specially
-        // 4. Otherwise VISIT slice and emit appropriate instruction
-
-        // For Load context, some checks are skipped for now
-        // if ctx == ast::ExprContext::Load {
-        //     check_subscripter(value);
-        //     check_index(value, slice);
-        // }
+        // Save full subscript expression range (set by compile_expression before this call)
+        let subscript_range = self.current_source_range;
 
         // VISIT(c, expr, e->v.Subscript.value)
         self.compile_expression(value)?;
 
         // Handle two-element non-constant slice with BINARY_SLICE/STORE_SLICE
-        if slice.should_use_slice_optimization() && !matches!(ctx, ast::ExprContext::Del) {
+        let use_slice_opt = matches!(ctx, ast::ExprContext::Load | ast::ExprContext::Store)
+            && slice.should_use_slice_optimization();
+        if use_slice_opt {
             match slice {
                 ast::Expr::Slice(s) => self.compile_slice_two_parts(s)?,
                 _ => unreachable!(
                     "should_use_slice_optimization should only return true for ast::Expr::Slice"
                 ),
             };
-            match ctx {
-                ast::ExprContext::Load => {
-                    emit!(self, Instruction::BinarySlice);
-                }
-                ast::ExprContext::Store => {
-                    emit!(self, Instruction::StoreSlice);
-                }
-                _ => unreachable!(),
-            }
         } else {
             // VISIT(c, expr, e->v.Subscript.slice)
             self.compile_expression(slice)?;
+        }
 
-            // Emit appropriate instruction based on context
-            match ctx {
-                ast::ExprContext::Load => emit!(
-                    self,
-                    Instruction::BinaryOp {
-                        op: BinaryOperator::Subscr
-                    }
-                ),
-                ast::ExprContext::Store => emit!(self, Instruction::StoreSubscr),
-                ast::ExprContext::Del => emit!(self, Instruction::DeleteSubscr),
-                ast::ExprContext::Invalid => {
-                    return Err(self.error(CodegenErrorType::SyntaxError(
-                        "Invalid expression context".to_owned(),
-                    )));
+        // Restore full subscript expression range before emitting
+        self.set_source_range(subscript_range);
+
+        match (use_slice_opt, ctx) {
+            (true, ast::ExprContext::Load) => emit!(self, Instruction::BinarySlice),
+            (true, ast::ExprContext::Store) => emit!(self, Instruction::StoreSlice),
+            (true, _) => unreachable!(),
+            (false, ast::ExprContext::Load) => emit!(
+                self,
+                Instruction::BinaryOp {
+                    op: BinaryOperator::Subscr
                 }
+            ),
+            (false, ast::ExprContext::Store) => emit!(self, Instruction::StoreSubscr),
+            (false, ast::ExprContext::Del) => emit!(self, Instruction::DeleteSubscr),
+            (false, ast::ExprContext::Invalid) => {
+                return Err(self.error(CodegenErrorType::SyntaxError(
+                    "Invalid expression context".to_owned(),
+                )));
             }
         }
 
@@ -6603,7 +6593,8 @@ impl Compiler {
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
 
-                // Perform operation:
+                // Restore full expression range before emitting the operation
+                self.set_source_range(range);
                 self.compile_op(op, false);
             }
             ast::Expr::Subscript(ast::ExprSubscript {
@@ -6614,7 +6605,8 @@ impl Compiler {
             ast::Expr::UnaryOp(ast::ExprUnaryOp { op, operand, .. }) => {
                 self.compile_expression(operand)?;
 
-                // Perform operation:
+                // Restore full expression range before emitting the operation
+                self.set_source_range(range);
                 match op {
                     ast::UnaryOp::UAdd => emit!(
                         self,

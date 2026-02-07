@@ -2293,7 +2293,6 @@ class SyntaxTestCase(unittest.TestCase):
             offset=7
         )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_curly_brace_after_primary_raises_immediately(self):
         self._check_error("f{}", "invalid syntax", mode="single")
 

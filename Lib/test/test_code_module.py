@@ -91,7 +91,6 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         else:
             raise AssertionError("no console stdout")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  'SyntaxError: invalid syntax']
     def test_syntax_error(self):
         self.infunc.side_effect = ["def f():",
                                    "    x = ?",
@@ -166,7 +165,6 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
             '  File "<console>", line 2, in f\n',
             'ValueError: BOOM!\n'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  'SyntaxError: invalid syntax\n']
     def test_sysexcepthook_syntax_error(self):
         self.infunc.side_effect = ["def f():",
                                    "    x = ?",
@@ -285,7 +283,6 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         self.assertEqual(err_msg, ['write', (expected,), {}])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '\nAttributeError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File "<console>", line 1, in <module>\nValueError\n' not found in 'Python <MagicMock name=\'sys.version\' id=\'94615517503920\'> on <MagicMock name=\'sys.platform\' id=\'94615517656384\'>\nType "help", "copyright", "credits" or "license" for more information.\n(InteractiveConsole)\nAttributeError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File "<console>", line 1, in <module>\nValueError: \n\nnow exiting InteractiveConsole...\n'
     def test_cause_tb(self):
         self.infunc.side_effect = ["raise ValueError('') from AttributeError",
                                     EOFError('Finished')]

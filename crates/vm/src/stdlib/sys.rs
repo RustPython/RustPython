@@ -698,14 +698,21 @@ mod sys {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stderr = super::get_stderr(vm)?;
-
-        // Try to normalize the exception. If it fails, print error to stderr like CPython
         match vm.normalize_exception(exc_type.clone(), exc_val.clone(), exc_tb) {
-            Ok(exc) => vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc),
+            Ok(exc) => {
+                // Try Python traceback module first for richer output
+                // (enables features like keyword typo suggestions in SyntaxError)
+                if let Ok(tb_mod) = vm.import("traceback", 0)
+                    && let Ok(print_exc) = tb_mod.get_attr("print_exception", vm)
+                    && print_exc.call((exc.as_object().to_owned(),), vm).is_ok()
+                {
+                    return Ok(());
+                }
+                // Fallback to Rust-level exception printing
+                vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
+            }
             Err(_) => {
-                // CPython prints error message to stderr instead of raising exception
                 let type_name = exc_val.class().name();
-                // TODO: fix error message
                 let msg = format!(
                     "TypeError: print_exception(): Exception expected for value, {type_name} found\n"
                 );

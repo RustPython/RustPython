@@ -27,6 +27,8 @@ pub struct ParseError {
     pub location: SourceLocation,
     pub end_location: SourceLocation,
     pub source_path: String,
+    /// Set when the error is an unclosed bracket (converted from EOF).
+    pub is_unclosed_bracket: bool,
 }
 
 impl ::core::fmt::Display for ParseError {
@@ -46,26 +48,71 @@ pub enum CompileError {
 impl CompileError {
     pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
         let source_code = source_file.to_source_code();
-        let location = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-        let mut end_location =
-            source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+        let source_text = source_file.source_text();
 
-        // If the error range ends at the start of a new line (column 1),
-        // adjust it to the end of the previous line
-        if end_location.character_offset.get() == 1 && end_location.line > location.line {
-            // Get the end of the previous line
-            let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
-            end_location = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
-            // Adjust column to be after the last character
-            end_location.character_offset = end_location.character_offset.saturating_add(1);
-        }
+        // For EOF errors (unclosed brackets), find the unclosed bracket position
+        // and adjust both the error location and message
+        let mut is_unclosed_bracket = false;
+        let (error_type, location, end_location) = if matches!(
+            &error.error,
+            parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
+        ) {
+            if let Some((bracket_char, bracket_offset)) = find_unclosed_bracket(source_text) {
+                let bracket_text_size = ruff_text_size::TextSize::new(bracket_offset as u32);
+                let loc = source_code.source_location(bracket_text_size, PositionEncoding::Utf8);
+                let end_loc = SourceLocation {
+                    line: loc.line,
+                    character_offset: loc.character_offset.saturating_add(1),
+                };
+                let msg = format!("'{}' was never closed", bracket_char);
+                is_unclosed_bracket = true;
+                (parser::ParseErrorType::OtherError(msg), loc, end_loc)
+            } else {
+                let loc =
+                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                let end_loc =
+                    source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+                (error.error, loc, end_loc)
+            }
+        } else if matches!(
+            &error.error,
+            parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
+        ) {
+            // For IndentationError, point the offset to the end of the line content
+            // instead of the beginning
+            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+            let line_idx = loc.line.to_zero_indexed();
+            let line = source_text.split('\n').nth(line_idx).unwrap_or("");
+            let line_end_col = line.chars().count() + 1; // 1-indexed, past last char
+            let end_loc = SourceLocation {
+                line: loc.line,
+                character_offset: ruff_source_file::OneIndexed::new(line_end_col)
+                    .unwrap_or(loc.character_offset),
+            };
+            (error.error, end_loc, end_loc)
+        } else {
+            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+            let mut end_loc =
+                source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+            // If the error range ends at the start of a new line (column 1),
+            // adjust it to the end of the previous line
+            if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
+                let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+                end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+                end_loc.character_offset = end_loc.character_offset.saturating_add(1);
+            }
+
+            (error.error, loc, end_loc)
+        };
 
         Self::Parse(ParseError {
-            error: error.error,
+            error: error_type,
             raw_location: error.location,
             location,
             end_location,
             source_path: source_file.name().to_owned(),
+            is_unclosed_bracket,
         })
     }
 
@@ -100,6 +147,106 @@ impl CompileError {
             Self::Parse(parse_error) => &parse_error.source_path,
         }
     }
+}
+
+/// Find the last unclosed opening bracket in source code.
+/// Returns the bracket character and its byte offset, or None if all brackets are balanced.
+fn find_unclosed_bracket(source: &str) -> Option<(char, usize)> {
+    let mut stack: Vec<(char, usize)> = Vec::new();
+    let mut in_string = false;
+    let mut string_quote = '\0';
+    let mut triple_quote = false;
+    let mut escape_next = false;
+    let mut is_raw_string = false;
+
+    let chars: Vec<(usize, char)> = source.char_indices().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        let (byte_offset, ch) = chars[i];
+
+        if escape_next {
+            escape_next = false;
+            i += 1;
+            continue;
+        }
+
+        if in_string {
+            if ch == '\\' && !is_raw_string {
+                escape_next = true;
+            } else if triple_quote {
+                if ch == string_quote
+                    && i + 2 < chars.len()
+                    && chars[i + 1].1 == string_quote
+                    && chars[i + 2].1 == string_quote
+                {
+                    in_string = false;
+                    i += 3;
+                    continue;
+                }
+            } else if ch == string_quote {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        // Check for comments
+        if ch == '#' {
+            // Skip to end of line
+            while i < chars.len() && chars[i].1 != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Check for string start (with optional prefix like r, b, f, u, rb, br, etc.)
+        if ch == '\'' || ch == '"' {
+            // Check up to 2 characters before the quote for string prefix
+            is_raw_string = false;
+            for look_back in 1..=2.min(i) {
+                let prev = chars[i - look_back].1;
+                if matches!(prev, 'r' | 'R') {
+                    is_raw_string = true;
+                    break;
+                }
+                if !matches!(prev, 'b' | 'B' | 'f' | 'F' | 'u' | 'U') {
+                    break;
+                }
+            }
+            string_quote = ch;
+            if i + 2 < chars.len() && chars[i + 1].1 == ch && chars[i + 2].1 == ch {
+                triple_quote = true;
+                in_string = true;
+                i += 3;
+                continue;
+            }
+            triple_quote = false;
+            in_string = true;
+            i += 1;
+            continue;
+        }
+
+        match ch {
+            '(' | '[' | '{' => stack.push((ch, byte_offset)),
+            ')' | ']' | '}' => {
+                let expected = match ch {
+                    ')' => '(',
+                    ']' => '[',
+                    '}' => '{',
+                    _ => unreachable!(),
+                };
+                if stack.last().is_some_and(|&(open, _)| open == expected) {
+                    stack.pop();
+                }
+            }
+            _ => {}
+        }
+
+        i += 1;
+    }
+
+    stack.last().copied()
 }
 
 /// Compile a given source code into a bytecode object.
