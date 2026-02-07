@@ -73,15 +73,6 @@ class PyUnpicklerTests(AbstractUnpickleTests, unittest.TestCase):
         u = self.unpickler(f, **kwds)
         return u.load()
 
-    def test_badly_escaped_string(self):
-        return super().test_badly_escaped_string()
-
-    def test_correctly_quoted_string(self):
-        return super().test_correctly_quoted_string()
-
-    def test_load_python2_str_as_bytes(self):
-        return super().test_load_python2_str_as_bytes()
-
 
 class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
 
@@ -179,9 +170,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     test_find_class = None
     test_custom_find_class = None
 
-    def test_badly_escaped_string(self):
-        return super().test_badly_escaped_string()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_buffers_error(self):
         return super().test_buffers_error()
@@ -198,15 +186,9 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_c_methods(self):
         return super().test_c_methods()
 
-    def test_correctly_quoted_string(self):
-        return super().test_correctly_quoted_string()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_in_band_buffers(self):
         return super().test_in_band_buffers()
-
-    def test_load_python2_str_as_bytes(self):
-        return super().test_load_python2_str_as_bytes()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_oob_buffers(self):
