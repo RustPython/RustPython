@@ -58,6 +58,30 @@ struct FrameState {
     lasti: u32,
 }
 
+/// Tracks who owns a frame.
+// = `_PyFrameOwner`
+#[repr(i8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FrameOwner {
+    /// Being executed by a thread (FRAME_OWNED_BY_THREAD).
+    Thread = 0,
+    /// Owned by a generator/coroutine (FRAME_OWNED_BY_GENERATOR).
+    Generator = 1,
+    /// Not executing; held only by a frame object or traceback
+    /// (FRAME_OWNED_BY_FRAME_OBJECT).
+    FrameObject = 2,
+}
+
+impl FrameOwner {
+    pub(crate) fn from_i8(v: i8) -> Self {
+        match v {
+            0 => Self::Thread,
+            1 => Self::Generator,
+            _ => Self::FrameObject,
+        }
+    }
+}
+
 #[cfg(feature = "threading")]
 type Lasti = atomic::AtomicU32;
 #[cfg(not(feature = "threading"))]
@@ -93,6 +117,10 @@ pub struct Frame {
     /// Previous frame in the call chain for signal-safe traceback walking.
     /// Mirrors `_PyInterpreterFrame.previous`.
     pub(crate) previous: AtomicPtr<Frame>,
+    /// Who owns this frame. Mirrors `_PyInterpreterFrame.owner`.
+    /// Used by `frame.clear()` to reject clearing an executing frame,
+    /// even when called from a different thread.
+    pub(crate) owner: atomic::AtomicI8,
 }
 
 impl PyPayload for Frame {
@@ -183,18 +211,28 @@ impl Frame {
             temporary_refs: PyMutex::new(vec![]),
             generator: PyAtomicBorrow::new(),
             previous: AtomicPtr::new(core::ptr::null_mut()),
+            owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
         }
+    }
+
+    /// Clear the evaluation stack. Used by frame.clear() to break reference cycles.
+    pub(crate) fn clear_value_stack(&self) {
+        self.state.lock().stack.clear();
     }
 
     /// Store a borrowed back-reference to the owning generator/coroutine.
     /// The caller must ensure the generator outlives the frame.
     pub fn set_generator(&self, generator: &PyObject) {
         self.generator.store(generator);
+        self.owner
+            .store(FrameOwner::Generator as i8, atomic::Ordering::Release);
     }
 
     /// Clear the generator back-reference. Called when the generator is finalized.
     pub fn clear_generator(&self) {
         self.generator.clear();
+        self.owner
+            .store(FrameOwner::FrameObject as i8, atomic::Ordering::Release);
     }
 
     pub fn current_location(&self) -> SourceLocation {
@@ -420,6 +458,7 @@ impl ExecutingFrame<'_> {
                         exception: PyBaseExceptionRef,
                         idx: usize,
                         is_reraise: bool,
+                        is_new_raise: bool,
                         vm: &VirtualMachine,
                     ) -> FrameResult {
                         // 1. Extract traceback from exception's '__traceback__' attr.
@@ -429,6 +468,11 @@ impl ExecutingFrame<'_> {
                         // RERAISE instructions should not add traceback entries - they're just
                         // re-raising an already-processed exception
                         if !is_reraise {
+                            // Check if the exception already has traceback entries before
+                            // we add ours. If it does, it was propagated from a callee
+                            // function and we should not re-contextualize it.
+                            let had_prior_traceback = exception.__traceback__().is_some();
+
                             // PyTraceBack_Here always adds a new entry without
                             // checking for duplicates. Each time an exception passes through
                             // a frame (e.g., in a loop with repeated raise statements),
@@ -444,13 +488,15 @@ impl ExecutingFrame<'_> {
                             );
                             vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
                             exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
-                        }
 
-                        // Only contextualize exception for new raises, not re-raises
-                        // CPython only calls _PyErr_SetObject (which does chaining) on initial raise
-                        // RERAISE just propagates the exception without modifying __context__
-                        if !is_reraise {
-                            vm.contextualize_exception(&exception);
+                            // _PyErr_SetObject sets __context__ only when the exception
+                            // is first raised. When an exception propagates through frames,
+                            // __context__ must not be overwritten. We contextualize when:
+                            // - It's an explicit raise (raise/raise from)
+                            // - The exception had no prior traceback (originated here)
+                            if is_new_raise || !had_prior_traceback {
+                                vm.contextualize_exception(&exception);
+                            }
                         }
 
                         // Use exception table for zero-cost exception handling
@@ -470,7 +516,18 @@ impl ExecutingFrame<'_> {
                         _ => false,
                     };
 
-                    match handle_exception(self, exception, idx, is_reraise, vm) {
+                    // Explicit raise instructions (raise/raise from) - these always
+                    // need contextualization even if the exception has prior traceback
+                    let is_new_raise = matches!(
+                        op,
+                        Instruction::RaiseVarargs { kind }
+                            if matches!(
+                                kind.get(arg),
+                                bytecode::RaiseKind::Raise | bytecode::RaiseKind::RaiseCause
+                            )
+                    );
+
+                    match handle_exception(self, exception, idx, is_reraise, is_new_raise, vm) {
                         Ok(None) => {}
                         Ok(Some(result)) => break Ok(result),
                         Err(exception) => {
@@ -563,6 +620,9 @@ impl ExecutingFrame<'_> {
                     // Exception handler will push exc: [receiver, None, exc]
                     // CLEANUP_THROW expects: [sub_iter, last_sent_val, exc]
                     self.push_value(vm.ctx.none());
+
+                    // Set __context__ on the exception (_PyErr_ChainStackItem)
+                    vm.contextualize_exception(&err);
 
                     // Use unwind_blocks to let exception table route to CLEANUP_THROW
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
@@ -2203,20 +2263,57 @@ impl ExecutingFrame<'_> {
             return Ok(sub_module);
         }
 
-        if is_module_initializing(module, vm) {
-            let module_name = module
-                .get_attr(identifier!(vm, __name__), vm)
-                .ok()
-                .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()))
-                .unwrap_or_else(|| "<unknown>".to_owned());
+        // Get module name for the error message and ImportError attributes
+        let mod_name_obj = module.get_attr(identifier!(vm, __name__), vm).ok();
+        let mod_name_str = mod_name_obj
+            .as_ref()
+            .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()));
+        let module_name = mod_name_str.as_deref().unwrap_or("<unknown>");
 
-            let msg = format!(
-                "cannot import name '{name}' from partially initialized module '{module_name}' (most likely due to a circular import)",
-            );
-            Err(vm.new_import_error(msg, name.to_owned()))
+        // Get module path/location for the error message
+        let mod_path = module
+            .get_attr("__spec__", vm)
+            .ok()
+            .and_then(|spec| spec.get_attr("origin", vm).ok())
+            .and_then(|origin| {
+                if vm.is_none(&origin) {
+                    None
+                } else {
+                    origin
+                        .downcast_ref::<PyStr>()
+                        .map(|s| s.as_str().to_owned())
+                }
+            })
+            .or_else(|| {
+                module
+                    .get_attr(identifier!(vm, __file__), vm)
+                    .ok()
+                    .and_then(|f| f.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()))
+            });
+
+        let msg = if is_module_initializing(module, vm) {
+            if let Some(ref path) = mod_path {
+                format!(
+                    "cannot import name '{name}' from partially initialized module \
+                     '{module_name}' (most likely due to a circular import) ({path})",
+                )
+            } else {
+                format!(
+                    "cannot import name '{name}' from partially initialized module \
+                     '{module_name}' (most likely due to a circular import)",
+                )
+            }
+        } else if let Some(ref path) = mod_path {
+            format!("cannot import name '{name}' from '{module_name}' ({path})")
         } else {
-            Err(vm.new_import_error(format!("cannot import name '{name}'"), name.to_owned()))
-        }
+            format!("cannot import name '{name}' from '{module_name}' (unknown location)")
+        };
+        let err = vm.new_import_error(msg, vm.ctx.new_str(module_name));
+
+        // name_from = the attribute name that failed to import (best-effort metadata)
+        let _ignore = err.as_object().set_attr("name_from", name.to_owned(), vm);
+
+        Err(err)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -2294,42 +2391,7 @@ impl ExecutingFrame<'_> {
                     Err(exception)
                 }
             }
-            UnwindReason::Returning { value } => {
-                // Clear tracebacks of exceptions in fastlocals to break reference cycles.
-                // This is needed because when returning from inside an except block,
-                // the exception cleanup code (e = None; del e) is skipped, leaving the
-                // exception with a traceback that references this frame, which references
-                // the exception in fastlocals, creating a cycle that can't be collected
-                // since RustPython doesn't have a tracing GC.
-                //
-                // We only clear tracebacks of exceptions that:
-                // 1. Are not the return value itself (will be needed by caller)
-                // 2. Are not the current active exception (still being handled)
-                // 3. Have a traceback whose top frame is THIS frame (we created it)
-                let current_exc = vm.current_exception();
-                let fastlocals = self.fastlocals.lock();
-                for obj in fastlocals.iter().flatten() {
-                    // Skip if this object is the return value
-                    if obj.is(&value) {
-                        continue;
-                    }
-                    if let Ok(exc) = obj.clone().downcast::<PyBaseException>() {
-                        // Skip if this is the current active exception
-                        if current_exc.as_ref().is_some_and(|cur| exc.is(cur)) {
-                            continue;
-                        }
-                        // Only clear if traceback's top frame is this frame
-                        if exc
-                            .__traceback__()
-                            .is_some_and(|tb| core::ptr::eq::<Py<Frame>>(&*tb.frame, self.object))
-                        {
-                            exc.set_traceback_typed(None);
-                        }
-                    }
-                }
-                drop(fastlocals);
-                Ok(Some(ExecutionResult::Return(value)))
-            }
+            UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
         }
     }
 

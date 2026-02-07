@@ -1012,7 +1012,7 @@ impl SymbolTableBuilder {
         if table.symbols.contains_key(parameter.name.as_str()) {
             return Err(SymbolTableError {
                 error: format!(
-                    "duplicate parameter '{}' in function definition",
+                    "duplicate argument '{}' in function definition",
                     parameter.name
                 ),
                 location: Some(
