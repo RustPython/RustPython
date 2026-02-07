@@ -209,8 +209,6 @@ macro_rules! impl_oparg_enum {
         }
 
         impl OpArgType for $name {}
-
-        // const _: () = assert!(::core::mem::size_of::<$name>() == ::core::mem::size_of::<u8>());
     };
 }
 
