@@ -277,7 +277,7 @@ class DictSetTest(unittest.TestCase):
         # Again.
         self.assertIsInstance(r, str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; segfault")
     @skip_wasi_stack_overflow()
     @skip_emscripten_stack_overflow()
     def test_deeply_nested_repr(self):
