@@ -244,7 +244,12 @@ declare_const_name! {
     // common names
     _attributes,
     _fields,
+    _defaultaction,
+    _onceregistry,
     _showwarnmsg,
+    defaultaction,
+    onceregistry,
+    filters,
     backslashreplace,
     close,
     copy,

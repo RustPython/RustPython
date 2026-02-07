@@ -3,7 +3,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, FrameRef},
+    frame::{ExecutionResult, FrameOwner, FrameRef},
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -73,7 +73,14 @@ impl Coro {
 
     fn maybe_close(&self, res: &PyResult<ExecutionResult>) {
         match res {
-            Ok(ExecutionResult::Return(_)) | Err(_) => self.closed.store(true),
+            Ok(ExecutionResult::Return(_)) | Err(_) => {
+                self.closed.store(true);
+                // Frame is no longer suspended; allow frame.clear() to succeed.
+                self.frame.owner.store(
+                    FrameOwner::FrameObject as i8,
+                    core::sync::atomic::Ordering::Release,
+                );
+            }
             Ok(ExecutionResult::Yield(_)) => {}
         }
     }
@@ -300,10 +307,12 @@ pub fn warn_deprecated_throw_signature(
 ) -> PyResult<()> {
     if exc_val.is_present() || exc_tb.is_present() {
         crate::warn::warn(
-            vm.ctx.new_str(
-                "the (type, val, tb) signature of throw() is deprecated, \
+            vm.ctx
+                .new_str(
+                    "the (type, val, tb) signature of throw() is deprecated, \
                  use throw(val) instead",
-            ),
+                )
+                .into(),
             Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
             1,
             None,

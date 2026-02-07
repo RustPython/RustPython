@@ -1745,7 +1745,6 @@ class ExceptionTests(unittest.TestCase):
                              f"deallocator {obj_repr}")
             self.assertIsNotNone(cm.unraisable.exc_traceback)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unhandled(self):
         # Check for sensible reporting of unhandled exceptions
         for exc_type in (ValueError, BrokenStrException):
@@ -2283,7 +2282,6 @@ class AssertionErrorTests(unittest.TestCase):
 class SyntaxErrorTests(unittest.TestCase):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @force_not_colorized
     def test_range_of_offsets(self):
         cases = [

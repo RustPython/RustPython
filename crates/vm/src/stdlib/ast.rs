@@ -56,6 +56,18 @@ mod string;
 mod type_ignore;
 mod type_parameters;
 
+/// Return the cached singleton instance for an operator/context node type,
+/// or create a new instance if none exists.
+fn singleton_node_to_object(vm: &VirtualMachine, node_type: &'static Py<PyType>) -> PyObjectRef {
+    if let Some(instance) = node_type.get_attr(vm.ctx.intern_str("_instance")) {
+        return instance;
+    }
+    NodeAst
+        .into_ref_with_type(vm, node_type.to_owned())
+        .unwrap()
+        .into()
+}
+
 fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &'static str, typ: &str) -> PyResult {
     vm.get_attribute_opt(obj.to_owned(), field)?
         .ok_or_else(|| vm.new_type_error(format!(r#"required field "{field}" missing from {typ}"#)))
@@ -345,6 +357,7 @@ pub(crate) fn parse(
             location: range.start.to_source_location(),
             end_location: range.end.to_source_location(),
             source_path: "<unknown>".to_string(),
+            is_unclosed_bracket: false,
         }
     })?;
 
@@ -356,6 +369,7 @@ pub(crate) fn parse(
             location: range.start.to_source_location(),
             end_location: range.end.to_source_location(),
             source_path: "<unknown>".to_string(),
+            is_unclosed_bracket: false,
         }
         .into());
     }
@@ -429,6 +443,7 @@ pub(crate) fn parse_func_type(
             location: SourceLocation::default(),
             end_location: SourceLocation::default(),
             source_path: "<unknown>".to_owned(),
+            is_unclosed_bracket: false,
         }
         .into());
     };
@@ -446,6 +461,7 @@ pub(crate) fn parse_func_type(
                 location: range.start.to_source_location(),
                 end_location: range.end.to_source_location(),
                 source_path: "<unknown>".to_string(),
+                is_unclosed_bracket: false,
             }
         })?;
         Ok(*parsed.into_syntax().body)
@@ -772,7 +788,7 @@ pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> P
 }
 
 // Used by builtins::compile()
-pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
+pub const PY_CF_ONLY_AST: i32 = 0x0400;
 
 // The following flags match the values from Include/cpython/compile.h
 // Caveat emptor: These flags are undocumented on purpose and depending
@@ -781,7 +797,7 @@ pub const PY_CF_SOURCE_IS_UTF8: i32 = 0x0100;
 pub const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
 pub const PY_CF_IGNORE_COOKIE: i32 = 0x0800;
 pub const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
-pub const PY_CF_OPTIMIZED_AST: i32 = 0x8000 | PY_COMPILE_FLAG_AST_ONLY;
+pub const PY_CF_OPTIMIZED_AST: i32 = 0x8000 | PY_CF_ONLY_AST;
 pub const PY_CF_TYPE_COMMENTS: i32 = 0x1000;
 pub const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = 0x2000;
 
@@ -802,7 +818,7 @@ const CO_FUTURE_GENERATOR_STOP: i32 = 0x800000;
 const CO_FUTURE_ANNOTATIONS: i32 = 0x1000000;
 
 // Used by builtins::compile() - the summary of all flags
-pub const PY_COMPILE_FLAGS_MASK: i32 = PY_COMPILE_FLAG_AST_ONLY
+pub const PY_COMPILE_FLAGS_MASK: i32 = PY_CF_ONLY_AST
     | PY_CF_SOURCE_IS_UTF8
     | PY_CF_DONT_IMPLY_DEDENT
     | PY_CF_IGNORE_COOKIE

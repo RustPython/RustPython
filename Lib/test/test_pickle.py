@@ -73,15 +73,12 @@ class PyUnpicklerTests(AbstractUnpickleTests, unittest.TestCase):
         u = self.unpickler(f, **kwds)
         return u.load()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_badly_escaped_string(self):
         return super().test_badly_escaped_string()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_correctly_quoted_string(self):
         return super().test_correctly_quoted_string()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_load_python2_str_as_bytes(self):
         return super().test_load_python2_str_as_bytes()
 
@@ -96,6 +93,14 @@ class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
         p.dump(arg)
         f.seek(0)
         return bytes(f.read())
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bad_newobj_args(self):
+        return super().test_bad_newobj_args()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bad_newobj_ex_args(self):
+        return super().test_bad_newobj_ex_args()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_buffer_callback_error(self):
@@ -174,7 +179,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     test_find_class = None
     test_custom_find_class = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_badly_escaped_string(self):
         return super().test_badly_escaped_string()
 
@@ -194,7 +198,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_c_methods(self):
         return super().test_c_methods()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_correctly_quoted_string(self):
         return super().test_correctly_quoted_string()
 
@@ -202,7 +205,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_in_band_buffers(self):
         return super().test_in_band_buffers()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_load_python2_str_as_bytes(self):
         return super().test_load_python2_str_as_bytes()
 
@@ -513,6 +515,46 @@ if has_c_implementation:
                 unpickler.memo = {-1: None}
             unpickler.memo = {1: None}
 
+        def test_concurrent_pickler_dump(self):
+            f = io.BytesIO()
+            pickler = self.pickler_class(f)
+            class X:
+                def __reduce__(slf):
+                    self.assertRaises(RuntimeError, pickler.dump, 42)
+                    return list, ()
+            pickler.dump(X())  # should not crash
+            self.assertEqual(pickle.loads(f.getvalue()), [])
+
+        def test_concurrent_pickler_dump_and_init(self):
+            f = io.BytesIO()
+            pickler = self.pickler_class(f)
+            class X:
+                def __reduce__(slf):
+                    self.assertRaises(RuntimeError, pickler.__init__, f)
+                    return list, ()
+            pickler.dump([X()])  # should not fail
+            self.assertEqual(pickle.loads(f.getvalue()), [[]])
+
+        def test_concurrent_unpickler_load(self):
+            global reducer
+            def reducer():
+                self.assertRaises(RuntimeError, unpickler.load)
+                return 42
+            f = io.BytesIO(b'(c%b\nreducer\n(tRl.' % (__name__.encode(),))
+            unpickler = self.unpickler_class(f)
+            unpickled = unpickler.load()  # should not fail
+            self.assertEqual(unpickled, [42])
+
+        def test_concurrent_unpickler_load_and_init(self):
+            global reducer
+            def reducer():
+                self.assertRaises(RuntimeError, unpickler.__init__, f)
+                return 42
+            f = io.BytesIO(b'(c%b\nreducer\n(tRl.' % (__name__.encode(),))
+            unpickler = self.unpickler_class(f)
+            unpickled = unpickler.load()  # should not crash
+            self.assertEqual(unpickled, [42])
+
     class CDispatchTableTests(AbstractDispatchTableTests, unittest.TestCase):
         pickler_class = pickle.Pickler
         def get_dispatch_table(self):
@@ -561,7 +603,7 @@ if has_c_implementation:
         check_sizeof = support.check_sizeof
 
         def test_pickler(self):
-            basesize = support.calcobjsize('7P2n3i2n3i2P')
+            basesize = support.calcobjsize('7P2n3i2n4i2P')
             p = _pickle.Pickler(io.BytesIO())
             self.assertEqual(object.__sizeof__(p), basesize)
             MT_size = struct.calcsize('3nP0n')
@@ -578,7 +620,7 @@ if has_c_implementation:
                 0)  # Write buffer is cleared after every dump().
 
         def test_unpickler(self):
-            basesize = support.calcobjsize('2P2n2P 2P2n2i5P 2P3n8P2n2i')
+            basesize = support.calcobjsize('2P2n2P 2P2n2i5P 2P3n8P2n3i')
             unpickler = _pickle.Unpickler
             P = struct.calcsize('P')  # Size of memo table entry.
             n = struct.calcsize('n')  # Size of mark table entry.

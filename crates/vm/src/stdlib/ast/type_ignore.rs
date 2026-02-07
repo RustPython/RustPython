@@ -13,21 +13,21 @@ impl Node for TypeIgnore {
         }
     }
     fn ast_from_object(
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
-        _object: PyObjectRef,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        let _cls = _object.class();
-        Ok(if _cls.is(pyast::NodeTypeIgnoreTypeIgnore::static_type()) {
+        let cls = object.class();
+        Ok(if cls.is(pyast::NodeTypeIgnoreTypeIgnore::static_type()) {
             Self::TypeIgnore(TypeIgnoreTypeIgnore::ast_from_object(
-                _vm,
+                vm,
                 source_file,
-                _object,
+                object,
             )?)
         } else {
-            return Err(_vm.new_type_error(format!(
+            return Err(vm.new_type_error(format!(
                 "expected some sort of type_ignore, but got {}",
-                _object.repr(_vm)?
+                object.repr(vm)?
             )));
         })
     }

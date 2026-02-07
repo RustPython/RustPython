@@ -269,6 +269,21 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             "dev" => settings.dev_mode = true,
             "faulthandler" => settings.faulthandler = true,
             "warn_default_encoding" => settings.warn_default_encoding = true,
+            "utf8" => {
+                settings.utf8_mode = match value {
+                    None => 1,
+                    Some("1") => 1,
+                    Some("0") => 0,
+                    _ => {
+                        error!(
+                            "Fatal Python error: config_init_utf8_mode: \
+                             -X utf8=n: n is missing or invalid\n\
+                             Python runtime state: preinitialized"
+                        );
+                        std::process::exit(1);
+                    }
+                };
+            }
             "no_sig_int" => settings.install_signal_handlers = false,
             "no_debug_ranges" => settings.code_debug_ranges = false,
             "int_max_str_digits" => {
@@ -354,6 +369,17 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             "default::BytesWarning"
         };
         settings.warnoptions.push(warn.to_owned());
+    }
+    if let Some(val) = get_env("PYTHONWARNINGS")
+        && let Some(val_str) = val.to_str()
+        && !val_str.is_empty()
+    {
+        for warning in val_str.split(',') {
+            let warning = warning.trim();
+            if !warning.is_empty() {
+                settings.warnoptions.push(warning.to_owned());
+            }
+        }
     }
     settings.warnoptions.extend(args.warning_control);
 

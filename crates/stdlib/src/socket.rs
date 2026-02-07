@@ -2144,7 +2144,7 @@ mod _socket {
                     laddr
                 );
                 let _ = crate::vm::warn::warn(
-                    vm.ctx.new_str(msg),
+                    vm.ctx.new_str(msg).into(),
                     Some(vm.ctx.exceptions.resource_warning.to_owned()),
                     1,
                     None,

@@ -1195,7 +1195,7 @@ class ArgsTestCase(BaseTestCase):
                 regex = ('10 slowest tests:\n')
                 self.check_line(output, regex)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^lines +cov% +module +\\(path\\)\\n(?: *[0-9]+ *[0-9]{1,2}\\.[0-9]% *[^ ]+ +\\([^)]+\\)+)+' not found in 'Warning: collecting coverage without -j is imprecise. Configure --with-pydebug and run -m test -T -j for best results.\nUsing random seed: 2780369491\n0:00:00 Run 1 test sequentially in a single process\n0:00:00 [1/1] test_regrtest_coverage\n0:00:00 [1/1] test_regrtest_coverage passed\n\n== Tests result: SUCCESS ==\n\n1 test OK.\n\nTotal duration: 102 ms\nTotal tests: run=1\nTotal test files: run=1/1\nResult: SUCCESS\n'
     def test_coverage(self):
         # test --coverage
         test = self.create_test('coverage')
@@ -1870,7 +1870,7 @@ class ArgsTestCase(BaseTestCase):
         self.assertRegex(output,
                          re.compile('%s timed out' % testname, re.MULTILINE))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; test_unraisable_exc (test_regrtest_noop39.Tests.test_unraisable_exc) ... ok
     def test_unraisable_exc(self):
         # --fail-env-changed must catch unraisable exception.
         # The exception must be displayed even if sys.stderr is redirected.
@@ -2324,7 +2324,7 @@ class ArgsTestCase(BaseTestCase):
             self.check_executed_tests(output, testname, stats=1, parallel=True)
             self.assertNotIn('SPAM SPAM SPAM', output)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
     def test_xml(self):
         code = textwrap.dedent(r"""
             import unittest
@@ -2362,7 +2362,6 @@ class ArgsTestCase(BaseTestCase):
         for out in testcase.iter('system-out'):
             self.assertEqual(out.text, r"abc \x1b def")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_nonascii(self):
         code = textwrap.dedent(r"""
             import unittest

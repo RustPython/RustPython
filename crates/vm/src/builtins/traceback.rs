@@ -1,7 +1,7 @@
-use super::PyType;
+use super::{PyList, PyType};
 use crate::{
     AsObject, Context, Py, PyPayload, PyRef, PyResult, VirtualMachine, class::PyClassImpl,
-    frame::FrameRef, types::Constructor,
+    frame::FrameRef, function::PySetterValue, types::Constructor,
 };
 use rustpython_common::lock::PyMutex;
 use rustpython_compiler_core::OneIndexed;
@@ -62,12 +62,28 @@ impl PyTraceback {
         self.next.lock().as_ref().cloned()
     }
 
+    #[pymethod]
+    fn __dir__(&self, vm: &VirtualMachine) -> PyList {
+        PyList::from(
+            ["tb_frame", "tb_next", "tb_lasti", "tb_lineno"]
+                .iter()
+                .map(|&s| vm.ctx.new_str(s).into())
+                .collect::<Vec<_>>(),
+        )
+    }
+
     #[pygetset(setter)]
     fn set_tb_next(
         zelf: &Py<Self>,
-        value: Option<PyRef<Self>>,
+        value: PySetterValue<Option<PyRef<Self>>>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let value = match value {
+            PySetterValue::Assign(v) => v,
+            PySetterValue::Delete => {
+                return Err(vm.new_type_error("can't delete tb_next attribute".to_owned()));
+            }
+        };
         if let Some(ref new_next) = value {
             let mut cursor = new_next.clone();
             loop {

@@ -46,8 +46,7 @@ class UTF8ModeTests(unittest.TestCase):
                 out = self.get_output('-c', code, LC_ALL=loc)
                 self.assertEqual(out, '1')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIf(MS_WINDOWS, "TODO: RUSTPYTHON")
     def test_xoption(self):
         code = 'import sys; print(sys.flags.utf8_mode)'
 
