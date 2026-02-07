@@ -1165,7 +1165,7 @@ impl Compiler {
                 arg: OpArgMarker::marker(),
             }
             .into(),
-            arg: OpArg(bytecode::ResumeType::AtFuncStart as u32),
+            arg: OpArg(u32::from(bytecode::ResumeType::AtFuncStart)),
             target: BlockIdx::NULL,
             location,
             end_location,
@@ -1267,8 +1267,6 @@ impl Compiler {
     /// Emit format parameter validation for annotation scope
     /// if format > VALUE_WITH_FAKE_GLOBALS (2): raise NotImplementedError
     fn emit_format_validation(&mut self) -> CompileResult<()> {
-        use bytecode::ComparisonOperator::Greater;
-
         // Load format parameter (first local variable, index 0)
         emit!(self, Instruction::LoadFast(0));
 
@@ -1276,7 +1274,12 @@ impl Compiler {
         self.emit_load_const(ConstantData::Integer { value: 2.into() });
 
         // Compare: format > 2
-        emit!(self, Instruction::CompareOp { op: Greater });
+        emit!(
+            self,
+            Instruction::CompareOp {
+                op: ComparisonOperator::Greater
+            }
+        );
 
         // Jump to body if format <= 2 (comparison is false)
         let body_block = self.new_block();
@@ -6545,9 +6548,9 @@ impl Compiler {
             self,
             Instruction::Resume {
                 arg: if is_await {
-                    bytecode::ResumeType::AfterAwait as u32
+                    u32::from(bytecode::ResumeType::AfterAwait)
                 } else {
-                    bytecode::ResumeType::AfterYieldFrom as u32
+                    u32::from(bytecode::ResumeType::AfterYieldFrom)
                 }
             }
         );
@@ -6702,7 +6705,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterYield as u32
+                        arg: u32::from(bytecode::ResumeType::AfterYield)
                     }
                 );
             }
@@ -6924,7 +6927,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::Resume {
-                                arg: bytecode::ResumeType::AfterYield as u32
+                                arg: u32::from(bytecode::ResumeType::AfterYield)
                             }
                         );
                         emit!(compiler, Instruction::PopTop);
@@ -8412,7 +8415,7 @@ impl Compiler {
 
                     // Emit BUILD_INTERPOLATION
                     // oparg encoding: (conversion << 2) | has_format_spec
-                    let oparg = (conversion << 2) | (has_format_spec as u32);
+                    let oparg = (conversion << 2) | u32::from(has_format_spec);
                     emit!(self, Instruction::BuildInterpolation { oparg });
 
                     *interp_count += 1;

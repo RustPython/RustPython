@@ -304,8 +304,8 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone)]
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct CodeUnit {
     pub op: Instruction,
     pub arg: OpArgByte,
@@ -330,7 +330,7 @@ impl TryFrom<&[u8]> for CodeUnit {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CodeUnits(Box<[CodeUnit]>);
 
 impl TryFrom<&[u8]> for CodeUnits {

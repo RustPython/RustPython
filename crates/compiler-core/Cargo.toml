@@ -17,7 +17,6 @@ bitflags = { workspace = true }
 itertools = { workspace = true }
 malachite-bigint = { workspace = true }
 num-complex = { workspace = true }
-num_enum = { workspace = true }
 
 lz4_flex = "0.12"
 
