@@ -176,7 +176,6 @@ class ExceptHookTest(unittest.TestCase):
 
         self.assertRaises(TypeError, sys.__excepthook__)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; SyntaxError formatting in arbitrary tracebacks
     @force_not_colorized
     def test_excepthook_bytes_filename(self):
         # bpo-37467: sys.excepthook() must not crash if a filename

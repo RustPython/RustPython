@@ -221,7 +221,6 @@ the \'lazy\' dog.\n\
         self.assertTrue(x is Ellipsis)
         self.assertRaises(SyntaxError, eval, ".. .")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_eof_error(self):
         samples = ("def foo(", "\ndef foo(", "def foo(\n")
         for s in samples:

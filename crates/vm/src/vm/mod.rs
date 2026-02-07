@@ -971,7 +971,16 @@ impl VirtualMachine {
             // Each frame starts with no active exception (None)
             // This prevents exceptions from leaking between function calls
             self.push_exception(None);
+            let old_owner = frame.owner.swap(
+                crate::frame::FrameOwner::Thread as i8,
+                core::sync::atomic::Ordering::AcqRel,
+            );
             let result = f(frame);
+            // SAFETY: frame_ptr is valid because self.frames holds a clone
+            // of the frame, keeping the underlying allocation alive.
+            unsafe { &*frame_ptr }
+                .owner
+                .store(old_owner, core::sync::atomic::Ordering::Release);
             // Pop the exception context - restores caller's exception state
             self.pop_exception();
             // Restore previous frame as current (unlink from chain)
@@ -1244,6 +1253,14 @@ impl VirtualMachine {
     ) {
         if exc.class().is(self.ctx.exceptions.attribute_error) {
             let exc = exc.as_object();
+            // Check if this exception was already augmented
+            let already_set = exc
+                .get_attr("name", self)
+                .ok()
+                .is_some_and(|v| !self.is_none(&v));
+            if already_set {
+                return;
+            }
             exc.set_attr("name", name, self).unwrap();
             exc.set_attr("obj", obj, self).unwrap();
         }

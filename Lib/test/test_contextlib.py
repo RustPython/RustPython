@@ -924,8 +924,6 @@ class TestBaseExitStack:
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_exception_chaining(self):
         # Ensure exception chaining matches the reference behaviour
         def raise_exc(exc):
@@ -957,8 +955,6 @@ class TestBaseExitStack:
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_exception_explicit_none_context(self):
         # Ensure ExitStack chaining matches actual nested `with` statements
         # regarding explicit __context__ = None.
@@ -1053,8 +1049,6 @@ class TestBaseExitStack:
             self.assertIsNone(
                        exc.__context__.__context__.__context__.__context__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_exception_with_existing_context(self):
         # Addresses a lack of test coverage discovered after checking in a
         # fix for issue 20317 that still contained debugging code.

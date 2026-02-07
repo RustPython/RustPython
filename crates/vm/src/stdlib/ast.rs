@@ -357,6 +357,7 @@ pub(crate) fn parse(
             location: range.start.to_source_location(),
             end_location: range.end.to_source_location(),
             source_path: "<unknown>".to_string(),
+            is_unclosed_bracket: false,
         }
     })?;
 
@@ -368,6 +369,7 @@ pub(crate) fn parse(
             location: range.start.to_source_location(),
             end_location: range.end.to_source_location(),
             source_path: "<unknown>".to_string(),
+            is_unclosed_bracket: false,
         }
         .into());
     }
@@ -441,6 +443,7 @@ pub(crate) fn parse_func_type(
             location: SourceLocation::default(),
             end_location: SourceLocation::default(),
             source_path: "<unknown>".to_owned(),
+            is_unclosed_bracket: false,
         }
         .into());
     };
@@ -458,6 +461,7 @@ pub(crate) fn parse_func_type(
                 location: range.start.to_source_location(),
                 end_location: range.end.to_source_location(),
                 source_path: "<unknown>".to_string(),
+                is_unclosed_bracket: false,
             }
         })?;
         Ok(*parsed.into_syntax().body)

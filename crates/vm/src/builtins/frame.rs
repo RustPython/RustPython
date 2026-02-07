@@ -6,7 +6,7 @@ use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    frame::{Frame, FrameRef},
+    frame::{Frame, FrameOwner, FrameRef},
     function::PySetterValue,
     types::Representable,
 };
@@ -31,11 +31,6 @@ impl Representable for Frame {
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
 impl Frame {
-    #[pymethod]
-    const fn clear(&self) {
-        // TODO
-    }
-
     #[pygetset]
     fn f_globals(&self) -> PyDictRef {
         self.globals.clone()
@@ -151,6 +146,45 @@ impl Frame {
 
 #[pyclass]
 impl Py<Frame> {
+    #[pymethod]
+    // = frame_clear_impl
+    fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
+        let owner = FrameOwner::from_i8(self.owner.load(core::sync::atomic::Ordering::Acquire));
+        match owner {
+            FrameOwner::Generator => {
+                // Generator frame: check if suspended (lasti > 0 means
+                // FRAME_SUSPENDED). lasti == 0 means FRAME_CREATED and
+                // can be cleared.
+                if self.lasti() != 0 {
+                    return Err(vm.new_runtime_error("cannot clear a suspended frame".to_owned()));
+                }
+            }
+            FrameOwner::Thread => {
+                // Thread-owned frame: always executing, cannot clear.
+                return Err(vm.new_runtime_error("cannot clear an executing frame".to_owned()));
+            }
+            FrameOwner::FrameObject => {
+                // Detached frame: safe to clear.
+            }
+        }
+
+        // Clear fastlocals
+        {
+            let mut fastlocals = self.fastlocals.lock();
+            for slot in fastlocals.iter_mut() {
+                *slot = None;
+            }
+        }
+
+        // Clear the evaluation stack
+        self.clear_value_stack();
+
+        // Clear temporary refs
+        self.temporary_refs.lock().clear();
+
+        Ok(())
+    }
+
     #[pygetset]
     fn f_generator(&self) -> Option<PyObjectRef> {
         self.generator.to_owned()

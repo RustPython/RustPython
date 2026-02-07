@@ -2947,6 +2947,7 @@ class CTask_CFuture_Tests(BaseTaskTests, SetMethodsTest,
         return super().test_log_destroyed_pending_task()
 
 
+
 @unittest.skipUnless(hasattr(futures, '_CFuture') and
                      hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
@@ -3005,6 +3006,7 @@ class CTask_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: not called.
     def test_log_destroyed_pending_task(self):
         return super().test_log_destroyed_pending_task()
+
 
 
 @unittest.skipUnless(hasattr(futures, '_CFuture'),

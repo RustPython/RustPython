@@ -3,7 +3,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, FrameRef},
+    frame::{ExecutionResult, FrameOwner, FrameRef},
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -73,7 +73,14 @@ impl Coro {
 
     fn maybe_close(&self, res: &PyResult<ExecutionResult>) {
         match res {
-            Ok(ExecutionResult::Return(_)) | Err(_) => self.closed.store(true),
+            Ok(ExecutionResult::Return(_)) | Err(_) => {
+                self.closed.store(true);
+                // Frame is no longer suspended; allow frame.clear() to succeed.
+                self.frame.owner.store(
+                    FrameOwner::FrameObject as i8,
+                    core::sync::atomic::Ordering::Release,
+                );
+            }
             Ok(ExecutionResult::Yield(_)) => {}
         }
     }

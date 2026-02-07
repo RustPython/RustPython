@@ -183,7 +183,7 @@ List comprehension element unpacking
 #                   ^
 #     SyntaxError: invalid syntax
 
-    >>> dict(**x for x in [{1:2}]) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> dict(**x for x in [{1:2}])
     Traceback (most recent call last):
     ...
         dict(**x for x in [{1:2}])
