@@ -15,6 +15,7 @@ use alloc::fmt;
 use core::{borrow::Borrow, ops::Deref};
 use malachite_bigint::BigInt;
 use num_traits::Zero;
+use rustpython_common::lock::PyMutex;
 use rustpython_compiler_core::{OneIndexed, bytecode::CodeUnits, bytecode::PyCodeLocationInfoKind};
 
 /// State for iterating through code address ranges
@@ -323,6 +324,7 @@ impl<B: AsRef<[u8]>> IntoCodeObject for frozen::FrozenCodeObject<B> {
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
     pub code: CodeObject,
+    source_path: PyMutex<&'static PyStrInterned>,
 }
 
 impl Deref for PyCode {
@@ -333,8 +335,20 @@ impl Deref for PyCode {
 }
 
 impl PyCode {
-    pub const fn new(code: CodeObject) -> Self {
-        Self { code }
+    pub fn new(code: CodeObject) -> Self {
+        let sp = code.source_path;
+        Self {
+            code,
+            source_path: PyMutex::new(sp),
+        }
+    }
+
+    pub fn source_path(&self) -> &'static PyStrInterned {
+        *self.source_path.lock()
+    }
+
+    pub fn set_source_path(&self, new: &'static PyStrInterned) {
+        *self.source_path.lock() = new;
     }
     pub fn from_pyc_path(path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let name = match path.file_stem() {
@@ -397,7 +411,7 @@ impl Representable for PyCode {
             "<code object {} at {:#x} file {:?}, line {}>",
             code.obj_name,
             zelf.get_id(),
-            code.source_path.as_str(),
+            zelf.source_path().as_str(),
             code.first_line_number.map_or(-1, |n| n.get() as i32)
         ))
     }
@@ -572,7 +586,7 @@ impl PyCode {
 
     #[pygetset]
     pub fn co_filename(&self) -> PyStrRef {
-        self.code.source_path.to_owned()
+        self.source_path().to_owned()
     }
 
     #[pygetset]
@@ -906,7 +920,7 @@ impl PyCode {
 
         let source_path = match co_filename {
             OptionalArg::Present(source_path) => source_path,
-            OptionalArg::Missing => self.code.source_path.to_owned(),
+            OptionalArg::Missing => self.source_path().to_owned(),
         };
 
         let first_line_number = match co_firstlineno {

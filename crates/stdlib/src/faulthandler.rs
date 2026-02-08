@@ -252,7 +252,7 @@ mod decl {
     /// Dump a single frame's info to fd (signal-safe), reading live data.
     #[cfg(any(unix, windows))]
     fn dump_frame_from_raw(fd: i32, frame: &Frame) {
-        let filename = frame.code.source_path.as_str();
+        let filename = frame.code.source_path().as_str();
         let funcname = frame.code.obj_name.as_str();
         let lasti = frame.lasti();
         let lineno = if lasti == 0 {
@@ -328,7 +328,7 @@ mod decl {
     #[cfg(any(unix, windows))]
     fn dump_frame_from_ref(fd: i32, frame: &crate::vm::PyRef<Frame>) {
         let funcname = frame.code.obj_name.as_str();
-        let filename = frame.code.source_path.as_str();
+        let filename = frame.code.source_path().as_str();
         let lineno = if frame.lasti() == 0 {
             frame.code.first_line_number.map(|n| n.get()).unwrap_or(1) as u32
         } else {
