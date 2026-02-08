@@ -6,6 +6,7 @@ use crate::string::{
 };
 
 use super::{MAXREPEAT, SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor};
+use alloc::{vec, vec::Vec};
 use core::{convert::TryFrom, ptr::null};
 use optional::Optioned;
 
