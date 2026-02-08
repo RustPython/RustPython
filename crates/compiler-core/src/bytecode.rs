@@ -6,7 +6,7 @@ use crate::{
     varint::{read_varint, read_varint_with_start, write_varint, write_varint_with_start},
     {OneIndexed, SourceLocation},
 };
-use alloc::{collections::BTreeSet, fmt, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeSet, fmt, string::String, vec::Vec};
 use bitflags::bitflags;
 use core::{hash, mem, ops::Deref};
 use itertools::Itertools;
@@ -804,6 +804,7 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::{vec, vec::Vec};
 
     #[test]
     fn test_exception_table_encode_decode() {
