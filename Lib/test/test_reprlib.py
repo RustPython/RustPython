@@ -207,7 +207,6 @@ class ReprTests(unittest.TestCase):
         self.assertStartsWith(r, "<function ReprTests.test_lambda.<locals>.<lambda")
         # XXX anonymous functions?  see func_repr
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_builtin_function(self):
         eq = self.assertEqual
         # Functions
