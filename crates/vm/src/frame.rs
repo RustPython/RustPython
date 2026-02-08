@@ -4,8 +4,8 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
-        PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyStrRef, PyTemplate,
-        PyTraceback, PyType,
+        PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
+        PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
@@ -2263,52 +2263,80 @@ impl ExecutingFrame<'_> {
             return Ok(sub_module);
         }
 
-        // Get module name for the error message and ImportError attributes
+        use crate::import::{
+            get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name,
+        };
+
+        // Get module name for the error message
         let mod_name_obj = module.get_attr(identifier!(vm, __name__), vm).ok();
         let mod_name_str = mod_name_obj
             .as_ref()
             .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()));
-        let module_name = mod_name_str.as_deref().unwrap_or("<unknown>");
+        let module_name = mod_name_str.as_deref().unwrap_or("<unknown module name>");
 
-        // Get module path/location for the error message
-        let mod_path = module
+        let spec = module
             .get_attr("__spec__", vm)
             .ok()
-            .and_then(|spec| spec.get_attr("origin", vm).ok())
-            .and_then(|origin| {
-                if vm.is_none(&origin) {
-                    None
-                } else {
-                    origin
-                        .downcast_ref::<PyStr>()
-                        .map(|s| s.as_str().to_owned())
-                }
-            })
-            .or_else(|| {
-                module
-                    .get_attr(identifier!(vm, __file__), vm)
-                    .ok()
-                    .and_then(|f| f.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()))
-            });
+            .filter(|s| !vm.is_none(s));
 
-        let msg = if is_module_initializing(module, vm) {
-            if let Some(ref path) = mod_path {
-                format!(
-                    "cannot import name '{name}' from partially initialized module \
-                     '{module_name}' (most likely due to a circular import) ({path})",
-                )
+        let origin = get_spec_file_origin(&spec, vm);
+
+        let is_possibly_shadowing = origin
+            .as_ref()
+            .map(|o| is_possibly_shadowing_path(o, vm))
+            .unwrap_or(false);
+        let is_possibly_shadowing_stdlib = if is_possibly_shadowing {
+            if let Some(ref mod_name) = mod_name_obj {
+                is_stdlib_module_name(mod_name, vm)?
             } else {
-                format!(
-                    "cannot import name '{name}' from partially initialized module \
-                     '{module_name}' (most likely due to a circular import)",
-                )
+                false
             }
-        } else if let Some(ref path) = mod_path {
-            format!("cannot import name '{name}' from '{module_name}' ({path})")
         } else {
-            format!("cannot import name '{name}' from '{module_name}' (unknown location)")
+            false
+        };
+
+        let msg = if is_possibly_shadowing_stdlib {
+            let origin = origin.as_ref().unwrap();
+            format!(
+                "cannot import name '{name}' from '{module_name}' \
+                 (consider renaming '{origin}' since it has the same \
+                 name as the standard library module named '{module_name}' \
+                 and prevents importing that standard library module)"
+            )
+        } else {
+            let is_init = is_module_initializing(module, vm);
+            if is_init {
+                if is_possibly_shadowing {
+                    let origin = origin.as_ref().unwrap();
+                    format!(
+                        "cannot import name '{name}' from '{module_name}' \
+                         (consider renaming '{origin}' if it has the same name \
+                         as a library you intended to import)"
+                    )
+                } else if let Some(ref path) = origin {
+                    format!(
+                        "cannot import name '{name}' from partially initialized module \
+                         '{module_name}' (most likely due to a circular import) ({path})"
+                    )
+                } else {
+                    format!(
+                        "cannot import name '{name}' from partially initialized module \
+                         '{module_name}' (most likely due to a circular import)"
+                    )
+                }
+            } else if let Some(ref path) = origin {
+                format!("cannot import name '{name}' from '{module_name}' ({path})")
+            } else {
+                format!("cannot import name '{name}' from '{module_name}' (unknown location)")
+            }
         };
         let err = vm.new_import_error(msg, vm.ctx.new_str(module_name));
+
+        if let Some(ref path) = origin {
+            let _ignore = err
+                .as_object()
+                .set_attr("path", vm.ctx.new_str(path.as_str()), vm);
+        }
 
         // name_from = the attribute name that failed to import (best-effort metadata)
         let _ignore = err.as_object().set_attr("name_from", name.to_owned(), vm);
@@ -2320,22 +2348,45 @@ impl ExecutingFrame<'_> {
     fn import_star(&mut self, vm: &VirtualMachine) -> PyResult<()> {
         let module = self.pop_value();
 
-        // Grab all the names from the module and put them in the context
-        if let Some(dict) = module.dict() {
-            let filter_pred: Box<dyn Fn(&str) -> bool> =
-                if let Ok(all) = dict.get_item(identifier!(vm, __all__), vm) {
-                    let all: Vec<PyStrRef> = all.try_to_value(vm)?;
-                    let all: Vec<String> = all
-                        .into_iter()
-                        .map(|name| name.as_str().to_owned())
-                        .collect();
-                    Box::new(move |name| all.contains(&name.to_owned()))
+        let Some(dict) = module.dict() else {
+            return Ok(());
+        };
+
+        let mod_name = module
+            .get_attr(identifier!(vm, __name__), vm)
+            .ok()
+            .and_then(|n| n.downcast::<PyStr>().ok());
+
+        let require_str = |obj: PyObjectRef, attr: &str| -> PyResult<PyRef<PyStr>> {
+            obj.downcast().map_err(|obj: PyObjectRef| {
+                let source = if let Some(ref mod_name) = mod_name {
+                    format!("{}.{attr}", mod_name.as_str())
                 } else {
-                    Box::new(|name| !name.starts_with('_'))
+                    attr.to_owned()
                 };
+                let repr = obj.repr(vm).unwrap_or_else(|_| vm.ctx.new_str("?"));
+                vm.new_type_error(format!(
+                    "{} in {} must be str, not {}",
+                    repr.as_str(),
+                    source,
+                    obj.class().name()
+                ))
+            })
+        };
+
+        if let Ok(all) = dict.get_item(identifier!(vm, __all__), vm) {
+            let items: Vec<PyObjectRef> = all.try_to_value(vm)?;
+            for item in items {
+                let name = require_str(item, "__all__")?;
+                let value = module.get_attr(&*name, vm)?;
+                self.locals
+                    .mapping()
+                    .ass_subscript(&name, Some(value), vm)?;
+            }
+        } else {
             for (k, v) in dict {
-                let k = PyStrRef::try_from_object(vm, k)?;
-                if filter_pred(k.as_str()) {
+                let k = require_str(k, "__dict__")?;
+                if !k.as_str().starts_with('_') {
                     self.locals.mapping().ass_subscript(&k, Some(v), vm)?;
                 }
             }

@@ -443,13 +443,6 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
         };
     }
 
-    // keep as example but use file one now
-    // ext_modules!(
-    //     iter,
-    //     source = "initialized = True; print(\"Hello world!\")\n",
-    //     module_name = "__hello__",
-    // );
-
     // Python modules that the vm calls into, but are not actually part of the stdlib. They could
     // in theory be implemented in Rust, but are easiest to do in Python for one reason or another.
     // Includes _importlib_bootstrap and _importlib_bootstrap_external
@@ -470,7 +463,62 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
         crate_name = "rustpython_compiler_core"
     );
 
-    iter
+    // Collect and add frozen module aliases for test modules
+    let mut entries: Vec<_> = iter.collect();
+    if let Some(hello_code) = entries
+        .iter()
+        .find(|(n, _)| *n == "__hello__")
+        .map(|(_, m)| m.code)
+    {
+        entries.push((
+            "__hello_alias__",
+            FrozenModule {
+                code: hello_code,
+                package: false,
+            },
+        ));
+        entries.push((
+            "__phello_alias__",
+            FrozenModule {
+                code: hello_code,
+                package: true,
+            },
+        ));
+        entries.push((
+            "__phello_alias__.spam",
+            FrozenModule {
+                code: hello_code,
+                package: false,
+            },
+        ));
+    }
+    if let Some(code) = entries
+        .iter()
+        .find(|(n, _)| *n == "__phello__")
+        .map(|(_, m)| m.code)
+    {
+        entries.push((
+            "__phello__.__init__",
+            FrozenModule {
+                code,
+                package: false,
+            },
+        ));
+    }
+    if let Some(code) = entries
+        .iter()
+        .find(|(n, _)| *n == "__phello__.ham")
+        .map(|(_, m)| m.code)
+    {
+        entries.push((
+            "__phello__.ham.__init__",
+            FrozenModule {
+                code,
+                package: false,
+            },
+        ));
+    }
+    entries.into_iter()
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ machinery = util.import_importlib('importlib.machinery')
 from test.support import captured_stdout, import_helper, STDLIB_DIR
 import contextlib
 import os.path
+import sys
 import types
 import unittest
 import warnings

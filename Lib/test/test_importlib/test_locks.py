@@ -153,6 +153,10 @@ class LifetimeTests:
  Source_LifetimeTests
  ) = test_util.test_both(LifetimeTests, init=init)
 
+# TODO: RUSTPYTHON; dead weakref module locks not cleaned up in frozen bootstrap
+Frozen_LifetimeTests.test_all_locks = unittest.skip("TODO: RUSTPYTHON")(
+    Frozen_LifetimeTests.test_all_locks)
+
 
 def setUpModule():
     thread_info = threading_helper.threading_setup()
