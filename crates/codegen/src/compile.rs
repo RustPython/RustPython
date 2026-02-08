@@ -1071,7 +1071,7 @@ impl Compiler {
             ),
             CompilerScope::Annotation => (
                 bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
-                0,
+                1, // format is positional-only
                 1, // annotation scope takes one argument (format)
                 0,
             ),
@@ -1232,17 +1232,15 @@ impl Compiler {
 
     /// Enter annotation scope using the symbol table's annotation_block
     /// Returns false if no annotation_block exists
-    fn enter_annotation_scope(&mut self, func_name: &str) -> CompileResult<bool> {
+    fn enter_annotation_scope(&mut self, _func_name: &str) -> CompileResult<bool> {
         if !self.push_annotation_symbol_table() {
             return Ok(false);
         }
 
         let key = self.symbol_table_stack.len() - 1;
         let lineno = self.get_source_line_number().get();
-        let annotate_name = format!("<annotate of {func_name}>");
-
         self.enter_scope(
-            &annotate_name,
+            "__annotate__",
             CompilerScope::Annotation,
             key,
             lineno.to_u32(),
@@ -1886,15 +1884,17 @@ impl Compiler {
 
         // Special handling for class scope implicit cell variables
         // These are treated as Cell even if not explicitly marked in symbol table
-        // Only for LOAD operations - explicit stores like `__class__ = property(...)`
-        // should use STORE_NAME to store in class namespace dict
+        // __class__ and __classdict__: only LOAD uses Cell (stores go to class namespace)
+        // __conditional_annotations__: both LOAD and STORE use Cell (it's a mutable set
+        // that the annotation scope accesses through the closure)
         let symbol_scope = {
             let current_table = self.current_symbol_table();
             if current_table.typ == CompilerScope::Class
-                && usage == NameUsage::Load
-                && (name == "__class__"
-                    || name == "__classdict__"
-                    || name == "__conditional_annotations__")
+                && ((usage == NameUsage::Load
+                    && (name == "__class__"
+                        || name == "__classdict__"
+                        || name == "__conditional_annotations__"))
+                    || (name == "__conditional_annotations__" && usage == NameUsage::Store))
             {
                 Some(SymbolScope::Cell)
             } else {
@@ -2437,27 +2437,79 @@ impl Compiler {
                 });
 
                 if let Some(type_params) = type_params {
-                    // For TypeAlias, we need to use push_symbol_table to properly handle the TypeAlias scope
+                    // Outer scope for TypeParams
                     self.push_symbol_table()?;
+                    let key = self.symbol_table_stack.len() - 1;
+                    let lineno = self.get_source_line_number().get().to_u32();
+                    let scope_name = format!("<generic parameters of {name_string}>");
+                    self.enter_scope(&scope_name, CompilerScope::TypeParams, key, lineno)?;
 
-                    // Compile type params and push to stack
+                    // TypeParams scope is function-like
+                    let prev_ctx = self.ctx;
+                    self.ctx = CompileContext {
+                        loop_data: None,
+                        in_class: prev_ctx.in_class,
+                        func: FunctionContext::Function,
+                        in_async_scope: false,
+                    };
+
+                    // Compile type params inside the scope
                     self.compile_type_params(type_params)?;
-                    // Stack now has [name, type_params_tuple]
+                    // Stack: [type_params_tuple]
 
-                    // Compile value expression (can now see T1, T2)
+                    // Inner closure for lazy value evaluation
+                    self.push_symbol_table()?;
+                    let inner_key = self.symbol_table_stack.len() - 1;
+                    self.enter_scope("TypeAlias", CompilerScope::TypeParams, inner_key, lineno)?;
                     self.compile_expression(value)?;
-                    // Stack: [name, type_params_tuple, value]
+                    emit!(self, Instruction::ReturnValue);
+                    let value_code = self.exit_scope();
+                    self.make_closure(value_code, bytecode::MakeFunctionFlags::empty())?;
+                    // Stack: [type_params_tuple, value_closure]
 
-                    // Pop the TypeAlias scope
-                    self.pop_symbol_table();
+                    // Swap so unpack_sequence reverse gives correct order
+                    emit!(self, Instruction::Swap { index: 2_u32 });
+                    // Stack: [value_closure, type_params_tuple]
+
+                    // Build tuple and return from TypeParams scope
+                    emit!(self, Instruction::BuildTuple { size: 2 });
+                    emit!(self, Instruction::ReturnValue);
+
+                    let code = self.exit_scope();
+                    self.ctx = prev_ctx;
+                    self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+                    emit!(self, Instruction::PushNull);
+                    emit!(self, Instruction::Call { nargs: 0 });
+
+                    // Unpack: (value_closure, type_params_tuple)
+                    // UnpackSequence reverses → stack: [name, type_params_tuple, value_closure]
+                    emit!(self, Instruction::UnpackSequence { size: 2 });
                 } else {
                     // Push None for type_params
                     self.emit_load_const(ConstantData::None);
                     // Stack: [name, None]
 
-                    // Compile value expression
+                    // Create a closure for lazy evaluation of the value
+                    self.push_symbol_table()?;
+                    let key = self.symbol_table_stack.len() - 1;
+                    let lineno = self.get_source_line_number().get().to_u32();
+                    self.enter_scope("TypeAlias", CompilerScope::TypeParams, key, lineno)?;
+
+                    let prev_ctx = self.ctx;
+                    self.ctx = CompileContext {
+                        loop_data: None,
+                        in_class: prev_ctx.in_class,
+                        func: FunctionContext::Function,
+                        in_async_scope: false,
+                    };
+
                     self.compile_expression(value)?;
-                    // Stack: [name, None, value]
+                    emit!(self, Instruction::ReturnValue);
+
+                    let code = self.exit_scope();
+                    self.ctx = prev_ctx;
+                    self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+                    // Stack: [name, None, closure]
                 }
 
                 // Build tuple of 3 elements and call intrinsic
@@ -2583,6 +2635,15 @@ impl Compiler {
         // Enter scope with the type parameter name
         self.enter_scope(name, CompilerScope::TypeParams, key, lineno)?;
 
+        // TypeParams scope is function-like
+        let prev_ctx = self.ctx;
+        self.ctx = CompileContext {
+            loop_data: None,
+            in_class: prev_ctx.in_class,
+            func: FunctionContext::Function,
+            in_async_scope: false,
+        };
+
         // Compile the expression
         if allow_starred && matches!(expr, ast::Expr::Starred(_)) {
             if let ast::Expr::Starred(starred) = expr {
@@ -2598,14 +2659,10 @@ impl Compiler {
 
         // Exit scope and create closure
         let code = self.exit_scope();
-        // Note: exit_scope already calls pop_symbol_table, so we don't need to call it again
+        self.ctx = prev_ctx;
 
-        // Create type params function with closure
+        // Create closure for lazy evaluation
         self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
-        emit!(self, Instruction::PushNull);
-
-        // Call the function immediately
-        emit!(self, Instruction::Call { nargs: 0 });
 
         Ok(())
     }
@@ -3844,16 +3901,8 @@ impl Compiler {
         // Check if we have conditional annotations
         let has_conditional = self.current_symbol_table().has_conditional_annotations;
 
-        // Get parent scope type and name BEFORE pushing annotation symbol table
+        // Get parent scope type BEFORE pushing annotation symbol table
         let parent_scope_type = self.current_symbol_table().typ;
-        let parent_name = self
-            .symbol_table_stack
-            .last()
-            .map(|t| t.name.as_str())
-            .unwrap_or("module")
-            .to_owned();
-        let scope_name = format!("<annotate of {parent_name}>");
-
         // Try to push annotation symbol table from current scope
         if !self.push_current_annotation_symbol_table() {
             return Ok(false);
@@ -3862,7 +3911,12 @@ impl Compiler {
         // Enter annotation scope for code generation
         let key = self.symbol_table_stack.len() - 1;
         let lineno = self.get_source_line_number().get();
-        self.enter_scope(&scope_name, CompilerScope::Annotation, key, lineno.to_u32())?;
+        self.enter_scope(
+            "__annotate__",
+            CompilerScope::Annotation,
+            key,
+            lineno.to_u32(),
+        )?;
 
         // Add 'format' parameter to varnames
         self.current_code_info()
@@ -3991,6 +4045,9 @@ impl Compiler {
         let is_generic = type_params.is_some();
         let mut num_typeparam_args = 0;
 
+        // Save context before entering TypeParams scope
+        let saved_ctx = self.ctx;
+
         if is_generic {
             // Count args to pass to type params scope
             if funcflags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
@@ -4009,6 +4066,14 @@ impl Compiler {
                 0,
                 type_params_name,
             )?;
+
+            // TypeParams scope is function-like
+            self.ctx = CompileContext {
+                loop_data: None,
+                in_class: saved_ctx.in_class,
+                func: FunctionContext::Function,
+                in_async_scope: false,
+            };
 
             // Add parameter names to varnames for the type params scope
             // These will be passed as arguments when the closure is called
@@ -4068,6 +4133,7 @@ impl Compiler {
 
             // Exit type params scope and create closure
             let type_params_code = self.exit_scope();
+            self.ctx = saved_ctx;
 
             // Make closure for type params code
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
@@ -4316,12 +4382,26 @@ impl Compiler {
                     Self::find_ann(body) || Self::find_ann(orelse)
                 }
                 ast::Stmt::With(ast::StmtWith { body, .. }) => Self::find_ann(body),
+                ast::Stmt::Match(ast::StmtMatch { cases, .. }) => {
+                    cases.iter().any(|case| Self::find_ann(&case.body))
+                }
                 ast::Stmt::Try(ast::StmtTry {
                     body,
+                    handlers,
                     orelse,
                     finalbody,
                     ..
-                }) => Self::find_ann(body) || Self::find_ann(orelse) || Self::find_ann(finalbody),
+                }) => {
+                    Self::find_ann(body)
+                        || handlers.iter().any(|h| {
+                            let ast::ExceptHandler::ExceptHandler(
+                                ast::ExceptHandlerExceptHandler { body, .. },
+                            ) = h;
+                            Self::find_ann(body)
+                        })
+                        || Self::find_ann(orelse)
+                        || Self::find_ann(finalbody)
+                }
                 _ => false,
             };
             if res {
@@ -4458,6 +4538,9 @@ impl Compiler {
         let is_generic = type_params.is_some();
         let firstlineno = self.get_source_line_number().get().to_u32();
 
+        // Save context before entering any scopes
+        let saved_ctx = self.ctx;
+
         // Step 1: If generic, enter type params scope and compile type params
         if is_generic {
             let type_params_name = format!("<generic parameters of {name}>");
@@ -4471,6 +4554,14 @@ impl Compiler {
 
             // Set private name for name mangling
             self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
+
+            // TypeParams scope is function-like
+            self.ctx = CompileContext {
+                loop_data: None,
+                in_class: saved_ctx.in_class,
+                func: FunctionContext::Function,
+                in_async_scope: false,
+            };
 
             // Compile type parameters and store as .type_params
             self.compile_type_params(type_params.unwrap())?;
@@ -4622,6 +4713,7 @@ impl Compiler {
 
             // Exit type params scope and wrap in function
             let type_params_code = self.exit_scope();
+            self.ctx = saved_ctx;
 
             // Execute the type params function
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
@@ -6180,8 +6272,7 @@ impl Compiler {
 
                     // Only add to __conditional_annotations__ set if actually conditional
                     if is_conditional {
-                        let cond_annotations_name = self.name("__conditional_annotations__");
-                        emit!(self, Instruction::LoadName(cond_annotations_name));
+                        self.load_name("__conditional_annotations__")?;
                         self.emit_load_const(ConstantData::Integer {
                             value: annotation_index.into(),
                         });
