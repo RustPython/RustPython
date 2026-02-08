@@ -1253,11 +1253,12 @@ mod _socket {
                         (*can_addr).can_family = libc::AF_CAN as libc::sa_family_t;
                         (*can_addr).can_ifindex = ifindex;
                     }
-                    let storage: socket2::SockAddrStorage = unsafe { std::mem::transmute(storage) };
+                    let storage: socket2::SockAddrStorage =
+                        unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
                         socket2::SockAddr::new(
                             storage,
-                            std::mem::size_of::<libc::sockaddr_can>() as libc::socklen_t,
+                            core::mem::size_of::<libc::sockaddr_can>() as libc::socklen_t,
                         )
                     })
                 }
@@ -1316,11 +1317,12 @@ mod _socket {
                             (*alg_addr).salg_name[i] = b;
                         }
                     }
-                    let storage: socket2::SockAddrStorage = unsafe { std::mem::transmute(storage) };
+                    let storage: socket2::SockAddrStorage =
+                        unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
                         socket2::SockAddr::new(
                             storage,
-                            std::mem::size_of::<libc::sockaddr_alg>() as libc::socklen_t,
+                            core::mem::size_of::<libc::sockaddr_alg>() as libc::socklen_t,
                         )
                     })
                 }
@@ -1420,7 +1422,7 @@ mod _socket {
                 use crate::vm::builtins::PyBytes;
                 if let Ok(bytes) = fileno_obj.clone().downcast::<PyBytes>() {
                     let bytes_data = bytes.as_bytes();
-                    let expected_size = std::mem::size_of::<c::WSAPROTOCOL_INFOW>();
+                    let expected_size = core::mem::size_of::<c::WSAPROTOCOL_INFOW>();
 
                     if bytes_data.len() != expected_size {
                         return Err(vm
@@ -1431,9 +1433,9 @@ mod _socket {
                             .into());
                     }
 
-                    let mut info: c::WSAPROTOCOL_INFOW = unsafe { std::mem::zeroed() };
+                    let mut info: c::WSAPROTOCOL_INFOW = unsafe { core::mem::zeroed() };
                     unsafe {
-                        std::ptr::copy_nonoverlapping(
+                        core::ptr::copy_nonoverlapping(
                             bytes_data.as_ptr(),
                             &mut info as *mut c::WSAPROTOCOL_INFOW as *mut u8,
                             expected_size,
@@ -1477,7 +1479,7 @@ mod _socket {
                                 Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
                             ) =>
                     {
-                        std::mem::forget(sock);
+                        core::mem::forget(sock);
                         return Err(e.into());
                     }
                     _ => {}
@@ -1842,17 +1844,18 @@ mod _socket {
             // Add ALG_SET_OP control message
             {
                 let op_bytes = op.to_ne_bytes();
-                let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<u32>() as u32) } as usize;
+                let space =
+                    unsafe { libc::CMSG_SPACE(core::mem::size_of::<u32>() as u32) } as usize;
                 let old_len = control_buf.len();
                 control_buf.resize(old_len + space, 0u8);
 
                 let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
                 unsafe {
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u32>() as u32) as _;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(core::mem::size_of::<u32>() as u32) as _;
                     (*cmsg).cmsg_level = libc::SOL_ALG;
                     (*cmsg).cmsg_type = libc::ALG_SET_OP;
                     let data = libc::CMSG_DATA(cmsg);
-                    std::ptr::copy_nonoverlapping(op_bytes.as_ptr(), data, op_bytes.len());
+                    core::ptr::copy_nonoverlapping(op_bytes.as_ptr(), data, op_bytes.len());
                 }
             }
 
@@ -1873,26 +1876,27 @@ mod _socket {
                     let data = libc::CMSG_DATA(cmsg);
                     // Write ivlen
                     let ivlen = (iv_bytes.len() as u32).to_ne_bytes();
-                    std::ptr::copy_nonoverlapping(ivlen.as_ptr(), data, 4);
+                    core::ptr::copy_nonoverlapping(ivlen.as_ptr(), data, 4);
                     // Write iv
-                    std::ptr::copy_nonoverlapping(iv_bytes.as_ptr(), data.add(4), iv_bytes.len());
+                    core::ptr::copy_nonoverlapping(iv_bytes.as_ptr(), data.add(4), iv_bytes.len());
                 }
             }
 
             // Add ALG_SET_AEAD_ASSOCLEN control message if assoclen is provided
             if let Some(assoclen_val) = assoclen {
                 let assoclen_bytes = assoclen_val.to_ne_bytes();
-                let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<u32>() as u32) } as usize;
+                let space =
+                    unsafe { libc::CMSG_SPACE(core::mem::size_of::<u32>() as u32) } as usize;
                 let old_len = control_buf.len();
                 control_buf.resize(old_len + space, 0u8);
 
                 let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
                 unsafe {
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u32>() as u32) as _;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(core::mem::size_of::<u32>() as u32) as _;
                     (*cmsg).cmsg_level = libc::SOL_ALG;
                     (*cmsg).cmsg_type = libc::ALG_SET_AEAD_ASSOCLEN;
                     let data = libc::CMSG_DATA(cmsg);
-                    std::ptr::copy_nonoverlapping(
+                    core::ptr::copy_nonoverlapping(
                         assoclen_bytes.as_ptr(),
                         data,
                         assoclen_bytes.len(),
@@ -1911,7 +1915,7 @@ mod _socket {
                 .collect();
 
             // Set up msghdr
-            let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
+            let mut msghdr: libc::msghdr = unsafe { core::mem::zeroed() };
             msghdr.msg_iov = iovecs.as_ptr() as *mut _;
             msghdr.msg_iovlen = iovecs.len() as _;
             if !control_buf.is_empty() {
@@ -2376,11 +2380,11 @@ mod _socket {
                             fd as _,
                             cmd,
                             &option_val as *const u32 as *const _,
-                            std::mem::size_of::<u32>() as u32,
-                            std::ptr::null_mut(),
+                            core::mem::size_of::<u32>() as u32,
+                            core::ptr::null_mut(),
                             0,
                             &mut recv,
-                            std::ptr::null_mut(),
+                            core::ptr::null_mut(),
                             None,
                         )
                     };
@@ -2419,11 +2423,11 @@ mod _socket {
                             fd as _,
                             cmd,
                             &ka as *const TcpKeepalive as *const _,
-                            std::mem::size_of::<TcpKeepalive>() as u32,
-                            std::ptr::null_mut(),
+                            core::mem::size_of::<TcpKeepalive>() as u32,
+                            core::ptr::null_mut(),
                             0,
                             &mut recv,
-                            std::ptr::null_mut(),
+                            core::ptr::null_mut(),
                             None,
                         )
                     };
@@ -2454,9 +2458,9 @@ mod _socket {
 
             let info = unsafe { info.assume_init() };
             let bytes = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     &info as *const c::WSAPROTOCOL_INFOW as *const u8,
-                    std::mem::size_of::<c::WSAPROTOCOL_INFOW>(),
+                    core::mem::size_of::<c::WSAPROTOCOL_INFOW>(),
                 )
             };
 
@@ -3120,7 +3124,6 @@ mod _socket {
         }
         #[cfg(windows)]
         {
-            use std::ptr;
             use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 
             let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
@@ -3147,14 +3150,14 @@ mod _socket {
                 }
             }
             struct MibTable {
-                ptr: ptr::NonNull<IpHelper::MIB_IF_TABLE2>,
+                ptr: core::ptr::NonNull<IpHelper::MIB_IF_TABLE2>,
             }
             impl MibTable {
                 fn get_raw() -> io::Result<Self> {
-                    let mut ptr = ptr::null_mut();
+                    let mut ptr = core::ptr::null_mut();
                     let ret = unsafe { IpHelper::GetIfTable2Ex(IpHelper::MibIfTableRaw, &mut ptr) };
                     if ret == 0 {
-                        let ptr = unsafe { ptr::NonNull::new_unchecked(ptr) };
+                        let ptr = unsafe { core::ptr::NonNull::new_unchecked(ptr) };
                         Ok(Self { ptr })
                     } else {
                         Err(io::Error::from_raw_os_error(ret as i32))
@@ -3166,7 +3169,7 @@ mod _socket {
                     unsafe {
                         let p = self.ptr.as_ptr();
                         let ptr = &raw const (*p).Table as *const IpHelper::MIB_IF_ROW2;
-                        std::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
+                        core::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
                     }
                 }
             }

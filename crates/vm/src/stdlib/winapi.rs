@@ -14,7 +14,7 @@ mod _winapi {
         types::Constructor,
         windows::{WinHandle, WindowsSysResult},
     };
-    use std::ptr::{null, null_mut};
+    use core::ptr::{null, null_mut};
     use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, MAX_PATH};
 
     #[pyattr]
@@ -179,8 +179,8 @@ mod _winapi {
     ) -> PyResult<(WinHandle, WinHandle)> {
         use windows_sys::Win32::Foundation::HANDLE;
         let (read, write) = unsafe {
-            let mut read = std::mem::MaybeUninit::<HANDLE>::uninit();
-            let mut write = std::mem::MaybeUninit::<HANDLE>::uninit();
+            let mut read = core::mem::MaybeUninit::<HANDLE>::uninit();
+            let mut write = core::mem::MaybeUninit::<HANDLE>::uninit();
             WindowsSysResult(windows_sys::Win32::System::Pipes::CreatePipe(
                 read.as_mut_ptr(),
                 write.as_mut_ptr(),
@@ -205,7 +205,7 @@ mod _winapi {
     ) -> PyResult<WinHandle> {
         use windows_sys::Win32::Foundation::HANDLE;
         let target = unsafe {
-            let mut target = std::mem::MaybeUninit::<HANDLE>::uninit();
+            let mut target = core::mem::MaybeUninit::<HANDLE>::uninit();
             WindowsSysResult(windows_sys::Win32::Foundation::DuplicateHandle(
                 src_process.0,
                 src.0,
@@ -282,8 +282,8 @@ mod _winapi {
         vm: &VirtualMachine,
     ) -> PyResult<(WinHandle, WinHandle, u32, u32)> {
         let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
-            unsafe { std::mem::zeroed() };
-        si.StartupInfo.cb = std::mem::size_of_val(&si) as _;
+            unsafe { core::mem::zeroed() };
+        si.StartupInfo.cb = core::mem::size_of_val(&si) as _;
 
         macro_rules! si_attr {
             ($attr:ident, $t:ty) => {{
@@ -351,7 +351,7 @@ mod _winapi {
             .map_or_else(null_mut, |w| w.as_mut_ptr());
 
         let procinfo = unsafe {
-            let mut procinfo = std::mem::MaybeUninit::uninit();
+            let mut procinfo = core::mem::MaybeUninit::uninit();
             WindowsSysResult(windows_sys::Win32::System::Threading::CreateProcessW(
                 app_name,
                 command_line,
@@ -505,10 +505,10 @@ mod _winapi {
 
                 let attr_count = handlelist.is_some() as u32;
                 let (result, mut size) = unsafe {
-                    let mut size = std::mem::MaybeUninit::uninit();
+                    let mut size = core::mem::MaybeUninit::uninit();
                     let result = WindowsSysResult(
                         windows_sys::Win32::System::Threading::InitializeProcThreadAttributeList(
-                            std::ptr::null_mut(),
+                            core::ptr::null_mut(),
                             attr_count,
                             0,
                             size.as_mut_ptr(),
@@ -543,8 +543,8 @@ mod _winapi {
                             0,
                             (2 & 0xffff) | 0x20000, // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
                             handlelist.as_mut_ptr() as _,
-                            (handlelist.len() * std::mem::size_of::<usize>()) as _,
-                            std::ptr::null_mut(),
+                            (handlelist.len() * core::mem::size_of::<usize>()) as _,
+                            core::ptr::null_mut(),
                             core::ptr::null(),
                         )
                     })
@@ -618,7 +618,7 @@ mod _winapi {
     #[pyfunction]
     fn GetExitCodeProcess(h: WinHandle, vm: &VirtualMachine) -> PyResult<u32> {
         unsafe {
-            let mut ec = std::mem::MaybeUninit::uninit();
+            let mut ec = core::mem::MaybeUninit::uninit();
             WindowsSysResult(windows_sys::Win32::System::Threading::GetExitCodeProcess(
                 h.0,
                 ec.as_mut_ptr(),
@@ -838,8 +838,8 @@ mod _winapi {
         write_buffer: Option<Vec<u8>>,
     }
 
-    impl std::fmt::Debug for OverlappedInner {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for OverlappedInner {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("OverlappedInner")
                 .field("handle", &self.handle)
                 .field("pending", &self.pending)
@@ -858,7 +858,7 @@ mod _winapi {
 
             let event = unsafe { CreateEventW(null(), 1, 0, null()) };
             let mut overlapped: windows_sys::Win32::System::IO::OVERLAPPED =
-                unsafe { std::mem::zeroed() };
+                unsafe { core::mem::zeroed() };
             overlapped.hEvent = event;
 
             Overlapped {
@@ -1323,8 +1323,8 @@ mod _winapi {
         milliseconds: OptionalArg<u32>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicU32, Ordering};
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicU32, Ordering};
         use windows_sys::Win32::Foundation::{CloseHandle, WAIT_FAILED, WAIT_OBJECT_0};
         use windows_sys::Win32::System::SystemInformation::GetTickCount64;
         use windows_sys::Win32::System::Threading::{
@@ -1468,7 +1468,7 @@ mod _winapi {
                 cancel_event: isize,
                 handle_base: usize,
                 result: AtomicU32,
-                thread: std::cell::UnsafeCell<isize>,
+                thread: core::cell::UnsafeCell<isize>,
             }
 
             unsafe impl Send for BatchData {}
@@ -1486,13 +1486,13 @@ mod _winapi {
                         cancel_event: cancel_event as isize,
                         handle_base: base,
                         result: AtomicU32::new(WAIT_FAILED),
-                        thread: std::cell::UnsafeCell::new(0),
+                        thread: core::cell::UnsafeCell::new(0),
                     })
                 })
                 .collect();
 
             // Thread function
-            extern "system" fn batch_wait_thread(param: *mut std::ffi::c_void) -> u32 {
+            extern "system" fn batch_wait_thread(param: *mut core::ffi::c_void) -> u32 {
                 let data = unsafe { &*(param as *const BatchData) };
                 let handles: Vec<_> = data.handles.iter().map(|&h| h as _).collect();
                 let result = unsafe {

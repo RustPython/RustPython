@@ -28,7 +28,7 @@ pub(crate) mod _signal {
             static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
             // windows doesn't use the same fds for files and sockets like windows does, so we need
             // this to know whether to send() or write()
-            static WAKEUP_IS_SOCKET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            static WAKEUP_IS_SOCKET: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
             impl<'a> TryFromBorrowedObject<'a> for WakeupFd {
                 fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a crate::PyObject) -> PyResult<Self> {
@@ -382,7 +382,7 @@ pub(crate) mod _signal {
 
             crate::windows::init_winsock();
             let mut res = 0i32;
-            let mut res_size = std::mem::size_of::<i32>() as i32;
+            let mut res_size = core::mem::size_of::<i32>() as i32;
             let res = unsafe {
                 WinSock::getsockopt(
                     fd,
@@ -468,7 +468,7 @@ pub(crate) mod _signal {
                 libc::SYS_pidfd_send_signal,
                 pidfd,
                 sig,
-                std::ptr::null::<libc::siginfo_t>(),
+                core::ptr::null::<libc::siginfo_t>(),
                 flags,
             ) as libc::c_long
         };

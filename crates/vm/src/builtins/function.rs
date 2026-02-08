@@ -89,28 +89,29 @@ unsafe impl Traverse for PyFunction {
         // Clear module, doc, and type_params (Py_CLEAR)
         if let Some(mut guard) = self.module.try_lock() {
             let old_module =
-                std::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
             out.push(old_module);
         }
         if let Some(mut guard) = self.doc.try_lock() {
-            let old_doc = std::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+            let old_doc =
+                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
             out.push(old_doc);
         }
         if let Some(mut guard) = self.type_params.try_lock() {
             let old_type_params =
-                std::mem::replace(&mut *guard, Context::genesis().empty_tuple.to_owned());
+                core::mem::replace(&mut *guard, Context::genesis().empty_tuple.to_owned());
             out.push(old_type_params.into());
         }
 
         // Replace name and qualname with empty string to break potential str subclass cycles
         // name and qualname could be str subclasses, so they could have reference cycles
         if let Some(mut guard) = self.name.try_lock() {
-            let old_name = std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
+            let old_name = core::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
             out.push(old_name.into());
         }
         if let Some(mut guard) = self.qualname.try_lock() {
             let old_qualname =
-                std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
+                core::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
             out.push(old_qualname.into());
         }
 

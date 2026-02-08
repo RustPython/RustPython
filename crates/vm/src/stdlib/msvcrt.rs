@@ -58,7 +58,7 @@ mod msvcrt {
     #[pyfunction]
     fn getwch() -> String {
         let c = unsafe { _getwch() };
-        std::char::from_u32(c).unwrap().to_string()
+        char::from_u32(c).unwrap().to_string()
     }
     #[pyfunction]
     fn getche() -> Vec<u8> {
@@ -68,7 +68,7 @@ mod msvcrt {
     #[pyfunction]
     fn getwche() -> String {
         let c = unsafe { _getwche() };
-        std::char::from_u32(c).unwrap().to_string()
+        char::from_u32(c).unwrap().to_string()
     }
     #[pyfunction]
     fn putch(b: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {

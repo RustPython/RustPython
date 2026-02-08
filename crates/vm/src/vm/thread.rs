@@ -2,14 +2,14 @@ use crate::frame::Frame;
 #[cfg(feature = "threading")]
 use crate::frame::FrameRef;
 use crate::{AsObject, PyObject, VirtualMachine};
+#[cfg(feature = "threading")]
+use alloc::sync::Arc;
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
     sync::atomic::{AtomicPtr, Ordering},
 };
 use itertools::Itertools;
-#[cfg(feature = "threading")]
-use std::sync::Arc;
 use std::thread_local;
 
 /// Type for current frame slot - shared between threads for sys._current_frames()

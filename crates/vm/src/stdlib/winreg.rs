@@ -14,10 +14,10 @@ mod winreg {
     use crate::protocol::PyNumberMethods;
     use crate::types::{AsNumber, Hashable};
     use crate::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+    use core::ptr;
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::Sign;
     use num_traits::ToPrimitive;
-    use std::ptr;
     use windows_sys::Win32::Foundation::{self, ERROR_MORE_DATA};
     use windows_sys::Win32::System::Registry;
 
@@ -188,7 +188,7 @@ mod winreg {
         #[pymethod]
         fn Close(&self, vm: &VirtualMachine) -> PyResult<()> {
             // Atomically swap the handle with null and get the old value
-            let old_hkey = self.hkey.swap(std::ptr::null_mut());
+            let old_hkey = self.hkey.swap(core::ptr::null_mut());
             // Already closed - silently succeed
             if old_hkey.is_null() {
                 return Ok(());
@@ -204,7 +204,7 @@ mod winreg {
         #[pymethod]
         fn Detach(&self) -> PyResult<usize> {
             // Atomically swap the handle with null and return the old value
-            let old_hkey = self.hkey.swap(std::ptr::null_mut());
+            let old_hkey = self.hkey.swap(core::ptr::null_mut());
             Ok(old_hkey as usize)
         }
 
@@ -230,7 +230,7 @@ mod winreg {
 
     impl Drop for PyHkey {
         fn drop(&mut self) {
-            let hkey = self.hkey.swap(std::ptr::null_mut());
+            let hkey = self.hkey.swap(core::ptr::null_mut());
             if !hkey.is_null() {
                 unsafe { Registry::RegCloseKey(hkey) };
             }
@@ -290,7 +290,7 @@ mod winreg {
         vm: &VirtualMachine,
     ) -> PyResult<PyHkey> {
         if let Some(computer_name) = computer_name {
-            let mut ret_key = std::ptr::null_mut();
+            let mut ret_key = core::ptr::null_mut();
             let wide_computer_name = computer_name.to_wide_with_nul();
             let res = unsafe {
                 Registry::RegConnectRegistryW(
@@ -305,9 +305,9 @@ mod winreg {
                 Err(vm.new_os_error(format!("error code: {res}")))
             }
         } else {
-            let mut ret_key = std::ptr::null_mut();
+            let mut ret_key = core::ptr::null_mut();
             let res = unsafe {
-                Registry::RegConnectRegistryW(std::ptr::null_mut(), key.hkey.load(), &mut ret_key)
+                Registry::RegConnectRegistryW(core::ptr::null_mut(), key.hkey.load(), &mut ret_key)
             };
             if res == 0 {
                 Ok(PyHkey::new(ret_key))
@@ -320,7 +320,7 @@ mod winreg {
     #[pyfunction]
     fn CreateKey(key: PyRef<PyHkey>, sub_key: String, vm: &VirtualMachine) -> PyResult<PyHkey> {
         let wide_sub_key = sub_key.to_wide_with_nul();
-        let mut out_key = std::ptr::null_mut();
+        let mut out_key = core::ptr::null_mut();
         let res = unsafe {
             Registry::RegCreateKeyW(key.hkey.load(), wide_sub_key.as_ptr(), &mut out_key)
         };
@@ -358,7 +358,7 @@ mod winreg {
                 args.access,
                 core::ptr::null(),
                 &mut res,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
         if err == 0 {
@@ -447,10 +447,10 @@ mod winreg {
                 index as u32,
                 tmpbuf.as_mut_ptr(),
                 &mut len,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
         if res != 0 {
@@ -596,7 +596,7 @@ mod winreg {
     #[pyfunction(name = "OpenKeyEx")]
     fn OpenKey(args: OpenKeyArgs, vm: &VirtualMachine) -> PyResult<PyHkey> {
         let wide_sub_key = args.sub_key.to_wide_with_nul();
-        let mut res: Registry::HKEY = std::ptr::null_mut();
+        let mut res: Registry::HKEY = core::ptr::null_mut();
         let err = unsafe {
             let key = args.key.hkey.load();
             Registry::RegOpenKeyExW(
@@ -622,20 +622,20 @@ mod winreg {
         let key = key.0;
         let mut lpcsubkeys: u32 = 0;
         let mut lpcvalues: u32 = 0;
-        let mut lpftlastwritetime: Foundation::FILETIME = unsafe { std::mem::zeroed() };
+        let mut lpftlastwritetime: Foundation::FILETIME = unsafe { core::mem::zeroed() };
         let err = unsafe {
             Registry::RegQueryInfoKeyW(
                 key,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
                 0 as _,
                 &mut lpcsubkeys,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
                 &mut lpcvalues,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
                 &mut lpftlastwritetime,
             )
         };
@@ -669,7 +669,7 @@ mod winreg {
         let child_key = if let Some(ref sk) = sub_key {
             if !sk.is_empty() {
                 let wide_sub_key = sk.to_wide_with_nul();
-                let mut out_key = std::ptr::null_mut();
+                let mut out_key = core::ptr::null_mut();
                 let res = unsafe {
                     Registry::RegOpenKeyExW(
                         hkey,
@@ -702,7 +702,7 @@ mod winreg {
                 Registry::RegQueryValueExW(
                     target_key,
                     core::ptr::null(), // NULL value name for default value
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                     &mut reg_type,
                     buffer.as_mut_ptr(),
                     &mut size,
@@ -759,9 +759,9 @@ mod winreg {
             Registry::RegQueryValueExW(
                 hkey,
                 wide_name.as_ptr(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
                 &mut buf_size,
             )
         };
@@ -787,7 +787,7 @@ mod winreg {
                 Registry::RegQueryValueExW(
                     hkey,
                     wide_name.as_ptr(),
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                     &mut typ,
                     ret_buf.as_mut_ptr(),
                     &mut ret_size,
@@ -820,7 +820,7 @@ mod winreg {
     fn SaveKey(key: PyRef<PyHkey>, file_name: String, vm: &VirtualMachine) -> PyResult<()> {
         let file_name = file_name.to_wide_with_nul();
         let res = unsafe {
-            Registry::RegSaveKeyW(key.hkey.load(), file_name.as_ptr(), std::ptr::null_mut())
+            Registry::RegSaveKeyW(key.hkey.load(), file_name.as_ptr(), core::ptr::null_mut())
         };
         if res == 0 {
             Ok(())
@@ -853,7 +853,7 @@ mod winreg {
         // Create subkey if sub_key is non-empty
         let child_key = if !sub_key.is_empty() {
             let wide_sub_key = sub_key.to_wide_with_nul();
-            let mut out_key = std::ptr::null_mut();
+            let mut out_key = core::ptr::null_mut();
             let res = unsafe {
                 Registry::RegCreateKeyExW(
                     hkey,
@@ -864,7 +864,7 @@ mod winreg {
                     Registry::KEY_SET_VALUE,
                     core::ptr::null(),
                     &mut out_key,
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                 )
             };
             if res != 0 {
@@ -1150,7 +1150,7 @@ mod winreg {
         let required_size = unsafe {
             windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW(
                 wide_input.as_ptr(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
                 0,
             )
         };
