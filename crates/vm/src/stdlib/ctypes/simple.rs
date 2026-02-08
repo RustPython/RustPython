@@ -1179,6 +1179,10 @@ impl PyCSimple {
                 }
                 #[cfg(not(windows))]
                 {
+                    #[allow(
+                        clippy::useless_conversion,
+                        reason = "wchar_t is i32 on some platforms and u32 on others"
+                    )]
                     let s: String = wchars
                         .iter()
                         .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))

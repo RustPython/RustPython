@@ -225,9 +225,9 @@ unsafe_op_in_unsafe_fn = "deny"
 elided_lifetimes_in_paths = "warn"
 
 [workspace.lints.clippy]
-# alloc_instead_of_core = "warn"
-# std_instead_of_alloc = "warn"
-# std_instead_of_core = "warn"
+alloc_instead_of_core = "warn"
+std_instead_of_alloc = "warn"
+std_instead_of_core = "warn"
 perf = "warn"
 style = "warn"
 complexity = "warn"

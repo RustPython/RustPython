@@ -576,7 +576,7 @@ mod mmap {
                             SetFilePointerEx(
                                 duplicated_handle,
                                 required_size,
-                                std::ptr::null_mut(),
+                                core::ptr::null_mut(),
                                 FILE_BEGIN,
                             )
                         };
@@ -617,7 +617,7 @@ mod mmap {
 
                 // Keep the handle alive
                 let raw = owned_handle.as_raw_handle() as isize;
-                std::mem::forget(owned_handle);
+                core::mem::forget(owned_handle);
                 (raw, mmap)
             } else {
                 // Anonymous mapping
@@ -1088,7 +1088,7 @@ mod mmap {
                     SetFilePointerEx(
                         handle as HANDLE,
                         required_size,
-                        std::ptr::null_mut(),
+                        core::ptr::null_mut(),
                         FILE_BEGIN,
                     )
                 };
@@ -1267,7 +1267,7 @@ mod mmap {
         #[cfg(windows)]
         #[pymethod]
         fn __sizeof__(&self) -> usize {
-            std::mem::size_of::<Self>()
+            core::mem::size_of::<Self>()
         }
     }
 
@@ -1297,7 +1297,7 @@ mod mmap {
             };
 
             // Don't close the file handle - we're borrowing it
-            std::mem::forget(file);
+            core::mem::forget(file);
 
             result
         }

@@ -8328,7 +8328,7 @@ impl Compiler {
         }
 
         // Add trailing string
-        all_strings.push(std::mem::take(&mut current_string));
+        all_strings.push(core::mem::take(&mut current_string));
 
         // Now build the Template:
         // Stack currently has all interpolations from compile_tstring_into calls
@@ -8372,7 +8372,7 @@ impl Compiler {
                 }
                 ast::InterpolatedStringElement::Interpolation(interp) => {
                     // Finish current string segment
-                    strings.push(std::mem::take(current_string));
+                    strings.push(core::mem::take(current_string));
 
                     // Compile the interpolation value
                     self.compile_expression(&interp.expression)?;

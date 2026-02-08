@@ -38,7 +38,7 @@ mod _posixsubprocess {
             && vm
                 .state
                 .finalizing
-                .load(std::sync::atomic::Ordering::Acquire)
+                .load(core::sync::atomic::Ordering::Acquire)
         {
             return Err(vm.new_python_finalization_error(
                 "preexec_fn not supported at interpreter shutdown".to_owned(),

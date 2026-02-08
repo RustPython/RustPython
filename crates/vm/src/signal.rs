@@ -1,10 +1,10 @@
 #![cfg_attr(target_os = "wasi", allow(dead_code))]
 use crate::{PyResult, VirtualMachine};
 use alloc::fmt;
+use core::cell::Cell;
 #[cfg(windows)]
 use core::sync::atomic::AtomicIsize;
 use core::sync::atomic::{AtomicBool, Ordering};
-use std::cell::Cell;
 use std::sync::mpsc;
 
 pub(crate) const NSIG: usize = 64;

@@ -409,10 +409,10 @@ mod _codecs_windows {
                 WC_NO_BEST_FIT_CHARS,
                 wide.as_ptr(),
                 wide.len() as i32,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
                 0,
                 core::ptr::null(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
 
@@ -436,7 +436,7 @@ mod _codecs_windows {
                 if errors == "strict" {
                     &mut used_default_char
                 } else {
-                    std::ptr::null_mut()
+                    core::ptr::null_mut()
                 },
             )
         };
@@ -488,7 +488,7 @@ mod _codecs_windows {
                 MB_ERR_INVALID_CHARS,
                 data.as_ptr().cast(),
                 len as i32,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
                 0,
             )
         };
@@ -501,7 +501,7 @@ mod _codecs_windows {
                     0,
                     data.as_ptr().cast(),
                     len as i32,
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                     0,
                 )
             };
@@ -595,10 +595,10 @@ mod _codecs_windows {
                 WC_NO_BEST_FIT_CHARS,
                 wide.as_ptr(),
                 wide.len() as i32,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
                 0,
                 core::ptr::null(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
 
@@ -622,7 +622,7 @@ mod _codecs_windows {
                 if errors == "strict" {
                     &mut used_default_char
                 } else {
-                    std::ptr::null_mut()
+                    core::ptr::null_mut()
                 },
             )
         };
@@ -674,7 +674,7 @@ mod _codecs_windows {
                 MB_ERR_INVALID_CHARS,
                 data.as_ptr().cast(),
                 len as i32,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
                 0,
             )
         };
@@ -687,7 +687,7 @@ mod _codecs_windows {
                     0,
                     data.as_ptr().cast(),
                     len as i32,
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                     0,
                 )
             };
@@ -791,7 +791,7 @@ mod _codecs_windows {
         let pused = if use_default_char {
             &mut used_default_char as *mut i32
         } else {
-            std::ptr::null_mut()
+            core::ptr::null_mut()
         };
 
         let size = unsafe {
@@ -800,7 +800,7 @@ mod _codecs_windows {
                 flags,
                 wide.as_ptr(),
                 wide.len() as i32,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
                 0,
                 core::ptr::null(),
                 pused,
@@ -826,7 +826,7 @@ mod _codecs_windows {
         let pused = if use_default_char {
             &mut used_default_char as *mut i32
         } else {
-            std::ptr::null_mut()
+            core::ptr::null_mut()
         };
 
         let result = unsafe {
@@ -898,7 +898,7 @@ mod _codecs_windows {
                 let pused = if use_default_char {
                     &mut used_default_char as *mut i32
                 } else {
-                    std::ptr::null_mut()
+                    core::ptr::null_mut()
                 };
                 let outsize = unsafe {
                     WideCharToMultiByte(
@@ -906,7 +906,7 @@ mod _codecs_windows {
                         flags,
                         wchars.as_ptr(),
                         wchar_len,
-                        std::ptr::null_mut(),
+                        core::ptr::null_mut(),
                         0,
                         core::ptr::null(),
                         pused,
@@ -957,7 +957,7 @@ mod _codecs_windows {
                 let pused = if use_default_char {
                     &mut used_default_char as *mut i32
                 } else {
-                    std::ptr::null_mut()
+                    core::ptr::null_mut()
                 };
 
                 let mut buf = [0u8; 8];
@@ -1098,7 +1098,7 @@ mod _codecs_windows {
                     flags,
                     data.as_ptr().cast(),
                     data.len() as i32,
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                     0,
                 )
             };

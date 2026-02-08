@@ -271,8 +271,8 @@ impl Representable for PyTemplate {
 #[derive(Debug)]
 pub struct PyTemplateIter {
     template: PyRef<PyTemplate>,
-    index: std::sync::atomic::AtomicUsize,
-    from_strings: std::sync::atomic::AtomicBool,
+    index: core::sync::atomic::AtomicUsize,
+    from_strings: core::sync::atomic::AtomicBool,
 }
 
 impl PyPayload for PyTemplateIter {
@@ -286,8 +286,8 @@ impl PyTemplateIter {
     fn new(template: PyRef<PyTemplate>) -> Self {
         Self {
             template,
-            index: std::sync::atomic::AtomicUsize::new(0),
-            from_strings: std::sync::atomic::AtomicBool::new(true),
+            index: core::sync::atomic::AtomicUsize::new(0),
+            from_strings: core::sync::atomic::AtomicBool::new(true),
         }
     }
 }
@@ -299,7 +299,7 @@ impl SelfIter for PyTemplateIter {}
 
 impl IterNext for PyTemplateIter {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        use std::sync::atomic::Ordering;
+        use core::sync::atomic::Ordering;
 
         loop {
             let from_strings = zelf.from_strings.load(Ordering::SeqCst);

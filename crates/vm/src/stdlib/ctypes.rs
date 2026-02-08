@@ -1187,7 +1187,7 @@ pub(crate) mod _ctypes {
 
         let error_code = code.unwrap_or_else(|| unsafe { GetLastError() });
 
-        let mut buffer: *mut u16 = std::ptr::null_mut();
+        let mut buffer: *mut u16 = core::ptr::null_mut();
         let len = unsafe {
             FormatMessageW(
                 FORMAT_MESSAGE_ALLOCATE_BUFFER
@@ -1207,7 +1207,7 @@ pub(crate) mod _ctypes {
         }
 
         let message = unsafe {
-            let slice = std::slice::from_raw_parts(buffer, len as usize);
+            let slice = core::slice::from_raw_parts(buffer, len as usize);
             let msg = String::from_utf16_lossy(slice).trim_end().to_string();
             LocalFree(buffer as *mut _);
             msg
@@ -1244,11 +1244,11 @@ pub(crate) mod _ctypes {
         } else if let Some(cdata) = src.downcast_ref::<PyCData>() {
             // c_void_p etc: read pointer value from buffer
             let buffer = cdata.buffer.read();
-            if buffer.len() >= std::mem::size_of::<usize>() {
+            if buffer.len() >= core::mem::size_of::<usize>() {
                 usize::from_ne_bytes(
-                    buffer[..std::mem::size_of::<usize>()]
+                    buffer[..core::mem::size_of::<usize>()]
                         .try_into()
-                        .unwrap_or([0; std::mem::size_of::<usize>()]),
+                        .unwrap_or([0; core::mem::size_of::<usize>()]),
                 )
             } else {
                 0
@@ -1264,9 +1264,9 @@ pub(crate) mod _ctypes {
                 let iunknown = src_ptr as *mut *const usize;
                 let vtable = *iunknown;
                 debug_assert!(!vtable.is_null(), "IUnknown vtable is null");
-                let addref_fn: extern "system" fn(*mut std::ffi::c_void) -> u32 =
+                let addref_fn: extern "system" fn(*mut core::ffi::c_void) -> u32 =
                     core::mem::transmute(*vtable.add(1)); // AddRef is index 1
-                addref_fn(src_ptr as *mut std::ffi::c_void);
+                addref_fn(src_ptr as *mut core::ffi::c_void);
             }
         }
 

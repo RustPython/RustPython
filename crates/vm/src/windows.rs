@@ -79,7 +79,7 @@ impl ToPyObject for WinHandle {
 pub fn init_winsock() {
     static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
     WSA_INIT.call_once(|| unsafe {
-        let mut wsa_data = std::mem::MaybeUninit::uninit();
+        let mut wsa_data = core::mem::MaybeUninit::uninit();
         let _ = windows_sys::Win32::Networking::WinSock::WSAStartup(0x0101, wsa_data.as_mut_ptr());
     })
 }
@@ -244,7 +244,7 @@ fn attributes_from_dir(
     };
 
     let wide: Vec<u16> = path.to_wide_with_nul();
-    let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
+    let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
     let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut find_data) };
     if handle == INVALID_HANDLE_VALUE {
@@ -252,7 +252,7 @@ fn attributes_from_dir(
     }
     unsafe { FindClose(handle) };
 
-    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { core::mem::zeroed() };
     info.dwFileAttributes = find_data.dwFileAttributes;
     info.ftCreationTime = find_data.ftCreationTime;
     info.ftLastAccessTime = find_data.ftLastAccessTime;
@@ -304,11 +304,11 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
             core::ptr::null(),
             OPEN_EXISTING,
             flags,
-            std::ptr::null_mut(),
+            core::ptr::null_mut(),
         )
     };
 
-    let mut file_info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    let mut file_info: BY_HANDLE_FILE_INFORMATION = unsafe { core::mem::zeroed() };
     let mut tag_info = FileAttributeTagInfo::default();
     let mut is_unhandled_tag = false;
 
@@ -340,7 +340,7 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
                         core::ptr::null(),
                         OPEN_EXISTING,
                         flags,
-                        std::ptr::null_mut(),
+                        core::ptr::null_mut(),
                     )
                 };
                 if h_file == INVALID_HANDLE_VALUE {
@@ -358,7 +358,7 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
                         core::ptr::null(),
                         OPEN_EXISTING,
                         flags | FILE_FLAG_OPEN_REPARSE_POINT,
-                        std::ptr::null_mut(),
+                        core::ptr::null_mut(),
                     )
                 };
                 if h_file == INVALID_HANDLE_VALUE {
@@ -400,13 +400,13 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
 
             // Query the reparse tag
             if !traverse || is_unhandled_tag {
-                let mut local_tag_info: FileAttributeTagInfo = unsafe { std::mem::zeroed() };
+                let mut local_tag_info: FileAttributeTagInfo = unsafe { core::mem::zeroed() };
                 let ret = unsafe {
                     GetFileInformationByHandleEx(
                         h_file,
                         FileAttributeTagInfo,
                         &mut local_tag_info as *mut _ as *mut _,
-                        std::mem::size_of::<FileAttributeTagInfo>() as u32,
+                        core::mem::size_of::<FileAttributeTagInfo>() as u32,
                     )
                 };
                 if ret == 0 {
@@ -453,24 +453,24 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
             }
 
             // Get FILE_BASIC_INFO
-            let mut basic_info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
+            let mut basic_info: FILE_BASIC_INFO = unsafe { core::mem::zeroed() };
             let has_basic_info = unsafe {
                 GetFileInformationByHandleEx(
                     h_file,
                     FileBasicInfo,
                     &mut basic_info as *mut _ as *mut _,
-                    std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+                    core::mem::size_of::<FILE_BASIC_INFO>() as u32,
                 )
             } != 0;
 
             // Get FILE_ID_INFO (optional)
-            let mut id_info: FILE_ID_INFO = unsafe { std::mem::zeroed() };
+            let mut id_info: FILE_ID_INFO = unsafe { core::mem::zeroed() };
             let has_id_info = unsafe {
                 GetFileInformationByHandleEx(
                     h_file,
                     FileIdInfo,
                     &mut id_info as *mut _ as *mut _,
-                    std::mem::size_of::<FILE_ID_INFO>() as u32,
+                    core::mem::size_of::<FILE_ID_INFO>() as u32,
                 )
             } != 0;
 
