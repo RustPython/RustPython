@@ -284,7 +284,7 @@ impl CodeInfo {
                 for info in &mut block.instructions {
                     let target = info.target;
                     if target != BlockIdx::NULL {
-                        let new_arg = OpArg(block_to_offset[target.idx()].0);
+                        let new_arg = OpArg::new(block_to_offset[target.idx()].0);
                         recompile_extended_arg |= new_arg.instr_size() != info.arg.instr_size();
                         info.arg = new_arg;
                     }
@@ -443,7 +443,7 @@ impl CodeInfo {
                     continue;
                 };
 
-                let tuple_size = instr.arg.0 as usize;
+                let tuple_size = u32::from(instr.arg) as usize;
                 if tuple_size == 0 || i < tuple_size {
                     i += 1;
                     continue;
@@ -458,7 +458,7 @@ impl CodeInfo {
                     let load_instr = &block.instructions[j];
                     match load_instr.instr.real() {
                         Some(Instruction::LoadConst { .. }) => {
-                            let const_idx = load_instr.arg.0 as usize;
+                            let const_idx = u32::from(load_instr.arg) as usize;
                             if let Some(constant) =
                                 self.metadata.consts.get_index(const_idx).cloned()
                             {
@@ -470,7 +470,7 @@ impl CodeInfo {
                         }
                         Some(Instruction::LoadSmallInt { .. }) => {
                             // arg is the i32 value stored as u32 (two's complement)
-                            let value = load_instr.arg.0 as i32;
+                            let value = u32::from(load_instr.arg) as i32;
                             elements.push(ConstantData::Integer {
                                 value: BigInt::from(value),
                             });
@@ -502,7 +502,7 @@ impl CodeInfo {
 
                 // Replace BUILD_TUPLE with LOAD_CONST
                 block.instructions[i].instr = Instruction::LoadConst { idx: Arg::marker() }.into();
-                block.instructions[i].arg = OpArg(const_idx as u32);
+                block.instructions[i].arg = OpArg::new(const_idx as u32);
 
                 i += 1;
             }
@@ -529,13 +529,13 @@ impl CodeInfo {
                     match (curr_instr, next_instr) {
                         // LoadFast + LoadFast -> LoadFastLoadFast (if both indices < 16)
                         (Instruction::LoadFast(_), Instruction::LoadFast(_)) => {
-                            let idx1 = curr.arg.0;
-                            let idx2 = next.arg.0;
+                            let idx1 = u32::from(curr.arg);
+                            let idx2 = u32::from(next.arg);
                             if idx1 < 16 && idx2 < 16 {
                                 let packed = (idx1 << 4) | idx2;
                                 Some((
                                     Instruction::LoadFastLoadFast { arg: Arg::marker() },
-                                    OpArg(packed),
+                                    OpArg::new(packed),
                                 ))
                             } else {
                                 None
@@ -543,13 +543,13 @@ impl CodeInfo {
                         }
                         // StoreFast + StoreFast -> StoreFastStoreFast (if both indices < 16)
                         (Instruction::StoreFast(_), Instruction::StoreFast(_)) => {
-                            let idx1 = curr.arg.0;
-                            let idx2 = next.arg.0;
+                            let idx1 = u32::from(curr.arg);
+                            let idx2 = u32::from(next.arg);
                             if idx1 < 16 && idx2 < 16 {
                                 let packed = (idx1 << 4) | idx2;
                                 Some((
                                     Instruction::StoreFastStoreFast { arg: Arg::marker() },
-                                    OpArg(packed),
+                                    OpArg::new(packed),
                                 ))
                             } else {
                                 None
@@ -584,7 +584,7 @@ impl CodeInfo {
                 };
 
                 // Get the constant value
-                let const_idx = instr.arg.0 as usize;
+                let const_idx = u32::from(instr.arg) as usize;
                 let Some(constant) = self.metadata.consts.get_index(const_idx) else {
                     continue;
                 };
@@ -599,7 +599,7 @@ impl CodeInfo {
                     // Convert LOAD_CONST to LOAD_SMALL_INT
                     instr.instr = Instruction::LoadSmallInt { idx: Arg::marker() }.into();
                     // The arg is the i32 value stored as u32 (two's complement)
-                    instr.arg = OpArg(small as u32);
+                    instr.arg = OpArg::new(small as u32);
                 }
             }
         }
@@ -621,7 +621,7 @@ impl CodeInfo {
         for block in &self.blocks {
             for instr in &block.instructions {
                 if let Some(Instruction::LoadConst { .. }) = instr.instr.real() {
-                    let idx = instr.arg.0 as usize;
+                    let idx = u32::from(instr.arg) as usize;
                     if idx < nconsts {
                         used[idx] = true;
                     }
@@ -658,9 +658,9 @@ impl CodeInfo {
         for block in &mut self.blocks {
             for instr in &mut block.instructions {
                 if let Some(Instruction::LoadConst { .. }) = instr.instr.real() {
-                    let old_idx = instr.arg.0 as usize;
+                    let old_idx = u32::from(instr.arg) as usize;
                     if old_idx < nconsts {
-                        instr.arg = OpArg(old_to_new[old_idx] as u32);
+                        instr.arg = OpArg::new(old_to_new[old_idx] as u32);
                     }
                 }
             }
@@ -801,7 +801,7 @@ impl CodeInfo {
                     let display_arg = if ins.target == BlockIdx::NULL {
                         ins.arg
                     } else {
-                        OpArg(ins.target.0)
+                        OpArg::new(ins.target.0)
                     };
                     let instr_display = instr.display(display_arg, self);
                     eprint!("{instr_display}: {depth} {effect:+} => ");
@@ -1253,10 +1253,10 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                     const RESUME_OPARG_LOCATION_MASK: u32 = 0x3;
                     const RESUME_OPARG_DEPTH1_MASK: u32 = 0x4;
 
-                    if (arg.0 & RESUME_OPARG_LOCATION_MASK) != RESUME_AT_FUNC_START {
+                    if (u32::from(arg) & RESUME_OPARG_LOCATION_MASK) != RESUME_AT_FUNC_START {
                         if last_yield_except_depth == 1 {
                             blocks[bi].instructions[i].arg =
-                                OpArg(arg.0 | RESUME_OPARG_DEPTH1_MASK);
+                                OpArg::new(u32::from(arg) | RESUME_OPARG_DEPTH1_MASK);
                         }
                         last_yield_except_depth = -1;
                     }
@@ -1311,7 +1311,7 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], varnames_len: u32) {
                 // LOAD_CLOSURE → LOAD_FAST (with varnames offset)
                 PseudoInstruction::LoadClosure(idx) => {
                     let new_idx = varnames_len + idx.get(info.arg);
-                    info.arg = OpArg(new_idx);
+                    info.arg = OpArg::new(new_idx);
                     info.instr = Instruction::LoadFast(Arg::marker()).into();
                 }
                 // Jump pseudo ops are resolved during block linearization

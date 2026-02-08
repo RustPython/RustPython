@@ -12,17 +12,26 @@ pub trait OpArgType: Copy + Into<u32> + TryFrom<u32> {}
 /// Opcode argument that may be extended by a prior ExtendedArg.
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct OpArgByte(pub u8);
+pub struct OpArgByte(u8);
 
 impl OpArgByte {
-    pub const fn null() -> Self {
-        Self(0)
+    pub const NULL: Self = Self::new(0);
+
+    #[must_use]
+    pub const fn new(value: u8) -> Self {
+        Self(value)
     }
 }
 
 impl From<u8> for OpArgByte {
     fn from(raw: u8) -> Self {
-        Self(raw)
+        Self::new(raw)
+    }
+}
+
+impl From<OpArgByte> for u8 {
+    fn from(value: OpArgByte) -> Self {
+        value.0
     }
 }
 
@@ -35,11 +44,14 @@ impl fmt::Debug for OpArgByte {
 /// Full 32-bit op_arg, including any possible ExtendedArg extension.
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
-pub struct OpArg(pub u32);
+pub struct OpArg(u32);
 
 impl OpArg {
-    pub const fn null() -> Self {
-        Self(0)
+    pub const NULL: Self = Self::new(0);
+
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
     }
 
     /// Returns how many CodeUnits a instruction with this op_arg will be encoded as
@@ -65,7 +77,7 @@ impl OpArg {
 
 impl From<u32> for OpArg {
     fn from(raw: u32) -> Self {
-        Self(raw)
+        Self::new(raw)
     }
 }
 
@@ -94,7 +106,7 @@ impl OpArgState {
     #[inline(always)]
     pub fn extend(&mut self, arg: OpArgByte) -> OpArg {
         self.state = (self.state << 8) | u32::from(arg.0);
-        OpArg(self.state)
+        self.state.into()
     }
 
     #[inline(always)]

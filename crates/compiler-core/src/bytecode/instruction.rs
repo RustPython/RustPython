@@ -1249,7 +1249,7 @@ impl<T: OpArgType> Arg<T> {
 
     #[inline]
     pub fn new(arg: T) -> (Self, OpArg) {
-        (Self(PhantomData), OpArg(arg.into()))
+        (Self(PhantomData), OpArg::new(arg.into()))
     }
 
     #[inline]
@@ -1257,7 +1257,7 @@ impl<T: OpArgType> Arg<T> {
     where
         T: Into<u8>,
     {
-        (Self(PhantomData), OpArgByte(arg.into()))
+        (Self(PhantomData), OpArgByte::new(arg.into()))
     }
 
     #[inline(always)]
@@ -1267,7 +1267,7 @@ impl<T: OpArgType> Arg<T> {
 
     #[inline(always)]
     pub fn try_get(self, arg: OpArg) -> Result<T, MarshalError> {
-        T::try_from(arg.0).map_err(|_| MarshalError::InvalidBytecode)
+        T::try_from(u32::from(arg)).map_err(|_| MarshalError::InvalidBytecode)
     }
 
     /// # Safety
@@ -1275,7 +1275,7 @@ impl<T: OpArgType> Arg<T> {
     #[inline(always)]
     pub unsafe fn get_unchecked(self, arg: OpArg) -> T {
         // SAFETY: requirements forwarded from caller
-        unsafe { T::try_from(arg.0).unwrap_unchecked() }
+        unsafe { T::try_from(u32::from(arg)).unwrap_unchecked() }
     }
 }
 
