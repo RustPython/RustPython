@@ -112,11 +112,11 @@ mod _overlapped {
                         s,
                         SIO_GET_EXTENSION_FUNCTION_POINTER,
                         &$guid as *const _ as *const _,
-                        std::mem::size_of_val(&$guid) as u32,
+                        core::mem::size_of_val(&$guid) as u32,
                         &mut func_ptr as *mut _ as *mut _,
-                        std::mem::size_of::<usize>() as u32,
+                        core::mem::size_of::<usize>() as u32,
                         &mut dw_bytes,
-                        std::ptr::null_mut(),
+                        core::ptr::null_mut(),
                         None,
                     )
                 };
@@ -306,17 +306,17 @@ mod _overlapped {
                 let host: PyStrRef = addr_obj[0].clone().try_into_value(vm)?;
                 let port: u16 = addr_obj[1].clone().try_to_value(vm)?;
 
-                let mut addr: SOCKADDR_IN = unsafe { std::mem::zeroed() };
+                let mut addr: SOCKADDR_IN = unsafe { core::mem::zeroed() };
                 addr.sin_family = AF_INET;
 
                 let host_wide: Vec<u16> = host.as_str().encode_utf16().chain([0]).collect();
-                let mut addr_len = std::mem::size_of::<SOCKADDR_IN>() as i32;
+                let mut addr_len = core::mem::size_of::<SOCKADDR_IN>() as i32;
 
                 let ret = unsafe {
                     WSAStringToAddressW(
                         host_wide.as_ptr(),
                         AF_INET as i32,
-                        std::ptr::null(),
+                        core::ptr::null(),
                         &mut addr as *mut _ as *mut SOCKADDR,
                         &mut addr_len,
                     )
@@ -331,9 +331,9 @@ mod _overlapped {
                 addr.sin_port = port.to_be();
 
                 let bytes = unsafe {
-                    std::slice::from_raw_parts(
+                    core::slice::from_raw_parts(
                         &addr as *const _ as *const u8,
-                        std::mem::size_of::<SOCKADDR_IN>(),
+                        core::mem::size_of::<SOCKADDR_IN>(),
                     )
                 };
                 Ok((bytes.to_vec(), addr_len))
@@ -345,17 +345,17 @@ mod _overlapped {
                 let flowinfo: u32 = addr_obj[2].clone().try_to_value(vm)?;
                 let scope_id: u32 = addr_obj[3].clone().try_to_value(vm)?;
 
-                let mut addr: SOCKADDR_IN6 = unsafe { std::mem::zeroed() };
+                let mut addr: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
                 addr.sin6_family = AF_INET6;
 
                 let host_wide: Vec<u16> = host.as_str().encode_utf16().chain([0]).collect();
-                let mut addr_len = std::mem::size_of::<SOCKADDR_IN6>() as i32;
+                let mut addr_len = core::mem::size_of::<SOCKADDR_IN6>() as i32;
 
                 let ret = unsafe {
                     WSAStringToAddressW(
                         host_wide.as_ptr(),
                         AF_INET6 as i32,
-                        std::ptr::null(),
+                        core::ptr::null(),
                         &mut addr as *mut _ as *mut SOCKADDR,
                         &mut addr_len,
                     )
@@ -372,9 +372,9 @@ mod _overlapped {
                 addr.Anonymous.sin6_scope_id = scope_id;
 
                 let bytes = unsafe {
-                    std::slice::from_raw_parts(
+                    core::slice::from_raw_parts(
                         &addr as *const _ as *const u8,
-                        std::mem::size_of::<SOCKADDR_IN6>(),
+                        core::mem::size_of::<SOCKADDR_IN6>(),
                     )
                 };
                 Ok((bytes.to_vec(), addr_len))
@@ -385,7 +385,7 @@ mod _overlapped {
 
     /// Parse a SOCKADDR_IN6 (which can also hold IPv4 addresses) to a Python address tuple
     fn unparse_address(addr: &SOCKADDR_IN6, _addr_len: i32, vm: &VirtualMachine) -> PyResult {
-        use std::net::{Ipv4Addr, Ipv6Addr};
+        use core::net::{Ipv4Addr, Ipv6Addr};
 
         unsafe {
             let family = addr.sin6_family;
@@ -579,7 +579,7 @@ mod _overlapped {
             #[cfg(target_pointer_width = "32")]
             let size = core::cmp::min(size, isize::MAX as u32);
 
-            let buf = vec![0u8; std::cmp::max(size, 1) as usize];
+            let buf = vec![0u8; core::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
             inner.handle = handle as HANDLE;
             inner.data = OverlappedData::Read(buf.clone());
@@ -702,7 +702,7 @@ mod _overlapped {
             #[cfg(target_pointer_width = "32")]
             let size = core::cmp::min(size, isize::MAX as u32);
 
-            let buf = vec![0u8; std::cmp::max(size, 1) as usize];
+            let buf = vec![0u8; core::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
             inner.handle = handle as HANDLE;
             inner.data = OverlappedData::Read(buf.clone());
@@ -952,7 +952,7 @@ mod _overlapped {
             }
 
             // Buffer size: local address + remote address
-            let size = std::mem::size_of::<SOCKADDR_IN6>() + 16;
+            let size = core::mem::size_of::<SOCKADDR_IN6>() + 16;
             let buf = vec![0u8; size * 2];
             let buf = vm.ctx.new_bytes(buf);
 
@@ -972,7 +972,7 @@ mod _overlapped {
                 lpOverlapped: *mut OVERLAPPED,
             ) -> i32;
 
-            let accept_ex: AcceptExFn = unsafe { std::mem::transmute(*ACCEPT_EX.get().unwrap()) };
+            let accept_ex: AcceptExFn = unsafe { core::mem::transmute(*ACCEPT_EX.get().unwrap()) };
 
             let ret = unsafe {
                 accept_ex(
@@ -1036,7 +1036,7 @@ mod _overlapped {
             ) -> i32;
 
             let connect_ex: ConnectExFn =
-                unsafe { std::mem::transmute(*CONNECT_EX.get().unwrap()) };
+                unsafe { core::mem::transmute(*CONNECT_EX.get().unwrap()) };
 
             // Get pointer to the stored address data
             let addr_ptr = match &inner.data {
@@ -1049,9 +1049,9 @@ mod _overlapped {
                     socket as _,
                     addr_ptr as *const SOCKADDR,
                     addr_len,
-                    std::ptr::null(),
+                    core::ptr::null(),
                     0,
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                     &mut inner.overlapped,
                 )
             };
@@ -1099,7 +1099,7 @@ mod _overlapped {
             ) -> i32;
 
             let disconnect_ex: DisconnectExFn =
-                unsafe { std::mem::transmute(*DISCONNECT_EX.get().unwrap()) };
+                unsafe { core::mem::transmute(*DISCONNECT_EX.get().unwrap()) };
 
             let ret = unsafe { disconnect_ex(socket as _, &mut inner.overlapped, flags, 0) };
 
@@ -1157,7 +1157,7 @@ mod _overlapped {
             ) -> i32;
 
             let transmit_file: TransmitFileFn =
-                unsafe { std::mem::transmute(*TRANSMIT_FILE.get().unwrap()) };
+                unsafe { core::mem::transmute(*TRANSMIT_FILE.get().unwrap()) };
 
             let ret = unsafe {
                 transmit_file(
@@ -1166,7 +1166,7 @@ mod _overlapped {
                     count_to_write,
                     count_per_send,
                     &mut inner.overlapped,
-                    std::ptr::null(),
+                    core::ptr::null(),
                     flags,
                 )
             };
@@ -1327,12 +1327,12 @@ mod _overlapped {
             #[cfg(target_pointer_width = "32")]
             let size = core::cmp::min(size, isize::MAX as u32);
 
-            let buf = vec![0u8; std::cmp::max(size, 1) as usize];
+            let buf = vec![0u8; core::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
             inner.handle = handle as HANDLE;
 
-            let address: SOCKADDR_IN6 = unsafe { std::mem::zeroed() };
-            let address_length = std::mem::size_of::<SOCKADDR_IN6>() as i32;
+            let address: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
+            let address_length = core::mem::size_of::<SOCKADDR_IN6>() as i32;
 
             inner.data = OverlappedData::ReadFrom(OverlappedReadFrom {
                 result: None,
@@ -1422,8 +1422,8 @@ mod _overlapped {
                 return Err(vm.new_value_error("buffer too large".to_owned()));
             }
 
-            let address: SOCKADDR_IN6 = unsafe { std::mem::zeroed() };
-            let address_length = std::mem::size_of::<SOCKADDR_IN6>() as i32;
+            let address: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
+            let address_length = core::mem::size_of::<SOCKADDR_IN6>() as i32;
 
             inner.data = OverlappedData::ReadFromInto(OverlappedReadFromInto {
                 result: None,
@@ -1502,7 +1502,7 @@ mod _overlapped {
                 }
             }
 
-            let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+            let mut overlapped: OVERLAPPED = unsafe { core::mem::zeroed() };
             if event != NULL {
                 overlapped.hEvent = event as HANDLE;
             }
@@ -1571,7 +1571,7 @@ mod _overlapped {
                 unsafe {
                     Foundation::CloseHandle(inner.overlapped.hEvent);
                 }
-                inner.overlapped.hEvent = std::ptr::null_mut();
+                inner.overlapped.hEvent = core::ptr::null_mut();
             }
 
             // Restore last error
@@ -1588,17 +1588,17 @@ mod _overlapped {
             CreateFileW, FILE_FLAG_OVERLAPPED, OPEN_EXISTING,
         };
 
-        let address_wide: Vec<u16> = address.encode_utf16().chain(std::iter::once(0)).collect();
+        let address_wide: Vec<u16> = address.encode_utf16().chain(core::iter::once(0)).collect();
 
         let handle = unsafe {
             CreateFileW(
                 address_wide.as_ptr(),
                 GENERIC_READ | GENERIC_WRITE,
                 0,
-                std::ptr::null(),
+                core::ptr::null(),
                 OPEN_EXISTING,
                 FILE_FLAG_OVERLAPPED,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
 
@@ -1635,7 +1635,7 @@ mod _overlapped {
     fn GetQueuedCompletionStatus(port: isize, msecs: u32, vm: &VirtualMachine) -> PyResult {
         let mut bytes_transferred = 0;
         let mut completion_key = 0;
-        let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
+        let mut overlapped: *mut OVERLAPPED = core::ptr::null_mut();
         let ret = unsafe {
             windows_sys::Win32::System::IO::GetQueuedCompletionStatus(
                 port as HANDLE,
@@ -1693,12 +1693,12 @@ mod _overlapped {
     // Uses Arc for reference counting to prevent use-after-free when callback
     // and UnregisterWait race - the data stays alive until both are done
     static WAIT_CALLBACK_REGISTRY: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<isize, std::sync::Arc<PostCallbackData>>>,
+        std::sync::Mutex<std::collections::HashMap<isize, alloc::sync::Arc<PostCallbackData>>>,
     > = std::sync::OnceLock::new();
 
-    fn wait_callback_registry()
-    -> &'static std::sync::Mutex<std::collections::HashMap<isize, std::sync::Arc<PostCallbackData>>>
-    {
+    fn wait_callback_registry() -> &'static std::sync::Mutex<
+        std::collections::HashMap<isize, alloc::sync::Arc<PostCallbackData>>,
+    > {
         WAIT_CALLBACK_REGISTRY
             .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
     }
@@ -1721,7 +1721,7 @@ mod _overlapped {
     ) {
         // Reconstruct Arc from raw pointer - this gives us ownership of one reference
         // The Arc prevents use-after-free since we own a reference count
-        let data = unsafe { std::sync::Arc::from_raw(parameter as *const PostCallbackData) };
+        let data = unsafe { alloc::sync::Arc::from_raw(parameter as *const PostCallbackData) };
 
         unsafe {
             let _ = windows_sys::Win32::System::IO::PostQueuedCompletionStatus(
@@ -1747,15 +1747,15 @@ mod _overlapped {
             RegisterWaitForSingleObject, WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE,
         };
 
-        let data = std::sync::Arc::new(PostCallbackData {
+        let data = alloc::sync::Arc::new(PostCallbackData {
             completion_port: completion_port as HANDLE,
             overlapped: overlapped as *mut OVERLAPPED,
         });
 
         // Create raw pointer for the callback - this increments refcount
-        let data_ptr = std::sync::Arc::into_raw(data.clone());
+        let data_ptr = alloc::sync::Arc::into_raw(data.clone());
 
-        let mut new_wait_object: HANDLE = std::ptr::null_mut();
+        let mut new_wait_object: HANDLE = core::ptr::null_mut();
         let ret = unsafe {
             RegisterWaitForSingleObject(
                 &mut new_wait_object,
@@ -1770,7 +1770,7 @@ mod _overlapped {
         if ret == 0 {
             // Registration failed - reconstruct Arc to drop the extra reference
             unsafe {
-                let _ = std::sync::Arc::from_raw(data_ptr);
+                let _ = alloc::sync::Arc::from_raw(data_ptr);
             }
             return Err(set_from_windows_err(0, vm));
         }
@@ -1829,7 +1829,7 @@ mod _overlapped {
         };
 
         let ret = if family == AF_INET as i32 {
-            let mut addr: SOCKADDR_IN = unsafe { std::mem::zeroed() };
+            let mut addr: SOCKADDR_IN = unsafe { core::mem::zeroed() };
             addr.sin_family = AF_INET;
             addr.sin_port = 0;
             addr.sin_addr.S_un.S_addr = INADDR_ANY;
@@ -1837,19 +1837,19 @@ mod _overlapped {
                 bind(
                     socket as _,
                     &addr as *const _ as *const SOCKADDR,
-                    std::mem::size_of::<SOCKADDR_IN>() as i32,
+                    core::mem::size_of::<SOCKADDR_IN>() as i32,
                 )
             }
         } else if family == AF_INET6 as i32 {
             // in6addr_any is all zeros, which we have from zeroed()
-            let mut addr: SOCKADDR_IN6 = unsafe { std::mem::zeroed() };
+            let mut addr: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
             addr.sin6_family = AF_INET6;
             addr.sin6_port = 0;
             unsafe {
                 bind(
                     socket as _,
                     &addr as *const _ as *const SOCKADDR,
-                    std::mem::size_of::<SOCKADDR_IN6>() as i32,
+                    core::mem::size_of::<SOCKADDR_IN6>() as i32,
                 )
             }
         } else {
@@ -1875,19 +1875,19 @@ mod _overlapped {
         const LANG_NEUTRAL: u32 = 0;
         const SUBLANG_DEFAULT: u32 = 1;
 
-        let mut buffer: *mut u16 = std::ptr::null_mut();
+        let mut buffer: *mut u16 = core::ptr::null_mut();
 
         let len = unsafe {
             FormatMessageW(
                 FORMAT_MESSAGE_ALLOCATE_BUFFER
                     | FORMAT_MESSAGE_FROM_SYSTEM
                     | FORMAT_MESSAGE_IGNORE_INSERTS,
-                std::ptr::null(),
+                core::ptr::null(),
                 error_code,
                 (SUBLANG_DEFAULT << 10) | LANG_NEUTRAL,
                 &mut buffer as *mut _ as *mut u16,
                 0,
-                std::ptr::null(),
+                core::ptr::null(),
             )
         };
 
@@ -1899,7 +1899,7 @@ mod _overlapped {
         }
 
         // Convert to Rust string, trimming trailing whitespace
-        let slice = unsafe { std::slice::from_raw_parts(buffer, len as usize) };
+        let slice = unsafe { core::slice::from_raw_parts(buffer, len as usize) };
         let msg = String::from_utf16_lossy(slice).trim_end().to_string();
 
         unsafe { LocalFree(buffer as *mut _) };
@@ -1918,10 +1918,10 @@ mod _overlapped {
                 socket as _,
                 addr_bytes.as_ptr() as *const SOCKADDR,
                 addr_len,
-                std::ptr::null(),
-                std::ptr::null_mut(),
-                std::ptr::null(),
-                std::ptr::null(),
+                core::ptr::null(),
+                core::ptr::null_mut(),
+                core::ptr::null(),
+                core::ptr::null(),
             )
         };
 
@@ -1945,15 +1945,15 @@ mod _overlapped {
         }
 
         let name_wide: Option<Vec<u16>> =
-            name.map(|n| n.encode_utf16().chain(std::iter::once(0)).collect());
+            name.map(|n| n.encode_utf16().chain(core::iter::once(0)).collect());
         let name_ptr = name_wide
             .as_ref()
             .map(|n| n.as_ptr())
-            .unwrap_or(std::ptr::null());
+            .unwrap_or(core::ptr::null());
 
         let event = unsafe {
             windows_sys::Win32::System::Threading::CreateEventW(
-                std::ptr::null(),
+                core::ptr::null(),
                 if manual_reset { 1 } else { 0 },
                 if initial_state { 1 } else { 0 },
                 name_ptr,

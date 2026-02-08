@@ -24,8 +24,9 @@ pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
 pub mod windows {
     use crate::crt_fd;
     use crate::windows::ToWideString;
+    use alloc::ffi::CString;
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
-    use std::ffi::{CString, OsStr, OsString};
+    use std::ffi::{OsStr, OsString};
     use std::os::windows::io::AsRawHandle;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
@@ -119,9 +120,9 @@ pub mod windows {
             });
         }
 
-        let mut info = unsafe { std::mem::zeroed() };
-        let mut basic_info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
-        let mut id_info: FILE_ID_INFO = unsafe { std::mem::zeroed() };
+        let mut info = unsafe { core::mem::zeroed() };
+        let mut basic_info: FILE_BASIC_INFO = unsafe { core::mem::zeroed() };
+        let mut id_info: FILE_ID_INFO = unsafe { core::mem::zeroed() };
 
         if unsafe { GetFileInformationByHandle(h as _, &mut info) } == 0
             || unsafe {
@@ -129,7 +130,7 @@ pub mod windows {
                     h as _,
                     FileBasicInfo,
                     &mut basic_info as *mut _ as *mut _,
-                    std::mem::size_of_val(&basic_info) as u32,
+                    core::mem::size_of_val(&basic_info) as u32,
                 )
             } == 0
         {
@@ -141,7 +142,7 @@ pub mod windows {
                 h as _,
                 FileIdInfo,
                 &mut id_info as *mut _ as *mut _,
-                std::mem::size_of_val(&id_info) as u32,
+                core::mem::size_of_val(&id_info) as u32,
             )
         } == 0
         {
@@ -334,8 +335,8 @@ pub mod windows {
             .ok_or_else(|| std::io::Error::from_raw_os_error(ERROR_NOT_SUPPORTED as _))?;
 
         let file_name = file_name.to_wide_with_nul();
-        let file_info_buffer_size = std::mem::size_of::<FILE_STAT_BASIC_INFORMATION>() as u32;
-        let mut file_info_buffer = std::mem::MaybeUninit::<FILE_STAT_BASIC_INFORMATION>::uninit();
+        let file_info_buffer_size = core::mem::size_of::<FILE_STAT_BASIC_INFORMATION>() as u32;
+        let mut file_info_buffer = core::mem::MaybeUninit::<FILE_STAT_BASIC_INFORMATION>::uninit();
         unsafe {
             if GetFileInformationByName(
                 file_name.as_ptr(),

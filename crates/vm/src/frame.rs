@@ -3204,7 +3204,7 @@ impl ExecutingFrame<'_> {
         let stack = &self.state.stack;
         match &stack[stack.len() - depth as usize - 1] {
             Some(obj) => obj,
-            None => unsafe { std::hint::unreachable_unchecked() },
+            None => unsafe { core::hint::unreachable_unchecked() },
         }
     }
 

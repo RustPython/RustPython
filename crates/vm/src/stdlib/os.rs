@@ -1011,10 +1011,10 @@ pub(super) mod _os {
             let st_ino = stat.st_ino;
 
             #[cfg(not(windows))]
-            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+            #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
             let st_blksize = i64::from(stat.st_blksize);
             #[cfg(not(windows))]
-            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+            #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
             let st_blocks = i64::from(stat.st_blocks);
 
             Self {
@@ -1342,9 +1342,9 @@ pub(super) mod _os {
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;
-            let src_cstr = std::ffi::CString::new(src.path.as_os_str().as_bytes())
+            let src_cstr = alloc::ffi::CString::new(src.path.as_os_str().as_bytes())
                 .map_err(|_| vm.new_value_error("embedded null byte"))?;
-            let dst_cstr = std::ffi::CString::new(dst.path.as_os_str().as_bytes())
+            let dst_cstr = alloc::ffi::CString::new(dst.path.as_os_str().as_bytes())
                 .map_err(|_| vm.new_value_error("embedded null byte"))?;
 
             let follow = follow_symlinks.into_option().unwrap_or(true);
@@ -1595,7 +1595,7 @@ pub(super) mod _os {
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
-            use std::mem::MaybeUninit;
+            use core::mem::MaybeUninit;
             use windows_sys::Win32::{Foundation::FILETIME, System::Threading};
 
             let mut _create = MaybeUninit::<FILETIME>::uninit();

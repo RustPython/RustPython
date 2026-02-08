@@ -15,7 +15,7 @@ mod _abc {
         protocol::PyIterReturn,
         types::Constructor,
     };
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use core::sync::atomic::{AtomicU64, Ordering};
 
     // Global invalidation counter
     static ABC_INVALIDATION_COUNTER: AtomicU64 = AtomicU64::new(0);

@@ -3,6 +3,7 @@ use crate::{
     PyResult, builtins, common::rc::PyRc, frozen::FrozenModule, getpath, py_freeze, stdlib::atexit,
     vm::PyBaseExceptionRef,
 };
+use alloc::collections::BTreeMap;
 use core::sync::atomic::Ordering;
 
 type InitFunc = Box<dyn FnOnce(&mut VirtualMachine)>;
@@ -45,8 +46,8 @@ where
     use crate::common::hash::HashSecret;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
+    use core::sync::atomic::AtomicBool;
     use crossbeam_utils::atomic::AtomicCell;
-    use std::sync::atomic::AtomicBool;
 
     let paths = getpath::init_path_config(&settings);
     let config = PyConfig::new(settings, paths);
@@ -55,14 +56,12 @@ where
     crate::exceptions::ExceptionZoo::extend(&ctx);
 
     // Build module_defs map from builtin modules + additional modules
-    let mut all_module_defs: std::collections::BTreeMap<
-        &'static str,
-        &'static builtins::PyModuleDef,
-    > = crate::stdlib::builtin_module_defs(&ctx)
-        .into_iter()
-        .chain(module_defs)
-        .map(|def| (def.name.as_str(), def))
-        .collect();
+    let mut all_module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef> =
+        crate::stdlib::builtin_module_defs(&ctx)
+            .into_iter()
+            .chain(module_defs)
+            .map(|def| (def.name.as_str(), def))
+            .collect();
 
     // Register sysconfigdata under platform-specific name as well
     if let Some(&sysconfigdata_def) = all_module_defs.get("_sysconfigdata") {

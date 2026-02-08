@@ -935,7 +935,7 @@ mod sys {
 
             // Get the size of the version information block
             let ver_block_size =
-                GetFileVersionInfoSizeW(kernel32_path.as_ptr(), std::ptr::null_mut());
+                GetFileVersionInfoSizeW(kernel32_path.as_ptr(), core::ptr::null_mut());
             if ver_block_size == 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -955,7 +955,7 @@ mod sys {
             // Prepare an empty sub-block string (L"") as required by VerQueryValueW
             let sub_block: Vec<u16> = std::ffi::OsStr::new("").to_wide_with_nul();
 
-            let mut ffi_ptr: *mut VS_FIXEDFILEINFO = std::ptr::null_mut();
+            let mut ffi_ptr: *mut VS_FIXEDFILEINFO = core::ptr::null_mut();
             let mut ffi_len: u32 = 0;
             if VerQueryValueW(
                 ver_block.as_ptr() as *const _,
@@ -987,8 +987,8 @@ mod sys {
             GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW,
         };
 
-        let mut version: OSVERSIONINFOEXW = unsafe { std::mem::zeroed() };
-        version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
+        let mut version: OSVERSIONINFOEXW = unsafe { core::mem::zeroed() };
+        version.dwOSVersionInfoSize = core::mem::size_of::<OSVERSIONINFOEXW>() as u32;
         let result = unsafe {
             let os_vi = &mut version as *mut OSVERSIONINFOEXW as *mut OSVERSIONINFOW;
             // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but windows-sys crate's type currently doesn't allow to do so.

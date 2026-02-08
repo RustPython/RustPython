@@ -179,7 +179,7 @@ mod decl {
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
     fn get_tz_info() -> TIME_ZONE_INFORMATION {
-        let mut info: TIME_ZONE_INFORMATION = unsafe { std::mem::zeroed() };
+        let mut info: TIME_ZONE_INFORMATION = unsafe { core::mem::zeroed() };
         unsafe { GetTimeZoneInformation(&mut info) };
         info
     }
@@ -437,7 +437,7 @@ mod decl {
     #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let t: libc::tms = unsafe {
-            let mut t = std::mem::MaybeUninit::uninit();
+            let mut t = core::mem::MaybeUninit::uninit();
             if libc::times(t.as_mut_ptr()) == -1 {
                 return Err(vm.new_os_error("Failed to get clock time".to_owned()));
             }
@@ -820,7 +820,7 @@ mod platform {
         PyRef, PyResult, VirtualMachine,
         builtins::{PyNamespace, PyStrRef},
     };
-    use std::time::Duration;
+    use core::time::Duration;
     use windows_sys::Win32::{
         Foundation::FILETIME,
         System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency},
@@ -835,7 +835,7 @@ mod platform {
 
     fn win_perf_counter_frequency(vm: &VirtualMachine) -> PyResult<i64> {
         let frequency = unsafe {
-            let mut freq = std::mem::MaybeUninit::uninit();
+            let mut freq = core::mem::MaybeUninit::uninit();
             if QueryPerformanceFrequency(freq.as_mut_ptr()) == 0 {
                 return Err(vm.new_last_os_error());
             }
@@ -862,7 +862,7 @@ mod platform {
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let ticks = unsafe {
-            let mut performance_count = std::mem::MaybeUninit::uninit();
+            let mut performance_count = core::mem::MaybeUninit::uninit();
             QueryPerformanceCounter(performance_count.as_mut_ptr());
             performance_count.assume_init()
         };
@@ -875,9 +875,9 @@ mod platform {
     }
 
     fn get_system_time_adjustment(vm: &VirtualMachine) -> PyResult<u32> {
-        let mut _time_adjustment = std::mem::MaybeUninit::uninit();
-        let mut time_increment = std::mem::MaybeUninit::uninit();
-        let mut _is_time_adjustment_disabled = std::mem::MaybeUninit::uninit();
+        let mut _time_adjustment = core::mem::MaybeUninit::uninit();
+        let mut time_increment = core::mem::MaybeUninit::uninit();
+        let mut _is_time_adjustment_disabled = core::mem::MaybeUninit::uninit();
         let time_increment = unsafe {
             if GetSystemTimeAdjustment(
                 _time_adjustment.as_mut_ptr(),
@@ -939,10 +939,10 @@ mod platform {
 
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let (kernel_time, user_time) = unsafe {
-            let mut _creation_time = std::mem::MaybeUninit::uninit();
-            let mut _exit_time = std::mem::MaybeUninit::uninit();
-            let mut kernel_time = std::mem::MaybeUninit::uninit();
-            let mut user_time = std::mem::MaybeUninit::uninit();
+            let mut _creation_time = core::mem::MaybeUninit::uninit();
+            let mut _exit_time = core::mem::MaybeUninit::uninit();
+            let mut kernel_time = core::mem::MaybeUninit::uninit();
+            let mut user_time = core::mem::MaybeUninit::uninit();
 
             let thread = GetCurrentThread();
             if GetThreadTimes(
@@ -964,10 +964,10 @@ mod platform {
 
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let (kernel_time, user_time) = unsafe {
-            let mut _creation_time = std::mem::MaybeUninit::uninit();
-            let mut _exit_time = std::mem::MaybeUninit::uninit();
-            let mut kernel_time = std::mem::MaybeUninit::uninit();
-            let mut user_time = std::mem::MaybeUninit::uninit();
+            let mut _creation_time = core::mem::MaybeUninit::uninit();
+            let mut _exit_time = core::mem::MaybeUninit::uninit();
+            let mut kernel_time = core::mem::MaybeUninit::uninit();
+            let mut user_time = core::mem::MaybeUninit::uninit();
 
             let process = GetCurrentProcess();
             if GetProcessTimes(

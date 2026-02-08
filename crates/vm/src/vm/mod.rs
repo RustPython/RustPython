@@ -39,10 +39,10 @@ use crate::{
     signal, stdlib,
     warn::WarningsState,
 };
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, collections::BTreeMap};
 use core::{
     cell::{Cell, Ref, RefCell},
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
@@ -106,7 +106,7 @@ struct ExceptionStack {
 
 pub struct PyGlobalState {
     pub config: PyConfig,
-    pub module_defs: std::collections::BTreeMap<&'static str, &'static builtins::PyModuleDef>,
+    pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
     pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -508,11 +508,7 @@ impl VirtualMachine {
         // During interpreter finalization, sys.unraisablehook may not be available,
         // but we still need to report exceptions (especially from atexit callbacks).
         // Write directly to stderr like PyErr_FormatUnraisable.
-        if self
-            .state
-            .finalizing
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
+        if self.state.finalizing.load(Ordering::Acquire) {
             self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);
             return;
         }
@@ -826,7 +822,7 @@ impl VirtualMachine {
 
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// 2048 * sizeof(void*) = 16KB for 64-bit.
-    const STACK_MARGIN_BYTES: usize = 2048 * std::mem::size_of::<usize>();
+    const STACK_MARGIN_BYTES: usize = 2048 * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
@@ -858,10 +854,10 @@ impl VirtualMachine {
                 pthread_attr_destroy, pthread_attr_getstack, pthread_attr_t, pthread_getattr_np,
                 pthread_self,
             };
-            let mut attr: pthread_attr_t = unsafe { std::mem::zeroed() };
+            let mut attr: pthread_attr_t = unsafe { core::mem::zeroed() };
             unsafe {
                 if pthread_getattr_np(pthread_self(), &mut attr) == 0 {
-                    let mut stack_addr: *mut libc::c_void = std::ptr::null_mut();
+                    let mut stack_addr: *mut libc::c_void = core::ptr::null_mut();
                     let mut stack_size: libc::size_t = 0;
                     if pthread_attr_getstack(&attr, &mut stack_addr, &mut stack_size) == 0 {
                         pthread_attr_destroy(&mut attr);

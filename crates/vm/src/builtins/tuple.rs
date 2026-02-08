@@ -45,7 +45,7 @@ unsafe impl Traverse for PyTuple {
     }
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        let elements = std::mem::take(&mut self.elements);
+        let elements = core::mem::take(&mut self.elements);
         out.extend(elements.into_vec());
     }
 }

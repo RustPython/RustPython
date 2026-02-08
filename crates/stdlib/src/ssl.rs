@@ -2616,7 +2616,7 @@ mod _ssl {
         pub(crate) fn sock_wait_for_io_with_timeout(
             &self,
             kind: SelectKind,
-            timeout: Option<std::time::Duration>,
+            timeout: Option<core::time::Duration>,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
             if self.is_bio_mode() {
@@ -4157,7 +4157,7 @@ mod _ssl {
 
                             // Calculate deadline for timeout mode
                             let deadline = timeout.map(|t| {
-                                std::time::Instant::now() + std::time::Duration::from_secs_f64(t)
+                                std::time::Instant::now() + core::time::Duration::from_secs_f64(t)
                             });
 
                             // Wait for peer's close_notify
@@ -5020,7 +5020,7 @@ mod _ssl {
         let store_name_wide: Vec<u16> = store_name
             .as_str()
             .encode_utf16()
-            .chain(std::iter::once(0))
+            .chain(core::iter::once(0))
             .collect();
 
         // Open system store
@@ -5044,7 +5044,7 @@ mod _ssl {
 
             let crl = unsafe { &*crl_context };
             let crl_bytes =
-                unsafe { std::slice::from_raw_parts(crl.pbCrlEncoded, crl.cbCrlEncoded as usize) };
+                unsafe { core::slice::from_raw_parts(crl.pbCrlEncoded, crl.cbCrlEncoded as usize) };
 
             let enc_type = if crl.dwCertEncodingType == X509_ASN_ENCODING {
                 vm.new_pyobj("x509_asn")

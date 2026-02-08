@@ -43,7 +43,7 @@ impl ToOSErrorBuilder for std::io::Error {
             if errno > 0 && errno <= MAX_POSIX_ERRNO {
                 let ptr = unsafe { libc::strerror(errno) };
                 if !ptr.is_null() {
-                    let s = unsafe { std::ffi::CStr::from_ptr(ptr) }.to_string_lossy();
+                    let s = unsafe { core::ffi::CStr::from_ptr(ptr) }.to_string_lossy();
                     if !s.starts_with("Unknown error") {
                         break 'msg s.into_owned();
                     }
@@ -5378,7 +5378,10 @@ mod fileio {
                         }
                         // Store st_blksize for _blksize property
                         if status.st_blksize > 1 {
-                            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+                            #[allow(
+                                clippy::useless_conversion,
+                                reason = "needed for 32-bit platforms"
+                            )]
                             zelf.blksize.store(i64::from(status.st_blksize));
                         }
                     }

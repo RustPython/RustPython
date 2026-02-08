@@ -16,9 +16,10 @@ pub(crate) mod module {
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
 
+    use core::mem::MaybeUninit;
     use libc::intptr_t;
     use std::os::windows::io::AsRawHandle;
-    use std::{env, io, mem::MaybeUninit, os::windows::ffi::OsStringExt};
+    use std::{env, io, os::windows::ffi::OsStringExt};
     use windows_sys::Win32::{
         Foundation::{self, INVALID_HANDLE_VALUE},
         Storage::FileSystem,
@@ -99,7 +100,7 @@ pub(crate) mod module {
 
             // Check if it's a symlink or junction point
             if is_directory && (attrs & FileSystem::FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
-                let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
+                let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
                 let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
                 if handle != INVALID_HANDLE_VALUE {
                     is_link = find_data.dwReserved0 == IO_REPARSE_TAG_SYMLINK
@@ -145,7 +146,7 @@ pub(crate) mod module {
     #[pyfunction]
     pub(super) fn symlink(args: SymlinkArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         use crate::exceptions::ToOSErrorBuilder;
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use core::sync::atomic::{AtomicBool, Ordering};
         use windows_sys::Win32::Storage::FileSystem::WIN32_FILE_ATTRIBUTE_DATA;
         use windows_sys::Win32::Storage::FileSystem::{
             CreateSymbolicLinkW, FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesExW,
@@ -170,7 +171,7 @@ pub(crate) mod module {
                 Ok(wide) => wide,
                 Err(_) => return false,
             };
-            let mut info: WIN32_FILE_ATTRIBUTE_DATA = unsafe { std::mem::zeroed() };
+            let mut info: WIN32_FILE_ATTRIBUTE_DATA = unsafe { core::mem::zeroed() };
             let ok = unsafe {
                 GetFileAttributesExW(
                     wide.as_ptr(),
@@ -277,13 +278,13 @@ pub(crate) mod module {
         };
 
         // Get current file info
-        let mut info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
+        let mut info: FILE_BASIC_INFO = unsafe { core::mem::zeroed() };
         let ret = unsafe {
             GetFileInformationByHandleEx(
                 handle,
                 FileBasicInfo,
                 &mut info as *mut _ as *mut _,
-                std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+                core::mem::size_of::<FILE_BASIC_INFO>() as u32,
             )
         };
         if ret == 0 {
@@ -303,7 +304,7 @@ pub(crate) mod module {
                 handle,
                 FileBasicInfo,
                 &info as *const _ as *const _,
-                std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+                core::mem::size_of::<FILE_BASIC_INFO>() as u32,
             )
         };
         if ret == 0 {
@@ -389,7 +390,7 @@ pub(crate) mod module {
                     core::ptr::null(),
                     OPEN_EXISTING,
                     FILE_FLAG_BACKUP_SEMANTICS,
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                 )
             };
             if handle == INVALID_HANDLE_VALUE {
@@ -415,7 +416,7 @@ pub(crate) mod module {
         };
 
         let wide_path = path.as_ref().to_wide_with_nul();
-        let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
+        let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
         let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
         if handle == INVALID_HANDLE_VALUE {
@@ -534,13 +535,13 @@ pub(crate) mod module {
 
         if tested_type != PY_IFREG && tested_type != PY_IFDIR {
             // For symlinks/junctions, need FileAttributeTagInfo to get reparse tag
-            let mut info: FILE_ATTRIBUTE_TAG_INFO = unsafe { std::mem::zeroed() };
+            let mut info: FILE_ATTRIBUTE_TAG_INFO = unsafe { core::mem::zeroed() };
             let ret = unsafe {
                 GetFileInformationByHandleEx(
                     handle,
                     FileAttributeTagInfoClass,
                     &mut info as *mut _ as *mut _,
-                    std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+                    core::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
                 )
             };
             if ret == 0 {
@@ -554,13 +555,13 @@ pub(crate) mod module {
             )
         } else {
             // For regular files/directories, FileBasicInfo is sufficient
-            let mut info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
+            let mut info: FILE_BASIC_INFO = unsafe { core::mem::zeroed() };
             let ret = unsafe {
                 GetFileInformationByHandleEx(
                     handle,
                     FileBasicInfo,
                     &mut info as *mut _ as *mut _,
-                    std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+                    core::mem::size_of::<FILE_BASIC_INFO>() as u32,
                 )
             };
             if ret == 0 {
@@ -629,7 +630,7 @@ pub(crate) mod module {
                 core::ptr::null(),
                 OPEN_EXISTING,
                 flags,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
 
@@ -710,7 +711,7 @@ pub(crate) mod module {
                 core::ptr::null(),
                 OPEN_EXISTING,
                 flags,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
         if handle != INVALID_HANDLE_VALUE {
@@ -731,7 +732,7 @@ pub(crate) mod module {
                     core::ptr::null(),
                     OPEN_EXISTING,
                     FILE_FLAG_BACKUP_SEMANTICS,
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                 )
             };
             if handle != INVALID_HANDLE_VALUE {
@@ -889,7 +890,7 @@ pub(crate) mod module {
                 core::ptr::null(),
                 OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
         if handle == INVALID_HANDLE_VALUE {
@@ -908,12 +909,12 @@ pub(crate) mod module {
             DeviceIoControl(
                 handle,
                 FSCTL_QUERY_PERSISTENT_VOLUME_STATE,
-                &volume_state as *const _ as *const std::ffi::c_void,
-                std::mem::size_of::<FileFsPersistentVolumeInformation>() as u32,
-                &mut volume_state as *mut _ as *mut std::ffi::c_void,
-                std::mem::size_of::<FileFsPersistentVolumeInformation>() as u32,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                &volume_state as *const _ as *const core::ffi::c_void,
+                core::mem::size_of::<FileFsPersistentVolumeInformation>() as u32,
+                &mut volume_state as *mut _ as *mut core::ffi::c_void,
+                core::mem::size_of::<FileFsPersistentVolumeInformation>() as u32,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
 
@@ -1018,7 +1019,7 @@ pub(crate) mod module {
                     core::ptr::null(),
                     FileSystem::OPEN_EXISTING,
                     0,
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                 )
             };
             if console_handle == INVALID_HANDLE_VALUE {
@@ -1064,7 +1065,7 @@ pub(crate) mod module {
         vm: &VirtualMachine,
     ) -> PyResult<intptr_t> {
         use crate::function::FsPath;
-        use std::iter::once;
+        use core::iter::once;
 
         let path = path.to_wide_cstring(vm)?;
 
@@ -1105,7 +1106,7 @@ pub(crate) mod module {
         vm: &VirtualMachine,
     ) -> PyResult<intptr_t> {
         use crate::function::FsPath;
-        use std::iter::once;
+        use core::iter::once;
 
         let path = path.to_wide_cstring(vm)?;
 
@@ -1178,7 +1179,7 @@ pub(crate) mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        use std::iter::once;
+        use core::iter::once;
 
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
@@ -1219,7 +1220,7 @@ pub(crate) mod module {
         env: PyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        use std::iter::once;
+        use core::iter::once;
 
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
@@ -1299,7 +1300,7 @@ pub(crate) mod module {
                 core::ptr::null(),
                 OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
         if handle == INVALID_HANDLE_VALUE {
@@ -1342,7 +1343,7 @@ pub(crate) mod module {
                 wpath.as_ptr(),
                 buffer.len() as _,
                 buffer.as_mut_ptr(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
         if ret == 0 {
@@ -1356,7 +1357,7 @@ pub(crate) mod module {
                     wpath.as_ptr(),
                     buffer.len() as _,
                     buffer.as_mut_ptr(),
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                 )
             };
             if ret == 0 {
@@ -1371,7 +1372,7 @@ pub(crate) mod module {
     #[pyfunction]
     fn _getvolumepathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
         let wide = path.to_wide_cstring(vm)?;
-        let buflen = std::cmp::max(wide.len(), Foundation::MAX_PATH as usize);
+        let buflen = core::cmp::max(wide.len(), Foundation::MAX_PATH as usize);
         if buflen > u32::MAX as usize {
             return Err(vm.new_overflow_error("path too long".to_owned()));
         }
@@ -1478,7 +1479,7 @@ pub(crate) mod module {
             (wide, false)
         } else if let Some(b) = path.downcast_ref::<PyBytes>() {
             // On Windows, bytes must be valid UTF-8 - this raises UnicodeDecodeError if not
-            let s = std::str::from_utf8(b.as_bytes()).map_err(|e| {
+            let s = core::str::from_utf8(b.as_bytes()).map_err(|e| {
                 vm.new_exception_msg(
                     vm.ctx.exceptions.unicode_decode_error.to_owned(),
                     format!(
@@ -1550,7 +1551,7 @@ pub(crate) mod module {
             .iter()
             .copied()
             .map(|c| if c == b'/' as u16 { b'\\' as u16 } else { c })
-            .chain(std::iter::once(0)) // null-terminated
+            .chain(core::iter::once(0)) // null-terminated
             .collect();
 
         let mut end: *const u16 = core::ptr::null();
@@ -1718,7 +1719,7 @@ pub(crate) mod module {
             let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
             (wide, false)
         } else if let Some(b) = path.downcast_ref::<PyBytes>() {
-            let s = std::str::from_utf8(b.as_bytes()).map_err(|e| {
+            let s = core::str::from_utf8(b.as_bytes()).map_err(|e| {
                 vm.new_exception_msg(
                     vm.ctx.exceptions.unicode_decode_error.to_owned(),
                     format!(
@@ -1968,8 +1969,8 @@ pub(crate) mod module {
         // special case: mode 0o700 sets a protected ACL
         let res = if args.mode == 0o700 {
             let mut sec_attr = SECURITY_ATTRIBUTES {
-                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-                lpSecurityDescriptor: std::ptr::null_mut(),
+                nLength: core::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: core::ptr::null_mut(),
                 bInheritHandle: 0,
             };
             // Set a discretionary ACL (D) that is protected (P) and includes
@@ -1983,7 +1984,7 @@ pub(crate) mod module {
                     sddl.as_ptr(),
                     SDDL_REVISION_1,
                     &mut sec_attr.lpSecurityDescriptor,
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                 )
             };
             if convert_result == 0 {
@@ -1994,7 +1995,7 @@ pub(crate) mod module {
             unsafe { LocalFree(sec_attr.lpSecurityDescriptor) };
             res
         } else {
-            unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) }
+            unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), core::ptr::null_mut()) }
         };
 
         if res == 0 {
@@ -2030,7 +2031,7 @@ pub(crate) mod module {
         use windows_sys::Win32::System::Pipes::CreatePipe;
 
         let mut attr = SECURITY_ATTRIBUTES {
-            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            nLength: core::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: core::ptr::null_mut(),
             bInheritHandle: 0,
         };
@@ -2074,7 +2075,7 @@ pub(crate) mod module {
         type NtQueryInformationProcessFn = unsafe extern "system" fn(
             process_handle: isize,
             process_information_class: u32,
-            process_information: *mut std::ffi::c_void,
+            process_information: *mut core::ffi::c_void,
             process_information_length: u32,
             return_length: *mut u32,
         ) -> i32;
@@ -2099,15 +2100,15 @@ pub(crate) mod module {
         };
         let nt_query: NtQueryInformationProcessFn = unsafe { core::mem::transmute(func) };
 
-        let mut info: PROCESS_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+        let mut info: PROCESS_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
 
         let status = unsafe {
             nt_query(
                 GetCurrentProcess() as isize,
                 0, // ProcessBasicInformation
-                &mut info as *mut _ as *mut std::ffi::c_void,
-                std::mem::size_of::<PROCESS_BASIC_INFORMATION>() as u32,
-                std::ptr::null_mut(),
+                &mut info as *mut _ as *mut core::ffi::c_void,
+                core::mem::size_of::<PROCESS_BASIC_INFORMATION>() as u32,
+                core::ptr::null_mut(),
             )
         };
 
@@ -2185,7 +2186,7 @@ pub(crate) mod module {
                 core::ptr::null(),
                 OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
 
@@ -2211,7 +2212,7 @@ pub(crate) mod module {
                 buffer.as_mut_ptr() as *mut _,
                 BUFFER_SIZE as u32,
                 &mut bytes_returned,
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
 
