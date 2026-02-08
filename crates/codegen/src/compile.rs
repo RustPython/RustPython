@@ -1165,7 +1165,7 @@ impl Compiler {
                 arg: OpArgMarker::marker(),
             }
             .into(),
-            arg: OpArg(u32::from(bytecode::ResumeType::AtFuncStart)),
+            arg: OpArg::new(u32::from(bytecode::ResumeType::AtFuncStart)),
             target: BlockIdx::NULL,
             location,
             end_location,
@@ -7397,7 +7397,7 @@ impl Compiler {
         let return_none = init_collection.is_none();
         // Create empty object of proper type:
         if let Some(init_collection) = init_collection {
-            self._emit(init_collection, OpArg(0), BlockIdx::NULL)
+            self._emit(init_collection, OpArg::new(0), BlockIdx::NULL)
         }
 
         let mut loop_labels = vec![];
@@ -7593,7 +7593,7 @@ impl Compiler {
         // Step 4: Create the collection (list/set/dict)
         // For generator expressions, init_collection is None
         if let Some(init_collection) = init_collection {
-            self._emit(init_collection, OpArg(0), BlockIdx::NULL);
+            self._emit(init_collection, OpArg::new(0), BlockIdx::NULL);
             // SWAP to get iterator on top
             emit!(self, Instruction::Swap { index: 2 });
         }
@@ -7767,7 +7767,7 @@ impl Compiler {
     }
 
     fn emit_no_arg<I: Into<AnyInstruction>>(&mut self, ins: I) {
-        self._emit(ins, OpArg::null(), BlockIdx::NULL)
+        self._emit(ins, OpArg::NULL, BlockIdx::NULL)
     }
 
     fn emit_arg<A: OpArgType, T: EmitArg<A>, I: Into<AnyInstruction>>(
@@ -8455,7 +8455,7 @@ impl EmitArg<bytecode::Label> for BlockIdx {
         self,
         f: impl FnOnce(OpArgMarker<bytecode::Label>) -> I,
     ) -> (AnyInstruction, OpArg, BlockIdx) {
-        (f(OpArgMarker::marker()).into(), OpArg::null(), self)
+        (f(OpArgMarker::marker()).into(), OpArg::NULL, self)
     }
 }
 

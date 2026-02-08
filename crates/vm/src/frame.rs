@@ -577,7 +577,7 @@ impl ExecutingFrame<'_> {
                     {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
                         // OpArgByte.0 is the raw byte value
-                        if prev_unit.arg.0 >= 1 {
+                        if u8::from(prev_unit.arg) >= 1 {
                             // In yield-from/await context, delegate is on top of stack
                             return Some(self.top_value());
                         }
