@@ -491,7 +491,7 @@ pub mod levenshtein {
 
     pub fn levenshtein_distance(a: &[u8], b: &[u8], max_cost: usize) -> usize {
         thread_local! {
-            #[allow(clippy::declare_interior_mutable_const)]
+            #[allow(clippy::declare_interior_mutable_const, reason = "thread-local scratch buffer uses const initializer with RefCell")]
             static BUFFER: RefCell<[usize; MAX_STRING_SIZE]> = const {
                 RefCell::new([0usize; MAX_STRING_SIZE])
             };

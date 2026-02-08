@@ -1120,7 +1120,10 @@ mod _overlapped {
         }
 
         // TransmitFile
-        #[allow(clippy::too_many_arguments)]
+        #[allow(
+            clippy::too_many_arguments,
+            reason = "mirrors Windows TransmitFile argument structure"
+        )]
         #[pymethod]
         fn TransmitFile(
             zelf: &Py<Self>,

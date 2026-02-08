@@ -10,7 +10,10 @@ pub struct RawCellMutex {
 }
 
 unsafe impl RawMutex for RawCellMutex {
-    #[allow(clippy::declare_interior_mutable_const)]
+    #[allow(
+        clippy::declare_interior_mutable_const,
+        reason = "const lock initializer intentionally uses interior mutability"
+    )]
     const INIT: Self = Self {
         locked: Cell::new(false),
     };
@@ -60,7 +63,10 @@ impl RawCellRwLock {
 }
 
 unsafe impl RawRwLock for RawCellRwLock {
-    #[allow(clippy::declare_interior_mutable_const)]
+    #[allow(
+        clippy::declare_interior_mutable_const,
+        reason = "const rwlock initializer intentionally uses interior mutability"
+    )]
     const INIT: Self = Self {
         state: Cell::new(0),
     };

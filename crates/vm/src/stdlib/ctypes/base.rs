@@ -2054,7 +2054,10 @@ pub(super) fn bytes_to_pyobject(
                 let wchars =
                     unsafe { core::slice::from_raw_parts(ptr as *const libc::wchar_t, len) };
                 // wchar_t is i32 on some platforms and u32 on others
-                #[allow(clippy::unnecessary_cast)]
+                #[allow(
+                    clippy::unnecessary_cast,
+                    reason = "wchar_t is i32 on some platforms and u32 on others"
+                )]
                 let s: String = wchars
                     .iter()
                     .filter_map(|&c| char::from_u32(c as u32))
