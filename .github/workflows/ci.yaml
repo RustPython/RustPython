@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls
-  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls,host_env
+  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
   # - rustpython-compiler-source: deprecated
@@ -152,6 +152,19 @@ jobs:
 
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
+
+      - name: check compilation without host_env (sandbox mode)
+        run: |
+          cargo check -p rustpython-vm --no-default-features --features compiler
+          cargo check -p rustpython-stdlib --no-default-features --features compiler
+          cargo build --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
+        if: runner.os == 'Linux'
+
+      - name: sandbox smoke test
+        run: |
+          target/debug/rustpython extra_tests/snippets/sandbox_smoke.py
+          target/debug/rustpython extra_tests/snippets/stdlib_re.py
+        if: runner.os == 'Linux'
 
       - name: Test openssl build
         run: cargo build --no-default-features --features ssl-openssl

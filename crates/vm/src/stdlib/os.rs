@@ -20,20 +20,6 @@ pub(crate) fn fs_metadata<P: AsRef<Path>>(
     }
 }
 
-#[cfg(unix)]
-impl crate::convert::IntoPyException for nix::Error {
-    fn into_pyexception(self, vm: &VirtualMachine) -> crate::builtins::PyBaseExceptionRef {
-        io::Error::from(self).into_pyexception(vm)
-    }
-}
-
-#[cfg(unix)]
-impl crate::convert::IntoPyException for rustix::io::Errno {
-    fn into_pyexception(self, vm: &VirtualMachine) -> crate::builtins::PyBaseExceptionRef {
-        io::Error::from(self).into_pyexception(vm)
-    }
-}
-
 #[allow(dead_code)]
 #[derive(FromArgs, Default)]
 pub struct TargetIsDirectory {
@@ -174,7 +160,6 @@ pub(super) mod _os {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
-            ToOSErrorBuilder,
         },
         common::{
             crt_fd,
@@ -183,7 +168,7 @@ pub(super) mod _os {
             suppress_iph,
         },
         convert::{IntoPyException, ToPyObject},
-        exceptions::OSErrorBuilder,
+        exceptions::{OSErrorBuilder, ToOSErrorBuilder},
         function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
