@@ -1067,7 +1067,6 @@ impl PyPayload for PyBoundMethod {
 impl Representable for PyBoundMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        #[allow(clippy::needless_match)] // False positive on nightly
         let func_name =
             if let Some(qname) = vm.get_attribute_opt(zelf.function.clone(), "__qualname__")? {
                 Some(qname)

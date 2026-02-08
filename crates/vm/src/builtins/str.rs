@@ -232,7 +232,10 @@ pub trait AsPyStr<'a>
 where
     Self: 'a,
 {
-    #[allow(clippy::wrong_self_convention)] // to implement on refs
+    #[allow(
+        clippy::wrong_self_convention,
+        reason = "this trait is intentionally implemented for references"
+    )]
     fn as_pystr(self, ctx: &Context) -> &'a Py<PyStr>;
 }
 

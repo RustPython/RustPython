@@ -550,7 +550,6 @@ pub struct PyWeak {
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
-        #[allow(clippy::non_send_fields_in_send_ty)] // false positive?
         unsafe impl Send for PyWeak {}
         unsafe impl Sync for PyWeak {}
     }
@@ -1631,7 +1630,7 @@ macro_rules! partially_init {
     ) => {{
         // check all the fields are there but *don't* actually run it
 
-        #[allow(clippy::diverging_sub_expression)]  // FIXME: better way than using `if false`?
+        #[allow(clippy::diverging_sub_expression, reason = "intentional compile-time field check in an unreachable branch")]
         if false {
             #[allow(invalid_value, dead_code, unreachable_code)]
             let _ = {$ty {

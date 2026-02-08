@@ -5524,8 +5524,8 @@ impl Compiler {
                 "too many sub-patterns in mapping pattern".to_string(),
             )));
         }
-        #[allow(clippy::cast_possible_truncation)]
-        let size = size as u32; // checked right before
+        #[allow(clippy::cast_possible_truncation, reason = "checked right before")]
+        let size = size as u32;
 
         // Step 2: If we have keys to match
         if size > 0 {

@@ -925,7 +925,10 @@ impl ExceptionZoo {
     }
 
     // TODO: remove it after fixing `errno` / `winerror` problem
-    #[allow(clippy::redundant_clone)]
+    #[allow(
+        clippy::redundant_clone,
+        reason = "temporary workaround until errno/winerror handling is fixed"
+    )]
     pub fn extend(ctx: &Context) {
         use self::types::*;
 

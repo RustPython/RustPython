@@ -10,7 +10,10 @@ use std::sync::mpsc;
 pub(crate) const NSIG: usize = 64;
 static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
 // hack to get around const array repeat expressions, rust issue #79270
-#[allow(clippy::declare_interior_mutable_const)]
+#[allow(
+    clippy::declare_interior_mutable_const,
+    reason = "workaround for const array repeat limitation (rust issue #79270)"
+)]
 const ATOMIC_FALSE: AtomicBool = AtomicBool::new(false);
 pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 

@@ -76,7 +76,7 @@ impl ItemNursery {
 impl ToTokens for ValidatedItemNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let mut sorted = self.0.0.clone();
-        sorted.sort_by(|a, b| a.sort_order.cmp(&b.sort_order));
+        sorted.sort_by_key(|a| a.sort_order);
         tokens.extend(sorted.iter().map(|item| {
             let cfgs = &item.cfgs;
             let tokens = &item.tokens;
