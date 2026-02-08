@@ -8,7 +8,7 @@ Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.
 */
 
 use crate::{
-    IndexMap,
+    IndexMap, IndexSet,
     error::{CodegenError, CodegenErrorType},
 };
 use alloc::{borrow::Cow, fmt};
@@ -16,7 +16,6 @@ use bitflags::bitflags;
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
-use std::collections::HashSet;
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
@@ -275,21 +274,21 @@ fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
    `newfree` set (which contains free variables collected from all child scopes)
    and sets the corresponding flags on the class's symbol table entry.
 */
-fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut HashSet<String>) {
+fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String>) {
     // Check if __class__ is in the free variables collected from children
     // If found, it means a child scope (method) references __class__
-    if newfree.remove("__class__") {
+    if newfree.shift_remove("__class__") {
         symbol_table.needs_class_closure = true;
     }
 
     // Check if __classdict__ is in the free variables collected from children
-    if newfree.remove("__classdict__") {
+    if newfree.shift_remove("__classdict__") {
         symbol_table.needs_classdict = true;
     }
 
     // Check if __conditional_annotations__ is in the free variables collected from children
     // Remove it from free set - it's handled specially in class scope
-    if newfree.remove("__conditional_annotations__") {
+    if newfree.shift_remove("__conditional_annotations__") {
         symbol_table.has_conditional_annotations = true;
     }
 }
@@ -367,12 +366,12 @@ impl SymbolTableAnalyzer {
         &mut self,
         symbol_table: &mut SymbolTable,
         class_entry: Option<&SymbolMap>,
-    ) -> SymbolTableResult<HashSet<String>> {
+    ) -> SymbolTableResult<IndexSet<String>> {
         let symbols = core::mem::take(&mut symbol_table.symbols);
         let sub_tables = &mut *symbol_table.sub_tables;
 
         // Collect free variables from all child scopes
-        let mut newfree = HashSet::new();
+        let mut newfree = IndexSet::default();
 
         let annotation_block = &mut symbol_table.annotation_block;
 
@@ -1947,7 +1946,7 @@ impl SymbolTableBuilder {
 
     fn scan_type_params(&mut self, type_params: &ast::TypeParams) -> SymbolTableResult {
         // Check for duplicate type parameter names
-        let mut seen_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut seen_names: IndexSet<&str> = IndexSet::default();
         for type_param in &type_params.type_params {
             let (name, range) = match type_param {
                 ast::TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range),
