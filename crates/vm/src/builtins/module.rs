@@ -81,7 +81,10 @@ impl PyModuleDef {
     }
 }
 
-#[allow(clippy::new_without_default)] // avoid Default implementation
+#[allow(
+    clippy::new_without_default,
+    reason = "avoid a misleading Default implementation"
+)]
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
 pub struct PyModule {
