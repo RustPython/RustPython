@@ -373,6 +373,12 @@ pub(crate) mod _signal {
         let fd = args.fd;
 
         if vm.signal_handlers.is_none() {
+            // In non-main threads or in fork children where signal_handlers is not
+            // set up, set_wakeup_fd(-1) should still succeed (no-op, return -1).
+            // Other fd values should fail since we can't actually configure wakeup.
+            if fd == INVALID_WAKEUP {
+                return Ok(-1);
+            }
             return Err(vm.new_value_error("signal only works in main thread"));
         }
 
