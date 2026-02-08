@@ -414,11 +414,10 @@ pub(crate) fn import_module_level(
     };
 
     // Handle fromlist
-    let has_from = fromlist
-        .as_ref()
-        .filter(|fl| !vm.is_none(fl))
-        .and_then(|fl| fl.clone().try_to_bool(vm).ok())
-        .unwrap_or(false);
+    let has_from = match fromlist.as_ref().filter(|fl| !vm.is_none(fl)) {
+        Some(fl) => fl.clone().try_to_bool(vm)?,
+        None => false,
+    };
 
     if has_from {
         let fromlist = fromlist.unwrap();
