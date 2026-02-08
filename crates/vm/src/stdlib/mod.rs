@@ -1,4 +1,5 @@
 mod _abc;
+mod _types;
 #[cfg(feature = "ast")]
 pub(crate) mod ast;
 pub mod atexit;
@@ -73,6 +74,7 @@ use crate::{Context, builtins::PyModuleDef};
 pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
     vec![
         _abc::module_def(ctx),
+        _types::module_def(ctx),
         #[cfg(feature = "ast")]
         ast::module_def(ctx),
         atexit::module_def(ctx),
