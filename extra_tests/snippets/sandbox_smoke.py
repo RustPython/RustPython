@@ -7,10 +7,10 @@ Verifies basic functionality that works in both sandbox and normal mode:
 - open() is properly blocked when FileIO is unavailable (sandbox)
 """
 
-import sys
-import math
-import json
 import _io
+import json
+import math
+import sys
 
 SANDBOX = not hasattr(_io, "FileIO")
 
