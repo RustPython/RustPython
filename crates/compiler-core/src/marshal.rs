@@ -1,4 +1,5 @@
 use crate::{OneIndexed, SourceLocation, bytecode::*};
+use alloc::{boxed::Box, vec::Vec};
 use core::convert::Infallible;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
