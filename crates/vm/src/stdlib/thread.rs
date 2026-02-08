@@ -479,7 +479,7 @@ pub(crate) mod _thread {
         });
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
     #[pyfunction]
     fn interrupt_main(signum: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
         crate::signal::set_interrupt_ex(signum.unwrap_or(libc::SIGINT), vm)

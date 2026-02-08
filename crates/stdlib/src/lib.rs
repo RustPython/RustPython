@@ -34,12 +34,15 @@ mod sha512;
 
 mod json;
 
-#[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "host_env",
+    not(any(target_os = "ios", target_arch = "wasm32"))
+))]
 mod locale;
 
 mod _opcode;
 mod math;
-#[cfg(any(unix, windows))]
+#[cfg(all(feature = "host_env", any(unix, windows)))]
 mod mmap;
 mod pyexpat;
 mod pystruct;
@@ -48,20 +51,26 @@ mod statistics;
 mod suggestions;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
 pub mod socket;
-#[cfg(all(unix, not(target_os = "redox")))]
+#[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
 mod syslog;
 mod unicodedata;
 
+#[cfg(feature = "host_env")]
 mod faulthandler;
-#[cfg(any(unix, target_os = "wasi"))]
+#[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
 mod fcntl;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
 mod multiprocessing;
-#[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
+#[cfg(all(
+    feature = "host_env",
+    unix,
+    not(target_os = "redox"),
+    not(target_os = "android")
+))]
 mod posixshmem;
-#[cfg(unix)]
+#[cfg(all(feature = "host_env", unix))]
 mod posixsubprocess;
 // libc is missing constants on redox
 #[cfg(all(
@@ -69,36 +78,56 @@ mod posixsubprocess;
     not(any(target_os = "android", target_arch = "wasm32"))
 ))]
 mod _sqlite3;
-#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+#[cfg(all(
+    feature = "host_env",
+    unix,
+    not(any(target_os = "android", target_os = "redox"))
+))]
 mod grp;
-#[cfg(windows)]
+#[cfg(all(feature = "host_env", windows))]
 mod overlapped;
-#[cfg(all(unix, not(target_os = "redox")))]
+#[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
 mod resource;
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "host_env", target_os = "macos"))]
 mod scproxy;
-#[cfg(any(unix, windows, target_os = "wasi"))]
+#[cfg(all(feature = "host_env", any(unix, windows, target_os = "wasi")))]
 mod select;
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
+#[cfg(all(
+    feature = "host_env",
+    not(target_arch = "wasm32"),
+    feature = "ssl-openssl"
+))]
 mod openssl;
-#[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
+#[cfg(all(
+    feature = "host_env",
+    not(target_arch = "wasm32"),
+    feature = "ssl-rustls"
+))]
 mod ssl;
 #[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls"))]
 compile_error!("features \"ssl-openssl\" and \"ssl-rustls\" are mutually exclusive");
 
-#[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
+#[cfg(all(
+    feature = "host_env",
+    unix,
+    not(target_os = "redox"),
+    not(target_os = "ios")
+))]
 mod termios;
-#[cfg(not(any(
-    target_os = "android",
-    target_os = "ios",
-    target_os = "windows",
-    target_arch = "wasm32",
-    target_os = "redox",
-)))]
+#[cfg(all(
+    feature = "host_env",
+    not(any(
+        target_os = "android",
+        target_os = "ios",
+        target_os = "windows",
+        target_arch = "wasm32",
+        target_os = "redox",
+    ))
+))]
 mod uuid;
 
-#[cfg(feature = "tkinter")]
+#[cfg(all(feature = "host_env", feature = "tkinter"))]
 mod tkinter;
 
 use rustpython_common as common;
@@ -122,69 +151,97 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         cmath::module_def(ctx),
         contextvars::module_def(ctx),
         csv::module_def(ctx),
+        #[cfg(feature = "host_env")]
         faulthandler::module_def(ctx),
-        #[cfg(any(unix, target_os = "wasi"))]
+        #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
         fcntl::module_def(ctx),
-        #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+        #[cfg(all(
+            feature = "host_env",
+            unix,
+            not(any(target_os = "android", target_os = "redox"))
+        ))]
         grp::module_def(ctx),
         hashlib::module_def(ctx),
         json::module_def(ctx),
-        #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+        #[cfg(all(
+            feature = "host_env",
+            not(any(target_os = "ios", target_arch = "wasm32"))
+        ))]
         locale::module_def(ctx),
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         lzma::module_def(ctx),
         math::module_def(ctx),
         md5::module_def(ctx),
-        #[cfg(any(unix, windows))]
+        #[cfg(all(feature = "host_env", any(unix, windows)))]
         mmap::module_def(ctx),
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
         multiprocessing::module_def(ctx),
-        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
+        #[cfg(all(
+            feature = "host_env",
+            not(target_arch = "wasm32"),
+            feature = "ssl-openssl"
+        ))]
         openssl::module_def(ctx),
-        #[cfg(windows)]
+        #[cfg(all(feature = "host_env", windows))]
         overlapped::module_def(ctx),
-        #[cfg(unix)]
+        #[cfg(all(feature = "host_env", unix))]
         posixsubprocess::module_def(ctx),
-        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
+        #[cfg(all(
+            feature = "host_env",
+            unix,
+            not(target_os = "redox"),
+            not(target_os = "android")
+        ))]
         posixshmem::module_def(ctx),
         pyexpat::module_def(ctx),
         pystruct::module_def(ctx),
         random::module_def(ctx),
-        #[cfg(all(unix, not(target_os = "redox")))]
+        #[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
         resource::module_def(ctx),
-        #[cfg(target_os = "macos")]
+        #[cfg(all(feature = "host_env", target_os = "macos"))]
         scproxy::module_def(ctx),
-        #[cfg(any(unix, windows, target_os = "wasi"))]
+        #[cfg(all(feature = "host_env", any(unix, windows, target_os = "wasi")))]
         select::module_def(ctx),
         sha1::module_def(ctx),
         sha256::module_def(ctx),
         sha3::module_def(ctx),
         sha512::module_def(ctx),
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
         socket::module_def(ctx),
         #[cfg(all(
             feature = "sqlite",
             not(any(target_os = "android", target_arch = "wasm32"))
         ))]
         _sqlite3::module_def(ctx),
-        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
+        #[cfg(all(
+            feature = "host_env",
+            not(target_arch = "wasm32"),
+            feature = "ssl-rustls"
+        ))]
         ssl::module_def(ctx),
         statistics::module_def(ctx),
         suggestions::module_def(ctx),
-        #[cfg(all(unix, not(target_os = "redox")))]
+        #[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
         syslog::module_def(ctx),
-        #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
+        #[cfg(all(
+            feature = "host_env",
+            unix,
+            not(any(target_os = "ios", target_os = "redox"))
+        ))]
         termios::module_def(ctx),
-        #[cfg(feature = "tkinter")]
+        #[cfg(all(feature = "host_env", feature = "tkinter"))]
         tkinter::module_def(ctx),
         unicodedata::module_def(ctx),
-        #[cfg(not(any(
-            target_os = "android",
-            target_os = "ios",
-            target_os = "windows",
-            target_arch = "wasm32",
-            target_os = "redox"
-        )))]
+        #[cfg(all(
+            feature = "host_env",
+            not(any(
+                target_os = "android",
+                target_os = "ios",
+                target_os = "windows",
+                target_arch = "wasm32",
+                target_os = "redox"
+            ))
+        ))]
         uuid::module_def(ctx),
         zlib::module_def(ctx),
     ]
