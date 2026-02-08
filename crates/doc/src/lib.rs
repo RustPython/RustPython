@@ -1,3 +1,5 @@
+#![no_std]
+
 include!("./data.inc.rs");
 
 #[cfg(test)]
