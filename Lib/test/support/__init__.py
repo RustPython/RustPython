@@ -2763,15 +2763,6 @@ def adjust_int_max_str_digits(max_digits):
         sys.set_int_max_str_digits(current)
 
 
-# XXX: RUSTPYTHON; removed in 3.14
-def get_c_recursion_limit():
-    try:
-        import _testcapi
-        return _testcapi.Py_C_RECURSION_LIMIT
-    except ImportError:
-        raise unittest.SkipTest('requires _testcapi')
-
-
 def exceeds_recursion_limit():
     """For recursion tests, easily exceeds default recursion limit."""
     return 150_000
