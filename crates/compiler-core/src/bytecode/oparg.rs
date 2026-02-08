@@ -754,3 +754,68 @@ impl From<LoadSuperAttrBuilder> for LoadSuperAttr {
         builder.build()
     }
 }
+
+#[derive(Clone, Copy)]
+pub struct LoadAttr(u32);
+
+impl LoadAttr {
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub fn builder() -> LoadAttrBuilder {
+        LoadAttrBuilder::default()
+    }
+
+    #[must_use]
+    pub const fn name_idx(self) -> u32 {
+        self.0 >> 1
+    }
+
+    #[must_use]
+    pub const fn is_method(self) -> bool {
+        (self.0 & 1) == 1
+    }
+}
+
+impl OpArgType for LoadAttr {}
+
+impl From<u32> for LoadAttr {
+    fn from(value: u32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<LoadAttr> for u32 {
+    fn from(value: LoadAttr) -> Self {
+        value.0
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct LoadAttrBuilder {
+    name_idx: u32,
+    is_method: bool,
+}
+
+impl LoadAttrBuilder {
+    #[must_use]
+    pub const fn build(self) -> LoadAttr {
+        let value = (self.name_idx << 1) | (self.is_method as u32);
+        LoadAttr::new(value)
+    }
+
+    #[must_use]
+    pub const fn name_idx(mut self, value: u32) -> Self {
+        self.name_idx = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn is_method(mut self, value: bool) -> Self {
+        self.is_method = value;
+        self
+    }
+}

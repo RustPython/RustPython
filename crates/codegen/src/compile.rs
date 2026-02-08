@@ -30,8 +30,8 @@ use rustpython_compiler_core::{
     bytecode::{
         self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
         ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, IntrinsicFunction1,
-        Invert, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction, SpecialMethod, UnpackExArgs,
-        encode_load_attr_arg,
+        Invert, LoadAttr, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction, SpecialMethod,
+        UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -7799,14 +7799,20 @@ impl Compiler {
     /// Emit LOAD_ATTR for attribute access (method=false).
     /// Encodes: (name_idx << 1) | 0
     fn emit_load_attr(&mut self, name_idx: u32) {
-        let encoded = encode_load_attr_arg(name_idx, false);
+        let encoded = LoadAttr::builder()
+            .name_idx(name_idx)
+            .is_method(false)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadAttr { idx: arg })
     }
 
     /// Emit LOAD_ATTR with method flag set (for method calls).
     /// Encodes: (name_idx << 1) | 1
     fn emit_load_attr_method(&mut self, name_idx: u32) {
-        let encoded = encode_load_attr_arg(name_idx, true);
+        let encoded = LoadAttr::builder()
+            .name_idx(name_idx)
+            .is_method(true)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadAttr { idx: arg })
     }
 
