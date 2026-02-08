@@ -5,6 +5,7 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{FuncArgs, PyMethodDef, PySetterValue},
+    import::{get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name},
     types::{GetAttr, Initializer, Representable},
 };
 
@@ -152,20 +153,96 @@ impl Py<PyModule> {
         if let Ok(getattr) = self.dict().get_item(identifier!(vm, __getattr__), vm) {
             return getattr.call((name.to_owned(),), vm);
         }
-        let module_name = if let Some(name) = self.name(vm) {
-            format!(" '{name}'")
-        } else {
-            "".to_owned()
-        };
-        Err(vm.new_attribute_error(format!("module{module_name} has no attribute '{name}'")))
-    }
+        let dict = self.dict();
 
-    fn name(&self, vm: &VirtualMachine) -> Option<PyStrRef> {
-        let name = self
-            .as_object()
-            .generic_getattr_opt(identifier!(vm, __name__), None, vm)
-            .unwrap_or_default()?;
-        name.downcast::<PyStr>().ok()
+        // Get the raw __name__ object (may be a str subclass)
+        let mod_name_obj = dict
+            .get_item_opt(identifier!(vm, __name__), vm)
+            .ok()
+            .flatten();
+        let mod_name_str = mod_name_obj
+            .as_ref()
+            .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()));
+
+        // If __name__ is not set or not a string, use a simpler error message
+        let mod_display = match mod_name_str.as_deref() {
+            Some(s) => s,
+            None => {
+                return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
+            }
+        };
+
+        let spec = dict
+            .get_item_opt(vm.ctx.intern_str("__spec__"), vm)
+            .ok()
+            .flatten()
+            .filter(|s| !vm.is_none(s));
+
+        let origin = get_spec_file_origin(&spec, vm);
+
+        let is_possibly_shadowing = origin
+            .as_ref()
+            .map(|o| is_possibly_shadowing_path(o, vm))
+            .unwrap_or(false);
+        // Use the ORIGINAL __name__ object for stdlib check (may raise TypeError
+        // if __name__ is an unhashable str subclass)
+        let is_possibly_shadowing_stdlib = if is_possibly_shadowing {
+            if let Some(ref mod_name) = mod_name_obj {
+                is_stdlib_module_name(mod_name, vm)?
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if is_possibly_shadowing_stdlib {
+            let origin = origin.as_ref().unwrap();
+            Err(vm.new_attribute_error(format!(
+                "module '{mod_display}' has no attribute '{name}' \
+                 (consider renaming '{origin}' since it has the same \
+                 name as the standard library module named '{mod_display}' \
+                 and prevents importing that standard library module)"
+            )))
+        } else {
+            let is_initializing = PyModule::is_initializing(&dict, vm);
+            if is_initializing {
+                if is_possibly_shadowing {
+                    let origin = origin.as_ref().unwrap();
+                    Err(vm.new_attribute_error(format!(
+                        "module '{mod_display}' has no attribute '{name}' \
+                         (consider renaming '{origin}' if it has the same name \
+                         as a library you intended to import)"
+                    )))
+                } else if let Some(ref origin) = origin {
+                    Err(vm.new_attribute_error(format!(
+                        "partially initialized module '{mod_display}' from '{origin}' \
+                         has no attribute '{name}' \
+                         (most likely due to a circular import)"
+                    )))
+                } else {
+                    Err(vm.new_attribute_error(format!(
+                        "partially initialized module '{mod_display}' \
+                         has no attribute '{name}' \
+                         (most likely due to a circular import)"
+                    )))
+                }
+            } else {
+                // Check for uninitialized submodule
+                let submodule_initializing =
+                    is_uninitialized_submodule(mod_name_str.as_ref(), name, vm);
+                if submodule_initializing {
+                    Err(vm.new_attribute_error(format!(
+                        "cannot access submodule '{name}' of module '{mod_display}' \
+                         (most likely due to a circular import)"
+                    )))
+                } else {
+                    Err(vm.new_attribute_error(format!(
+                        "module '{mod_display}' has no attribute '{name}'"
+                    )))
+                }
+            }
+        }
     }
 
     // TODO: to be replaced by the commented-out dict method above once dictoffset land
@@ -361,8 +438,8 @@ impl GetAttr for PyModule {
 impl Representable for PyModule {
     #[inline]
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let importlib = vm.import("_frozen_importlib", 0)?;
-        let module_repr = importlib.get_attr("_module_repr", vm)?;
+        // Use cached importlib reference (like interp->importlib)
+        let module_repr = vm.importlib.get_attr("_module_repr", vm)?;
         let repr = module_repr.call((zelf.to_owned(),), vm)?;
         repr.downcast()
             .map_err(|_| vm.new_type_error("_module_repr did not return a string"))
@@ -376,4 +453,33 @@ impl Representable for PyModule {
 
 pub(crate) fn init(context: &Context) {
     PyModule::extend_class(context, context.types.module_type);
+}
+
+/// Check if {module_name}.{name} is an uninitialized submodule in sys.modules.
+fn is_uninitialized_submodule(
+    module_name: Option<&String>,
+    name: &Py<PyStr>,
+    vm: &VirtualMachine,
+) -> bool {
+    let mod_name = match module_name {
+        Some(n) => n.as_str(),
+        None => return false,
+    };
+    let full_name = format!("{mod_name}.{name}");
+    let sys_modules = match vm.sys_module.get_attr("modules", vm).ok() {
+        Some(m) => m,
+        None => return false,
+    };
+    let sub_mod = match sys_modules.get_item(&full_name, vm).ok() {
+        Some(m) => m,
+        None => return false,
+    };
+    let spec = match sub_mod.get_attr("__spec__", vm).ok() {
+        Some(s) if !vm.is_none(&s) => s,
+        _ => return false,
+    };
+    spec.get_attr("_initializing", vm)
+        .ok()
+        .and_then(|v| v.try_to_bool(vm).ok())
+        .unwrap_or(false)
 }

@@ -991,9 +991,24 @@ mod builtins {
         Ok(sum)
     }
 
+    #[derive(FromArgs)]
+    struct ImportArgs {
+        #[pyarg(any)]
+        name: PyStrRef,
+        #[pyarg(any, default)]
+        globals: Option<PyObjectRef>,
+        #[allow(dead_code)]
+        #[pyarg(any, default)]
+        locals: Option<PyObjectRef>,
+        #[pyarg(any, default)]
+        fromlist: Option<PyObjectRef>,
+        #[pyarg(any, default)]
+        level: i32,
+    }
+
     #[pyfunction]
-    fn __import__(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.import_func.call(args, vm)
+    fn __import__(args: ImportArgs, vm: &VirtualMachine) -> PyResult {
+        crate::import::import_module_level(&args.name, args.globals, args.fromlist, args.level, vm)
     }
 
     #[pyfunction]

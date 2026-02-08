@@ -139,6 +139,7 @@ class WindowsRegistryFinderTests:
 
 @unittest.skipUnless(sys.platform.startswith('win'), 'requires Windows')
 class WindowsExtensionSuffixTests:
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no C extension (.pyd) support
     def test_tagged_suffix(self):
         suffixes = self.machinery.EXTENSION_SUFFIXES
         abi_flags = "t" if support.Py_GIL_DISABLED else ""

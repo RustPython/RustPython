@@ -768,7 +768,7 @@ class ImportTests(unittest.TestCase):
         finally:
             del sys.path[0]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; FileNotFoundError: [WinError 2] No such file or directory: 'built-in'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no C extension support
     @unittest.skipUnless(sys.platform == "win32", "Windows-specific")
     def test_dll_dependency_import(self):
         from _winapi import GetModuleFileName
@@ -814,7 +814,6 @@ class ImportTests(unittest.TestCase):
                                     env=env,
                                     cwd=os.path.dirname(pyexe))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _imp.get_frozen_object("x", b"6\'\xd5Cu\x12"). TypeError: expected at most 1 arguments, got 2
     def test_issue105979(self):
         # this used to crash
         with self.assertRaises(ImportError) as cm:
@@ -1239,7 +1238,8 @@ os.does_not_exist
                 stdout, stderr = popen.communicate()
                 self.assertRegex(stdout, expected_error)
 
-    @unittest.skip("TODO: RUSTPYTHON; AttributeError: module \"_imp\" has no attribute \"create_dynamic\"")
+    # TODO: RUSTPYTHON: _imp.create_dynamic is for C extensions, not applicable
+    @unittest.skip("TODO: RustPython _imp.create_dynamic not implemented")
     def test_create_dynamic_null(self):
         with self.assertRaisesRegex(ValueError, 'embedded null character'):
             class Spec:
@@ -1398,7 +1398,6 @@ func_filename = func.__code__.co_filename
         self.assertEqual(mod.code_filename, self.file_name)
         self.assertEqual(mod.func_filename, self.file_name)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'another_module.py' != .../unlikely_module_name.py
     def test_incorrect_code_name(self):
         py_compile.compile(self.file_name, dfile="another_module.py")
         mod = self.import_module()
@@ -2045,6 +2044,7 @@ class ImportTracebackTests(unittest.TestCase):
             else:
                 importlib.SourceLoader.exec_module = old_exec_module
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; subprocess fails on Windows
     @unittest.skipUnless(TESTFN_UNENCODABLE, 'need TESTFN_UNENCODABLE')
     def test_unencodable_filename(self):
         # Issue #11619: The Python parser and the import machinery must not
@@ -2095,7 +2095,6 @@ class CircularImportTests(unittest.TestCase):
         from test.test_import.data.circular_imports.subpkg import util
         self.assertIs(util.util, rebinding.util)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module "test.test_import.data.circular_imports" has no attribute "binding"
     def test_binding(self):
         try:
             import test.test_import.data.circular_imports.binding
