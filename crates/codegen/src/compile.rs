@@ -23,8 +23,6 @@ use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange, TextSize};
-use std::collections::HashSet;
-
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
@@ -211,7 +209,7 @@ enum ComprehensionType {
 }
 
 fn validate_duplicate_params(params: &ast::Parameters) -> Result<(), CodegenErrorType> {
-    let mut seen_params = HashSet::new();
+    let mut seen_params = IndexSet::default();
     for param in params {
         let param_name = param.name().as_str();
         if !seen_params.insert(param_name) {
@@ -5530,7 +5528,7 @@ impl Compiler {
         // Step 2: If we have keys to match
         if size > 0 {
             // Validate and compile keys
-            let mut seen = HashSet::new();
+            let mut seen = IndexSet::default();
             for key in keys {
                 let is_attribute = matches!(key, ast::Expr::Attribute(_));
                 let is_literal = matches!(
