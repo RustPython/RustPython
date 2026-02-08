@@ -21,75 +21,9 @@ cfg_if::cfg_if! {
 }
 
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyModule},
-    common::os::ErrorExt,
-    convert::{IntoPyException, ToPyException},
-    exceptions::{OSErrorBuilder, ToOSErrorBuilder},
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyModule,
 };
 pub use _io::{OpenArgs, io_open as open};
-
-impl ToOSErrorBuilder for std::io::Error {
-    fn to_os_error_builder(&self, vm: &VirtualMachine) -> OSErrorBuilder {
-        let errno = self.posix_errno();
-        #[cfg(windows)]
-        let msg = 'msg: {
-            // On Windows, use C runtime's strerror for POSIX errno values
-            // For Windows-specific error codes, fall back to FormatMessage
-
-            // UCRT's strerror returns "Unknown error" for invalid errno values
-            // Windows UCRT defines errno values 1-42 plus some more up to ~127
-            const MAX_POSIX_ERRNO: i32 = 127;
-            if errno > 0 && errno <= MAX_POSIX_ERRNO {
-                let ptr = unsafe { libc::strerror(errno) };
-                if !ptr.is_null() {
-                    let s = unsafe { core::ffi::CStr::from_ptr(ptr) }.to_string_lossy();
-                    if !s.starts_with("Unknown error") {
-                        break 'msg s.into_owned();
-                    }
-                }
-            }
-            self.to_string()
-        };
-        #[cfg(unix)]
-        let msg = {
-            let ptr = unsafe { libc::strerror(errno) };
-            if !ptr.is_null() {
-                unsafe { core::ffi::CStr::from_ptr(ptr) }
-                    .to_string_lossy()
-                    .into_owned()
-            } else {
-                self.to_string()
-            }
-        };
-        #[cfg(not(any(windows, unix)))]
-        let msg = self.to_string();
-
-        #[allow(unused_mut)]
-        let mut builder = OSErrorBuilder::with_errno(errno, msg, vm);
-
-        #[cfg(windows)]
-        if let Some(winerror) = self.raw_os_error() {
-            use crate::convert::ToPyObject;
-            builder = builder.winerror(winerror.to_pyobject(vm));
-        }
-
-        builder
-    }
-}
-
-impl ToPyException for std::io::Error {
-    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let builder = self.to_os_error_builder(vm);
-        builder.into_pyexception(vm)
-    }
-}
-
-impl IntoPyException for std::io::Error {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        self.to_pyexception(vm)
-    }
-}
 
 fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     file.get_attr("closed", vm)?.try_to_bool(vm)
@@ -301,15 +235,8 @@ mod _io {
     }
 
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
-        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-        {
-            use crate::convert::ToPyException;
-            err.to_pyexception(vm)
-        }
-        #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-        {
-            vm.new_os_error(err.to_string())
-        }
+        use crate::convert::ToPyException;
+        err.to_pyexception(vm)
     }
 
     pub(super) fn io_closed_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -4900,7 +4827,7 @@ mod _io {
         }
 
         // check file descriptor validity
-        #[cfg(unix)]
+        #[cfg(all(unix, feature = "host_env"))]
         if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
             nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD).map_err(|_| vm.new_last_errno_error())?;
         }
@@ -4909,7 +4836,7 @@ mod _io {
         // This is subsequently consumed by a Buffered Class.
         let file_io_class: &Py<PyType> = {
             cfg_if::cfg_if! {
-                if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
+                if #[cfg(feature = "host_env")] {
                     Some(super::fileio::FileIO::static_type())
                 } else {
                     None
@@ -5104,8 +5031,8 @@ mod _io {
         // Call auto-generated initialization first
         __module_exec(vm, module);
 
-        // Initialize FileIO types on non-WASM platforms
-        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+        // Initialize FileIO types (requires host_env for filesystem access)
+        #[cfg(feature = "host_env")]
         super::fileio::module_exec(vm, module)?;
 
         let unsupported_operation = unsupported_operation().to_owned();
@@ -5116,8 +5043,8 @@ mod _io {
         Ok(())
     }
 }
-// disable FileIO on WASM
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+// FileIO requires host environment for filesystem access
+#[cfg(feature = "host_env")]
 #[pymodule]
 mod fileio {
     use super::{_io::*, Offset, iobase_finalize};

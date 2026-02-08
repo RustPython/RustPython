@@ -31,37 +31,39 @@ pub mod typing;
 pub mod warnings;
 mod weakref;
 
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(feature = "host_env")]
 #[macro_use]
 pub mod os;
-#[cfg(windows)]
+#[cfg(all(feature = "host_env", windows))]
 pub mod nt;
-#[cfg(unix)]
+#[cfg(all(feature = "host_env", unix))]
 pub mod posix;
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-#[cfg(not(any(unix, windows)))]
+#[cfg(all(feature = "host_env", not(any(unix, windows))))]
 #[path = "posix_compat.rs"]
 pub mod posix;
 
 #[cfg(all(
+    feature = "host_env",
     any(target_os = "linux", target_os = "macos", target_os = "windows"),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
 mod ctypes;
-#[cfg(windows)]
+#[cfg(all(feature = "host_env", windows))]
 pub(crate) mod msvcrt;
 
 #[cfg(all(
+    feature = "host_env",
     unix,
     not(any(target_os = "ios", target_os = "wasi", target_os = "redox"))
 ))]
 mod pwd;
 
+#[cfg(feature = "host_env")]
 pub(crate) mod signal;
 pub mod sys;
-#[cfg(windows)]
+#[cfg(all(feature = "host_env", windows))]
 mod winapi;
-#[cfg(windows)]
+#[cfg(all(feature = "host_env", windows))]
 mod winreg;
 
 use crate::{Context, builtins::PyModuleDef};
@@ -81,6 +83,7 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         codecs::module_def(ctx),
         collections::module_def(ctx),
         #[cfg(all(
+            feature = "host_env",
             any(target_os = "linux", target_os = "macos", target_os = "windows"),
             not(any(target_env = "musl", target_env = "sgx"))
         ))]
@@ -92,23 +95,22 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         io::module_def(ctx),
         itertools::module_def(ctx),
         marshal::module_def(ctx),
-        #[cfg(windows)]
+        #[cfg(all(feature = "host_env", windows))]
         msvcrt::module_def(ctx),
-        #[cfg(windows)]
+        #[cfg(all(feature = "host_env", windows))]
         nt::module_def(ctx),
         operator::module_def(ctx),
-        #[cfg(any(unix, target_os = "wasi"))]
+        #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
+        posix::module_def(ctx),
+        #[cfg(all(feature = "host_env", not(any(unix, windows, target_os = "wasi"))))]
         posix::module_def(ctx),
         #[cfg(all(
-            any(not(target_arch = "wasm32"), target_os = "wasi"),
-            not(any(unix, windows))
-        ))]
-        posix::module_def(ctx),
-        #[cfg(all(
+            feature = "host_env",
             unix,
             not(any(target_os = "ios", target_os = "wasi", target_os = "redox"))
         ))]
         pwd::module_def(ctx),
+        #[cfg(feature = "host_env")]
         signal::module_def(ctx),
         sre::module_def(ctx),
         stat::module_def(ctx),
@@ -123,9 +125,9 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         typing::module_def(ctx),
         warnings::module_def(ctx),
         weakref::module_def(ctx),
-        #[cfg(windows)]
+        #[cfg(all(feature = "host_env", windows))]
         winapi::module_def(ctx),
-        #[cfg(windows)]
+        #[cfg(all(feature = "host_env", windows))]
         winreg::module_def(ctx),
     ]
 }

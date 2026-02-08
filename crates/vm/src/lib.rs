@@ -67,7 +67,7 @@ mod intern;
 pub mod iter;
 pub mod object;
 
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(feature = "host_env")]
 pub mod ospath;
 
 pub mod prelude;

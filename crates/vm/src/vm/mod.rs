@@ -311,7 +311,7 @@ impl VirtualMachine {
 
         let mut essential_init = || -> PyResult {
             import::import_builtin(self, "_typing")?;
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
             import::import_builtin(self, "_signal")?;
             #[cfg(any(feature = "parser", feature = "compiler"))]
             import::import_builtin(self, "_ast")?;
@@ -320,11 +320,12 @@ impl VirtualMachine {
             let importlib = import::init_importlib_base(self)?;
             self.import_ascii_utf8_encodings()?;
 
-            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
                 let io = import::import_builtin(self, "_io")?;
-                #[cfg(feature = "stdio")]
-                let make_stdio = |name, fd, write| {
+
+                // Full stdio: FileIO → BufferedWriter → TextIOWrapper
+                #[cfg(feature = "host_env")]
+                let make_stdio = |name: &str, fd: i32, write: bool| {
                     let buffered_stdio = self.state.config.settings.buffered_stdio;
                     let unbuffered = write && !buffered_stdio;
                     let buf = crate::stdlib::io::open(
@@ -372,12 +373,28 @@ impl VirtualMachine {
                     stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
                     Ok(stdio)
                 };
+
+                // Sandbox stdio: lightweight wrapper using Rust's std::io directly
+                #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
+                let make_stdio = |name: &str, fd: i32, write: bool| {
+                    let mode = if write { "w" } else { "r" };
+                    let stdio = stdlib::sys::SandboxStdio {
+                        fd,
+                        name: format!("<{name}>"),
+                        mode: mode.to_owned(),
+                    }
+                    .into_ref(&self.ctx);
+                    Ok(stdio.into())
+                };
+
+                // No stdio: set to None (embedding use case)
                 #[cfg(not(feature = "stdio"))]
-                let make_stdio =
-                    |_name, _fd, _write| Ok(crate::builtins::PyNone.into_pyobject(self));
+                let make_stdio = |_name: &str, _fd: i32, _write: bool| {
+                    Ok(crate::builtins::PyNone.into_pyobject(self))
+                };
 
                 let set_stdio = |name, fd, write| {
-                    let stdio = make_stdio(name, fd, write)?;
+                    let stdio: PyObjectRef = make_stdio(name, fd, write)?;
                     let dunder_name = self.ctx.intern_str(format!("__{name}__"));
                     self.sys_module.set_attr(
                         dunder_name, // e.g. __stdin__
@@ -401,6 +418,7 @@ impl VirtualMachine {
         let res = essential_init();
         let importlib = self.expect_pyresult(res, "essential initialization failed");
 
+        #[cfg(feature = "host_env")]
         if self.state.config.settings.allow_external_library
             && cfg!(feature = "rustpython-compiler")
             && let Err(e) = import::init_importlib_package(self, importlib)
@@ -410,6 +428,9 @@ impl VirtualMachine {
             );
             self.print_exception(e);
         }
+
+        #[cfg(not(feature = "host_env"))]
+        let _ = importlib;
 
         let _expect_stdlib = cfg!(feature = "freeze-stdlib")
             || !self.state.config.paths.module_search_paths.is_empty();

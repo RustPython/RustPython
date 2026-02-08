@@ -1,5 +1,7 @@
 use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
+#[cfg(all(not(feature = "host_env"), feature = "stdio"))]
+pub(crate) use sys::SandboxStdio;
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
 
 #[pymodule(name = "_jit")]
@@ -50,7 +52,7 @@ mod sys {
     use num_traits::ToPrimitive;
     use std::{
         env::{self, VarError},
-        io::{Read, Write},
+        io::{IsTerminal, Read, Write},
     };
 
     #[cfg(windows)]
@@ -88,6 +90,129 @@ mod sys {
         fn flush(&self) -> PyResult<()> {
             let _ = std::io::stderr().flush();
             Ok(())
+        }
+    }
+
+    /// Lightweight stdio wrapper for sandbox mode (no host_env).
+    /// Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
+    #[pyclass(no_attr, name = "_SandboxStdio", module = "sys")]
+    #[derive(Debug, PyPayload)]
+    pub struct SandboxStdio {
+        pub fd: i32,
+        pub name: String,
+        pub mode: String,
+    }
+
+    #[pyclass]
+    impl SandboxStdio {
+        #[pymethod]
+        fn write(&self, s: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
+            if self.fd == 0 {
+                return Err(vm.new_os_error("not writable".to_owned()));
+            }
+            let bytes = s.as_bytes();
+            if self.fd == 2 {
+                std::io::stderr()
+                    .write_all(bytes)
+                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+            } else {
+                std::io::stdout()
+                    .write_all(bytes)
+                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+            }
+            Ok(bytes.len())
+        }
+
+        #[pymethod]
+        fn readline(&self, size: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<String> {
+            if self.fd != 0 {
+                return Err(vm.new_os_error("not readable".to_owned()));
+            }
+            let size = size.unwrap_or(-1);
+            if size == 0 {
+                return Ok(String::new());
+            }
+            let mut line = String::new();
+            std::io::stdin()
+                .read_line(&mut line)
+                .map_err(|e| vm.new_os_error(e.to_string()))?;
+            if size > 0 {
+                line.truncate(size as usize);
+            }
+            Ok(line)
+        }
+
+        #[pymethod]
+        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
+            match self.fd {
+                1 => {
+                    std::io::stdout()
+                        .flush()
+                        .map_err(|e| vm.new_os_error(e.to_string()))?;
+                }
+                2 => {
+                    std::io::stderr()
+                        .flush()
+                        .map_err(|e| vm.new_os_error(e.to_string()))?;
+                }
+                _ => {}
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn fileno(&self) -> i32 {
+            self.fd
+        }
+
+        #[pymethod]
+        fn isatty(&self) -> bool {
+            match self.fd {
+                0 => std::io::stdin().is_terminal(),
+                1 => std::io::stdout().is_terminal(),
+                2 => std::io::stderr().is_terminal(),
+                _ => false,
+            }
+        }
+
+        #[pymethod]
+        fn readable(&self) -> bool {
+            self.fd == 0
+        }
+
+        #[pymethod]
+        fn writable(&self) -> bool {
+            self.fd == 1 || self.fd == 2
+        }
+
+        #[pygetset]
+        fn closed(&self) -> bool {
+            false
+        }
+
+        #[pygetset]
+        fn encoding(&self) -> String {
+            "utf-8".to_owned()
+        }
+
+        #[pygetset]
+        fn errors(&self) -> String {
+            if self.fd == 2 {
+                "backslashreplace"
+            } else {
+                "strict"
+            }
+            .to_owned()
+        }
+
+        #[pygetset(name = "name")]
+        fn name_prop(&self) -> String {
+            self.name.clone()
+        }
+
+        #[pygetset(name = "mode")]
+        fn mode_prop(&self) -> String {
+            self.mode.clone()
         }
     }
 

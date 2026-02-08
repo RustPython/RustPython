@@ -1,8 +1,8 @@
 //! Import mechanics
 
 use crate::{
-    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    builtins::{PyCode, list, traceback::PyTraceback},
+    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult,
+    builtins::{PyCode, traceback::PyTraceback},
     exceptions::types::PyBaseException,
     scope::Scope,
     vm::{VirtualMachine, resolve_frozen_alias, thread},
@@ -33,12 +33,14 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
     Ok(importlib)
 }
 
+#[cfg(feature = "host_env")]
 pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef) -> PyResult<()> {
+    use crate::{TryFromObject, builtins::PyListRef};
+
     thread::enter_vm(vm, || {
         flame_guard!("install_external");
 
         // same deal as imports above
-        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         import_builtin(vm, crate::stdlib::os::MODULE_NAME)?;
         #[cfg(windows)]
         import_builtin(vm, "winreg")?;
@@ -51,7 +53,7 @@ pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef
             let zipimport = vm.import("zipimport", 0)?;
             let zipimporter = zipimport.get_attr("zipimporter", vm)?;
             let path_hooks = vm.sys_module.get_attr("path_hooks", vm)?;
-            let path_hooks = list::PyListRef::try_from_object(vm, path_hooks)?;
+            let path_hooks = PyListRef::try_from_object(vm, path_hooks)?;
             path_hooks.insert(0, zipimporter);
             Ok(())
         })();
