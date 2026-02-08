@@ -41,7 +41,7 @@ use crate::{
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
 use core::{
-    cell::{Cell, Ref, RefCell},
+    cell::{Cell, OnceCell, Ref, RefCell},
     sync::atomic::{AtomicBool, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -81,7 +81,7 @@ pub struct VirtualMachine {
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
-    pub(crate) signal_handlers: Option<Box<RefCell<[Option<PyObjectRef>; signal::NSIG]>>>,
+    pub(crate) signal_handlers: OnceCell<Box<RefCell<[Option<PyObjectRef>; signal::NSIG]>>>,
     pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
     pub repr_guards: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
@@ -148,6 +148,12 @@ pub fn process_hash_secret_seed() -> u32 {
 }
 
 impl VirtualMachine {
+    /// Check whether the current thread is the main thread.
+    /// Mirrors CPython `_Py_ThreadCanHandleSignals`.
+    pub(crate) fn is_main_thread(&self) -> bool {
+        crate::stdlib::thread::get_ident() == self.state.main_thread_ident.load()
+    }
+
     /// Create a new `VirtualMachine` structure.
     pub(crate) fn new(ctx: PyRc<Context>, state: PyRc<PyGlobalState>) -> Self {
         flame_guard!("new VirtualMachine");
@@ -170,7 +176,7 @@ impl VirtualMachine {
         let importlib = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
-        let signal_handlers = Some(Box::new(
+        let signal_handlers = OnceCell::from(Box::new(
             // putting it in a const optimizes better, prevents linear initialization of the array
             const { RefCell::new([const { None }; signal::NSIG]) },
         ));

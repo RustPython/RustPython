@@ -12,6 +12,7 @@ pub(crate) mod _signal {
         builtins::PyTypeRef,
         function::{ArgIntoFloat, OptionalArg},
     };
+    use core::cell::RefCell;
     use core::sync::atomic::{self, Ordering};
 
     #[cfg(any(unix, windows))]
@@ -177,7 +178,7 @@ pub(crate) mod _signal {
                 } else {
                     None
                 };
-                vm.signal_handlers.as_deref().unwrap().borrow_mut()[signum] = py_handler;
+                vm.signal_handlers.get().unwrap().borrow_mut()[signum] = py_handler;
             }
 
             let int_handler = module
@@ -220,10 +221,9 @@ pub(crate) mod _signal {
                 return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
             }
         }
-        let signal_handlers = vm
-            .signal_handlers
-            .as_deref()
-            .ok_or_else(|| vm.new_value_error("signal only works in main thread"))?;
+        if !vm.is_main_thread() {
+            return Err(vm.new_value_error("signal only works in main thread"));
+        }
 
         let sig_handler =
             match usize::try_from_borrowed_object(vm, &handler).ok() {
@@ -245,6 +245,9 @@ pub(crate) mod _signal {
             siginterrupt(signalnum, 1);
         }
 
+        let signal_handlers = vm
+            .signal_handlers
+            .get_or_init(|| Box::new(const { RefCell::new([const { None }; signal::NSIG]) }));
         let old_handler = signal_handlers.borrow_mut()[signalnum as usize].replace(handler);
         Ok(old_handler)
     }
@@ -252,10 +255,12 @@ pub(crate) mod _signal {
     #[pyfunction]
     fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
         signal::assert_in_range(signalnum, vm)?;
+        if !vm.is_main_thread() {
+            return Err(vm.new_value_error("getsignal only works in main thread"));
+        }
         let signal_handlers = vm
             .signal_handlers
-            .as_deref()
-            .ok_or_else(|| vm.new_value_error("getsignal only works in main thread"))?;
+            .get_or_init(|| Box::new(const { RefCell::new([const { None }; signal::NSIG]) }));
         let handler = signal_handlers.borrow()[signalnum as usize]
             .clone()
             .unwrap_or_else(|| vm.ctx.none());
@@ -372,7 +377,7 @@ pub(crate) mod _signal {
         #[cfg(not(windows))]
         let fd = args.fd;
 
-        if vm.signal_handlers.is_none() {
+        if !vm.is_main_thread() {
             return Err(vm.new_value_error("signal only works in main thread"));
         }
 

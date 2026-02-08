@@ -37,7 +37,7 @@ impl Drop for SignalHandlerGuard {
 #[cfg_attr(feature = "flame-it", flame)]
 #[inline(always)]
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
-    if vm.signal_handlers.is_none() {
+    if vm.signal_handlers.get().is_none() {
         return Ok(());
     }
 
@@ -58,7 +58,7 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     let _guard = SignalHandlerGuard;
 
     // unwrap should never fail since we check above
-    let signal_handlers = vm.signal_handlers.as_ref().unwrap().borrow();
+    let signal_handlers = vm.signal_handlers.get().unwrap().borrow();
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggered = trigger.swap(false, Ordering::Relaxed);
         if triggered

@@ -711,6 +711,12 @@ pub mod module {
         #[cfg(feature = "threading")]
         crate::stdlib::thread::after_fork_child(vm);
 
+        // Initialize signal handlers for the child's main thread.
+        // When forked from a worker thread, the OnceCell is empty.
+        vm.signal_handlers.get_or_init(|| {
+            Box::new(const { core::cell::RefCell::new([const { None }; crate::signal::NSIG]) })
+        });
+
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
         run_at_forkers(after_forkers_child, false, vm);
     }
