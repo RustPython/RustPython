@@ -4,17 +4,14 @@
 
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
-    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
     types::{IterNext, Iterable, SelfIter},
 };
-use rustpython_common::{
-    lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
-    static_cell,
-};
+use rustpython_common::lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard};
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
@@ -71,31 +68,27 @@ impl<T> PositionIterInternal<T> {
         }
     }
 
-    fn _reduce<F>(&self, func: PyObjectRef, f: F, vm: &VirtualMachine) -> PyTupleRef
+    /// Build a pickle-compatible reduce tuple.
+    ///
+    /// `func` must be resolved **before** acquiring any lock that guards this
+    /// `PositionIterInternal`, so that the builtins lookup cannot trigger
+    /// reentrant iterator access and deadlock.
+    pub fn reduce<F, E>(
+        &self,
+        func: PyObjectRef,
+        active: F,
+        empty: E,
+        vm: &VirtualMachine,
+    ) -> PyTupleRef
     where
         F: FnOnce(&T) -> PyObjectRef,
+        E: FnOnce(&VirtualMachine) -> PyObjectRef,
     {
         if let IterStatus::Active(obj) = &self.status {
-            vm.new_tuple((func, (f(obj),), self.position))
+            vm.new_tuple((func, (active(obj),), self.position))
         } else {
-            vm.new_tuple((func, (vm.ctx.new_list(Vec::new()),)))
+            vm.new_tuple((func, (empty(vm),)))
         }
-    }
-
-    pub fn builtins_iter_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyTupleRef
-    where
-        F: FnOnce(&T) -> PyObjectRef,
-    {
-        let iter = builtins_iter(vm).to_owned();
-        self._reduce(iter, f, vm)
-    }
-
-    pub fn builtins_reversed_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyTupleRef
-    where
-        F: FnOnce(&T) -> PyObjectRef,
-    {
-        let reversed = builtins_reversed(vm).to_owned();
-        self._reduce(reversed, f, vm)
     }
 
     fn _next<F, OP>(&mut self, f: F, op: OP) -> PyResult<PyIterReturn>
@@ -160,18 +153,12 @@ impl<T> PositionIterInternal<T> {
     }
 }
 
-pub fn builtins_iter(vm: &VirtualMachine) -> &PyObject {
-    static_cell! {
-        static INSTANCE: PyObjectRef;
-    }
-    INSTANCE.get_or_init(|| vm.builtins.get_attr("iter", vm).unwrap())
+pub fn builtins_iter(vm: &VirtualMachine) -> PyObjectRef {
+    vm.builtins.get_attr("iter", vm).unwrap()
 }
 
-pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
-    static_cell! {
-        static INSTANCE: PyObjectRef;
-    }
-    INSTANCE.get_or_init(|| vm.builtins.get_attr("reversed", vm).unwrap())
+pub fn builtins_reversed(vm: &VirtualMachine) -> PyObjectRef {
+    vm.builtins.get_attr("reversed", vm).unwrap()
 }
 
 #[pyclass(module = false, name = "iterator", traverse)]
@@ -211,7 +198,13 @@ impl PySequenceIterator {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        self.internal.lock().builtins_iter_reduce(|x| x.clone(), vm)
+        let func = builtins_iter(vm);
+        self.internal.lock().reduce(
+            func,
+            |x| x.clone(),
+            |vm| vm.ctx.empty_tuple.clone().into(),
+            vm,
+        )
     }
 
     #[pymethod]
@@ -252,24 +245,47 @@ impl PyCallableIterator {
             status: PyRwLock::new(IterStatus::Active(callable)),
         }
     }
+
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
+        let func = builtins_iter(vm);
+        let status = self.status.read();
+        if let IterStatus::Active(callable) = &*status {
+            let callable_obj: PyObjectRef = callable.clone().into();
+            vm.new_tuple((func, (callable_obj, self.sentinel.clone())))
+        } else {
+            vm.new_tuple((func, (vm.ctx.empty_tuple.clone(),)))
+        }
+    }
 }
 
 impl SelfIter for PyCallableIterator {}
 impl IterNext for PyCallableIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let status = zelf.status.upgradable_read();
-        let next = if let IterStatus::Active(callable) = &*status {
-            let ret = callable.invoke((), vm)?;
-            if vm.bool_eq(&ret, &zelf.sentinel)? {
-                *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
-                PyIterReturn::StopIteration(None)
-            } else {
-                PyIterReturn::Return(ret)
+        // Clone the callable and release the lock before invoking,
+        // so that reentrant next() calls don't deadlock.
+        let callable = {
+            let status = zelf.status.read();
+            match &*status {
+                IterStatus::Active(callable) => callable.clone(),
+                IterStatus::Exhausted => return Ok(PyIterReturn::StopIteration(None)),
             }
-        } else {
-            PyIterReturn::StopIteration(None)
         };
-        Ok(next)
+
+        let ret = callable.invoke((), vm)?;
+
+        // Re-check: a reentrant call may have exhausted the iterator.
+        let status = zelf.status.upgradable_read();
+        if !matches!(&*status, IterStatus::Active(_)) {
+            return Ok(PyIterReturn::StopIteration(None));
+        }
+
+        if vm.bool_eq(&ret, &zelf.sentinel)? {
+            *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
+            Ok(PyIterReturn::StopIteration(None))
+        } else {
+            Ok(PyIterReturn::Return(ret))
+        }
     }
 }
 
