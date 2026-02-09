@@ -617,13 +617,22 @@ impl PyMemoryView {
     #[pygetset]
     fn suboffsets(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         self.try_not_released(vm)?;
-        Ok(vm.ctx.new_tuple(
-            self.desc
-                .dim_desc
-                .iter()
-                .map(|(_, _, suboffset)| suboffset.to_pyobject(vm))
-                .collect(),
-        ))
+        let has_suboffsets = self
+            .desc
+            .dim_desc
+            .iter()
+            .any(|(_, _, suboffset)| *suboffset != 0);
+        if has_suboffsets {
+            Ok(vm.ctx.new_tuple(
+                self.desc
+                    .dim_desc
+                    .iter()
+                    .map(|(_, _, suboffset)| suboffset.to_pyobject(vm))
+                    .collect(),
+            ))
+        } else {
+            Ok(vm.ctx.empty_tuple.clone())
+        }
     }
 
     #[pygetset]
@@ -738,6 +747,63 @@ impl PyMemoryView {
     ) -> PyResult<String> {
         self.try_not_released(vm)?;
         self.contiguous_or_collect(|x| bytes_to_hex(x, sep, bytes_per_sep, vm))
+    }
+
+    #[pymethod]
+    fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        self.try_not_released(vm)?;
+        if self.desc.ndim() != 1 {
+            return Err(
+                vm.new_not_implemented_error("multi-dimensional sub-views are not implemented")
+            );
+        }
+        let len = self.desc.dim_desc[0].0;
+        let mut count = 0;
+        for i in 0..len {
+            let item = self.getitem_by_idx(i as isize, vm)?;
+            if vm.bool_eq(&item, &value)? {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    #[pymethod]
+    fn index(
+        &self,
+        value: PyObjectRef,
+        start: OptionalArg<isize>,
+        stop: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        self.try_not_released(vm)?;
+        if self.desc.ndim() != 1 {
+            return Err(
+                vm.new_not_implemented_error("multi-dimensional sub-views are not implemented")
+            );
+        }
+        let len = self.desc.dim_desc[0].0;
+        let start = start.unwrap_or(0);
+        let stop = stop.unwrap_or(len as isize);
+
+        let start = if start < 0 {
+            (start + len as isize).max(0) as usize
+        } else {
+            (start as usize).min(len)
+        };
+        let stop = if stop < 0 {
+            (stop + len as isize).max(0) as usize
+        } else {
+            (stop as usize).min(len)
+        };
+
+        for i in start..stop {
+            let item = self.getitem_by_idx(i as isize, vm)?;
+            if vm.bool_eq(&item, &value)? {
+                return Ok(i);
+            }
+        }
+        Err(vm.new_value_error("memoryview.index(x): x not in memoryview"))
     }
 
     fn cast_to_1d(&self, format: PyStrRef, vm: &VirtualMachine) -> PyResult<Self> {
