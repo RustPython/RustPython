@@ -1,13 +1,17 @@
 #![cfg_attr(target_os = "wasi", allow(dead_code))]
-use crate::{PyResult, VirtualMachine};
+use crate::{PyObjectRef, PyResult, VirtualMachine};
 use alloc::fmt;
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 #[cfg(windows)]
 use core::sync::atomic::AtomicIsize;
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
 pub(crate) const NSIG: usize = 64;
+
+pub(crate) fn new_signal_handlers() -> Box<RefCell<[Option<PyObjectRef>; NSIG]>> {
+    Box::new(const { RefCell::new([const { None }; NSIG]) })
+}
 static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
 // hack to get around const array repeat expressions, rust issue #79270
 #[allow(
@@ -37,7 +41,7 @@ impl Drop for SignalHandlerGuard {
 #[cfg_attr(feature = "flame-it", flame)]
 #[inline(always)]
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
-    if vm.signal_handlers.is_none() {
+    if vm.signal_handlers.get().is_none() {
         return Ok(());
     }
 
@@ -58,7 +62,7 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     let _guard = SignalHandlerGuard;
 
     // unwrap should never fail since we check above
-    let signal_handlers = vm.signal_handlers.as_ref().unwrap().borrow();
+    let signal_handlers = vm.signal_handlers.get().unwrap().borrow();
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggered = trigger.swap(false, Ordering::Relaxed);
         if triggered

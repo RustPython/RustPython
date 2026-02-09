@@ -240,7 +240,9 @@ class saved_test_environment:
         # Unjoined process objects can survive after process exits
         multiprocessing_process._cleanup()
         # This copies the weakrefs without making any strong reference
-        return multiprocessing_process._dangling.copy()
+        # TODO: RUSTPYTHON - filter out dead processes since gc doesn't clean WeakSet. Revert this line when we have a GC
+        # return multiprocessing_process._dangling.copy()
+        return {p for p in multiprocessing_process._dangling if p.is_alive()}
     def restore_multiprocessing_process__dangling(self, saved):
         multiprocessing_process = self.get_module('multiprocessing.process')
         multiprocessing_process._dangling.clear()
