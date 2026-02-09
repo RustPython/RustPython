@@ -80,7 +80,7 @@ def quick(
     mark_failure: bool = False,
     verbose: bool = True,
     skip_build: bool = False,
-) -> None:
+) -> list[pathlib.Path]:
     """
     Process a file or directory: migrate + auto-mark.
 
@@ -91,9 +91,14 @@ def quick(
         mark_failure: Add @expectedFailure to ALL failing tests
         verbose: Print progress messages
         skip_build: Skip cargo build, use pre-built binary
+
+    Returns:
+        List of extra paths (data dirs, hard deps) that were copied/migrated.
     """
     from update_lib.cmd_auto_mark import auto_mark_directory, auto_mark_file
     from update_lib.cmd_migrate import patch_directory, patch_file
+
+    extra_paths: list[pathlib.Path] = []
 
     # Determine lib_path and whether to migrate
     if is_lib_path(src_path):
@@ -128,6 +133,7 @@ def quick(
                 patch_directory(dep_src, dep_lib, verbose=False)
             else:
                 patch_file(dep_src, dep_lib, verbose=False)
+            extra_paths.append(dep_lib)
 
         # Copy data directories (no migration)
         import shutil
@@ -146,6 +152,7 @@ def quick(
             else:
                 data_lib.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(data_src, data_lib)
+            extra_paths.append(data_lib)
 
     # Step 2: Auto-mark
     if not no_auto_mark:
@@ -173,6 +180,8 @@ def quick(
             if num_added:
                 print(f"Added expectedFailure to {num_added} tests")
             print(f"Removed expectedFailure from {num_removed} tests")
+
+    return extra_paths
 
 
 def get_cpython_version(cpython_dir: pathlib.Path) -> str:
@@ -411,13 +420,14 @@ def main(argv: list[str] | None = None) -> int:
                 test_lib_path = parse_lib_path(test_src)
                 test_paths_for_commit.append(test_lib_path)
 
-                quick(
+                extra = quick(
                     test_src,
                     no_migrate=not args.migrate,
                     no_auto_mark=not args.auto_mark,
                     mark_failure=args.mark_failure,
                     skip_build=not args.build,
                 )
+                hard_deps_for_commit.extend(extra)
 
             test_paths = test_paths_for_commit
         else:
@@ -426,13 +436,14 @@ def main(argv: list[str] | None = None) -> int:
                 parse_lib_path(src_path) if not is_lib_path(src_path) else src_path
             )
 
-            quick(
+            extra = quick(
                 src_path,
                 no_migrate=not args.migrate,
                 no_auto_mark=not args.auto_mark,
                 mark_failure=args.mark_failure,
                 skip_build=not args.build,
             )
+            hard_deps_for_commit.extend(extra)
             test_paths = [test_path]
 
         # Step 3: Git commit
