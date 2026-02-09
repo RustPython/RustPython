@@ -1,4 +1,5 @@
 //! Compile a Python AST or source code into bytecode consumable by RustPython.
+#![cfg_attr(not(feature = "std"), no_std)]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/main/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-compiler/")]
 

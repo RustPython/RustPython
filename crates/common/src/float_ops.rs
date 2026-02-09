@@ -1,6 +1,6 @@
+use core::f64;
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{Float, Signed, ToPrimitive, Zero};
-use std::f64;
 
 pub const fn decompose_float(value: f64) -> (f64, i32) {
     if 0.0 == value {

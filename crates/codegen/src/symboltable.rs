@@ -296,8 +296,8 @@ fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String
 type SymbolMap = IndexMap<String, Symbol>;
 
 mod stack {
+    use alloc::vec::Vec;
     use core::ptr::NonNull;
-    use std::panic;
     pub struct StackStack<T> {
         v: Vec<NonNull<T>>,
     }
@@ -309,14 +309,30 @@ mod stack {
     impl<T> StackStack<T> {
         /// Appends a reference to this stack for the duration of the function `f`. When `f`
         /// returns, the reference will be popped off the stack.
+        #[cfg(feature = "std")]
         pub fn with_append<F, R>(&mut self, x: &mut T, f: F) -> R
         where
             F: FnOnce(&mut Self) -> R,
         {
             self.v.push(x.into());
-            let res = panic::catch_unwind(panic::AssertUnwindSafe(|| f(self)));
+            let res = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| f(self)));
             self.v.pop();
-            res.unwrap_or_else(|x| panic::resume_unwind(x))
+            res.unwrap_or_else(|x| std::panic::resume_unwind(x))
+        }
+
+        /// Appends a reference to this stack for the duration of the function `f`. When `f`
+        /// returns, the reference will be popped off the stack.
+        ///
+        /// Without std, panic cleanup is not guaranteed (no catch_unwind).
+        #[cfg(not(feature = "std"))]
+        pub fn with_append<F, R>(&mut self, x: &mut T, f: F) -> R
+        where
+            F: FnOnce(&mut Self) -> R,
+        {
+            self.v.push(x.into());
+            let result = f(self);
+            self.v.pop();
+            result
         }
 
         pub fn iter(&self) -> impl DoubleEndedIterator<Item = &T> + '_ {

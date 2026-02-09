@@ -2,6 +2,8 @@
 //! common way to use this crate is to just add the `"freeze-stdlib"` feature to `rustpython-vm`,
 //! in order to automatically include the python part of the standard library into the binary.
 
+#![no_std]
+
 // windows needs to read the symlink out of `Lib` as git turns it into a text file,
 // so build.rs sets this env var
 pub const LIB_PATH: &str = match option_env!("win_lib_path") {

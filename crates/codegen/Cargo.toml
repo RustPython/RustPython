@@ -8,6 +8,10 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[features]
+default = ["std"]
+std = ["thiserror/std", "itertools/use_std"]
+
 [dependencies]
 rustpython-compiler-core = { workspace = true }
 rustpython-literal = {workspace = true }

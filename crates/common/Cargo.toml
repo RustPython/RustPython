@@ -9,6 +9,8 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+default = ["std"]
+std = []
 threading = ["parking_lot"]
 wasm_js = ["getrandom/wasm_js"]
 

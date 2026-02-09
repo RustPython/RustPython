@@ -466,9 +466,6 @@ impl fmt::Display for UnicodeEscapeCodepoint {
 }
 
 pub mod levenshtein {
-    use core::cell::RefCell;
-    use std::thread_local;
-
     pub const MOVE_COST: usize = 2;
     const CASE_COST: usize = 1;
     const MAX_STRING_SIZE: usize = 40;
@@ -490,13 +487,6 @@ pub mod levenshtein {
     }
 
     pub fn levenshtein_distance(a: &[u8], b: &[u8], max_cost: usize) -> usize {
-        thread_local! {
-            #[allow(clippy::declare_interior_mutable_const, reason = "thread-local scratch buffer uses const initializer with RefCell")]
-            static BUFFER: RefCell<[usize; MAX_STRING_SIZE]> = const {
-                RefCell::new([0usize; MAX_STRING_SIZE])
-            };
-        }
-
         if a == b {
             return 0;
         }
@@ -535,33 +525,33 @@ pub mod levenshtein {
             return max_cost + 1;
         }
 
-        BUFFER.with_borrow_mut(|buffer| {
-            for (i, x) in buffer.iter_mut().take(a_end).enumerate() {
-                *x = (i + 1) * MOVE_COST;
-            }
+        let mut buffer = [0usize; MAX_STRING_SIZE];
 
-            let mut result = 0usize;
-            for (b_index, b_code) in b_bytes[b_begin..(b_begin + b_end)].iter().enumerate() {
-                result = b_index * MOVE_COST;
-                let mut distance = result;
-                let mut minimum = usize::MAX;
-                for (a_index, a_code) in a_bytes[a_begin..(a_begin + a_end)].iter().enumerate() {
-                    let substitute = distance + substitution_cost(*b_code, *a_code);
-                    distance = buffer[a_index];
-                    let insert_delete = usize::min(result, distance) + MOVE_COST;
-                    result = usize::min(insert_delete, substitute);
+        for (i, x) in buffer.iter_mut().take(a_end).enumerate() {
+            *x = (i + 1) * MOVE_COST;
+        }
 
-                    buffer[a_index] = result;
-                    if result < minimum {
-                        minimum = result;
-                    }
-                }
-                if minimum > max_cost {
-                    return max_cost + 1;
+        let mut result = 0usize;
+        for (b_index, b_code) in b_bytes[b_begin..(b_begin + b_end)].iter().enumerate() {
+            result = b_index * MOVE_COST;
+            let mut distance = result;
+            let mut minimum = usize::MAX;
+            for (a_index, a_code) in a_bytes[a_begin..(a_begin + a_end)].iter().enumerate() {
+                let substitute = distance + substitution_cost(*b_code, *a_code);
+                distance = buffer[a_index];
+                let insert_delete = usize::min(result, distance) + MOVE_COST;
+                result = usize::min(insert_delete, substitute);
+
+                buffer[a_index] = result;
+                if result < minimum {
+                    minimum = result;
                 }
             }
-            result
-        })
+            if minimum > max_cost {
+                return max_cost + 1;
+            }
+        }
+        result
     }
 }
 
