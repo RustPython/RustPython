@@ -1154,18 +1154,15 @@ def get_test_dependencies(
 
     # Convert imports to paths (deps)
     for imp in all_imports:
-        # Check if it's a test file (test_*) or support module
+        # Skip other test modules (test_*) - they are independently managed
+        # via their own update_lib entry. Only support/helper modules
+        # (e.g., string_tests, mapping_tests) should be treated as hard deps.
         if imp.startswith("test_"):
-            # It's a test, resolve to test path
-            dep_path = test_path.parent / f"{imp}.py"
-            if not dep_path.exists():
-                dep_path = test_path.parent / imp
-        else:
-            # Support module like string_tests, lock_tests, encoded_modules
-            # Check file first, then directory
-            dep_path = test_path.parent / f"{imp}.py"
-            if not dep_path.exists():
-                dep_path = test_path.parent / imp
+            continue
+
+        dep_path = test_path.parent / f"{imp}.py"
+        if not dep_path.exists():
+            dep_path = test_path.parent / imp
 
         if dep_path.exists() and dep_path not in result["hard_deps"]:
             result["hard_deps"].append(dep_path)
