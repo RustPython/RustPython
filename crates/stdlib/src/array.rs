@@ -19,7 +19,7 @@ mod array {
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
                 PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType,
-                PyTypeRef,
+                PyTypeRef, builtins_iter,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -1376,9 +1376,13 @@ mod array {
 
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-            self.internal
-                .lock()
-                .builtins_iter_reduce(|x| x.clone().into(), vm)
+            let func = builtins_iter(vm);
+            self.internal.lock().reduce(
+                func,
+                |x| x.clone().into(),
+                |vm| vm.ctx.empty_tuple.clone().into(),
+                vm,
+            )
         }
     }
 

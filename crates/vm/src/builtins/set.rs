@@ -1390,7 +1390,7 @@ impl PySetIterator {
     ) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
         let internal = zelf.internal.lock();
         Ok((
-            builtins_iter(vm).to_owned(),
+            builtins_iter(vm),
             (vm.ctx
                 .new_list(match &internal.status {
                     IterStatus::Exhausted => vec![],
