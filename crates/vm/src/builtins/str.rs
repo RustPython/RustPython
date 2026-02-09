@@ -1,7 +1,10 @@
 use super::{
     PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
     int::{PyInt, PyIntRef},
-    iter::IterStatus::{self, Exhausted},
+    iter::{
+        IterStatus::{self, Exhausted},
+        builtins_iter,
+    },
 };
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -304,10 +307,13 @@ impl PyStrIterator {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        self.internal
-            .lock()
-            .0
-            .builtins_iter_reduce(|x| x.clone().into(), vm)
+        let func = builtins_iter(vm);
+        self.internal.lock().0.reduce(
+            func,
+            |x| x.clone().into(),
+            |vm| vm.ctx.empty_str.to_owned().into(),
+            vm,
+        )
     }
 }
 

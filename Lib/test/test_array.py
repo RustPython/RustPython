@@ -355,8 +355,6 @@ class BaseTest:
         self.assertEqual(list(a), list(self.example))
         self.assertEqual(list(reversed(a)), list(iter(a))[::-1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reverse_iterator_picking(self):
         orig = array.array(self.typecode, self.example)
         data = list(orig)
