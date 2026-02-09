@@ -8,6 +8,7 @@ Handles:
 """
 
 import ast
+import difflib
 import functools
 import pathlib
 import re
@@ -1009,6 +1010,119 @@ def is_up_to_date(name: str, cpython_prefix: str, lib_prefix: str) -> bool:
         if dep_info.get("lib") == []:
             return True
     return found_any
+
+
+def _count_file_diff(file_a: pathlib.Path, file_b: pathlib.Path) -> int:
+    """Count changed lines between two text files using difflib."""
+    a_content = safe_read_text(file_a)
+    b_content = safe_read_text(file_b)
+    if a_content is None or b_content is None:
+        return 0
+    if a_content == b_content:
+        return 0
+    a_lines = a_content.splitlines()
+    b_lines = b_content.splitlines()
+    count = 0
+    for line in difflib.unified_diff(a_lines, b_lines, lineterm=""):
+        if (line.startswith("+") and not line.startswith("+++")) or (
+            line.startswith("-") and not line.startswith("---")
+        ):
+            count += 1
+    return count
+
+
+def _count_path_diff(path_a: pathlib.Path, path_b: pathlib.Path) -> int:
+    """Count changed lines between two paths (file or directory, *.py only)."""
+    if path_a.is_file() and path_b.is_file():
+        return _count_file_diff(path_a, path_b)
+    if path_a.is_dir() and path_b.is_dir():
+        total = 0
+        a_files = {f.relative_to(path_a) for f in path_a.rglob("*.py")}
+        b_files = {f.relative_to(path_b) for f in path_b.rglob("*.py")}
+        for rel in a_files & b_files:
+            total += _count_file_diff(path_a / rel, path_b / rel)
+        for rel in a_files - b_files:
+            content = safe_read_text(path_a / rel)
+            if content:
+                total += len(content.splitlines())
+        for rel in b_files - a_files:
+            content = safe_read_text(path_b / rel)
+            if content:
+                total += len(content.splitlines())
+        return total
+    return 0
+
+
+def get_module_last_updated(
+    name: str, cpython_prefix: str, lib_prefix: str
+) -> str | None:
+    """Get the last git commit date for a module's Lib files."""
+    local_paths = []
+    for cpython_path in get_lib_paths(name, cpython_prefix):
+        if not cpython_path.exists():
+            continue
+        try:
+            rel_path = cpython_path.relative_to(cpython_prefix)
+            local_path = pathlib.Path(lib_prefix) / rel_path.relative_to("Lib")
+            if local_path.exists():
+                local_paths.append(str(local_path))
+        except ValueError:
+            continue
+    if not local_paths:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%cd", "--date=short", "--"] + local_paths,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def get_module_diff_stat(name: str, cpython_prefix: str, lib_prefix: str) -> int:
+    """Count differing lines between cpython and local Lib for a module."""
+    total = 0
+    for cpython_path in get_lib_paths(name, cpython_prefix):
+        if not cpython_path.exists():
+            continue
+        try:
+            rel_path = cpython_path.relative_to(cpython_prefix)
+            local_path = pathlib.Path(lib_prefix) / rel_path.relative_to("Lib")
+        except ValueError:
+            continue
+        if not local_path.exists():
+            continue
+        total += _count_path_diff(cpython_path, local_path)
+    return total
+
+
+def get_test_last_updated(
+    test_name: str, cpython_prefix: str, lib_prefix: str
+) -> str | None:
+    """Get the last git commit date for a test's files."""
+    cpython_path = _get_cpython_test_path(test_name, cpython_prefix)
+    if cpython_path is None:
+        return None
+    local_path = _get_local_test_path(cpython_path, lib_prefix)
+    if not local_path.exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%cd", "--date=short", "--", str(local_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
 
 
 def get_test_dependencies(
