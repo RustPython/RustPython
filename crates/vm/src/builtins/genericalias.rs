@@ -1,27 +1,26 @@
-// spell-checker:ignore iparam
+// spell-checker:ignore iparam gaiterobject
 use std::sync::LazyLock;
 
 use super::type_;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
-    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{
-        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, Iterable,
-        PyComparisonOp, Representable,
+        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, IterNext,
+        Iterable, PyComparisonOp, Representable,
     },
 };
 use alloc::fmt;
 
-// attr_exceptions
-static ATTR_EXCEPTIONS: [&str; 12] = [
+// Attributes that are looked up on the GenericAlias itself, not on __origin__
+static ATTR_EXCEPTIONS: [&str; 9] = [
     "__class__",
-    "__bases__",
     "__origin__",
     "__args__",
     "__unpacked__",
@@ -30,9 +29,10 @@ static ATTR_EXCEPTIONS: [&str; 12] = [
     "__mro_entries__",
     "__reduce_ex__", // needed so we don't look up object.__reduce_ex__
     "__reduce__",
-    "__copy__",
-    "__deepcopy__",
 ];
+
+// Attributes that are blocked from being looked up on __origin__
+static ATTR_BLOCKED: [&str; 3] = ["__bases__", "__copy__", "__deepcopy__"];
 
 #[pyclass(module = "types", name = "GenericAlias")]
 pub struct PyGenericAlias {
@@ -151,15 +151,17 @@ impl PyGenericAlias {
             // ParamSpec args can be lists - format their items with repr_item
             if obj.class().is(vm.ctx.types.list_type) {
                 let list = obj.downcast_ref::<crate::builtins::PyList>().unwrap();
-                // Clone items out before calling repr to avoid holding the borrow
-                // while Python code runs (which may mutate the list)
-                let items: Vec<PyObjectRef> = list.borrow_vec().to_vec();
-                let items = items
-                    .into_iter()
-                    .map(|item| repr_item(item, vm))
-                    .collect::<PyResult<Vec<_>>>()?
-                    .join(", ");
-                Ok(format!("[{items}]"))
+                let len = list.borrow_vec().len();
+                let mut parts = Vec::with_capacity(len);
+                // Use indexed access so list mutation during repr causes IndexError
+                for i in 0..len {
+                    let item =
+                        list.borrow_vec().get(i).cloned().ok_or_else(|| {
+                            vm.new_index_error("list index out of range".to_owned())
+                        })?;
+                    parts.push(repr_item(item, vm)?);
+                }
+                Ok(format!("[{}]", parts.join(", ")))
             } else {
                 repr_item(obj, vm)
             }
@@ -240,11 +242,29 @@ impl PyGenericAlias {
     }
 
     #[pymethod]
-    fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> (PyTypeRef, (PyObjectRef, PyTupleRef)) {
-        (
-            vm.ctx.types.generic_alias_type.to_owned(),
-            (zelf.origin.clone(), zelf.args.clone()),
-        )
+    fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        if zelf.starred {
+            // (next, (iter(GenericAlias(origin, args)),))
+            let next_fn = vm.builtins.get_attr("next", vm)?;
+            let non_starred = Self::new(zelf.origin.clone(), zelf.args.clone(), false, vm);
+            let iter_obj = PyGenericAliasIterator {
+                obj: crate::common::lock::PyMutex::new(Some(non_starred.into_pyobject(vm))),
+            }
+            .into_pyobject(vm);
+            Ok(PyTuple::new_ref(
+                vec![next_fn, PyTuple::new_ref(vec![iter_obj], &vm.ctx).into()],
+                &vm.ctx,
+            ))
+        } else {
+            Ok(PyTuple::new_ref(
+                vec![
+                    vm.ctx.types.generic_alias_type.to_owned().into(),
+                    PyTuple::new_ref(vec![zelf.origin.clone(), zelf.args.clone().into()], &vm.ctx)
+                        .into(),
+                ],
+                &vm.ctx,
+            ))
+        }
     }
 
     #[pymethod]
@@ -272,8 +292,11 @@ impl PyGenericAlias {
 }
 
 pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
+    make_parameters_from_slice(args.as_slice(), vm)
+}
+
+fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyTupleRef {
     let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
-    let mut iparam = 0;
 
     for arg in args {
         // We don't want __parameters__ descriptor of a bare Python class.
@@ -283,37 +306,34 @@ pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupl
 
         // Check for __typing_subst__ attribute
         if arg.get_attr(identifier!(vm, __typing_subst__), vm).is_ok() {
-            // Use tuple_add equivalent logic
             if tuple_index(&parameters, arg).is_none() {
-                if iparam >= parameters.len() {
-                    parameters.resize(iparam + 1, vm.ctx.none());
-                }
-                parameters[iparam] = arg.clone();
-                iparam += 1;
+                parameters.push(arg.clone());
             }
         } else if let Ok(subparams) = arg.get_attr(identifier!(vm, __parameters__), vm)
             && let Ok(sub_params) = subparams.try_to_ref::<PyTuple>(vm)
         {
-            let len2 = sub_params.len();
-            // Resize if needed
-            if iparam + len2 > parameters.len() {
-                parameters.resize(iparam + len2, vm.ctx.none());
-            }
             for sub_param in sub_params {
-                // Use tuple_add equivalent logic
-                if tuple_index(&parameters[..iparam], sub_param).is_none() {
-                    if iparam >= parameters.len() {
-                        parameters.resize(iparam + 1, vm.ctx.none());
-                    }
-                    parameters[iparam] = sub_param.clone();
-                    iparam += 1;
+                if tuple_index(&parameters, sub_param).is_none() {
+                    parameters.push(sub_param.clone());
+                }
+            }
+        } else if arg.try_to_ref::<PyTuple>(vm).is_ok() || arg.try_to_ref::<PyList>(vm).is_ok() {
+            // Recursively extract parameters from lists/tuples (ParamSpec args)
+            let items: Vec<PyObjectRef> = if let Ok(t) = arg.try_to_ref::<PyTuple>(vm) {
+                t.as_slice().to_vec()
+            } else {
+                let list = arg.downcast_ref::<PyList>().unwrap();
+                list.borrow_vec().to_vec()
+            };
+            let sub = make_parameters_from_slice(&items, vm);
+            for sub_param in sub.iter() {
+                if tuple_index(&parameters, sub_param).is_none() {
+                    parameters.push(sub_param.clone());
                 }
             }
         }
     }
 
-    // Resize to actual size
-    parameters.truncate(iparam);
     PyTuple::new_ref(parameters, &vm.ctx)
 }
 
@@ -460,7 +480,7 @@ pub fn subs_parameters(
     let arg_items = if let Ok(tuple) = item.try_to_ref::<PyTuple>(vm) {
         tuple.as_slice().to_vec()
     } else {
-        vec![item]
+        vec![item.clone()]
     };
     let n_items = arg_items.len();
 
@@ -484,32 +504,55 @@ pub fn subs_parameters(
             continue;
         }
 
-        // Check if this is an unpacked TypeVarTuple's _is_unpacked_typevartuple
+        // Recursively substitute params in lists/tuples
+        let is_list = arg.try_to_ref::<PyList>(vm).is_ok();
+        if arg.try_to_ref::<PyTuple>(vm).is_ok() || is_list {
+            let sub_items: Vec<PyObjectRef> = if let Ok(t) = arg.try_to_ref::<PyTuple>(vm) {
+                t.as_slice().to_vec()
+            } else {
+                arg.downcast_ref::<PyList>().unwrap().borrow_vec().to_vec()
+            };
+            let sub_tuple = PyTuple::new_ref(sub_items, &vm.ctx);
+            let sub_result = subs_parameters(
+                alias.clone(),
+                sub_tuple,
+                parameters.clone(),
+                item.clone(),
+                vm,
+            )?;
+            let substituted: PyObjectRef = if is_list {
+                // Convert tuple back to list
+                PyList::from(sub_result.as_slice().to_vec())
+                    .into_ref(&vm.ctx)
+                    .into()
+            } else {
+                sub_result.into()
+            };
+            new_args.push(substituted);
+            continue;
+        }
+
+        // Check if this is an unpacked TypeVarTuple
         let unpack = is_unpacked_typevartuple(arg, vm)?;
 
-        // Try __typing_subst__ method first,
+        // Try __typing_subst__ method first
         let substituted_arg = if let Ok(subst) = arg.get_attr(identifier!(vm, __typing_subst__), vm)
         {
-            // Find parameter index's tuple_index
             if let Some(iparam) = tuple_index(parameters.as_slice(), arg) {
                 subst.call((arg_items[iparam].clone(),), vm)?
             } else {
-                // This shouldn't happen in well-formed generics but handle gracefully
                 subs_tvars(arg.clone(), &parameters, &arg_items, vm)?
             }
         } else {
-            // Use subs_tvars for objects with __parameters__
             subs_tvars(arg.clone(), &parameters, &arg_items, vm)?
         };
 
         if unpack {
-            // Handle unpacked TypeVarTuple's tuple_extend
             if let Ok(tuple) = substituted_arg.try_to_ref::<PyTuple>(vm) {
                 for elem in tuple {
                     new_args.push(elem.clone());
                 }
             } else {
-                // This shouldn't happen but handle gracefully
                 new_args.push(substituted_arg);
             }
         } else {
@@ -567,17 +610,17 @@ impl Comparable for PyGenericAlias {
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
+            if zelf.starred != other.starred {
+                return Ok(PyComparisonValue::Implemented(false));
+            }
             Ok(PyComparisonValue::Implemented(
-                if !zelf.__origin__().rich_compare_bool(
-                    &other.__origin__(),
-                    PyComparisonOp::Eq,
-                    vm,
-                )? {
-                    false
-                } else {
-                    zelf.__args__()
-                        .rich_compare_bool(&other.__args__(), PyComparisonOp::Eq, vm)?
-                },
+                zelf.__origin__()
+                    .rich_compare_bool(&other.__origin__(), PyComparisonOp::Eq, vm)?
+                    && zelf.__args__().rich_compare_bool(
+                        &other.__args__(),
+                        PyComparisonOp::Eq,
+                        vm,
+                    )?,
             ))
         })
     }
@@ -592,8 +635,14 @@ impl Hashable for PyGenericAlias {
 
 impl GetAttr for PyGenericAlias {
     fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        let attr_str = attr.as_str();
         for exc in &ATTR_EXCEPTIONS {
-            if *(*exc) == attr.to_string() {
+            if *exc == attr_str {
+                return zelf.as_object().generic_getattr(attr, vm);
+            }
+        }
+        for blocked in &ATTR_BLOCKED {
+            if *blocked == attr_str {
                 return zelf.as_object().generic_getattr(attr, vm);
             }
         }
@@ -609,27 +658,65 @@ impl Representable for PyGenericAlias {
 }
 
 impl Iterable for PyGenericAlias {
-    // ga_iter
-    // spell-checker:ignore gaiterobject
-    // TODO: gaiterobject
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        // CPython's ga_iter creates an iterator that yields one starred GenericAlias
-        // we don't have gaiterobject yet
+        Ok(PyGenericAliasIterator {
+            obj: crate::common::lock::PyMutex::new(Some(zelf.into())),
+        }
+        .into_pyobject(vm))
+    }
+}
 
-        let starred_alias = Self::new(
-            zelf.origin.clone(),
-            zelf.args.clone(),
-            true, // starred
-            vm,
-        );
-        let starred_ref = PyRef::new_ref(
-            starred_alias,
-            vm.ctx.types.generic_alias_type.to_owned(),
-            None,
-        );
-        let items = vec![starred_ref.into()];
-        let iter_tuple = PyTuple::new_ref(items, &vm.ctx);
-        Ok(iter_tuple.to_pyobject(vm).get_iter(vm)?.into())
+// gaiterobject - yields one starred GenericAlias then exhausts
+#[pyclass(module = "types", name = "generic_alias_iterator")]
+#[derive(Debug, PyPayload)]
+pub struct PyGenericAliasIterator {
+    obj: crate::common::lock::PyMutex<Option<PyObjectRef>>,
+}
+
+#[pyclass(with(Representable, Iterable, IterNext))]
+impl PyGenericAliasIterator {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let iter_fn = vm.builtins.get_attr("iter", vm)?;
+        let guard = self.obj.lock();
+        let arg: PyObjectRef = if let Some(ref obj) = *guard {
+            // Not yet exhausted: (iter, (obj,))
+            PyTuple::new_ref(vec![obj.clone()], &vm.ctx).into()
+        } else {
+            // Exhausted: (iter, ((),))
+            let empty = PyTuple::new_ref(vec![], &vm.ctx);
+            PyTuple::new_ref(vec![empty.into()], &vm.ctx).into()
+        };
+        Ok(PyTuple::new_ref(vec![iter_fn, arg], &vm.ctx))
+    }
+}
+
+impl Representable for PyGenericAliasIterator {
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok("<generic_alias_iterator>".to_owned())
+    }
+}
+
+impl Iterable for PyGenericAliasIterator {
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+        Ok(zelf.into())
+    }
+}
+
+impl crate::types::IterNext for PyGenericAliasIterator {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<crate::protocol::PyIterReturn> {
+        use crate::protocol::PyIterReturn;
+        let mut guard = zelf.obj.lock();
+        let obj = match guard.take() {
+            Some(obj) => obj,
+            None => return Ok(PyIterReturn::StopIteration(None)),
+        };
+        // Create a starred GenericAlias from the original
+        let alias = obj.downcast_ref::<PyGenericAlias>().ok_or_else(|| {
+            vm.new_type_error("generic_alias_iterator expected GenericAlias".to_owned())
+        })?;
+        let starred = PyGenericAlias::new(alias.origin.clone(), alias.args.clone(), true, vm);
+        Ok(PyIterReturn::Return(starred.into_pyobject(vm)))
     }
 }
 
@@ -655,6 +742,6 @@ pub fn subscript_generic(type_params: PyObjectRef, vm: &VirtualMachine) -> PyRes
 }
 
 pub fn init(context: &Context) {
-    let generic_alias_type = &context.types.generic_alias_type;
-    PyGenericAlias::extend_class(context, generic_alias_type);
+    PyGenericAlias::extend_class(context, context.types.generic_alias_type);
+    PyGenericAliasIterator::extend_class(context, context.types.generic_alias_iterator_type);
 }

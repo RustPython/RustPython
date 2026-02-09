@@ -1,4 +1,4 @@
-// spell-checker:ignore typevarobject funcobj
+// spell-checker:ignore typevarobject funcobj typevartuples
 use crate::{
     Context, PyResult, VirtualMachine, builtins::pystr::AsPyStr, class::PyClassImpl,
     function::IntoFuncArgs,
@@ -33,7 +33,7 @@ pub(crate) mod decl {
         builtins::{PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_},
         function::FuncArgs,
         protocol::{PyMappingMethods, PyNumberMethods},
-        types::{AsMapping, AsNumber, Constructor, Hashable, Iterable, Representable},
+        types::{AsMapping, AsNumber, Constructor, Iterable, Representable},
     };
     use std::sync::LazyLock;
 
@@ -93,9 +93,10 @@ pub(crate) mod decl {
         compute_value: PyObjectRef,
         cached_value: crate::common::lock::PyMutex<Option<PyObjectRef>>,
         module: Option<PyObjectRef>,
+        is_lazy: bool,
     }
     #[pyclass(
-        with(Constructor, Representable, Hashable, AsMapping, AsNumber, Iterable),
+        with(Constructor, Representable, AsMapping, AsNumber, Iterable),
         flags(IMMUTABLETYPE)
     )]
     impl TypeAliasType {
@@ -107,6 +108,7 @@ pub(crate) mod decl {
                 compute_value,
                 cached_value: crate::common::lock::PyMutex::new(None),
                 module: None,
+                is_lazy: true,
             }
         }
 
@@ -123,6 +125,7 @@ pub(crate) mod decl {
                 compute_value: value.clone(),
                 cached_value: crate::common::lock::PyMutex::new(Some(value)),
                 module,
+                is_lazy: false,
             }
         }
 
@@ -191,15 +194,13 @@ pub(crate) mod decl {
         }
 
         /// Returns the evaluator for the alias value.
-        /// If compute_value is callable (lazy function from compiler), return it.
-        /// Otherwise wrap the eagerly-set value in a ConstEvaluator-like callable.
         #[pygetset]
         fn evaluate_value(&self, vm: &VirtualMachine) -> PyResult {
-            if self.compute_value.is_callable() {
+            if self.is_lazy {
+                // Lazy path: return the compute function directly
                 return Ok(self.compute_value.clone());
             }
-            // For eagerly-evaluated aliases (from constructor), create a callable
-            // that returns the value regardless of format argument
+            // Eager path: wrap value in a ConstEvaluator
             let value = self.compute_value.clone();
             Ok(vm
                 .new_function("_ConstEvaluator", move |_args: FuncArgs| -> PyResult {
@@ -304,8 +305,11 @@ pub(crate) mod decl {
                 })?
             };
 
-            let name = name.downcast::<crate::builtins::PyStr>().map_err(|_| {
-                vm.new_type_error("typealias() argument 'name' must be str, not int".to_owned())
+            let name = name.downcast::<crate::builtins::PyStr>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "typealias() argument 'name' must be str, not {}",
+                    obj.class().name()
+                ))
             })?;
 
             let type_params = if let Some(tp) = args.kwargs.get("type_params") {
@@ -319,11 +323,10 @@ pub(crate) mod decl {
                 vm.ctx.empty_tuple.clone()
             };
 
-            // Get caller's module name like caller()
-            let module = vm.current_frame().and_then(|f| {
-                let func_obj = f.func_obj.as_ref()?;
-                func_obj.get_attr("__module__", vm).ok()
-            });
+            // Get caller's module name from frame globals, like typevar.rs caller()
+            let module = vm
+                .current_frame()
+                .and_then(|f| f.globals.get_item("__name__", vm).ok());
 
             Ok(Self::new_eager(name, type_params, value, module))
         }
@@ -332,12 +335,6 @@ pub(crate) mod decl {
     impl Representable for TypeAliasType {
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             Ok(zelf.name.as_str().to_owned())
-        }
-    }
-
-    impl Hashable for TypeAliasType {
-        fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<crate::common::hash::PyHash> {
-            Ok(zelf.as_object().get_id() as crate::common::hash::PyHash)
         }
     }
 

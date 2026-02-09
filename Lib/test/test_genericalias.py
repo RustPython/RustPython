@@ -282,7 +282,6 @@ class BaseTest(unittest.TestCase):
         repr_str = repr(alias)
         self.assertTrue(repr_str.startswith("list[["), repr_str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: IndexError not raised
     def test_evil_repr3(self):
         # gh-143823
         lst = []
@@ -396,7 +395,6 @@ class BaseTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             dict[T, T][str, int]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: *tuple[int] == tuple[int]
     def test_equality(self):
         self.assertEqual(list[int], list[int])
         self.assertEqual(dict[str, int], dict[str, int])
@@ -487,7 +485,6 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(a.__args__, (list[T], tuple[T, ...]))
         self.assertEqual(a.__parameters__, (T,))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dir(self):
         ga = list[int]
         dir_of_gen_alias = set(dir(ga))
@@ -554,7 +551,6 @@ class BaseTest(unittest.TestCase):
         iter_x = iter(t)
         del iter_x
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + (~T,)
     def test_paramspec_specialization(self):
         # gh-124445
         T = TypeVar("T")
@@ -589,7 +585,6 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(specialized.__args__, (str, int))
         self.assertEqual(specialized.__parameters__, ())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + (~U, ~V)
     def test_nested_paramspec_specialization(self):
         # gh-124445
         type X[**P, T] = Callable[P, T]

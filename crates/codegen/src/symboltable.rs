@@ -1466,6 +1466,11 @@ impl SymbolTableBuilder {
             }) => {
                 let was_in_type_alias = self.in_type_alias;
                 self.in_type_alias = true;
+                // Check before entering any sub-scopes
+                let in_class = self
+                    .tables
+                    .last()
+                    .is_some_and(|t| t.typ == CompilerScope::Class);
                 let is_generic = type_params.is_some();
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
@@ -1480,7 +1485,7 @@ impl SymbolTableBuilder {
                     CompilerScope::TypeParams,
                     self.line_index_start(value.range()),
                 );
-                if self.class_name.is_some() {
+                if in_class {
                     if let Some(table) = self.tables.last_mut() {
                         table.can_see_class_scope = true;
                     }
@@ -1982,12 +1987,11 @@ impl SymbolTableBuilder {
     ) -> SymbolTableResult {
         // Enter a new TypeParams scope for the bound/default expression
         // This allows the expression to access outer scope symbols
+        let in_class = self.tables.last().is_some_and(|t| t.can_see_class_scope);
         let line_number = self.line_index_start(expr.range());
         self.enter_scope(scope_name, CompilerScope::TypeParams, line_number);
 
-        // Propagate can_see_class_scope: if we're inside a class (class_name is set),
-        // this scope should be able to access the class namespace via __classdict__
-        if self.class_name.is_some() {
+        if in_class {
             if let Some(table) = self.tables.last_mut() {
                 table.can_see_class_scope = true;
             }
