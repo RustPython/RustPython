@@ -275,7 +275,7 @@ impl VirtualMachine {
             trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
             use_tracing: Cell::new(use_tracing),
             recursion_limit: self.recursion_limit.clone(),
-            signal_handlers: None,
+            signal_handlers: core::cell::OnceCell::new(),
             signal_rx: None,
             repr_guards: RefCell::default(),
             state: self.state.clone(),
