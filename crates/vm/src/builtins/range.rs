@@ -670,7 +670,7 @@ fn range_iter_reduce(
     index: usize,
     vm: &VirtualMachine,
 ) -> PyResult<PyTupleRef> {
-    let iter = builtins_iter(vm).to_owned();
+    let iter = builtins_iter(vm);
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
         start: PyInt::from(start).into_ref(&vm.ctx),

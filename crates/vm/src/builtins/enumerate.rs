@@ -1,5 +1,6 @@
 use super::{
     IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef,
+    iter::builtins_reversed,
 };
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
@@ -124,9 +125,13 @@ impl PyReverseSequenceIterator {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        self.internal
-            .lock()
-            .builtins_reversed_reduce(|x| x.clone(), vm)
+        let func = builtins_reversed(vm);
+        self.internal.lock().reduce(
+            func,
+            |x| x.clone(),
+            |vm| vm.ctx.empty_tuple.clone().into(),
+            vm,
+        )
     }
 }
 

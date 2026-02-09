@@ -249,7 +249,6 @@ class TestCase(unittest.TestCase):
         self.assertEqual(list(empit), [5, 6])
         self.assertEqual(list(a), [0, 1, 2, 3, 4, 5, 6])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + (<built-in function iter>, ('',))
     def test_reduce_mutating_builtins_iter(self):
         # This is a reproducer of issue #101765
         # where iter `__reduce__` calls could lead to a segfault or SystemError

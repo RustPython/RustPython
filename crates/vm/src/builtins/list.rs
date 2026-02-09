@@ -1,4 +1,7 @@
-use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
+use super::{
+    PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
+    iter::{builtins_iter, builtins_reversed},
+};
 use crate::atomic_func;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
@@ -577,9 +580,13 @@ impl PyListIterator {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        self.internal
-            .lock()
-            .builtins_iter_reduce(|x| x.clone().into(), vm)
+        let func = builtins_iter(vm);
+        self.internal.lock().reduce(
+            func,
+            |x| x.clone().into(),
+            |vm| vm.ctx.new_list(Vec::new()).into(),
+            vm,
+        )
     }
 }
 
@@ -622,9 +629,13 @@ impl PyListReverseIterator {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        self.internal
-            .lock()
-            .builtins_reversed_reduce(|x| x.clone().into(), vm)
+        let func = builtins_reversed(vm);
+        self.internal.lock().reduce(
+            func,
+            |x| x.clone().into(),
+            |vm| vm.ctx.new_list(Vec::new()).into(),
+            vm,
+        )
     }
 }
 
