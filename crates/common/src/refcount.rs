@@ -1,5 +1,14 @@
 use crate::atomic::{Ordering::*, PyAtomic, Radium};
 
+#[inline(never)]
+#[cold]
+fn refcount_overflow() -> ! {
+    #[cfg(feature = "std")]
+    std::process::abort();
+    #[cfg(not(feature = "std"))]
+    core::panic!("refcount overflow");
+}
+
 /// from alloc::sync
 /// A soft limit on the amount of references that may be made to an `Arc`.
 ///
@@ -36,7 +45,7 @@ impl RefCount {
         let old_size = self.strong.fetch_add(1, Relaxed);
 
         if old_size & Self::MASK == Self::MASK {
-            std::process::abort();
+            refcount_overflow();
         }
     }
 
@@ -46,7 +55,7 @@ impl RefCount {
         let old_size = self.strong.fetch_add(n, Relaxed);
 
         if old_size & Self::MASK > Self::MASK - n {
-            std::process::abort();
+            refcount_overflow();
         }
     }
 
