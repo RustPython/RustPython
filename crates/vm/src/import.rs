@@ -168,7 +168,7 @@ pub fn import_code_obj(
     if set_file_attr {
         attrs.set_item(
             identifier!(vm, __file__),
-            code_obj.source_path.to_object(),
+            code_obj.source_path().to_object(),
             vm,
         )?;
     }
@@ -195,7 +195,7 @@ fn remove_importlib_frames_inner(
         return (None, false);
     };
 
-    let file_name = traceback.frame.code.source_path.as_str();
+    let file_name = traceback.frame.code.source_path().as_str();
 
     let (inner_tb, mut now_in_importlib) =
         remove_importlib_frames_inner(vm, traceback.next.lock().clone(), always_trim);

@@ -4971,7 +4971,7 @@ mod _io {
                     && let Some(frame) = vm.current_frame()
                     && let Some(stdlib_dir) = vm.state.config.paths.stdlib_dir.as_deref()
                 {
-                    let path = frame.code.source_path.as_str();
+                    let path = frame.code.source_path().as_str();
                     if !path.starts_with(stdlib_dir) {
                         stacklevel = stacklevel.saturating_sub(1);
                     }

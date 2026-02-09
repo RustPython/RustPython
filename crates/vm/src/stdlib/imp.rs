@@ -229,7 +229,7 @@ mod _imp {
 
     #[pyfunction]
     fn _fix_co_filename(code: PyRef<PyCode>, path: PyStrRef, vm: &VirtualMachine) {
-        let old_name = code.code.source_path;
+        let old_name = code.source_path();
         let new_name = vm.ctx.intern_str(path.as_str());
         super::update_code_filenames(&code, old_name, new_name);
     }
@@ -288,18 +288,11 @@ fn update_code_filenames(
     old_name: &'static PyStrInterned,
     new_name: &'static PyStrInterned,
 ) {
-    if !core::ptr::eq(code.code.source_path, old_name)
-        && code.code.source_path.as_str() != old_name.as_str()
-    {
+    let current = code.source_path();
+    if !core::ptr::eq(current, old_name) && current.as_str() != old_name.as_str() {
         return;
     }
-    // SAFETY: called during import before the code object is shared.
-    // Mutates co_filename in place.
-    #[allow(invalid_reference_casting)]
-    unsafe {
-        let source_path_ptr = &code.code.source_path as *const _ as *mut &'static PyStrInterned;
-        core::ptr::write_volatile(source_path_ptr, new_name);
-    }
+    code.set_source_path(new_name);
     for constant in code.code.constants.iter() {
         let obj: &crate::PyObject = constant.borrow();
         if let Some(inner_code) = obj.downcast_ref::<PyCode>() {

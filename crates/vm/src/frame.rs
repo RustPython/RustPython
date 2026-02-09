@@ -3223,7 +3223,7 @@ impl ExecutingFrame<'_> {
                 self.lasti(),
                 self.code.obj_name,
                 op_name,
-                self.code.source_path
+                self.code.source_path()
             );
         }
         self.state.stack.drain(stack_len - count..).map(|obj| {
