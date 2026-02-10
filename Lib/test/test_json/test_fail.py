@@ -1,6 +1,6 @@
-import unittest # XXX: RUSTPYTHON; importing to be able to skip tests
-
 from test.test_json import PyTest, CTest
+
+import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
 
 # 2007-10-05
 JSONDOCS = [
@@ -239,9 +239,7 @@ class TestFail:
                              (line, col, idx))
 
 class TestPyFail(TestFail, PyTest): pass
-
 class TestCFail(TestFail, CTest):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_failures(self):
         return super().test_failures()
