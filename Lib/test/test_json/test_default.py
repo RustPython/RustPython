@@ -1,6 +1,7 @@
 import collections
-import unittest # XXX: RUSTPYTHON; importing to be able to skip tests
 from test.test_json import PyTest, CTest
+
+import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
 
 
 class TestDefault:
@@ -9,8 +10,7 @@ class TestDefault:
             self.dumps(type, default=repr),
             self.dumps(repr(type)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_default(self):
         def default(obj):
             if obj is NotImplemented:
