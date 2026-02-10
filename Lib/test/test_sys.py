@@ -1,6 +1,5 @@
 import builtins
 import codecs
-# import _datetime # TODO: RUSTPYTHON
 import gc
 import io
 import locale
@@ -210,7 +209,7 @@ class SysModuleTest(unittest.TestCase):
     def tearDown(self):
         test.support.reap_children()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: (42,) != 42
     def test_exit(self):
         # call with two arguments
         self.assertRaises(TypeError, sys.exit, 42, 42)
@@ -352,7 +351,7 @@ class SysModuleTest(unittest.TestCase):
         finally:
             sys.setrecursionlimit(old_limit)
 
-    @unittest.skipIf(getattr(sys, '_rustpython_debugbuild', False), 'TODO: RUSTPYTHON; stack overflow on debug build')
+    @unittest.skipIf(getattr(sys, "_rustpython_debugbuild", False), "TODO: RUSTPYTHON; stack overflow on debug build")
     def test_recursionlimit_recovery(self):
         if hasattr(sys, 'gettrace') and sys.gettrace():
             self.skipTest('fatal error if run with a trace function')
@@ -402,7 +401,6 @@ class SysModuleTest(unittest.TestCase):
         finally:
             sys.setrecursionlimit(old_limit)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_getwindowsversion(self):
         # Raise SkipTest if sys doesn't have getwindowsversion attribute
         test.support.get_attribute(sys, "getwindowsversion")
@@ -433,7 +431,7 @@ class SysModuleTest(unittest.TestCase):
         #  still has 5 elements
         maj, min, buildno, plat, csd = sys.getwindowsversion()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'call_tracing'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'call_tracing'
     def test_call_tracing(self):
         self.assertRaises(TypeError, sys.call_tracing, type, 2)
 
@@ -499,8 +497,7 @@ class SysModuleTest(unittest.TestCase):
         self.assertIsNone(sys._getframemodulename(i))
 
     # sys._current_frames() is a CPython-only gimmick.
-    # XXX RUSTPYTHON: above comment is from original cpython test; not sure why the cpython_only decorator wasn't added
-    @test.support.cpython_only
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: didn't find f123() on thread's call stack
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_current_frames(self):
@@ -568,7 +565,7 @@ class SysModuleTest(unittest.TestCase):
             leave_g.set()
             t.join()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute '_current_exceptions'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute '_current_exceptions'
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_current_exceptions(self):
@@ -856,7 +853,7 @@ class SysModuleTest(unittest.TestCase):
                     '''))
                 self.assertTrue(sys._is_interned(s))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; needs update for context_aware_warnings
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs update for context_aware_warnings
     def test_sys_flags(self):
         self.assertTrue(sys.flags)
         attrs = ("debug",
@@ -885,7 +882,6 @@ class SysModuleTest(unittest.TestCase):
     def test_sys_version_info_no_instantiation(self):
         self.assert_raise_on_new_sys_type(sys.version_info)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_sys_getwindowsversion_no_instantiation(self):
         # Skip if not being run on Windows.
         test.support.get_attribute(sys, "getwindowsversion")
@@ -897,7 +893,7 @@ class SysModuleTest(unittest.TestCase):
                                    r"sys\._clear_type_cache\(\) is deprecated.*"):
             sys._clear_type_cache()
 
-    @unittest.skip('TODO: RUSTPYTHON; cp424 encoding not supported, causes panic')
+    @unittest.skip("TODO: RUSTPYTHON; cp424 encoding not supported, causes panic")
     @force_not_colorized
     @support.requires_subprocess()
     def test_ioencoding(self):
@@ -1062,12 +1058,12 @@ class SysModuleTest(unittest.TestCase):
                          'stdout: surrogateescape\n'
                          'stderr: backslashreplace\n')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; stderr: backslashreplace
     @support.requires_subprocess()
     def test_c_locale_surrogateescape(self):
         self.check_locale_surrogateescape('C')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; stderr: backslashreplace
     @support.requires_subprocess()
     def test_posix_locale_surrogateescape(self):
         self.check_locale_surrogateescape('POSIX')
@@ -1192,7 +1188,7 @@ class SysModuleTest(unittest.TestCase):
         rc, stdout, stderr = assert_python_ok('-c', code)
         self.assertEqual(stdout.rstrip(), b'True')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; IndexError: list index out of range
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: list index out of range
     def test_issue20602(self):
         # sys.flags and sys.float_info were wiped during shutdown.
         code = """if 1:
@@ -1225,14 +1221,14 @@ class SysModuleTest(unittest.TestCase):
         self.assertEqual(stdout.rstrip(), b"")
         self.assertEqual(stderr.rstrip(), b"")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'getandroidapilevel'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'getandroidapilevel'
     @unittest.skipUnless(sys.platform == "android", "Android only")
     def test_getandroidapilevel(self):
         level = sys.getandroidapilevel()
         self.assertIsInstance(level, int)
         self.assertGreater(level, 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; b'ZeroDivisionError: division by zero']
     @force_not_colorized
     @support.requires_subprocess()
     def test_sys_tracebacklimit(self):
@@ -1495,6 +1491,7 @@ class UnraisableHookTest(unittest.TestCase):
     def test_custom_unraisablehook_fail(self):
         _testcapi = import_helper.import_module('_testcapi')
         from _testcapi import err_writeunraisable
+
         def hook_func(*args):
             raise Exception("hook_func failed")
 
@@ -1743,7 +1740,12 @@ class SizeofTest(unittest.TestCase):
             x = property(getx, setx, delx, "")
             check(x, size('5Pi'))
         # PyCapsule
-        check(_datetime.datetime_CAPI, size('6P'))
+        try:
+            import _datetime
+        except ModuleNotFoundError:
+            pass
+        else:
+            check(_datetime.datetime_CAPI, size('6P'))
         # rangeiterator
         check(iter(range(1)), size('3l'))
         check(iter(range(2**65)), size('3P'))
@@ -2228,7 +2230,7 @@ class TestSysJIT(unittest.TestCase):
         assert_python_ok("-c", script.format(enabled=False), PYTHON_JIT="0")
         assert_python_ok("-c", script.format(enabled=available), PYTHON_JIT="1")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ---
     def test_jit_is_active(self):
         available = sys._jit.is_available()
         script = textwrap.dedent(
