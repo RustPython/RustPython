@@ -397,7 +397,12 @@ impl VirtualMachine {
                     let errors = if fd == 2 {
                         Some("backslashreplace")
                     } else {
-                        self.state.config.settings.stdio_errors.as_deref()
+                        self.state
+                            .config
+                            .settings
+                            .stdio_errors
+                            .as_deref()
+                            .or(Some("surrogateescape"))
                     };
 
                     let stdio = self.call_method(

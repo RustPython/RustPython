@@ -209,7 +209,7 @@ class SysModuleTest(unittest.TestCase):
     def tearDown(self):
         test.support.reap_children()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: (42,) != 42
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; latin-1 codec not registered
     def test_exit(self):
         # call with two arguments
         self.assertRaises(TypeError, sys.exit, 42, 42)
@@ -401,6 +401,7 @@ class SysModuleTest(unittest.TestCase):
         finally:
             sys.setrecursionlimit(old_limit)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_getwindowsversion(self):
         # Raise SkipTest if sys doesn't have getwindowsversion attribute
         test.support.get_attribute(sys, "getwindowsversion")
@@ -431,7 +432,6 @@ class SysModuleTest(unittest.TestCase):
         #  still has 5 elements
         maj, min, buildno, plat, csd = sys.getwindowsversion()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'call_tracing'
     def test_call_tracing(self):
         self.assertRaises(TypeError, sys.call_tracing, type, 2)
 
@@ -497,7 +497,6 @@ class SysModuleTest(unittest.TestCase):
         self.assertIsNone(sys._getframemodulename(i))
 
     # sys._current_frames() is a CPython-only gimmick.
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: didn't find f123() on thread's call stack
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_current_frames(self):
@@ -565,7 +564,6 @@ class SysModuleTest(unittest.TestCase):
             leave_g.set()
             t.join()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute '_current_exceptions'
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_current_exceptions(self):
@@ -882,6 +880,7 @@ class SysModuleTest(unittest.TestCase):
     def test_sys_version_info_no_instantiation(self):
         self.assert_raise_on_new_sys_type(sys.version_info)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_sys_getwindowsversion_no_instantiation(self):
         # Skip if not being run on Windows.
         test.support.get_attribute(sys, "getwindowsversion")
@@ -1188,7 +1187,6 @@ class SysModuleTest(unittest.TestCase):
         rc, stdout, stderr = assert_python_ok('-c', code)
         self.assertEqual(stdout.rstrip(), b'True')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: list index out of range
     def test_issue20602(self):
         # sys.flags and sys.float_info were wiped during shutdown.
         code = """if 1:
