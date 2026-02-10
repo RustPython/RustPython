@@ -12,10 +12,13 @@ use crate::{
     types::{Constructor, Representable},
 };
 use alloc::fmt;
-use core::{borrow::Borrow, ops::Deref};
+use core::{
+    borrow::Borrow,
+    ops::Deref,
+    sync::atomic::{AtomicPtr, Ordering},
+};
 use malachite_bigint::BigInt;
 use num_traits::Zero;
-use rustpython_common::lock::PyMutex;
 use rustpython_compiler_core::{OneIndexed, bytecode::CodeUnits, bytecode::PyCodeLocationInfoKind};
 
 /// State for iterating through code address ranges
@@ -324,7 +327,7 @@ impl<B: AsRef<[u8]>> IntoCodeObject for frozen::FrozenCodeObject<B> {
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
     pub code: CodeObject,
-    source_path: PyMutex<&'static PyStrInterned>,
+    source_path: AtomicPtr<PyStrInterned>,
 }
 
 impl Deref for PyCode {
@@ -336,19 +339,23 @@ impl Deref for PyCode {
 
 impl PyCode {
     pub fn new(code: CodeObject) -> Self {
-        let sp = code.source_path;
+        let sp = code.source_path as *const PyStrInterned as *mut PyStrInterned;
         Self {
             code,
-            source_path: PyMutex::new(sp),
+            source_path: AtomicPtr::new(sp),
         }
     }
 
     pub fn source_path(&self) -> &'static PyStrInterned {
-        *self.source_path.lock()
+        // SAFETY: always points to a valid &'static PyStrInterned (interned strings are never deallocated)
+        unsafe { &*self.source_path.load(Ordering::Relaxed) }
     }
 
     pub fn set_source_path(&self, new: &'static PyStrInterned) {
-        *self.source_path.lock() = new;
+        self.source_path.store(
+            new as *const PyStrInterned as *mut PyStrInterned,
+            Ordering::Relaxed,
+        );
     }
     pub fn from_pyc_path(path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let name = match path.file_stem() {
