@@ -3,11 +3,12 @@
 if __name__ != 'test.support':
     raise ImportError('support must be imported from the test package')
 
-import _opcode
+import annotationlib
 import contextlib
 import functools
 import inspect
 import logging
+import _opcode
 import os
 import re
 import stat
@@ -19,7 +20,6 @@ import types
 import unittest
 import warnings
 
-import annotationlib
 
 __all__ = [
     # globals
@@ -30,7 +30,8 @@ __all__ = [
     "record_original_stdout", "get_original_stdout", "captured_stdout",
     "captured_stdin", "captured_stderr", "captured_output",
     # unittest
-    "is_resource_enabled", "requires", "requires_freebsd_version",
+    "is_resource_enabled", "get_resource_value", "requires", "requires_resource",
+    "requires_freebsd_version",
     "requires_gil_enabled", "requires_linux_version", "requires_mac_ver",
     "check_syntax_error",
     "requires_gzip", "requires_bz2", "requires_lzma", "requires_zstd",
@@ -43,6 +44,7 @@ __all__ = [
     "check__all__", "skip_if_buggy_ucrt_strfptime",
     "check_disallow_instantiation", "check_sanitizer", "skip_if_sanitizer",
     "requires_limited_api", "requires_specialization", "thread_unsafe",
+    "skip_if_unlimited_stack_size",
     # sys
     "MS_WINDOWS", "is_jython", "is_android", "is_emscripten", "is_wasi",
     "is_apple_mobile", "check_impl_detail", "unix_shell", "setswitchinterval",
@@ -184,7 +186,7 @@ def get_attribute(obj, name):
         return attribute
 
 verbose = 1              # Flag set to 0 by regrtest.py
-use_resources = None     # Flag set to [] by regrtest.py
+use_resources = None     # Flag set to {} by regrtest.py
 max_memuse = 0           # Disable bigmem tests (they will still be run with
                          # small sizes, to make sure they work.)
 real_max_memuse = 0
@@ -298,6 +300,16 @@ def is_resource_enabled(resource):
     all resources are assumed enabled unless use_resources has been set.
     """
     return use_resources is None or resource in use_resources
+
+def get_resource_value(resource):
+    """Test whether a resource is enabled.
+
+    Known resources are set by regrtest.py.  If not running under regrtest.py,
+    all resources are assumed enabled unless use_resources has been set.
+    """
+    if use_resources is None:
+        return None
+    return use_resources.get(resource)
 
 def requires(resource, msg=None):
     """Raise ResourceDenied if the specified resource is not available."""
@@ -562,52 +574,6 @@ def requires_debug_ranges(reason='requires co_positions / debug_ranges'):
     return unittest.skipIf(skip, reason)
 
 
-# XXX: RUSTPYTHON; this is not belong to 3.14
-def can_use_suppress_immortalization(suppress=True):
-    """Check if suppress_immortalization(suppress) can be used.
-
-    Use this helper in code where SkipTest must be eagerly handled.
-    """
-    if not suppress:
-        return True
-    try:
-        import _testinternalcapi
-    except ImportError:
-        return False
-    return True
-
-
-@contextlib.contextmanager
-def suppress_immortalization(suppress=True):
-    """Suppress immortalization of deferred objects.
-
-    If _testinternalcapi is not available, the decorated test or class
-    is skipped. Use can_use_suppress_immortalization() outside test cases
-    to check if this decorator can be used.
-    """
-    if not suppress:
-        yield  # no-op
-        return
-
-    from .import_helper import import_module
-
-    _testinternalcapi = import_module("_testinternalcapi")
-    _testinternalcapi.suppress_immortalization(True)
-    try:
-        yield
-    finally:
-        _testinternalcapi.suppress_immortalization(False)
-
-
-def skip_if_suppress_immortalization():
-    try:
-        import _testinternalcapi
-    except ImportError:
-        return
-    return unittest.skipUnless(_testinternalcapi.get_immortalize_deferred(),
-                                "requires immortalization of deferred objects")
-
-
 MS_WINDOWS = (sys.platform == 'win32')
 
 # Is not actually used in tests, but is kept for compatibility.
@@ -783,9 +749,7 @@ def check_syntax_error(testcase, statement, errtext='', *, lineno=None, offset=N
 
 
 def open_urlresource(url, *args, **kw):
-    import urllib.parse
-    import urllib.request
-
+    import urllib.request, urllib.parse
     from .os_helper import unlink
     try:
         import gzip
@@ -1410,7 +1374,6 @@ def refcount_test(test):
 def requires_limited_api(test):
     try:
         import _testcapi  # noqa: F401
-
         import _testlimitedcapi  # noqa: F401
     except ImportError:
         return unittest.skip('needs _testcapi and _testlimitedcapi modules')(test)
@@ -1666,8 +1629,8 @@ class PythonSymlink:
 
     if sys.platform == "win32":
         def _platform_specific(self):
-            import _winapi
             import glob
+            import _winapi
 
             if os.path.lexists(self.real) and not os.path.exists(self.real):
                 # App symlink appears to not exist, but we want the
@@ -1739,7 +1702,6 @@ def skip_if_pgo_task(test):
     return test if ok else unittest.skip(msg)(test)
 
 
-# XXX: RUSTPYTHON; Taken from 3.14.3
 def skip_if_unlimited_stack_size(test):
     """Skip decorator for tests not run when an unlimited stack size is configured.
 
@@ -2083,10 +2045,9 @@ def missing_compiler_executable(cmd_names=[]):
     missing.
 
     """
-    import shutil
-
-    from setuptools import errors
     from setuptools._distutils import ccompiler, sysconfig
+    from setuptools import errors
+    import shutil
 
     compiler = ccompiler.new_compiler()
     sysconfig.customize_compiler(compiler)
@@ -2576,7 +2537,6 @@ def _findwheel(pkgname):
 @contextlib.contextmanager
 def setup_venv_with_pip_setuptools(venv_dir):
     import subprocess
-
     from .os_helper import temp_cwd
 
     def run_command(cmd):
@@ -2999,7 +2959,6 @@ def iter_slot_wrappers(cls):
 @contextlib.contextmanager
 def force_color(color: bool):
     import _colorize
-
     from .os_helper import EnvironmentVarGuard
 
     with (
@@ -3278,3 +3237,10 @@ def linked_to_musl():
         return _linked_to_musl
     _linked_to_musl = tuple(map(int, version.split('.')))
     return _linked_to_musl
+
+
+def control_characters_c0() -> list[str]:
+    """Returns a list of C0 control characters as strings.
+    C0 control characters defined as the byte range 0x00-0x1F, and 0x7F.
+    """
+    return [chr(c) for c in range(0x00, 0x20)] + ["\x7F"]
