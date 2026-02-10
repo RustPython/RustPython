@@ -1,6 +1,6 @@
 use crate::frame::Frame;
 #[cfg(feature = "threading")]
-use crate::frame::FrameRef;
+use crate::{builtins::PyBaseExceptionRef, frame::FrameRef};
 use crate::{AsObject, PyObject, VirtualMachine};
 #[cfg(feature = "threading")]
 use alloc::sync::Arc;
@@ -18,6 +18,11 @@ use std::thread_local;
 #[cfg(feature = "threading")]
 pub type CurrentFrameSlot = Arc<parking_lot::Mutex<Vec<FrameRef>>>;
 
+/// Type for current exception slot - shared between threads for sys._current_exceptions()
+/// Each thread updates its own slot via thread-local reference (no global lock on hot path).
+#[cfg(feature = "threading")]
+pub type CurrentExceptionSlot = Arc<crate::common::lock::PyMutex<Option<PyBaseExceptionRef>>>;
+
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
 
@@ -26,6 +31,10 @@ thread_local! {
     /// Current thread's frame slot for sys._current_frames()
     #[cfg(feature = "threading")]
     static CURRENT_FRAME_SLOT: RefCell<Option<CurrentFrameSlot>> = const { RefCell::new(None) };
+
+    /// Current thread's exception slot for sys._current_exceptions()
+    #[cfg(feature = "threading")]
+    static CURRENT_EXCEPTION_SLOT: RefCell<Option<CurrentExceptionSlot>> = const { RefCell::new(None) };
 
     /// Current top frame for signal-safe traceback walking.
     /// Mirrors `PyThreadState.current_frame`. Read by faulthandler's signal
@@ -65,12 +74,20 @@ fn init_frame_slot_if_needed(vm: &VirtualMachine) {
     CURRENT_FRAME_SLOT.with(|slot| {
         if slot.borrow().is_none() {
             let thread_id = crate::stdlib::thread::get_ident();
-            let new_slot = Arc::new(parking_lot::Mutex::new(Vec::new()));
+            let new_frame_slot = Arc::new(parking_lot::Mutex::new(Vec::new()));
+            let new_exc_slot = Arc::new(crate::common::lock::PyMutex::new(None));
             vm.state
                 .thread_frames
                 .lock()
-                .insert(thread_id, new_slot.clone());
-            *slot.borrow_mut() = Some(new_slot);
+                .insert(thread_id, new_frame_slot.clone());
+            vm.state
+                .thread_exceptions
+                .lock()
+                .insert(thread_id, new_exc_slot.clone());
+            *slot.borrow_mut() = Some(new_frame_slot);
+            CURRENT_EXCEPTION_SLOT.with(|es| {
+                *es.borrow_mut() = Some(new_exc_slot);
+            });
         }
     });
 }
@@ -109,12 +126,41 @@ pub fn get_current_frame() -> *const Frame {
     CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed) as *const Frame)
 }
 
+/// Update the current thread's exception slot via thread-local (no global lock).
+/// Called from push_exception/pop_exception/set_exception.
+#[cfg(feature = "threading")]
+pub fn sync_thread_exception(exc: Option<PyBaseExceptionRef>) {
+    CURRENT_EXCEPTION_SLOT.with(|slot| {
+        if let Some(s) = slot.borrow().as_ref() {
+            *s.lock() = exc;
+        }
+    });
+}
+
+/// Collect all threads' current exceptions for sys._current_exceptions().
+/// Only acquires the global registry lock briefly to clone slot references,
+/// then reads each slot individually.
+#[cfg(feature = "threading")]
+pub fn get_all_current_exceptions(
+    vm: &VirtualMachine,
+) -> Vec<(u64, Option<PyBaseExceptionRef>)> {
+    let registry = vm.state.thread_exceptions.lock();
+    registry
+        .iter()
+        .map(|(id, slot)| (*id, slot.lock().clone()))
+        .collect()
+}
+
 /// Cleanup frame tracking for the current thread. Called at thread exit.
 #[cfg(feature = "threading")]
 pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
     let thread_id = crate::stdlib::thread::get_ident();
     vm.state.thread_frames.lock().remove(&thread_id);
+    vm.state.thread_exceptions.lock().remove(&thread_id);
     CURRENT_FRAME_SLOT.with(|s| {
+        *s.borrow_mut() = None;
+    });
+    CURRENT_EXCEPTION_SLOT.with(|s| {
         *s.borrow_mut() = None;
     });
 }
@@ -144,9 +190,24 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     registry.insert(current_ident, new_slot.clone());
     drop(registry);
 
-    // Update thread-local to point to the new slot
+    let new_exc_slot = Arc::new(crate::common::lock::PyMutex::new(vm.topmost_exception()));
+    let mut exc_registry = match vm.state.thread_exceptions.try_lock() {
+        Some(guard) => guard,
+        None => {
+            unsafe { vm.state.thread_exceptions.force_unlock() };
+            vm.state.thread_exceptions.lock()
+        }
+    };
+    exc_registry.clear();
+    exc_registry.insert(current_ident, new_exc_slot.clone());
+    drop(exc_registry);
+
+    // Update thread-local to point to the new slots
     CURRENT_FRAME_SLOT.with(|s| {
         *s.borrow_mut() = Some(new_slot);
+    });
+    CURRENT_EXCEPTION_SLOT.with(|s| {
+        *s.borrow_mut() = Some(new_exc_slot);
     });
 }
 

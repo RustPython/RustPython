@@ -132,6 +132,9 @@ pub struct PyGlobalState {
     /// Registry of all threads' current frames for sys._current_frames()
     #[cfg(feature = "threading")]
     pub thread_frames: parking_lot::Mutex<HashMap<u64, stdlib::thread::CurrentFrameSlot>>,
+    /// Registry of all threads' exception slots for sys._current_exceptions()
+    #[cfg(feature = "threading")]
+    pub thread_exceptions: parking_lot::Mutex<HashMap<u64, thread::CurrentExceptionSlot>>,
     /// Registry of all ThreadHandles for fork cleanup
     #[cfg(feature = "threading")]
     pub thread_handles: parking_lot::Mutex<Vec<stdlib::thread::HandleEntry>>,
@@ -380,7 +383,12 @@ impl VirtualMachine {
                     let errors = if fd == 2 {
                         Some("backslashreplace")
                     } else {
-                        self.state.config.settings.stdio_errors.as_deref()
+                        self.state
+                            .config
+                            .settings
+                            .stdio_errors
+                            .as_deref()
+                            .or(Some("surrogateescape"))
                     };
 
                     let stdio = self.call_method(
@@ -1354,13 +1362,19 @@ impl VirtualMachine {
         let mut excs = self.exceptions.borrow_mut();
         let prev = core::mem::take(&mut *excs);
         excs.prev = Some(Box::new(prev));
-        excs.exc = exc
+        excs.exc = exc;
+        drop(excs);
+        #[cfg(feature = "threading")]
+        thread::sync_thread_exception(self.topmost_exception());
     }
 
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         let mut excs = self.exceptions.borrow_mut();
         let cur = core::mem::take(&mut *excs);
         *excs = *cur.prev.expect("pop_exception() without nested exc stack");
+        drop(excs);
+        #[cfg(feature = "threading")]
+        thread::sync_thread_exception(self.topmost_exception());
         cur.exc
     }
 
@@ -1372,6 +1386,8 @@ impl VirtualMachine {
         // don't be holding the RefCell guard while __del__ is called
         let prev = core::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
         drop(prev);
+        #[cfg(feature = "threading")]
+        thread::sync_thread_exception(self.topmost_exception());
     }
 
     pub(crate) fn contextualize_exception(&self, exception: &Py<PyBaseException>) {

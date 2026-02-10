@@ -431,7 +431,6 @@ class SysModuleTest(unittest.TestCase):
         #  still has 5 elements
         maj, min, buildno, plat, csd = sys.getwindowsversion()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'call_tracing'
     def test_call_tracing(self):
         self.assertRaises(TypeError, sys.call_tracing, type, 2)
 
@@ -497,7 +496,6 @@ class SysModuleTest(unittest.TestCase):
         self.assertIsNone(sys._getframemodulename(i))
 
     # sys._current_frames() is a CPython-only gimmick.
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: didn't find f123() on thread's call stack
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_current_frames(self):
@@ -565,7 +563,6 @@ class SysModuleTest(unittest.TestCase):
             leave_g.set()
             t.join()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute '_current_exceptions'
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_current_exceptions(self):
@@ -1188,7 +1185,6 @@ class SysModuleTest(unittest.TestCase):
         rc, stdout, stderr = assert_python_ok('-c', code)
         self.assertEqual(stdout.rstrip(), b'True')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: list index out of range
     def test_issue20602(self):
         # sys.flags and sys.float_info were wiped during shutdown.
         code = """if 1:
