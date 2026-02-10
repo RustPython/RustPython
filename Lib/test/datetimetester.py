@@ -1519,7 +1519,7 @@ class TestDate(HarmlessMixedComparison, unittest.TestCase):
         # bpo-41260: The parameter was named "fmt" in the pure python impl.
         t.strftime(format="%f")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON; chrono fallback on Windows")
     def test_strftime_trailing_percent(self):
         # bpo-35066: Make sure trailing '%' doesn't cause datetime's strftime to
         # complain. Different libcs have different handling of trailing
