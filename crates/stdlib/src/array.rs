@@ -155,6 +155,13 @@ mod array {
                     }
                 }
 
+                fn clear(&mut self) -> PyResult<()>{
+                    match self {
+                        $(ArrayContentType::$n(v) => v.clear(),)*
+                    };
+                    Ok(())
+                }
+
                 fn remove(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>{
                     match self {
                         $(ArrayContentType::$n(v) => {
@@ -716,6 +723,11 @@ mod array {
         #[pymethod]
         fn append(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             zelf.try_resizable(vm)?.push(x, vm)
+        }
+
+        #[pymethod]
+        fn clear(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.try_resizable(vm)?.clear()
         }
 
         #[pymethod]
