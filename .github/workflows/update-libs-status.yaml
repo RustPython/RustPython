@@ -1,0 +1,90 @@
+name: Updated libs status
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Lib/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  PYTHON_VERSION: "v3.14.3"
+  ISSUE_ID: "47"
+
+jobs:
+  update-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone RustPython
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: rustpython
+          persist-credentials: "false"
+          sparse-checkout: |-
+              Lib
+              scripts/update_lib
+
+
+      - name: Clone CPython ${{ env.PYTHON_VERSION }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: python/cpython
+          path: cpython
+          ref: ${{ env.PYTHON_VERSION }}
+          persist-credentials: "false"
+          sparse-checkout: |
+            Lib
+
+      - name: Get current date
+        id: current_date
+        run: |
+          now=$(date +"%Y-%m-%d %H:%M:%S")
+          echo "date=$now" >> "$GITHUB_OUTPUT"
+
+      - name: Write body prefix
+        run: |
+          cat > body.txt <<EOF
+
+          <!-- 
+          THIS BODY IS AUTO-GENERATED. DO NOT EDIT MANUALLY!
+          -->
+
+          ## Summary
+
+          Check \`scripts/update_lib\` for tools. As a note, the current latest Python version is \`${{ env.PYTHON_VERSION }}\`.
+
+          Previous versions' issues as reference
+          - 3.13: #5529 
+
+          <!-- 
+          Quick guideline for Copilot:
+          # Clone \`github.com/python/cpython\` \`${{ env.PYTHON_VERSION }}\` tag under RustPython working dir with depth 1 option; never 3.14.0 or 3.14.1 or 3.14.2
+          # Pick a library or test to update. Probably user give one.
+          # Run \`python3 scripts/update_lib quick <name>\`
+          # A commit is automatically created. push the commit.
+          # Do not include keywords that automatically close an issue (e.g., Fix, Close, Resolve) next to an issue link or issue number.
+          -->
+
+          ## Details
+
+          ${{ steps.current_date.outputs.date }}
+          \`\`\`shell
+          $ python3 scripts/update_lib todo --done
+          \`\`\`
+          EOF
+        
+      - name: Run todo
+        run: python3 rustpython/scripts/update_lib todo --cpython cpython --lib rustpython/Lib --done >> body.txt
+
+      - name: Update GH issue
+        run: gh issue edit ${{ env.ISSUE_ID }} --body-file ../body.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: rustpython
+        
+
