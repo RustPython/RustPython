@@ -6707,7 +6707,6 @@ class GetTypeHintsTests(BaseTestCase):
                      'default_b': Optional[mod_generics_cache.B]}
         self.assertEqual(gth(mod_generics_cache), mgc_hints)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + {'x': <class 'int'>}
     def test_get_type_hints_classes(self):
         self.assertEqual(gth(ann_module.C),  # gth will find the right globalns
                          {'y': Optional[ann_module.C]})
