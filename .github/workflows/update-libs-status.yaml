@@ -14,7 +14,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "v3.14.3"
-  ISSUE_ID: "47"
+  ISSUE_ID: "6389"
 
 jobs:
   update-issue:
