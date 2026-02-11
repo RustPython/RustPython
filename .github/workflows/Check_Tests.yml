@@ -23,8 +23,7 @@ on:  # yamllint disable-line rule:truthy
         description: 'Target python version to target. Expected format: X.Y (e.g., 3.14)'
         type: string
         default: "3.14"
-        inputs:
-     subshell-timeout:
+      subshell-timeout:
         description: 'Max time in seconds before marking a subshell as hung (per-subshell).'
         type: int
         default: 30
