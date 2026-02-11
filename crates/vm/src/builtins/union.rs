@@ -12,7 +12,7 @@ use crate::{
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
 

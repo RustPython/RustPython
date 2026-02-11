@@ -26,7 +26,7 @@ cfg_if::cfg_if! {
 pub(crate) use _ssl::module_def;
 
 use openssl_probe::ProbeResult;
-use std::sync::LazyLock;
+use rustpython_common::lock::LazyLock;
 
 // define our own copy of ProbeResult so we can handle the vendor case
 // easily, without having to have a bunch of cfgs
@@ -95,7 +95,6 @@ mod _ssl {
         fmt,
         io::{Read, Write},
         path::{Path, PathBuf},
-        sync::LazyLock,
         time::Instant,
     };
 
@@ -106,7 +105,7 @@ mod _ssl {
         // if openssl is vendored, it doesn't know the locations
         // of system certificates - cache the probe result now.
         #[cfg(openssl_vendored)]
-        std::sync::LazyLock::force(&super::PROBE);
+        rustpython_common::lock::LazyLock::force(&super::PROBE);
 
         __module_exec(vm, module);
         Ok(())
@@ -569,7 +568,7 @@ mod _ssl {
 
     // Get or create an ex_data index for SNI callback data
     fn get_sni_ex_data_index() -> libc::c_int {
-        use std::sync::LazyLock;
+        use rustpython_common::lock::LazyLock;
         static SNI_EX_DATA_IDX: LazyLock<libc::c_int> = LazyLock::new(|| unsafe {
             sys::SSL_get_ex_new_index(
                 0,
@@ -613,7 +612,7 @@ mod _ssl {
 
     // Get or create an ex_data index for msg_callback data
     fn get_msg_callback_ex_data_index() -> libc::c_int {
-        use std::sync::LazyLock;
+        use rustpython_common::lock::LazyLock;
         static MSG_CB_EX_DATA_IDX: LazyLock<libc::c_int> = LazyLock::new(|| unsafe {
             sys::SSL_get_ex_new_index(
                 0,

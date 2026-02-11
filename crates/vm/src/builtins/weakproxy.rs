@@ -11,7 +11,7 @@ use crate::{
         Iterable, PyComparisonOp, Representable, SetAttr,
     },
 };
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 #[pyclass(module = false, name = "weakproxy", unhashable = true, traverse)]
 #[derive(Debug)]

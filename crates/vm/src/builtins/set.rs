@@ -30,7 +30,7 @@ use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
     hash,
 };
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 pub type SetContentType = dict_inner::Dict<()>;
 

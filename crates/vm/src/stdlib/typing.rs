@@ -35,7 +35,7 @@ pub(crate) mod decl {
         protocol::{PyMappingMethods, PyNumberMethods},
         types::{AsMapping, AsNumber, Constructor, Iterable, Representable},
     };
-    use std::sync::LazyLock;
+    use crate::common::lock::LazyLock;
 
     #[pyfunction]
     pub(crate) fn _idfunc(args: FuncArgs, _vm: &VirtualMachine) -> PyObjectRef {

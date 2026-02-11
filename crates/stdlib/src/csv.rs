@@ -18,7 +18,7 @@ mod _csv {
     use parking_lot::Mutex;
     use rustpython_vm::match_class;
     use std::collections::HashMap;
-    use std::sync::LazyLock;
+    use rustpython_common::lock::LazyLock;
 
     #[pyattr]
     const QUOTE_MINIMAL: i32 = QuoteStyle::Minimal as i32;

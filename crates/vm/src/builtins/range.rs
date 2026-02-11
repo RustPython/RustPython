@@ -19,7 +19,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 // Search flag passed to iter_search
 enum SearchType {

@@ -13,7 +13,7 @@ use crate::{
         PyComparisonOp, Representable,
     },
 };
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 #[pyclass(module = false, name = "mappingproxy", traverse)]
 #[derive(Debug)]

@@ -26,7 +26,7 @@ use crate::{
 };
 use alloc::fmt;
 use rustpython_common::lock::PyMutex;
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 pub type DictContentType = dict_inner::Dict;
 

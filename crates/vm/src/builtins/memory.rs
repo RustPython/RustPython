@@ -30,7 +30,7 @@ use core::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use rustpython_common::lock::PyMutex;
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {

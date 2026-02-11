@@ -25,7 +25,7 @@ use crate::{
     vm::VirtualMachine,
 };
 use alloc::fmt;
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 #[pyclass(module = false, name = "tuple", traverse = "manual")]
 pub struct PyTuple<R = PyObjectRef> {

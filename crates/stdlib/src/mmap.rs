@@ -687,7 +687,7 @@ mod mmap {
 
     impl AsSequence for PyMmap {
         fn as_sequence() -> &'static PySequenceMethods {
-            use std::sync::LazyLock;
+            use rustpython_common::lock::LazyLock;
             static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
                 length: atomic_func!(|seq, _vm| Ok(PyMmap::sequence_downcast(seq).__len__())),
                 item: atomic_func!(|seq, i, vm| {

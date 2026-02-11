@@ -10,7 +10,7 @@ use crate::{
         SelfIter,
     },
 };
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 use super::interpolation::PyInterpolation;
 

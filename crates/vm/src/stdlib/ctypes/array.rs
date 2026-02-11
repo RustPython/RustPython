@@ -445,7 +445,7 @@ impl Initializer for PyCArray {
 
 impl AsSequence for PyCArray {
     fn as_sequence() -> &'static PySequenceMethods {
-        use std::sync::LazyLock;
+        use crate::common::lock::LazyLock;
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| {
                 let zelf = PyCArray::sequence_downcast(seq);
@@ -470,7 +470,7 @@ impl AsSequence for PyCArray {
 
 impl AsMapping for PyCArray {
     fn as_mapping() -> &'static PyMappingMethods {
-        use std::sync::LazyLock;
+        use crate::common::lock::LazyLock;
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             length: atomic_func!(|mapping, _vm| {
                 let zelf = PyCArray::mapping_downcast(mapping);
