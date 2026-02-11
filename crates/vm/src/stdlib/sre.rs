@@ -190,7 +190,7 @@ mod _sre {
     }
 
     #[pyattr]
-    #[pyclass(name = "Pattern")]
+    #[pyclass(module = "re", name = "Pattern")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct Pattern {
         pub pattern: PyObjectRef,
@@ -597,7 +597,7 @@ mod _sre {
     }
 
     #[pyattr]
-    #[pyclass(name = "Match")]
+    #[pyclass(module = "re", name = "Match")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct Match {
         string: PyObjectRef,

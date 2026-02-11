@@ -552,8 +552,7 @@ impl Py<PyMemoryView> {
     flags(SEQUENCE)
 )]
 impl PyMemoryView {
-    // TODO: Uncomment when Python adds __class_getitem__ to memoryview
-    // #[pyclassmethod]
+    #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::from_args(cls, args, vm)
     }

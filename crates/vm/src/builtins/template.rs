@@ -1,9 +1,9 @@
-use super::{PyStr, PyTupleRef, PyType};
-use crate::common::lock::LazyLock;
+use super::{PyStr, PyTupleRef, PyType, PyTypeRef, genericalias::PyGenericAlias};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
     class::PyClassImpl,
+    common::lock::LazyLock,
     function::{FuncArgs, PyComparisonValue},
     protocol::{PyIterReturn, PySequenceMethods},
     types::{
@@ -176,6 +176,11 @@ impl PyTemplate {
 
     fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         self.concat(&other, vm)
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 
     #[pymethod]
