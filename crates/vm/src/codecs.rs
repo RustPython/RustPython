@@ -8,6 +8,7 @@ use rustpython_common::{
     wtf8::{CodePoint, Wtf8, Wtf8Buf},
 };
 
+use crate::common::lock::OnceCell;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     TryFromObject, VirtualMachine,
@@ -18,7 +19,6 @@ use crate::{
 };
 use alloc::borrow::Cow;
 use core::ops::{self, Range};
-use crate::common::lock::OnceCell;
 use std::collections::HashMap;
 
 pub struct CodecsRegistry {
