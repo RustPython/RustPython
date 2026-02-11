@@ -951,7 +951,8 @@ impl SymbolTableBuilder {
     /// Creates or reuses the annotation block for the current scope
     fn enter_annotation_scope(&mut self, line_number: u32) {
         let current = self.tables.last_mut().unwrap();
-        let can_see_class_scope = current.typ == CompilerScope::Class;
+        let can_see_class_scope =
+            current.typ == CompilerScope::Class || current.can_see_class_scope;
         let has_conditional = current.has_conditional_annotations;
 
         // Create annotation block if not exists
