@@ -86,7 +86,6 @@ class TestCase(unittest.TestCase):
 
         self.assertIn(",type=...,", repr_output)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; recursive annotation type not shown as ...
     def test_recursive_annotation(self):
         class C:
             pass

@@ -152,7 +152,6 @@ class BaseTest(unittest.TestCase):
     if Event is not None:
         generic_types.append(Event)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; memoryview, Template, Interpolation, py_object not subscriptable
     def test_subscriptable(self):
         for t in self.generic_types:
             if t is None:
@@ -507,7 +506,6 @@ class BaseTest(unittest.TestCase):
             with self.subTest(entry=entry):
                 getattr(ga, entry)  # must not raise `AttributeError`
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; memoryview, Template, Interpolation, py_object not subscriptable
     def test_weakref(self):
         for t in self.generic_types:
             if t is None:

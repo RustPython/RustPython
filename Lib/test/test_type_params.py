@@ -148,7 +148,6 @@ class TypeParamsInvalidTest(unittest.TestCase):
         check_syntax_error(self, "def f[T: [(x := 3) for _ in range(2)]](): pass")
         check_syntax_error(self, "type T = [(x := 3) for _ in range(2)]")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "\(MRO\) for bases object, Generic" does not match "Unable to find mro order which keeps local precedence ordering"
     def test_incorrect_mro_explicit_object(self):
         with self.assertRaisesRegex(TypeError, r"\(MRO\) for bases object, Generic"):
             class My[X](object): ...
@@ -1215,7 +1214,6 @@ class TypeParamsPickleTest(unittest.TestCase):
                     pickled = pickle.dumps(thing, protocol=proto)
                     self.assertEqual(pickle.loads(pickled), thing)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pickling_classes(self):
         things_to_test = [
             Class1,
