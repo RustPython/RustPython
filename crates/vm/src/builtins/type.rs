@@ -1629,7 +1629,7 @@ impl Constructor for PyType {
                 // PEP 678: Add a note to the original exception instead of wrapping it
                 // (Python 3.12+, gh-77757)
                 let note = format!(
-                    "Error calling __set_name__ on '{}' instance {} in '{}'",
+                    "Error calling __set_name__ on '{}' instance '{}' in '{}'",
                     obj.class().name(),
                     name,
                     typ.name()

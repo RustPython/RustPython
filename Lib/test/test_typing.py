@@ -8437,7 +8437,6 @@ class NamedTupleTests(BaseTestCase):
         self.assertIsInstance(bar.attr, Vanilla)
         self.assertEqual(bar.attr.name, "attr")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + Error calling __set_name__ on 'Annoying' instance attr in 'NamedTupleClass'
     def test_setname_raises_the_same_as_on_other_classes(self):
         class CustomException(BaseException): pass
 
@@ -9433,7 +9432,6 @@ class RETests(BaseTestCase):
         self.assertEqual(repr(Match[str]), 'typing.Match[str]')
         self.assertEqual(repr(Match[bytes]), 'typing.Match[bytes]')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "type 're\.Match' is not an acceptable base type" does not match "type '_sre.Match' is not an acceptable base type"
     def test_cannot_subclass(self):
         with self.assertRaisesRegex(
             TypeError,

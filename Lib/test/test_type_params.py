@@ -165,7 +165,6 @@ class TypeParamsNonlocalTest(unittest.TestCase):
             """
         check_syntax_error(self, code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_nonlocal_disallowed_02(self):
         code = """
             def outer2[T]():
@@ -174,7 +173,6 @@ class TypeParamsNonlocalTest(unittest.TestCase):
         """
         check_syntax_error(self, textwrap.dedent(code))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_nonlocal_disallowed_03(self):
         code = """
             class Cls[T]:
