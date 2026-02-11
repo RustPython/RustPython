@@ -3,6 +3,7 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
+mod monitoring;
 
 #[pymodule(name = "_jit")]
 mod sys_jit {
@@ -72,6 +73,9 @@ mod sys {
     pub(crate) fn multiarch() -> String {
         RUST_MULTIARCH.replace("-unknown", "")
     }
+
+    #[pymodule(name = "monitoring", with(super::monitoring::sys_monitoring))]
+    pub(super) mod monitoring {}
 
     #[pyclass(no_attr, name = "_BootstrapStderr", module = "sys")]
     #[derive(Debug, PyPayload)]
