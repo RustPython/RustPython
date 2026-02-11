@@ -266,7 +266,6 @@ class TypeParamsAccessTest(unittest.TestCase):
         with self.assertRaisesRegex(NameError, "name 'A' is not defined"):
             run_code(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name 'x' is not defined
     def test_method_access_01(self):
         ns = run_code("""
             class ClassA:
@@ -318,7 +317,6 @@ class TypeParamsAccessTest(unittest.TestCase):
         with self.assertRaisesRegex(NameError, "name 'B' is not defined"):
             run_code(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name 'x' is not defined
     def test_class_scope_interaction_01(self):
         ns = run_code("""
             class C:
@@ -484,7 +482,6 @@ class TypeParamsAccessTest(unittest.TestCase):
         self.assertEqual(base1.__arg__, [ns["C"].__type_params__[0]])
         self.assertEqual(base2.__arg__, "class")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ~T != 'class'
     def test_gen_exp_in_generic_method(self):
         code = """
             class C[T]:
