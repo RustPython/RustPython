@@ -1226,20 +1226,34 @@ impl Compiler {
     }
 
     /// Exit annotation scope - similar to exit_scope but restores annotation_block to parent
-    fn exit_annotation_scope(&mut self) -> CodeObject {
+    fn exit_annotation_scope(&mut self, saved_ctx: CompileContext) -> CodeObject {
         self.pop_annotation_symbol_table();
+        self.ctx = saved_ctx;
 
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
         unwrap_internal(self, stack_top.finalize_code(&self.opts))
     }
 
-    /// Enter annotation scope using the symbol table's annotation_block
-    /// Returns false if no annotation_block exists
-    fn enter_annotation_scope(&mut self, _func_name: &str) -> CompileResult<bool> {
+    /// Enter annotation scope using the symbol table's annotation_block.
+    /// Returns None if no annotation_block exists.
+    /// On success, returns the saved CompileContext to pass to exit_annotation_scope.
+    fn enter_annotation_scope(
+        &mut self,
+        _func_name: &str,
+    ) -> CompileResult<Option<CompileContext>> {
         if !self.push_annotation_symbol_table() {
-            return Ok(false);
+            return Ok(None);
         }
+
+        // Annotation scopes are never async (even inside async functions)
+        let saved_ctx = self.ctx;
+        self.ctx = CompileContext {
+            loop_data: None,
+            in_class: saved_ctx.in_class,
+            func: FunctionContext::Function,
+            in_async_scope: false,
+        };
 
         let key = self.symbol_table_stack.len() - 1;
         let lineno = self.get_source_line_number().get();
@@ -1261,7 +1275,7 @@ impl Compiler {
         // VALUE_WITH_FAKE_GLOBALS = 2 (from annotationlib.Format)
         self.emit_format_validation()?;
 
-        Ok(true)
+        Ok(Some(saved_ctx))
     }
 
     /// Emit format parameter validation for annotation scope
@@ -2477,6 +2491,10 @@ impl Compiler {
                     // Evaluator takes a positional-only format parameter
                     self.current_code_info().metadata.argcount = 1;
                     self.current_code_info().metadata.posonlyargcount = 1;
+                    self.current_code_info()
+                        .metadata
+                        .varnames
+                        .insert("format".to_owned());
                     self.emit_format_validation()?;
                     self.compile_expression(value)?;
                     emit!(self, Instruction::ReturnValue);
@@ -2514,6 +2532,10 @@ impl Compiler {
                     // Evaluator takes a positional-only format parameter
                     self.current_code_info().metadata.argcount = 1;
                     self.current_code_info().metadata.posonlyargcount = 1;
+                    self.current_code_info()
+                        .metadata
+                        .varnames
+                        .insert("format".to_owned());
                     self.emit_format_validation()?;
 
                     let prev_ctx = self.ctx;
@@ -2659,6 +2681,10 @@ impl Compiler {
         // Evaluator takes a positional-only format parameter
         self.current_code_info().metadata.argcount = 1;
         self.current_code_info().metadata.posonlyargcount = 1;
+        self.current_code_info()
+            .metadata
+            .varnames
+            .insert("format".to_owned());
 
         self.emit_format_validation()?;
 
@@ -3787,10 +3813,10 @@ impl Compiler {
         parameters: &ast::Parameters,
         returns: Option<&ast::Expr>,
     ) -> CompileResult<bool> {
-        // Try to enter annotation scope - returns false if no annotation_block exists
-        if !self.enter_annotation_scope(func_name)? {
+        // Try to enter annotation scope - returns None if no annotation_block exists
+        let Some(saved_ctx) = self.enter_annotation_scope(func_name)? else {
             return Ok(false);
-        }
+        };
 
         // Count annotations
         let parameters_iter = core::iter::empty()
@@ -3842,7 +3868,7 @@ impl Compiler {
         emit!(self, Instruction::ReturnValue);
 
         // Exit the annotation scope and get the code object
-        let annotate_code = self.exit_annotation_scope();
+        let annotate_code = self.exit_annotation_scope(saved_ctx);
 
         // Make a closure from the code object
         self.make_closure(annotate_code, bytecode::MakeFunctionFlags::empty())?;
@@ -3934,6 +3960,15 @@ impl Compiler {
         if !self.push_current_annotation_symbol_table() {
             return Ok(false);
         }
+
+        // Annotation scopes are never async (even inside async functions)
+        let saved_ctx = self.ctx;
+        self.ctx = CompileContext {
+            loop_data: None,
+            in_class: saved_ctx.in_class,
+            func: FunctionContext::Function,
+            in_async_scope: false,
+        };
 
         // Enter annotation scope for code generation
         let key = self.symbol_table_stack.len() - 1;
@@ -4031,6 +4066,8 @@ impl Compiler {
             .last_mut()
             .expect("no module symbol table")
             .annotation_block = Some(Box::new(annotation_table));
+        // Restore context
+        self.ctx = saved_ctx;
         // Exit code scope
         let pop = self.code_stack.pop();
         let annotate_code = unwrap_internal(

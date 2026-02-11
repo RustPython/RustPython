@@ -162,7 +162,12 @@ pub(crate) mod decl {
             for item in tuple.iter() {
                 parts.push(typing_type_repr(item, vm)?);
             }
-            Ok(vm.ctx.new_str(format!("({})", parts.join(", "))).into())
+            let inner = if parts.len() == 1 {
+                format!("{},", parts[0])
+            } else {
+                parts.join(", ")
+            };
+            Ok(vm.ctx.new_str(format!("({})", inner)).into())
         } else {
             Ok(vm.ctx.new_str(typing_type_repr(value, vm)?).into())
         }
