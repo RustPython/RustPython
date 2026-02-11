@@ -121,6 +121,8 @@ pub struct Frame {
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
+    /// Set when f_locals is accessed. Cleared after locals_to_fast() sync.
+    pub(crate) locals_dirty: atomic::AtomicBool,
 }
 
 impl PyPayload for Frame {
@@ -212,6 +214,7 @@ impl Frame {
             generator: PyAtomicBorrow::new(),
             previous: AtomicPtr::new(core::ptr::null_mut()),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            locals_dirty: atomic::AtomicBool::new(false),
         }
     }
 
@@ -253,6 +256,28 @@ impl Frame {
         {
             self.lasti.get()
         }
+    }
+
+    /// Sync locals dict back to fastlocals. Called before generator/coroutine resume
+    /// to apply any modifications made via f_locals.
+    pub fn locals_to_fast(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if !self.locals_dirty.load(atomic::Ordering::Acquire) {
+            return Ok(());
+        }
+        let code = &**self.code;
+        let mut fastlocals = self.fastlocals.lock();
+        for (i, &varname) in code.varnames.iter().enumerate() {
+            if i >= fastlocals.len() {
+                break;
+            }
+            match self.locals.mapping().subscript(varname, vm) {
+                Ok(value) => fastlocals[i] = Some(value),
+                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        self.locals_dirty.store(false, atomic::Ordering::Release);
+        Ok(())
     }
 
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
@@ -438,8 +463,20 @@ impl ExecutingFrame<'_> {
         // Execute until return or exception:
         let instructions = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
+        let mut prev_line: usize = 0;
         loop {
             let idx = self.lasti() as usize;
+            // Fire 'line' trace event when line number changes.
+            // Only fire if this frame has a per-frame trace function set
+            // (frames entered before sys.settrace() have trace=None).
+            if vm.use_tracing.get()
+                && !vm.is_none(&self.object.trace.lock())
+                && let Some((loc, _)) = self.code.locations.get(idx)
+                && loc.line.get() != prev_line
+            {
+                prev_line = loc.line.get();
+                vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
+            }
             self.update_lasti(|i| *i += 1);
             let bytecode::CodeUnit { op, arg } = instructions[idx];
             let arg = arg_state.extend(arg);
@@ -598,44 +635,74 @@ impl ExecutingFrame<'_> {
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
         if let Some(jen) = self.yield_from_target() {
-            // borrow checker shenanigans - we only need to use exc_type/val/tb if the following
-            // variable is Some
-            let thrower = if let Some(coro) = self.builtin_coro(jen) {
-                Some(Either::A(coro))
+            // Check if the exception is GeneratorExit (type or instance).
+            // For GeneratorExit, close the sub-iterator instead of throwing.
+            let is_gen_exit = if let Some(typ) = exc_type.downcast_ref::<PyType>() {
+                typ.fast_issubclass(vm.ctx.exceptions.generator_exit)
             } else {
-                vm.get_attribute_opt(jen.to_owned(), "throw")?
-                    .map(Either::B)
+                exc_type.fast_isinstance(vm.ctx.exceptions.generator_exit)
             };
-            if let Some(thrower) = thrower {
-                let ret = match thrower {
-                    Either::A(coro) => coro
-                        .throw(jen, exc_type, exc_val, exc_tb, vm)
-                        .to_pyresult(vm),
-                    Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
+
+            if is_gen_exit {
+                // gen_close_iter: close the sub-iterator
+                let close_result = if let Some(coro) = self.builtin_coro(jen) {
+                    coro.close(jen, vm).map(|_| ())
+                } else if let Some(close_meth) = vm.get_attribute_opt(jen.to_owned(), "close")? {
+                    close_meth.call((), vm).map(|_| ())
+                } else {
+                    Ok(())
                 };
-                return ret.map(ExecutionResult::Yield).or_else(|err| {
-                    // This pushes Py_None to stack and restarts evalloop in exception mode.
-                    // Stack before throw: [receiver] (YIELD_VALUE already popped yielded value)
-                    // After pushing None: [receiver, None]
-                    // Exception handler will push exc: [receiver, None, exc]
-                    // CLEANUP_THROW expects: [sub_iter, last_sent_val, exc]
+                if let Err(err) = close_result {
                     self.push_value(vm.ctx.none());
-
-                    // Set __context__ on the exception (_PyErr_ChainStackItem)
                     vm.contextualize_exception(&err);
-
-                    // Use unwind_blocks to let exception table route to CLEANUP_THROW
-                    match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
+                    return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
                         Ok(None) => self.run(vm),
                         Ok(Some(result)) => Ok(result),
                         Err(exception) => Err(exception),
-                    }
-                });
+                    };
+                }
+                // Fall through to throw_here to raise GeneratorExit in the generator
+            } else {
+                // For non-GeneratorExit, delegate throw to sub-iterator
+                let thrower = if let Some(coro) = self.builtin_coro(jen) {
+                    Some(Either::A(coro))
+                } else {
+                    vm.get_attribute_opt(jen.to_owned(), "throw")?
+                        .map(Either::B)
+                };
+                if let Some(thrower) = thrower {
+                    let ret = match thrower {
+                        Either::A(coro) => coro
+                            .throw(jen, exc_type, exc_val, exc_tb, vm)
+                            .to_pyresult(vm),
+                        Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
+                    };
+                    return ret.map(ExecutionResult::Yield).or_else(|err| {
+                        self.push_value(vm.ctx.none());
+                        vm.contextualize_exception(&err);
+                        match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
+                            Ok(None) => self.run(vm),
+                            Ok(Some(result)) => Ok(result),
+                            Err(exception) => Err(exception),
+                        }
+                    });
+                }
             }
         }
         // throw_here: no delegate has throw method, or not in yield-from
-        // gen_send_ex pushes Py_None to stack and restarts evalloop in exception mode
-        let exception = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
+        // Validate the exception type first. Invalid types propagate directly to
+        // the caller. Valid types with failed instantiation (e.g. __new__ returns
+        // wrong type) get thrown into the generator via PyErr_SetObject path.
+        let ctor = ExceptionCtor::try_from_object(vm, exc_type)?;
+        let exception = match ctor.instantiate_value(exc_val, vm) {
+            Ok(exc) => {
+                if let Some(tb) = Option::<PyRef<PyTraceback>>::try_from_object(vm, exc_tb)? {
+                    exc.set_traceback_typed(Some(tb));
+                }
+                exc
+            }
+            Err(err) => err,
+        };
 
         // Add traceback entry for the generator frame at the yield site
         let idx = self.lasti().saturating_sub(1) as usize;

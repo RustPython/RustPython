@@ -348,7 +348,13 @@ impl VirtualMachine {
     ) -> PyResult<PyBaseExceptionRef> {
         // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
         let res = PyType::call(&cls, args.into_args(self), self)?;
-        PyBaseExceptionRef::try_from_object(self, res)
+        res.downcast::<PyBaseException>().map_err(|obj| {
+            self.new_type_error(format!(
+                "calling {} should have returned an instance of BaseException, not {}",
+                cls,
+                obj.class()
+            ))
+        })
     }
 }
 
@@ -1307,6 +1313,16 @@ impl OSErrorBuilder {
         self
     }
 
+    /// Strip winerror from the builder. Used for C runtime errors
+    /// (e.g. `_wopen`, `open`) that should produce `[Errno X]` format
+    /// instead of `[WinError X]`.
+    #[must_use]
+    #[cfg(windows)]
+    pub(crate) fn without_winerror(mut self) -> Self {
+        self.winerror = None;
+        self
+    }
+
     pub fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
         use types::PyOSError;
 
@@ -1391,12 +1407,10 @@ impl ToOSErrorBuilder for std::io::Error {
 
         #[allow(unused_mut)]
         let mut builder = OSErrorBuilder::with_errno(errno, msg, vm);
-
         #[cfg(windows)]
         if let Some(winerror) = self.raw_os_error() {
             builder = builder.winerror(winerror.to_pyobject(vm));
         }
-
         builder
     }
 }

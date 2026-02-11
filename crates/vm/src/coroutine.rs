@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
@@ -135,6 +135,7 @@ impl Coro {
         if self.closed.load() {
             return Ok(PyIterReturn::StopIteration(None));
         }
+        self.frame.locals_to_fast(vm)?;
         let value = if self.frame.lasti() > 0 {
             Some(value)
         } else if !vm.is_none(&value) {
@@ -176,22 +177,37 @@ impl Coro {
         exc_tb: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
+        // Validate throw arguments (matching CPython _gen_throw)
+        if exc_type.fast_isinstance(vm.ctx.exceptions.base_exception_type) && !vm.is_none(&exc_val)
+        {
+            return Err(
+                vm.new_type_error("instance exception may not have a separate value".to_owned())
+            );
+        }
+        if !vm.is_none(&exc_tb) && !exc_tb.fast_isinstance(vm.ctx.types.traceback_type) {
+            return Err(
+                vm.new_type_error("throw() third argument must be a traceback object".to_owned())
+            );
+        }
         if self.closed.load() {
             return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
         }
+        // Validate exception type before entering generator context.
+        // Invalid types propagate to caller without closing the generator.
+        crate::exceptions::ExceptionCtor::try_from_object(vm, exc_type.clone())?;
         let result = self.run_with_context(jen, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
         self.maybe_close(&result);
         Ok(result?.into_iter_return(vm))
     }
 
-    pub fn close(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn close(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         if self.closed.load() {
-            return Ok(());
+            return Ok(vm.ctx.none());
         }
         // If generator hasn't started (FRAME_CREATED), just mark as closed
         if self.frame.lasti() == 0 {
             self.closed.store(true);
-            return Ok(());
+            return Ok(vm.ctx.none());
         }
         let result = self.run_with_context(jen, vm, |f| {
             f.gen_throw(
@@ -207,8 +223,13 @@ impl Coro {
                 Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
             }
             Err(e) if !is_gen_exit(&e, vm) => Err(e),
-            _ => Ok(()),
+            Ok(ExecutionResult::Return(value)) => Ok(value),
+            _ => Ok(vm.ctx.none()),
         }
+    }
+
+    pub fn suspended(&self) -> bool {
+        !self.closed.load() && !self.running.load() && self.frame.lasti() > 0
     }
 
     pub fn running(&self) -> bool {
@@ -240,10 +261,11 @@ impl Coro {
     }
 
     pub fn repr(&self, jen: &PyObject, id: usize, vm: &VirtualMachine) -> String {
+        let qualname = self.qualname();
         format!(
             "<{} object {} at {:#x}>",
             gen_name(jen, vm),
-            self.name.lock(),
+            qualname.as_str(),
             id
         )
     }
