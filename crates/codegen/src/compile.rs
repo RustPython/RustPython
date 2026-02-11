@@ -7417,7 +7417,7 @@ impl Compiler {
                 && matches!(arguments.args[0], ast::Expr::Starred(_))
             {
                 // Single starred arg: pass value directly to CallFunctionEx.
-                // Runtime will convert to tuple and check iterability with function name.
+                // Runtime will convert to tuple and validate with function name.
                 if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = &arguments.args[0] {
                     self.compile_expression(value)?;
                 }

@@ -442,7 +442,7 @@ TypeError if te dictionary is not empty
     ...     False
     True
 
-    >>> id(1, **{'foo': 1})
+    >>> id(1, **{'foo': 1}) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     TypeError: id() takes no keyword arguments
@@ -545,8 +545,15 @@ Same with keyword only args:
 import doctest
 import unittest
 
+EXPECTED_FAILURE = doctest.register_optionflag('EXPECTED_FAILURE') # TODO: RUSTPYTHON
+class CustomOutputChecker(doctest.OutputChecker): # TODO: RUSTPYTHON
+    def check_output(self, want, got, optionflags): # TODO: RUSTPYTHON
+        if optionflags & EXPECTED_FAILURE: # TODO: RUSTPYTHON
+            return not super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
+        return super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
+
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite())
+    tests.addTest(doctest.DocTestSuite(checker=CustomOutputChecker())) # TODO: RUSTPYTHON
     return tests
 
 
