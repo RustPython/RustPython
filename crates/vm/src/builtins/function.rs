@@ -227,13 +227,37 @@ impl PyFunction {
                 } else {
                     n_expected_args.to_string()
                 };
+
+                // Count keyword-only arguments that were actually provided
+                let kwonly_given = if code.kwonlyarg_count > 0 {
+                    let kwonly_start = code.arg_count as usize;
+                    let kwonly_end = kwonly_start + code.kwonlyarg_count as usize;
+                    code.varnames[kwonly_start..kwonly_end]
+                        .iter()
+                        .filter(|name| func_args.kwargs.contains_key(name.as_str()))
+                        .count()
+                } else {
+                    0
+                };
+
+                let given_msg = if kwonly_given > 0 {
+                    format!(
+                        "{} positional argument{} (and {} keyword-only argument{}) were",
+                        nargs,
+                        if nargs == 1 { "" } else { "s" },
+                        kwonly_given,
+                        if kwonly_given == 1 { "" } else { "s" },
+                    )
+                } else {
+                    format!("{} {}", nargs, if nargs == 1 { "was" } else { "were" })
+                };
+
                 return Err(vm.new_type_error(format!(
-                    "{}() takes {} positional argument{} but {} {} given",
+                    "{}() takes {} positional argument{} but {} given",
                     self.__qualname__(),
                     takes_msg,
                     if n_expected_args == 1 { "" } else { "s" },
-                    nargs,
-                    if nargs == 1 { "was" } else { "were" }
+                    given_msg,
                 )));
             }
         }
@@ -368,8 +392,7 @@ impl PyFunction {
         };
 
         if code.kwonlyarg_count > 0 {
-            // TODO: compile a list of missing arguments
-            // let mut missing = vec![];
+            let mut missing = Vec::new();
             // Check if kw only arguments are all present:
             for (slot, kwarg) in fastlocals
                 .iter_mut()
@@ -386,9 +409,39 @@ impl PyFunction {
                 }
 
                 // No default value and not specified.
-                return Err(
-                    vm.new_type_error(format!("Missing required kw only argument: '{kwarg}'"))
-                );
+                missing.push(kwarg);
+            }
+
+            if !missing.is_empty() {
+                let missing_len = missing.len();
+                let last = if missing.len() > 1 {
+                    missing.pop()
+                } else {
+                    None
+                };
+
+                let (and, right) = if let Some(last) = last {
+                    (
+                        if missing.len() == 1 {
+                            "' and '"
+                        } else {
+                            "', and '"
+                        },
+                        last.as_str(),
+                    )
+                } else {
+                    ("", "")
+                };
+
+                return Err(vm.new_type_error(format!(
+                    "{}() missing {} required keyword-only argument{}: '{}{}{}'",
+                    self.__qualname__(),
+                    missing_len,
+                    if missing_len == 1 { "" } else { "s" },
+                    missing.iter().join("', '"),
+                    and,
+                    right,
+                )));
             }
         }
 
