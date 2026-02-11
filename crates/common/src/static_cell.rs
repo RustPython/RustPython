@@ -31,7 +31,12 @@ mod threading {
         where
             F: FnOnce() -> Result<T, E>,
         {
-            self.inner.get_or_try_init(f)
+            if let Some(val) = self.inner.get() {
+                return Ok(val);
+            }
+            let val = f()?;
+            let _ = self.inner.set(val);
+            Ok(self.inner.get().unwrap())
         }
     }
 
@@ -92,8 +97,15 @@ mod non_threading {
         where
             F: FnOnce() -> Result<T, E>,
         {
-            self.inner
-                .with(|x| x.get_or_try_init(|| f().map(leak)).copied())
+            self.inner.with(|x| {
+                if let Some(val) = x.get() {
+                    Ok(*val)
+                } else {
+                    let val = leak(f()?);
+                    let _ = x.set(val);
+                    Ok(val)
+                }
+            })
         }
     }
 
@@ -156,7 +168,12 @@ mod no_std {
         where
             F: FnOnce() -> Result<T, E>,
         {
-            self.inner.0.get_or_try_init(f)
+            if let Some(val) = self.inner.0.get() {
+                return Ok(val);
+            }
+            let val = f()?;
+            let _ = self.inner.0.set(val);
+            Ok(self.inner.0.get().unwrap())
         }
     }
 

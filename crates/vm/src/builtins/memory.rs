@@ -1095,15 +1095,16 @@ impl Comparable for PyMemoryView {
 
 impl Hashable for PyMemoryView {
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        zelf.hash
-            .get_or_try_init(|| {
-                zelf.try_not_released(vm)?;
-                if !zelf.desc.readonly {
-                    return Err(vm.new_value_error("cannot hash writable memoryview object"));
-                }
-                Ok(zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes)))
-            })
-            .copied()
+        if let Some(val) = zelf.hash.get() {
+            return Ok(*val);
+        }
+        zelf.try_not_released(vm)?;
+        if !zelf.desc.readonly {
+            return Err(vm.new_value_error("cannot hash writable memoryview object"));
+        }
+        let val = zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes));
+        let _ = zelf.hash.set(val);
+        Ok(*zelf.hash.get().unwrap())
     }
 }
 

@@ -63,7 +63,6 @@ num-complex = { workspace = true }
 num-integer = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
-once_cell = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 scoped-tls = { workspace = true }

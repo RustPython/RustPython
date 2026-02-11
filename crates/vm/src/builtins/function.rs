@@ -816,15 +816,16 @@ impl PyFunction {
     #[cfg(feature = "jit")]
     #[pymethod]
     fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.jitted_code
-            .get_or_try_init(|| {
-                let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
-                let ret_type = jit::jit_ret_type(&zelf, vm)?;
-                let code = zelf.code.lock();
-                rustpython_jit::compile(&code.code, &arg_types, ret_type)
-                    .map_err(|err| jit::new_jit_error(err.to_string(), vm))
-            })
-            .map(drop)
+        if zelf.jitted_code.get().is_some() {
+            return Ok(());
+        }
+        let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
+        let ret_type = jit::jit_ret_type(&zelf, vm)?;
+        let code = zelf.code.lock();
+        let compiled = rustpython_jit::compile(&code.code, &arg_types, ret_type)
+            .map_err(|err| jit::new_jit_error(err.to_string(), vm))?;
+        let _ = zelf.jitted_code.set(compiled);
+        Ok(())
     }
 }
 

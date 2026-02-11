@@ -8,6 +8,7 @@ use rustpython_common::{
     wtf8::{CodePoint, Wtf8, Wtf8Buf},
 };
 
+use crate::common::lock::OnceCell;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     TryFromObject, VirtualMachine,
@@ -18,7 +19,6 @@ use crate::{
 };
 use alloc::borrow::Cow;
 use core::ops::{self, Range};
-use once_cell::unsync::OnceCell;
 use std::collections::HashMap;
 
 pub struct CodecsRegistry {
@@ -861,22 +861,25 @@ impl<'a> ErrorsHandler<'a> {
             },
             None => Self {
                 errors: identifier!(vm, strict).as_ref(),
-                resolved: OnceCell::with_value(ResolvedError::Standard(StandardError::Strict)),
+                resolved: OnceCell::from(ResolvedError::Standard(StandardError::Strict)),
             },
         }
     }
     #[inline]
     fn resolve(&self, vm: &VirtualMachine) -> PyResult<&ResolvedError> {
-        self.resolved.get_or_try_init(|| {
-            if let Ok(standard) = self.errors.as_str().parse() {
-                Ok(ResolvedError::Standard(standard))
-            } else {
-                vm.state
-                    .codec_registry
-                    .lookup_error(self.errors.as_str(), vm)
-                    .map(ResolvedError::Handler)
-            }
-        })
+        if let Some(val) = self.resolved.get() {
+            return Ok(val);
+        }
+        let val = if let Ok(standard) = self.errors.as_str().parse() {
+            ResolvedError::Standard(standard)
+        } else {
+            vm.state
+                .codec_registry
+                .lookup_error(self.errors.as_str(), vm)
+                .map(ResolvedError::Handler)?
+        };
+        let _ = self.resolved.set(val);
+        Ok(self.resolved.get().unwrap())
     }
 }
 impl StrBuffer for PyStrRef {
@@ -998,7 +1001,7 @@ where
         encoding: s_encoding.as_str(),
         data: &s,
         pos: StrSize::default(),
-        exception: OnceCell::with_value(err.downcast().unwrap()),
+        exception: OnceCell::from(err.downcast().unwrap()),
     };
     let mut iter = s.as_wtf8().code_point_indices();
     let start = StrSize {
@@ -1038,7 +1041,7 @@ where
         data: PyDecodeData::Original(s.borrow_buf()),
         orig_bytes: s.as_object().downcast_ref(),
         pos: 0,
-        exception: OnceCell::with_value(err.downcast().unwrap()),
+        exception: OnceCell::from(err.downcast().unwrap()),
     };
     let (replace, restart) = handler.handle_decode_error(&mut ctx, range, None)?;
     Ok((replace.into(), restart))
@@ -1061,7 +1064,7 @@ where
         encoding: "",
         data: &s,
         pos: StrSize::default(),
-        exception: OnceCell::with_value(err.downcast().unwrap()),
+        exception: OnceCell::from(err.downcast().unwrap()),
     };
     let mut iter = s.as_wtf8().code_point_indices();
     let start = StrSize {

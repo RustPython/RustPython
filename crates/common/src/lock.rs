@@ -10,12 +10,12 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
         pub use parking_lot::{RawMutex, RawRwLock, RawThreadId};
 
-        pub use once_cell::sync::{Lazy, OnceCell};
+        pub use std::sync::{LazyLock as Lazy, OnceLock as OnceCell};
     } else {
         mod cell_lock;
         pub use cell_lock::{RawCellMutex as RawMutex, RawCellRwLock as RawRwLock, SingleThreadId as RawThreadId};
 
-        pub use once_cell::unsync::{Lazy, OnceCell};
+        pub use core::cell::{LazyCell as Lazy, OnceCell};
     }
 }
 
