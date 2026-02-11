@@ -10,7 +10,7 @@ pub(crate) mod typevar {
         common::lock::PyMutex,
         function::{FuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
-        stdlib::typing::{call_typing_func_object, decl::constevaluator_alloc},
+        stdlib::typing::{call_typing_func_object, decl::const_evaluator_alloc},
         types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
     };
 
@@ -158,7 +158,7 @@ pub(crate) mod typevar {
             }
             let bound = self.bound.lock();
             if !vm.is_none(&bound) {
-                return Ok(constevaluator_alloc(bound.clone(), vm));
+                return Ok(const_evaluator_alloc(bound.clone(), vm));
             }
             Ok(vm.ctx.none())
         }
@@ -170,7 +170,7 @@ pub(crate) mod typevar {
             }
             let constraints = self.constraints.lock();
             if !vm.is_none(&constraints) {
-                return Ok(constevaluator_alloc(constraints.clone(), vm));
+                return Ok(const_evaluator_alloc(constraints.clone(), vm));
             }
             Ok(vm.ctx.none())
         }
@@ -183,7 +183,7 @@ pub(crate) mod typevar {
             }
             let default_value = self.default_value.lock();
             if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(constevaluator_alloc(default_value.clone(), vm));
+                return Ok(const_evaluator_alloc(default_value.clone(), vm));
             }
             Ok(vm.ctx.none())
         }
@@ -521,7 +521,7 @@ pub(crate) mod typevar {
             }
             let default_value = self.default_value.lock();
             if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(constevaluator_alloc(default_value.clone(), vm));
+                return Ok(const_evaluator_alloc(default_value.clone(), vm));
             }
             Ok(vm.ctx.none())
         }
@@ -716,7 +716,7 @@ pub(crate) mod typevar {
             }
             let default_value = self.default_value.lock();
             if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(constevaluator_alloc(default_value.clone(), vm));
+                return Ok(const_evaluator_alloc(default_value.clone(), vm));
             }
             Ok(vm.ctx.none())
         }
