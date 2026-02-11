@@ -671,7 +671,7 @@ impl ExecutingFrame<'_> {
         } else {
             let name = self.code.freevars[i - self.code.cellvars.len()];
             vm.new_name_error(
-                format!("free variable '{name}' referenced before assignment in enclosing scope"),
+                format!("cannot access free variable '{name}' where it is not associated with a value in enclosing scope"),
                 name.to_owned(),
             )
         }
@@ -3118,7 +3118,7 @@ impl ExecutingFrame<'_> {
 
                 let name = tuple.as_slice()[0].clone();
                 let type_params_obj = tuple.as_slice()[1].clone();
-                let value = tuple.as_slice()[2].clone();
+                let compute_value = tuple.as_slice()[2].clone();
 
                 let type_params: PyTupleRef = if vm.is_none(&type_params_obj) {
                     vm.ctx.empty_tuple.clone()
@@ -3131,7 +3131,7 @@ impl ExecutingFrame<'_> {
                 let name = name.downcast::<crate::builtins::PyStr>().map_err(|_| {
                     vm.new_type_error("TypeAliasType name must be a string".to_owned())
                 })?;
-                let type_alias = typing::TypeAliasType::new(name, type_params, value);
+                let type_alias = typing::TypeAliasType::new(name, type_params, compute_value);
                 Ok(type_alias.into_ref(&vm.ctx).into())
             }
             bytecode::IntrinsicFunction1::ListToTuple => {

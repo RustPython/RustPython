@@ -511,7 +511,11 @@ impl Representable for PyList {
         let s = if zelf.__len__() == 0 {
             "[]".to_owned()
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            collection_repr(None, "[", "]", zelf.borrow_vec().iter(), vm)?
+            // Clone elements before calling repr to release the read lock.
+            // Element repr may mutate the list (e.g., list.clear()), which
+            // needs a write lock and would deadlock if read lock is held.
+            let elements: Vec<PyObjectRef> = zelf.borrow_vec().to_vec();
+            collection_repr(None, "[", "]", elements.iter(), vm)?
         } else {
             "[...]".to_owned()
         };

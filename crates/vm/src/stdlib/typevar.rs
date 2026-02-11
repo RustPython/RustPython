@@ -391,7 +391,7 @@ pub(crate) mod typevar {
                 evaluate_default: PyMutex::new(vm.ctx.none()),
                 covariant: false,
                 contravariant: false,
-                infer_variance: false,
+                infer_variance: true,
             }
         }
     }
@@ -631,7 +631,7 @@ pub(crate) mod typevar {
                 evaluate_default: PyMutex::new(vm.ctx.none()),
                 covariant: false,
                 contravariant: false,
-                infer_variance: false,
+                infer_variance: true,
             }
         }
     }

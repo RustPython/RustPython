@@ -845,7 +845,6 @@ class TestRecursiveRepr(unittest.TestCase):
 
         self.assertIs(X.f, X.__repr__.__wrapped__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'TypeVar' object has no attribute '__name__'
     def test__type_params__(self):
         class My:
             @recursive_repr()

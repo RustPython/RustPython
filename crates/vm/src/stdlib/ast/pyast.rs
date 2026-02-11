@@ -77,6 +77,13 @@ macro_rules! impl_base_node {
 
             #[extend_class]
             fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
+                // AST types are mutable (heap types in CPython, not IMMUTABLETYPE)
+                // Safety: called during type initialization before any concurrent access
+                unsafe {
+                    let flags = &class.slots.flags as *const crate::types::PyTypeFlags
+                        as *mut crate::types::PyTypeFlags;
+                    (*flags).remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
+                }
                 class.set_attr(
                     identifier!(ctx, _attributes),
                     ctx.empty_tuple.clone().into(),
@@ -100,6 +107,13 @@ macro_rules! impl_base_node {
 
             #[extend_class]
             fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+                // AST types are mutable (heap types in CPython, not IMMUTABLETYPE)
+                // Safety: called during type initialization before any concurrent access
+                unsafe {
+                    let flags = &class.slots.flags as *const crate::types::PyTypeFlags
+                        as *mut crate::types::PyTypeFlags;
+                    (*flags).remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
+                }
                 class.set_attr(
                     identifier!(ctx, _fields),
                     ctx.new_tuple(vec![
@@ -530,6 +544,13 @@ pub(crate) struct NodeExprConstant(NodeExpr);
 impl NodeExprConstant {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+        // AST types are mutable (heap types, not IMMUTABLETYPE)
+        // Safety: called during type initialization before any concurrent access
+        unsafe {
+            let flags = &class.slots.flags as *const crate::types::PyTypeFlags
+                as *mut crate::types::PyTypeFlags;
+            (*flags).remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
+        }
         class.set_attr(
             identifier!(ctx, _fields),
             ctx.new_tuple(vec![

@@ -718,19 +718,23 @@ impl PyFunction {
         value: PySetterValue<Option<PyObjectRef>>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let annotations = match value {
+        match value {
             PySetterValue::Assign(Some(value)) => {
                 let annotations = value.downcast::<crate::builtins::PyDict>().map_err(|_| {
                     vm.new_type_error("__annotations__ must be set to a dict object")
                 })?;
-                Some(annotations)
+                *self.annotations.lock() = Some(annotations);
+                *self.annotate.lock() = None;
             }
-            PySetterValue::Assign(None) | PySetterValue::Delete => None,
-        };
-        *self.annotations.lock() = annotations;
-
-        // Clear __annotate__ when __annotations__ is set
-        *self.annotate.lock() = None;
+            PySetterValue::Assign(None) => {
+                *self.annotations.lock() = None;
+                *self.annotate.lock() = None;
+            }
+            PySetterValue::Delete => {
+                // del only clears cached annotations; __annotate__ is preserved
+                *self.annotations.lock() = None;
+            }
+        }
         Ok(())
     }
 
