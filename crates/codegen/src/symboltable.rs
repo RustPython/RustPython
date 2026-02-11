@@ -528,7 +528,6 @@ impl SymbolTableAnalyzer {
                     if !self.tables.as_ref().is_empty() {
                         let scope_depth = self.tables.as_ref().len();
                         // check if the name is already defined in any outer scope
-                        // therefore
                         if scope_depth < 2
                             || self.found_in_outer_scope(&symbol.name, st_typ)
                                 != Some(SymbolScope::Free)
@@ -538,6 +537,25 @@ impl SymbolTableAnalyzer {
                                 // TODO: accurate location info, somehow
                                 location: None,
                             });
+                        }
+                        // Check if the nonlocal binding refers to a type parameter
+                        if symbol.flags.contains(SymbolFlags::NONLOCAL) {
+                            for (symbols, _typ) in self.tables.iter().rev() {
+                                if let Some(sym) = symbols.get(&symbol.name) {
+                                    if sym.flags.contains(SymbolFlags::TYPE_PARAM) {
+                                        return Err(SymbolTableError {
+                                            error: format!(
+                                                "nonlocal binding not allowed for type parameter '{}'",
+                                                symbol.name
+                                            ),
+                                            location: None,
+                                        });
+                                    }
+                                    if sym.is_bound() {
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     } else {
                         return Err(SymbolTableError {
@@ -933,7 +951,8 @@ impl SymbolTableBuilder {
     /// Creates or reuses the annotation block for the current scope
     fn enter_annotation_scope(&mut self, line_number: u32) {
         let current = self.tables.last_mut().unwrap();
-        let can_see_class_scope = current.typ == CompilerScope::Class;
+        let can_see_class_scope =
+            current.typ == CompilerScope::Class || current.can_see_class_scope;
         let has_conditional = current.has_conditional_annotations;
 
         // Create annotation block if not exists
@@ -1485,6 +1504,8 @@ impl SymbolTableBuilder {
                     CompilerScope::TypeParams,
                     self.line_index_start(value.range()),
                 );
+                // Evaluator takes a format parameter
+                self.register_name("format", SymbolUsage::Parameter, TextRange::default())?;
                 if in_class {
                     if let Some(table) = self.tables.last_mut() {
                         table.can_see_class_scope = true;
@@ -1990,6 +2011,8 @@ impl SymbolTableBuilder {
         let in_class = self.tables.last().is_some_and(|t| t.can_see_class_scope);
         let line_number = self.line_index_start(expr.range());
         self.enter_scope(scope_name, CompilerScope::TypeParams, line_number);
+        // Evaluator takes a format parameter
+        self.register_name("format", SymbolUsage::Parameter, TextRange::default())?;
 
         if in_class {
             if let Some(table) = self.tables.last_mut() {
@@ -2015,15 +2038,34 @@ impl SymbolTableBuilder {
     fn scan_type_params(&mut self, type_params: &ast::TypeParams) -> SymbolTableResult {
         // Check for duplicate type parameter names
         let mut seen_names: IndexSet<&str> = IndexSet::default();
+        // Check for non-default type parameter after default type parameter
+        let mut default_seen = false;
         for type_param in &type_params.type_params {
-            let (name, range) = match type_param {
-                ast::TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range),
-                ast::TypeParam::ParamSpec(ps) => (ps.name.as_str(), ps.range),
-                ast::TypeParam::TypeVarTuple(tvt) => (tvt.name.as_str(), tvt.range),
+            let (name, range, has_default) = match type_param {
+                ast::TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range, tv.default.is_some()),
+                ast::TypeParam::ParamSpec(ps) => (ps.name.as_str(), ps.range, ps.default.is_some()),
+                ast::TypeParam::TypeVarTuple(tvt) => {
+                    (tvt.name.as_str(), tvt.range, tvt.default.is_some())
+                }
             };
             if !seen_names.insert(name) {
                 return Err(SymbolTableError {
                     error: format!("duplicate type parameter '{}'", name),
+                    location: Some(
+                        self.source_file
+                            .to_source_code()
+                            .source_location(range.start(), PositionEncoding::Utf8),
+                    ),
+                });
+            }
+            if has_default {
+                default_seen = true;
+            } else if default_seen {
+                return Err(SymbolTableError {
+                    error: format!(
+                        "non-default type parameter '{}' follows default type parameter",
+                        name
+                    ),
                     location: Some(
                         self.source_file
                             .to_source_code()

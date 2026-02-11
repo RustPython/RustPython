@@ -165,7 +165,6 @@ class TypeParamsNonlocalTest(unittest.TestCase):
             """
         check_syntax_error(self, code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_nonlocal_disallowed_02(self):
         code = """
             def outer2[T]():
@@ -174,7 +173,6 @@ class TypeParamsNonlocalTest(unittest.TestCase):
         """
         check_syntax_error(self, textwrap.dedent(code))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_nonlocal_disallowed_03(self):
         code = """
             class Cls[T]:
@@ -268,7 +266,6 @@ class TypeParamsAccessTest(unittest.TestCase):
         with self.assertRaisesRegex(NameError, "name 'A' is not defined"):
             run_code(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name 'x' is not defined
     def test_method_access_01(self):
         ns = run_code("""
             class ClassA:
@@ -320,7 +317,6 @@ class TypeParamsAccessTest(unittest.TestCase):
         with self.assertRaisesRegex(NameError, "name 'B' is not defined"):
             run_code(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name 'x' is not defined
     def test_class_scope_interaction_01(self):
         ns = run_code("""
             class C:
@@ -486,7 +482,6 @@ class TypeParamsAccessTest(unittest.TestCase):
         self.assertEqual(base1.__arg__, [ns["C"].__type_params__[0]])
         self.assertEqual(base2.__arg__, "class")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ~T != 'class'
     def test_gen_exp_in_generic_method(self):
         code = """
             class C[T]:
@@ -1374,13 +1369,11 @@ class DefaultsTest(unittest.TestCase):
         Ts, = ns["Alias"].__type_params__
         self.assertEqual(Ts.__default__, next(iter(ns["default"])))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_nondefault_after_default(self):
         check_syntax_error(self, "def func[T=int, U](): pass", "non-default type parameter 'U' follows default type parameter")
         check_syntax_error(self, "class C[T=int, U]: pass", "non-default type parameter 'U' follows default type parameter")
         check_syntax_error(self, "type A[T=int, U] = int", "non-default type parameter 'U' follows default type parameter")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + defined
     def test_lazy_evaluation(self):
         ns = run_code("""
             type Alias[T = Undefined, *U = Undefined, **V = Undefined] = int
@@ -1431,7 +1424,6 @@ class DefaultsTest(unittest.TestCase):
 
 
 class TestEvaluateFunctions(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'TypeAliasType' object has no attribute 'evaluate_value'
     def test_general(self):
         type Alias = int
         Alias2 = TypeAliasType("Alias2", int)
@@ -1459,7 +1451,6 @@ class TestEvaluateFunctions(unittest.TestCase):
                 self.assertIs(annotationlib.call_evaluate_function(case, annotationlib.Format.FORWARDREF), int)
                 self.assertEqual(annotationlib.call_evaluate_function(case, annotationlib.Format.STRING), 'int')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constraints(self):
         def f[T: (int, str)](): pass
         T, = f.__type_params__
@@ -1471,7 +1462,6 @@ class TestEvaluateFunctions(unittest.TestCase):
                 self.assertEqual(annotationlib.call_evaluate_function(case.evaluate_constraints, annotationlib.Format.FORWARDREF), (int, str))
                 self.assertEqual(annotationlib.call_evaluate_function(case.evaluate_constraints, annotationlib.Format.STRING), '(int, str)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'TypeVar' object has no attribute 'evaluate_bound'
     def test_const_evaluator(self):
         T = TypeVar("T", bound=int)
         self.assertEqual(repr(T.evaluate_bound), "<constevaluator <class 'int'>>")
