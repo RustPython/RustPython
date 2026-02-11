@@ -704,9 +704,14 @@ impl PyObject {
 
                 if let Some(class_getitem) =
                     vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class_getitem__))?
+                    && !vm.is_none(&class_getitem)
                 {
                     return class_getitem.call((needle,), vm);
                 }
+                return Err(vm.new_type_error(format!(
+                    "type '{}' is not subscriptable",
+                    self.downcast_ref::<PyType>().unwrap().name()
+                )));
             }
             Err(vm.new_type_error(format!("'{}' object is not subscriptable", self.class())))
         }

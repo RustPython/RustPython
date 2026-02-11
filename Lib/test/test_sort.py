@@ -128,6 +128,27 @@ class TestBase(unittest.TestCase):
             x = [e for e, i in augmented] # a stable sort of s
             check("stability", x, s)
 
+    def test_small_stability(self):
+        from itertools import product
+        from operator import itemgetter
+
+        # Exhaustively test stability across all lists of small lengths
+        # and only a few distinct elements.
+        # This can provoke edge cases that randomization is unlikely to find.
+        # But it can grow very expensive quickly, so don't overdo it.
+        NELTS = 3
+        MAXSIZE = 9
+
+        pick0 = itemgetter(0)
+        for length in range(MAXSIZE + 1):
+            # There are NELTS ** length distinct lists.
+            for t in product(range(NELTS), repeat=length):
+                xs = list(zip(t, range(length)))
+                # Stability forced by index in each element.
+                forced = sorted(xs)
+                # Use key= to hide the index from compares.
+                native = sorted(xs, key=pick0)
+                self.assertEqual(forced, native)
 #==============================================================================
 
 class TestBugs(unittest.TestCase):
@@ -149,7 +170,7 @@ class TestBugs(unittest.TestCase):
         L = [C() for i in range(50)]
         self.assertRaises(ValueError, L.sort)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; figure out how to detect sort mutation that doesn't change list length
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; figure out how to detect sort mutation that doesn't change list length
     def test_undetected_mutation(self):
         # Python 2.4a1 did not always detect mutation
         memorywaster = []
@@ -307,8 +328,7 @@ class TestOptimizedCompares(unittest.TestCase):
         for L in float_int_lists:
             check_against_PyObject_RichCompareBool(self, L)
 
-    # XXX RUSTPYTHON: added by us but it seems like an implementation detail
-    @support.cpython_only
+    @support.cpython_only  # XXX RUSTPYTHON: added by us but it seems like an implementation detail
     def test_unsafe_object_compare(self):
 
         # This test is by ppperry. It ensures that unsafe_object_compare is

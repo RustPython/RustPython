@@ -19,7 +19,7 @@ mod array {
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
                 PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType,
-                PyTypeRef,
+                PyTypeRef, builtins_iter,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -153,6 +153,13 @@ mod array {
                             }
                         })*
                     }
+                }
+
+                fn clear(&mut self) -> PyResult<()>{
+                    match self {
+                        $(ArrayContentType::$n(v) => v.clear(),)*
+                    };
+                    Ok(())
                 }
 
                 fn remove(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>{
@@ -716,6 +723,11 @@ mod array {
         #[pymethod]
         fn append(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             zelf.try_resizable(vm)?.push(x, vm)
+        }
+
+        #[pymethod]
+        fn clear(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.try_resizable(vm)?.clear()
         }
 
         #[pymethod]
@@ -1376,9 +1388,13 @@ mod array {
 
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-            self.internal
-                .lock()
-                .builtins_iter_reduce(|x| x.clone().into(), vm)
+            let func = builtins_iter(vm);
+            self.internal.lock().reduce(
+                func,
+                |x| x.clone().into(),
+                |vm| vm.ctx.empty_tuple.clone().into(),
+                vm,
+            )
         }
     }
 

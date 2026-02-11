@@ -126,6 +126,13 @@ impl Node for ast::Expr {
             Constant::ast_from_object(vm, source_file, object)?.into_expr()
         } else if cls.is(pyast::NodeExprJoinedStr::static_type()) {
             JoinedStr::ast_from_object(vm, source_file, object)?.into_expr()
+        } else if cls.is(pyast::NodeExprTemplateStr::static_type()) {
+            let template = string::TemplateStr::ast_from_object(vm, source_file, object)?;
+            return string::template_str_to_expr(vm, template);
+        } else if cls.is(pyast::NodeExprInterpolation::static_type()) {
+            let interpolation =
+                string::TStringInterpolation::ast_from_object(vm, source_file, object)?;
+            return string::interpolation_to_expr(vm, interpolation);
         } else {
             return Err(vm.new_type_error(format!(
                 "expected some sort of expr, but got {}",
@@ -327,8 +334,12 @@ impl Node for ast::ExprLambda {
             .into_ref_with_type(vm, pyast::NodeExprLambda::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("args", parameters.ast_to_object(vm, source_file), vm)
-            .unwrap();
+        // Lambda with no parameters should have an empty arguments object, not None
+        let args = match parameters {
+            Some(params) => params.ast_to_object(vm, source_file),
+            None => empty_arguments_object(vm),
+        };
+        dict.set_item("args", args, vm).unwrap();
         dict.set_item("body", body.ast_to_object(vm, source_file), vm)
             .unwrap();
         node_add_location(&dict, _range, vm, source_file);
@@ -451,6 +462,11 @@ impl Node for ast::ExprDict {
             source_file,
             get_node_field(vm, &object, "values", "Dict")?,
         )?;
+        if keys.len() != values.len() {
+            return Err(vm.new_value_error(
+                "Dict doesn't have the same number of keys as values".to_owned(),
+            ));
+        }
         let items = keys
             .into_iter()
             .zip(values)
@@ -643,8 +659,18 @@ impl Node for ast::ExprGenerator {
             elt,
             generators,
             range,
-            parenthesized: _,
+            parenthesized,
         } = self;
+        let range = if parenthesized {
+            range
+        } else {
+            TextRange::new(
+                range
+                    .start()
+                    .saturating_sub(ruff_text_size::TextSize::from(1)),
+                range.end() + ruff_text_size::TextSize::from(1),
+            )
+        };
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprGeneratorExp::static_type().to_owned())
             .unwrap();
@@ -1230,10 +1256,7 @@ impl Node for ast::ExprContext {
                 unimplemented!("Invalid expression context is not allowed in Python AST")
             }
         };
-        NodeAst
-            .into_ref_with_type(vm, node_type.to_owned())
-            .unwrap()
-            .into()
+        singleton_node_to_object(vm, node_type)
     }
 
     fn ast_from_object(
@@ -1241,12 +1264,12 @@ impl Node for ast::ExprContext {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let _cls = object.class();
-        Ok(if _cls.is(pyast::NodeExprContextLoad::static_type()) {
+        let cls = object.class();
+        Ok(if cls.is(pyast::NodeExprContextLoad::static_type()) {
             Self::Load
-        } else if _cls.is(pyast::NodeExprContextStore::static_type()) {
+        } else if cls.is(pyast::NodeExprContextStore::static_type()) {
             Self::Store
-        } else if _cls.is(pyast::NodeExprContextDel::static_type()) {
+        } else if cls.is(pyast::NodeExprContextDel::static_type()) {
             Self::Del
         } else {
             return Err(vm.new_type_error(format!(

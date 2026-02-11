@@ -548,8 +548,6 @@ class CmdLineTest(unittest.TestCase):
             self.assertIn(b'Exception in __main__ module', err)
             self.assertIn(b'Traceback', err)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pep_409_verbiage(self):
         # Make sure PEP 409 syntax properly suppresses
         # the context of an exception
@@ -620,7 +618,6 @@ class CmdLineTest(unittest.TestCase):
             # Confirm that the caret is located under the '=' sign
             self.assertIn("\n    ^^^^^\n", text)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_syntaxerror_indented_caret_position(self):
         script = textwrap.dedent("""\
             if True:

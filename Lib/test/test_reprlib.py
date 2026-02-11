@@ -207,7 +207,6 @@ class ReprTests(unittest.TestCase):
         self.assertStartsWith(r, "<function ReprTests.test_lambda.<locals>.<lambda")
         # XXX anonymous functions?  see func_repr
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_builtin_function(self):
         eq = self.assertEqual
         # Functions
@@ -846,7 +845,6 @@ class TestRecursiveRepr(unittest.TestCase):
 
         self.assertIs(X.f, X.__repr__.__wrapped__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'TypeVar' object has no attribute '__name__'
     def test__type_params__(self):
         class My:
             @recursive_repr()

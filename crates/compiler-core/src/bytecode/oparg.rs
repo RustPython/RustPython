@@ -1,29 +1,37 @@
 use bitflags::bitflags;
 
-use core::{fmt, num::NonZeroU8};
+use core::fmt;
 
-use crate::bytecode::{CodeUnit, instruction::Instruction};
+use crate::{
+    bytecode::{CodeUnit, instruction::Instruction},
+    marshal::MarshalError,
+};
 
-pub trait OpArgType: Copy {
-    fn from_op_arg(x: u32) -> Option<Self>;
-
-    fn to_op_arg(self) -> u32;
-}
+pub trait OpArgType: Copy + Into<u32> + TryFrom<u32> {}
 
 /// Opcode argument that may be extended by a prior ExtendedArg.
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct OpArgByte(pub u8);
+pub struct OpArgByte(u8);
 
 impl OpArgByte {
-    pub const fn null() -> Self {
-        Self(0)
+    pub const NULL: Self = Self::new(0);
+
+    #[must_use]
+    pub const fn new(value: u8) -> Self {
+        Self(value)
     }
 }
 
 impl From<u8> for OpArgByte {
     fn from(raw: u8) -> Self {
-        Self(raw)
+        Self::new(raw)
+    }
+}
+
+impl From<OpArgByte> for u8 {
+    fn from(value: OpArgByte) -> Self {
+        value.0
     }
 }
 
@@ -36,11 +44,14 @@ impl fmt::Debug for OpArgByte {
 /// Full 32-bit op_arg, including any possible ExtendedArg extension.
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
-pub struct OpArg(pub u32);
+pub struct OpArg(u32);
 
 impl OpArg {
-    pub const fn null() -> Self {
-        Self(0)
+    pub const NULL: Self = Self::new(0);
+
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
     }
 
     /// Returns how many CodeUnits a instruction with this op_arg will be encoded as
@@ -66,7 +77,13 @@ impl OpArg {
 
 impl From<u32> for OpArg {
     fn from(raw: u32) -> Self {
-        Self(raw)
+        Self::new(raw)
+    }
+}
+
+impl From<OpArg> for u32 {
+    fn from(value: OpArg) -> Self {
+        value.0
     }
 }
 
@@ -89,7 +106,7 @@ impl OpArgState {
     #[inline(always)]
     pub fn extend(&mut self, arg: OpArgByte) -> OpArg {
         self.state = (self.state << 8) | u32::from(arg.0);
-        OpArg(self.state)
+        self.state.into()
     }
 
     #[inline(always)]
@@ -98,43 +115,154 @@ impl OpArgState {
     }
 }
 
-/// Oparg values for [`Instruction::ConvertValue`].
+/// Helper macro for defining oparg enums in an optimal way.
 ///
-/// ## See also
+/// Will generate the following:
 ///
-/// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
-#[repr(u8)]
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum ConvertValueOparg {
-    /// No conversion.
-    ///
-    /// ```python
-    /// f"{x}"
-    /// f"{x:4}"
-    /// ```
-    None = 0,
-    /// Converts by calling `str(<value>)`.
-    ///
-    /// ```python
-    /// f"{x!s}"
-    /// f"{x!s:2}"
-    /// ```
-    Str = 1,
-    /// Converts by calling `repr(<value>)`.
-    ///
-    /// ```python
-    /// f"{x!r}"
-    /// f"{x!r:2}"
-    /// ```
-    Repr = 2,
-    /// Converts by calling `ascii(<value>)`.
-    ///
-    /// ```python
-    /// f"{x!a}"
-    /// f"{x!a:2}"
-    /// ```
-    Ascii = 3,
+/// - Enum which variant's aren't assigned any value (for optimizations).
+/// - impl [`TryFrom<u8>`]
+/// - impl [`TryFrom<u32>`]
+/// - impl [`Into<u8>`]
+/// - impl [`Into<u32>`]
+/// - impl [`OpArgType`]
+///
+/// # Note
+/// If an enum variant has "alternative" values (i.e. `Foo = 0 | 1`), the first value will be the
+/// result of converting to a number.
+///
+/// # Examples
+///
+/// ```ignore
+/// oparg_enum!(
+///     /// Oparg for the `X` opcode.
+///     #[derive(Clone, Copy)]
+///     pub enum MyOpArg {
+///         /// Some doc.
+///         Foo = 4,
+///         Bar = 8,
+///         Baz = 15 | 16,
+///         Qux = 23 | 42
+///     }
+/// );
+/// ```
+macro_rules! oparg_enum {
+    (
+        $(#[$enum_meta:meta])*
+        $vis:vis enum $name:ident {
+            $(
+                $(#[$variant_meta:meta])*
+                $variant:ident = $value:literal $(| $alternatives:expr)*
+            ),* $(,)?
+        }
+    ) => {
+        $(#[$enum_meta])*
+        $vis enum $name {
+            $(
+                $(#[$variant_meta])*
+                $variant, // Do assign value to variant.
+            )*
+        }
+
+        impl_oparg_enum!(
+            enum $name {
+                $(
+                    $variant = $value $(| $alternatives)*,
+                )*
+            }
+        );
+    };
 }
+
+macro_rules! impl_oparg_enum {
+    (
+        enum $name:ident {
+            $(
+                $variant:ident = $value:literal $(| $alternatives:expr)*
+            ),* $(,)?
+        }
+    ) => {
+        impl TryFrom<u8> for $name {
+            type Error = $crate::marshal::MarshalError;
+
+            fn try_from(value: u8) -> Result<Self, Self::Error> {
+                Ok(match value {
+                    $(
+                        $value $(| $alternatives)* => Self::$variant,
+                    )*
+                    _ => return Err(Self::Error::InvalidBytecode),
+                })
+            }
+        }
+
+        impl TryFrom<u32> for $name {
+            type Error = $crate::marshal::MarshalError;
+
+            fn try_from(value: u32) -> Result<Self, Self::Error> {
+                u8::try_from(value)
+                    .map_err(|_| Self::Error::InvalidBytecode)
+                    .map(TryInto::try_into)?
+            }
+        }
+
+        impl From<$name> for u8 {
+            fn from(value: $name) -> Self {
+                match value {
+                    $(
+                        $name::$variant => $value,
+                    )*
+                }
+            }
+        }
+
+        impl From<$name> for u32 {
+            fn from(value: $name) -> Self {
+                Self::from(u8::from(value))
+            }
+        }
+
+        impl OpArgType for $name {}
+    };
+}
+
+oparg_enum!(
+    /// Oparg values for [`Instruction::ConvertValue`].
+    ///
+    /// ## See also
+    ///
+    /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+    pub enum ConvertValueOparg {
+        /// No conversion.
+        ///
+        /// ```python
+        /// f"{x}"
+        /// f"{x:4}"
+        /// ```
+        // Ruff `ConversionFlag::None` is `-1i8`, when its converted to `u8` its value is `u8::MAX`.
+        None = 0 | 255,
+        /// Converts by calling `str(<value>)`.
+        ///
+        /// ```python
+        /// f"{x!s}"
+        /// f"{x!s:2}"
+        /// ```
+        Str = 1,
+        /// Converts by calling `repr(<value>)`.
+        ///
+        /// ```python
+        /// f"{x!r}"
+        /// f"{x!r:2}"
+        /// ```
+        Repr = 2,
+        /// Converts by calling `ascii(<value>)`.
+        ///
+        /// ```python
+        /// f"{x!a}"
+        /// f"{x!a:2}"
+        /// ```
+        Ascii = 3,
+    }
+);
 
 impl fmt::Display for ConvertValueOparg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -150,107 +278,44 @@ impl fmt::Display for ConvertValueOparg {
     }
 }
 
-impl OpArgType for ConvertValueOparg {
-    #[inline]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(match x {
-            // Ruff `ConversionFlag::None` is `-1i8`,
-            // when its converted to `u8` its value is `u8::MAX`
-            0 | 255 => Self::None,
-            1 => Self::Str,
-            2 => Self::Repr,
-            3 => Self::Ascii,
-            _ => return None,
-        })
+oparg_enum!(
+    /// Resume type for the RESUME instruction
+    #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+    pub enum ResumeType {
+        AtFuncStart = 0,
+        AfterYield = 1,
+        AfterYieldFrom = 2,
+        AfterAwait = 3,
     }
-
-    #[inline]
-    fn to_op_arg(self) -> u32 {
-        self as u32
-    }
-}
-
-/// Resume type for the RESUME instruction
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-#[repr(u32)]
-pub enum ResumeType {
-    AtFuncStart = 0,
-    AfterYield = 1,
-    AfterYieldFrom = 2,
-    AfterAwait = 3,
-}
-
-impl OpArgType for u32 {
-    #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(x)
-    }
-
-    #[inline(always)]
-    fn to_op_arg(self) -> u32 {
-        self
-    }
-}
-
-impl OpArgType for bool {
-    #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(x != 0)
-    }
-
-    #[inline(always)]
-    fn to_op_arg(self) -> u32 {
-        self as u32
-    }
-}
-
-macro_rules! op_arg_enum_impl {
-    (enum $name:ident { $($(#[$var_attr:meta])* $var:ident = $value:literal,)* }) => {
-        impl OpArgType for $name {
-            fn to_op_arg(self) -> u32 {
-                self as u32
-            }
-
-            fn from_op_arg(x: u32) -> Option<Self> {
-                Some(match u8::try_from(x).ok()? {
-                    $($value => Self::$var,)*
-                    _ => return None,
-                })
-            }
-        }
-    };
-}
-
-macro_rules! op_arg_enum {
-    ($(#[$attr:meta])* $vis:vis enum $name:ident { $($(#[$var_attr:meta])* $var:ident = $value:literal,)* }) => {
-        $(#[$attr])*
-        $vis enum $name {
-            $($(#[$var_attr])* $var = $value,)*
-        }
-
-        op_arg_enum_impl!(enum $name {
-            $($(#[$var_attr])* $var = $value,)*
-        });
-    };
-}
+);
 
 pub type NameIdx = u32;
+
+impl OpArgType for u32 {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
 pub struct Label(pub u32);
 
-impl OpArgType for Label {
-    #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(Self(x))
-    }
-
-    #[inline(always)]
-    fn to_op_arg(self) -> u32 {
-        self.0
+impl Label {
+    pub const fn new(value: u32) -> Self {
+        Self(value)
     }
 }
+
+impl From<u32> for Label {
+    fn from(value: u32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Label> for u32 {
+    fn from(value: Label) -> Self {
+        value.0
+    }
+}
+
+impl OpArgType for Label {}
 
 impl fmt::Display for Label {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -258,10 +323,9 @@ impl fmt::Display for Label {
     }
 }
 
-op_arg_enum!(
+oparg_enum!(
     /// The kind of Raise that occurred.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[repr(u8)]
     pub enum RaiseKind {
         /// Bare `raise` statement with no arguments.
         /// Gets the current exception from VM state (topmost_exception).
@@ -281,10 +345,9 @@ op_arg_enum!(
     }
 );
 
-op_arg_enum!(
+oparg_enum!(
     /// Intrinsic function for CALL_INTRINSIC_1
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[repr(u8)]
     pub enum IntrinsicFunction1 {
         // Invalid = 0,
         Print = 1,
@@ -306,10 +369,9 @@ op_arg_enum!(
     }
 );
 
-op_arg_enum!(
+oparg_enum!(
     /// Intrinsic function for CALL_INTRINSIC_2
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    #[repr(u8)]
     pub enum IntrinsicFunction2 {
         PrepReraiseStar = 1,
         TypeVarWithBound = 2,
@@ -333,22 +395,25 @@ bitflags! {
     }
 }
 
-impl OpArgType for MakeFunctionFlags {
-    #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Self::from_bits(x as u8)
-    }
+impl TryFrom<u32> for MakeFunctionFlags {
+    type Error = MarshalError;
 
-    #[inline(always)]
-    fn to_op_arg(self) -> u32 {
-        self.bits().into()
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Self::from_bits(value as u8).ok_or(Self::Error::InvalidBytecode)
     }
 }
 
-op_arg_enum!(
-    /// The possible comparison operators
+impl From<MakeFunctionFlags> for u32 {
+    fn from(value: MakeFunctionFlags) -> Self {
+        value.bits().into()
+    }
+}
+
+impl OpArgType for MakeFunctionFlags {}
+
+oparg_enum!(
+    /// The possible comparison operators.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    #[repr(u8)]
     pub enum ComparisonOperator {
         // be intentional with bits so that we can do eval_ord with just a bitwise and
         // bits: | Equal | Greater | Less |
@@ -361,7 +426,7 @@ op_arg_enum!(
     }
 );
 
-op_arg_enum!(
+oparg_enum!(
     /// The possible Binary operators
     ///
     /// # Examples
@@ -374,7 +439,6 @@ op_arg_enum!(
     ///
     /// See also:
     /// - [_PyEval_BinaryOps](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Python/ceval.c#L316-L343)
-    #[repr(u8)]
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub enum BinaryOperator {
         /// `+`
@@ -502,9 +566,8 @@ impl fmt::Display for BinaryOperator {
     }
 }
 
-op_arg_enum!(
+oparg_enum!(
     /// Whether or not to invert the operation.
-    #[repr(u8)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum Invert {
         /// ```py
@@ -520,9 +583,8 @@ op_arg_enum!(
     }
 );
 
-op_arg_enum!(
+oparg_enum!(
     /// Special method for LOAD_SPECIAL opcode (context managers).
-    #[repr(u8)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum SpecialMethod {
         /// `__enter__` for sync context manager
@@ -548,10 +610,9 @@ impl fmt::Display for SpecialMethod {
     }
 }
 
-op_arg_enum!(
+oparg_enum!(
     /// Common constants for LOAD_COMMON_CONSTANT opcode.
     /// pycore_opcode_utils.h CONSTANT_*
-    #[repr(u8)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum CommonConstant {
         /// `AssertionError` exception type
@@ -580,47 +641,20 @@ impl fmt::Display for CommonConstant {
     }
 }
 
-/// Specifies if a slice is built with either 2 or 3 arguments.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BuildSliceArgCount {
-    /// ```py
-    /// x[5:10]
-    /// ```
-    Two,
-    /// ```py
-    /// x[5:10:2]
-    /// ```
-    Three,
-}
-
-impl OpArgType for BuildSliceArgCount {
-    #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(match x {
-            2 => Self::Two,
-            3 => Self::Three,
-            _ => return None,
-        })
+oparg_enum!(
+    /// Specifies if a slice is built with either 2 or 3 arguments.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum BuildSliceArgCount {
+        /// ```py
+        /// x[5:10]
+        /// ```
+        Two = 2,
+        /// ```py
+        /// x[5:10:2]
+        /// ```
+        Three = 3,
     }
-
-    #[inline(always)]
-    fn to_op_arg(self) -> u32 {
-        u32::from(self.argc().get())
-    }
-}
-
-impl BuildSliceArgCount {
-    /// Get the numeric value of `Self`.
-    #[must_use]
-    pub const fn argc(self) -> NonZeroU8 {
-        let inner = match self {
-            Self::Two => 2,
-            Self::Three => 3,
-        };
-        // Safety: `inner` can be either 2 or 3.
-        unsafe { NonZeroU8::new_unchecked(inner) }
-    }
-}
+);
 
 #[derive(Copy, Clone)]
 pub struct UnpackExArgs {
@@ -628,21 +662,172 @@ pub struct UnpackExArgs {
     pub after: u8,
 }
 
-impl OpArgType for UnpackExArgs {
-    #[inline(always)]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        let [before, after, ..] = x.to_le_bytes();
-        Some(Self { before, after })
-    }
-
-    #[inline(always)]
-    fn to_op_arg(self) -> u32 {
-        u32::from_le_bytes([self.before, self.after, 0, 0])
+impl From<u32> for UnpackExArgs {
+    fn from(value: u32) -> Self {
+        let [before, after, ..] = value.to_le_bytes();
+        Self { before, after }
     }
 }
+
+impl From<UnpackExArgs> for u32 {
+    fn from(value: UnpackExArgs) -> Self {
+        Self::from_le_bytes([value.before, value.after, 0, 0])
+    }
+}
+
+impl OpArgType for UnpackExArgs {}
 
 impl fmt::Display for UnpackExArgs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "before: {}, after: {}", self.before, self.after)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct LoadSuperAttr(u32);
+
+impl LoadSuperAttr {
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub fn builder() -> LoadSuperAttrBuilder {
+        LoadSuperAttrBuilder::default()
+    }
+
+    #[must_use]
+    pub const fn name_idx(self) -> u32 {
+        self.0 >> 2
+    }
+
+    #[must_use]
+    pub const fn is_load_method(self) -> bool {
+        (self.0 & 1) == 1
+    }
+
+    #[must_use]
+    pub const fn has_class(self) -> bool {
+        (self.0 & 2) == 2
+    }
+}
+
+impl OpArgType for LoadSuperAttr {}
+
+impl From<u32> for LoadSuperAttr {
+    fn from(value: u32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<LoadSuperAttr> for u32 {
+    fn from(value: LoadSuperAttr) -> Self {
+        value.0
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct LoadSuperAttrBuilder {
+    name_idx: u32,
+    is_load_method: bool,
+    has_class: bool,
+}
+
+impl LoadSuperAttrBuilder {
+    #[must_use]
+    pub const fn build(self) -> LoadSuperAttr {
+        let value =
+            (self.name_idx << 2) | ((self.has_class as u32) << 1) | (self.is_load_method as u32);
+        LoadSuperAttr::new(value)
+    }
+
+    #[must_use]
+    pub const fn name_idx(mut self, value: u32) -> Self {
+        self.name_idx = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn is_load_method(mut self, value: bool) -> Self {
+        self.is_load_method = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn has_class(mut self, value: bool) -> Self {
+        self.has_class = value;
+        self
+    }
+}
+
+impl From<LoadSuperAttrBuilder> for LoadSuperAttr {
+    fn from(builder: LoadSuperAttrBuilder) -> Self {
+        builder.build()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct LoadAttr(u32);
+
+impl LoadAttr {
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub fn builder() -> LoadAttrBuilder {
+        LoadAttrBuilder::default()
+    }
+
+    #[must_use]
+    pub const fn name_idx(self) -> u32 {
+        self.0 >> 1
+    }
+
+    #[must_use]
+    pub const fn is_method(self) -> bool {
+        (self.0 & 1) == 1
+    }
+}
+
+impl OpArgType for LoadAttr {}
+
+impl From<u32> for LoadAttr {
+    fn from(value: u32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<LoadAttr> for u32 {
+    fn from(value: LoadAttr) -> Self {
+        value.0
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct LoadAttrBuilder {
+    name_idx: u32,
+    is_method: bool,
+}
+
+impl LoadAttrBuilder {
+    #[must_use]
+    pub const fn build(self) -> LoadAttr {
+        let value = (self.name_idx << 1) | (self.is_method as u32);
+        LoadAttr::new(value)
+    }
+
+    #[must_use]
+    pub const fn name_idx(mut self, value: u32) -> Self {
+        self.name_idx = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn is_method(mut self, value: bool) -> Self {
+        self.is_method = value;
+        self
     }
 }

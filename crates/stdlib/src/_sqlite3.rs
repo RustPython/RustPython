@@ -12,6 +12,12 @@ pub(crate) use _sqlite3::module_def;
 
 #[pymodule]
 mod _sqlite3 {
+    use core::{
+        ffi::{CStr, c_int, c_longlong, c_uint, c_void},
+        fmt::Debug,
+        ops::Deref,
+        ptr::{NonNull, null, null_mut},
+    };
     use libsqlite3_sys::{
         SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
         SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRACE_STMT,
@@ -70,13 +76,7 @@ mod _sqlite3 {
         },
         utils::ToCString,
     };
-    use std::{
-        ffi::{CStr, c_int, c_longlong, c_uint, c_void},
-        fmt::Debug,
-        ops::Deref,
-        ptr::{NonNull, null, null_mut},
-        thread::ThreadId,
-    };
+    use std::thread::ThreadId;
 
     macro_rules! exceptions {
         ($(($x:ident, $base:expr)),*) => {
@@ -451,7 +451,7 @@ mod _sqlite3 {
         ) {
             let context = SqliteContext::from(context);
             let (func, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
+            let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
 
             let f = || -> PyResult<()> {
                 let db = context.db_handle();
@@ -478,7 +478,7 @@ mod _sqlite3 {
         ) {
             let context = SqliteContext::from(context);
             let (cls, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
+            let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
             let instance = context.aggregate_context::<*const PyObject>();
             if unsafe { (*instance).is_null() } {
                 match cls.call((), vm) {
@@ -556,7 +556,7 @@ mod _sqlite3 {
         ) {
             let context = SqliteContext::from(context);
             let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
+            let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
             let instance = context.aggregate_context::<*const PyObject>();
             let instance = unsafe { &**instance };
 
@@ -882,7 +882,7 @@ mod _sqlite3 {
     }
 
     impl Debug for Connection {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
             write!(f, "Sqlite3 Connection")
         }
     }
@@ -2077,7 +2077,7 @@ mod _sqlite3 {
                     } else {
                         let nbytes = st.column_bytes(i);
                         let blob = unsafe {
-                            std::slice::from_raw_parts(blob.cast::<u8>(), nbytes as usize)
+                            core::slice::from_raw_parts(blob.cast::<u8>(), nbytes as usize)
                         };
                         let blob = vm.ctx.new_bytes(blob.to_vec());
                         converter.call((blob,), vm)?
@@ -2684,7 +2684,7 @@ mod _sqlite3 {
     }
 
     impl Debug for Statement {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
             write!(
                 f,
                 "{} Statement",

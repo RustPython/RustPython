@@ -16,8 +16,8 @@ mod _socket {
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
-            ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath, OptionalArg,
-            OptionalOption,
+            ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
+            OptionalArg, OptionalOption,
         },
         types::{Constructor, DefaultConstructor, Initializer, Representable},
         utils::ToCString,
@@ -70,10 +70,10 @@ mod _socket {
             NI_MAXHOST, NI_MAXSERV, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV,
             RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH as SHUT_RDWR,
             SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH,
-            SIO_RCVALL, SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE,
-            SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM,
-            SOL_SOCKET, SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNRESET, WSAENOTSOCK,
-            WSAEWOULDBLOCK,
+            SIO_RCVALL, SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF,
+            SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM,
+            SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SOMAXCONN, TCP_NODELAY, WSAEBADF,
+            WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK,
         };
         pub use windows_sys::Win32::Networking::WinSock::{
             INVALID_SOCKET, SOCKET_ERROR, WSA_FLAG_OVERLAPPED, WSADuplicateSocketW,
@@ -110,8 +110,8 @@ mod _socket {
         IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP,
         MSG_CTRUNC, MSG_DONTROUTE, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST,
         NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR,
-        SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, SOCK_DGRAM,
-        SOCK_STREAM, SOL_SOCKET, TCP_NODELAY,
+        SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF, SO_REUSEADDR,
+        SO_SNDBUF, SO_TYPE, SOCK_DGRAM, SOCK_STREAM, SOL_SOCKET, TCP_NODELAY,
     };
 
     #[cfg(not(target_os = "redox"))]
@@ -303,8 +303,8 @@ mod _socket {
     #[cfg(any(unix, target_os = "android"))]
     #[pyattr]
     use c::{
-        EAI_SYSTEM, MSG_EOR, SO_ACCEPTCONN, SO_DEBUG, SO_DONTROUTE, SO_KEEPALIVE, SO_RCVBUF,
-        SO_RCVLOWAT, SO_RCVTIMEO, SO_SNDBUF, SO_SNDLOWAT, SO_SNDTIMEO,
+        EAI_SYSTEM, MSG_EOR, SO_ACCEPTCONN, SO_DEBUG, SO_DONTROUTE, SO_RCVLOWAT, SO_RCVTIMEO,
+        SO_SNDLOWAT, SO_SNDTIMEO,
     };
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
@@ -1253,11 +1253,12 @@ mod _socket {
                         (*can_addr).can_family = libc::AF_CAN as libc::sa_family_t;
                         (*can_addr).can_ifindex = ifindex;
                     }
-                    let storage: socket2::SockAddrStorage = unsafe { std::mem::transmute(storage) };
+                    let storage: socket2::SockAddrStorage =
+                        unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
                         socket2::SockAddr::new(
                             storage,
-                            std::mem::size_of::<libc::sockaddr_can>() as libc::socklen_t,
+                            core::mem::size_of::<libc::sockaddr_can>() as libc::socklen_t,
                         )
                     })
                 }
@@ -1316,11 +1317,12 @@ mod _socket {
                             (*alg_addr).salg_name[i] = b;
                         }
                     }
-                    let storage: socket2::SockAddrStorage = unsafe { std::mem::transmute(storage) };
+                    let storage: socket2::SockAddrStorage =
+                        unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
                         socket2::SockAddr::new(
                             storage,
-                            std::mem::size_of::<libc::sockaddr_alg>() as libc::socklen_t,
+                            core::mem::size_of::<libc::sockaddr_alg>() as libc::socklen_t,
                         )
                     })
                 }
@@ -1420,7 +1422,7 @@ mod _socket {
                 use crate::vm::builtins::PyBytes;
                 if let Ok(bytes) = fileno_obj.clone().downcast::<PyBytes>() {
                     let bytes_data = bytes.as_bytes();
-                    let expected_size = std::mem::size_of::<c::WSAPROTOCOL_INFOW>();
+                    let expected_size = core::mem::size_of::<c::WSAPROTOCOL_INFOW>();
 
                     if bytes_data.len() != expected_size {
                         return Err(vm
@@ -1431,9 +1433,9 @@ mod _socket {
                             .into());
                     }
 
-                    let mut info: c::WSAPROTOCOL_INFOW = unsafe { std::mem::zeroed() };
+                    let mut info: c::WSAPROTOCOL_INFOW = unsafe { core::mem::zeroed() };
                     unsafe {
-                        std::ptr::copy_nonoverlapping(
+                        core::ptr::copy_nonoverlapping(
                             bytes_data.as_ptr(),
                             &mut info as *mut c::WSAPROTOCOL_INFOW as *mut u8,
                             expected_size,
@@ -1477,7 +1479,7 @@ mod _socket {
                                 Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
                             ) =>
                     {
-                        std::mem::forget(sock);
+                        core::mem::forget(sock);
                         return Err(e.into());
                     }
                     _ => {}
@@ -1842,17 +1844,18 @@ mod _socket {
             // Add ALG_SET_OP control message
             {
                 let op_bytes = op.to_ne_bytes();
-                let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<u32>() as u32) } as usize;
+                let space =
+                    unsafe { libc::CMSG_SPACE(core::mem::size_of::<u32>() as u32) } as usize;
                 let old_len = control_buf.len();
                 control_buf.resize(old_len + space, 0u8);
 
                 let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
                 unsafe {
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u32>() as u32) as _;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(core::mem::size_of::<u32>() as u32) as _;
                     (*cmsg).cmsg_level = libc::SOL_ALG;
                     (*cmsg).cmsg_type = libc::ALG_SET_OP;
                     let data = libc::CMSG_DATA(cmsg);
-                    std::ptr::copy_nonoverlapping(op_bytes.as_ptr(), data, op_bytes.len());
+                    core::ptr::copy_nonoverlapping(op_bytes.as_ptr(), data, op_bytes.len());
                 }
             }
 
@@ -1873,26 +1876,27 @@ mod _socket {
                     let data = libc::CMSG_DATA(cmsg);
                     // Write ivlen
                     let ivlen = (iv_bytes.len() as u32).to_ne_bytes();
-                    std::ptr::copy_nonoverlapping(ivlen.as_ptr(), data, 4);
+                    core::ptr::copy_nonoverlapping(ivlen.as_ptr(), data, 4);
                     // Write iv
-                    std::ptr::copy_nonoverlapping(iv_bytes.as_ptr(), data.add(4), iv_bytes.len());
+                    core::ptr::copy_nonoverlapping(iv_bytes.as_ptr(), data.add(4), iv_bytes.len());
                 }
             }
 
             // Add ALG_SET_AEAD_ASSOCLEN control message if assoclen is provided
             if let Some(assoclen_val) = assoclen {
                 let assoclen_bytes = assoclen_val.to_ne_bytes();
-                let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<u32>() as u32) } as usize;
+                let space =
+                    unsafe { libc::CMSG_SPACE(core::mem::size_of::<u32>() as u32) } as usize;
                 let old_len = control_buf.len();
                 control_buf.resize(old_len + space, 0u8);
 
                 let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
                 unsafe {
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u32>() as u32) as _;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(core::mem::size_of::<u32>() as u32) as _;
                     (*cmsg).cmsg_level = libc::SOL_ALG;
                     (*cmsg).cmsg_type = libc::ALG_SET_AEAD_ASSOCLEN;
                     let data = libc::CMSG_DATA(cmsg);
-                    std::ptr::copy_nonoverlapping(
+                    core::ptr::copy_nonoverlapping(
                         assoclen_bytes.as_ptr(),
                         data,
                         assoclen_bytes.len(),
@@ -1911,7 +1915,7 @@ mod _socket {
                 .collect();
 
             // Set up msghdr
-            let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
+            let mut msghdr: libc::msghdr = unsafe { core::mem::zeroed() };
             msghdr.msg_iov = iovecs.as_ptr() as *mut _;
             msghdr.msg_iovlen = iovecs.len() as _;
             if !control_buf.is_empty() {
@@ -2144,7 +2148,7 @@ mod _socket {
                     laddr
                 );
                 let _ = crate::vm::warn::warn(
-                    vm.ctx.new_str(msg),
+                    vm.ctx.new_str(msg).into(),
                     Some(vm.ctx.exceptions.resource_warning.to_owned()),
                     1,
                     None,
@@ -2201,12 +2205,29 @@ mod _socket {
         }
 
         #[pymethod]
-        fn settimeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-            self.timeout
-                .store(timeout.map_or(-1.0, |d| d.as_secs_f64()));
+        fn settimeout(&self, timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+            let timeout = match timeout {
+                Some(t) => {
+                    let f = t.into_float();
+                    if f.is_nan() {
+                        return Err(
+                            vm.new_value_error("Invalid value NaN (not a number)".to_owned())
+                        );
+                    }
+                    if f < 0.0 || !f.is_finite() {
+                        return Err(vm.new_value_error("Timeout value out of range".to_owned()));
+                    }
+                    Some(f)
+                }
+                None => None,
+            };
+            self.timeout.store(timeout.unwrap_or(-1.0));
             // even if timeout is > 0 the socket needs to be nonblocking in order for us to select() on
             // it
-            self.sock()?.set_nonblocking(timeout.is_some())
+            self.sock()
+                .map_err(|e| e.into_pyexception(vm))?
+                .set_nonblocking(timeout.is_some())
+                .map_err(|e| e.into_pyexception(vm))
         }
 
         #[pymethod]
@@ -2359,11 +2380,11 @@ mod _socket {
                             fd as _,
                             cmd,
                             &option_val as *const u32 as *const _,
-                            std::mem::size_of::<u32>() as u32,
-                            std::ptr::null_mut(),
+                            core::mem::size_of::<u32>() as u32,
+                            core::ptr::null_mut(),
                             0,
                             &mut recv,
-                            std::ptr::null_mut(),
+                            core::ptr::null_mut(),
                             None,
                         )
                     };
@@ -2402,11 +2423,11 @@ mod _socket {
                             fd as _,
                             cmd,
                             &ka as *const TcpKeepalive as *const _,
-                            std::mem::size_of::<TcpKeepalive>() as u32,
-                            std::ptr::null_mut(),
+                            core::mem::size_of::<TcpKeepalive>() as u32,
+                            core::ptr::null_mut(),
                             0,
                             &mut recv,
-                            std::ptr::null_mut(),
+                            core::ptr::null_mut(),
                             None,
                         )
                     };
@@ -2437,9 +2458,9 @@ mod _socket {
 
             let info = unsafe { info.assume_init() };
             let bytes = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     &info as *const c::WSAPROTOCOL_INFOW as *const u8,
-                    std::mem::size_of::<c::WSAPROTOCOL_INFOW>(),
+                    core::mem::size_of::<c::WSAPROTOCOL_INFOW>(),
                 )
             };
 
@@ -3103,7 +3124,6 @@ mod _socket {
         }
         #[cfg(windows)]
         {
-            use std::ptr;
             use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 
             let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
@@ -3130,14 +3150,14 @@ mod _socket {
                 }
             }
             struct MibTable {
-                ptr: ptr::NonNull<IpHelper::MIB_IF_TABLE2>,
+                ptr: core::ptr::NonNull<IpHelper::MIB_IF_TABLE2>,
             }
             impl MibTable {
                 fn get_raw() -> io::Result<Self> {
-                    let mut ptr = ptr::null_mut();
+                    let mut ptr = core::ptr::null_mut();
                     let ret = unsafe { IpHelper::GetIfTable2Ex(IpHelper::MibIfTableRaw, &mut ptr) };
                     if ret == 0 {
-                        let ptr = unsafe { ptr::NonNull::new_unchecked(ptr) };
+                        let ptr = unsafe { core::ptr::NonNull::new_unchecked(ptr) };
                         Ok(Self { ptr })
                     } else {
                         Err(io::Error::from_raw_os_error(ret as i32))
@@ -3149,7 +3169,7 @@ mod _socket {
                     unsafe {
                         let p = self.ptr.as_ptr();
                         let ptr = &raw const (*p).Table as *const IpHelper::MIB_IF_ROW2;
-                        std::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
+                        core::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
                     }
                 }
             }
@@ -3366,8 +3386,22 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn setdefaulttimeout(timeout: Option<Duration>) {
-        DEFAULT_TIMEOUT.store(timeout.map_or(-1.0, |d| d.as_secs_f64()));
+    fn setdefaulttimeout(timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+        let val = match timeout {
+            Some(t) => {
+                let f = t.into_float();
+                if f.is_nan() {
+                    return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
+                }
+                if f < 0.0 || !f.is_finite() {
+                    return Err(vm.new_value_error("Timeout value out of range".to_owned()));
+                }
+                f
+            }
+            None => -1.0,
+        };
+        DEFAULT_TIMEOUT.store(val);
+        Ok(())
     }
 
     #[pyfunction]

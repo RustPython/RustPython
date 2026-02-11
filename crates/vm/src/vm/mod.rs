@@ -20,7 +20,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
         self, PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
-        PyStrRef, PyTypeRef,
+        PyStrRef, PyTypeRef, PyWeak,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         pystr::AsPyStr,
@@ -39,10 +39,10 @@ use crate::{
     signal, stdlib,
     warn::WarningsState,
 };
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, collections::BTreeMap};
 use core::{
-    cell::{Cell, Ref, RefCell},
-    sync::atomic::AtomicBool,
+    cell::{Cell, OnceCell, Ref, RefCell},
+    sync::atomic::{AtomicBool, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
@@ -76,11 +76,12 @@ pub struct VirtualMachine {
     pub wasm_id: Option<String>,
     exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
+    pub(crate) importlib: PyObjectRef,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
-    pub(crate) signal_handlers: Option<Box<RefCell<[Option<PyObjectRef>; signal::NSIG]>>>,
+    pub(crate) signal_handlers: OnceCell<Box<RefCell<[Option<PyObjectRef>; signal::NSIG]>>>,
     pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
     pub repr_guards: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
@@ -92,6 +93,10 @@ pub struct VirtualMachine {
     pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
     /// Async generator finalizer hook (per-thread, set via sys.set_asyncgen_hooks)
     pub async_gen_finalizer: RefCell<Option<PyObjectRef>>,
+    /// Current running asyncio event loop for this thread
+    pub asyncio_running_loop: RefCell<Option<PyObjectRef>>,
+    /// Current running asyncio task for this thread
+    pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
 }
 
 #[derive(Debug, Default)]
@@ -102,7 +107,7 @@ struct ExceptionStack {
 
 pub struct PyGlobalState {
     pub config: PyConfig,
-    pub module_defs: std::collections::BTreeMap<&'static str, &'static builtins::PyModuleDef>,
+    pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
     pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -143,6 +148,20 @@ pub fn process_hash_secret_seed() -> u32 {
 }
 
 impl VirtualMachine {
+    /// Check whether the current thread is the main thread.
+    /// Mirrors `_Py_ThreadCanHandleSignals`.
+    #[allow(dead_code)]
+    pub(crate) fn is_main_thread(&self) -> bool {
+        #[cfg(feature = "threading")]
+        {
+            crate::stdlib::thread::get_ident() == self.state.main_thread_ident.load()
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            true
+        }
+    }
+
     /// Create a new `VirtualMachine` structure.
     pub(crate) fn new(ctx: PyRc<Context>, state: PyRc<PyGlobalState>) -> Self {
         flame_guard!("new VirtualMachine");
@@ -162,12 +181,10 @@ impl VirtualMachine {
         let sys_module = new_module(stdlib::sys::module_def(&ctx));
 
         let import_func = ctx.none();
+        let importlib = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
-        let signal_handlers = Some(Box::new(
-            // putting it in a const optimizes better, prevents linear initialization of the array
-            const { RefCell::new([const { None }; signal::NSIG]) },
-        ));
+        let signal_handlers = OnceCell::from(signal::new_signal_handlers());
 
         let vm = Self {
             builtins,
@@ -177,6 +194,7 @@ impl VirtualMachine {
             wasm_id: None,
             exceptions: RefCell::default(),
             import_func,
+            importlib,
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
@@ -190,6 +208,8 @@ impl VirtualMachine {
             c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
             async_gen_finalizer: RefCell::new(None),
+            asyncio_running_loop: RefCell::new(None),
+            asyncio_running_task: RefCell::new(None),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -257,7 +277,9 @@ impl VirtualMachine {
     }
 
     fn import_ascii_utf8_encodings(&mut self) -> PyResult<()> {
-        import::import_frozen(self, "codecs")?;
+        // Use the Python import machinery (FrozenImporter) so modules get
+        // proper __spec__ and __loader__ attributes.
+        self.import("codecs", 0)?;
 
         // Use dotted names when freeze-stdlib is enabled (modules come from Lib/encodings/),
         // otherwise use underscored names (modules come from core_modules/).
@@ -268,20 +290,30 @@ impl VirtualMachine {
         };
 
         // Register ascii encoding
-        let ascii_module = import::import_frozen(self, ascii_module_name)?;
+        // __import__("encodings.ascii") returns top-level "encodings", so
+        // look up the actual submodule in sys.modules.
+        self.import(ascii_module_name, 0)?;
+        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        let ascii_module = sys_modules.get_item(ascii_module_name, self)?;
         let getregentry = ascii_module.get_attr("getregentry", self)?;
         let codec_info = getregentry.call((), self)?;
         self.state
             .codec_registry
             .register_manual("ascii", codec_info.try_into_value(self)?)?;
 
-        // Register utf-8 encoding
-        let utf8_module = import::import_frozen(self, utf8_module_name)?;
+        // Register utf-8 encoding (also as "utf8" alias since normalize_encoding_name
+        // maps "utf-8" → "utf_8" but leaves "utf8" as-is)
+        self.import(utf8_module_name, 0)?;
+        let utf8_module = sys_modules.get_item(utf8_module_name, self)?;
         let getregentry = utf8_module.get_attr("getregentry", self)?;
         let codec_info = getregentry.call((), self)?;
+        let utf8_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
         self.state
             .codec_registry
-            .register_manual("utf-8", codec_info.try_into_value(self)?)?;
+            .register_manual("utf-8", utf8_codec.clone())?;
+        self.state
+            .codec_registry
+            .register_manual("utf8", utf8_codec)?;
         Ok(())
     }
 
@@ -298,10 +330,14 @@ impl VirtualMachine {
 
         stdlib::builtins::init_module(self, &self.builtins);
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
+        self.expect_pyresult(
+            stdlib::sys::set_bootstrap_stderr(self),
+            "failed to initialize bootstrap stderr",
+        );
 
         let mut essential_init = || -> PyResult {
             import::import_builtin(self, "_typing")?;
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
             import::import_builtin(self, "_signal")?;
             #[cfg(any(feature = "parser", feature = "compiler"))]
             import::import_builtin(self, "_ast")?;
@@ -310,11 +346,12 @@ impl VirtualMachine {
             let importlib = import::init_importlib_base(self)?;
             self.import_ascii_utf8_encodings()?;
 
-            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
                 let io = import::import_builtin(self, "_io")?;
-                #[cfg(feature = "stdio")]
-                let make_stdio = |name, fd, write| {
+
+                // Full stdio: FileIO → BufferedWriter → TextIOWrapper
+                #[cfg(feature = "host_env")]
+                let make_stdio = |name: &str, fd: i32, write: bool| {
                     let buffered_stdio = self.state.config.settings.buffered_stdio;
                     let unbuffered = write && !buffered_stdio;
                     let buf = crate::stdlib::io::open(
@@ -322,6 +359,7 @@ impl VirtualMachine {
                         Some(if write { "wb" } else { "rb" }),
                         crate::stdlib::io::OpenArgs {
                             buffering: if unbuffered { 0 } else { -1 },
+                            closefd: false,
                             ..Default::default()
                         },
                         self,
@@ -361,12 +399,28 @@ impl VirtualMachine {
                     stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
                     Ok(stdio)
                 };
+
+                // Sandbox stdio: lightweight wrapper using Rust's std::io directly
+                #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
+                let make_stdio = |name: &str, fd: i32, write: bool| {
+                    let mode = if write { "w" } else { "r" };
+                    let stdio = stdlib::sys::SandboxStdio {
+                        fd,
+                        name: format!("<{name}>"),
+                        mode: mode.to_owned(),
+                    }
+                    .into_ref(&self.ctx);
+                    Ok(stdio.into())
+                };
+
+                // No stdio: set to None (embedding use case)
                 #[cfg(not(feature = "stdio"))]
-                let make_stdio =
-                    |_name, _fd, _write| Ok(crate::builtins::PyNone.into_pyobject(self));
+                let make_stdio = |_name: &str, _fd: i32, _write: bool| {
+                    Ok(crate::builtins::PyNone.into_pyobject(self))
+                };
 
                 let set_stdio = |name, fd, write| {
-                    let stdio = make_stdio(name, fd, write)?;
+                    let stdio: PyObjectRef = make_stdio(name, fd, write)?;
                     let dunder_name = self.ctx.intern_str(format!("__{name}__"));
                     self.sys_module.set_attr(
                         dunder_name, // e.g. __stdin__
@@ -390,6 +444,7 @@ impl VirtualMachine {
         let res = essential_init();
         let importlib = self.expect_pyresult(res, "essential initialization failed");
 
+        #[cfg(feature = "host_env")]
         if self.state.config.settings.allow_external_library
             && cfg!(feature = "rustpython-compiler")
             && let Err(e) = import::init_importlib_package(self, importlib)
@@ -399,6 +454,9 @@ impl VirtualMachine {
             );
             self.print_exception(e);
         }
+
+        #[cfg(not(feature = "host_env"))]
+        let _ = importlib;
 
         let _expect_stdlib = cfg!(feature = "freeze-stdlib")
             || !self.state.config.paths.module_search_paths.is_empty();
@@ -466,14 +524,29 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
-        use crate::builtins::PyFunction;
+        use crate::builtins::{PyFunction, PyModule};
 
         // Create a function object for module code, similar to CPython's PyEval_EvalCode
         let func = PyFunction::new(code.clone(), scope.globals.clone(), self)?;
         let func_obj = func.into_ref(&self.ctx).into();
 
-        let frame = Frame::new(code, scope, self.builtins.dict(), &[], Some(func_obj), self)
-            .into_ref(&self.ctx);
+        // Extract builtins from globals["__builtins__"], like PyEval_EvalCode
+        let builtins = match scope
+            .globals
+            .get_item_opt(identifier!(self, __builtins__), self)?
+        {
+            Some(b) => {
+                if let Some(module) = b.downcast_ref::<PyModule>() {
+                    module.dict().into()
+                } else {
+                    b
+                }
+            }
+            None => self.builtins.dict().into(),
+        };
+
+        let frame =
+            Frame::new(code, scope, builtins, &[], Some(func_obj), self).into_ref(&self.ctx);
         self.run_frame(frame)
     }
 
@@ -482,11 +555,7 @@ impl VirtualMachine {
         // During interpreter finalization, sys.unraisablehook may not be available,
         // but we still need to report exceptions (especially from atexit callbacks).
         // Write directly to stderr like PyErr_FormatUnraisable.
-        if self
-            .state
-            .finalizing
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
+        if self.state.finalizing.load(Ordering::Acquire) {
             self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);
             return;
         }
@@ -614,13 +683,193 @@ impl VirtualMachine {
         }
     }
 
+    /// Clear module references during shutdown.
+    /// Follows the same phased algorithm as pylifecycle.c finalize_modules():
+    /// no hardcoded module names, reverse import order, only builtins/sys last.
+    pub fn finalize_modules(&self) {
+        // Phase 1: Set special sys/builtins attributes to None, restore stdio
+        self.finalize_modules_delete_special();
+
+        // Phase 2: Remove all modules from sys.modules (set values to None),
+        // and collect weakrefs to modules preserving import order.
+        // Also keeps strong refs (module_refs) to prevent premature deallocation.
+        // CPython uses _PyGC_CollectNoFail() here to collect __globals__ cycles;
+        // since RustPython has no working GC, we keep modules alive through
+        // Phase 4 so their dicts can be explicitly cleared.
+        let (module_weakrefs, module_refs) = self.finalize_remove_modules();
+
+        // Phase 3: Clear sys.modules dict
+        self.finalize_clear_modules_dict();
+
+        // Phase 4: Clear module dicts in reverse import order using 2-pass algorithm.
+        // All modules are still alive (held by module_refs), so all weakrefs are valid.
+        // This breaks __globals__ cycles: dict entries set to None → functions freed →
+        // __globals__ refs dropped → dict refcount decreases.
+        self.finalize_clear_module_dicts(&module_weakrefs);
+
+        // Drop strong refs → modules freed with already-cleared dicts.
+        // No __globals__ cycles remain (broken by Phase 4).
+        drop(module_refs);
+
+        // Phase 5: Clear sys and builtins dicts last
+        self.finalize_clear_sys_builtins_dict();
+    }
+
+    /// Phase 1: Set special sys attributes to None and restore stdio.
+    fn finalize_modules_delete_special(&self) {
+        let none = self.ctx.none();
+        let sys_dict = self.sys_module.dict();
+
+        // Set special sys attributes to None
+        for attr in &[
+            "path",
+            "argv",
+            "ps1",
+            "ps2",
+            "last_exc",
+            "last_type",
+            "last_value",
+            "last_traceback",
+            "path_importer_cache",
+            "meta_path",
+            "path_hooks",
+        ] {
+            let _ = sys_dict.set_item(*attr, none.clone(), self);
+        }
+
+        // Restore stdin/stdout/stderr from __stdin__/__stdout__/__stderr__
+        for (std_name, dunder_name) in &[
+            ("stdin", "__stdin__"),
+            ("stdout", "__stdout__"),
+            ("stderr", "__stderr__"),
+        ] {
+            let restored = sys_dict
+                .get_item_opt(*dunder_name, self)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| none.clone());
+            let _ = sys_dict.set_item(*std_name, restored, self);
+        }
+
+        // builtins._ = None
+        let _ = self.builtins.dict().set_item("_", none, self);
+    }
+
+    /// Phase 2: Set all sys.modules values to None and collect weakrefs to modules.
+    /// Returns (weakrefs for Phase 4, strong refs to keep modules alive).
+    fn finalize_remove_modules(&self) -> (Vec<(String, PyRef<PyWeak>)>, Vec<PyObjectRef>) {
+        let mut module_weakrefs = Vec::new();
+        let mut module_refs = Vec::new();
+
+        let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self) else {
+            return (module_weakrefs, module_refs);
+        };
+        let Some(modules_dict) = modules.downcast_ref::<PyDict>() else {
+            return (module_weakrefs, module_refs);
+        };
+
+        let none = self.ctx.none();
+        let items: Vec<_> = modules_dict.into_iter().collect();
+
+        for (key, value) in items {
+            let name = key
+                .downcast_ref::<PyStr>()
+                .map(|s| s.as_str().to_owned())
+                .unwrap_or_default();
+
+            // Save weakref and strong ref to module for later clearing
+            if value.downcast_ref::<PyModule>().is_some() {
+                if let Ok(weak) = value.downgrade(None, self) {
+                    module_weakrefs.push((name, weak));
+                }
+                module_refs.push(value.clone());
+            }
+
+            // Set the value to None in sys.modules
+            let _ = modules_dict.set_item(&*key, none.clone(), self);
+        }
+
+        (module_weakrefs, module_refs)
+    }
+
+    /// Phase 3: Clear sys.modules dict.
+    fn finalize_clear_modules_dict(&self) {
+        if let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self)
+            && let Some(modules_dict) = modules.downcast_ref::<PyDict>()
+        {
+            modules_dict.clear();
+        }
+    }
+
+    /// Phase 4: Clear module dicts in reverse import order using 2-pass algorithm.
+    /// Without GC, only clear __main__ — other modules' __del__ handlers
+    /// need their globals intact. CPython can clear ALL module dicts because
+    /// _PyGC_CollectNoFail() finalizes cycle-participating objects beforehand.
+    fn finalize_clear_module_dicts(&self, module_weakrefs: &[(String, PyRef<PyWeak>)]) {
+        for (name, weakref) in module_weakrefs.iter().rev() {
+            // Only clear __main__ — user objects with __del__ get finalized
+            // while other modules' globals remain intact for their __del__ handlers.
+            if name != "__main__" {
+                continue;
+            }
+
+            let Some(module_obj) = weakref.upgrade() else {
+                continue;
+            };
+            let Some(module) = module_obj.downcast_ref::<PyModule>() else {
+                continue;
+            };
+
+            Self::module_clear_dict(&module.dict(), self);
+        }
+    }
+
+    /// 2-pass module dict clearing (_PyModule_ClearDict algorithm).
+    /// Pass 1: Set names starting with '_' (except __builtins__) to None.
+    /// Pass 2: Set all remaining names (except __builtins__) to None.
+    pub(crate) fn module_clear_dict(dict: &Py<PyDict>, vm: &VirtualMachine) {
+        let none = vm.ctx.none();
+
+        // Pass 1: names starting with '_' (except __builtins__)
+        for (key, value) in dict.into_iter().collect::<Vec<_>>() {
+            if vm.is_none(&value) {
+                continue;
+            }
+            if let Some(key_str) = key.downcast_ref::<PyStr>() {
+                let name = key_str.as_str();
+                if name.starts_with('_') && name != "__builtins__" && name != "__spec__" {
+                    let _ = dict.set_item(name, none.clone(), vm);
+                }
+            }
+        }
+
+        // Pass 2: all remaining (except __builtins__)
+        for (key, value) in dict.into_iter().collect::<Vec<_>>() {
+            if vm.is_none(&value) {
+                continue;
+            }
+            if let Some(key_str) = key.downcast_ref::<PyStr>()
+                && key_str.as_str() != "__builtins__"
+                && key_str.as_str() != "__spec__"
+            {
+                let _ = dict.set_item(key_str.as_str(), none.clone(), vm);
+            }
+        }
+    }
+
+    /// Phase 5: Clear sys and builtins dicts last.
+    fn finalize_clear_sys_builtins_dict(&self) {
+        Self::module_clear_dict(&self.sys_module.dict(), self);
+        Self::module_clear_dict(&self.builtins.dict(), self);
+    }
+
     pub fn current_recursion_depth(&self) -> usize {
         self.recursion_depth.get()
     }
 
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// 2048 * sizeof(void*) = 16KB for 64-bit.
-    const STACK_MARGIN_BYTES: usize = 2048 * std::mem::size_of::<usize>();
+    const STACK_MARGIN_BYTES: usize = 2048 * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
@@ -652,10 +901,10 @@ impl VirtualMachine {
                 pthread_attr_destroy, pthread_attr_getstack, pthread_attr_t, pthread_getattr_np,
                 pthread_self,
             };
-            let mut attr: pthread_attr_t = unsafe { std::mem::zeroed() };
+            let mut attr: pthread_attr_t = unsafe { core::mem::zeroed() };
             unsafe {
                 if pthread_getattr_np(pthread_self(), &mut attr) == 0 {
-                    let mut stack_addr: *mut libc::c_void = std::ptr::null_mut();
+                    let mut stack_addr: *mut libc::c_void = core::ptr::null_mut();
                     let mut stack_size: libc::size_t = 0;
                     if pthread_attr_getstack(&attr, &mut stack_addr, &mut stack_size) == 0 {
                         pthread_attr_destroy(&mut attr);
@@ -739,10 +988,9 @@ impl VirtualMachine {
             return Err(self.new_recursion_error(_where.to_string()));
         }
 
-        self.recursion_depth.set(self.recursion_depth.get() + 1);
-        let result = f();
-        self.recursion_depth.set(self.recursion_depth.get() - 1);
-        result
+        self.recursion_depth.update(|d| d + 1);
+        scopeguard::defer! { self.recursion_depth.update(|d| d - 1) }
+        f()
     }
 
     pub fn with_frame<R, F: FnOnce(FrameRef) -> PyResult<R>>(
@@ -752,21 +1000,39 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         self.with_recursion("", || {
             self.frames.borrow_mut().push(frame.clone());
-            // Update the current frame slot for sys._current_frames()
+            // Update the shared frame stack for sys._current_frames() and faulthandler
             #[cfg(feature = "threading")]
-            crate::vm::thread::update_current_frame(Some(frame.clone()));
+            crate::vm::thread::push_thread_frame(frame.clone());
+            // Link frame into the signal-safe frame chain (previous pointer)
+            let frame_ptr: *const Frame = &**frame;
+            let old_frame = crate::vm::thread::set_current_frame(frame_ptr);
+            frame.previous.store(
+                old_frame as *mut Frame,
+                core::sync::atomic::Ordering::Relaxed,
+            );
             // Push a new exception context for frame isolation
             // Each frame starts with no active exception (None)
             // This prevents exceptions from leaking between function calls
             self.push_exception(None);
+            let old_owner = frame.owner.swap(
+                crate::frame::FrameOwner::Thread as i8,
+                core::sync::atomic::Ordering::AcqRel,
+            );
             let result = f(frame);
+            // SAFETY: frame_ptr is valid because self.frames holds a clone
+            // of the frame, keeping the underlying allocation alive.
+            unsafe { &*frame_ptr }
+                .owner
+                .store(old_owner, core::sync::atomic::Ordering::Release);
             // Pop the exception context - restores caller's exception state
             self.pop_exception();
+            // Restore previous frame as current (unlink from chain)
+            crate::vm::thread::set_current_frame(old_frame);
             // defer dec frame
             let _popped = self.frames.borrow_mut().pop();
-            // Update the frame slot to the new top frame (or None if empty)
+            // Pop from shared frame stack
             #[cfg(feature = "threading")]
-            crate::vm::thread::update_current_frame(self.frames.borrow().last().cloned());
+            crate::vm::thread::pop_thread_frame();
             result
         })
     }
@@ -865,47 +1131,20 @@ impl VirtualMachine {
         from_list: &Py<PyTuple<PyStrRef>>,
         level: usize,
     ) -> PyResult {
-        // if the import inputs seem weird, e.g a package import or something, rather than just
-        // a straight `import ident`
-        let weird = module.as_str().contains('.') || level != 0 || !from_list.is_empty();
+        let import_func = self
+            .builtins
+            .get_attr(identifier!(self, __import__), self)
+            .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
 
-        let cached_module = if weird {
-            None
+        let (locals, globals) = if let Some(frame) = self.current_frame() {
+            (Some(frame.locals.clone()), Some(frame.globals.clone()))
         } else {
-            let sys_modules = self.sys_module.get_attr("modules", self)?;
-            sys_modules.get_item(module, self).ok()
+            (None, None)
         };
-
-        match cached_module {
-            Some(cached_module) => {
-                if self.is_none(&cached_module) {
-                    Err(self.new_import_error(
-                        format!("import of {module} halted; None in sys.modules"),
-                        module.to_owned(),
-                    ))
-                } else {
-                    Ok(cached_module)
-                }
-            }
-            None => {
-                let import_func = self
-                    .builtins
-                    .get_attr(identifier!(self, __import__), self)
-                    .map_err(|_| {
-                        self.new_import_error("__import__ not found", module.to_owned())
-                    })?;
-
-                let (locals, globals) = if let Some(frame) = self.current_frame() {
-                    (Some(frame.locals.clone()), Some(frame.globals.clone()))
-                } else {
-                    (None, None)
-                };
-                let from_list: PyObjectRef = from_list.to_owned().into();
-                import_func
-                    .call((module.to_owned(), globals, locals, from_list, level), self)
-                    .inspect_err(|exc| import::remove_importlib_frames(self, exc))
-            }
-        }
+        let from_list: PyObjectRef = from_list.to_owned().into();
+        import_func
+            .call((module.to_owned(), globals, locals, from_list, level), self)
+            .inspect_err(|exc| import::remove_importlib_frames(self, exc))
     }
 
     pub fn extract_elements_with<T, F>(&self, value: &PyObject, func: F) -> PyResult<Vec<T>>
@@ -1030,6 +1269,14 @@ impl VirtualMachine {
     ) {
         if exc.class().is(self.ctx.exceptions.attribute_error) {
             let exc = exc.as_object();
+            // Check if this exception was already augmented
+            let already_set = exc
+                .get_attr("name", self)
+                .ok()
+                .is_some_and(|v| !self.is_none(&v));
+            if already_set {
+                return;
+            }
             exc.set_attr("name", name, self).unwrap();
             exc.set_attr("obj", obj, self).unwrap();
         }
@@ -1303,6 +1550,10 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
         "_frozen_importlib_external" => "importlib._bootstrap_external",
         "encodings_ascii" => "encodings.ascii",
         "encodings_utf_8" => "encodings.utf_8",
+        "__hello_alias__" | "__phello_alias__" | "__phello_alias__.spam" => "__hello__",
+        "__phello__.__init__" => "<__phello__",
+        "__phello__.ham.__init__" => "<__phello__.ham",
+        "__hello_only__" => "",
         _ => name,
     }
 }
@@ -1313,7 +1564,7 @@ fn test_nested_frozen() {
 
     vm::Interpreter::builder(Default::default())
         .add_frozen_modules(rustpython_vm::py_freeze!(
-            dir = "../../extra_tests/snippets"
+            dir = "../../../../extra_tests/snippets"
         ))
         .build()
         .enter(|vm| {

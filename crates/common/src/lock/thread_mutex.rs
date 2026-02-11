@@ -20,7 +20,10 @@ pub struct RawThreadMutex<R: RawMutex, G: GetThreadId> {
 }
 
 impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
-    #[allow(clippy::declare_interior_mutable_const)]
+    #[allow(
+        clippy::declare_interior_mutable_const,
+        reason = "const initializer for lock primitive contains atomics by design"
+    )]
     pub const INIT: Self = Self {
         owner: AtomicUsize::new(0),
         mutex: R::INIT,

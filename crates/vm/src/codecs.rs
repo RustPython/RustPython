@@ -8,6 +8,7 @@ use rustpython_common::{
     wtf8::{CodePoint, Wtf8, Wtf8Buf},
 };
 
+use crate::common::lock::OnceCell;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     TryFromObject, VirtualMachine,
@@ -18,7 +19,6 @@ use crate::{
 };
 use alloc::borrow::Cow;
 use core::ops::{self, Range};
-use once_cell::unsync::OnceCell;
 use std::collections::HashMap;
 
 pub struct CodecsRegistry {
@@ -220,10 +220,11 @@ impl CodecsRegistry {
     }
 
     pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) -> PyResult<()> {
+        let name = normalize_encoding_name(name);
         self.inner
             .write()
             .search_cache
-            .insert(name.to_owned(), codec);
+            .insert(name.into_owned(), codec);
         Ok(())
     }
 
@@ -283,7 +284,9 @@ impl CodecsRegistry {
         vm: &VirtualMachine,
     ) -> PyResult {
         let codec = self.lookup(encoding, vm)?;
-        codec.encode(obj, errors, vm)
+        codec.encode(obj, errors, vm).inspect_err(|exc| {
+            Self::add_codec_note(exc, "encoding", encoding, vm);
+        })
     }
 
     pub fn decode(
@@ -294,7 +297,9 @@ impl CodecsRegistry {
         vm: &VirtualMachine,
     ) -> PyResult {
         let codec = self.lookup(encoding, vm)?;
-        codec.decode(obj, errors, vm)
+        codec.decode(obj, errors, vm).inspect_err(|exc| {
+            Self::add_codec_note(exc, "decoding", encoding, vm);
+        })
     }
 
     pub fn encode_text(
@@ -306,12 +311,15 @@ impl CodecsRegistry {
     ) -> PyResult<PyBytesRef> {
         let codec = self._lookup_text_encoding(encoding, "codecs.encode()", vm)?;
         codec
-            .encode(obj.into(), errors, vm)?
+            .encode(obj.into(), errors, vm)
+            .inspect_err(|exc| {
+                Self::add_codec_note(exc, "encoding", encoding, vm);
+            })?
             .downcast()
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
-                     encode arbitrary types",
+                     encode to arbitrary types",
                     encoding,
                     obj.class().name(),
                 ))
@@ -326,18 +334,53 @@ impl CodecsRegistry {
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
         let codec = self._lookup_text_encoding(encoding, "codecs.decode()", vm)?;
-        codec.decode(obj, errors, vm)?.downcast().map_err(|obj| {
-            vm.new_type_error(format!(
-                "'{}' decoder returned '{}' instead of 'str'; use codecs.decode() \
-                 to encode arbitrary types",
-                encoding,
-                obj.class().name(),
-            ))
-        })
+        codec
+            .decode(obj, errors, vm)
+            .inspect_err(|exc| {
+                Self::add_codec_note(exc, "decoding", encoding, vm);
+            })?
+            .downcast()
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "'{}' decoder returned '{}' instead of 'str'; use codecs.decode() to \
+                 decode to arbitrary types",
+                    encoding,
+                    obj.class().name(),
+                ))
+            })
+    }
+
+    fn add_codec_note(
+        exc: &crate::builtins::PyBaseExceptionRef,
+        operation: &str,
+        encoding: &str,
+        vm: &VirtualMachine,
+    ) {
+        let note = format!("{operation} with '{encoding}' codec failed");
+        let _ = vm.call_method(exc.as_object(), "add_note", (vm.ctx.new_str(note),));
     }
 
     pub fn register_error(&self, name: String, handler: PyObjectRef) -> Option<PyObjectRef> {
         self.inner.write().errors.insert(name, handler)
+    }
+
+    pub fn unregister_error(&self, name: &str, vm: &VirtualMachine) -> PyResult<bool> {
+        const BUILTIN_ERROR_HANDLERS: &[&str] = &[
+            "strict",
+            "ignore",
+            "replace",
+            "xmlcharrefreplace",
+            "backslashreplace",
+            "namereplace",
+            "surrogatepass",
+            "surrogateescape",
+        ];
+        if BUILTIN_ERROR_HANDLERS.contains(&name) {
+            return Err(vm.new_value_error(format!(
+                "cannot un-register built-in error handler '{name}'"
+            )));
+        }
+        Ok(self.inner.write().errors.remove(name).is_some())
     }
 
     pub fn lookup_error_opt(&self, name: &str) -> Option<PyObjectRef> {
@@ -351,19 +394,28 @@ impl CodecsRegistry {
 }
 
 fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
-    if let Some(i) = encoding.find(|c: char| c == ' ' || c.is_ascii_uppercase()) {
-        let mut out = encoding.as_bytes().to_owned();
-        for byte in &mut out[i..] {
-            if *byte == b' ' {
-                *byte = b'-';
-            } else {
-                byte.make_ascii_lowercase();
-            }
-        }
-        String::from_utf8(out).unwrap().into()
-    } else {
-        encoding.into()
+    // _Py_normalize_encoding: collapse non-alphanumeric/non-dot chars into
+    // single underscore, strip non-ASCII, lowercase ASCII letters.
+    let needs_transform = encoding
+        .bytes()
+        .any(|b| b.is_ascii_uppercase() || !b.is_ascii_alphanumeric() && b != b'.');
+    if !needs_transform {
+        return encoding.into();
     }
+    let mut out = String::with_capacity(encoding.len());
+    let mut punct = false;
+    for c in encoding.chars() {
+        if c.is_ascii_alphanumeric() || c == '.' {
+            if punct && !out.is_empty() {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+            punct = false;
+        } else {
+            punct = true;
+        }
+    }
+    out.into()
 }
 
 #[derive(Eq, PartialEq)]
@@ -416,7 +468,7 @@ impl StandardEncoding {
             } else {
                 None
             }
-        } else if encoding == "CP_UTF8" {
+        } else if encoding == "cp65001" {
             Some(Self::Utf8)
         } else {
             None
@@ -476,7 +528,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for SurrogatePass {
         let p = &s[byte_range.start..];
 
         fn slice<const N: usize>(p: &[u8]) -> Option<[u8; N]> {
-            p.get(..N).map(|x| x.try_into().unwrap())
+            p.first_chunk().copied()
         }
 
         let c = match standard_encoding {
@@ -809,22 +861,25 @@ impl<'a> ErrorsHandler<'a> {
             },
             None => Self {
                 errors: identifier!(vm, strict).as_ref(),
-                resolved: OnceCell::with_value(ResolvedError::Standard(StandardError::Strict)),
+                resolved: OnceCell::from(ResolvedError::Standard(StandardError::Strict)),
             },
         }
     }
     #[inline]
     fn resolve(&self, vm: &VirtualMachine) -> PyResult<&ResolvedError> {
-        self.resolved.get_or_try_init(|| {
-            if let Ok(standard) = self.errors.as_str().parse() {
-                Ok(ResolvedError::Standard(standard))
-            } else {
-                vm.state
-                    .codec_registry
-                    .lookup_error(self.errors.as_str(), vm)
-                    .map(ResolvedError::Handler)
-            }
-        })
+        if let Some(val) = self.resolved.get() {
+            return Ok(val);
+        }
+        let val = if let Ok(standard) = self.errors.as_str().parse() {
+            ResolvedError::Standard(standard)
+        } else {
+            vm.state
+                .codec_registry
+                .lookup_error(self.errors.as_str(), vm)
+                .map(ResolvedError::Handler)?
+        };
+        let _ = self.resolved.set(val);
+        Ok(self.resolved.get().unwrap())
     }
 }
 impl StrBuffer for PyStrRef {
@@ -946,7 +1001,7 @@ where
         encoding: s_encoding.as_str(),
         data: &s,
         pos: StrSize::default(),
-        exception: OnceCell::with_value(err.downcast().unwrap()),
+        exception: OnceCell::from(err.downcast().unwrap()),
     };
     let mut iter = s.as_wtf8().code_point_indices();
     let start = StrSize {
@@ -986,7 +1041,7 @@ where
         data: PyDecodeData::Original(s.borrow_buf()),
         orig_bytes: s.as_object().downcast_ref(),
         pos: 0,
-        exception: OnceCell::with_value(err.downcast().unwrap()),
+        exception: OnceCell::from(err.downcast().unwrap()),
     };
     let (replace, restart) = handler.handle_decode_error(&mut ctx, range, None)?;
     Ok((replace.into(), restart))
@@ -1009,7 +1064,7 @@ where
         encoding: "",
         data: &s,
         pos: StrSize::default(),
-        exception: OnceCell::with_value(err.downcast().unwrap()),
+        exception: OnceCell::from(err.downcast().unwrap()),
     };
     let mut iter = s.as_wtf8().code_point_indices();
     let start = StrSize {

@@ -15,6 +15,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from update_lib.deps import (
     count_test_todos,
+    get_module_diff_stat,
+    get_module_last_updated,
+    get_test_last_updated,
     is_test_tracked,
     is_test_up_to_date,
 )
@@ -368,6 +371,18 @@ def compute_test_todo_list(
     return result
 
 
+def _format_meta_suffix(item: dict) -> str:
+    """Format metadata suffix (last updated date and diff count)."""
+    parts = []
+    last_updated = item.get("last_updated")
+    diff_lines = item.get("diff_lines", 0)
+    if last_updated:
+        parts.append(last_updated)
+    if diff_lines > 0:
+        parts.append(f"Δ{diff_lines}")
+    return f" | {' '.join(parts)}" if parts else ""
+
+
 def _format_test_suffix(item: dict) -> str:
     """Format suffix for test item (TODO count or untracked)."""
     tracked = item.get("tracked", True)
@@ -410,13 +425,15 @@ def format_test_todo_list(
         primary = tests[0]
         done_mark = "[x]" if primary["up_to_date"] else "[ ]"
         suffix = _format_test_suffix(primary)
-        lines.append(f"- {done_mark} {primary['name']}{suffix}")
+        meta = _format_meta_suffix(primary)
+        lines.append(f"- {done_mark} {primary['name']}{suffix}{meta}")
 
         # Rest are indented
         for item in tests[1:]:
             done_mark = "[x]" if item["up_to_date"] else "[ ]"
             suffix = _format_test_suffix(item)
-            lines.append(f"  - {done_mark} {item['name']}{suffix}")
+            meta = _format_meta_suffix(item)
+            lines.append(f"  - {done_mark} {item['name']}{suffix}{meta}")
 
     return lines
 
@@ -462,7 +479,8 @@ def format_todo_list(
         if rev_str:
             parts.append(f"({rev_str})")
 
-        lines.append(" ".join(parts))
+        line = " ".join(parts) + _format_meta_suffix(item)
+        lines.append(line)
 
         # Show hard_deps:
         # - Normal mode: only show if lib is up-to-date but hard_deps are not
@@ -482,7 +500,8 @@ def format_todo_list(
             for test_info in test_by_lib[name]:
                 test_done_mark = "[x]" if test_info["up_to_date"] else "[ ]"
                 suffix = _format_test_suffix(test_info)
-                lines.append(f"  - {test_done_mark} {test_info['name']}{suffix}")
+                meta = _format_meta_suffix(test_info)
+                lines.append(f"  - {test_done_mark} {test_info['name']}{suffix}{meta}")
 
         # Verbose mode: show detailed dependency info
         if verbose:
@@ -555,6 +574,29 @@ def format_all_todo(
 
         if include_done or lib_not_done or has_pending_test:
             lib_todo.append(item)
+
+    # Add metadata (last updated date and diff stat) to lib items
+    for item in lib_todo:
+        item["last_updated"] = get_module_last_updated(
+            item["name"], cpython_prefix, lib_prefix
+        )
+        item["diff_lines"] = (
+            0
+            if item["up_to_date"]
+            else get_module_diff_stat(item["name"], cpython_prefix, lib_prefix)
+        )
+
+    # Add last_updated to displayed test items (verbose only - slow)
+    if verbose:
+        for tests in test_by_lib.values():
+            for test in tests:
+                test["last_updated"] = get_test_last_updated(
+                    test["name"], cpython_prefix, lib_prefix
+                )
+        for test in no_lib_tests:
+            test["last_updated"] = get_test_last_updated(
+                test["name"], cpython_prefix, lib_prefix
+            )
 
     # Format lib todo with embedded tests
     lines.extend(format_todo_list(lib_todo, test_by_lib, limit, verbose))

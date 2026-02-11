@@ -64,8 +64,8 @@ type BorrowedInner<'fd> = BorrowedFd<'fd>;
 #[cfg(windows)]
 mod win {
     use super::*;
-    use std::marker::PhantomData;
-    use std::mem::ManuallyDrop;
+    use core::marker::PhantomData;
+    use core::mem::ManuallyDrop;
 
     #[repr(transparent)]
     pub(super) struct OwnedInner(i32);

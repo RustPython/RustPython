@@ -165,10 +165,17 @@ pub trait PyClassImpl: PyClassDef {
             }
         }
         if let Some(module_name) = Self::MODULE_NAME {
-            class.set_attr(
-                identifier!(ctx, __module__),
-                ctx.new_str(module_name).into(),
-            );
+            let module_key = identifier!(ctx, __module__);
+            // Don't overwrite a getset descriptor for __module__ (e.g. TypeAliasType
+            // has an instance-level __module__ getset that should not be replaced)
+            let has_getset = class
+                .attributes
+                .read()
+                .get(module_key)
+                .is_some_and(|v| v.downcastable::<crate::builtins::PyGetSet>());
+            if !has_getset {
+                class.set_attr(module_key, ctx.new_str(module_name).into());
+            }
         }
 
         // Don't add __new__ attribute if slot_new is inherited from object

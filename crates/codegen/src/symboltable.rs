@@ -8,7 +8,7 @@ Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.
 */
 
 use crate::{
-    IndexMap,
+    IndexMap, IndexSet,
     error::{CodegenError, CodegenErrorType},
 };
 use alloc::{borrow::Cow, fmt};
@@ -16,7 +16,6 @@ use bitflags::bitflags;
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
-use std::collections::HashSet;
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
@@ -275,21 +274,21 @@ fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
    `newfree` set (which contains free variables collected from all child scopes)
    and sets the corresponding flags on the class's symbol table entry.
 */
-fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut HashSet<String>) {
+fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String>) {
     // Check if __class__ is in the free variables collected from children
     // If found, it means a child scope (method) references __class__
-    if newfree.remove("__class__") {
+    if newfree.shift_remove("__class__") {
         symbol_table.needs_class_closure = true;
     }
 
     // Check if __classdict__ is in the free variables collected from children
-    if newfree.remove("__classdict__") {
+    if newfree.shift_remove("__classdict__") {
         symbol_table.needs_classdict = true;
     }
 
     // Check if __conditional_annotations__ is in the free variables collected from children
     // Remove it from free set - it's handled specially in class scope
-    if newfree.remove("__conditional_annotations__") {
+    if newfree.shift_remove("__conditional_annotations__") {
         symbol_table.has_conditional_annotations = true;
     }
 }
@@ -297,8 +296,8 @@ fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut HashSet<String>
 type SymbolMap = IndexMap<String, Symbol>;
 
 mod stack {
+    use alloc::vec::Vec;
     use core::ptr::NonNull;
-    use std::panic;
     pub struct StackStack<T> {
         v: Vec<NonNull<T>>,
     }
@@ -310,14 +309,30 @@ mod stack {
     impl<T> StackStack<T> {
         /// Appends a reference to this stack for the duration of the function `f`. When `f`
         /// returns, the reference will be popped off the stack.
+        #[cfg(feature = "std")]
         pub fn with_append<F, R>(&mut self, x: &mut T, f: F) -> R
         where
             F: FnOnce(&mut Self) -> R,
         {
             self.v.push(x.into());
-            let res = panic::catch_unwind(panic::AssertUnwindSafe(|| f(self)));
+            let res = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| f(self)));
             self.v.pop();
-            res.unwrap_or_else(|x| panic::resume_unwind(x))
+            res.unwrap_or_else(|x| std::panic::resume_unwind(x))
+        }
+
+        /// Appends a reference to this stack for the duration of the function `f`. When `f`
+        /// returns, the reference will be popped off the stack.
+        ///
+        /// Without std, panic cleanup is not guaranteed (no catch_unwind).
+        #[cfg(not(feature = "std"))]
+        pub fn with_append<F, R>(&mut self, x: &mut T, f: F) -> R
+        where
+            F: FnOnce(&mut Self) -> R,
+        {
+            self.v.push(x.into());
+            let result = f(self);
+            self.v.pop();
+            result
         }
 
         pub fn iter(&self) -> impl DoubleEndedIterator<Item = &T> + '_ {
@@ -367,12 +382,12 @@ impl SymbolTableAnalyzer {
         &mut self,
         symbol_table: &mut SymbolTable,
         class_entry: Option<&SymbolMap>,
-    ) -> SymbolTableResult<HashSet<String>> {
+    ) -> SymbolTableResult<IndexSet<String>> {
         let symbols = core::mem::take(&mut symbol_table.symbols);
         let sub_tables = &mut *symbol_table.sub_tables;
 
         // Collect free variables from all child scopes
-        let mut newfree = HashSet::new();
+        let mut newfree = IndexSet::default();
 
         let annotation_block = &mut symbol_table.annotation_block;
 
@@ -381,12 +396,17 @@ impl SymbolTableAnalyzer {
         // we need to pass class symbols to the annotation scope
         let is_class = symbol_table.typ == CompilerScope::Class;
 
-        // Clone class symbols if needed for annotation scope (to avoid borrow conflict)
-        let class_symbols_for_ann = if is_class
-            && annotation_block
-                .as_ref()
-                .is_some_and(|b| b.can_see_class_scope)
-        {
+        // Clone class symbols if needed for child scopes with can_see_class_scope
+        let needs_class_symbols = (is_class
+            && (sub_tables.iter().any(|st| st.can_see_class_scope)
+                || annotation_block
+                    .as_ref()
+                    .is_some_and(|b| b.can_see_class_scope)))
+            || (!is_class
+                && class_entry.is_some()
+                && sub_tables.iter().any(|st| st.can_see_class_scope));
+
+        let class_symbols_clone = if is_class && needs_class_symbols {
             Some(symbols.clone())
         } else {
             None
@@ -397,15 +417,32 @@ impl SymbolTableAnalyzer {
             let inner_scope = unsafe { &mut *(list as *mut _ as *mut Self) };
             // Analyze sub scopes and collect their free variables
             for sub_table in sub_tables.iter_mut() {
-                // Sub-scopes (functions, nested classes) don't inherit class_entry
-                let child_free = inner_scope.analyze_symbol_table(sub_table, None)?;
+                // Pass class_entry to sub-scopes that can see the class scope
+                let child_class_entry = if sub_table.can_see_class_scope {
+                    if is_class {
+                        class_symbols_clone.as_ref()
+                    } else {
+                        class_entry
+                    }
+                } else {
+                    None
+                };
+                let child_free = inner_scope.analyze_symbol_table(sub_table, child_class_entry)?;
                 // Propagate child's free variables to this scope
                 newfree.extend(child_free);
             }
             // PEP 649: Analyze annotation block if present
             if let Some(annotation_table) = annotation_block {
                 // Pass class symbols to annotation scope if can_see_class_scope
-                let ann_class_entry = class_symbols_for_ann.as_ref().or(class_entry);
+                let ann_class_entry = if annotation_table.can_see_class_scope {
+                    if is_class {
+                        class_symbols_clone.as_ref()
+                    } else {
+                        class_entry
+                    }
+                } else {
+                    None
+                };
                 let child_free =
                     inner_scope.analyze_symbol_table(annotation_table, ann_class_entry)?;
                 // Propagate annotation's free variables to this scope
@@ -520,24 +557,21 @@ impl SymbolTableAnalyzer {
                     // all is well
                 }
                 SymbolScope::Unknown => {
-                    // PEP 649: Check class_entry first (like analyze_name)
-                    // If name is bound in enclosing class, mark as GlobalImplicit
-                    if let Some(class_symbols) = class_entry
-                        && let Some(class_sym) = class_symbols.get(&symbol.name)
-                    {
-                        // DEF_BOUND && !DEF_NONLOCAL -> GLOBAL_IMPLICIT
-                        if class_sym.is_bound() && class_sym.scope != SymbolScope::Free {
-                            symbol.scope = SymbolScope::GlobalImplicit;
-                            return Ok(());
-                        }
-                    }
-
                     // Try hard to figure out what the scope of this symbol is.
                     let scope = if symbol.is_bound() {
                         self.found_in_inner_scope(sub_tables, &symbol.name, st_typ)
                             .unwrap_or(SymbolScope::Local)
                     } else if let Some(scope) = self.found_in_outer_scope(&symbol.name, st_typ) {
+                        // If found in enclosing scope (function/TypeParams), use that
                         scope
+                    } else if let Some(class_symbols) = class_entry
+                        && let Some(class_sym) = class_symbols.get(&symbol.name)
+                        && class_sym.is_bound()
+                        && class_sym.scope != SymbolScope::Free
+                    {
+                        // If name is bound in enclosing class, use GlobalImplicit
+                        // so it can be accessed via __classdict__
+                        SymbolScope::GlobalImplicit
                     } else if self.tables.is_empty() {
                         // Don't make assumptions when we don't know.
                         SymbolScope::Unknown
@@ -1012,7 +1046,7 @@ impl SymbolTableBuilder {
         if table.symbols.contains_key(parameter.name.as_str()) {
             return Err(SymbolTableError {
                 error: format!(
-                    "duplicate parameter '{}' in function definition",
+                    "duplicate argument '{}' in function definition",
                     parameter.name
                 ),
                 location: Some(
@@ -1039,7 +1073,13 @@ impl SymbolTableBuilder {
 
             if is_conditional && !self.tables.last().unwrap().has_conditional_annotations {
                 self.tables.last_mut().unwrap().has_conditional_annotations = true;
-                // Register __conditional_annotations__ symbol in the scope (USE flag, not DEF)
+                // Register __conditional_annotations__ as both Assigned and Used so that
+                // it becomes a Cell variable in class scope (children reference it as Free)
+                self.register_name(
+                    "__conditional_annotations__",
+                    SymbolUsage::Assigned,
+                    annotation.range(),
+                )?;
                 self.register_name(
                     "__conditional_annotations__",
                     SymbolUsage::Used,
@@ -1121,7 +1161,10 @@ impl SymbolTableBuilder {
                 let parent_scope_typ = self.tables.last().map(|t| t.typ);
                 let should_save_annotation_block = matches!(
                     parent_scope_typ,
-                    Some(CompilerScope::Class) | Some(CompilerScope::Module)
+                    Some(CompilerScope::Class)
+                        | Some(CompilerScope::Module)
+                        | Some(CompilerScope::Function)
+                        | Some(CompilerScope::AsyncFunction)
                 );
                 let saved_annotation_block = if should_save_annotation_block {
                     self.tables.last_mut().unwrap().annotation_block.take()
@@ -1423,16 +1466,35 @@ impl SymbolTableBuilder {
             }) => {
                 let was_in_type_alias = self.in_type_alias;
                 self.in_type_alias = true;
+                // Check before entering any sub-scopes
+                let in_class = self
+                    .tables
+                    .last()
+                    .is_some_and(|t| t.typ == CompilerScope::Class);
+                let is_generic = type_params.is_some();
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
                         "TypeAlias",
                         self.line_index_start(type_params.range),
                     )?;
                     self.scan_type_params(type_params)?;
-                    self.scan_expression(value, ExpressionContext::Load)?;
+                }
+                // Value scope for lazy evaluation
+                self.enter_scope(
+                    "TypeAlias",
+                    CompilerScope::TypeParams,
+                    self.line_index_start(value.range()),
+                );
+                if in_class {
+                    if let Some(table) = self.tables.last_mut() {
+                        table.can_see_class_scope = true;
+                    }
+                    self.register_name("__classdict__", SymbolUsage::Used, TextRange::default())?;
+                }
+                self.scan_expression(value, ExpressionContext::Load)?;
+                self.leave_scope();
+                if is_generic {
                     self.leave_scope();
-                } else {
-                    self.scan_expression(value, ExpressionContext::Load)?;
                 }
                 self.in_type_alias = was_in_type_alias;
                 self.scan_expression(name, ExpressionContext::Store)?;
@@ -1925,11 +1987,16 @@ impl SymbolTableBuilder {
     ) -> SymbolTableResult {
         // Enter a new TypeParams scope for the bound/default expression
         // This allows the expression to access outer scope symbols
+        let in_class = self.tables.last().is_some_and(|t| t.can_see_class_scope);
         let line_number = self.line_index_start(expr.range());
         self.enter_scope(scope_name, CompilerScope::TypeParams, line_number);
 
-        // Note: In CPython, can_see_class_scope is preserved in the new scope
-        // In RustPython, this is handled through the scope hierarchy
+        if in_class {
+            if let Some(table) = self.tables.last_mut() {
+                table.can_see_class_scope = true;
+            }
+            self.register_name("__classdict__", SymbolUsage::Used, TextRange::default())?;
+        }
 
         // Set scope_info for better error messages
         let old_scope_info = self.scope_info;
@@ -1947,7 +2014,7 @@ impl SymbolTableBuilder {
 
     fn scan_type_params(&mut self, type_params: &ast::TypeParams) -> SymbolTableResult {
         // Check for duplicate type parameter names
-        let mut seen_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut seen_names: IndexSet<&str> = IndexSet::default();
         for type_param in &type_params.type_params {
             let (name, range) = match type_param {
                 ast::TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range),

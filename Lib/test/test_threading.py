@@ -492,7 +492,6 @@ class ThreadTests(BaseTestCase):
             sys.settrace(func)
             """)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_join_nondaemon_on_shutdown(self):
         # Issue 1722344
         # Raising SystemExit skipped threading._shutdown

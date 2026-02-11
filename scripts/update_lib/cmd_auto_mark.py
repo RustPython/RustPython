@@ -71,45 +71,81 @@ def run_test(test_name: str, skip_build: bool = False) -> TestResult:
     return parse_results(result)
 
 
+def _try_parse_test_info(test_info: str) -> tuple[str, str] | None:
+    """Try to extract (name, path) from 'test_name (path)' or 'test_name (path) [subtest]'."""
+    first_space = test_info.find(" ")
+    if first_space > 0:
+        name = test_info[:first_space]
+        rest = test_info[first_space:].strip()
+        if rest.startswith("("):
+            end_paren = rest.find(")")
+            if end_paren > 0:
+                return name, rest[1:end_paren]
+    return None
+
+
 def parse_results(result: subprocess.CompletedProcess) -> TestResult:
     """Parse subprocess result into TestResult."""
     lines = result.stdout.splitlines()
     test_results = TestResult()
     test_results.stdout = result.stdout
     in_test_results = False
+    # For multiline format: "test_name (path)\ndocstring ... RESULT"
+    pending_test_info = None
 
     for line in lines:
         if re.search(r"Run \d+ tests? sequentially", line):
             in_test_results = True
-        elif line.startswith("-----------"):
+        elif "== Tests result: " in line:
             in_test_results = False
 
         if in_test_results and " ... " in line:
-            line = line.strip()
+            stripped = line.strip()
             # Skip lines that don't look like test results
-            if line.startswith("tests") or line.startswith("["):
+            if stripped.startswith("tests") or stripped.startswith("["):
+                pending_test_info = None
                 continue
             # Parse: "test_name (path) [subtest] ... RESULT"
-            parts = line.split(" ... ")
+            parts = stripped.split(" ... ")
             if len(parts) >= 2:
                 test_info = parts[0]
                 result_str = parts[-1].lower()
                 # Only process FAIL or ERROR
                 if result_str not in ("fail", "error"):
+                    pending_test_info = None
                     continue
-                # Extract test name (first word)
-                first_space = test_info.find(" ")
-                if first_space > 0:
+                # Try parsing from this line (single-line format)
+                parsed = _try_parse_test_info(test_info)
+                if not parsed and pending_test_info:
+                    # Multiline format: previous line had test_name (path)
+                    parsed = _try_parse_test_info(pending_test_info)
+                if parsed:
                     test = Test()
-                    test.name = test_info[:first_space]
-                    # Extract path from (path)
-                    rest = test_info[first_space:].strip()
-                    if rest.startswith("("):
-                        end_paren = rest.find(")")
-                        if end_paren > 0:
-                            test.path = rest[1:end_paren]
-                            test.result = result_str
-                            test_results.tests.append(test)
+                    test.name, test.path = parsed
+                    test.result = result_str
+                    test_results.tests.append(test)
+                pending_test_info = None
+
+        elif in_test_results:
+            # Track test info for multiline format:
+            #   test_name (path)
+            #   docstring ... RESULT
+            stripped = line.strip()
+            if (
+                stripped
+                and "(" in stripped
+                and stripped.endswith(")")
+                and ":" not in stripped.split("(")[0]
+            ):
+                pending_test_info = stripped
+            else:
+                pending_test_info = None
+
+            # Also check for Tests result on non-" ... " lines
+            if "== Tests result: " in line:
+                res = line.split("== Tests result: ")[1]
+                res = res.split(" ")[0]
+                test_results.tests_result = res
 
         elif "== Tests result: " in line:
             res = line.split("== Tests result: ")[1]
@@ -117,7 +153,7 @@ def parse_results(result: subprocess.CompletedProcess) -> TestResult:
             test_results.tests_result = res
 
         # Parse: "UNEXPECTED SUCCESS: test_name (path)"
-        elif line.startswith("UNEXPECTED SUCCESS: "):
+        if line.startswith("UNEXPECTED SUCCESS: "):
             rest = line[len("UNEXPECTED SUCCESS: ") :]
             # Format: "test_name (path)"
             first_space = rest.find(" ")
@@ -214,6 +250,99 @@ def path_to_test_parts(path: str) -> list[str]:
     return parts[-2:]
 
 
+def _expand_stripped_to_children(
+    contents: str,
+    stripped_tests: set[tuple[str, str]],
+    all_failing_tests: set[tuple[str, str]],
+) -> set[tuple[str, str]]:
+    """Find child-class failures that correspond to stripped parent-class markers.
+
+    When ``strip_reasonless_expected_failures`` removes a marker from a parent
+    (mixin) class, test failures are reported against the concrete subclasses,
+    not the parent itself.  This function maps those child failures back so
+    they get re-marked (and later consolidated to the parent by
+    ``_consolidate_to_parent``).
+
+    Returns the set of ``(class, method)`` pairs from *all_failing_tests* that
+    should be re-marked.
+    """
+    # Direct matches (stripped test itself is a concrete TestCase)
+    result = stripped_tests & all_failing_tests
+
+    unmatched = stripped_tests - all_failing_tests
+    if not unmatched:
+        return result
+
+    tree = ast.parse(contents)
+    class_bases, class_methods = _build_inheritance_info(tree)
+
+    for parent_cls, method_name in unmatched:
+        if method_name not in class_methods.get(parent_cls, set()):
+            continue
+        for cls in _find_all_inheritors(
+            parent_cls, method_name, class_bases, class_methods
+        ):
+            if (cls, method_name) in all_failing_tests:
+                result.add((cls, method_name))
+
+    return result
+
+
+def _consolidate_to_parent(
+    contents: str,
+    failing_tests: set[tuple[str, str]],
+    error_messages: dict[tuple[str, str], str] | None = None,
+) -> tuple[set[tuple[str, str]], dict[tuple[str, str], str] | None]:
+    """Move failures to the parent class when ALL inheritors fail.
+
+    If every concrete subclass that inherits a method from a parent class
+    appears in *failing_tests*, replace those per-subclass entries with a
+    single entry on the parent.  This avoids creating redundant super-call
+    overrides in every child.
+
+    Returns:
+        (consolidated_failing_tests, consolidated_error_messages)
+    """
+    tree = ast.parse(contents)
+    class_bases, class_methods = _build_inheritance_info(tree)
+
+    # Group by (defining_parent, method) → set of failing children
+    from collections import defaultdict
+
+    groups: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for class_name, method_name in failing_tests:
+        defining = _find_method_definition(
+            class_name, method_name, class_bases, class_methods
+        )
+        if defining and defining != class_name:
+            groups[(defining, method_name)].add(class_name)
+
+    if not groups:
+        return failing_tests, error_messages
+
+    result = set(failing_tests)
+    new_error_messages = dict(error_messages) if error_messages else {}
+
+    for (parent, method_name), failing_children in groups.items():
+        all_inheritors = _find_all_inheritors(
+            parent, method_name, class_bases, class_methods
+        )
+
+        if all_inheritors and failing_children >= all_inheritors:
+            # All inheritors fail → mark on parent instead
+            children_keys = {(child, method_name) for child in failing_children}
+            result -= children_keys
+            result.add((parent, method_name))
+            # Pick any child's error message for the parent
+            if new_error_messages:
+                for child in failing_children:
+                    msg = new_error_messages.pop((child, method_name), "")
+                    if msg:
+                        new_error_messages[(parent, method_name)] = msg
+
+    return result, new_error_messages or error_messages
+
+
 def build_patches(
     test_parts_set: set[tuple[str, str]],
     error_messages: dict[tuple[str, str], str] | None = None,
@@ -221,7 +350,7 @@ def build_patches(
     """Convert failing tests to patch format."""
     patches = {}
     error_messages = error_messages or {}
-    for class_name, method_name in test_parts_set:
+    for class_name, method_name in sorted(test_parts_set):
         if class_name not in patches:
             patches[class_name] = {}
         reason = error_messages.get((class_name, method_name), "")
@@ -232,13 +361,16 @@ def build_patches(
 
 
 def _is_super_call_only(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    """Check if the method body is just 'return super().method_name()'."""
+    """Check if the method body is just 'return super().method_name()' or 'return await super().method_name()'."""
     if len(func_node.body) != 1:
         return False
     stmt = func_node.body[0]
     if not isinstance(stmt, ast.Return) or stmt.value is None:
         return False
     call = stmt.value
+    # Unwrap await for async methods
+    if isinstance(call, ast.Await):
+        call = call.value
     if not isinstance(call, ast.Call):
         return False
     if not isinstance(call.func, ast.Attribute):
@@ -252,6 +384,27 @@ def _is_super_call_only(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bo
     if not isinstance(super_call.func, ast.Name) or super_call.func.id != "super":
         return False
     return True
+
+
+def _method_removal_range(
+    func_node: ast.FunctionDef | ast.AsyncFunctionDef, lines: list[str]
+) -> range:
+    """Line range covering an entire method including decorators and a preceding COMMENT line."""
+    first = (
+        func_node.decorator_list[0].lineno - 1
+        if func_node.decorator_list
+        else func_node.lineno - 1
+    )
+    if (
+        first > 0
+        and lines[first - 1].strip().startswith("#")
+        and COMMENT in lines[first - 1]
+    ):
+        first -= 1
+    # Also remove a preceding blank line to avoid double-blanks after removal
+    if first > 0 and not lines[first - 1].strip():
+        first -= 1
+    return range(first, func_node.end_lineno)
 
 
 def _build_inheritance_info(tree: ast.Module) -> tuple[dict, dict]:
@@ -309,6 +462,20 @@ def _find_method_definition(
     return None
 
 
+def _find_all_inheritors(
+    parent: str, method_name: str, class_bases: dict, class_methods: dict
+) -> set[str]:
+    """Find all classes that inherit *method_name* from *parent* (not overriding it)."""
+    return {
+        cls
+        for cls in class_bases
+        if cls != parent
+        and method_name not in class_methods.get(cls, set())
+        and _find_method_definition(cls, method_name, class_bases, class_methods)
+        == parent
+    }
+
+
 def remove_expected_failures(
     contents: str, tests_to_remove: set[tuple[str, str]]
 ) -> str:
@@ -344,15 +511,7 @@ def remove_expected_failures(
             remove_entire_method = _is_super_call_only(item)
 
             if remove_entire_method:
-                first_line = item.lineno - 1
-                if item.decorator_list:
-                    first_line = item.decorator_list[0].lineno - 1
-                if first_line > 0:
-                    prev_line = lines[first_line - 1].strip()
-                    if prev_line.startswith("#") and COMMENT in prev_line:
-                        first_line -= 1
-                for i in range(first_line, item.end_lineno):
-                    lines_to_remove.add(i)
+                lines_to_remove.update(_method_removal_range(item, lines))
             else:
                 for dec in item.decorator_list:
                     dec_line = dec.lineno - 1
@@ -367,11 +526,18 @@ def remove_expected_failures(
                         and lines[dec_line - 1].strip().startswith("#")
                         and COMMENT in lines[dec_line - 1]
                     )
+                    has_comment_after = (
+                        dec_line + 1 < len(lines)
+                        and lines[dec_line + 1].strip().startswith("#")
+                        and COMMENT not in lines[dec_line + 1]
+                    )
 
                     if has_comment_on_line or has_comment_before:
                         lines_to_remove.add(dec_line)
                         if has_comment_before:
                             lines_to_remove.add(dec_line - 1)
+                        if has_comment_after and has_comment_on_line:
+                            lines_to_remove.add(dec_line + 1)
 
     for line_idx in sorted(lines_to_remove, reverse=True):
         del lines[line_idx]
@@ -442,10 +608,96 @@ def apply_test_changes(
         contents = remove_expected_failures(contents, unexpected_successes)
 
     if failing_tests:
+        failing_tests, error_messages = _consolidate_to_parent(
+            contents, failing_tests, error_messages
+        )
         patches = build_patches(failing_tests, error_messages)
         contents = apply_patches(contents, patches)
 
     return contents
+
+
+def strip_reasonless_expected_failures(
+    contents: str,
+) -> tuple[str, set[tuple[str, str]]]:
+    """Strip @expectedFailure decorators that have no failure reason.
+
+    Markers like ``@unittest.expectedFailure  # TODO: RUSTPYTHON`` (without a
+    reason after the semicolon) are removed so the tests fail normally during
+    the next test run and error messages can be captured.
+
+    Returns:
+        (modified_contents, stripped_tests) where stripped_tests is a set of
+        (class_name, method_name) tuples whose markers were removed.
+    """
+    tree = ast.parse(contents)
+    lines = contents.splitlines()
+    stripped_tests: set[tuple[str, str]] = set()
+    lines_to_remove: set[int] = set()
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for dec in item.decorator_list:
+                dec_line = dec.lineno - 1
+                line_content = lines[dec_line]
+
+                if "expectedFailure" not in line_content:
+                    continue
+
+                has_comment_on_line = COMMENT in line_content
+                has_comment_before = (
+                    dec_line > 0
+                    and lines[dec_line - 1].strip().startswith("#")
+                    and COMMENT in lines[dec_line - 1]
+                )
+
+                if not has_comment_on_line and not has_comment_before:
+                    continue  # not our marker
+
+                # Check if there's a reason (on either the decorator or before)
+                for check_line in (
+                    line_content,
+                    lines[dec_line - 1] if has_comment_before else "",
+                ):
+                    match = re.search(rf"{COMMENT}(.*)", check_line)
+                    if match and match.group(1).strip(";:, "):
+                        break  # has a reason, keep it
+                else:
+                    # No reason found — strip this decorator
+                    stripped_tests.add((node.name, item.name))
+
+                    if _is_super_call_only(item):
+                        # Remove entire super-call override (the method
+                        # exists only to apply the decorator; without it
+                        # the override is pointless and blocks parent
+                        # consolidation)
+                        lines_to_remove.update(_method_removal_range(item, lines))
+                    else:
+                        lines_to_remove.add(dec_line)
+
+                        if has_comment_before:
+                            lines_to_remove.add(dec_line - 1)
+
+                        # Also remove a reason-comment on the line after (old format)
+                        if (
+                            has_comment_on_line
+                            and dec_line + 1 < len(lines)
+                            and lines[dec_line + 1].strip().startswith("#")
+                            and COMMENT not in lines[dec_line + 1]
+                        ):
+                            lines_to_remove.add(dec_line + 1)
+
+    if not lines_to_remove:
+        return contents, stripped_tests
+
+    for idx in sorted(lines_to_remove, reverse=True):
+        del lines[idx]
+
+    return "\n".join(lines) + "\n" if lines else "", stripped_tests
 
 
 def extract_test_methods(contents: str) -> set[tuple[str, str]]:
@@ -490,6 +742,14 @@ def auto_mark_file(
     if not test_path.exists():
         raise FileNotFoundError(f"File not found: {test_path}")
 
+    # Strip reason-less markers so those tests fail normally and we capture
+    # their error messages during the test run.
+    contents = test_path.read_text(encoding="utf-8")
+    original_contents = contents
+    contents, stripped_tests = strip_reasonless_expected_failures(contents)
+    if stripped_tests:
+        test_path.write_text(contents, encoding="utf-8")
+
     test_name = get_test_module_name(test_path)
     if verbose:
         print(f"Running test: {test_name}")
@@ -497,11 +757,25 @@ def auto_mark_file(
     results = run_test(test_name, skip_build=skip_build)
 
     # Check if test run failed entirely (e.g., import error, crash)
-    if not results.tests_result:
+    if (
+        not results.tests_result
+        and not results.tests
+        and not results.unexpected_successes
+    ):
+        # Restore original contents before raising
+        if stripped_tests:
+            test_path.write_text(original_contents, encoding="utf-8")
         raise TestRunError(
             f"Test run failed for {test_name}. "
             f"Output: {results.stdout[-500:] if results.stdout else '(no output)'}"
         )
+
+    # If the run crashed (incomplete), restore original file so that markers
+    # for tests that never ran are preserved.  Only observed results will be
+    # re-applied below.
+    if not results.tests_result and stripped_tests:
+        test_path.write_text(original_contents, encoding="utf-8")
+        stripped_tests = set()
 
     contents = test_path.read_text(encoding="utf-8")
 
@@ -519,6 +793,13 @@ def auto_mark_file(
         failing_tests = {t for t in all_failing_tests if t in new_methods}
     else:
         failing_tests = set()
+
+    # Re-mark stripped tests that still fail (to restore markers with reasons).
+    # Uses inheritance expansion: if a parent marker was stripped, child
+    # failures are included so _consolidate_to_parent can re-mark the parent.
+    failing_tests |= _expand_stripped_to_children(
+        contents, stripped_tests, all_failing_tests
+    )
 
     regressions = all_failing_tests - failing_tests
 
@@ -587,6 +868,21 @@ def auto_mark_directory(
     if not test_dir.is_dir():
         raise ValueError(f"Not a directory: {test_dir}")
 
+    # Get all .py files in directory
+    test_files = sorted(test_dir.glob("**/*.py"))
+
+    # Strip reason-less markers from ALL files before running tests so those
+    # tests fail normally and we capture their error messages.
+    stripped_per_file: dict[pathlib.Path, set[tuple[str, str]]] = {}
+    original_per_file: dict[pathlib.Path, str] = {}
+    for test_file in test_files:
+        contents = test_file.read_text(encoding="utf-8")
+        stripped_contents, stripped = strip_reasonless_expected_failures(contents)
+        if stripped:
+            original_per_file[test_file] = contents
+            test_file.write_text(stripped_contents, encoding="utf-8")
+            stripped_per_file[test_file] = stripped
+
     test_name = get_test_module_name(test_dir)
     if verbose:
         print(f"Running test: {test_name}")
@@ -594,19 +890,30 @@ def auto_mark_directory(
     results = run_test(test_name, skip_build=skip_build)
 
     # Check if test run failed entirely (e.g., import error, crash)
-    if not results.tests_result:
+    if (
+        not results.tests_result
+        and not results.tests
+        and not results.unexpected_successes
+    ):
+        # Restore original contents before raising
+        for fpath, original in original_per_file.items():
+            fpath.write_text(original, encoding="utf-8")
         raise TestRunError(
             f"Test run failed for {test_name}. "
             f"Output: {results.stdout[-500:] if results.stdout else '(no output)'}"
         )
 
+    # If the run crashed (incomplete), restore original files so that markers
+    # for tests that never ran are preserved.
+    if not results.tests_result and original_per_file:
+        for fpath, original in original_per_file.items():
+            fpath.write_text(original, encoding="utf-8")
+        stripped_per_file.clear()
+
     total_added = 0
     total_removed = 0
     total_regressions = 0
     all_regressions: list[tuple[str, str, str, str]] = []
-
-    # Get all .py files in directory
-    test_files = sorted(test_dir.glob("**/*.py"))
 
     for test_file in test_files:
         # Get module prefix for this file (e.g., "test_inspect.test_inspect")
@@ -631,6 +938,15 @@ def auto_mark_directory(
             failing_tests = {t for t in all_failing_tests if t in new_methods}
         else:
             failing_tests = set()
+
+        # Re-mark stripped tests that still fail (restore markers with reasons).
+        # Uses inheritance expansion for parent→child mapping.
+        stripped = stripped_per_file.get(test_file, set())
+        if stripped:
+            file_contents = test_file.read_text(encoding="utf-8")
+            failing_tests |= _expand_stripped_to_children(
+                file_contents, stripped, all_failing_tests
+            )
 
         regressions = all_failing_tests - failing_tests
 

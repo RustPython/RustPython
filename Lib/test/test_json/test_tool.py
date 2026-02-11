@@ -6,22 +6,14 @@ import unittest
 import subprocess
 
 from test import support
-from test.support import force_not_colorized, os_helper
+from test.support import force_colorized, force_not_colorized, os_helper
 from test.support.script_helper import assert_python_ok
 
 from _colorize import get_theme
 
-# XXX: RUSTPYTHON; force_colorized not available in test.support
-def force_colorized(func):
-    """Placeholder decorator for RustPython - force_colorized not available."""
-    import functools
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        raise unittest.SkipTest("TODO: RUSTPYTHON; force_colorized not available")
-    return wrapper
-
 
 @support.requires_subprocess()
+@support.skip_if_pgo_task
 class TestMain(unittest.TestCase):
     data = """
 
@@ -328,6 +320,7 @@ class TestMain(unittest.TestCase):
 
 
 @support.requires_subprocess()
+@support.skip_if_pgo_task
 class TestTool(TestMain):
     module = 'json.tool'
 

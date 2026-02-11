@@ -13,8 +13,7 @@ import linecache
 import os
 import dis
 from os.path import normcase
-# XXX: RUSTPYTHON
-# import _pickle
+# import _pickle # TODO: RUSTPYTHON
 import pickle
 import shutil
 import stat
@@ -540,7 +539,6 @@ class TestInterpreterStack(IsTestBase):
         self.istest(inspect.istraceback, 'git.ex.__traceback__')
         self.istest(inspect.isframe, 'mod.fr')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_stack(self):
         self.assertTrue(len(mod.st) >= 5)
         frame1, frame2, frame3, frame4, *_ = mod.st
@@ -569,7 +567,6 @@ class TestInterpreterStack(IsTestBase):
         self.assertIn('inspect.stack()', record.code_context[0])
         self.assertEqual(record.index, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_trace(self):
         self.assertEqual(len(git.tr), 3)
         frame1, frame2, frame3, = git.tr
@@ -672,7 +669,6 @@ class TestRetrievingSourceCode(GetSourceBase):
                                      ('lobbest', mod.lobbest),
                                      ('spam', mod.spam)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_getdoc(self):
@@ -2788,6 +2784,31 @@ class TestGetGeneratorState(unittest.TestCase):
         next(self.generator)
         # Running after the first yield
         next(self.generator)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: '_GeneratorWrapper' object has no attribute 'gi_suspended'
+    def test_types_coroutine_wrapper_state(self):
+        def gen():
+            yield 1
+            yield 2
+
+        @types.coroutine
+        def wrapped_generator_coro():
+            # return a generator iterator so types.coroutine
+            # wraps it into types._GeneratorWrapper.
+            return gen()
+
+        g = wrapped_generator_coro()
+        self.addCleanup(g.close)
+        self.assertIs(type(g), types._GeneratorWrapper)
+
+        # _GeneratorWrapper must provide gi_suspended/cr_suspended
+        # so inspect.get*state() doesn't raise AttributeError.
+        self.assertEqual(inspect.getgeneratorstate(g), inspect.GEN_CREATED)
+        self.assertEqual(inspect.getcoroutinestate(g), inspect.CORO_CREATED)
+
+        next(g)
+        self.assertEqual(inspect.getgeneratorstate(g), inspect.GEN_SUSPENDED)
+        self.assertEqual(inspect.getcoroutinestate(g), inspect.CORO_SUSPENDED)
 
     def test_easy_debugging(self):
         # repr() and str() of a generator state should contain the state name

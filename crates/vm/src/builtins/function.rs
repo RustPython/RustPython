@@ -89,28 +89,29 @@ unsafe impl Traverse for PyFunction {
         // Clear module, doc, and type_params (Py_CLEAR)
         if let Some(mut guard) = self.module.try_lock() {
             let old_module =
-                std::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
             out.push(old_module);
         }
         if let Some(mut guard) = self.doc.try_lock() {
-            let old_doc = std::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+            let old_doc =
+                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
             out.push(old_doc);
         }
         if let Some(mut guard) = self.type_params.try_lock() {
             let old_type_params =
-                std::mem::replace(&mut *guard, Context::genesis().empty_tuple.to_owned());
+                core::mem::replace(&mut *guard, Context::genesis().empty_tuple.to_owned());
             out.push(old_type_params.into());
         }
 
         // Replace name and qualname with empty string to break potential str subclass cycles
         // name and qualname could be str subclasses, so they could have reference cycles
         if let Some(mut guard) = self.name.try_lock() {
-            let old_name = std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
+            let old_name = core::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
             out.push(old_name.into());
         }
         if let Some(mut guard) = self.qualname.try_lock() {
             let old_qualname =
-                std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
+                core::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
             out.push(old_qualname.into());
         }
 
@@ -130,7 +131,7 @@ impl PyFunction {
         let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
             // If not in globals, inherit from current execution context
             if let Some(frame) = vm.current_frame() {
-                frame.builtins.clone().into()
+                frame.builtins.clone()
             } else {
                 vm.builtins.dict().into()
             }
@@ -515,7 +516,7 @@ impl Py<PyFunction> {
         let frame = Frame::new(
             code.clone(),
             Scope::new(Some(locals), self.globals.clone()),
-            vm.builtins.dict(),
+            self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
             vm,
@@ -529,13 +530,22 @@ impl Py<PyFunction> {
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
         match (is_gen, is_coro) {
             (true, false) => {
-                Ok(PyGenerator::new(frame, self.__name__(), self.__qualname__()).into_pyobject(vm))
+                let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
+                    .into_pyobject(vm);
+                frame.set_generator(&obj);
+                Ok(obj)
             }
             (false, true) => {
-                Ok(PyCoroutine::new(frame, self.__name__(), self.__qualname__()).into_pyobject(vm))
+                let obj = PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
+                    .into_pyobject(vm);
+                frame.set_generator(&obj);
+                Ok(obj)
             }
             (true, true) => {
-                Ok(PyAsyncGen::new(frame, self.__name__(), self.__qualname__()).into_pyobject(vm))
+                let obj = PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
+                    .into_pyobject(vm);
+                frame.set_generator(&obj);
+                Ok(obj)
             }
             (false, false) => vm.run_frame(frame),
         }
@@ -708,19 +718,23 @@ impl PyFunction {
         value: PySetterValue<Option<PyObjectRef>>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let annotations = match value {
+        match value {
             PySetterValue::Assign(Some(value)) => {
                 let annotations = value.downcast::<crate::builtins::PyDict>().map_err(|_| {
                     vm.new_type_error("__annotations__ must be set to a dict object")
                 })?;
-                Some(annotations)
+                *self.annotations.lock() = Some(annotations);
+                *self.annotate.lock() = None;
             }
-            PySetterValue::Assign(None) | PySetterValue::Delete => None,
-        };
-        *self.annotations.lock() = annotations;
-
-        // Clear __annotate__ when __annotations__ is set
-        *self.annotate.lock() = None;
+            PySetterValue::Assign(None) => {
+                *self.annotations.lock() = None;
+                *self.annotate.lock() = None;
+            }
+            PySetterValue::Delete => {
+                // del only clears cached annotations; __annotate__ is preserved
+                *self.annotations.lock() = None;
+            }
+        }
         Ok(())
     }
 
@@ -802,15 +816,16 @@ impl PyFunction {
     #[cfg(feature = "jit")]
     #[pymethod]
     fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.jitted_code
-            .get_or_try_init(|| {
-                let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
-                let ret_type = jit::jit_ret_type(&zelf, vm)?;
-                let code = zelf.code.lock();
-                rustpython_jit::compile(&code.code, &arg_types, ret_type)
-                    .map_err(|err| jit::new_jit_error(err.to_string(), vm))
-            })
-            .map(drop)
+        if zelf.jitted_code.get().is_some() {
+            return Ok(());
+        }
+        let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
+        let ret_type = jit::jit_ret_type(&zelf, vm)?;
+        let code = zelf.code.lock();
+        let compiled = rustpython_jit::compile(&code.code, &arg_types, ret_type)
+            .map_err(|err| jit::new_jit_error(err.to_string(), vm))?;
+        let _ = zelf.jitted_code.set(compiled);
+        Ok(())
     }
 }
 
@@ -1057,7 +1072,6 @@ impl PyPayload for PyBoundMethod {
 impl Representable for PyBoundMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        #[allow(clippy::needless_match)] // False positive on nightly
         let func_name =
             if let Some(qname) = vm.get_attribute_opt(zelf.function.clone(), "__qualname__")? {
                 Some(qname)

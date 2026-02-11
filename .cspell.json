@@ -69,10 +69,13 @@
     "GetSet",
     "groupref",
     "internable",
+    "interps",
     "jitted",
     "jitting",
     "lossily",
     "makeunicodedata",
+    "microbenchmark",
+    "microbenchmarks",
     "miri",
     "notrace",
     "oparg",
@@ -110,6 +113,7 @@
     "pytype",
     "reducelib",
     "richcompare",
+    "rustix",
     "RustPython",
     "significand",
     "struc",
@@ -121,6 +125,7 @@
     "uninit",
     "unraisable",
     "unresizable",
+    "varint",
     "wasi",
     "zelf",
     // unix
@@ -139,7 +144,11 @@
     "birthtime",
     "IFEXEC",
     // "stat"
-    "FIRMLINK"
+    "FIRMLINK",
+    // CPython internal names
+    "sysdict",
+    "settraceallthreads",
+    "setprofileallthreads"
   ],
   // flagWords - list of words to be always considered incorrect
   "flagWords": [

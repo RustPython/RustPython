@@ -1,4 +1,7 @@
-use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
+use super::{
+    PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
+    iter::{builtins_iter, builtins_reversed},
+};
 use crate::atomic_func;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
@@ -508,7 +511,11 @@ impl Representable for PyList {
         let s = if zelf.__len__() == 0 {
             "[]".to_owned()
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            collection_repr(None, "[", "]", zelf.borrow_vec().iter(), vm)?
+            // Clone elements before calling repr to release the read lock.
+            // Element repr may mutate the list (e.g., list.clear()), which
+            // needs a write lock and would deadlock if read lock is held.
+            let elements: Vec<PyObjectRef> = zelf.borrow_vec().to_vec();
+            collection_repr(None, "[", "]", elements.iter(), vm)?
         } else {
             "[...]".to_owned()
         };
@@ -522,12 +529,17 @@ fn do_sort(
     key_func: Option<PyObjectRef>,
     reverse: bool,
 ) -> PyResult<()> {
-    let op = if reverse {
-        PyComparisonOp::Lt
-    } else {
-        PyComparisonOp::Gt
+    // CPython uses __lt__ for all comparisons in sort.
+    // try_sort_by_gt expects is_gt(a, b) = true when a should come AFTER b.
+    let cmp = |a: &PyObjectRef, b: &PyObjectRef| {
+        if reverse {
+            // Descending: a comes after b when a < b
+            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
+        } else {
+            // Ascending: a comes after b when b < a
+            b.rich_compare_bool(a, PyComparisonOp::Lt, vm)
+        }
     };
-    let cmp = |a: &PyObjectRef, b: &PyObjectRef| a.rich_compare_bool(b, op, vm);
 
     if let Some(ref key_func) = key_func {
         let mut items = values
@@ -572,9 +584,13 @@ impl PyListIterator {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        self.internal
-            .lock()
-            .builtins_iter_reduce(|x| x.clone().into(), vm)
+        let func = builtins_iter(vm);
+        self.internal.lock().reduce(
+            func,
+            |x| x.clone().into(),
+            |vm| vm.ctx.new_list(Vec::new()).into(),
+            vm,
+        )
     }
 }
 
@@ -617,9 +633,13 @@ impl PyListReverseIterator {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        self.internal
-            .lock()
-            .builtins_reversed_reduce(|x| x.clone().into(), vm)
+        let func = builtins_reversed(vm);
+        self.internal.lock().reduce(
+            func,
+            |x| x.clone().into(),
+            |vm| vm.ctx.new_list(Vec::new()).into(),
+            vm,
+        )
     }
 }
 

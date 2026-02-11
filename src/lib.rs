@@ -41,8 +41,9 @@
 //!
 //! The binary will have all the standard arguments of a python interpreter (including a REPL!) but
 //! it will have your modules loaded into the vm.
+//!
+//! See [`rustpython_derive`](../rustpython_derive/index.html) crate for documentation on macros used in the example above.
 
-#![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
 #![allow(clippy::needless_doctest_main)]
 
 #[macro_use]
@@ -172,7 +173,20 @@ fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
         vm.insert_sys_path(vm.new_pyobj(dir))?;
     }
 
-    vm.run_any_file(scope, path)
+    #[cfg(feature = "host_env")]
+    {
+        vm.run_any_file(scope, path)
+    }
+    #[cfg(not(feature = "host_env"))]
+    {
+        // In sandbox mode, the binary reads the file and feeds source to the VM.
+        // The VM itself has no filesystem access.
+        let path = if path.is_empty() { "???" } else { path };
+        match std::fs::read_to_string(path) {
+            Ok(source) => vm.run_string(scope, &source, path.to_owned()).map(drop),
+            Err(err) => Err(vm.new_os_error(err.to_string())),
+        }
+    }
 }
 
 fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
@@ -365,11 +379,14 @@ mod tests {
             vm.unwrap_pyresult((|| {
                 let scope = vm.new_scope_with_main()?;
                 // test file run
-                vm.run_any_file(scope, "extra_tests/snippets/dir_main/__main__.py")?;
+                run_file(vm, scope, "extra_tests/snippets/dir_main/__main__.py")?;
 
-                let scope = vm.new_scope_with_main()?;
-                // test module run (directory with __main__.py)
-                run_file(vm, scope, "extra_tests/snippets/dir_main")?;
+                #[cfg(feature = "host_env")]
+                {
+                    let scope = vm.new_scope_with_main()?;
+                    // test module run (directory with __main__.py)
+                    run_file(vm, scope, "extra_tests/snippets/dir_main")?;
+                }
 
                 Ok(())
             })());

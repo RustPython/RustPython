@@ -22,19 +22,15 @@ def _run_missing_type_params_regression():
         kwarg=None,
         defaults=[],
     )
-    fn = _ast.FunctionDef("f", args, [], [], None, None)
+    pass_stmt = _ast.Pass(lineno=1, col_offset=4, end_lineno=1, end_col_offset=8)
+    fn = _ast.FunctionDef("f", args, [pass_stmt], [], None, None)
     fn.lineno = 1
     fn.col_offset = 0
     fn.end_lineno = 1
-    fn.end_col_offset = 0
+    fn.end_col_offset = 8
     mod = _ast.Module([fn], [])
-    mod.lineno = 1
-    mod.col_offset = 0
-    mod.end_lineno = 1
-    mod.end_col_offset = 0
     compiled = compile(mod, "<stdlib_types_missing_type_params>", "exec")
     exec(compiled, {})
 
 
-if platform.python_implementation() == "RustPython":
-    _run_missing_type_params_regression()
+_run_missing_type_params_regression()

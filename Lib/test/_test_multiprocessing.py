@@ -4057,8 +4057,6 @@ class _TestHeap(BaseTestCase):
         self.assertEqual(len(heap._allocated_blocks), 0, heap._allocated_blocks)
         self.assertEqual(len(heap._len_to_seq), 0)
 
-    # TODO: RUSTPYTHON - gc.enable() not implemented
-    @unittest.expectedFailure
     def test_free_from_gc(self):
         # Check that freeing of blocks by the garbage collector doesn't deadlock
         # (issue #12352).
@@ -6592,7 +6590,8 @@ class BaseMixin(object):
         # cycles. Trigger a garbage collection to break these cycles.
         test.support.gc_collect()
 
-        processes = set(multiprocessing.process._dangling) - set(cls.dangling[0])
+        # TODO: RUSTPYTHON: Filter out stopped processes since gc.collect() is a no-op
+        processes = {p for p in multiprocessing.process._dangling if p.is_alive()} - {p for p in cls.dangling[0] if p.is_alive()}
         if processes:
             test.support.environment_altered = True
             support.print_warning(f'Dangling processes: {processes}')
@@ -6789,7 +6788,8 @@ def install_tests_in_module_dict(remote_globs, start_method,
 
         multiprocessing.set_start_method(old_start_method[0], force=True)
         # pause a bit so we don't get warning about dangling threads/processes
-        processes = set(multiprocessing.process._dangling) - set(dangling[0])
+        # TODO: RUSTPYTHON: Filter out stopped processes since gc.collect() is a no-op
+        processes = {p for p in multiprocessing.process._dangling if p.is_alive()} - {p for p in dangling[0] if p.is_alive()}
         if processes:
             need_sleep = True
             test.support.environment_altered = True

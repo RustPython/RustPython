@@ -732,9 +732,9 @@ mod math {
 
             // Collect current + remaining elements
             let p_remaining: Result<Vec<PyObjectRef>, _> =
-                std::iter::once(Ok(p_i)).chain(p_iter).collect();
+                core::iter::once(Ok(p_i)).chain(p_iter).collect();
             let q_remaining: Result<Vec<PyObjectRef>, _> =
-                std::iter::once(Ok(q_i)).chain(q_iter).collect();
+                core::iter::once(Ok(q_i)).chain(q_iter).collect();
             let (p_vec, q_vec) = (p_remaining?, q_remaining?);
 
             if p_vec.len() != q_vec.len() {

@@ -6,13 +6,12 @@ import unittest.mock
 from functools import partial
 
 from test import support
-from test.support import os_helper
+from test.support import cpython_only, os_helper
+from test.support.import_helper import ensure_lazy_imports
 
 
 # TODO:
 #  - Add new tests, for example for "dgettext"
-#  - Remove dummy tests, for example testing for single and double quotes
-#    has no sense, it would have if we were testing a parser (i.e. pygettext)
 #  - Tests should have only one assert.
 
 GNU_MO_DATA = b'''\
@@ -231,30 +230,6 @@ class GettextTestCase1(GettextBaseTest):
         eq(pgettext('my other context', 'nudge nudge'),
            'wink wink (in "my other context")')
 
-    def test_double_quotes(self):
-        eq = self.assertEqual
-        # double quotes
-        eq(_("albatross"), 'albatross')
-        eq(_("mullusk"), 'bacon')
-        eq(_(r"Raymond Luxury Yach-t"), 'Throatwobbler Mangrove')
-        eq(_(r"nudge nudge"), 'wink wink')
-
-    def test_triple_single_quotes(self):
-        eq = self.assertEqual
-        # triple single quotes
-        eq(_('''albatross'''), 'albatross')
-        eq(_('''mullusk'''), 'bacon')
-        eq(_(r'''Raymond Luxury Yach-t'''), 'Throatwobbler Mangrove')
-        eq(_(r'''nudge nudge'''), 'wink wink')
-
-    def test_triple_double_quotes(self):
-        eq = self.assertEqual
-        # triple double quotes
-        eq(_("""albatross"""), 'albatross')
-        eq(_("""mullusk"""), 'bacon')
-        eq(_(r"""Raymond Luxury Yach-t"""), 'Throatwobbler Mangrove')
-        eq(_(r"""nudge nudge"""), 'wink wink')
-
     def test_multiline_strings(self):
         eq = self.assertEqual
         # multiline strings
@@ -367,30 +342,6 @@ class GettextTestCase2(GettextBaseTest):
         eq(gettext.dpgettext('gettext', 'my other context', 'nudge nudge'),
            'wink wink (in "my other context")')
 
-    def test_double_quotes(self):
-        eq = self.assertEqual
-        # double quotes
-        eq(self._("albatross"), 'albatross')
-        eq(self._("mullusk"), 'bacon')
-        eq(self._(r"Raymond Luxury Yach-t"), 'Throatwobbler Mangrove')
-        eq(self._(r"nudge nudge"), 'wink wink')
-
-    def test_triple_single_quotes(self):
-        eq = self.assertEqual
-        # triple single quotes
-        eq(self._('''albatross'''), 'albatross')
-        eq(self._('''mullusk'''), 'bacon')
-        eq(self._(r'''Raymond Luxury Yach-t'''), 'Throatwobbler Mangrove')
-        eq(self._(r'''nudge nudge'''), 'wink wink')
-
-    def test_triple_double_quotes(self):
-        eq = self.assertEqual
-        # triple double quotes
-        eq(self._("""albatross"""), 'albatross')
-        eq(self._("""mullusk"""), 'bacon')
-        eq(self._(r"""Raymond Luxury Yach-t"""), 'Throatwobbler Mangrove')
-        eq(self._(r"""nudge nudge"""), 'wink wink')
-
     def test_multiline_strings(self):
         eq = self.assertEqual
         # multiline strings
@@ -434,8 +385,7 @@ class PluralFormsTests:
                 x = ngettext(singular, plural, None)
             self.assertEqual(x, tplural)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_forms(self):
         self._test_plural_forms(
             self.ngettext, self.gettext,
@@ -446,8 +396,7 @@ class PluralFormsTests:
             '%d file deleted', '%d files deleted',
             '%d file deleted', '%d files deleted')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_context_forms(self):
         ngettext = partial(self.npgettext, 'With context')
         gettext = partial(self.pgettext, 'With context')
@@ -460,8 +409,7 @@ class PluralFormsTests:
             '%d file deleted', '%d files deleted',
             '%d file deleted', '%d files deleted')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_wrong_context_forms(self):
         self._test_plural_forms(
             partial(self.npgettext, 'Unknown context'),
@@ -494,8 +442,7 @@ class GNUTranslationsWithDomainPluralFormsTestCase(PluralFormsTests, GettextBase
         self.pgettext = partial(gettext.dpgettext, 'gettext')
         self.npgettext = partial(gettext.dnpgettext, 'gettext')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_forms_wrong_domain(self):
         self._test_plural_forms(
             partial(gettext.dngettext, 'unknown'),
@@ -504,8 +451,7 @@ class GNUTranslationsWithDomainPluralFormsTestCase(PluralFormsTests, GettextBase
             'There is %s file', 'There are %s files',
             numbers_only=False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_context_forms_wrong_domain(self):
         self._test_plural_forms(
             partial(gettext.dnpgettext, 'unknown', 'With context'),
@@ -526,8 +472,7 @@ class GNUTranslationsClassPluralFormsTestCase(PluralFormsTests, GettextBaseTest)
         self.pgettext = t.pgettext
         self.npgettext = t.npgettext
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_forms_null_translations(self):
         t = gettext.NullTranslations()
         self._test_plural_forms(
@@ -536,8 +481,7 @@ class GNUTranslationsClassPluralFormsTestCase(PluralFormsTests, GettextBaseTest)
             'There is %s file', 'There are %s files',
             numbers_only=False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_context_forms_null_translations(self):
         t = gettext.NullTranslations()
         self._test_plural_forms(
@@ -630,6 +574,7 @@ class PluralFormsInternalTestCase(unittest.TestCase):
         s = ''.join([ str(f(x)) for x in range(200) ])
         eq(s, "01233333333444444444444444444444444444444444444444444444444444444444444444444444444444444444444444445553333333344444444444444444444444444444444444444444444444444444444444444444444444444444444444444444")
 
+    @support.skip_wasi_stack_overflow()
     def test_security(self):
         raises = self.assertRaises
         # Test for a dangerous expression
@@ -993,6 +938,17 @@ class MiscTestCase(unittest.TestCase):
     def test__all__(self):
         support.check__all__(self, gettext,
                              not_exported={'c2py', 'ENOENT'})
+
+    @cpython_only
+    def test_lazy_import(self):
+        ensure_lazy_imports("gettext", {"re", "warnings", "locale"})
+
+
+class TranslationFallbackTestCase(unittest.TestCase):
+    def test_translation_fallback(self):
+        with os_helper.temp_cwd() as tempdir:
+            t = gettext.translation('gettext', localedir=tempdir, fallback=True)
+            self.assertIsInstance(t, gettext.NullTranslations)
 
 
 if __name__ == '__main__':

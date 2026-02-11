@@ -3,7 +3,7 @@ use rustpython_compiler_core::SourceFile;
 
 impl Node for ast::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
-        vm.ctx.new_int(self as u8).into()
+        vm.ctx.new_int(self as i8).into()
     }
 
     fn ast_from_object(
@@ -26,7 +26,7 @@ impl Node for ast::ConversionFlag {
 // /// This is just a string, not strictly an AST node. But it makes AST conversions easier.
 impl Node for ast::name::Name {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
-        vm.ctx.new_str(self.as_str()).to_pyobject(vm)
+        vm.ctx.intern_str(self.as_str()).to_object()
     }
 
     fn ast_from_object(

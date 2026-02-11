@@ -8,26 +8,23 @@ impl Node for ast::BoolOp {
             Self::And => pyast::NodeBoolOpAnd::static_type(),
             Self::Or => pyast::NodeBoolOpOr::static_type(),
         };
-        NodeAst
-            .into_ref_with_type(vm, node_type.to_owned())
-            .unwrap()
-            .into()
+        singleton_node_to_object(vm, node_type)
     }
 
     fn ast_from_object(
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         _source_file: &SourceFile,
-        _object: PyObjectRef,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        let _cls = _object.class();
-        Ok(if _cls.is(pyast::NodeBoolOpAnd::static_type()) {
+        let cls = object.class();
+        Ok(if cls.is(pyast::NodeBoolOpAnd::static_type()) {
             Self::And
-        } else if _cls.is(pyast::NodeBoolOpOr::static_type()) {
+        } else if cls.is(pyast::NodeBoolOpOr::static_type()) {
             Self::Or
         } else {
-            return Err(_vm.new_type_error(format!(
+            return Err(vm.new_type_error(format!(
                 "expected some sort of boolop, but got {}",
-                _object.repr(_vm)?
+                object.repr(vm)?
             )));
         })
     }
@@ -51,48 +48,45 @@ impl Node for ast::Operator {
             Self::BitAnd => pyast::NodeOperatorBitAnd::static_type(),
             Self::FloorDiv => pyast::NodeOperatorFloorDiv::static_type(),
         };
-        NodeAst
-            .into_ref_with_type(vm, node_type.to_owned())
-            .unwrap()
-            .into()
+        singleton_node_to_object(vm, node_type)
     }
 
     fn ast_from_object(
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         _source_file: &SourceFile,
-        _object: PyObjectRef,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        let _cls = _object.class();
-        Ok(if _cls.is(pyast::NodeOperatorAdd::static_type()) {
+        let cls = object.class();
+        Ok(if cls.is(pyast::NodeOperatorAdd::static_type()) {
             Self::Add
-        } else if _cls.is(pyast::NodeOperatorSub::static_type()) {
+        } else if cls.is(pyast::NodeOperatorSub::static_type()) {
             Self::Sub
-        } else if _cls.is(pyast::NodeOperatorMult::static_type()) {
+        } else if cls.is(pyast::NodeOperatorMult::static_type()) {
             Self::Mult
-        } else if _cls.is(pyast::NodeOperatorMatMult::static_type()) {
+        } else if cls.is(pyast::NodeOperatorMatMult::static_type()) {
             Self::MatMult
-        } else if _cls.is(pyast::NodeOperatorDiv::static_type()) {
+        } else if cls.is(pyast::NodeOperatorDiv::static_type()) {
             Self::Div
-        } else if _cls.is(pyast::NodeOperatorMod::static_type()) {
+        } else if cls.is(pyast::NodeOperatorMod::static_type()) {
             Self::Mod
-        } else if _cls.is(pyast::NodeOperatorPow::static_type()) {
+        } else if cls.is(pyast::NodeOperatorPow::static_type()) {
             Self::Pow
-        } else if _cls.is(pyast::NodeOperatorLShift::static_type()) {
+        } else if cls.is(pyast::NodeOperatorLShift::static_type()) {
             Self::LShift
-        } else if _cls.is(pyast::NodeOperatorRShift::static_type()) {
+        } else if cls.is(pyast::NodeOperatorRShift::static_type()) {
             Self::RShift
-        } else if _cls.is(pyast::NodeOperatorBitOr::static_type()) {
+        } else if cls.is(pyast::NodeOperatorBitOr::static_type()) {
             Self::BitOr
-        } else if _cls.is(pyast::NodeOperatorBitXor::static_type()) {
+        } else if cls.is(pyast::NodeOperatorBitXor::static_type()) {
             Self::BitXor
-        } else if _cls.is(pyast::NodeOperatorBitAnd::static_type()) {
+        } else if cls.is(pyast::NodeOperatorBitAnd::static_type()) {
             Self::BitAnd
-        } else if _cls.is(pyast::NodeOperatorFloorDiv::static_type()) {
+        } else if cls.is(pyast::NodeOperatorFloorDiv::static_type()) {
             Self::FloorDiv
         } else {
-            return Err(_vm.new_type_error(format!(
+            return Err(vm.new_type_error(format!(
                 "expected some sort of operator, but got {}",
-                _object.repr(_vm)?
+                object.repr(vm)?
             )));
         })
     }
@@ -107,30 +101,27 @@ impl Node for ast::UnaryOp {
             Self::UAdd => pyast::NodeUnaryOpUAdd::static_type(),
             Self::USub => pyast::NodeUnaryOpUSub::static_type(),
         };
-        NodeAst
-            .into_ref_with_type(vm, node_type.to_owned())
-            .unwrap()
-            .into()
+        singleton_node_to_object(vm, node_type)
     }
 
     fn ast_from_object(
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         _source_file: &SourceFile,
-        _object: PyObjectRef,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        let _cls = _object.class();
-        Ok(if _cls.is(pyast::NodeUnaryOpInvert::static_type()) {
+        let cls = object.class();
+        Ok(if cls.is(pyast::NodeUnaryOpInvert::static_type()) {
             Self::Invert
-        } else if _cls.is(pyast::NodeUnaryOpNot::static_type()) {
+        } else if cls.is(pyast::NodeUnaryOpNot::static_type()) {
             Self::Not
-        } else if _cls.is(pyast::NodeUnaryOpUAdd::static_type()) {
+        } else if cls.is(pyast::NodeUnaryOpUAdd::static_type()) {
             Self::UAdd
-        } else if _cls.is(pyast::NodeUnaryOpUSub::static_type()) {
+        } else if cls.is(pyast::NodeUnaryOpUSub::static_type()) {
             Self::USub
         } else {
-            return Err(_vm.new_type_error(format!(
+            return Err(vm.new_type_error(format!(
                 "expected some sort of unaryop, but got {}",
-                _object.repr(_vm)?
+                object.repr(vm)?
             )));
         })
     }
@@ -151,42 +142,39 @@ impl Node for ast::CmpOp {
             Self::In => pyast::NodeCmpOpIn::static_type(),
             Self::NotIn => pyast::NodeCmpOpNotIn::static_type(),
         };
-        NodeAst
-            .into_ref_with_type(vm, node_type.to_owned())
-            .unwrap()
-            .into()
+        singleton_node_to_object(vm, node_type)
     }
 
     fn ast_from_object(
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         _source_file: &SourceFile,
-        _object: PyObjectRef,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        let _cls = _object.class();
-        Ok(if _cls.is(pyast::NodeCmpOpEq::static_type()) {
+        let cls = object.class();
+        Ok(if cls.is(pyast::NodeCmpOpEq::static_type()) {
             Self::Eq
-        } else if _cls.is(pyast::NodeCmpOpNotEq::static_type()) {
+        } else if cls.is(pyast::NodeCmpOpNotEq::static_type()) {
             Self::NotEq
-        } else if _cls.is(pyast::NodeCmpOpLt::static_type()) {
+        } else if cls.is(pyast::NodeCmpOpLt::static_type()) {
             Self::Lt
-        } else if _cls.is(pyast::NodeCmpOpLtE::static_type()) {
+        } else if cls.is(pyast::NodeCmpOpLtE::static_type()) {
             Self::LtE
-        } else if _cls.is(pyast::NodeCmpOpGt::static_type()) {
+        } else if cls.is(pyast::NodeCmpOpGt::static_type()) {
             Self::Gt
-        } else if _cls.is(pyast::NodeCmpOpGtE::static_type()) {
+        } else if cls.is(pyast::NodeCmpOpGtE::static_type()) {
             Self::GtE
-        } else if _cls.is(pyast::NodeCmpOpIs::static_type()) {
+        } else if cls.is(pyast::NodeCmpOpIs::static_type()) {
             Self::Is
-        } else if _cls.is(pyast::NodeCmpOpIsNot::static_type()) {
+        } else if cls.is(pyast::NodeCmpOpIsNot::static_type()) {
             Self::IsNot
-        } else if _cls.is(pyast::NodeCmpOpIn::static_type()) {
+        } else if cls.is(pyast::NodeCmpOpIn::static_type()) {
             Self::In
-        } else if _cls.is(pyast::NodeCmpOpNotIn::static_type()) {
+        } else if cls.is(pyast::NodeCmpOpNotIn::static_type()) {
             Self::NotIn
         } else {
-            return Err(_vm.new_type_error(format!(
+            return Err(vm.new_type_error(format!(
                 "expected some sort of cmpop, but got {}",
-                _object.repr(_vm)?
+                object.repr(vm)?
             )));
         })
     }

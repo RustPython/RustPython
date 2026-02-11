@@ -51,6 +51,10 @@ pub struct Context {
     pub(crate) string_pool: StringPool,
     pub(crate) slot_new_wrapper: PyMethodDef,
     pub names: ConstName,
+
+    // GC module state (callbacks and garbage lists)
+    pub gc_callbacks: PyListRef,
+    pub gc_garbage: PyListRef,
 }
 
 macro_rules! declare_const_name {
@@ -240,7 +244,12 @@ declare_const_name! {
     // common names
     _attributes,
     _fields,
+    _defaultaction,
+    _onceregistry,
     _showwarnmsg,
+    defaultaction,
+    onceregistry,
+    filters,
     backslashreplace,
     close,
     copy,
@@ -333,6 +342,11 @@ impl Context {
 
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
+
+        // GC callbacks and garbage lists
+        let gc_callbacks = PyRef::new_ref(PyList::default(), types.list_type.to_owned(), None);
+        let gc_garbage = PyRef::new_ref(PyList::default(), types.list_type.to_owned(), None);
+
         Self {
             true_value,
             false_value,
@@ -352,6 +366,9 @@ impl Context {
             string_pool,
             slot_new_wrapper,
             names,
+
+            gc_callbacks,
+            gc_garbage,
         }
     }
 
@@ -443,7 +460,11 @@ impl Context {
 
     #[inline]
     pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<PyBytes> {
-        PyBytes::from(data).into_ref(self)
+        if data.is_empty() {
+            self.empty_bytes.clone()
+        } else {
+            PyBytes::from(data).into_ref(self)
+        }
     }
 
     #[inline]
@@ -637,7 +658,7 @@ impl Context {
 
     pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
         let code = code.into_code_object(self);
-        PyRef::new_ref(PyCode { code }, self.types.code_type.to_owned(), None)
+        PyRef::new_ref(PyCode::new(code), self.types.code_type.to_owned(), None)
     }
 }
 

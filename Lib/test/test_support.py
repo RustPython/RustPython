@@ -17,13 +17,11 @@ import unittest
 import warnings
 
 from test import support
-from test.support import (
-    import_helper,
-    os_helper,
-    script_helper,
-    socket_helper,
-    warnings_helper,
-)
+from test.support import import_helper
+from test.support import os_helper
+from test.support import script_helper
+from test.support import socket_helper
+from test.support import warnings_helper
 
 TESTFN = os_helper.TESTFN
 
@@ -460,7 +458,7 @@ class TestSupport(unittest.TestCase):
                 self.OtherClass, self.RefClass, ignore=ignore)
         self.assertEqual(set(), missing_items)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_check__all__(self):
         extra = {'tempdir'}
         not_exported = {'template'}
@@ -623,7 +621,7 @@ class TestSupport(unittest.TestCase):
         else:
             self.assertTrue(support.has_strftime_extensions)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; - _testinternalcapi module not available
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - _testinternalcapi module not available
     def test_get_recursion_depth(self):
         # test support.get_recursion_depth()
         code = textwrap.dedent("""
@@ -667,7 +665,8 @@ class TestSupport(unittest.TestCase):
         """)
         script_helper.assert_python_ok("-c", code)
 
-    @unittest.skip('TODO: RUSTPYTHON; - causes segfault in debug builds')
+    @unittest.skip("TODO: RUSTPYTHON; - causes segfault in debug builds")
+    @support.skip_if_unlimited_stack_size
     def test_recursion(self):
         # Test infinite_recursion() and get_recursion_available() functions.
         def recursive_function(depth):

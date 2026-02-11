@@ -199,6 +199,64 @@ class TestGitCommit(unittest.TestCase):
         result = git_commit("test", None, None, pathlib.Path("cpython"), verbose=False)
         self.assertFalse(result)
 
+    @patch("subprocess.run")
+    @patch("update_lib.cmd_quick.get_cpython_version")
+    def test_hard_deps_are_added(self, mock_version, mock_run):
+        """Test that hard_deps are included in git commit."""
+        mock_version.return_value = "v3.14.0"
+        mock_run.return_value.returncode = 1  # Has changes
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lib_file = pathlib.Path(tmpdir) / "lib.py"
+            lib_file.write_text("# lib")
+            test_file = pathlib.Path(tmpdir) / "test.py"
+            test_file.write_text("# test")
+            dep_file = pathlib.Path(tmpdir) / "_dep.py"
+            dep_file.write_text("# dep")
+
+            git_commit(
+                "test",
+                lib_file,
+                test_file,
+                pathlib.Path("cpython"),
+                hard_deps=[dep_file],
+                verbose=False,
+            )
+
+            # Check git add was called with all three files
+            add_call = mock_run.call_args_list[0]
+            add_args = add_call[0][0]
+            self.assertIn(str(lib_file), add_args)
+            self.assertIn(str(test_file), add_args)
+            self.assertIn(str(dep_file), add_args)
+
+    @patch("subprocess.run")
+    @patch("update_lib.cmd_quick.get_cpython_version")
+    def test_nonexistent_hard_deps_not_added(self, mock_version, mock_run):
+        """Test that nonexistent hard_deps don't cause errors."""
+        mock_version.return_value = "v3.14.0"
+        mock_run.return_value.returncode = 1  # Has changes
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lib_file = pathlib.Path(tmpdir) / "lib.py"
+            lib_file.write_text("# lib")
+            nonexistent_dep = pathlib.Path(tmpdir) / "nonexistent.py"
+
+            git_commit(
+                "test",
+                lib_file,
+                None,
+                pathlib.Path("cpython"),
+                hard_deps=[nonexistent_dep],
+                verbose=False,
+            )
+
+            # Check git add was called with only lib_file
+            add_call = mock_run.call_args_list[0]
+            add_args = add_call[0][0]
+            self.assertIn(str(lib_file), add_args)
+            self.assertNotIn(str(nonexistent_dep), add_args)
+
 
 class TestQuickTestRunFailure(unittest.TestCase):
     """Tests for quick() behavior when test run fails."""

@@ -8,6 +8,7 @@ Handles:
 """
 
 import ast
+import difflib
 import functools
 import pathlib
 import re
@@ -227,6 +228,7 @@ DEPENDENCIES = {
         "test": [
             "test_int.py",
             "test_long.py",
+            "test_int_literal.py",
         ],
     },
     "exception": {
@@ -276,12 +278,21 @@ DEPENDENCIES = {
     },
     "pickle": {
         "hard_deps": ["_compat_pickle.py"],
+        "test": [
+            "test_pickle.py",
+            "test_picklebuffer.py",
+            "test_pickletools.py",
+        ],
     },
     "re": {
         "hard_deps": ["sre_compile.py", "sre_constants.py", "sre_parse.py"],
     },
     "weakref": {
         "hard_deps": ["_weakrefset.py"],
+        "test": [
+            "test_weakref.py",
+            "test_weakset.py",
+        ],
     },
     "codecs": {
         "test": [
@@ -308,6 +319,7 @@ DEPENDENCIES = {
         "test": [
             "test_ast.py",
             "test_unparse.py",
+            "test_type_comments.py",
         ],
     },
     # Data directories
@@ -316,6 +328,22 @@ DEPENDENCIES = {
     },
     "turtle": {
         "hard_deps": ["turtledemo"],
+    },
+    "sysconfig": {
+        "hard_deps": ["_aix_support.py", "_osx_support.py"],
+        "test": [
+            "test_sysconfig.py",
+            "test__osx_support.py",
+        ],
+    },
+    "tkinter": {
+        "test": [
+            "test_tkinter",
+            "test_ttk",
+            "test_ttk_textonly.py",
+            "test_tcl.py",
+            "test_idle",
+        ],
     },
     # Test support library (like regrtest)
     "support": {
@@ -339,6 +367,8 @@ DEPENDENCIES = {
             "test_pulldom.py",
             "test_pyexpat.py",
             "test_sax.py",
+            "test_xml_dom_minicompat.py",
+            "test_xml_dom_xmlbuilder.py",
         ],
     },
     "multiprocessing": {
@@ -346,6 +376,7 @@ DEPENDENCIES = {
             "test_multiprocessing_fork",
             "test_multiprocessing_forkserver",
             "test_multiprocessing_spawn",
+            "test_multiprocessing_main_handling.py",
         ],
     },
     "urllib": {
@@ -361,6 +392,7 @@ DEPENDENCIES = {
         ],
     },
     "collections": {
+        "hard_deps": ["_collections_abc.py"],
         "test": [
             "test_collections.py",
             "test_deque.py",
@@ -472,6 +504,11 @@ DEPENDENCIES = {
             "test_descrtut.py",
         ],
     },
+    "code": {
+        "test": [
+            "test_code_module.py",
+        ],
+    },
     "contextlib": {
         "test": [
             "test_contextlib.py",
@@ -489,8 +526,10 @@ DEPENDENCIES = {
     "dbm": {
         "test": [
             "test_dbm.py",
+            "test_dbm_dumb.py",
             "test_dbm_gnu.py",
             "test_dbm_ndbm.py",
+            "test_dbm_sqlite3.py",
         ],
     },
     "datetime": {
@@ -498,11 +537,6 @@ DEPENDENCIES = {
         "test": [
             "test_datetime.py",
             "test_strptime.py",
-        ],
-    },
-    "concurrent": {
-        "test": [
-            "test_concurrent_futures",
         ],
     },
     "locale": {
@@ -548,6 +582,75 @@ DEPENDENCIES = {
         "test": [
             "test_ctypes",
             "test_stable_abi_ctypes.py",
+        ],
+    },
+    # Grouped tests for modules without custom lib paths
+    "compile": {
+        "lib": [],
+        "test": [
+            "test_compile.py",
+            "test_compiler_assemble.py",
+            "test_compiler_codegen.py",
+            "test_peepholer.py",
+        ],
+    },
+    "math": {
+        "lib": [],
+        "test": [
+            "test_math.py",
+            "test_math_property.py",
+        ],
+    },
+    "float": {
+        "lib": [],
+        "test": [
+            "test_float.py",
+            "test_strtod.py",
+        ],
+    },
+    "zipfile": {
+        "test": [
+            "test_zipfile.py",
+            "test_zipfile64.py",
+        ],
+    },
+    "smtplib": {
+        "test": [
+            "test_smtplib.py",
+            "test_smtpnet.py",
+        ],
+    },
+    "profile": {
+        "test": [
+            "test_profile.py",
+            "test_cprofile.py",
+        ],
+    },
+    "string": {
+        "test": [
+            "test_string.py",
+            "test_userstring.py",
+        ],
+    },
+    "os": {
+        "test": [
+            "test_os.py",
+            "test_popen.py",
+        ],
+    },
+    "pyrepl": {
+        "test": [
+            "test_pyrepl",
+            "test_repl.py",
+        ],
+    },
+    "concurrent": {
+        "test": [
+            "test_concurrent_futures",
+            "test_interpreters",
+            "test__interpreters.py",
+            "test__interpchannels.py",
+            "test_crossinterp.py",
         ],
     },
 }
@@ -909,6 +1012,119 @@ def is_up_to_date(name: str, cpython_prefix: str, lib_prefix: str) -> bool:
     return found_any
 
 
+def _count_file_diff(file_a: pathlib.Path, file_b: pathlib.Path) -> int:
+    """Count changed lines between two text files using difflib."""
+    a_content = safe_read_text(file_a)
+    b_content = safe_read_text(file_b)
+    if a_content is None or b_content is None:
+        return 0
+    if a_content == b_content:
+        return 0
+    a_lines = a_content.splitlines()
+    b_lines = b_content.splitlines()
+    count = 0
+    for line in difflib.unified_diff(a_lines, b_lines, lineterm=""):
+        if (line.startswith("+") and not line.startswith("+++")) or (
+            line.startswith("-") and not line.startswith("---")
+        ):
+            count += 1
+    return count
+
+
+def _count_path_diff(path_a: pathlib.Path, path_b: pathlib.Path) -> int:
+    """Count changed lines between two paths (file or directory, *.py only)."""
+    if path_a.is_file() and path_b.is_file():
+        return _count_file_diff(path_a, path_b)
+    if path_a.is_dir() and path_b.is_dir():
+        total = 0
+        a_files = {f.relative_to(path_a) for f in path_a.rglob("*.py")}
+        b_files = {f.relative_to(path_b) for f in path_b.rglob("*.py")}
+        for rel in a_files & b_files:
+            total += _count_file_diff(path_a / rel, path_b / rel)
+        for rel in a_files - b_files:
+            content = safe_read_text(path_a / rel)
+            if content:
+                total += len(content.splitlines())
+        for rel in b_files - a_files:
+            content = safe_read_text(path_b / rel)
+            if content:
+                total += len(content.splitlines())
+        return total
+    return 0
+
+
+def get_module_last_updated(
+    name: str, cpython_prefix: str, lib_prefix: str
+) -> str | None:
+    """Get the last git commit date for a module's Lib files."""
+    local_paths = []
+    for cpython_path in get_lib_paths(name, cpython_prefix):
+        if not cpython_path.exists():
+            continue
+        try:
+            rel_path = cpython_path.relative_to(cpython_prefix)
+            local_path = pathlib.Path(lib_prefix) / rel_path.relative_to("Lib")
+            if local_path.exists():
+                local_paths.append(str(local_path))
+        except ValueError:
+            continue
+    if not local_paths:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%cd", "--date=short", "--"] + local_paths,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def get_module_diff_stat(name: str, cpython_prefix: str, lib_prefix: str) -> int:
+    """Count differing lines between cpython and local Lib for a module."""
+    total = 0
+    for cpython_path in get_lib_paths(name, cpython_prefix):
+        if not cpython_path.exists():
+            continue
+        try:
+            rel_path = cpython_path.relative_to(cpython_prefix)
+            local_path = pathlib.Path(lib_prefix) / rel_path.relative_to("Lib")
+        except ValueError:
+            continue
+        if not local_path.exists():
+            continue
+        total += _count_path_diff(cpython_path, local_path)
+    return total
+
+
+def get_test_last_updated(
+    test_name: str, cpython_prefix: str, lib_prefix: str
+) -> str | None:
+    """Get the last git commit date for a test's files."""
+    cpython_path = _get_cpython_test_path(test_name, cpython_prefix)
+    if cpython_path is None:
+        return None
+    local_path = _get_local_test_path(cpython_path, lib_prefix)
+    if not local_path.exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%cd", "--date=short", "--", str(local_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
 def get_test_dependencies(
     test_path: pathlib.Path,
 ) -> dict[str, list[pathlib.Path]]:
@@ -938,18 +1154,15 @@ def get_test_dependencies(
 
     # Convert imports to paths (deps)
     for imp in all_imports:
-        # Check if it's a test file (test_*) or support module
+        # Skip other test modules (test_*) - they are independently managed
+        # via their own update_lib entry. Only support/helper modules
+        # (e.g., string_tests, mapping_tests) should be treated as hard deps.
         if imp.startswith("test_"):
-            # It's a test, resolve to test path
-            dep_path = test_path.parent / f"{imp}.py"
-            if not dep_path.exists():
-                dep_path = test_path.parent / imp
-        else:
-            # Support module like string_tests, lock_tests, encoded_modules
-            # Check file first, then directory
-            dep_path = test_path.parent / f"{imp}.py"
-            if not dep_path.exists():
-                dep_path = test_path.parent / imp
+            continue
+
+        dep_path = test_path.parent / f"{imp}.py"
+        if not dep_path.exists():
+            dep_path = test_path.parent / imp
 
         if dep_path.exists() and dep_path not in result["hard_deps"]:
             result["hard_deps"].append(dep_path)

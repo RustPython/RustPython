@@ -67,7 +67,7 @@ mod intern;
 pub mod iter;
 pub mod object;
 
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(feature = "host_env")]
 pub mod ospath;
 
 pub mod prelude;
@@ -77,6 +77,7 @@ pub mod py_io;
 #[cfg(feature = "serde")]
 pub mod py_serde;
 
+pub mod gc_state;
 pub mod readline;
 pub mod recursion;
 pub mod scope;

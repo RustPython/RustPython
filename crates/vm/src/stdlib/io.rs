@@ -21,73 +21,39 @@ cfg_if::cfg_if! {
 }
 
 use crate::{
-    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyModule},
-    common::os::ErrorExt,
-    convert::{IntoPyException, ToPyException},
-    exceptions::{OSErrorBuilder, ToOSErrorBuilder},
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyModule,
 };
 pub use _io::{OpenArgs, io_open as open};
 
-impl ToOSErrorBuilder for std::io::Error {
-    fn to_os_error_builder(&self, vm: &VirtualMachine) -> OSErrorBuilder {
-        let errno = self.posix_errno();
-        #[cfg(windows)]
-        let msg = 'msg: {
-            // On Windows, use C runtime's strerror for POSIX errno values
-            // For Windows-specific error codes, fall back to FormatMessage
+fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    file.get_attr("closed", vm)?.try_to_bool(vm)
+}
 
-            // UCRT's strerror returns "Unknown error" for invalid errno values
-            // Windows UCRT defines errno values 1-42 plus some more up to ~127
-            const MAX_POSIX_ERRNO: i32 = 127;
-            if errno > 0 && errno <= MAX_POSIX_ERRNO {
-                let ptr = unsafe { libc::strerror(errno) };
-                if !ptr.is_null() {
-                    let s = unsafe { std::ffi::CStr::from_ptr(ptr) }.to_string_lossy();
-                    if !s.starts_with("Unknown error") {
-                        break 'msg s.into_owned();
-                    }
-                }
+/// iobase_finalize in Modules/_io/iobase.c
+fn iobase_finalize(zelf: &PyObject, vm: &VirtualMachine) {
+    // If `closed` doesn't exist or can't be evaluated as bool, then the
+    // object is probably in an unusable state, so ignore.
+    let closed = match vm.get_attribute_opt(zelf.to_owned(), "closed") {
+        Ok(Some(val)) => match val.try_to_bool(vm) {
+            Ok(b) => b,
+            Err(_) => return,
+        },
+        _ => return,
+    };
+    if !closed {
+        // Signal close() that it was called as part of the object
+        // finalization process.
+        let _ = zelf.set_attr("_finalizing", vm.ctx.true_value.clone(), vm);
+        if let Err(e) = vm.call_method(zelf, "close", ()) {
+            // BrokenPipeError during GC finalization is expected when pipe
+            // buffer objects are collected after the subprocess dies. The
+            // underlying fd is still properly closed by raw.close().
+            // Popen.__del__ catches BrokenPipeError, but our tracing GC may
+            // finalize pipe buffers before Popen.__del__ runs.
+            if !e.fast_isinstance(vm.ctx.exceptions.broken_pipe_error) {
+                vm.run_unraisable(e, None, zelf.to_owned());
             }
-            self.to_string()
-        };
-        #[cfg(unix)]
-        let msg = {
-            let ptr = unsafe { libc::strerror(errno) };
-            if !ptr.is_null() {
-                unsafe { core::ffi::CStr::from_ptr(ptr) }
-                    .to_string_lossy()
-                    .into_owned()
-            } else {
-                self.to_string()
-            }
-        };
-        #[cfg(not(any(windows, unix)))]
-        let msg = self.to_string();
-
-        #[allow(unused_mut)]
-        let mut builder = OSErrorBuilder::with_errno(errno, msg, vm);
-
-        #[cfg(windows)]
-        if let Some(winerror) = self.raw_os_error() {
-            use crate::convert::ToPyObject;
-            builder = builder.winerror(winerror.to_pyobject(vm));
         }
-
-        builder
-    }
-}
-
-impl ToPyException for std::io::Error {
-    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let builder = self.to_os_error_builder(vm);
-        builder.into_pyexception(vm)
-    }
-}
-
-impl IntoPyException for std::io::Error {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        self.to_pyexception(vm)
     }
 }
 
@@ -269,15 +235,8 @@ mod _io {
     }
 
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
-        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-        {
-            use crate::convert::ToPyException;
-            err.to_pyexception(vm)
-        }
-        #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-        {
-            vm.new_os_error(err.to_string())
-        }
+        use crate::convert::ToPyException;
+        err.to_pyexception(vm)
     }
 
     pub(super) fn io_closed_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -393,10 +352,6 @@ mod _io {
             self.cursor.get_mut().truncate(pos);
             pos
         }
-    }
-
-    fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        file.get_attr("closed", vm)?.try_to_bool(vm)
     }
 
     fn check_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -618,6 +573,11 @@ mod _io {
 
     impl Destructor for _IOBase {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            // C-level IO types (FileIO, Buffered*, TextIOWrapper) have their own
+            // slot_del that calls iobase_finalize with proper _finalizing flag
+            // and _dealloc_warn chain. This base fallback is only reached by
+            // Python-level subclasses, where we silently discard close() errors
+            // to avoid surfacing unraisable from partially initialized objects.
             let _ = vm.call_method(zelf, "close", ());
             Ok(())
         }
@@ -1580,7 +1540,7 @@ mod _io {
     }
 
     #[pyclass]
-    trait BufferedMixin: PyPayload {
+    trait BufferedMixin: PyPayload + StaticType {
         const CLASS_NAME: &'static str;
         const READABLE: bool;
         const WRITABLE: bool;
@@ -1588,6 +1548,7 @@ mod _io {
 
         fn data(&self) -> &PyThreadMutex<BufferedData>;
         fn closing(&self) -> &AtomicBool;
+        fn finalizing(&self) -> &AtomicBool;
 
         fn lock(&self, vm: &VirtualMachine) -> PyResult<PyThreadMutexGuard<'_, BufferedData>> {
             self.data()
@@ -1797,6 +1758,10 @@ mod _io {
                 }
                 raw.to_owned()
             };
+            if zelf.finalizing().load(Ordering::Relaxed) {
+                // _dealloc_warn: delegate to raw._dealloc_warn(source)
+                let _ = vm.call_method(&raw, "_dealloc_warn", (zelf.as_object().to_owned(),));
+            }
             // Set closing flag so that concurrent write() calls will fail
             zelf.closing().store(true, Ordering::Release);
             let flush_res = vm.call_method(zelf.as_object(), "flush", ()).map(drop);
@@ -1817,6 +1782,34 @@ mod _io {
         #[pymethod]
         fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(format!("cannot pickle '{}' instances", zelf.class().name())))
+        }
+
+        #[pymethod]
+        fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+            if zelf.class().is(Self::static_type()) {
+                return Err(
+                    vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name()))
+                );
+            }
+            let _ = proto;
+            reduce_ex_for_subclass(zelf, vm)
+        }
+
+        #[pymethod]
+        fn _dealloc_warn(
+            zelf: PyRef<Self>,
+            source: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            // Get raw reference and release lock before calling downstream
+            let raw = {
+                let data = zelf.lock(vm)?;
+                data.raw.clone()
+            };
+            if let Some(raw) = raw {
+                let _ = vm.call_method(&raw, "_dealloc_warn", (source,));
+            }
+            Ok(())
         }
     }
 
@@ -1931,6 +1924,7 @@ mod _io {
         _base: _BufferedIOBase,
         data: PyThreadMutex<BufferedData>,
         closing: AtomicBool,
+        finalizing: AtomicBool,
     }
 
     impl BufferedMixin for BufferedReader {
@@ -1944,6 +1938,10 @@ mod _io {
 
         fn closing(&self) -> &AtomicBool {
             &self.closing
+        }
+
+        fn finalizing(&self) -> &AtomicBool {
+            &self.finalizing
         }
     }
 
@@ -1963,7 +1961,10 @@ mod _io {
 
     impl Destructor for BufferedReader {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(zelf, "close", ());
+            if let Some(buf) = zelf.downcast_ref::<BufferedReader>() {
+                buf.finalizing.store(true, Ordering::Relaxed);
+            }
+            iobase_finalize(zelf, vm);
             Ok(())
         }
 
@@ -2027,6 +2028,7 @@ mod _io {
         _base: _BufferedIOBase,
         data: PyThreadMutex<BufferedData>,
         closing: AtomicBool,
+        finalizing: AtomicBool,
     }
 
     impl BufferedMixin for BufferedWriter {
@@ -2040,6 +2042,10 @@ mod _io {
 
         fn closing(&self) -> &AtomicBool {
             &self.closing
+        }
+
+        fn finalizing(&self) -> &AtomicBool {
+            &self.finalizing
         }
     }
 
@@ -2059,7 +2065,10 @@ mod _io {
 
     impl Destructor for BufferedWriter {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(zelf, "close", ());
+            if let Some(buf) = zelf.downcast_ref::<BufferedWriter>() {
+                buf.finalizing.store(true, Ordering::Relaxed);
+            }
+            iobase_finalize(zelf, vm);
             Ok(())
         }
 
@@ -2078,6 +2087,7 @@ mod _io {
         _base: _BufferedIOBase,
         data: PyThreadMutex<BufferedData>,
         closing: AtomicBool,
+        finalizing: AtomicBool,
     }
 
     impl BufferedMixin for BufferedRandom {
@@ -2092,6 +2102,10 @@ mod _io {
 
         fn closing(&self) -> &AtomicBool {
             &self.closing
+        }
+
+        fn finalizing(&self) -> &AtomicBool {
+            &self.finalizing
         }
     }
 
@@ -2125,7 +2139,10 @@ mod _io {
 
     impl Destructor for BufferedRandom {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(zelf, "close", ());
+            if let Some(buf) = zelf.downcast_ref::<BufferedRandom>() {
+                buf.finalizing.store(true, Ordering::Relaxed);
+            }
+            iobase_finalize(zelf, vm);
             Ok(())
         }
 
@@ -2229,7 +2246,7 @@ mod _io {
 
     impl Destructor for BufferedRWPair {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(zelf, "close", ());
+            iobase_finalize(zelf, vm);
             Ok(())
         }
 
@@ -2246,14 +2263,14 @@ mod _io {
         #[pyarg(any, default)]
         errors: Option<PyStrRef>,
         #[pyarg(any, default)]
-        newline: Option<Newlines>,
+        newline: OptionalOption<Newlines>,
         #[pyarg(any, default)]
-        line_buffering: Option<bool>,
+        line_buffering: OptionalOption<PyObjectRef>,
         #[pyarg(any, default)]
-        write_through: Option<bool>,
+        write_through: OptionalOption<PyObjectRef>,
     }
 
-    #[derive(Debug, Copy, Clone, Default)]
+    #[derive(Debug, Copy, Clone, Default, PartialEq)]
     enum Newlines {
         #[default]
         Universal,
@@ -2284,7 +2301,7 @@ mod _io {
                         })
                         .ok_or(len)
                 }
-                Self::Cr => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),
+                Self::Cr => s.find("\r".as_ref()).map(|p| p + 1).ok_or(len),
                 Self::Crlf => {
                     // s[searched..] == remaining
                     let mut searched = 0;
@@ -2323,7 +2340,13 @@ mod _io {
                         obj.class().name()
                     ))
                 })?;
-                match s.as_str() {
+                let wtf8 = s.as_wtf8();
+                if !wtf8.is_utf8() {
+                    let repr = s.repr(vm)?.as_str().to_owned();
+                    return Err(vm.new_value_error(format!("illegal newline value: {repr}")));
+                }
+                let s_str = wtf8.as_str().expect("checked utf8");
+                match s_str {
                     "" => Self::Passthrough,
                     "\n" => Self::Lf,
                     "\r" => Self::Cr,
@@ -2333,6 +2356,22 @@ mod _io {
             };
             Ok(nl)
         }
+    }
+
+    fn reduce_ex_for_subclass(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let cls = zelf.class();
+        let new = vm
+            .get_attribute_opt(cls.to_owned().into(), "__new__")?
+            .ok_or_else(|| vm.new_attribute_error("type has no attribute '__new__'"))?;
+        let args = vm.ctx.new_tuple(vec![cls.to_owned().into()]);
+        let state = if let Some(getstate) = vm.get_attribute_opt(zelf.clone(), "__getstate__")? {
+            getstate.call((), vm)?
+        } else if let Ok(dict) = zelf.get_attr("__dict__", vm) {
+            dict
+        } else {
+            vm.ctx.none()
+        };
+        Ok(vm.ctx.new_tuple(vec![new, args.into(), state]).into())
     }
 
     /// A length of or index into a UTF-8 string, measured in both chars and bytes
@@ -2506,15 +2545,11 @@ mod _io {
                 return None;
             }
             buf.resize(Self::BYTE_LEN, 0);
-            let buf: &[u8; Self::BYTE_LEN] = buf.as_slice().try_into().unwrap();
+            let buf: &[u8; Self::BYTE_LEN] = buf.as_array()?;
             macro_rules! get_field {
-                ($t:ty, $off:ident) => {{
-                    <$t>::from_ne_bytes(
-                        buf[Self::$off..][..core::mem::size_of::<$t>()]
-                            .try_into()
-                            .unwrap(),
-                    )
-                }};
+                ($t:ty, $off:ident) => {
+                    <$t>::from_ne_bytes(*buf[Self::$off..].first_chunk().unwrap())
+                };
             }
             Some(Self {
                 start_pos: get_field!(Offset, START_POS_OFF),
@@ -2576,6 +2611,7 @@ mod _io {
     struct TextIOWrapper {
         _base: _TextIOBase,
         data: PyThreadMutex<Option<TextIOData>>,
+        finalizing: AtomicBool,
     }
 
     impl DefaultConstructor for TextIOWrapper {}
@@ -2591,41 +2627,37 @@ mod _io {
             let mut data = zelf.lock_opt(vm)?;
             *data = None;
 
-            let encoding = match args.encoding {
-                None if vm.state.config.settings.utf8_mode > 0 => {
-                    identifier_utf8!(vm, utf_8).to_owned()
-                }
-                Some(enc) if enc.as_str() != "locale" => {
-                    // Check for embedded null character
-                    if enc.as_str().contains('\0') {
-                        return Err(cstring_error(vm));
-                    }
-                    enc
-                }
-                _ => {
-                    // None without utf8_mode or "locale" encoding
-                    vm.import("locale", 0)?
-                        .get_attr("getencoding", vm)?
-                        .call((), vm)?
-                        .try_into_value(vm)?
-                }
-            };
+            let encoding = Self::resolve_encoding(args.encoding, vm)?;
 
             let errors = args
                 .errors
                 .unwrap_or_else(|| identifier!(vm, strict).to_owned());
-
-            // Check for embedded null character in errors (use as_wtf8 to handle surrogates)
-            if errors.as_wtf8().as_bytes().contains(&0) {
-                return Err(cstring_error(vm));
-            }
+            Self::validate_errors(&errors, vm)?;
 
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
             let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
 
-            let newline = args.newline.unwrap_or_default();
+            let newline = match args.newline {
+                OptionalArg::Missing => Newlines::default(),
+                OptionalArg::Present(None) => Newlines::default(),
+                OptionalArg::Present(Some(newline)) => newline,
+            };
             let (encoder, decoder) =
                 Self::find_coder(&buffer, encoding.as_str(), &errors, newline, vm)?;
+            if let Some((encoder, _)) = &encoder {
+                Self::adjust_encoder_state_for_bom(encoder, encoding.as_str(), &buffer, vm)?;
+            }
+
+            let line_buffering = match args.line_buffering {
+                OptionalArg::Missing => false,
+                OptionalArg::Present(None) => false,
+                OptionalArg::Present(Some(value)) => value.try_to_bool(vm)?,
+            };
+            let write_through = match args.write_through {
+                OptionalArg::Missing => false,
+                OptionalArg::Present(None) => false,
+                OptionalArg::Present(Some(value)) => value.try_to_bool(vm)?,
+            };
 
             *data = Some(TextIOData {
                 buffer,
@@ -2634,8 +2666,8 @@ mod _io {
                 encoding,
                 errors,
                 newline,
-                line_buffering: args.line_buffering.unwrap_or_default(),
-                write_through: args.write_through.unwrap_or_default(),
+                line_buffering,
+                write_through,
                 chunk_size: 8192,
                 seekable,
                 has_read1,
@@ -2649,6 +2681,16 @@ mod _io {
             });
 
             Ok(())
+        }
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf_ref: PyRef<Self> = zelf.try_into_value(vm)?;
+            {
+                let mut data = zelf_ref.lock_opt(vm)?;
+                *data = None;
+            }
+            let (buffer, text_args): (PyObjectRef, TextIOWrapperArgs) = args.bind(vm)?;
+            Self::init(zelf_ref, (buffer, text_args), vm)
         }
     }
 
@@ -2668,6 +2710,104 @@ mod _io {
                 .map_err(|_| vm.new_value_error("I/O operation on uninitialized object"))
         }
 
+        fn validate_errors(errors: &PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+            if errors.as_wtf8().as_bytes().contains(&0) {
+                return Err(cstring_error(vm));
+            }
+            if !errors.as_wtf8().is_utf8() {
+                return Err(vm.new_unicode_encode_error(
+                    "'utf-8' codec can't encode character: surrogates not allowed".to_owned(),
+                ));
+            }
+            vm.state
+                .codec_registry
+                .lookup_error(errors.as_str(), vm)
+                .map(drop)
+        }
+
+        fn bool_from_index(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            let int = value.try_index(vm)?;
+            let value: i32 = int.try_to_primitive(vm)?;
+            Ok(value != 0)
+        }
+
+        fn resolve_encoding(
+            encoding: Option<PyUtf8StrRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyUtf8StrRef> {
+            // Note: Do not issue EncodingWarning here. The warning should only
+            // be issued by io.text_encoding(), the public API. This function
+            // is used internally (e.g., for stdin/stdout/stderr initialization)
+            // where no warning should be emitted.
+            let encoding = match encoding {
+                None if vm.state.config.settings.utf8_mode > 0 => {
+                    identifier_utf8!(vm, utf_8).to_owned()
+                }
+                Some(enc) if enc.as_str() == "locale" => match vm.import("locale", 0) {
+                    Ok(locale) => locale
+                        .get_attr("getencoding", vm)?
+                        .call((), vm)?
+                        .try_into_value(vm)?,
+                    Err(err)
+                        if err.fast_isinstance(vm.ctx.exceptions.import_error)
+                            || err.fast_isinstance(vm.ctx.exceptions.module_not_found_error) =>
+                    {
+                        identifier_utf8!(vm, utf_8).to_owned()
+                    }
+                    Err(err) => return Err(err),
+                },
+                Some(enc) => {
+                    if enc.as_str().contains('\0') {
+                        return Err(cstring_error(vm));
+                    }
+                    enc
+                }
+                _ => match vm.import("locale", 0) {
+                    Ok(locale) => locale
+                        .get_attr("getencoding", vm)?
+                        .call((), vm)?
+                        .try_into_value(vm)?,
+                    Err(err)
+                        if err.fast_isinstance(vm.ctx.exceptions.import_error)
+                            || err.fast_isinstance(vm.ctx.exceptions.module_not_found_error) =>
+                    {
+                        identifier_utf8!(vm, utf_8).to_owned()
+                    }
+                    Err(err) => return Err(err),
+                },
+            };
+            if encoding.as_str().contains('\0') {
+                return Err(cstring_error(vm));
+            }
+            Ok(encoding)
+        }
+
+        fn adjust_encoder_state_for_bom(
+            encoder: &PyObjectRef,
+            encoding: &str,
+            buffer: &PyObject,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let needs_bom = matches!(encoding, "utf-8-sig" | "utf-16" | "utf-32");
+            if !needs_bom {
+                return Ok(());
+            }
+            let seekable = vm.call_method(buffer, "seekable", ())?.try_to_bool(vm)?;
+            if !seekable {
+                return Ok(());
+            }
+            let pos = vm.call_method(buffer, "tell", ())?;
+            if vm.bool_eq(&pos, vm.ctx.new_int(0).as_ref())? {
+                return Ok(());
+            }
+            if let Err(err) = vm.call_method(encoder, "setstate", (0,))
+                && !err.fast_isinstance(vm.ctx.exceptions.attribute_error)
+            {
+                return Err(err);
+            }
+            Ok(())
+        }
+
         #[allow(clippy::type_complexity)]
         fn find_coder(
             buffer: &PyObject,
@@ -2680,6 +2820,11 @@ mod _io {
             Option<PyObjectRef>,
         )> {
             let codec = vm.state.codec_registry.lookup(encoding, vm)?;
+            if !codec.is_text_codec(vm)? {
+                return Err(vm.new_lookup_error(format!(
+                    "'{encoding}' is not a text encoding; use codecs.open() to handle arbitrary codecs"
+                )));
+            }
 
             let encoder = if vm.call_method(buffer, "writable", ())?.try_to_bool(vm)? {
                 let incremental_encoder =
@@ -2738,32 +2883,101 @@ mod _io {
     impl TextIOWrapper {
         #[pymethod]
         fn reconfigure(&self, args: TextIOWrapperArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let mut data = self.data.lock().unwrap();
-            if let Some(data) = data.as_mut() {
-                if let Some(encoding) = args.encoding {
-                    let (encoder, decoder) = Self::find_coder(
+            let mut data = self.lock(vm)?;
+            data.check_closed(vm)?;
+
+            let mut encoding = data.encoding.clone();
+            let mut errors = data.errors.clone();
+            let mut newline = data.newline;
+            let mut encoding_changed = false;
+            let mut errors_changed = false;
+            let mut newline_changed = false;
+            let mut line_buffering = None;
+            let mut write_through = None;
+            let mut flush_on_reconfigure = false;
+
+            if let Some(enc) = args.encoding {
+                if enc.as_str().contains('\0') && enc.as_str().starts_with("locale") {
+                    return Err(vm.new_lookup_error(format!("unknown encoding: {enc}")));
+                }
+                let resolved = Self::resolve_encoding(Some(enc), vm)?;
+                encoding_changed = resolved.as_str() != encoding.as_str();
+                encoding = resolved;
+            }
+
+            if let Some(errs) = args.errors {
+                Self::validate_errors(&errs, vm)?;
+                errors_changed = errs.as_str() != errors.as_str();
+                errors = errs;
+            } else if encoding_changed {
+                errors = identifier!(vm, strict).to_owned();
+                errors_changed = true;
+            }
+
+            if let OptionalArg::Present(nl) = args.newline {
+                let nl = nl.unwrap_or_default();
+                newline_changed = nl != newline;
+                newline = nl;
+            }
+
+            if let OptionalArg::Present(Some(value)) = args.line_buffering {
+                flush_on_reconfigure = true;
+                line_buffering = Some(Self::bool_from_index(value, vm)?);
+            }
+            if let OptionalArg::Present(Some(value)) = args.write_through {
+                flush_on_reconfigure = true;
+                write_through = Some(Self::bool_from_index(value, vm)?);
+            }
+
+            if (encoding_changed || newline_changed)
+                && data.decoder.is_some()
+                && (data.decoded_chars.is_some()
+                    || data.snapshot.is_some()
+                    || data.decoded_chars_used.chars != 0)
+            {
+                return Err(new_unsupported_operation(
+                    vm,
+                    "cannot reconfigure encoding or newline after reading from the stream"
+                        .to_owned(),
+                ));
+            }
+
+            if flush_on_reconfigure {
+                if data.pending.num_bytes > 0 {
+                    data.write_pending(vm)?;
+                }
+                vm.call_method(&data.buffer, "flush", ())?;
+            }
+
+            if encoding_changed || errors_changed || newline_changed {
+                if data.pending.num_bytes > 0 {
+                    data.write_pending(vm)?;
+                }
+                let (encoder, decoder) =
+                    Self::find_coder(&data.buffer, encoding.as_str(), &errors, newline, vm)?;
+                data.encoding = encoding;
+                data.errors = errors;
+                data.newline = newline;
+                data.encoder = encoder;
+                data.decoder = decoder;
+                data.set_decoded_chars(None);
+                data.snapshot = None;
+                data.decoded_chars_used = Utf8size::default();
+                if let Some((encoder, _)) = &data.encoder {
+                    Self::adjust_encoder_state_for_bom(
+                        encoder,
+                        data.encoding.as_str(),
                         &data.buffer,
-                        encoding.as_str(),
-                        &data.errors,
-                        data.newline,
                         vm,
                     )?;
-                    data.encoding = encoding;
-                    data.encoder = encoder;
-                    data.decoder = decoder;
                 }
-                if let Some(errors) = args.errors {
-                    data.errors = errors;
-                }
-                if let Some(newline) = args.newline {
-                    data.newline = newline;
-                }
-                if let Some(line_buffering) = args.line_buffering {
-                    data.line_buffering = line_buffering;
-                }
-                if let Some(write_through) = args.write_through {
-                    data.write_through = write_through;
-                }
+            }
+
+            if let Some(line_buffering) = line_buffering {
+                data.line_buffering = line_buffering;
+            }
+            if let Some(write_through) = write_through {
+                data.write_through = write_through;
             }
             Ok(())
         }
@@ -3201,12 +3415,34 @@ mod _io {
                         }
                     })?
             };
-            if textio.pending.num_bytes + chunk.as_bytes().len() > textio.chunk_size {
-                textio.write_pending(vm)?;
+            if textio.pending.num_bytes > 0
+                && textio.pending.num_bytes + chunk.as_bytes().len() > textio.chunk_size
+            {
+                let buffer = textio.buffer.clone();
+                let pending = textio.pending.take(vm);
+                drop(textio);
+                vm.call_method(&buffer, "write", (pending,))?;
+                textio = self.lock(vm)?;
+                textio.check_closed(vm)?;
+                if textio.pending.num_bytes > 0 {
+                    let buffer = textio.buffer.clone();
+                    let pending = textio.pending.take(vm);
+                    drop(textio);
+                    vm.call_method(&buffer, "write", (pending,))?;
+                    textio = self.lock(vm)?;
+                    textio.check_closed(vm)?;
+                }
             }
             textio.pending.push(chunk);
-            if flush || textio.write_through || textio.pending.num_bytes >= textio.chunk_size {
-                textio.write_pending(vm)?;
+            if textio.pending.num_bytes > 0
+                && (flush || textio.write_through || textio.pending.num_bytes >= textio.chunk_size)
+            {
+                let buffer = textio.buffer.clone();
+                let pending = textio.pending.take(vm);
+                drop(textio);
+                vm.call_method(&buffer, "write", (pending,))?;
+                textio = self.lock(vm)?;
+                textio.check_closed(vm)?;
             }
             if flush {
                 let _ = vm.call_method(&textio.buffer, "flush", ());
@@ -3422,6 +3658,10 @@ mod _io {
             if file_closed(&buffer, vm)? {
                 return Ok(());
             }
+            if zelf.finalizing.load(Ordering::Relaxed) {
+                // _dealloc_warn: delegate to buffer._dealloc_warn(source)
+                let _ = vm.call_method(&buffer, "_dealloc_warn", (zelf.as_object().to_owned(),));
+            }
             let flush_res = vm.call_method(zelf.as_object(), "flush", ()).map(drop);
             let close_res = vm.call_method(&buffer, "close", ()).map(drop);
             exception_chain(flush_res, close_res)
@@ -3441,6 +3681,17 @@ mod _io {
         #[pymethod]
         fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(format!("cannot pickle '{}' instances", zelf.class().name())))
+        }
+
+        #[pymethod]
+        fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+            if zelf.class().is(TextIOWrapper::static_type()) {
+                return Err(
+                    vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name()))
+                );
+            }
+            let _ = proto;
+            reduce_ex_for_subclass(zelf, vm)
         }
     }
 
@@ -3599,7 +3850,10 @@ mod _io {
 
     impl Destructor for TextIOWrapper {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(zelf, "close", ());
+            if let Some(wrapper) = zelf.downcast_ref::<TextIOWrapper>() {
+                wrapper.finalizing.store(true, Ordering::Relaxed);
+            }
+            iobase_finalize(zelf, vm);
             Ok(())
         }
 
@@ -3613,6 +3867,11 @@ mod _io {
         #[inline]
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let type_name = zelf.class().slot_name();
+            let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) else {
+                return Err(
+                    vm.new_runtime_error(format!("reentrant call inside {type_name}.__repr__"))
+                );
+            };
             let Some(data) = zelf.data.lock() else {
                 // Reentrant call
                 return Ok(format!("<{type_name}>"));
@@ -3624,17 +3883,22 @@ mod _io {
             let mut result = format!("<{type_name}");
 
             // Add name if present
-            if let Ok(Some(name)) = vm.get_attribute_opt(data.buffer.clone(), "name")
-                && let Ok(name_repr) = name.repr(vm)
-            {
+            if let Ok(Some(name)) = vm.get_attribute_opt(data.buffer.clone(), "name") {
+                let name_repr = name.repr(vm)?;
                 result.push_str(" name=");
                 result.push_str(name_repr.as_str());
             }
 
-            // Add mode if present
-            if let Ok(Some(mode)) = vm.get_attribute_opt(data.buffer.clone(), "mode")
-                && let Ok(mode_repr) = mode.repr(vm)
-            {
+            // Add mode if present (prefer the wrapper's attribute)
+            let mode_obj = match vm.get_attribute_opt(zelf.as_object().to_owned(), "mode") {
+                Ok(Some(mode)) => Some(mode),
+                Ok(None) | Err(_) => match vm.get_attribute_opt(data.buffer.clone(), "mode") {
+                    Ok(Some(mode)) => Some(mode),
+                    _ => None,
+                },
+            };
+            if let Some(mode) = mode_obj {
+                let mode_repr = mode.repr(vm)?;
                 result.push_str(" mode=");
                 result.push_str(mode_repr.as_str());
             }
@@ -4270,10 +4534,8 @@ mod _io {
         }
 
         #[pymethod]
-        fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
-            drop(self.try_resizable(vm)?);
+        fn close(&self) {
             self.closed.store(true);
-            Ok(())
         }
 
         #[pymethod]
@@ -4565,7 +4827,7 @@ mod _io {
         }
 
         // check file descriptor validity
-        #[cfg(unix)]
+        #[cfg(all(unix, feature = "host_env"))]
         if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
             nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD).map_err(|_| vm.new_last_errno_error())?;
         }
@@ -4574,7 +4836,7 @@ mod _io {
         // This is subsequently consumed by a Buffered Class.
         let file_io_class: &Py<PyType> = {
             cfg_if::cfg_if! {
-                if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
+                if #[cfg(feature = "host_env")] {
                     Some(super::fileio::FileIO::static_type())
                 } else {
                     None
@@ -4618,7 +4880,10 @@ mod _io {
 
         if buffering == 0 {
             let ret = match mode.encode {
-                EncodeMode::Text => Err(vm.new_value_error("can't have unbuffered text I/O")),
+                EncodeMode::Text => {
+                    let _ = vm.call_method(&raw, "close", ());
+                    Err(vm.new_value_error("can't have unbuffered text I/O"))
+                }
                 EncodeMode::Bytes => Ok(raw),
             };
             return ret;
@@ -4635,19 +4900,29 @@ mod _io {
 
         match mode.encode {
             EncodeMode::Text => {
+                let encoding = match opts.encoding {
+                    Some(enc) => Some(enc),
+                    None => {
+                        let encoding = text_encoding(vm.ctx.none(), OptionalArg::Present(2), vm)?;
+                        Some(PyUtf8StrRef::try_from_object(vm, encoding.into())?)
+                    }
+                };
                 let tio = TextIOWrapper::static_type();
                 let wrapper = PyType::call(
                     tio,
                     (
-                        buffered,
-                        opts.encoding,
+                        buffered.clone(),
+                        encoding,
                         opts.errors,
                         opts.newline,
                         line_buffering,
                     )
                         .into_args(vm),
                     vm,
-                )?;
+                )
+                .inspect_err(|_err| {
+                    let _ = vm.call_method(&buffered, "close", ());
+                })?;
                 wrapper.set_attr("mode", vm.new_pyobj(mode_string), vm)?;
                 Ok(wrapper)
             }
@@ -4681,12 +4956,35 @@ mod _io {
     #[pyfunction]
     fn text_encoding(
         encoding: PyObjectRef,
-        _stacklevel: OptionalArg<i32>,
+        stacklevel: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
         if vm.is_none(&encoding) {
-            // TODO: This is `locale` encoding - but we don't have locale encoding yet
-            return Ok(vm.ctx.new_str("utf-8"));
+            let encoding = if vm.state.config.settings.utf8_mode > 0 {
+                "utf-8"
+            } else {
+                "locale"
+            };
+            if vm.state.config.settings.warn_default_encoding {
+                let mut stacklevel = stacklevel.unwrap_or(2);
+                if stacklevel > 1
+                    && let Some(frame) = vm.current_frame()
+                    && let Some(stdlib_dir) = vm.state.config.paths.stdlib_dir.as_deref()
+                {
+                    let path = frame.code.source_path().as_str();
+                    if !path.starts_with(stdlib_dir) {
+                        stacklevel = stacklevel.saturating_sub(1);
+                    }
+                }
+                let stacklevel = usize::try_from(stacklevel).unwrap_or(0);
+                crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.encoding_warning,
+                    "'encoding' argument not specified".to_owned(),
+                    stacklevel,
+                    vm,
+                )?;
+            }
+            return Ok(vm.ctx.new_str(encoding));
         }
         encoding.try_into_value(vm)
     }
@@ -4733,8 +5031,8 @@ mod _io {
         // Call auto-generated initialization first
         __module_exec(vm, module);
 
-        // Initialize FileIO types on non-WASM platforms
-        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+        // Initialize FileIO types (requires host_env for filesystem access)
+        #[cfg(feature = "host_env")]
         super::fileio::module_exec(vm, module)?;
 
         let unsupported_operation = unsupported_operation().to_owned();
@@ -4745,11 +5043,11 @@ mod _io {
         Ok(())
     }
 }
-// disable FileIO on WASM
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+// FileIO requires host environment for filesystem access
+#[cfg(feature = "host_env")]
 #[pymodule]
 mod fileio {
-    use super::{_io::*, Offset};
+    use super::{_io::*, Offset, iobase_finalize};
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
@@ -4876,6 +5174,7 @@ mod fileio {
         mode: AtomicCell<Mode>,
         seekable: AtomicCell<Option<bool>>,
         blksize: AtomicCell<i64>,
+        finalizing: AtomicCell<bool>,
     }
 
     #[derive(FromArgs)]
@@ -4899,6 +5198,7 @@ mod fileio {
                 mode: AtomicCell::new(Mode::empty()),
                 seekable: AtomicCell::new(None),
                 blksize: AtomicCell::new(8 * 1024), // DEFAULT_BUFFER_SIZE
+                finalizing: AtomicCell::new(false),
             }
         }
     }
@@ -4982,6 +5282,12 @@ mod fileio {
             #[cfg(windows)]
             {
                 if let Err(err) = fd_fstat {
+                    // If the fd is invalid, prevent destructor from trying to close it
+                    if err.raw_os_error()
+                        == Some(windows_sys::Win32::Foundation::ERROR_INVALID_HANDLE as i32)
+                    {
+                        zelf.fd.store(-1);
+                    }
                     return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                 }
             }
@@ -4999,16 +5305,17 @@ mod fileio {
                         }
                         // Store st_blksize for _blksize property
                         if status.st_blksize > 1 {
-                            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+                            #[allow(
+                                clippy::useless_conversion,
+                                reason = "needed for 32-bit platforms"
+                            )]
                             zelf.blksize.store(i64::from(status.st_blksize));
                         }
                     }
                     Err(err) => {
                         if err.raw_os_error() == Some(libc::EBADF) {
-                            // If fd was passed by user, don't close it on error
-                            if !fd_is_own {
-                                zelf.fd.store(-1);
-                            }
+                            // fd is invalid, prevent destructor from trying to close it
+                            zelf.fd.store(-1);
                             return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                         }
                     }
@@ -5271,12 +5578,26 @@ mod fileio {
                 zelf.fd.store(-1);
                 return res;
             }
-            let fd = zelf.fd.swap(-1);
-            if fd >= 0 {
-                crt_fd::close(unsafe { crt_fd::Owned::from_raw(fd) })
-                    .map_err(|err| Self::io_error(zelf, err, vm))?;
+            let flush_exc = res.err();
+            if zelf.finalizing.load() {
+                Self::dealloc_warn(zelf, zelf.as_object().to_owned(), vm);
             }
-            res
+            let fd = zelf.fd.swap(-1);
+            let close_err = if fd >= 0 {
+                crt_fd::close(unsafe { crt_fd::Owned::from_raw(fd) })
+                    .map_err(|err| Self::io_error(zelf, err, vm))
+                    .err()
+            } else {
+                None
+            };
+            match (flush_exc, close_err) {
+                (Some(fe), Some(ce)) => {
+                    ce.set___context__(Some(fe));
+                    Err(ce)
+                }
+                (Some(e), None) | (None, Some(e)) => Err(e),
+                (None, None) => Ok(()),
+            }
         }
 
         #[pymethod]
@@ -5330,11 +5651,45 @@ mod fileio {
         fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(format!("cannot pickle '{}' instances", zelf.class().name())))
         }
+
+        /// fileio_dealloc_warn in Modules/_io/fileio.c
+        #[pymethod(name = "_dealloc_warn")]
+        fn _dealloc_warn_method(
+            zelf: &Py<Self>,
+            source: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            Self::dealloc_warn(zelf, source, vm);
+            Ok(())
+        }
+    }
+
+    impl FileIO {
+        /// Issue ResourceWarning if fd is still open and closefd is true.
+        fn dealloc_warn(zelf: &Py<Self>, source: PyObjectRef, vm: &VirtualMachine) {
+            if zelf.fd.load() >= 0 && zelf.closefd.load() {
+                let repr = source
+                    .repr(vm)
+                    .map(|s| s.as_str().to_owned())
+                    .unwrap_or_else(|_| "<file>".to_owned());
+                if let Err(e) = crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.resource_warning,
+                    format!("unclosed file {repr}"),
+                    1,
+                    vm,
+                ) {
+                    vm.run_unraisable(e, None, zelf.as_object().to_owned());
+                }
+            }
+        }
     }
 
     impl Destructor for FileIO {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(zelf, "close", ());
+            if let Some(fileio) = zelf.downcast_ref::<FileIO>() {
+                fileio.finalizing.store(true);
+            }
+            iobase_finalize(zelf, vm);
             Ok(())
         }
 

@@ -281,8 +281,6 @@ class CodecCallbackTest(unittest.TestCase):
             b"g[<252><223>]"
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_longstrings(self):
         # test long strings to check for memory overflow problems
         errors = [ "strict", "ignore", "replace", "xmlcharrefreplace",
@@ -684,8 +682,6 @@ class CodecCallbackTest(unittest.TestCase):
             ("\udc80", 2)
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_badandgoodsurrogatepassexceptions(self):
         surrogatepass_errors = codecs.lookup_error('surrogatepass')
         # "surrogatepass" complains about a non-exception passed in

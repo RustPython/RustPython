@@ -463,6 +463,64 @@ impl PyAtomicRef<Option<PyObject>> {
     }
 }
 
+/// Atomic borrowed (non-ref-counted) optional reference to a Python object.
+/// Unlike `PyAtomicRef`, this does NOT own the reference.
+/// The pointed-to object must outlive this reference.
+pub struct PyAtomicBorrow {
+    inner: PyAtomic<*mut u8>,
+}
+
+// Safety: Access patterns ensure the pointed-to object outlives this reference.
+// The owner (generator/coroutine) clears this in its Drop impl before deallocation.
+unsafe impl Send for PyAtomicBorrow {}
+unsafe impl Sync for PyAtomicBorrow {}
+
+impl PyAtomicBorrow {
+    pub fn new() -> Self {
+        Self {
+            inner: Radium::new(null_mut()),
+        }
+    }
+
+    pub fn store(&self, obj: &PyObject) {
+        let ptr = obj as *const PyObject as *mut u8;
+        Radium::store(&self.inner, ptr, Ordering::Relaxed);
+    }
+
+    pub fn load(&self) -> Option<&PyObject> {
+        let ptr = Radium::load(&self.inner, Ordering::Relaxed);
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { &*(ptr as *const PyObject) })
+        }
+    }
+
+    pub fn clear(&self) {
+        Radium::store(&self.inner, null_mut(), Ordering::Relaxed);
+    }
+
+    pub fn to_owned(&self) -> Option<PyObjectRef> {
+        self.load().map(|obj| obj.to_owned())
+    }
+}
+
+impl Default for PyAtomicBorrow {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for PyAtomicBorrow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "PyAtomicBorrow({:?})",
+            Radium::load(&self.inner, Ordering::Relaxed)
+        )
+    }
+}
+
 pub trait AsObject
 where
     Self: Borrow<PyObject>,

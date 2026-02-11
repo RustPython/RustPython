@@ -1,4 +1,6 @@
-use super::{PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{
+    PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
+};
 use crate::common::{
     hash::{PyHash, PyUHash},
     lock::PyMutex,
@@ -45,7 +47,7 @@ unsafe impl Traverse for PyTuple {
     }
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        let elements = std::mem::take(&mut self.elements);
+        let elements = core::mem::take(&mut self.elements);
         out.extend(elements.into_vec());
     }
 }
@@ -559,9 +561,13 @@ impl PyTupleIterator {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        self.internal
-            .lock()
-            .builtins_iter_reduce(|x| x.clone().into(), vm)
+        let func = builtins_iter(vm);
+        self.internal.lock().reduce(
+            func,
+            |x| x.clone().into(),
+            |vm| vm.ctx.empty_tuple.clone().into(),
+            vm,
+        )
     }
 }
 

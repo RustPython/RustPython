@@ -31,7 +31,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-from update_lib.deps import get_test_paths
+from update_lib.deps import DEPENDENCIES, get_test_paths
 from update_lib.file_utils import (
     construct_lib_path,
     get_cpython_dir,
@@ -80,7 +80,7 @@ def quick(
     mark_failure: bool = False,
     verbose: bool = True,
     skip_build: bool = False,
-) -> None:
+) -> list[pathlib.Path]:
     """
     Process a file or directory: migrate + auto-mark.
 
@@ -91,9 +91,14 @@ def quick(
         mark_failure: Add @expectedFailure to ALL failing tests
         verbose: Print progress messages
         skip_build: Skip cargo build, use pre-built binary
+
+    Returns:
+        List of extra paths (data dirs, hard deps) that were copied/migrated.
     """
     from update_lib.cmd_auto_mark import auto_mark_directory, auto_mark_file
     from update_lib.cmd_migrate import patch_directory, patch_file
+
+    extra_paths: list[pathlib.Path] = []
 
     # Determine lib_path and whether to migrate
     if is_lib_path(src_path):
@@ -128,6 +133,7 @@ def quick(
                 patch_directory(dep_src, dep_lib, verbose=False)
             else:
                 patch_file(dep_src, dep_lib, verbose=False)
+            extra_paths.append(dep_lib)
 
         # Copy data directories (no migration)
         import shutil
@@ -146,6 +152,7 @@ def quick(
             else:
                 data_lib.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(data_src, data_lib)
+            extra_paths.append(data_lib)
 
     # Step 2: Auto-mark
     if not no_auto_mark:
@@ -174,6 +181,8 @@ def quick(
                 print(f"Added expectedFailure to {num_added} tests")
             print(f"Removed expectedFailure from {num_removed} tests")
 
+    return extra_paths
+
 
 def get_cpython_version(cpython_dir: pathlib.Path) -> str:
     """Get CPython version from git tag."""
@@ -194,6 +203,7 @@ def git_commit(
     lib_path: pathlib.Path | None,
     test_paths: list[pathlib.Path] | pathlib.Path | None,
     cpython_dir: pathlib.Path,
+    hard_deps: list[pathlib.Path] | None = None,
     verbose: bool = True,
 ) -> bool:
     """Commit changes with CPython author.
@@ -203,6 +213,7 @@ def git_commit(
         lib_path: Path to library file/directory (or None)
         test_paths: Path(s) to test file/directory (or None)
         cpython_dir: Path to cpython directory
+        hard_deps: Path(s) to hard dependency files (or None)
         verbose: Print progress messages
 
     Returns:
@@ -216,6 +227,10 @@ def git_commit(
     elif isinstance(test_paths, pathlib.Path):
         test_paths = [test_paths]
 
+    # Normalize hard_deps to list
+    if hard_deps is None:
+        hard_deps = []
+
     # Stage changes
     paths_to_add = []
     if lib_path and lib_path.exists():
@@ -223,6 +238,9 @@ def git_commit(
     for test_path in test_paths:
         if test_path and test_path.exists():
             paths_to_add.append(str(test_path))
+    for dep_path in hard_deps:
+        if dep_path and dep_path.exists():
+            paths_to_add.append(str(dep_path))
 
     if not paths_to_add:
         return False
@@ -362,6 +380,7 @@ def main(argv: list[str] | None = None) -> int:
         # Track library path for commit
         lib_file_path = None
         test_path = None
+        hard_deps_for_commit = []
 
         # If it's a library path (not test path), do copy_lib first
         if not is_test_path(src_path):
@@ -384,6 +403,13 @@ def main(argv: list[str] | None = None) -> int:
                 if default_test.exists():
                     test_src_paths = (default_test,)
 
+            # Collect hard dependencies for commit
+            lib_deps = DEPENDENCIES.get(module_name, {})
+            for dep_name in lib_deps.get("hard_deps", []):
+                dep_lib_path = construct_lib_path("Lib", dep_name)
+                if dep_lib_path.exists():
+                    hard_deps_for_commit.append(dep_lib_path)
+
             # Process all test paths
             test_paths_for_commit = []
             for test_src in test_src_paths:
@@ -394,13 +420,14 @@ def main(argv: list[str] | None = None) -> int:
                 test_lib_path = parse_lib_path(test_src)
                 test_paths_for_commit.append(test_lib_path)
 
-                quick(
+                extra = quick(
                     test_src,
                     no_migrate=not args.migrate,
                     no_auto_mark=not args.auto_mark,
                     mark_failure=args.mark_failure,
                     skip_build=not args.build,
                 )
+                hard_deps_for_commit.extend(extra)
 
             test_paths = test_paths_for_commit
         else:
@@ -409,20 +436,25 @@ def main(argv: list[str] | None = None) -> int:
                 parse_lib_path(src_path) if not is_lib_path(src_path) else src_path
             )
 
-            quick(
+            extra = quick(
                 src_path,
                 no_migrate=not args.migrate,
                 no_auto_mark=not args.auto_mark,
                 mark_failure=args.mark_failure,
                 skip_build=not args.build,
             )
+            hard_deps_for_commit.extend(extra)
             test_paths = [test_path]
 
         # Step 3: Git commit
         if args.commit:
             cpython_dir = get_cpython_dir(original_src)
             git_commit(
-                get_module_name(original_src), lib_file_path, test_paths, cpython_dir
+                get_module_name(original_src),
+                lib_file_path,
+                test_paths,
+                cpython_dir,
+                hard_deps=hard_deps_for_commit,
             )
 
         return 0

@@ -6,7 +6,7 @@ use crate::{
     varint::{read_varint, read_varint_with_start, write_varint, write_varint_with_start},
     {OneIndexed, SourceLocation},
 };
-use alloc::{collections::BTreeSet, fmt, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeSet, fmt, string::String, vec::Vec};
 use bitflags::bitflags;
 use core::{hash, mem, ops::Deref};
 use itertools::Itertools;
@@ -16,14 +16,13 @@ use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
     instruction::{
-        AnyInstruction, Arg, Instruction, InstructionMetadata, PseudoInstruction,
-        decode_load_attr_arg, decode_load_super_attr_arg, encode_load_attr_arg,
-        encode_load_super_attr_arg,
+        AnyInstruction, Arg, Instruction, InstructionMetadata, PseudoInstruction, StackEffect,
     },
     oparg::{
         BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,
-        IntrinsicFunction1, IntrinsicFunction2, Invert, Label, MakeFunctionFlags, NameIdx, OpArg,
-        OpArgByte, OpArgState, OpArgType, RaiseKind, ResumeType, SpecialMethod, UnpackExArgs,
+        IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr, LoadSuperAttr,
+        MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgState, OpArgType, RaiseKind, ResumeType,
+        SpecialMethod, UnpackExArgs,
     },
 };
 
@@ -304,8 +303,8 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone)]
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct CodeUnit {
     pub op: Instruction,
     pub arg: OpArgByte,
@@ -330,7 +329,7 @@ impl TryFrom<&[u8]> for CodeUnit {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CodeUnits(Box<[CodeUnit]>);
 
 impl TryFrom<&[u8]> for CodeUnits {
@@ -805,6 +804,7 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::{vec, vec::Vec};
 
     #[test]
     fn test_exception_table_encode_decode() {
