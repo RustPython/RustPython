@@ -27,10 +27,15 @@ unsafe extern "C" {
 mod decl {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTypeRef, PyUtf8StrRef},
+        builtins::{PyStrRef, PyTypeRef},
         function::{Either, FuncArgs, OptionalArg},
         types::{PyStructSequence, struct_sequence_new},
     };
+    #[cfg(unix)]
+    use crate::{common::wtf8::Wtf8Buf, convert::ToPyObject};
+    #[cfg(unix)]
+    use alloc::ffi::CString;
+    #[cfg(not(unix))]
     use chrono::{
         DateTime, Datelike, TimeZone, Timelike,
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
@@ -82,12 +87,18 @@ mod decl {
 
     #[pyfunction]
     fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let seconds_type_name = seconds.clone().class().name().to_owned();
         let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.value_error)
                 && let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok())
                 && s.as_str() == "negative duration"
             {
                 return vm.new_value_error("sleep length must be non-negative");
+            }
+            if e.class().is(vm.ctx.exceptions.type_error) {
+                return vm.new_type_error(format!(
+                    "'{seconds_type_name}' object cannot be interpreted as an integer or float"
+                ));
             }
             e
         })?;
@@ -269,40 +280,188 @@ mod decl {
         tz_name.into_pytuple(vm)
     }
 
+    #[cfg(not(unix))]
     fn pyobj_to_date_time(
         value: Either<f64, i64>,
         vm: &VirtualMachine,
     ) -> PyResult<DateTime<chrono::offset::Utc>> {
-        let timestamp = match value {
+        let secs = match value {
             Either::A(float) => {
-                let secs = float.trunc() as i64;
-                let nano_secs = (float.fract() * 1e9) as u32;
-                DateTime::<chrono::offset::Utc>::from_timestamp(secs, nano_secs)
+                if !float.is_finite() {
+                    return Err(vm.new_value_error("Invalid value for timestamp"));
+                }
+                float.floor() as i64
             }
-            Either::B(int) => DateTime::<chrono::offset::Utc>::from_timestamp(int, 0),
+            Either::B(int) => int,
         };
-        timestamp.ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))
+        DateTime::<chrono::offset::Utc>::from_timestamp(secs, 0)
+            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))
     }
 
-    impl OptionalArg<Either<f64, i64>> {
+    #[cfg(not(unix))]
+    impl OptionalArg<Option<Either<f64, i64>>> {
         /// Construct a localtime from the optional seconds, or get the current local time.
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
-                Self::Present(secs) => pyobj_to_date_time(secs, vm)?
+                Self::Present(Some(secs)) => pyobj_to_date_time(secs, vm)?
                     .with_timezone(&chrono::Local)
                     .naive_local(),
-                Self::Missing => chrono::offset::Local::now().naive_local(),
-            })
-        }
-
-        fn naive_or_utc(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
-            Ok(match self {
-                Self::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
-                Self::Missing => chrono::offset::Utc::now().naive_utc(),
+                Self::Present(None) | Self::Missing => chrono::offset::Local::now().naive_local(),
             })
         }
     }
 
+    #[cfg(unix)]
+    struct CheckedTm {
+        tm: libc::tm,
+        zone: Option<CString>,
+    }
+
+    #[cfg(unix)]
+    fn checked_tm_from_struct_time(
+        t: &StructTimeData,
+        vm: &VirtualMachine,
+        func_name: &'static str,
+    ) -> PyResult<CheckedTm> {
+        let invalid_tuple =
+            || vm.new_type_error(format!("{func_name}(): illegal time tuple argument"));
+
+        let year: i64 = t.tm_year.clone().try_into_value(vm).map_err(|e| {
+            if e.class().is(vm.ctx.exceptions.overflow_error) {
+                vm.new_overflow_error("year out of range")
+            } else {
+                invalid_tuple()
+            }
+        })?;
+        if year < i64::from(i32::MIN) + 1900 || year > i64::from(i32::MAX) {
+            return Err(vm.new_overflow_error("year out of range"));
+        }
+        let year = year as i32;
+        let mut tm = libc::tm {
+            tm_year: year - 1900,
+            tm_mon: t
+                .tm_mon
+                .clone()
+                .try_into_value::<i32>(vm)
+                .map_err(|_| invalid_tuple())?
+                - 1,
+            tm_mday: t
+                .tm_mday
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_hour: t
+                .tm_hour
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_min: t
+                .tm_min
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_sec: t
+                .tm_sec
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_wday: (t
+                .tm_wday
+                .clone()
+                .try_into_value::<i32>(vm)
+                .map_err(|_| invalid_tuple())?
+                + 1)
+                % 7,
+            tm_yday: t
+                .tm_yday
+                .clone()
+                .try_into_value::<i32>(vm)
+                .map_err(|_| invalid_tuple())?
+                - 1,
+            tm_isdst: t
+                .tm_isdst
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_gmtoff: 0,
+            tm_zone: core::ptr::null_mut(),
+        };
+
+        if tm.tm_mon == -1 {
+            tm.tm_mon = 0;
+        } else if tm.tm_mon < 0 || tm.tm_mon > 11 {
+            return Err(vm.new_value_error("month out of range"));
+        }
+        if tm.tm_mday == 0 {
+            tm.tm_mday = 1;
+        } else if tm.tm_mday < 0 || tm.tm_mday > 31 {
+            return Err(vm.new_value_error("day of month out of range"));
+        }
+        if tm.tm_hour < 0 || tm.tm_hour > 23 {
+            return Err(vm.new_value_error("hour out of range"));
+        }
+        if tm.tm_min < 0 || tm.tm_min > 59 {
+            return Err(vm.new_value_error("minute out of range"));
+        }
+        if tm.tm_sec < 0 || tm.tm_sec > 61 {
+            return Err(vm.new_value_error("seconds out of range"));
+        }
+        if tm.tm_wday < 0 {
+            return Err(vm.new_value_error("day of week out of range"));
+        }
+        if tm.tm_yday == -1 {
+            tm.tm_yday = 0;
+        } else if tm.tm_yday < 0 || tm.tm_yday > 365 {
+            return Err(vm.new_value_error("day of year out of range"));
+        }
+
+        let zone = if t.tm_zone.is(&vm.ctx.none) {
+            None
+        } else {
+            let zone: PyStrRef = t
+                .tm_zone
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?;
+            Some(
+                CString::new(zone.as_str())
+                    .map_err(|_| vm.new_value_error("embedded null character"))?,
+            )
+        };
+        if let Some(zone) = &zone {
+            tm.tm_zone = zone.as_ptr().cast_mut();
+        }
+        if !t.tm_gmtoff.is(&vm.ctx.none) {
+            let gmtoff: i64 = t
+                .tm_gmtoff
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?;
+            tm.tm_gmtoff = gmtoff as _;
+        }
+
+        Ok(CheckedTm { tm, zone })
+    }
+
+    #[cfg(unix)]
+    fn asctime_from_tm(tm: &libc::tm) -> String {
+        const WDAY_NAME: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const MON_NAME: [&str; 12] = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        format!(
+            "{} {}{:>3} {:02}:{:02}:{:02} {}",
+            WDAY_NAME[tm.tm_wday as usize],
+            MON_NAME[tm.tm_mon as usize],
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min,
+            tm.tm_sec,
+            tm.tm_year + 1900
+        )
+    }
+
+    #[cfg(not(unix))]
     impl OptionalArg<StructTimeData> {
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
@@ -315,78 +474,218 @@ mod decl {
     /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
     #[pyfunction]
     fn gmtime(
-        secs: OptionalArg<Either<f64, i64>>,
+        secs: OptionalArg<Option<Either<f64, i64>>>,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let instant = secs.naive_or_utc(vm)?;
-        Ok(StructTimeData::new_utc(vm, instant))
+        #[cfg(unix)]
+        {
+            let ts = match secs {
+                OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
+                OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+            };
+            gmtime_from_timestamp(ts, vm)
+        }
+
+        #[cfg(not(unix))]
+        {
+            let instant = match secs {
+                OptionalArg::Present(Some(secs)) => pyobj_to_date_time(secs, vm)?.naive_utc(),
+                OptionalArg::Present(None) | OptionalArg::Missing => {
+                    chrono::offset::Utc::now().naive_utc()
+                }
+            };
+            Ok(StructTimeData::new_utc(vm, instant))
+        }
     }
 
     #[pyfunction]
     fn localtime(
-        secs: OptionalArg<Either<f64, i64>>,
+        secs: OptionalArg<Option<Either<f64, i64>>>,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
+        #[cfg(unix)]
+        {
+            let ts = match secs {
+                OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
+                OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+            };
+            localtime_from_timestamp(ts, vm)
+        }
+
+        #[cfg(not(unix))]
         let instant = secs.naive_or_local(vm)?;
-        // TODO: isdst flag must be valid value here
-        // https://docs.python.org/3/library/time.html#time.localtime
-        Ok(StructTimeData::new_local(vm, instant, -1))
+        #[cfg(not(unix))]
+        {
+            Ok(StructTimeData::new_local(vm, instant, 0))
+        }
     }
 
     #[pyfunction]
     fn mktime(t: StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
-        let datetime = t.to_date_time(vm)?;
-        // mktime interprets struct_time as local time
-        let local_dt = chrono::Local
-            .from_local_datetime(&datetime)
-            .single()
-            .ok_or_else(|| vm.new_overflow_error("mktime argument out of range"))?;
-        let seconds_since_epoch = local_dt.timestamp() as f64;
-        Ok(seconds_since_epoch)
+        #[cfg(unix)]
+        {
+            unix_mktime(&t, vm)
+        }
+
+        #[cfg(not(unix))]
+        {
+            let datetime = t.to_date_time(vm)?;
+            // mktime interprets struct_time as local time
+            let local_dt = chrono::Local
+                .from_local_datetime(&datetime)
+                .single()
+                .ok_or_else(|| vm.new_overflow_error("mktime argument out of range"))?;
+            let seconds_since_epoch = local_dt.timestamp() as f64;
+            Ok(seconds_since_epoch)
+        }
     }
 
+    #[cfg(not(unix))]
     const CFMT: &str = "%a %b %e %H:%M:%S %Y";
 
     #[pyfunction]
     fn asctime(t: OptionalArg<StructTimeData>, vm: &VirtualMachine) -> PyResult {
-        let instant = t.naive_or_local(vm)?;
-        let formatted_time = instant.format(CFMT).to_string();
-        Ok(vm.ctx.new_str(formatted_time).into())
-    }
-
-    #[pyfunction]
-    fn ctime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<String> {
-        let instant = secs.naive_or_local(vm)?;
-        Ok(instant.format(CFMT).to_string())
-    }
-
-    #[pyfunction]
-    fn strftime(
-        format: PyUtf8StrRef,
-        t: OptionalArg<StructTimeData>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        use core::fmt::Write;
-
-        let instant = t.naive_or_local(vm)?;
-
-        // On Windows/AIX/Solaris, %y format with year < 1900 is not supported
-        #[cfg(any(windows, target_os = "aix", target_os = "solaris"))]
-        if instant.year() < 1900 && format.as_str().contains("%y") {
-            let msg = "format %y requires year >= 1900 on Windows";
-            return Err(vm.new_value_error(msg.to_owned()));
+        #[cfg(unix)]
+        {
+            let tm = match t {
+                OptionalArg::Present(value) => {
+                    checked_tm_from_struct_time(&value, vm, "asctime")?.tm
+                }
+                OptionalArg::Missing => {
+                    let now = current_time_t();
+                    let local = localtime_from_timestamp(now, vm)?;
+                    checked_tm_from_struct_time(&local, vm, "asctime")?.tm
+                }
+            };
+            Ok(vm.ctx.new_str(asctime_from_tm(&tm)).into())
         }
 
-        let mut formatted_time = String::new();
+        #[cfg(not(unix))]
+        {
+            let instant = t.naive_or_local(vm)?;
+            let formatted_time = instant.format(CFMT).to_string();
+            Ok(vm.ctx.new_str(formatted_time).into())
+        }
+    }
 
-        /*
-         * chrono doesn't support all formats and it
-         * raises an error if unsupported format is supplied.
-         * If error happens, we set result as input arg.
-         */
-        write!(&mut formatted_time, "{}", instant.format(format.as_str()))
-            .unwrap_or_else(|_| formatted_time = format.to_string());
-        Ok(vm.ctx.new_str(formatted_time).into())
+    #[pyfunction]
+    fn ctime(secs: OptionalArg<Option<Either<f64, i64>>>, vm: &VirtualMachine) -> PyResult<String> {
+        #[cfg(unix)]
+        {
+            let ts = match secs {
+                OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
+                OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+            };
+            let local = localtime_from_timestamp(ts, vm)?;
+            let tm = checked_tm_from_struct_time(&local, vm, "asctime")?.tm;
+            Ok(asctime_from_tm(&tm))
+        }
+
+        #[cfg(not(unix))]
+        {
+            let instant = secs.naive_or_local(vm)?;
+            Ok(instant.format(CFMT).to_string())
+        }
+    }
+
+    #[pyfunction]
+    fn strftime(format: PyStrRef, t: OptionalArg<StructTimeData>, vm: &VirtualMachine) -> PyResult {
+        #[cfg(unix)]
+        {
+            let checked_tm = match t {
+                OptionalArg::Present(value) => checked_tm_from_struct_time(&value, vm, "strftime")?,
+                OptionalArg::Missing => {
+                    let now = current_time_t();
+                    let local = localtime_from_timestamp(now, vm)?;
+                    checked_tm_from_struct_time(&local, vm, "strftime")?
+                }
+            };
+            let _keep_zone_alive = &checked_tm.zone;
+            let mut tm = checked_tm.tm;
+            tm.tm_isdst = tm.tm_isdst.clamp(-1, 1);
+
+            fn strftime_ascii(fmt: &str, tm: &libc::tm, vm: &VirtualMachine) -> PyResult<String> {
+                let fmt_c =
+                    CString::new(fmt).map_err(|_| vm.new_value_error("embedded null character"))?;
+                let mut size = 1024usize;
+                let max_scale = 256usize.saturating_mul(fmt.len().max(1));
+                loop {
+                    let mut out = vec![0u8; size];
+                    let written = unsafe {
+                        libc::strftime(
+                            out.as_mut_ptr().cast(),
+                            out.len(),
+                            fmt_c.as_ptr(),
+                            tm as *const libc::tm,
+                        )
+                    };
+                    if written > 0 || size >= max_scale {
+                        return Ok(String::from_utf8_lossy(&out[..written]).into_owned());
+                    }
+                    size = size.saturating_mul(2);
+                }
+            }
+
+            let mut out = Wtf8Buf::new();
+            let mut ascii = String::new();
+
+            for codepoint in format.as_wtf8().code_points() {
+                if codepoint.to_u32() == 0 {
+                    if !ascii.is_empty() {
+                        let part = strftime_ascii(&ascii, &tm, vm)?;
+                        out.extend(part.chars());
+                        ascii.clear();
+                    }
+                    out.push(codepoint);
+                    continue;
+                }
+                if let Some(ch) = codepoint.to_char()
+                    && ch.is_ascii()
+                {
+                    ascii.push(ch);
+                    continue;
+                }
+
+                if !ascii.is_empty() {
+                    let part = strftime_ascii(&ascii, &tm, vm)?;
+                    out.extend(part.chars());
+                    ascii.clear();
+                }
+                out.push(codepoint);
+            }
+            if !ascii.is_empty() {
+                let part = strftime_ascii(&ascii, &tm, vm)?;
+                out.extend(part.chars());
+            }
+            Ok(out.to_pyobject(vm))
+        }
+
+        #[cfg(not(unix))]
+        {
+            use core::fmt::Write;
+
+            let fmt_lossy = format.to_string_lossy();
+
+            // If the struct_time can't be represented as NaiveDateTime
+            // (e.g. month=0), return the format string as-is, matching
+            // the fallback behavior for unsupported chrono formats.
+            let instant = match t.naive_or_local(vm) {
+                Ok(dt) => dt,
+                Err(_) => return Ok(vm.ctx.new_str(fmt_lossy.into_owned()).into()),
+            };
+
+            // On Windows/AIX/Solaris, %y format with year < 1900 is not supported
+            #[cfg(any(windows, target_os = "aix", target_os = "solaris"))]
+            if instant.year() < 1900 && fmt_lossy.contains("%y") {
+                let msg = "format %y requires year >= 1900 on Windows";
+                return Err(vm.new_value_error(msg.to_owned()));
+            }
+
+            let mut formatted_time = String::new();
+            write!(&mut formatted_time, "{}", instant.format(&fmt_lossy))
+                .unwrap_or_else(|_| formatted_time = format.to_string());
+            Ok(vm.ctx.new_str(formatted_time).into())
+        }
     }
 
     #[pyfunction]
@@ -491,9 +790,9 @@ mod decl {
         pub tm_yday: PyObjectRef,
         pub tm_isdst: PyObjectRef,
         #[pystruct_sequence(skip)]
-        pub tm_gmtoff: PyObjectRef,
-        #[pystruct_sequence(skip)]
         pub tm_zone: PyObjectRef,
+        #[pystruct_sequence(skip)]
+        pub tm_gmtoff: PyObjectRef,
     }
 
     impl core::fmt::Debug for StructTimeData {
@@ -503,6 +802,7 @@ mod decl {
     }
 
     impl StructTimeData {
+        #[cfg(not(unix))]
         fn new_inner(
             vm: &VirtualMachine,
             tm: NaiveDateTime,
@@ -520,25 +820,27 @@ mod decl {
                 tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()).into(),
                 tm_yday: vm.ctx.new_int(tm.ordinal()).into(),
                 tm_isdst: vm.ctx.new_int(isdst).into(),
-                tm_gmtoff: vm.ctx.new_int(gmtoff).into(),
                 tm_zone: vm.ctx.new_str(zone).into(),
+                tm_gmtoff: vm.ctx.new_int(gmtoff).into(),
             }
         }
 
         /// Create struct_time for UTC (gmtime)
+        #[cfg(not(unix))]
         fn new_utc(vm: &VirtualMachine, tm: NaiveDateTime) -> Self {
             Self::new_inner(vm, tm, 0, 0, "UTC")
         }
 
         /// Create struct_time for local timezone (localtime)
+        #[cfg(not(unix))]
         fn new_local(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
             let local_time = chrono::Local.from_local_datetime(&tm).unwrap();
-            let offset_seconds =
-                local_time.offset().local_minus_utc() + if isdst == 1 { 3600 } else { 0 };
+            let offset_seconds = local_time.offset().local_minus_utc();
             let tz_abbr = local_time.format("%Z").to_string();
             Self::new_inner(vm, tm, isdst, offset_seconds, &tz_abbr)
         }
 
+        #[cfg(not(unix))]
         fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             let invalid_overflow = || vm.new_overflow_error("mktime argument out of range");
             let invalid_value = || vm.new_value_error("invalid struct_time parameter");
@@ -566,7 +868,7 @@ mod decl {
     impl PyStructTime {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let seq: PyObjectRef = args.bind(vm)?;
+            let (seq, _dict): (PyObjectRef, OptionalArg<PyObjectRef>) = args.bind(vm)?;
             struct_sequence_new(cls, seq, vm)
         }
     }
@@ -594,14 +896,16 @@ mod decl {
 #[pymodule(sub)]
 mod platform {
     #[allow(unused_imports)]
-    use super::decl::{SEC_TO_NS, US_TO_NS};
+    use super::decl::{SEC_TO_NS, StructTimeData, US_TO_NS};
     #[cfg_attr(target_os = "macos", allow(unused_imports))]
     use crate::{
         PyObject, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         builtins::{PyNamespace, PyStrRef},
         convert::IntoPyException,
+        function::Either,
     };
     use core::time::Duration;
+    use libc::time_t;
     use nix::{sys::time::TimeSpec, time::ClockId};
 
     #[cfg(target_os = "solaris")]
@@ -638,6 +942,139 @@ mod platform {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
             obj.try_to_value(vm).map(Self::from_raw)
         }
+    }
+
+    pub(super) fn pyobj_to_time_t(
+        value: Either<f64, i64>,
+        vm: &VirtualMachine,
+    ) -> PyResult<time_t> {
+        let secs = match value {
+            Either::A(float) => {
+                if !float.is_finite() {
+                    return Err(vm.new_value_error("Invalid value for timestamp"));
+                }
+                float.floor()
+            }
+            Either::B(int) => int as f64,
+        };
+        if secs < time_t::MIN as f64 || secs > time_t::MAX as f64 {
+            return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
+        }
+        Ok(secs as time_t)
+    }
+
+    fn struct_time_from_tm(vm: &VirtualMachine, tm: libc::tm) -> StructTimeData {
+        let zone = unsafe {
+            if tm.tm_zone.is_null() {
+                String::new()
+            } else {
+                core::ffi::CStr::from_ptr(tm.tm_zone)
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        };
+        StructTimeData {
+            tm_year: vm.ctx.new_int(tm.tm_year + 1900).into(),
+            tm_mon: vm.ctx.new_int(tm.tm_mon + 1).into(),
+            tm_mday: vm.ctx.new_int(tm.tm_mday).into(),
+            tm_hour: vm.ctx.new_int(tm.tm_hour).into(),
+            tm_min: vm.ctx.new_int(tm.tm_min).into(),
+            tm_sec: vm.ctx.new_int(tm.tm_sec).into(),
+            tm_wday: vm.ctx.new_int((tm.tm_wday + 6) % 7).into(),
+            tm_yday: vm.ctx.new_int(tm.tm_yday + 1).into(),
+            tm_isdst: vm.ctx.new_int(tm.tm_isdst).into(),
+            tm_zone: vm.ctx.new_str(zone).into(),
+            tm_gmtoff: vm.ctx.new_int(tm.tm_gmtoff).into(),
+        }
+    }
+
+    pub(super) fn current_time_t() -> time_t {
+        unsafe { libc::time(core::ptr::null_mut()) }
+    }
+
+    pub(super) fn gmtime_from_timestamp(
+        when: time_t,
+        vm: &VirtualMachine,
+    ) -> PyResult<StructTimeData> {
+        let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
+        let ret = unsafe { libc::gmtime_r(&when, out.as_mut_ptr()) };
+        if ret.is_null() {
+            return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
+        }
+        Ok(struct_time_from_tm(vm, unsafe { out.assume_init() }))
+    }
+
+    pub(super) fn localtime_from_timestamp(
+        when: time_t,
+        vm: &VirtualMachine,
+    ) -> PyResult<StructTimeData> {
+        let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
+        let ret = unsafe { libc::localtime_r(&when, out.as_mut_ptr()) };
+        if ret.is_null() {
+            return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
+        }
+        Ok(struct_time_from_tm(vm, unsafe { out.assume_init() }))
+    }
+
+    pub(super) fn unix_mktime(t: &StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
+        let invalid_tuple = || vm.new_type_error("mktime(): illegal time tuple argument");
+        let year: i32 = t
+            .tm_year
+            .clone()
+            .try_into_value(vm)
+            .map_err(|_| invalid_tuple())?;
+        if year < i32::MIN + 1900 {
+            return Err(vm.new_overflow_error("year out of range"));
+        }
+
+        let mut tm = libc::tm {
+            tm_sec: t
+                .tm_sec
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_min: t
+                .tm_min
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_hour: t
+                .tm_hour
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_mday: t
+                .tm_mday
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_mon: t
+                .tm_mon
+                .clone()
+                .try_into_value::<i32>(vm)
+                .map_err(|_| invalid_tuple())?
+                - 1,
+            tm_year: year - 1900,
+            tm_wday: -1,
+            tm_yday: t
+                .tm_yday
+                .clone()
+                .try_into_value::<i32>(vm)
+                .map_err(|_| invalid_tuple())?
+                - 1,
+            tm_isdst: t
+                .tm_isdst
+                .clone()
+                .try_into_value(vm)
+                .map_err(|_| invalid_tuple())?,
+            tm_gmtoff: 0,
+            tm_zone: core::ptr::null_mut(),
+        };
+        let timestamp = unsafe { libc::mktime(&mut tm) };
+        if timestamp == -1 && tm.tm_wday == -1 {
+            return Err(vm.new_overflow_error("mktime argument out of range"));
+        }
+        Ok(timestamp as f64)
     }
 
     fn get_clock_time(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<Duration> {
