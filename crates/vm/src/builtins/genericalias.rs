@@ -1,5 +1,5 @@
 // spell-checker:ignore iparam gaiterobject
-use std::sync::LazyLock;
+use crate::common::lock::LazyLock;
 
 use super::type_;
 use crate::{

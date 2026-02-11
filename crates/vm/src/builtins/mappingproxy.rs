@@ -1,4 +1,5 @@
 use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
+use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
@@ -13,7 +14,6 @@ use crate::{
         PyComparisonOp, Representable,
     },
 };
-use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "mappingproxy", traverse)]
 #[derive(Debug)]

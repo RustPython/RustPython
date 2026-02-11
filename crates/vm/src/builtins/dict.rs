@@ -2,6 +2,7 @@ use super::{
     IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
     PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set::PySetInner,
 };
+use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -26,7 +27,6 @@ use crate::{
 };
 use alloc::fmt;
 use rustpython_common::lock::PyMutex;
-use std::sync::LazyLock;
 
 pub type DictContentType = dict_inner::Dict;
 

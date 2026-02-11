@@ -2,6 +2,7 @@ use super::{
     PositionIterInternal, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
     PyType, PyTypeRef, iter::builtins_iter,
 };
+use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -30,7 +31,6 @@ use crate::{
 };
 use bstr::ByteSlice;
 use core::{mem::size_of, ops::Deref};
-use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]

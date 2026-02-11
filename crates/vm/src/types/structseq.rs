@@ -1,3 +1,4 @@
+use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     builtins::{PyBaseExceptionRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
@@ -9,7 +10,6 @@ use crate::{
     types::PyComparisonOp,
     vm::Context,
 };
-use std::sync::LazyLock;
 
 const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
     "__reduce__",

@@ -132,7 +132,8 @@ impl OidTable {
 }
 
 /// Global OID table
-static OID_TABLE: std::sync::LazyLock<OidTable> = std::sync::LazyLock::new(OidTable::build);
+static OID_TABLE: rustpython_common::lock::LazyLock<OidTable> =
+    rustpython_common::lock::LazyLock::new(OidTable::build);
 
 /// Macro to define OID entry using oid-registry constant
 macro_rules! oid_static {
