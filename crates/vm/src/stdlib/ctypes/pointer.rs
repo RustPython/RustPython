@@ -790,7 +790,7 @@ impl AsNumber for PyCPointer {
 
 impl AsMapping for PyCPointer {
     fn as_mapping() -> &'static PyMappingMethods {
-        use std::sync::LazyLock;
+        use crate::common::lock::LazyLock;
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
                 let zelf = PyCPointer::mapping_downcast(mapping);

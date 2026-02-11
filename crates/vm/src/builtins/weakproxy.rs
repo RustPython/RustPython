@@ -1,4 +1,5 @@
 use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
+use crate::common::lock::LazyLock;
 use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     class::PyClassImpl,
@@ -11,7 +12,6 @@ use crate::{
         Iterable, PyComparisonOp, Representable, SetAttr,
     },
 };
-use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "weakproxy", unhashable = true, traverse)]
 #[derive(Debug)]

@@ -1,4 +1,5 @@
 use super::{genericalias, type_};
+use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
@@ -12,7 +13,6 @@ use crate::{
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
-use std::sync::LazyLock;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
 

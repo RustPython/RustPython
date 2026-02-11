@@ -1,6 +1,7 @@
 use super::{
     PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
 };
+use crate::common::lock::LazyLock;
 use crate::common::{
     hash::{PyHash, PyUHash},
     lock::PyMutex,
@@ -25,7 +26,6 @@ use crate::{
     vm::VirtualMachine,
 };
 use alloc::fmt;
-use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "tuple", traverse = "manual")]
 pub struct PyTuple<R = PyObjectRef> {

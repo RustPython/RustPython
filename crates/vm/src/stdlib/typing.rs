@@ -28,6 +28,7 @@ pub fn call_typing_func_object<'a>(
 
 #[pymodule(name = "_typing", with(super::typevar::typevar))]
 pub(crate) mod decl {
+    use crate::common::lock::LazyLock;
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_},
@@ -35,7 +36,6 @@ pub(crate) mod decl {
         protocol::{PyMappingMethods, PyNumberMethods},
         types::{AsMapping, AsNumber, Constructor, Iterable, Representable},
     };
-    use std::sync::LazyLock;
 
     #[pyfunction]
     pub(crate) fn _idfunc(args: FuncArgs, _vm: &VirtualMachine) -> PyObjectRef {

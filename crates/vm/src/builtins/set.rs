@@ -5,6 +5,7 @@ use super::{
     IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
     PyTypeRef, builtins_iter,
 };
+use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
@@ -30,7 +31,6 @@ use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
     hash,
 };
-use std::sync::LazyLock;
 
 pub type SetContentType = dict_inner::Dict<()>;
 

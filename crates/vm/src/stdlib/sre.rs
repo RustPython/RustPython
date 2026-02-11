@@ -836,8 +836,8 @@ mod _sre {
 
     impl AsMapping for Match {
         fn as_mapping() -> &'static PyMappingMethods {
-            static AS_MAPPING: std::sync::LazyLock<PyMappingMethods> =
-                std::sync::LazyLock::new(|| PyMappingMethods {
+            static AS_MAPPING: crate::common::lock::LazyLock<PyMappingMethods> =
+                crate::common::lock::LazyLock::new(|| PyMappingMethods {
                     subscript: atomic_func!(|mapping, needle, vm| {
                         Match::mapping_downcast(mapping)
                             .__getitem__(needle.to_owned(), vm)

@@ -10,12 +10,29 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
         pub use parking_lot::{RawMutex, RawRwLock, RawThreadId};
 
-        pub use std::sync::{LazyLock as Lazy, OnceLock as OnceCell};
+        pub use std::sync::{LazyLock, OnceLock as OnceCell};
+        pub use core::cell::LazyCell;
     } else {
         mod cell_lock;
         pub use cell_lock::{RawCellMutex as RawMutex, RawCellRwLock as RawRwLock, SingleThreadId as RawThreadId};
 
-        pub use core::cell::{LazyCell as Lazy, OnceCell};
+        pub use core::cell::{LazyCell, OnceCell};
+
+        /// `core::cell::LazyCell` with `Sync` for use in `static` items.
+        /// SAFETY: Without threading, there can be no concurrent access.
+        pub struct LazyLock<T, F = fn() -> T>(core::cell::LazyCell<T, F>);
+        // SAFETY: Without threading, there can be no concurrent access.
+        unsafe impl<T, F> Sync for LazyLock<T, F> {}
+
+        impl<T, F: FnOnce() -> T> LazyLock<T, F> {
+            pub const fn new(f: F) -> Self { Self(core::cell::LazyCell::new(f)) }
+            pub fn force(this: &Self) -> &T { core::cell::LazyCell::force(&this.0) }
+        }
+
+        impl<T, F: FnOnce() -> T> core::ops::Deref for LazyLock<T, F> {
+            type Target = T;
+            fn deref(&self) -> &T { &self.0 }
+        }
     }
 }
 

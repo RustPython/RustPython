@@ -26,7 +26,7 @@ mod _contextvars {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use indexmap::IndexMap;
-    use std::sync::LazyLock;
+    use rustpython_common::lock::LazyLock;
 
     // TODO: Real hamt implementation
     type Hamt = IndexMap<PyRef<ContextVar>, PyObjectRef, ahash::RandomState>;
