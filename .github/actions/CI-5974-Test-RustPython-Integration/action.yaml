@@ -276,6 +276,23 @@ runs:
         done
         cat <"${TEST_STEP_SUMMARY}" >> "$GITHUB_STEP_SUMMARY" ;
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+    - name: Format GitHub Actions environment file to JSON
+      id: summarize
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        echo '{}' > formatted_env.json  # Initialize an empty JSON file
+        jq -Rn 'inputs | split("=") | { (.[0]): .[1] }' < "$GITHUB_ENV" | jq -s 'add' > formatted_env.json
+    - name: Upload JSON as artifact
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      with:
+        name: formatted-env-${{ runner.os }}-${{ inputs.python-version }}-${{ github.sha }}
+        path: formatted_env.json
+        if-no-files-found: ignore
+        compression-level: 9
+        retention-days: 1
+        overwrite: true
     - name: Post-Clean
       id: post-bootstrap
       run: |

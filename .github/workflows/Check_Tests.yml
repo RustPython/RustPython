@@ -17,6 +17,17 @@ on:  # yamllint disable-line rule:truthy
   push:
     branches: ["**"]  # matches any branch
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      python-version:
+        description: Target python version to target. Expected format: X.Y (e.g., 3.14)
+        type: string
+        default: "3.14"
+        inputs:
+     subshell-timeout:
+        description: Max time in seconds before marking a subshell as hung (per-subshell).
+        type: int
+        default: 30
 
 # Declare default permissions as none.
 permissions: {}
@@ -24,13 +35,13 @@ permissions: {}
 env:
   #define cargo args like in cron
   CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,ssl,jit
-  # Define Python versions at the top level -- Expected format: X.Y (e.g., 3.13)
-  PYTHON_DEFAULT: "${{ vars.PYTHON_DEFAULT || '3.13' }}"
+  # Define Python versions at the top level -- Expected format: X.Y (e.g., 3.14)
+  PYTHON_DEFAULT: "${{ inputs.python-version || vars.PYTHON_DEFAULT || '3.14' }}"
   PYTHON_OLD_MIN: "${{ vars.PYTHON_OLD_MIN || '3.9' }}"  # For Oldest Python versions
-  PYTHON_OLD_EXTRA: "${{ vars.PYTHON_OLD_EXTRA || '3.11' }}"  # For Older Python versions (Extra coverage)
+  PYTHON_OLD_EXTRA: "${{ vars.PYTHON_OLD_EXTRA || '3.12' }}"  # For Older Python versions (Extra coverage)
   PYTHON_EXPERIMENTAL: "${{ vars.PYTHON_EXPERIMENTAL || 'main' }}"  # For future Python versions
   # define how mush time before assuming the test has hung in seconds (parsed by sleep)
-  SUBSHELL_TIMEOUT: 30
+  SUBSHELL_TIMEOUT: ${{ inputs.subshell-timeout || 30 }}
 
 
 # TODO: coordinate with @moreal - to support initial use-case See RustPython/RustPython#5974
@@ -139,6 +150,25 @@ jobs:
             ${{ steps.fetch-cpython.outputs.files }}
           python-version: ${{ env.PYTHON_VERSION }}
           max-test-time: ${{ env.SUBSHELL_TIMEOUT }} # seconds
+      - name: Format GitHub Actions environment file to JSON
+        id: summarize
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          echo '{}' > formatted_env.json  # Initialize an empty JSON file
+          jq -Rn 'inputs | split("=") | { (.[0]): .[1] }' < "$GITHUB_ENV" | jq -s 'add' > formatted_env.json
+
+      - name: Upload JSON as artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: formatted-env
+          path: formatted_env.json
+          if-no-files-found: ignore
+          compression-level: 9
+          retention-days: 1
+          overwrite: true
+
       - name: Post-Process
         id: summarize
         if: ${{ always() }}

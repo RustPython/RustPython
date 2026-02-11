@@ -54,7 +54,7 @@ inputs:
     required: true
   python-version:
     description: |
-      The Cpython version (e.g., any valid release or tag, 3.11, 3.12, 3.13) to override setup.
+      The Cpython version (e.g., any valid release or tag, 3.12, 3.13, 3.14) to override setup.
       The default is to use the value of the environment variable 'PYTHON_VERSION'.
     default: '3.13'
     required: true
