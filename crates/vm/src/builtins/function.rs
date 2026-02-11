@@ -229,10 +229,10 @@ impl PyFunction {
                 };
 
                 // Count keyword-only arguments that were actually provided
-                let kwonly_given = if code.kwonlyarg_count > 0 {
-                    let kwonly_start = code.arg_count as usize;
-                    let kwonly_end = kwonly_start + code.kwonlyarg_count as usize;
-                    code.varnames[kwonly_start..kwonly_end]
+                let kw_only_given = if code.kwonlyarg_count > 0 {
+                    let start = code.arg_count as usize;
+                    let end = start + code.kwonlyarg_count as usize;
+                    code.varnames[start..end]
                         .iter()
                         .filter(|name| func_args.kwargs.contains_key(name.as_str()))
                         .count()
@@ -240,13 +240,13 @@ impl PyFunction {
                     0
                 };
 
-                let given_msg = if kwonly_given > 0 {
+                let given_msg = if kw_only_given > 0 {
                     format!(
                         "{} positional argument{} (and {} keyword-only argument{}) were",
                         nargs,
                         if nargs == 1 { "" } else { "s" },
-                        kwonly_given,
-                        if kwonly_given == 1 { "" } else { "s" },
+                        kw_only_given,
+                        if kw_only_given == 1 { "" } else { "s" },
                     )
                 } else {
                     format!("{} {}", nargs, if nargs == 1 { "was" } else { "were" })
