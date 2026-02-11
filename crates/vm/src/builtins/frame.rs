@@ -218,6 +218,7 @@ impl Py<Frame> {
             let registry = vm.state.thread_frames.lock();
             for slot in registry.values() {
                 if let Some(frame) = slot
+                    .frames
                     .lock()
                     .iter()
                     .find(|f| {

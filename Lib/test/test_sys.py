@@ -209,7 +209,6 @@ class SysModuleTest(unittest.TestCase):
     def tearDown(self):
         test.support.reap_children()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: (42,) != 42
     def test_exit(self):
         # call with two arguments
         self.assertRaises(TypeError, sys.exit, 42, 42)
@@ -850,7 +849,6 @@ class SysModuleTest(unittest.TestCase):
                     '''))
                 self.assertTrue(sys._is_interned(s))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs update for context_aware_warnings
     def test_sys_flags(self):
         self.assertTrue(sys.flags)
         attrs = ("debug",
@@ -1055,12 +1053,10 @@ class SysModuleTest(unittest.TestCase):
                          'stdout: surrogateescape\n'
                          'stderr: backslashreplace\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; stderr: backslashreplace
     @support.requires_subprocess()
     def test_c_locale_surrogateescape(self):
         self.check_locale_surrogateescape('C')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; stderr: backslashreplace
     @support.requires_subprocess()
     def test_posix_locale_surrogateescape(self):
         self.check_locale_surrogateescape('POSIX')
@@ -1224,7 +1220,6 @@ class SysModuleTest(unittest.TestCase):
         self.assertIsInstance(level, int)
         self.assertGreater(level, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; b'ZeroDivisionError: division by zero']
     @force_not_colorized
     @support.requires_subprocess()
     def test_sys_tracebacklimit(self):

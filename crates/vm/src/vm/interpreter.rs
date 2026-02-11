@@ -121,8 +121,6 @@ where
         #[cfg(feature = "threading")]
         thread_frames: parking_lot::Mutex::new(std::collections::HashMap::new()),
         #[cfg(feature = "threading")]
-        thread_exceptions: parking_lot::Mutex::new(std::collections::HashMap::new()),
-        #[cfg(feature = "threading")]
         thread_handles: parking_lot::Mutex::new(Vec::new()),
         #[cfg(feature = "threading")]
         shutdown_handles: parking_lot::Mutex::new(Vec::new()),

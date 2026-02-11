@@ -1,7 +1,7 @@
 //! Python code execution functions.
 
 use crate::{
-    PyResult, VirtualMachine,
+    PyObjectRef, PyResult, VirtualMachine,
     compiler::{self},
     scope::Scope,
 };
@@ -19,6 +19,13 @@ impl VirtualMachine {
     ///
     /// Execute a string of Python code with explicit scope and source path.
     pub fn run_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
+        // Make command/eval sources available to traceback formatting
+        // (source lines and caret indicators) via linecache.
+        // Mirrors CPython behavior for "<string>" style sources.
+        if source_path.starts_with('<') && source_path.ends_with('>') {
+            let _ = self.cache_source_for_traceback(&source_path, source);
+        }
+
         let code_obj = self
             .compile(source, compiler::Mode::Exec, source_path)
             .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
@@ -35,6 +42,23 @@ impl VirtualMachine {
             .compile(source, compiler::Mode::BlockExpr, "<embedded>".to_owned())
             .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
         self.run_code_obj(code_obj, scope)
+    }
+
+    fn cache_source_for_traceback(&self, source_path: &str, source: &str) -> PyResult<()> {
+        let linecache = self.import("linecache", 0)?;
+        let cache = linecache.get_attr("cache", self)?;
+        let lines: Vec<PyObjectRef> = source
+            .split_inclusive('\n')
+            .map(|line| self.ctx.new_str(line).into())
+            .collect();
+        let entry = self.ctx.new_tuple(vec![
+            self.ctx.new_int(source.len()).into(),
+            self.ctx.none(),
+            self.ctx.new_list(lines).into(),
+            self.ctx.new_str(source_path).into(),
+        ]);
+        cache.set_item(source_path, entry.into(), self)?;
+        Ok(())
     }
 }
 

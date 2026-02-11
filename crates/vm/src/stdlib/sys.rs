@@ -842,6 +842,15 @@ mod sys {
                 // Try Python traceback module first for richer output
                 // (enables features like keyword typo suggestions in SyntaxError)
                 if let Ok(tb_mod) = vm.import("traceback", 0)
+                    && let Ok(print_exc_builtin) = tb_mod.get_attr("_print_exception_bltin", vm)
+                    && print_exc_builtin
+                        .call((exc.as_object().to_owned(),), vm)
+                        .is_ok()
+                {
+                    return Ok(());
+                }
+                // Fallback to public traceback.print_exception API
+                if let Ok(tb_mod) = vm.import("traceback", 0)
                     && let Ok(print_exc) = tb_mod.get_attr("print_exception", vm)
                     && print_exc.call((exc.as_object().to_owned(),), vm).is_ok()
                 {
@@ -1558,10 +1567,6 @@ mod sys {
         safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
         warn_default_encoding: u8,
-        /// -X thread_inherit_context, whether new threads inherit context from parent
-        thread_inherit_context: bool,
-        /// -X context_aware_warnings, whether warnings are context aware
-        context_aware_warnings: bool,
     }
 
     impl FlagsData {
@@ -1585,8 +1590,6 @@ mod sys {
                 int_max_str_digits: settings.int_max_str_digits,
                 safe_path: settings.safe_path,
                 warn_default_encoding: settings.warn_default_encoding as u8,
-                thread_inherit_context: settings.thread_inherit_context,
-                context_aware_warnings: settings.context_aware_warnings,
             }
         }
     }
@@ -1599,6 +1602,16 @@ mod sys {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create 'sys.flags' instances"))
+        }
+
+        #[pygetset]
+        fn context_aware_warnings(&self, vm: &VirtualMachine) -> bool {
+            vm.state.config.settings.context_aware_warnings
+        }
+
+        #[pygetset]
+        fn thread_inherit_context(&self, vm: &VirtualMachine) -> bool {
+            vm.state.config.settings.thread_inherit_context
         }
     }
 

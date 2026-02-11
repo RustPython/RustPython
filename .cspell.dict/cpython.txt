@@ -11,6 +11,7 @@ badsyntax
 baseinfo
 basetype
 binop
+bltin
 boolop
 BUFMAX
 BUILDSTDLIB

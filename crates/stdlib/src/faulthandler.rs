@@ -96,9 +96,8 @@ mod decl {
         all_threads: AtomicBool::new(true),
     };
 
-    /// Arc<Mutex<Vec<FrameRef>>> - shared frame slot for a thread
     #[cfg(feature = "threading")]
-    type ThreadFrameSlot = Arc<parking_lot::Mutex<Vec<crate::vm::frame::FrameRef>>>;
+    type ThreadFrameSlot = Arc<rustpython_vm::vm::thread::ThreadSlot>;
 
     // Watchdog thread state for dump_traceback_later
     struct WatchdogState {
@@ -411,7 +410,7 @@ mod decl {
                 if tid == current_tid {
                     continue;
                 }
-                let frames_guard = slot.lock();
+                let frames_guard = slot.frames.lock();
                 dump_traceback_thread_frames(fd, tid, false, &frames_guard);
                 puts(fd, "\n");
             }
@@ -871,7 +870,7 @@ mod decl {
                 #[cfg(feature = "threading")]
                 {
                     for (tid, slot) in &thread_frame_slots {
-                        let frames = slot.lock();
+                        let frames = slot.frames.lock();
                         dump_traceback_thread_frames(fd, *tid, false, &frames);
                     }
                 }

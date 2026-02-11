@@ -129,12 +129,9 @@ pub struct PyGlobalState {
     /// Main thread identifier (pthread_self on Unix)
     #[cfg(feature = "threading")]
     pub main_thread_ident: AtomicCell<u64>,
-    /// Registry of all threads' current frames for sys._current_frames()
+    /// Registry of all threads' slots for sys._current_frames() and sys._current_exceptions()
     #[cfg(feature = "threading")]
     pub thread_frames: parking_lot::Mutex<HashMap<u64, stdlib::thread::CurrentFrameSlot>>,
-    /// Registry of all threads' exception slots for sys._current_exceptions()
-    #[cfg(feature = "threading")]
-    pub thread_exceptions: parking_lot::Mutex<HashMap<u64, thread::CurrentExceptionSlot>>,
     /// Registry of all ThreadHandles for fork cleanup
     #[cfg(feature = "threading")]
     pub thread_handles: parking_lot::Mutex<Vec<stdlib::thread::HandleEntry>>,
@@ -317,6 +314,34 @@ impl VirtualMachine {
         self.state
             .codec_registry
             .register_manual("utf8", utf8_codec)?;
+
+        // Register latin-1 / iso8859-1 aliases needed very early for stdio
+        // bootstrap (e.g. PYTHONIOENCODING=latin-1).
+        // Build CodecInfo from builtin _codecs functions so it works before
+        // full encodings package import.
+        let codecs_mod = self.import("codecs", 0)?;
+        let codec_info_cls = codecs_mod.get_attr("CodecInfo", self)?;
+        let c_codecs = self.import("_codecs", 0)?;
+        let latin1_encode = c_codecs.get_attr("latin_1_encode", self)?;
+        let latin1_decode = c_codecs.get_attr("latin_1_decode", self)?;
+        let codec_info = codec_info_cls.call(
+            crate::function::PosArgs::new(vec![
+                latin1_encode,
+                latin1_decode,
+                self.ctx.none(),
+                self.ctx.none(),
+                self.ctx.none(),
+                self.ctx.none(),
+                self.ctx.new_str("iso8859-1").into(),
+            ]),
+            self,
+        )?;
+        let latin1_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
+        for name in ["latin-1", "latin_1", "latin1", "iso8859-1", "iso8859_1"] {
+            self.state
+                .codec_registry
+                .register_manual(name, latin1_codec.clone())?;
+        }
         Ok(())
     }
 
@@ -353,8 +378,8 @@ impl VirtualMachine {
                 let io = import::import_builtin(self, "_io")?;
 
                 // Full stdio: FileIO → BufferedWriter → TextIOWrapper
-                #[cfg(feature = "host_env")]
-                let make_stdio = |name: &str, fd: i32, write: bool| {
+                #[cfg(all(feature = "host_env", feature = "stdio"))]
+                let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
                     let buffered_stdio = self.state.config.settings.buffered_stdio;
                     let unbuffered = write && !buffered_stdio;
                     let buf = crate::stdlib::io::open(
@@ -383,12 +408,13 @@ impl VirtualMachine {
                     let errors = if fd == 2 {
                         Some("backslashreplace")
                     } else {
-                        self.state
-                            .config
-                            .settings
-                            .stdio_errors
-                            .as_deref()
-                            .or(Some("surrogateescape"))
+                        self.state.config.settings.stdio_errors.as_deref().or(
+                            if self.state.config.settings.stdio_encoding.is_some() {
+                                Some("strict")
+                            } else {
+                                Some("surrogateescape")
+                            },
+                        )
                     };
 
                     let stdio = self.call_method(
@@ -1365,7 +1391,7 @@ impl VirtualMachine {
         excs.exc = exc;
         drop(excs);
         #[cfg(feature = "threading")]
-        thread::sync_thread_exception(self.topmost_exception());
+        thread::update_thread_exception(self.topmost_exception());
     }
 
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
@@ -1374,7 +1400,7 @@ impl VirtualMachine {
         *excs = *cur.prev.expect("pop_exception() without nested exc stack");
         drop(excs);
         #[cfg(feature = "threading")]
-        thread::sync_thread_exception(self.topmost_exception());
+        thread::update_thread_exception(self.topmost_exception());
         cur.exc
     }
 
@@ -1387,7 +1413,7 @@ impl VirtualMachine {
         let prev = core::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
         drop(prev);
         #[cfg(feature = "threading")]
-        thread::sync_thread_exception(self.topmost_exception());
+        thread::update_thread_exception(self.topmost_exception());
     }
 
     pub(crate) fn contextualize_exception(&self, exception: &Py<PyBaseException>) {
