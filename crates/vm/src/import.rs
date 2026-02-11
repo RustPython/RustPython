@@ -153,6 +153,27 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
     import_code_obj(vm, module_name, code, false)
 }
 
+/// If `__spec__._initializing` is true, wait for the module to finish
+/// initializing by calling `_lock_unlock_module`.
+fn import_ensure_initialized(
+    module: &PyObjectRef,
+    name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let initializing = match vm.get_attribute_opt(module.clone(), vm.ctx.intern_str("__spec__"))? {
+        Some(spec) => match vm.get_attribute_opt(spec, vm.ctx.intern_str("_initializing"))? {
+            Some(v) => v.try_to_bool(vm)?,
+            None => false,
+        },
+        None => false,
+    };
+    if initializing {
+        let lock_unlock = vm.importlib.get_attr("_lock_unlock_module", vm)?;
+        lock_unlock.call((vm.ctx.new_str(name),), vm)?;
+    }
+    Ok(())
+}
+
 pub fn import_code_obj(
     vm: &VirtualMachine,
     module_name: &str,
@@ -405,7 +426,10 @@ pub(crate) fn import_module_level(
     // import_get_module + import_find_and_load
     let sys_modules = vm.sys_module.get_attr("modules", vm)?;
     let module = match sys_modules.get_item(&*abs_name, vm) {
-        Ok(m) if !vm.is_none(&m) => m,
+        Ok(m) if !vm.is_none(&m) => {
+            import_ensure_initialized(&m, &abs_name, vm)?;
+            m
+        }
         _ => {
             let find_and_load = vm.importlib.get_attr("_find_and_load", vm)?;
             let abs_name_obj = vm.ctx.new_str(&*abs_name);
