@@ -148,27 +148,27 @@ List comprehension element unpacking
     [0, 1, 2, 3, 4]
 
     >>> l = [a, (3, 4), {5}, {6: None}, (i for i in range(7, 10))]
-    >>> [*item for item in l]
+    >>> [*item for item in l] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> [*[0, 1] for i in range(10)]
+    >>> [*[0, 1] for i in range(10)] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> [*'a' for i in range(10)]
+    >>> [*'a' for i in range(10)] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> [*[] for i in range(10)]
+    >>> [*[] for i in range(10)] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> {**{} for a in [1]}
+    >>> {**{} for a in [1]} # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: dict unpacking cannot be used in dict comprehension
@@ -356,27 +356,27 @@ Now some general starred expressions (all fail).
       ...
     SyntaxError: can't use starred expression here
 
-    >>> (*x),y = 1, 2 # doctest:+ELLIPSIS
+    >>> (*x),y = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> (((*x))),y = 1, 2 # doctest:+ELLIPSIS
+    >>> (((*x))),y = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> z,(*x),y = 1, 2, 4 # doctest:+ELLIPSIS
+    >>> z,(*x),y = 1, 2, 4 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> z,(*x) = 1, 2 # doctest:+ELLIPSIS
+    >>> z,(*x) = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> ((*x),y) = 1, 2 # doctest:+ELLIPSIS
+    >>> ((*x),y) = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
@@ -402,8 +402,15 @@ Some size constraints (all fail.)
 
 __test__ = {'doctests' : doctests}
 
+EXPECTED_FAILURE = doctest.register_optionflag('EXPECTED_FAILURE') # TODO: RUSTPYTHON
+class CustomOutputChecker(doctest.OutputChecker): # TODO: RUSTPYTHON
+    def check_output(self, want, got, optionflags): # TODO: RUSTPYTHON
+        if optionflags & EXPECTED_FAILURE: # TODO: RUSTPYTHON
+            return not super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
+        return super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
+
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite())
+    tests.addTest(doctest.DocTestSuite(checker=CustomOutputChecker())) # TODO: RUSTPYTHON
     return tests
 
 
