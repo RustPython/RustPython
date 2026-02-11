@@ -14,7 +14,7 @@ from test.support import (captured_stderr, captured_stdout, script_helper,
                           findfile)
 from test.support.os_helper import unlink
 
-import unittest # TODO: RUSTPYTHON
+import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
 
 
 SOURCE_CODES = {
