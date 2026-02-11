@@ -526,7 +526,7 @@ boolean {0[0]} NO
             cf.get(self.default_section, "Foo"), "Bar",
             "could not locate option, expecting case-insensitive defaults")
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, universal newlines")
+    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON; universal newlines")
     def test_parse_errors(self):
         cf = self.newconfig()
         self.parse_error(cf, configparser.ParsingError,
@@ -762,7 +762,6 @@ boolean {0[0]} NO
         parsed_files = cf.read([], encoding="utf-8")
         self.assertEqual(parsed_files, [])
 
-    # XXX: RUSTPYTHON; This test might cause CI hang
     def test_read_returns_file_list_with_bytestring_path(self):
         if self.delimiters[0] != '=':
             self.skipTest('incompatible format')
@@ -988,12 +987,12 @@ class ConfigParserTestCase(BasicTestCase, unittest.TestCase):
 
     def test_defaults_keyword(self):
         """bpo-23835 fix for ConfigParser"""
-        cf = self.newconfig(defaults={1: 2.4})
-        self.assertEqual(cf[self.default_section]['1'], '2.4')
-        self.assertAlmostEqual(cf[self.default_section].getfloat('1'), 2.4)
-        cf = self.newconfig(defaults={"A": 5.2})
-        self.assertEqual(cf[self.default_section]['a'], '5.2')
-        self.assertAlmostEqual(cf[self.default_section].getfloat('a'), 5.2)
+        cf = self.newconfig(defaults={1: 2.5})
+        self.assertEqual(cf[self.default_section]['1'], '2.5')
+        self.assertAlmostEqual(cf[self.default_section].getfloat('1'), 2.5)
+        cf = self.newconfig(defaults={"A": 5.25})
+        self.assertEqual(cf[self.default_section]['a'], '5.25')
+        self.assertAlmostEqual(cf[self.default_section].getfloat('a'), 5.25)
 
 
 class ConfigParserTestCaseNoInterpolation(BasicTestCase, unittest.TestCase):
@@ -2204,6 +2203,40 @@ class SectionlessTestCase(unittest.TestCase):
         self.assertEqual('1', cfg2[configparser.UNNAMED_SECTION]['a'])
         self.assertEqual('2', cfg2[configparser.UNNAMED_SECTION]['b'])
 
+    def test_empty_unnamed_section(self):
+        cfg = configparser.ConfigParser(allow_unnamed_section=True)
+        cfg.add_section(configparser.UNNAMED_SECTION)
+        cfg.add_section('section')
+        output = io.StringIO()
+        cfg.write(output)
+        self.assertEqual(output.getvalue(), '[section]\n\n')
+
+    def test_add_section(self):
+        cfg = configparser.ConfigParser(allow_unnamed_section=True)
+        cfg.add_section(configparser.UNNAMED_SECTION)
+        cfg.set(configparser.UNNAMED_SECTION, 'a', '1')
+        self.assertEqual('1', cfg[configparser.UNNAMED_SECTION]['a'])
+        output = io.StringIO()
+        cfg.write(output)
+        self.assertEqual(output.getvalue(), 'a = 1\n\n')
+
+        cfg = configparser.ConfigParser(allow_unnamed_section=True)
+        cfg[configparser.UNNAMED_SECTION] = {'a': '1'}
+        self.assertEqual('1', cfg[configparser.UNNAMED_SECTION]['a'])
+        output = io.StringIO()
+        cfg.write(output)
+        self.assertEqual(output.getvalue(), 'a = 1\n\n')
+
+    def test_disabled_error(self):
+        with self.assertRaises(configparser.MissingSectionHeaderError):
+            configparser.ConfigParser().read_string("a = 1")
+
+        with self.assertRaises(configparser.UnnamedSectionDisabledError):
+            configparser.ConfigParser().add_section(configparser.UNNAMED_SECTION)
+
+        with self.assertRaises(configparser.UnnamedSectionDisabledError):
+            configparser.ConfigParser()[configparser.UNNAMED_SECTION] = {'a': '1'}
+
     def test_multiple_configs(self):
         cfg = configparser.ConfigParser(allow_unnamed_section=True)
         cfg.read_string('a = 1')
@@ -2212,6 +2245,30 @@ class SectionlessTestCase(unittest.TestCase):
         self.assertEqual([configparser.UNNAMED_SECTION], cfg.sections())
         self.assertEqual('1', cfg[configparser.UNNAMED_SECTION]['a'])
         self.assertEqual('2', cfg[configparser.UNNAMED_SECTION]['b'])
+
+
+class InvalidInputTestCase(unittest.TestCase):
+    """Tests for issue #65697, where configparser will write configs
+    it parses back differently. Ex: keys containing delimiters or
+    matching the section pattern"""
+
+    def test_delimiter_in_key(self):
+        cfg = configparser.ConfigParser(delimiters=('='))
+        cfg.add_section('section1')
+        cfg.set('section1', 'a=b', 'c')
+        output = io.StringIO()
+        with self.assertRaises(configparser.InvalidWriteError):
+            cfg.write(output)
+        output.close()
+
+    def test_section_bracket_in_key(self):
+        cfg = configparser.ConfigParser()
+        cfg.add_section('section1')
+        cfg.set('section1', '[this parses back as a section]', 'foo')
+        output = io.StringIO()
+        with self.assertRaises(configparser.InvalidWriteError):
+            cfg.write(output)
+        output.close()
 
 
 class MiscTestCase(unittest.TestCase):

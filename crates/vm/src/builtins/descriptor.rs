@@ -170,6 +170,7 @@ impl Representable for PyMethodDescriptor {
 
 #[derive(Debug)]
 pub enum MemberKind {
+    Object = 6,
     Bool = 14,
     ObjectEx = 16,
 }
@@ -253,11 +254,20 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
     }
 }
 
-#[pyclass(
-    with(GetDescriptor, Representable),
-    flags(BASETYPE, DISALLOW_INSTANTIATION)
-)]
+#[pyclass(with(GetDescriptor, Representable), flags(DISALLOW_INSTANTIATION))]
 impl PyMemberDescriptor {
+    #[pymember]
+    fn __objclass__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(zelf.common.typ.clone().into())
+    }
+
+    #[pymember]
+    fn __name__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(zelf.common.name.to_owned().into())
+    }
+
     #[pygetset]
     fn __doc__(&self) -> Option<String> {
         self.member.doc.to_owned()
@@ -274,6 +284,23 @@ impl PyMemberDescriptor {
         } else {
             qualname.to_owned()
         })
+    }
+
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![
+                builtins_getattr,
+                vm.ctx
+                    .new_tuple(vec![
+                        self.common.typ.clone().into(),
+                        vm.ctx.new_str(self.common.name.as_str()).into(),
+                    ])
+                    .into(),
+            ])
+            .into())
     }
 
     #[pyslot]
@@ -306,6 +333,7 @@ fn get_slot_from_object(
     vm: &VirtualMachine,
 ) -> PyResult {
     let slot = match member.kind {
+        MemberKind::Object => obj.get_slot(offset).unwrap_or_else(|| vm.ctx.none()),
         MemberKind::Bool => obj
             .get_slot(offset)
             .unwrap_or_else(|| vm.ctx.new_bool(false).into()),
@@ -325,25 +353,38 @@ fn set_slot_at_object(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     match member.kind {
+        MemberKind::Object => match value {
+            PySetterValue::Assign(v) => {
+                obj.set_slot(offset, Some(v));
+            }
+            PySetterValue::Delete => {
+                obj.set_slot(offset, None);
+            }
+        },
         MemberKind::Bool => {
             match value {
                 PySetterValue::Assign(v) => {
                     if !v.class().is(vm.ctx.types.bool_type) {
                         return Err(vm.new_type_error("attribute value type must be bool"));
                     }
-
                     obj.set_slot(offset, Some(v))
                 }
-                PySetterValue::Delete => obj.set_slot(offset, None),
+                PySetterValue::Delete => {
+                    return Err(vm.new_type_error("can't delete numeric/char attribute".to_owned()));
+                }
             };
         }
-        MemberKind::ObjectEx => {
-            let value = match value {
-                PySetterValue::Assign(v) => Some(v),
-                PySetterValue::Delete => None,
-            };
-            obj.set_slot(offset, value);
-        }
+        MemberKind::ObjectEx => match value {
+            PySetterValue::Assign(v) => {
+                obj.set_slot(offset, Some(v));
+            }
+            PySetterValue::Delete => {
+                if obj.get_slot(offset).is_none() {
+                    return Err(vm.new_attribute_error(member.name.clone()));
+                }
+                obj.set_slot(offset, None);
+            }
+        },
     }
 
     Ok(())
@@ -364,26 +405,23 @@ impl GetDescriptor for PyMemberDescriptor {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let descr = Self::_as_pyref(&zelf, vm)?;
         match obj {
-            Some(x) => descr.member.get(x, vm),
-            None => {
-                // When accessed from class (not instance), for __doc__ member descriptor,
-                // return the class's docstring if available
-                // When accessed from class (not instance), check if the class has
-                // an attribute with the same name as this member descriptor
-                if let Some(cls) = cls
-                    && let Ok(cls_type) = cls.downcast::<PyType>()
-                    && let Some(interned) = vm.ctx.interned_str(descr.member.name.as_str())
-                    && let Some(attr) = cls_type.attributes.read().get(&interned)
-                {
-                    return Ok(attr.clone());
+            Some(x) => {
+                if !x.class().fast_issubclass(&descr.common.typ) {
+                    return Err(vm.new_type_error(format!(
+                        "descriptor '{}' for '{}' objects doesn't apply to a '{}' object",
+                        descr.common.name,
+                        descr.common.typ.name(),
+                        x.class().name()
+                    )));
                 }
-                Ok(zelf)
+                descr.member.get(x, vm)
             }
+            None => Ok(zelf),
         }
     }
 }

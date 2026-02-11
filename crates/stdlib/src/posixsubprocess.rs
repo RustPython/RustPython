@@ -38,7 +38,7 @@ mod _posixsubprocess {
             && vm
                 .state
                 .finalizing
-                .load(std::sync::atomic::Ordering::Acquire)
+                .load(core::sync::atomic::Ordering::Acquire)
         {
             return Err(vm.new_python_finalization_error(
                 "preexec_fn not supported at interpreter shutdown".to_owned(),
@@ -226,7 +226,6 @@ gen_args! {
     uid: Option<Uid>,
     child_umask: i32,
     preexec_fn: Option<PyObjectRef>,
-    _use_vfork: bool,
 }
 
 // can't reallocate inside of exec(), so we reallocate prior to fork() and pass this along

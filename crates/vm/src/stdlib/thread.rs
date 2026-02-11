@@ -1,9 +1,10 @@
 //! Implementation of the _thread module
 #[cfg(unix)]
 pub(crate) use _thread::after_fork_child;
+pub use _thread::get_ident;
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
-    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames, get_ident,
+    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames,
     init_main_thread_ident, module_def,
 };
 
@@ -16,7 +17,10 @@ pub(crate) mod _thread {
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
-    use alloc::fmt;
+    use alloc::{
+        fmt,
+        sync::{Arc, Weak},
+    };
     use core::{cell::RefCell, time::Duration};
     use crossbeam_utils::atomic::AtomicCell;
     use parking_lot::{
@@ -290,7 +294,19 @@ pub(crate) mod _thread {
     impl Representable for RLock {
         #[inline]
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            repr_lock_impl!(zelf)
+            let count = zelf.count.load(core::sync::atomic::Ordering::Relaxed);
+            let status = if zelf.mu.is_locked() {
+                "locked"
+            } else {
+                "unlocked"
+            };
+            Ok(format!(
+                "<{} {} object count={} at {:#x}>",
+                status,
+                zelf.class().name(),
+                count,
+                zelf.get_id()
+            ))
         }
     }
 
@@ -305,7 +321,7 @@ pub(crate) mod _thread {
     fn set_name(name: PyStrRef) {
         #[cfg(target_os = "linux")]
         {
-            use std::ffi::CString;
+            use alloc::ffi::CString;
             if let Ok(c_name) = CString::new(name.as_str()) {
                 // pthread_setname_np on Linux has a 16-byte limit including null terminator
                 // TODO: Potential UTF-8 boundary issue when truncating thread name on Linux.
@@ -322,7 +338,7 @@ pub(crate) mod _thread {
         }
         #[cfg(target_os = "macos")]
         {
-            use std::ffi::CString;
+            use alloc::ffi::CString;
             if let Ok(c_name) = CString::new(name.as_str()) {
                 unsafe {
                     libc::pthread_setname_np(c_name.as_ptr());
@@ -463,7 +479,7 @@ pub(crate) mod _thread {
         });
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
     #[pyfunction]
     fn interrupt_main(signum: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
         crate::signal::set_interrupt_ex(signum.unwrap_or(libc::SIGINT), vm)
@@ -503,8 +519,8 @@ pub(crate) mod _thread {
 
     // Registry for non-daemon threads that need to be joined at shutdown
     pub type ShutdownEntry = (
-        std::sync::Weak<parking_lot::Mutex<ThreadHandleInner>>,
-        std::sync::Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+        Weak<parking_lot::Mutex<ThreadHandleInner>>,
+        Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     );
 
     #[pyfunction]
@@ -558,14 +574,11 @@ pub(crate) mod _thread {
     /// Add a non-daemon thread handle to the shutdown registry
     fn add_to_shutdown_handles(
         vm: &VirtualMachine,
-        inner: &std::sync::Arc<parking_lot::Mutex<ThreadHandleInner>>,
-        done_event: &std::sync::Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+        inner: &Arc<parking_lot::Mutex<ThreadHandleInner>>,
+        done_event: &Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     ) {
         let mut handles = vm.state.shutdown_handles.lock();
-        handles.push((
-            std::sync::Arc::downgrade(inner),
-            std::sync::Arc::downgrade(done_event),
-        ));
+        handles.push((Arc::downgrade(inner), Arc::downgrade(done_event)));
     }
 
     #[pyfunction]
@@ -731,12 +744,12 @@ pub(crate) mod _thread {
     // Thread-local storage for cleanup guards
     // When a thread terminates, the guard is dropped, which triggers cleanup
     thread_local! {
-        static LOCAL_GUARDS: std::cell::RefCell<Vec<LocalGuard>> = const { std::cell::RefCell::new(Vec::new()) };
+        static LOCAL_GUARDS: RefCell<Vec<LocalGuard>> = const { RefCell::new(Vec::new()) };
     }
 
     // Guard that removes thread-local data when dropped
     struct LocalGuard {
-        local: std::sync::Weak<LocalData>,
+        local: Weak<LocalData>,
         thread_id: std::thread::ThreadId,
     }
 
@@ -756,8 +769,8 @@ pub(crate) mod _thread {
         data: parking_lot::Mutex<std::collections::HashMap<std::thread::ThreadId, PyDictRef>>,
     }
 
-    impl std::fmt::Debug for LocalData {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl fmt::Debug for LocalData {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.debug_struct("LocalData").finish_non_exhaustive()
         }
     }
@@ -766,7 +779,7 @@ pub(crate) mod _thread {
     #[pyclass(module = "_thread", name = "_local")]
     #[derive(Debug, PyPayload)]
     struct Local {
-        inner: std::sync::Arc<LocalData>,
+        inner: Arc<LocalData>,
     }
 
     #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
@@ -797,7 +810,7 @@ pub(crate) mod _thread {
             // Register cleanup guard only if we inserted a new entry
             if need_guard {
                 let guard = LocalGuard {
-                    local: std::sync::Arc::downgrade(&self.inner),
+                    local: Arc::downgrade(&self.inner),
                     thread_id,
                 };
                 LOCAL_GUARDS.with(|guards| {
@@ -811,7 +824,7 @@ pub(crate) mod _thread {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self {
-                inner: std::sync::Arc::new(LocalData {
+                inner: Arc::new(LocalData {
                     data: parking_lot::Mutex::new(std::collections::HashMap::new()),
                 }),
             }
@@ -866,19 +879,19 @@ pub(crate) mod _thread {
     // Registry of all ThreadHandles for fork cleanup
     // Stores weak references so handles can be garbage collected normally
     pub type HandleEntry = (
-        std::sync::Weak<parking_lot::Mutex<ThreadHandleInner>>,
-        std::sync::Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+        Weak<parking_lot::Mutex<ThreadHandleInner>>,
+        Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     );
 
     // Re-export type from vm::thread for PyGlobalState
     pub use crate::vm::thread::CurrentFrameSlot;
 
-    /// Get all threads' current frames. Used by sys._current_frames().
+    /// Get all threads' current (top) frames. Used by sys._current_frames().
     pub fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
         let registry = vm.state.thread_frames.lock();
         registry
             .iter()
-            .filter_map(|(id, slot)| slot.lock().clone().map(|f| (*id, f)))
+            .filter_map(|(id, slot)| slot.lock().last().cloned().map(|f| (*id, f)))
             .collect()
     }
 
@@ -1017,15 +1030,15 @@ pub(crate) mod _thread {
     #[pyclass(module = "_thread", name = "_ThreadHandle")]
     #[derive(Debug, PyPayload)]
     struct ThreadHandle {
-        inner: std::sync::Arc<parking_lot::Mutex<ThreadHandleInner>>,
+        inner: Arc<parking_lot::Mutex<ThreadHandleInner>>,
         // Event to signal thread completion (for timed join support)
-        done_event: std::sync::Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+        done_event: Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     }
 
     #[pyclass]
     impl ThreadHandle {
         fn new(vm: &VirtualMachine) -> Self {
-            let inner = std::sync::Arc::new(parking_lot::Mutex::new(ThreadHandleInner {
+            let inner = Arc::new(parking_lot::Mutex::new(ThreadHandleInner {
                 state: ThreadHandleState::NotStarted,
                 ident: 0,
                 join_handle: None,
@@ -1033,13 +1046,13 @@ pub(crate) mod _thread {
                 joined: false,
             }));
             let done_event =
-                std::sync::Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+                Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
 
             // Register in global registry for fork cleanup
-            vm.state.thread_handles.lock().push((
-                std::sync::Arc::downgrade(&inner),
-                std::sync::Arc::downgrade(&done_event),
-            ));
+            vm.state
+                .thread_handles
+                .lock()
+                .push((Arc::downgrade(&inner), Arc::downgrade(&done_event)));
 
             Self { inner, done_event }
         }

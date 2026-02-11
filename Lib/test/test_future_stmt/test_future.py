@@ -188,6 +188,8 @@ class FutureTest(unittest.TestCase):
         exec("from __future__ import unicode_literals; x = ''", {}, scope)
         self.assertIsInstance(scope["x"], str)
 
+    # TODO: RUSTPYTHON; barry_as_FLUFL (<> operator) not supported
+    @unittest.expectedFailure
     def test_syntactical_future_repl(self):
         p = spawn_python('-i')
         p.stdin.write(b"from __future__ import barry_as_FLUFL\n")

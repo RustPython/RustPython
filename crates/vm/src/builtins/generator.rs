@@ -140,6 +140,12 @@ impl IterNext for PyGenerator {
     }
 }
 
+impl Drop for PyGenerator {
+    fn drop(&mut self) {
+        self.inner.frame().clear_generator();
+    }
+}
+
 pub fn init(ctx: &Context) {
     PyGenerator::extend_class(ctx, ctx.types.generator_type);
 }

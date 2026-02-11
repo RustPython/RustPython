@@ -1,5 +1,6 @@
 use crate::bytecode::*;
 use crate::marshal::{self, Read, ReadBorrowed, Write};
+use alloc::vec::Vec;
 
 /// A frozen module. Holds a frozen code object and whether it is part of a package
 #[derive(Copy, Clone)]

@@ -4,17 +4,18 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
-        PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyStrRef, PyTemplate,
-        PyTraceback, PyType,
+        PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
+        PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
     },
-    bytecode::{self, Instruction},
+    bytecode::{self, Instruction, LoadAttr, LoadSuperAttr},
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{ArgMapping, Either, FuncArgs},
+    object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
@@ -24,8 +25,8 @@ use crate::{
 };
 use alloc::fmt;
 use core::iter::zip;
-#[cfg(feature = "threading")]
 use core::sync::atomic;
+use core::sync::atomic::AtomicPtr;
 use indexmap::IndexMap;
 use itertools::Itertools;
 
@@ -57,6 +58,30 @@ struct FrameState {
     lasti: u32,
 }
 
+/// Tracks who owns a frame.
+// = `_PyFrameOwner`
+#[repr(i8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FrameOwner {
+    /// Being executed by a thread (FRAME_OWNED_BY_THREAD).
+    Thread = 0,
+    /// Owned by a generator/coroutine (FRAME_OWNED_BY_GENERATOR).
+    Generator = 1,
+    /// Not executing; held only by a frame object or traceback
+    /// (FRAME_OWNED_BY_FRAME_OBJECT).
+    FrameObject = 2,
+}
+
+impl FrameOwner {
+    pub(crate) fn from_i8(v: i8) -> Self {
+        match v {
+            0 => Self::Thread,
+            1 => Self::Generator,
+            _ => Self::FrameObject,
+        }
+    }
+}
+
 #[cfg(feature = "threading")]
 type Lasti = atomic::AtomicU32;
 #[cfg(not(feature = "threading"))]
@@ -71,7 +96,7 @@ pub struct Frame {
     pub(crate) cells_frees: Box<[PyCellRef]>,
     pub locals: ArgMapping,
     pub globals: PyDictRef,
-    pub builtins: PyDictRef,
+    pub builtins: PyObjectRef,
 
     // on feature=threading, this is a duplicate of FrameState.lasti, but it's faster to do an
     // atomic store than it is to do a fetch_add, for every instruction executed
@@ -83,7 +108,19 @@ pub struct Frame {
 
     // member
     pub trace_lines: PyMutex<bool>,
+    pub trace_opcodes: PyMutex<bool>,
     pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
+    /// Back-reference to owning generator/coroutine/async generator.
+    /// Borrowed reference (not ref-counted) to avoid Generator↔Frame cycle.
+    /// Cleared by the generator's Drop impl.
+    pub generator: PyAtomicBorrow,
+    /// Previous frame in the call chain for signal-safe traceback walking.
+    /// Mirrors `_PyInterpreterFrame.previous`.
+    pub(crate) previous: AtomicPtr<Frame>,
+    /// Who owns this frame. Mirrors `_PyInterpreterFrame.owner`.
+    /// Used by `frame.clear()` to reject clearing an executing frame,
+    /// even when called from a different thread.
+    pub(crate) owner: atomic::AtomicI8,
 }
 
 impl PyPayload for Frame {
@@ -111,6 +148,7 @@ unsafe impl Traverse for Frame {
         self.trace.traverse(tracer_fn);
         self.state.traverse(tracer_fn);
         self.temporary_refs.traverse(tracer_fn);
+        // generator is a borrowed reference, not traversed
     }
 }
 
@@ -127,7 +165,7 @@ impl Frame {
     pub(crate) fn new(
         code: PyRef<PyCode>,
         scope: Scope,
-        builtins: PyDictRef,
+        builtins: PyObjectRef,
         closure: &[PyCellRef],
         func_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -169,12 +207,41 @@ impl Frame {
             state: PyMutex::new(state),
             trace: PyMutex::new(vm.ctx.none()),
             trace_lines: PyMutex::new(true),
+            trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
+            generator: PyAtomicBorrow::new(),
+            previous: AtomicPtr::new(core::ptr::null_mut()),
+            owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
         }
+    }
+
+    /// Clear the evaluation stack. Used by frame.clear() to break reference cycles.
+    pub(crate) fn clear_value_stack(&self) {
+        self.state.lock().stack.clear();
+    }
+
+    /// Store a borrowed back-reference to the owning generator/coroutine.
+    /// The caller must ensure the generator outlives the frame.
+    pub fn set_generator(&self, generator: &PyObject) {
+        self.generator.store(generator);
+        self.owner
+            .store(FrameOwner::Generator as i8, atomic::Ordering::Release);
+    }
+
+    /// Clear the generator back-reference. Called when the generator is finalized.
+    pub fn clear_generator(&self) {
+        self.generator.clear();
+        self.owner
+            .store(FrameOwner::FrameObject as i8, atomic::Ordering::Release);
     }
 
     pub fn current_location(&self) -> SourceLocation {
         self.code.locations[self.lasti() as usize - 1].0
+    }
+
+    /// Get the previous frame pointer for signal-safe traceback walking.
+    pub fn previous_frame(&self) -> *const Frame {
+        self.previous.load(atomic::Ordering::Relaxed)
     }
 
     pub fn lasti(&self) -> u32 {
@@ -274,7 +341,21 @@ impl Py<Frame> {
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        self.with_exec(|exec| exec.yield_from_target().map(PyObject::to_owned))
+        // Use try_lock to avoid deadlock when the frame is currently executing.
+        // A running coroutine has no yield-from target.
+        let mut state = self.state.try_lock()?;
+        let exec = ExecutingFrame {
+            code: &self.code,
+            fastlocals: &self.fastlocals,
+            cells_frees: &self.cells_frees,
+            locals: &self.locals,
+            globals: &self.globals,
+            builtins: &self.builtins,
+            lasti: &self.lasti,
+            object: self,
+            state: &mut state,
+        };
+        exec.yield_from_target().map(PyObject::to_owned)
     }
 
     pub fn is_internal_frame(&self) -> bool {
@@ -285,19 +366,14 @@ impl Py<Frame> {
     }
 
     pub fn next_external_frame(&self, vm: &VirtualMachine) -> Option<FrameRef> {
-        self.f_back(vm).map(|mut back| {
-            loop {
-                back = if let Some(back) = back.to_owned().f_back(vm) {
-                    back
-                } else {
-                    break back;
-                };
-
-                if !back.is_internal_frame() {
-                    break back;
-                }
+        let mut frame = self.f_back(vm);
+        while let Some(ref f) = frame {
+            if !f.is_internal_frame() {
+                break;
             }
-        })
+            frame = f.f_back(vm);
+        }
+        frame
     }
 }
 
@@ -309,7 +385,7 @@ struct ExecutingFrame<'a> {
     cells_frees: &'a [PyCellRef],
     locals: &'a ArgMapping,
     globals: &'a PyDictRef,
-    builtins: &'a PyDictRef,
+    builtins: &'a PyObjectRef,
     object: &'a Py<Frame>,
     lasti: &'a Lasti,
     state: &'a mut FrameState,
@@ -382,6 +458,7 @@ impl ExecutingFrame<'_> {
                         exception: PyBaseExceptionRef,
                         idx: usize,
                         is_reraise: bool,
+                        is_new_raise: bool,
                         vm: &VirtualMachine,
                     ) -> FrameResult {
                         // 1. Extract traceback from exception's '__traceback__' attr.
@@ -391,6 +468,11 @@ impl ExecutingFrame<'_> {
                         // RERAISE instructions should not add traceback entries - they're just
                         // re-raising an already-processed exception
                         if !is_reraise {
+                            // Check if the exception already has traceback entries before
+                            // we add ours. If it does, it was propagated from a callee
+                            // function and we should not re-contextualize it.
+                            let had_prior_traceback = exception.__traceback__().is_some();
+
                             // PyTraceBack_Here always adds a new entry without
                             // checking for duplicates. Each time an exception passes through
                             // a frame (e.g., in a loop with repeated raise statements),
@@ -406,13 +488,15 @@ impl ExecutingFrame<'_> {
                             );
                             vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
                             exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
-                        }
 
-                        // Only contextualize exception for new raises, not re-raises
-                        // CPython only calls _PyErr_SetObject (which does chaining) on initial raise
-                        // RERAISE just propagates the exception without modifying __context__
-                        if !is_reraise {
-                            vm.contextualize_exception(&exception);
+                            // _PyErr_SetObject sets __context__ only when the exception
+                            // is first raised. When an exception propagates through frames,
+                            // __context__ must not be overwritten. We contextualize when:
+                            // - It's an explicit raise (raise/raise from)
+                            // - The exception had no prior traceback (originated here)
+                            if is_new_raise || !had_prior_traceback {
+                                vm.contextualize_exception(&exception);
+                            }
                         }
 
                         // Use exception table for zero-cost exception handling
@@ -432,7 +516,18 @@ impl ExecutingFrame<'_> {
                         _ => false,
                     };
 
-                    match handle_exception(self, exception, idx, is_reraise, vm) {
+                    // Explicit raise instructions (raise/raise from) - these always
+                    // need contextualization even if the exception has prior traceback
+                    let is_new_raise = matches!(
+                        op,
+                        Instruction::RaiseVarargs { kind }
+                            if matches!(
+                                kind.get(arg),
+                                bytecode::RaiseKind::Raise | bytecode::RaiseKind::RaiseCause
+                            )
+                    );
+
+                    match handle_exception(self, exception, idx, is_reraise, is_new_raise, vm) {
                         Ok(None) => {}
                         Ok(Some(result)) => break Ok(result),
                         Err(exception) => {
@@ -482,7 +577,7 @@ impl ExecutingFrame<'_> {
                     {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
                         // OpArgByte.0 is the raw byte value
-                        if prev_unit.arg.0 >= 1 {
+                        if u8::from(prev_unit.arg) >= 1 {
                             // In yield-from/await context, delegate is on top of stack
                             return Some(self.top_value());
                         }
@@ -525,6 +620,9 @@ impl ExecutingFrame<'_> {
                     // Exception handler will push exc: [receiver, None, exc]
                     // CLEANUP_THROW expects: [sub_iter, last_sent_val, exc]
                     self.push_value(vm.ctx.none());
+
+                    // Set __context__ on the exception (_PyErr_ChainStackItem)
+                    vm.contextualize_exception(&err);
 
                     // Use unwind_blocks to let exception table route to CLEANUP_THROW
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
@@ -573,7 +671,7 @@ impl ExecutingFrame<'_> {
         } else {
             let name = self.code.freevars[i - self.code.cellvars.len()];
             vm.new_name_error(
-                format!("free variable '{name}' referenced before assignment in enclosing scope"),
+                format!("cannot access free variable '{name}' where it is not associated with a value in enclosing scope"),
                 name.to_owned(),
             )
         }
@@ -618,6 +716,11 @@ impl ExecutingFrame<'_> {
 
         match instruction {
             Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
+            // TODO: In CPython, this does in-place unicode concatenation when
+            // refcount is 1. Falls back to regular iadd for now.
+            Instruction::BinaryOpInplaceAddUnicode => {
+                self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd)
+            }
             Instruction::BinarySlice => {
                 // Stack: [container, start, stop] -> [result]
                 let stop = self.pop_value();
@@ -930,9 +1033,9 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::EndAsyncFor => {
-                // END_ASYNC_FOR pops (awaitable, exc) from stack
-                // Stack: [awaitable, exc] -> []
-                // exception_unwind pushes exception to stack before jumping to handler
+                // Pops (awaitable, exc) from stack.
+                // If exc is StopAsyncIteration, clears it (normal loop end).
+                // Otherwise re-raises.
                 let exc = self.pop_value();
                 let _awaitable = self.pop_value();
 
@@ -1020,54 +1123,47 @@ impl ExecutingFrame<'_> {
                 debug_assert_eq!(orig_stack_len + 1, self.state.stack.len());
                 Ok(None)
             }
-            Instruction::GetAwaitable => {
-                use crate::protocol::PyIter;
+            Instruction::GetAwaitable { arg: oparg } => {
+                let iterable = self.pop_value();
 
-                let awaited_obj = self.pop_value();
-                let awaitable = if let Some(coro) = awaited_obj.downcast_ref::<PyCoroutine>() {
-                    // _PyGen_yf() check - detect if coroutine is already being awaited elsewhere
-                    if coro.as_coro().frame().yield_from_target().is_some() {
-                        return Err(
-                            vm.new_runtime_error("coroutine is being awaited already".to_owned())
-                        );
+                let iter = match crate::coroutine::get_awaitable_iter(iterable.clone(), vm) {
+                    Ok(iter) => iter,
+                    Err(e) => {
+                        // _PyEval_FormatAwaitableError: override error for async with
+                        // when the type doesn't have __await__
+                        let oparg_val = oparg.get(arg);
+                        if vm
+                            .get_method(iterable.clone(), identifier!(vm, __await__))
+                            .is_none()
+                        {
+                            if oparg_val == 1 {
+                                return Err(vm.new_type_error(format!(
+                                    "'async with' received an object from __aenter__ \
+                                     that does not implement __await__: {}",
+                                    iterable.class().name()
+                                )));
+                            } else if oparg_val == 2 {
+                                return Err(vm.new_type_error(format!(
+                                    "'async with' received an object from __aexit__ \
+                                     that does not implement __await__: {}",
+                                    iterable.class().name()
+                                )));
+                            }
+                        }
+                        return Err(e);
                     }
-                    awaited_obj
-                } else if awaited_obj
-                    .downcast_ref::<PyGenerator>()
-                    .is_some_and(|generator| {
-                        generator
-                            .as_coro()
-                            .frame()
-                            .code
-                            .flags
-                            .contains(bytecode::CodeFlags::ITERABLE_COROUTINE)
-                    })
-                {
-                    // Generator with CO_ITERABLE_COROUTINE flag can be awaited
-                    // (e.g., generators decorated with @types.coroutine)
-                    awaited_obj
-                } else {
-                    let await_method = vm.get_method_or_type_error(
-                        awaited_obj.clone(),
-                        identifier!(vm, __await__),
-                        || {
-                            format!(
-                                "object {} can't be used in 'await' expression",
-                                awaited_obj.class().name(),
-                            )
-                        },
-                    )?;
-                    let result = await_method.call((), vm)?;
-                    // Check that __await__ returned an iterator
-                    if !PyIter::check(&result) {
-                        return Err(vm.new_type_error(format!(
-                            "__await__() returned non-iterator of type '{}'",
-                            result.class().name()
-                        )));
-                    }
-                    result
                 };
-                self.push_value(awaitable);
+
+                // Check if coroutine is already being awaited
+                if let Some(coro) = iter.downcast_ref::<PyCoroutine>()
+                    && coro.as_coro().frame().yield_from_target().is_some()
+                {
+                    return Err(
+                        vm.new_runtime_error("coroutine is being awaited already".to_owned())
+                    );
+                }
+
+                self.push_value(iter);
                 Ok(None)
             }
             Instruction::GetIter => {
@@ -1166,7 +1262,31 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
             Instruction::LoadSuperAttr { arg: idx } => self.load_super_attr(vm, idx.get(arg)),
             Instruction::LoadBuildClass => {
-                self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
+                let build_class =
+                    if let Some(builtins_dict) = self.builtins.downcast_ref::<PyDict>() {
+                        builtins_dict
+                            .get_item_opt(identifier!(vm, __build_class__), vm)?
+                            .ok_or_else(|| {
+                                vm.new_name_error(
+                                    "__build_class__ not found".to_owned(),
+                                    identifier!(vm, __build_class__).to_owned(),
+                                )
+                            })?
+                    } else {
+                        self.builtins
+                            .get_item(identifier!(vm, __build_class__), vm)
+                            .map_err(|e| {
+                                if e.fast_isinstance(vm.ctx.exceptions.key_error) {
+                                    vm.new_name_error(
+                                        "__build_class__ not found".to_owned(),
+                                        identifier!(vm, __build_class__).to_owned(),
+                                    )
+                                } else {
+                                    e
+                                }
+                            })?
+                    };
+                self.push_value(build_class);
                 Ok(None)
             }
             Instruction::LoadLocals => {
@@ -1176,13 +1296,24 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadFromDictOrDeref(i) => {
+                // Pop dict from stack (locals or classdict depending on context)
+                let class_dict = self.pop_value();
                 let i = i.get(arg) as usize;
                 let name = if i < self.code.cellvars.len() {
                     self.code.cellvars[i]
                 } else {
                     self.code.freevars[i - self.code.cellvars.len()]
                 };
-                let value = self.locals.mapping().subscript(name, vm).ok();
+                // Only treat KeyError as "not found", propagate other exceptions
+                let value = if let Some(dict_obj) = class_dict.downcast_ref::<PyDict>() {
+                    dict_obj.get_item_opt(name, vm)?
+                } else {
+                    match class_dict.get_item(name, vm) {
+                        Ok(v) => Some(v),
+                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => None,
+                        Err(e) => return Err(e),
+                    }
+                };
                 self.push_value(match value {
                     Some(v) => v,
                     None => self.cells_frees[i]
@@ -1295,6 +1426,57 @@ impl ExecutingFrame<'_> {
             Instruction::LoadFastLoadFast { arg: packed } => {
                 // Load two local variables at once
                 // oparg encoding: (idx1 << 4) | idx2
+                let oparg = packed.get(arg);
+                let idx1 = (oparg >> 4) as usize;
+                let idx2 = (oparg & 15) as usize;
+                let fastlocals = self.fastlocals.lock();
+                let x1 = fastlocals[idx1].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx1]
+                        ),
+                    )
+                })?;
+                let x2 = fastlocals[idx2].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx2]
+                        ),
+                    )
+                })?;
+                drop(fastlocals);
+                self.push_value(x1);
+                self.push_value(x2);
+                Ok(None)
+            }
+            // TODO: Implement true borrow optimization (skip Arc::clone).
+            // CPython's LOAD_FAST_BORROW uses PyStackRef_Borrow to avoid refcount
+            // increment for values that are consumed within the same basic block.
+            // Possible approaches:
+            // - Store raw pointers with careful lifetime management
+            // - Add a "borrowed" variant to stack slots
+            // - Use arena allocation for short-lived stack values
+            // Currently this just clones like LoadFast.
+            Instruction::LoadFastBorrow(idx) => {
+                let idx = idx.get(arg) as usize;
+                let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx]
+                        ),
+                    )
+                })?;
+                self.push_value(x);
+                Ok(None)
+            }
+            // TODO: Same as LoadFastBorrow - implement true borrow optimization.
+            Instruction::LoadFastBorrowLoadFastBorrow { arg: packed } => {
                 let oparg = packed.get(arg);
                 let idx1 = (oparg >> 4) as usize;
                 let idx2 = (oparg & 15) as usize;
@@ -1600,6 +1782,12 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::Nop => Ok(None),
+            // NOT_TAKEN is a branch prediction hint - functionally a NOP
+            Instruction::NotTaken => Ok(None),
+            // Instrumented version of NOT_TAKEN - NOP without monitoring
+            Instruction::InstrumentedNotTaken => Ok(None),
+            // CACHE is used by adaptive interpreter for inline caching - NOP for us
+            Instruction::Cache => Ok(None),
             Instruction::ReturnGenerator => {
                 // In RustPython, generators/coroutines are created in function.rs
                 // before the frame starts executing. The RETURN_GENERATOR instruction
@@ -1911,22 +2099,20 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             Instruction::Send { target } => {
-                // Stack: (receiver, value) -> (receiver, retval)
-                // On StopIteration: replace value with stop value and jump to target
+                // (receiver, v -- receiver, retval)
+                // Pops v, sends it to receiver. On yield, pushes retval
+                // (so stack = [..., receiver, retval]). On return/StopIteration,
+                // also pushes retval and jumps to END_SEND which will pop receiver.
                 let exit_label = target.get(arg);
                 let val = self.pop_value();
                 let receiver = self.top_value();
 
                 match self._send(receiver, val, vm)? {
                     PyIterReturn::Return(value) => {
-                        // Value yielded, push it back for YIELD_VALUE
-                        // Stack: (receiver, retval)
                         self.push_value(value);
                         Ok(None)
                     }
                     PyIterReturn::StopIteration(value) => {
-                        // StopIteration: replace top with stop value, jump to exit
-                        // Stack: (receiver, value) - receiver stays, v replaced
                         let value = vm.unwrap_or_none(value);
                         self.push_value(value);
                         self.jump(exit_label);
@@ -2017,11 +2203,26 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn load_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        self.globals
-            .get_chain(self.builtins, name, vm)?
-            .ok_or_else(|| {
-                vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
+        if let Some(builtins_dict) = self.builtins.downcast_ref::<PyDict>() {
+            // Fast path: builtins is a dict
+            self.globals
+                .get_chain(builtins_dict, name, vm)?
+                .ok_or_else(|| {
+                    vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
+                })
+        } else {
+            // Slow path: builtins is not a dict, use generic __getitem__
+            if let Some(value) = self.globals.get_item_opt(name, vm)? {
+                return Ok(value);
+            }
+            self.builtins.get_item(name, vm).map_err(|e| {
+                if e.fast_isinstance(vm.ctx.exceptions.key_error) {
+                    vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
+                } else {
+                    e
+                }
             })
+        }
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -2062,42 +2263,130 @@ impl ExecutingFrame<'_> {
             return Ok(sub_module);
         }
 
-        if is_module_initializing(module, vm) {
-            let module_name = module
-                .get_attr(identifier!(vm, __name__), vm)
-                .ok()
-                .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()))
-                .unwrap_or_else(|| "<unknown>".to_owned());
+        use crate::import::{
+            get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name,
+        };
 
-            let msg = format!(
-                "cannot import name '{name}' from partially initialized module '{module_name}' (most likely due to a circular import)",
-            );
-            Err(vm.new_import_error(msg, name.to_owned()))
+        // Get module name for the error message
+        let mod_name_obj = module.get_attr(identifier!(vm, __name__), vm).ok();
+        let mod_name_str = mod_name_obj
+            .as_ref()
+            .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()));
+        let module_name = mod_name_str.as_deref().unwrap_or("<unknown module name>");
+
+        let spec = module
+            .get_attr("__spec__", vm)
+            .ok()
+            .filter(|s| !vm.is_none(s));
+
+        let origin = get_spec_file_origin(&spec, vm);
+
+        let is_possibly_shadowing = origin
+            .as_ref()
+            .map(|o| is_possibly_shadowing_path(o, vm))
+            .unwrap_or(false);
+        let is_possibly_shadowing_stdlib = if is_possibly_shadowing {
+            if let Some(ref mod_name) = mod_name_obj {
+                is_stdlib_module_name(mod_name, vm)?
+            } else {
+                false
+            }
         } else {
-            Err(vm.new_import_error(format!("cannot import name '{name}'"), name.to_owned()))
+            false
+        };
+
+        let msg = if is_possibly_shadowing_stdlib {
+            let origin = origin.as_ref().unwrap();
+            format!(
+                "cannot import name '{name}' from '{module_name}' \
+                 (consider renaming '{origin}' since it has the same \
+                 name as the standard library module named '{module_name}' \
+                 and prevents importing that standard library module)"
+            )
+        } else {
+            let is_init = is_module_initializing(module, vm);
+            if is_init {
+                if is_possibly_shadowing {
+                    let origin = origin.as_ref().unwrap();
+                    format!(
+                        "cannot import name '{name}' from '{module_name}' \
+                         (consider renaming '{origin}' if it has the same name \
+                         as a library you intended to import)"
+                    )
+                } else if let Some(ref path) = origin {
+                    format!(
+                        "cannot import name '{name}' from partially initialized module \
+                         '{module_name}' (most likely due to a circular import) ({path})"
+                    )
+                } else {
+                    format!(
+                        "cannot import name '{name}' from partially initialized module \
+                         '{module_name}' (most likely due to a circular import)"
+                    )
+                }
+            } else if let Some(ref path) = origin {
+                format!("cannot import name '{name}' from '{module_name}' ({path})")
+            } else {
+                format!("cannot import name '{name}' from '{module_name}' (unknown location)")
+            }
+        };
+        let err = vm.new_import_error(msg, vm.ctx.new_str(module_name));
+
+        if let Some(ref path) = origin {
+            let _ignore = err
+                .as_object()
+                .set_attr("path", vm.ctx.new_str(path.as_str()), vm);
         }
+
+        // name_from = the attribute name that failed to import (best-effort metadata)
+        let _ignore = err.as_object().set_attr("name_from", name.to_owned(), vm);
+
+        Err(err)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import_star(&mut self, vm: &VirtualMachine) -> PyResult<()> {
         let module = self.pop_value();
 
-        // Grab all the names from the module and put them in the context
-        if let Some(dict) = module.dict() {
-            let filter_pred: Box<dyn Fn(&str) -> bool> =
-                if let Ok(all) = dict.get_item(identifier!(vm, __all__), vm) {
-                    let all: Vec<PyStrRef> = all.try_to_value(vm)?;
-                    let all: Vec<String> = all
-                        .into_iter()
-                        .map(|name| name.as_str().to_owned())
-                        .collect();
-                    Box::new(move |name| all.contains(&name.to_owned()))
+        let Some(dict) = module.dict() else {
+            return Ok(());
+        };
+
+        let mod_name = module
+            .get_attr(identifier!(vm, __name__), vm)
+            .ok()
+            .and_then(|n| n.downcast::<PyStr>().ok());
+
+        let require_str = |obj: PyObjectRef, attr: &str| -> PyResult<PyRef<PyStr>> {
+            obj.downcast().map_err(|obj: PyObjectRef| {
+                let source = if let Some(ref mod_name) = mod_name {
+                    format!("{}.{attr}", mod_name.as_str())
                 } else {
-                    Box::new(|name| !name.starts_with('_'))
+                    attr.to_owned()
                 };
+                let repr = obj.repr(vm).unwrap_or_else(|_| vm.ctx.new_str("?"));
+                vm.new_type_error(format!(
+                    "{} in {} must be str, not {}",
+                    repr.as_str(),
+                    source,
+                    obj.class().name()
+                ))
+            })
+        };
+
+        if let Ok(all) = dict.get_item(identifier!(vm, __all__), vm) {
+            let items: Vec<PyObjectRef> = all.try_to_value(vm)?;
+            for item in items {
+                let name = require_str(item, "__all__")?;
+                let value = module.get_attr(&*name, vm)?;
+                self.locals
+                    .mapping()
+                    .ass_subscript(&name, Some(value), vm)?;
+            }
+        } else {
             for (k, v) in dict {
-                let k = PyStrRef::try_from_object(vm, k)?;
-                if filter_pred(k.as_str()) {
+                let k = require_str(k, "__dict__")?;
+                if !k.as_str().starts_with('_') {
                     self.locals.mapping().ass_subscript(&k, Some(v), vm)?;
                 }
             }
@@ -2153,42 +2442,7 @@ impl ExecutingFrame<'_> {
                     Err(exception)
                 }
             }
-            UnwindReason::Returning { value } => {
-                // Clear tracebacks of exceptions in fastlocals to break reference cycles.
-                // This is needed because when returning from inside an except block,
-                // the exception cleanup code (e = None; del e) is skipped, leaving the
-                // exception with a traceback that references this frame, which references
-                // the exception in fastlocals, creating a cycle that can't be collected
-                // since RustPython doesn't have a tracing GC.
-                //
-                // We only clear tracebacks of exceptions that:
-                // 1. Are not the return value itself (will be needed by caller)
-                // 2. Are not the current active exception (still being handled)
-                // 3. Have a traceback whose top frame is THIS frame (we created it)
-                let current_exc = vm.current_exception();
-                let fastlocals = self.fastlocals.lock();
-                for obj in fastlocals.iter().flatten() {
-                    // Skip if this object is the return value
-                    if obj.is(&value) {
-                        continue;
-                    }
-                    if let Ok(exc) = obj.clone().downcast::<PyBaseException>() {
-                        // Skip if this is the current active exception
-                        if current_exc.as_ref().is_some_and(|cur| exc.is(cur)) {
-                            continue;
-                        }
-                        // Only clear if traceback's top frame is this frame
-                        if exc
-                            .__traceback__()
-                            .is_some_and(|tb| core::ptr::eq::<Py<Frame>>(&*tb.frame, self.object))
-                        {
-                            exc.set_traceback_typed(None);
-                        }
-                    }
-                }
-                drop(fastlocals);
-                Ok(Some(ExecutionResult::Return(value)))
-            }
+            UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
         }
     }
 
@@ -2687,12 +2941,11 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn load_attr(&mut self, vm: &VirtualMachine, oparg: u32) -> FrameResult {
-        let (name_idx, is_method) = bytecode::decode_load_attr_arg(oparg);
-        let attr_name = self.code.names[name_idx as usize];
+    fn load_attr(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
+        let attr_name = self.code.names[oparg.name_idx() as usize];
         let parent = self.pop_value();
 
-        if is_method {
+        if oparg.is_method() {
             // Method call: push [method, self_or_null]
             let method = PyMethod::get(parent.clone(), attr_name, vm)?;
             match method {
@@ -2713,9 +2966,8 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn load_super_attr(&mut self, vm: &VirtualMachine, oparg: u32) -> FrameResult {
-        let (name_idx, load_method, has_class) = bytecode::decode_load_super_attr_arg(oparg);
-        let attr_name = self.code.names[name_idx as usize];
+    fn load_super_attr(&mut self, vm: &VirtualMachine, oparg: LoadSuperAttr) -> FrameResult {
+        let attr_name = self.code.names[oparg.name_idx() as usize];
 
         // Stack layout (bottom to top): [super, class, self]
         // Pop in LIFO order: self, class, super
@@ -2725,13 +2977,13 @@ impl ExecutingFrame<'_> {
 
         // Create super object - pass args based on has_class flag
         // When super is shadowed, has_class=false means call with 0 args
-        let super_obj = if has_class {
+        let super_obj = if oparg.has_class() {
             global_super.call((class.clone(), self_obj.clone()), vm)?
         } else {
             global_super.call((), vm)?
         };
 
-        if load_method {
+        if oparg.is_load_method() {
             // Method load: push [method, self_or_null]
             let method = PyMethod::get(super_obj, attr_name, vm)?;
             match method {
@@ -2866,7 +3118,7 @@ impl ExecutingFrame<'_> {
 
                 let name = tuple.as_slice()[0].clone();
                 let type_params_obj = tuple.as_slice()[1].clone();
-                let value = tuple.as_slice()[2].clone();
+                let compute_value = tuple.as_slice()[2].clone();
 
                 let type_params: PyTupleRef = if vm.is_none(&type_params_obj) {
                     vm.ctx.empty_tuple.clone()
@@ -2879,7 +3131,7 @@ impl ExecutingFrame<'_> {
                 let name = name.downcast::<crate::builtins::PyStr>().map_err(|_| {
                     vm.new_type_error("TypeAliasType name must be a string".to_owned())
                 })?;
-                let type_alias = typing::TypeAliasType::new(name, type_params, value);
+                let type_alias = typing::TypeAliasType::new(name, type_params, compute_value);
                 Ok(type_alias.into_ref(&vm.ctx).into())
             }
             bytecode::IntrinsicFunction1::ListToTuple => {
@@ -2971,7 +3223,7 @@ impl ExecutingFrame<'_> {
                 self.lasti(),
                 self.code.obj_name,
                 op_name,
-                self.code.source_path
+                self.code.source_path()
             );
         }
         self.state.stack.drain(stack_len - count..).map(|obj| {
@@ -3002,7 +3254,7 @@ impl ExecutingFrame<'_> {
         let stack = &self.state.stack;
         match &stack[stack.len() - depth as usize - 1] {
             Some(obj) => obj,
-            None => unsafe { std::hint::unreachable_unchecked() },
+            None => unsafe { core::hint::unreachable_unchecked() },
         }
     }
 

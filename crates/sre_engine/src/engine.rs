@@ -6,6 +6,7 @@ use crate::string::{
 };
 
 use super::{MAXREPEAT, SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor};
+use alloc::{vec, vec::Vec};
 use core::{convert::TryFrom, ptr::null};
 use optional::Optioned;
 
@@ -283,8 +284,10 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
     let mut context_stack = vec![];
     let mut popped_result = false;
 
-    // NOTE: 'result loop is not an actual loop but break label
-    #[allow(clippy::never_loop)]
+    #[allow(
+        clippy::never_loop,
+        reason = "'result loop is not an actual loop but break label"
+    )]
     'coro: loop {
         popped_result = 'result: loop {
             let yielded = 'context: loop {

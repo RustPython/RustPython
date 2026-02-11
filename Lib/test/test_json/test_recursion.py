@@ -1,7 +1,7 @@
 from test import support
 from test.test_json import PyTest, CTest
 
-import unittest # XXX: RUSTPYTHON; importing to be able to skip tests
+import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
 
 
 class JSONTestObject:
@@ -70,13 +70,12 @@ class TestRecursion:
             self.fail("didn't raise ValueError on default recursion")
 
 
-    # TODO: RUSTPYTHON
-    @unittest.skip('TODO: RUSTPYTHON; crashes')
-    # TODO: RUSTPYHTON; needs to upgrade test.support to 3.14 above
-    # @support.skip_emscripten_stack_overflow()
-    # @support.skip_wasi_stack_overflow()
+    @unittest.skip("TODO: RUSTPYTHON; crashes")
+    @support.skip_if_unlimited_stack_size
+    @support.skip_emscripten_stack_overflow()
+    @support.skip_wasi_stack_overflow()
     def test_highly_nested_objects_decoding(self):
-        very_deep = 200000
+        very_deep = 500_000
         # test that loading highly-nested objects doesn't segfault when C
         # accelerations are used. See #12017
         with self.assertRaises(RecursionError):
@@ -89,14 +88,14 @@ class TestRecursion:
             with support.infinite_recursion():
                 self.loads('[' * very_deep + '1' + ']' * very_deep)
 
-    # TODO: RUSTPYHTON; needs to upgrade test.support to 3.14 above
-    # @support.skip_wasi_stack_overflow()
-    # @support.skip_emscripten_stack_overflow()
+    @support.skip_if_unlimited_stack_size
+    @support.skip_wasi_stack_overflow()
+    @support.skip_emscripten_stack_overflow()
     @support.requires_resource('cpu')
     def test_highly_nested_objects_encoding(self):
         # See #12051
         l, d = [], {}
-        for x in range(200_000):
+        for x in range(500_000):
             l, d = [l], {'k':d}
         with self.assertRaises(RecursionError):
             with support.infinite_recursion(5000):
@@ -105,9 +104,9 @@ class TestRecursion:
             with support.infinite_recursion(5000):
                 self.dumps(d)
 
-    # TODO: RUSTPYHTON; needs to upgrade test.support to 3.14 above
-    # @support.skip_emscripten_stack_overflow()
-    # @support.skip_wasi_stack_overflow()
+    @support.skip_if_unlimited_stack_size
+    @support.skip_emscripten_stack_overflow()
+    @support.skip_wasi_stack_overflow()
     def test_endless_recursion(self):
         # See #12051
         class EndlessJSONEncoder(self.json.JSONEncoder):

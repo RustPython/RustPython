@@ -84,7 +84,8 @@ class TestBreakContinueReturnInExceptStarBlock(unittest.TestCase):
                     if i == 2:
                         break
                 finally:
-                    return 0
+                    pass
+                return 0
             """)
 
 
@@ -117,7 +118,8 @@ class TestBreakContinueReturnInExceptStarBlock(unittest.TestCase):
                     if i == 2:
                         continue
                 finally:
-                    return 0
+                    pass
+                return 0
             """)
 
     def test_return_in_except_star_block_invalid(self):
@@ -889,8 +891,7 @@ class TestExceptStarRaiseFrom(ExceptStarTest):
 
 
 class TestExceptStarExceptionGroupSubclass(ExceptStarTest):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_except_star_EG_subclass(self):
         class EG(ExceptionGroup):
             def __new__(cls, message, excs, code):

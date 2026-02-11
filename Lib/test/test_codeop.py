@@ -30,8 +30,7 @@ class CodeopTests(unittest.TestCase):
         except OverflowError:
             self.assertTrue(not is_syntax)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <code object <module> at 0xc99532080 file "<input>", line 1> != <code object <module> at 0xc99532f80 file "<input>", line 1>
     def test_valid(self):
         av = self.assertValid
 
@@ -94,8 +93,7 @@ class CodeopTests(unittest.TestCase):
         av("def f():\n pass\n#foo\n")
         av("@a.b.c\ndef f():\n pass\n")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <code object <module> at 0xc99532080 file "<input>", line 1> != None
     def test_incomplete(self):
         ai = self.assertIncomplete
 
@@ -282,13 +280,12 @@ class CodeopTests(unittest.TestCase):
         self.assertNotEqual(compile_command("a = 1\n", "abc").co_filename,
                             compile("a = 1\n", "def", 'single').co_filename)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 2
     def test_warning(self):
         # Test that the warning is only returned once.
         with warnings_helper.check_warnings(
                 ('"is" with \'str\' literal', SyntaxWarning),
-                ("invalid escape sequence", SyntaxWarning),
+                ('"\\\\e" is an invalid escape sequence', SyntaxWarning),
                 ) as w:
             compile_command(r"'\e' is 0")
             self.assertEqual(len(w.warnings), 2)
@@ -309,8 +306,7 @@ class CodeopTests(unittest.TestCase):
             self.assertIncomplete("'\\e' + (")
         self.assertEqual(w, [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 1
     def test_invalid_warning(self):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter('always')
@@ -325,8 +321,6 @@ class CodeopTests(unittest.TestCase):
             with self.assertRaisesRegex(SyntaxError, message):
                 compile_command(code, symbol='exec')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_syntax_errors(self):
         self.assertSyntaxErrorMatches(
             dedent("""\

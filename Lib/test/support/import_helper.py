@@ -1,5 +1,5 @@
-import _imp
 import contextlib
+import _imp
 import importlib
 import importlib.machinery
 import importlib.util
@@ -10,7 +10,7 @@ import textwrap
 import unittest
 import warnings
 
-from .os_helper import temp_dir, unlink
+from .os_helper import unlink, temp_dir
 
 
 @contextlib.contextmanager

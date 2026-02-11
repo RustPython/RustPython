@@ -22,16 +22,14 @@ use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast as ast;
-use ruff_text_size::{Ranged, TextRange};
-use std::collections::HashSet;
-
+use ruff_text_size::{Ranged, TextRange, TextSize};
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
         ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, IntrinsicFunction1,
-        Invert, OpArg, OpArgType, PseudoInstruction, SpecialMethod, UnpackExArgs,
-        encode_load_attr_arg, encode_load_super_attr_arg,
+        Invert, LoadAttr, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction, SpecialMethod,
+        UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -128,10 +126,6 @@ pub struct FBlockInfo {
     pub fb_type: FBlockType,
     pub fb_block: BlockIdx,
     pub fb_exit: BlockIdx,
-    // For Python 3.11+ exception table generation
-    pub fb_handler: Option<BlockIdx>, // Exception handler block
-    pub fb_stack_depth: u32,          // Stack depth at block entry
-    pub fb_preserve_lasti: bool,      // Whether to preserve lasti (for SETUP_CLEANUP)
     // additional data for fblock unwinding
     pub fb_datum: FBlockDatum,
 }
@@ -215,7 +209,7 @@ enum ComprehensionType {
 }
 
 fn validate_duplicate_params(params: &ast::Parameters) -> Result<(), CodegenErrorType> {
-    let mut seen_params = HashSet::new();
+    let mut seen_params = IndexSet::default();
     for param in params {
         let param_name = param.name().as_str();
         if !seen_params.insert(param_name) {
@@ -497,56 +491,46 @@ impl Compiler {
         slice: &ast::Expr,
         ctx: ast::ExprContext,
     ) -> CompileResult<()> {
-        // 1. Check subscripter and index for Load context
-        // 2. VISIT value
-        // 3. Handle two-element slice specially
-        // 4. Otherwise VISIT slice and emit appropriate instruction
-
-        // For Load context, some checks are skipped for now
-        // if ctx == ast::ExprContext::Load {
-        //     check_subscripter(value);
-        //     check_index(value, slice);
-        // }
+        // Save full subscript expression range (set by compile_expression before this call)
+        let subscript_range = self.current_source_range;
 
         // VISIT(c, expr, e->v.Subscript.value)
         self.compile_expression(value)?;
 
         // Handle two-element non-constant slice with BINARY_SLICE/STORE_SLICE
-        if slice.should_use_slice_optimization() && !matches!(ctx, ast::ExprContext::Del) {
+        let use_slice_opt = matches!(ctx, ast::ExprContext::Load | ast::ExprContext::Store)
+            && slice.should_use_slice_optimization();
+        if use_slice_opt {
             match slice {
                 ast::Expr::Slice(s) => self.compile_slice_two_parts(s)?,
                 _ => unreachable!(
                     "should_use_slice_optimization should only return true for ast::Expr::Slice"
                 ),
             };
-            match ctx {
-                ast::ExprContext::Load => {
-                    emit!(self, Instruction::BinarySlice);
-                }
-                ast::ExprContext::Store => {
-                    emit!(self, Instruction::StoreSlice);
-                }
-                _ => unreachable!(),
-            }
         } else {
             // VISIT(c, expr, e->v.Subscript.slice)
             self.compile_expression(slice)?;
+        }
 
-            // Emit appropriate instruction based on context
-            match ctx {
-                ast::ExprContext::Load => emit!(
-                    self,
-                    Instruction::BinaryOp {
-                        op: BinaryOperator::Subscr
-                    }
-                ),
-                ast::ExprContext::Store => emit!(self, Instruction::StoreSubscr),
-                ast::ExprContext::Del => emit!(self, Instruction::DeleteSubscr),
-                ast::ExprContext::Invalid => {
-                    return Err(self.error(CodegenErrorType::SyntaxError(
-                        "Invalid expression context".to_owned(),
-                    )));
+        // Restore full subscript expression range before emitting
+        self.set_source_range(subscript_range);
+
+        match (use_slice_opt, ctx) {
+            (true, ast::ExprContext::Load) => emit!(self, Instruction::BinarySlice),
+            (true, ast::ExprContext::Store) => emit!(self, Instruction::StoreSlice),
+            (true, _) => unreachable!(),
+            (false, ast::ExprContext::Load) => emit!(
+                self,
+                Instruction::BinaryOp {
+                    op: BinaryOperator::Subscr
                 }
+            ),
+            (false, ast::ExprContext::Store) => emit!(self, Instruction::StoreSubscr),
+            (false, ast::ExprContext::Del) => emit!(self, Instruction::DeleteSubscr),
+            (false, ast::ExprContext::Invalid) => {
+                return Err(self.error(CodegenErrorType::SyntaxError(
+                    "Invalid expression context".to_owned(),
+                )));
             }
         }
 
@@ -1087,7 +1071,7 @@ impl Compiler {
             ),
             CompilerScope::Annotation => (
                 bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
-                0,
+                1, // format is positional-only
                 1, // annotation scope takes one argument (format)
                 0,
             ),
@@ -1172,14 +1156,14 @@ impl Compiler {
             character_offset: OneIndexed::MIN, // col = 0
         };
         let end_location = location; // end_lineno = lineno, end_col = 0
-        let except_handler = self.current_except_handler();
+        let except_handler = None;
 
         self.current_block().instructions.push(ir::InstructionInfo {
             instr: Instruction::Resume {
                 arg: OpArgMarker::marker(),
             }
             .into(),
-            arg: OpArg(bytecode::ResumeType::AtFuncStart as u32),
+            arg: OpArg::new(u32::from(bytecode::ResumeType::AtFuncStart)),
             target: BlockIdx::NULL,
             location,
             end_location,
@@ -1248,17 +1232,15 @@ impl Compiler {
 
     /// Enter annotation scope using the symbol table's annotation_block
     /// Returns false if no annotation_block exists
-    fn enter_annotation_scope(&mut self, func_name: &str) -> CompileResult<bool> {
+    fn enter_annotation_scope(&mut self, _func_name: &str) -> CompileResult<bool> {
         if !self.push_annotation_symbol_table() {
             return Ok(false);
         }
 
         let key = self.symbol_table_stack.len() - 1;
         let lineno = self.get_source_line_number().get();
-        let annotate_name = format!("<annotate of {func_name}>");
-
         self.enter_scope(
-            &annotate_name,
+            "__annotate__",
             CompilerScope::Annotation,
             key,
             lineno.to_u32(),
@@ -1281,8 +1263,6 @@ impl Compiler {
     /// Emit format parameter validation for annotation scope
     /// if format > VALUE_WITH_FAKE_GLOBALS (2): raise NotImplementedError
     fn emit_format_validation(&mut self) -> CompileResult<()> {
-        use bytecode::ComparisonOperator::Greater;
-
         // Load format parameter (first local variable, index 0)
         emit!(self, Instruction::LoadFast(0));
 
@@ -1290,7 +1270,12 @@ impl Compiler {
         self.emit_load_const(ConstantData::Integer { value: 2.into() });
 
         // Compare: format > 2
-        emit!(self, Instruction::CompareOp { op: Greater });
+        emit!(
+            self,
+            Instruction::CompareOp {
+                op: ComparisonOperator::Greater
+            }
+        );
 
         // Jump to body if format <= 2 (comparison is false)
         let body_block = self.new_block();
@@ -1324,48 +1309,15 @@ impl Compiler {
         fb_block: BlockIdx,
         fb_exit: BlockIdx,
     ) -> CompileResult<()> {
-        self.push_fblock_full(
-            fb_type,
-            fb_block,
-            fb_exit,
-            None,
-            0,
-            false,
-            FBlockDatum::None,
-        )
-    }
-
-    /// Push an fblock with exception handler info
-    fn push_fblock_with_handler(
-        &mut self,
-        fb_type: FBlockType,
-        fb_block: BlockIdx,
-        fb_exit: BlockIdx,
-        fb_handler: Option<BlockIdx>,
-        fb_stack_depth: u32,
-        fb_preserve_lasti: bool,
-    ) -> CompileResult<()> {
-        self.push_fblock_full(
-            fb_type,
-            fb_block,
-            fb_exit,
-            fb_handler,
-            fb_stack_depth,
-            fb_preserve_lasti,
-            FBlockDatum::None,
-        )
+        self.push_fblock_full(fb_type, fb_block, fb_exit, FBlockDatum::None)
     }
 
     /// Push an fblock with all parameters including fb_datum
-    #[allow(clippy::too_many_arguments)]
     fn push_fblock_full(
         &mut self,
         fb_type: FBlockType,
         fb_block: BlockIdx,
         fb_exit: BlockIdx,
-        fb_handler: Option<BlockIdx>,
-        fb_stack_depth: u32,
-        fb_preserve_lasti: bool,
         fb_datum: FBlockDatum,
     ) -> CompileResult<()> {
         let code = self.current_code_info();
@@ -1378,9 +1330,6 @@ impl Compiler {
             fb_type,
             fb_block,
             fb_exit,
-            fb_handler,
-            fb_stack_depth,
-            fb_preserve_lasti,
             fb_datum,
         });
         Ok(())
@@ -1416,7 +1365,7 @@ impl Compiler {
             }
 
             FBlockType::TryExcept => {
-                // No POP_BLOCK with exception table, just pop fblock
+                emit!(self, PseudoInstruction::PopBlock);
             }
 
             FBlockType::FinallyTry => {
@@ -1427,18 +1376,16 @@ impl Compiler {
             }
 
             FBlockType::FinallyEnd => {
-                // Stack when in FinallyEnd: [..., prev_exc, exc] or
-                // [..., prev_exc, exc, return_value] if preserve_tos
-                // Note: No lasti here - it's only pushed for cleanup handler exceptions
-                // We need to pop: exc, prev_exc (via PopExcept)
+                // codegen_unwind_fblock(FINALLY_END)
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopTop); // exc
+                emit!(self, Instruction::PopTop); // exc_value
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopExcept); // prev_exc is restored
+                emit!(self, PseudoInstruction::PopBlock);
+                emit!(self, Instruction::PopExcept);
             }
 
             FBlockType::With | FBlockType::AsyncWith => {
@@ -1465,7 +1412,7 @@ impl Compiler {
 
                 // For async with, await the result
                 if matches!(info.fb_type, FBlockType::AsyncWith) {
-                    emit!(self, Instruction::GetAwaitable);
+                    emit!(self, Instruction::GetAwaitable { arg: 2 });
                     self.emit_load_const(ConstantData::None);
                     self.compile_yield_from_sequence(true)?;
                 }
@@ -1475,9 +1422,16 @@ impl Compiler {
             }
 
             FBlockType::HandlerCleanup => {
+                // codegen_unwind_fblock(HANDLER_CLEANUP)
+                if let FBlockDatum::ExceptionName(_) = info.fb_datum {
+                    // Named handler: PopBlock for inner SETUP_CLEANUP
+                    emit!(self, PseudoInstruction::PopBlock);
+                }
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
+                // PopBlock for outer SETUP_CLEANUP (ExceptionHandler)
+                emit!(self, PseudoInstruction::PopBlock);
                 emit!(self, Instruction::PopExcept);
 
                 // If there's an exception name, clean it up
@@ -1551,49 +1505,20 @@ impl Compiler {
                     self.unwind_fblock(&fblock_info, preserve_tos)?;
                 }
                 UnwindInfo::FinallyTry { body, fblock_idx } => {
+                    // codegen_unwind_fblock(FINALLY_TRY)
+                    emit!(self, PseudoInstruction::PopBlock);
+
                     // Temporarily remove the FinallyTry fblock so nested return/break/continue
                     // in the finally body won't see it again
                     let code = self.current_code_info();
                     let saved_fblock = code.fblock.remove(fblock_idx);
 
                     // Push PopValue fblock if preserving tos
-                    // IMPORTANT: When preserving TOS (return value), we need to update the
-                    // exception handler's stack_depth to account for the return value on stack.
-                    // Otherwise, if an exception occurs during the finally body, the stack
-                    // will be unwound to the wrong depth and the return value will be lost.
                     if preserve_tos {
-                        // Find the outer handler for exceptions during finally body execution.
-                        // CRITICAL: Only search fblocks with index < fblock_idx (= outer fblocks).
-                        // Inner FinallyTry blocks may have been restored after their unwind
-                        // processing, and we must NOT use their handlers - that would cause
-                        // the inner finally body to execute again on exception.
-                        let (handler, stack_depth, preserve_lasti) = {
-                            let code = self.code_stack.last().unwrap();
-                            let mut found = None;
-                            // Only search fblocks at indices 0..fblock_idx (outer fblocks)
-                            // After removal, fblock_idx now points to where saved_fblock was,
-                            // so indices 0..fblock_idx are the outer fblocks
-                            for i in (0..fblock_idx).rev() {
-                                let fblock = &code.fblock[i];
-                                if let Some(handler) = fblock.fb_handler {
-                                    found = Some((
-                                        Some(handler),
-                                        fblock.fb_stack_depth + 1, // +1 for return value
-                                        fblock.fb_preserve_lasti,
-                                    ));
-                                    break;
-                                }
-                            }
-                            found.unwrap_or((None, 1, false))
-                        };
-
-                        self.push_fblock_with_handler(
+                        self.push_fblock(
                             FBlockType::PopValue,
                             saved_fblock.fb_block,
                             saved_fblock.fb_block,
-                            handler,
-                            stack_depth,
-                            preserve_lasti,
                         )?;
                     }
 
@@ -1611,22 +1536,6 @@ impl Compiler {
         }
 
         Ok(())
-    }
-
-    /// Get the current exception handler from fblock stack
-    fn current_except_handler(&self) -> Option<ir::ExceptHandlerInfo> {
-        let code = self.code_stack.last()?;
-        // Walk fblock stack from top to find the nearest exception handler
-        for fblock in code.fblock.iter().rev() {
-            if let Some(handler) = fblock.fb_handler {
-                return Some(ir::ExceptHandlerInfo {
-                    handler_block: handler,
-                    stack_depth: fblock.fb_stack_depth,
-                    preserve_lasti: fblock.fb_preserve_lasti,
-                });
-            }
-        }
-        None
     }
 
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
@@ -1975,15 +1884,17 @@ impl Compiler {
 
         // Special handling for class scope implicit cell variables
         // These are treated as Cell even if not explicitly marked in symbol table
-        // Only for LOAD operations - explicit stores like `__class__ = property(...)`
-        // should use STORE_NAME to store in class namespace dict
+        // __class__ and __classdict__: only LOAD uses Cell (stores go to class namespace)
+        // __conditional_annotations__: both LOAD and STORE use Cell (it's a mutable set
+        // that the annotation scope accesses through the closure)
         let symbol_scope = {
             let current_table = self.current_symbol_table();
             if current_table.typ == CompilerScope::Class
-                && usage == NameUsage::Load
-                && (name == "__class__"
-                    || name == "__classdict__"
-                    || name == "__conditional_annotations__")
+                && ((usage == NameUsage::Load
+                    && (name == "__class__"
+                        || name == "__classdict__"
+                        || name == "__conditional_annotations__"))
+                    || (name == "__conditional_annotations__" && usage == NameUsage::Store))
             {
                 Some(SymbolScope::Cell)
             } else {
@@ -2048,8 +1959,14 @@ impl Compiler {
 
                 let op = match usage {
                     NameUsage::Load => {
-                        // Special case for class scope
+                        // ClassBlock (not inlined comp): LOAD_LOCALS first, then LOAD_FROM_DICT_OR_DEREF
                         if self.ctx.in_class && !self.ctx.in_func() {
+                            emit!(self, Instruction::LoadLocals);
+                            Instruction::LoadFromDictOrDeref
+                        // can_see_class_scope: LOAD_DEREF(__classdict__) first
+                        } else if can_see_class_scope {
+                            let classdict_idx = self.get_free_var_index("__classdict__")?;
+                            self.emit_arg(classdict_idx, Instruction::LoadDeref);
                             Instruction::LoadFromDictOrDeref
                         } else {
                             Instruction::LoadDeref
@@ -2146,11 +2063,19 @@ impl Compiler {
                     let idx = self.name(&name.name);
                     emit!(self, Instruction::ImportName { idx });
                     if let Some(alias) = &name.asname {
-                        for part in name.name.split('.').skip(1) {
+                        let parts: Vec<&str> = name.name.split('.').skip(1).collect();
+                        for (i, part) in parts.iter().enumerate() {
                             let idx = self.name(part);
-                            self.emit_load_attr(idx);
+                            emit!(self, Instruction::ImportFrom { idx });
+                            if i < parts.len() - 1 {
+                                emit!(self, Instruction::Swap { index: 2 });
+                                emit!(self, Instruction::PopTop);
+                            }
                         }
-                        self.store_name(alias.as_str())?
+                        self.store_name(alias.as_str())?;
+                        if !parts.is_empty() {
+                            emit!(self, Instruction::PopTop);
+                        }
                     } else {
                         self.store_name(name.name.split('.').next().unwrap())?
                     }
@@ -2201,6 +2126,7 @@ impl Compiler {
                             func: bytecode::IntrinsicFunction1::ImportStar
                         }
                     );
+                    emit!(self, Instruction::PopTop);
                 } else {
                     // from mod import a, b as c
 
@@ -2325,6 +2251,10 @@ impl Compiler {
                 };
                 self.set_source_range(*range);
                 emit!(self, Instruction::RaiseVarargs { kind });
+                // Start a new block so dead code after raise doesn't
+                // corrupt the except stack in label_exception_targets
+                let dead = self.new_block();
+                self.switch_to_block(dead);
             }
             ast::Stmt::Try(ast::StmtTry {
                 body,
@@ -2413,10 +2343,14 @@ impl Compiler {
             ast::Stmt::Break(_) => {
                 // Unwind fblock stack until we find a loop, emitting cleanup for each fblock
                 self.compile_break_continue(statement.range(), true)?;
+                let dead = self.new_block();
+                self.switch_to_block(dead);
             }
             ast::Stmt::Continue(_) => {
                 // Unwind fblock stack until we find a loop, emitting cleanup for each fblock
                 self.compile_break_continue(statement.range(), false)?;
+                let dead = self.new_block();
+                self.switch_to_block(dead);
             }
             ast::Stmt::Return(ast::StmtReturn { value, .. }) => {
                 if !self.ctx.in_func() {
@@ -2449,6 +2383,8 @@ impl Compiler {
                         self.emit_return_const(ConstantData::None);
                     }
                 }
+                let dead = self.new_block();
+                self.switch_to_block(dead);
             }
             ast::Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 self.compile_expression(value)?;
@@ -2501,27 +2437,79 @@ impl Compiler {
                 });
 
                 if let Some(type_params) = type_params {
-                    // For TypeAlias, we need to use push_symbol_table to properly handle the TypeAlias scope
+                    // Outer scope for TypeParams
                     self.push_symbol_table()?;
+                    let key = self.symbol_table_stack.len() - 1;
+                    let lineno = self.get_source_line_number().get().to_u32();
+                    let scope_name = format!("<generic parameters of {name_string}>");
+                    self.enter_scope(&scope_name, CompilerScope::TypeParams, key, lineno)?;
 
-                    // Compile type params and push to stack
+                    // TypeParams scope is function-like
+                    let prev_ctx = self.ctx;
+                    self.ctx = CompileContext {
+                        loop_data: None,
+                        in_class: prev_ctx.in_class,
+                        func: FunctionContext::Function,
+                        in_async_scope: false,
+                    };
+
+                    // Compile type params inside the scope
                     self.compile_type_params(type_params)?;
-                    // Stack now has [name, type_params_tuple]
+                    // Stack: [type_params_tuple]
 
-                    // Compile value expression (can now see T1, T2)
+                    // Inner closure for lazy value evaluation
+                    self.push_symbol_table()?;
+                    let inner_key = self.symbol_table_stack.len() - 1;
+                    self.enter_scope("TypeAlias", CompilerScope::TypeParams, inner_key, lineno)?;
                     self.compile_expression(value)?;
-                    // Stack: [name, type_params_tuple, value]
+                    emit!(self, Instruction::ReturnValue);
+                    let value_code = self.exit_scope();
+                    self.make_closure(value_code, bytecode::MakeFunctionFlags::empty())?;
+                    // Stack: [type_params_tuple, value_closure]
 
-                    // Pop the TypeAlias scope
-                    self.pop_symbol_table();
+                    // Swap so unpack_sequence reverse gives correct order
+                    emit!(self, Instruction::Swap { index: 2_u32 });
+                    // Stack: [value_closure, type_params_tuple]
+
+                    // Build tuple and return from TypeParams scope
+                    emit!(self, Instruction::BuildTuple { size: 2 });
+                    emit!(self, Instruction::ReturnValue);
+
+                    let code = self.exit_scope();
+                    self.ctx = prev_ctx;
+                    self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+                    emit!(self, Instruction::PushNull);
+                    emit!(self, Instruction::Call { nargs: 0 });
+
+                    // Unpack: (value_closure, type_params_tuple)
+                    // UnpackSequence reverses → stack: [name, type_params_tuple, value_closure]
+                    emit!(self, Instruction::UnpackSequence { size: 2 });
                 } else {
                     // Push None for type_params
                     self.emit_load_const(ConstantData::None);
                     // Stack: [name, None]
 
-                    // Compile value expression
+                    // Create a closure for lazy evaluation of the value
+                    self.push_symbol_table()?;
+                    let key = self.symbol_table_stack.len() - 1;
+                    let lineno = self.get_source_line_number().get().to_u32();
+                    self.enter_scope("TypeAlias", CompilerScope::TypeParams, key, lineno)?;
+
+                    let prev_ctx = self.ctx;
+                    self.ctx = CompileContext {
+                        loop_data: None,
+                        in_class: prev_ctx.in_class,
+                        func: FunctionContext::Function,
+                        in_async_scope: false,
+                    };
+
                     self.compile_expression(value)?;
-                    // Stack: [name, None, value]
+                    emit!(self, Instruction::ReturnValue);
+
+                    let code = self.exit_scope();
+                    self.ctx = prev_ctx;
+                    self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+                    // Stack: [name, None, closure]
                 }
 
                 // Build tuple of 3 elements and call intrinsic
@@ -2647,6 +2635,15 @@ impl Compiler {
         // Enter scope with the type parameter name
         self.enter_scope(name, CompilerScope::TypeParams, key, lineno)?;
 
+        // TypeParams scope is function-like
+        let prev_ctx = self.ctx;
+        self.ctx = CompileContext {
+            loop_data: None,
+            in_class: prev_ctx.in_class,
+            func: FunctionContext::Function,
+            in_async_scope: false,
+        };
+
         // Compile the expression
         if allow_starred && matches!(expr, ast::Expr::Starred(_)) {
             if let ast::Expr::Starred(starred) = expr {
@@ -2662,14 +2659,10 @@ impl Compiler {
 
         // Exit scope and create closure
         let code = self.exit_scope();
-        // Note: exit_scope already calls pop_symbol_table, so we don't need to call it again
+        self.ctx = prev_ctx;
 
-        // Create type params function with closure
+        // Create closure for lazy evaluation
         self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
-        emit!(self, Instruction::PushNull);
-
-        // Call the function immediately
-        emit!(self, Instruction::Call { nargs: 0 });
 
         Ok(())
     }
@@ -2818,25 +2811,24 @@ impl Compiler {
         // Normal path jumps here to skip exception path blocks
         let end_block = self.new_block();
 
-        // Calculate the stack depth at this point (for exception table)
-        // SETUP_FINALLY captures current stack depth
-        let current_depth = self.handler_stack_depth();
-
         // Setup a finally block if we have a finally statement.
         // Push fblock with handler info for exception table generation
         // IMPORTANT: handler goes to finally_except_block (exception path), not finally_block
         if !finalbody.is_empty() {
-            // No SetupFinally emit - exception table handles this
-            // Store finally body in fb_datum for unwind_fblock to compile inline
             // SETUP_FINALLY doesn't push lasti for try body handler
             // Exception table: L1 to L2 -> L4 [1] (no lasti)
+            let setup_target = finally_except_block.unwrap_or(finally_block);
+            emit!(
+                self,
+                PseudoInstruction::SetupFinally {
+                    target: setup_target
+                }
+            );
+            // Store finally body in fb_datum for unwind_fblock to compile inline
             self.push_fblock_full(
                 FBlockType::FinallyTry,
                 finally_block,
                 finally_block,
-                finally_except_block, // Exception path goes to finally_except_block
-                current_depth,
-                false, // No lasti for first finally handler
                 FBlockDatum::FinallyBody(finalbody.to_vec()), // Clone finally body for unwind
             )?;
         }
@@ -2852,6 +2844,7 @@ impl Compiler {
             // Pop FinallyTry fblock BEFORE compiling orelse/finally (normal path)
             // This prevents exception table from covering the normal path
             if !finalbody.is_empty() {
+                emit!(self, PseudoInstruction::PopBlock);
                 self.pop_fblock(FBlockType::FinallyTry);
             }
 
@@ -2883,22 +2876,13 @@ impl Compiler {
                 }
 
                 self.switch_to_block(finally_except);
-                // PUSH_EXC_INFO first, THEN push FinallyEnd fblock
-                // Stack after unwind (no lasti): [exc] (depth = current_depth + 1)
-                // Stack after PUSH_EXC_INFO: [prev_exc, exc] (depth = current_depth + 2)
+                // SETUP_CLEANUP before PUSH_EXC_INFO
+                if let Some(cleanup) = finally_cleanup_block {
+                    emit!(self, PseudoInstruction::SetupCleanup { target: cleanup });
+                }
                 emit!(self, Instruction::PushExcInfo);
                 if let Some(cleanup) = finally_cleanup_block {
-                    // FinallyEnd fblock must be pushed AFTER PUSH_EXC_INFO
-                    // Depth = current_depth + 1 (only prev_exc remains after RERAISE pops exc)
-                    // Exception table: L4 to L5 -> L6 [2] lasti (cleanup handler DOES push lasti)
-                    self.push_fblock_with_handler(
-                        FBlockType::FinallyEnd,
-                        cleanup,
-                        cleanup,
-                        Some(cleanup),
-                        current_depth + 1,
-                        true, // Cleanup handler pushes lasti
-                    )?;
+                    self.push_fblock(FBlockType::FinallyEnd, cleanup, cleanup)?;
                 }
                 self.compile_statements(finalbody)?;
 
@@ -2906,6 +2890,7 @@ impl Compiler {
                 // This ensures RERAISE routes to outer exception handler, not cleanup block
                 // Cleanup block is only for new exceptions raised during finally body execution
                 if finally_cleanup_block.is_some() {
+                    emit!(self, PseudoInstruction::PopBlock);
                     self.pop_fblock(FBlockType::FinallyEnd);
                 }
 
@@ -2942,19 +2927,16 @@ impl Compiler {
         }
 
         // try:
-        // Push fblock with handler info for exception table generation
-        // No SetupExcept emit - exception table handles this
-        self.push_fblock_with_handler(
-            FBlockType::TryExcept,
-            handler_block,
-            handler_block,
-            Some(handler_block),
-            current_depth, // stack depth for exception handler
-            false,         // no lasti for except
-        )?;
+        emit!(
+            self,
+            PseudoInstruction::SetupFinally {
+                target: handler_block
+            }
+        );
+        self.push_fblock(FBlockType::TryExcept, handler_block, handler_block)?;
         self.compile_statements(body)?;
+        emit!(self, PseudoInstruction::PopBlock);
         self.pop_fblock(FBlockType::TryExcept);
-        // No PopBlock emit - exception table handles this
         emit!(self, PseudoInstruction::Jump { target: else_block });
 
         // except handlers:
@@ -2966,14 +2948,13 @@ impl Compiler {
         // After PUSH_EXC_INFO, stack is [prev_exc, exc]
         // depth=1 means keep prev_exc on stack when routing to cleanup
         let cleanup_block = self.new_block();
-        self.push_fblock_with_handler(
-            FBlockType::ExceptionHandler,
-            cleanup_block,
-            cleanup_block,
-            Some(cleanup_block),
-            current_depth + 1, // After PUSH_EXC_INFO: [prev_exc] stays on stack
-            true,              // preserve_lasti for cleanup
-        )?;
+        emit!(
+            self,
+            PseudoInstruction::SetupCleanup {
+                target: cleanup_block
+            }
+        );
+        self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
 
         // Exception is on top of stack now, pushed by unwind_blocks
         // PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] for PopExcept
@@ -3021,16 +3002,17 @@ impl Compiler {
             let handler_cleanup_block = if name.is_some() {
                 // SETUP_CLEANUP(cleanup_end) for named handler
                 let cleanup_end = self.new_block();
-                // Stack at handler entry: [prev_exc, exc]
-                // depth = 1 (prev_exc on stack after exception is popped)
-                let handler_depth = current_depth + 1;
-                self.push_fblock_with_handler(
+                emit!(
+                    self,
+                    PseudoInstruction::SetupCleanup {
+                        target: cleanup_end
+                    }
+                );
+                self.push_fblock_full(
                     FBlockType::HandlerCleanup,
                     cleanup_end,
                     cleanup_end,
-                    Some(cleanup_end),
-                    handler_depth,
-                    true, // preserve_lasti for RERAISE
+                    FBlockDatum::ExceptionName(name.as_ref().unwrap().as_str().to_owned()),
                 )?;
                 Some(cleanup_end)
             } else {
@@ -3043,6 +3025,10 @@ impl Compiler {
             self.compile_statements(body)?;
 
             self.pop_fblock(FBlockType::HandlerCleanup);
+            // PopBlock for inner SETUP_CLEANUP (named handler only)
+            if handler_cleanup_block.is_some() {
+                emit!(self, PseudoInstruction::PopBlock);
+            }
 
             // Create a block for normal path continuation (after handler body succeeds)
             let handler_normal_exit = self.new_block();
@@ -3080,9 +3066,9 @@ impl Compiler {
             // Switch to normal exit block - this is where handler body success continues
             self.switch_to_block(handler_normal_exit);
 
+            // PopBlock for outer SETUP_CLEANUP (ExceptionHandler)
+            emit!(self, PseudoInstruction::PopBlock);
             // Now pop ExceptionHandler - the normal path continues from here
-            // POP_BLOCK (HandlerCleanup) then POP_BLOCK (SETUP_CLEANUP)
-            // followed by POP_EXCEPT
             self.pop_fblock(FBlockType::ExceptionHandler);
             emit!(self, Instruction::PopExcept);
 
@@ -3092,6 +3078,13 @@ impl Compiler {
                 self.emit_load_const(ConstantData::None);
                 self.store_name(alias.as_str())?;
                 self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
+            // Pop FinallyTry block before jumping to finally body.
+            // The else_block path also pops this; both paths must agree
+            // on the except stack when entering finally_block.
+            if !finalbody.is_empty() {
+                emit!(self, PseudoInstruction::PopBlock);
             }
 
             // Jump to finally block
@@ -3104,14 +3097,7 @@ impl Compiler {
 
             // Re-push ExceptionHandler for next handler in the loop
             // This will be popped at the end of handlers loop or when matched
-            self.push_fblock_with_handler(
-                FBlockType::ExceptionHandler,
-                cleanup_block,
-                cleanup_block,
-                Some(cleanup_block),
-                current_depth + 1, // After PUSH_EXC_INFO: [prev_exc] stays on stack
-                true,              // preserve_lasti for cleanup
-            )?;
+            self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
 
             // Emit a new label for the next handler
             self.switch_to_block(next_handler);
@@ -3155,7 +3141,7 @@ impl Compiler {
 
         // Pop the FinallyTry fblock before jumping to finally
         if !finalbody.is_empty() {
-            // No PopBlock/EnterFinally emit - exception table handles this
+            emit!(self, PseudoInstruction::PopBlock);
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
@@ -3190,23 +3176,13 @@ impl Compiler {
 
             // SETUP_CLEANUP for finally body
             // Exceptions during finally body need to go to cleanup block
-            // Stack at entry: [lasti, exc] (lasti from exception table, exc pushed)
-            // After PUSH_EXC_INFO: [lasti, prev_exc, exc]
-            // So depth should account for lasti being on stack
             if let Some(cleanup) = finally_cleanup_block {
-                self.push_fblock_with_handler(
-                    FBlockType::FinallyEnd,
-                    cleanup,
-                    cleanup,
-                    Some(cleanup),
-                    current_depth + 1, // [lasti] on stack before PUSH_EXC_INFO
-                    true,
-                )?;
+                emit!(self, PseudoInstruction::SetupCleanup { target: cleanup });
             }
-
-            // PUSH_EXC_INFO: [lasti, exc] -> [lasti, prev_exc, exc]
-            // Sets exc as current VM exception, saves prev_exc for restoration
             emit!(self, Instruction::PushExcInfo);
+            if let Some(cleanup) = finally_cleanup_block {
+                self.push_fblock(FBlockType::FinallyEnd, cleanup, cleanup)?;
+            }
 
             // Run finally body
             self.compile_statements(finalbody)?;
@@ -3215,6 +3191,7 @@ impl Compiler {
             // This ensures RERAISE routes to outer exception handler, not cleanup block
             // Cleanup block is only for new exceptions raised during finally body execution
             if finally_cleanup_block.is_some() {
+                emit!(self, PseudoInstruction::PopBlock);
                 self.pop_fblock(FBlockType::FinallyEnd);
             }
 
@@ -3275,35 +3252,39 @@ impl Compiler {
         let end_block = self.new_block();
         let reraise_star_block = self.new_block();
         let reraise_block = self.new_block();
-        let _cleanup_block = self.new_block();
-
-        // Calculate the stack depth at this point (for exception table)
-        let current_depth = self.handler_stack_depth();
+        let finally_cleanup_block = if !finalbody.is_empty() {
+            Some(self.new_block())
+        } else {
+            None
+        };
+        let exit_block = self.new_block();
 
         // Push fblock with handler info for exception table generation
         if !finalbody.is_empty() {
-            // No SetupFinally emit - exception table handles this
-            self.push_fblock_with_handler(
+            emit!(
+                self,
+                PseudoInstruction::SetupFinally {
+                    target: finally_block
+                }
+            );
+            self.push_fblock_full(
                 FBlockType::FinallyTry,
                 finally_block,
                 finally_block,
-                Some(finally_block),
-                current_depth, // stack depth for exception handler
-                true,          // preserve lasti for finally
+                FBlockDatum::FinallyBody(finalbody.to_vec()),
             )?;
         }
 
         // SETUP_FINALLY for try body
-        // Push fblock with handler info for exception table generation
-        self.push_fblock_with_handler(
-            FBlockType::TryExcept,
-            handler_block,
-            handler_block,
-            Some(handler_block),
-            current_depth, // stack depth for exception handler
-            false,         // no lasti for except
-        )?;
+        emit!(
+            self,
+            PseudoInstruction::SetupFinally {
+                target: handler_block
+            }
+        );
+        self.push_fblock(FBlockType::TryExcept, handler_block, handler_block)?;
         self.compile_statements(body)?;
+        emit!(self, PseudoInstruction::PopBlock);
         self.pop_fblock(FBlockType::TryExcept);
         emit!(self, PseudoInstruction::Jump { target: else_block });
 
@@ -3320,7 +3301,26 @@ impl Compiler {
         let eg_dummy2 = self.new_block();
         self.push_fblock(FBlockType::ExceptionGroupHandler, eg_dummy1, eg_dummy2)?;
 
+        // Initialize handler stack before the loop
+        // BUILD_LIST 0 + COPY 2 to set up [prev_exc, orig, list, rest]
+        emit!(self, Instruction::BuildList { size: 0 });
+        // Stack: [prev_exc, exc, []]
+        emit!(self, Instruction::Copy { index: 2 });
+        // Stack: [prev_exc, orig, list, rest]
+
         let n = handlers.len();
+        if n == 0 {
+            // Empty handlers (invalid AST) - append rest to list and proceed
+            // Stack: [prev_exc, orig, list, rest]
+            emit!(self, Instruction::ListAppend { i: 0 });
+            // Stack: [prev_exc, orig, list]
+            emit!(
+                self,
+                PseudoInstruction::Jump {
+                    target: reraise_star_block
+                }
+            );
+        }
         for (i, handler) in handlers.iter().enumerate() {
             let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                 type_,
@@ -3331,17 +3331,6 @@ impl Compiler {
 
             let no_match_block = self.new_block();
             let next_block = self.new_block();
-
-            // first handler creates list and copies exc
-            if i == 0 {
-                // ADDOP_I(c, loc, BUILD_LIST, 0);
-                emit!(self, Instruction::BuildList { size: 0 });
-                // Stack: [prev_exc, exc, []]
-                // ADDOP_I(c, loc, COPY, 2);
-                emit!(self, Instruction::Copy { index: 2 });
-                // Stack: [prev_exc, exc, [], exc_copy]
-                // Now stack is: [prev_exc, orig, list, rest]
-            }
 
             // Compile exception type
             if let Some(exc_type) = type_ {
@@ -3390,21 +3379,28 @@ impl Compiler {
             // Stack: [prev_exc, orig, list, new_rest]
 
             // HANDLER_CLEANUP fblock for handler body
-            // Stack depth: prev_exc(1) + orig(1) + list(1) + new_rest(1) = 4
-            let eg_handler_depth = self.handler_stack_depth() + 4;
-            self.push_fblock_with_handler(
+            emit!(
+                self,
+                PseudoInstruction::SetupCleanup {
+                    target: handler_except_block
+                }
+            );
+            self.push_fblock_full(
                 FBlockType::HandlerCleanup,
                 next_block,
                 end_block,
-                Some(handler_except_block),
-                eg_handler_depth,
-                true, // preserve lasti
+                if let Some(alias) = name {
+                    FBlockDatum::ExceptionName(alias.as_str().to_owned())
+                } else {
+                    FBlockDatum::None
+                },
             )?;
 
             // Execute handler body
             self.compile_statements(body)?;
 
             // Handler body completed normally
+            emit!(self, PseudoInstruction::PopBlock);
             self.pop_fblock(FBlockType::HandlerCleanup);
 
             // Cleanup name binding
@@ -3515,6 +3511,7 @@ impl Compiler {
         // Stack: []
 
         if !finalbody.is_empty() {
+            emit!(self, PseudoInstruction::PopBlock);
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
@@ -3542,13 +3539,17 @@ impl Compiler {
         // that branches from try body success (where FinallyTry is still active).
         // We need to re-push FinallyTry to reflect the correct fblock state for else path.
         if !finalbody.is_empty() {
-            self.push_fblock_with_handler(
+            emit!(
+                self,
+                PseudoInstruction::SetupFinally {
+                    target: finally_block
+                }
+            );
+            self.push_fblock_full(
                 FBlockType::FinallyTry,
                 finally_block,
                 finally_block,
-                Some(finally_block),
-                current_depth,
-                true,
+                FBlockDatum::FinallyBody(finalbody.to_vec()),
             )?;
         }
         self.switch_to_block(else_block);
@@ -3556,6 +3557,7 @@ impl Compiler {
 
         if !finalbody.is_empty() {
             // Pop the FinallyTry fblock we just pushed for the else path
+            emit!(self, PseudoInstruction::PopBlock);
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
@@ -3563,10 +3565,59 @@ impl Compiler {
 
         self.switch_to_block(end_block);
         if !finalbody.is_empty() {
-            self.switch_to_block(finally_block);
+            // Snapshot sub_tables before first finally compilation
+            let sub_table_cursor = self.symbol_table_stack.last().map(|t| t.next_sub_table);
+
+            // Compile finally body inline for normal path
             self.compile_statements(finalbody)?;
-            // No EndFinally emit - exception table handles this
+            emit!(self, PseudoInstruction::Jump { target: exit_block });
+
+            // Restore sub_tables for exception path compilation
+            if let Some(cursor) = sub_table_cursor
+                && let Some(current_table) = self.symbol_table_stack.last_mut()
+            {
+                current_table.next_sub_table = cursor;
+            }
+
+            // Exception handler path
+            self.switch_to_block(finally_block);
+            emit!(self, Instruction::PushExcInfo);
+
+            if let Some(cleanup) = finally_cleanup_block {
+                emit!(self, PseudoInstruction::SetupCleanup { target: cleanup });
+                self.push_fblock(FBlockType::FinallyEnd, cleanup, cleanup)?;
+            }
+
+            self.compile_statements(finalbody)?;
+
+            if finally_cleanup_block.is_some() {
+                emit!(self, PseudoInstruction::PopBlock);
+                self.pop_fblock(FBlockType::FinallyEnd);
+            }
+
+            emit!(self, Instruction::Copy { index: 2_u32 });
+            emit!(self, Instruction::PopExcept);
+            emit!(
+                self,
+                Instruction::RaiseVarargs {
+                    kind: bytecode::RaiseKind::ReraiseFromStack
+                }
+            );
+
+            if let Some(cleanup) = finally_cleanup_block {
+                self.switch_to_block(cleanup);
+                emit!(self, Instruction::Copy { index: 3_u32 });
+                emit!(self, Instruction::PopExcept);
+                emit!(
+                    self,
+                    Instruction::RaiseVarargs {
+                        kind: bytecode::RaiseKind::ReraiseFromStack
+                    }
+                );
+            }
         }
+
+        self.switch_to_block(exit_block);
 
         Ok(())
     }
@@ -3850,16 +3901,8 @@ impl Compiler {
         // Check if we have conditional annotations
         let has_conditional = self.current_symbol_table().has_conditional_annotations;
 
-        // Get parent scope type and name BEFORE pushing annotation symbol table
+        // Get parent scope type BEFORE pushing annotation symbol table
         let parent_scope_type = self.current_symbol_table().typ;
-        let parent_name = self
-            .symbol_table_stack
-            .last()
-            .map(|t| t.name.as_str())
-            .unwrap_or("module")
-            .to_owned();
-        let scope_name = format!("<annotate of {parent_name}>");
-
         // Try to push annotation symbol table from current scope
         if !self.push_current_annotation_symbol_table() {
             return Ok(false);
@@ -3868,7 +3911,12 @@ impl Compiler {
         // Enter annotation scope for code generation
         let key = self.symbol_table_stack.len() - 1;
         let lineno = self.get_source_line_number().get();
-        self.enter_scope(&scope_name, CompilerScope::Annotation, key, lineno.to_u32())?;
+        self.enter_scope(
+            "__annotate__",
+            CompilerScope::Annotation,
+            key,
+            lineno.to_u32(),
+        )?;
 
         // Add 'format' parameter to varnames
         self.current_code_info()
@@ -3997,6 +4045,9 @@ impl Compiler {
         let is_generic = type_params.is_some();
         let mut num_typeparam_args = 0;
 
+        // Save context before entering TypeParams scope
+        let saved_ctx = self.ctx;
+
         if is_generic {
             // Count args to pass to type params scope
             if funcflags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
@@ -4015,6 +4066,14 @@ impl Compiler {
                 0,
                 type_params_name,
             )?;
+
+            // TypeParams scope is function-like
+            self.ctx = CompileContext {
+                loop_data: None,
+                in_class: saved_ctx.in_class,
+                func: FunctionContext::Function,
+                in_async_scope: false,
+            };
 
             // Add parameter names to varnames for the type params scope
             // These will be passed as arguments when the closure is called
@@ -4074,6 +4133,7 @@ impl Compiler {
 
             // Exit type params scope and create closure
             let type_params_code = self.exit_scope();
+            self.ctx = saved_ctx;
 
             // Make closure for type params code
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
@@ -4322,12 +4382,26 @@ impl Compiler {
                     Self::find_ann(body) || Self::find_ann(orelse)
                 }
                 ast::Stmt::With(ast::StmtWith { body, .. }) => Self::find_ann(body),
+                ast::Stmt::Match(ast::StmtMatch { cases, .. }) => {
+                    cases.iter().any(|case| Self::find_ann(&case.body))
+                }
                 ast::Stmt::Try(ast::StmtTry {
                     body,
+                    handlers,
                     orelse,
                     finalbody,
                     ..
-                }) => Self::find_ann(body) || Self::find_ann(orelse) || Self::find_ann(finalbody),
+                }) => {
+                    Self::find_ann(body)
+                        || handlers.iter().any(|h| {
+                            let ast::ExceptHandler::ExceptHandler(
+                                ast::ExceptHandlerExceptHandler { body, .. },
+                            ) = h;
+                            Self::find_ann(body)
+                        })
+                        || Self::find_ann(orelse)
+                        || Self::find_ann(finalbody)
+                }
                 _ => false,
             };
             if res {
@@ -4464,6 +4538,9 @@ impl Compiler {
         let is_generic = type_params.is_some();
         let firstlineno = self.get_source_line_number().get().to_u32();
 
+        // Save context before entering any scopes
+        let saved_ctx = self.ctx;
+
         // Step 1: If generic, enter type params scope and compile type params
         if is_generic {
             let type_params_name = format!("<generic parameters of {name}>");
@@ -4477,6 +4554,14 @@ impl Compiler {
 
             // Set private name for name mangling
             self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
+
+            // TypeParams scope is function-like
+            self.ctx = CompileContext {
+                loop_data: None,
+                in_class: saved_ctx.in_class,
+                func: FunctionContext::Function,
+                in_async_scope: false,
+            };
 
             // Compile type parameters and store as .type_params
             self.compile_type_params(type_params.unwrap())?;
@@ -4628,6 +4713,7 @@ impl Compiler {
 
             // Exit type params scope and wrap in function
             let type_params_code = self.exit_scope();
+            self.ctx = saved_ctx;
 
             // Execute the type params function
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
@@ -4643,7 +4729,7 @@ impl Compiler {
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             if let Some(arguments) = arguments {
-                self.codegen_call_helper(2, arguments)?;
+                self.codegen_call_helper(2, arguments, self.current_source_range)?;
             } else {
                 emit!(self, Instruction::Call { nargs: 2 });
             }
@@ -4767,7 +4853,7 @@ impl Compiler {
             // bound_aenter is already bound, call with NULL self_or_null
             emit!(self, Instruction::PushNull); // [bound_aexit, bound_aenter, NULL]
             emit!(self, Instruction::Call { nargs: 0 }); // [bound_aexit, awaitable]
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, Instruction::GetAwaitable { arg: 1 });
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         } else {
@@ -4793,9 +4879,13 @@ impl Compiler {
         // Stack: [..., __exit__, enter_result]
         // Push fblock for exception table - handler goes to exc_handler_block
         // preserve_lasti=true for with statements
-        // Use handler_stack_depth() to include all items on stack (for loops, etc.)
-        let with_depth = self.handler_stack_depth() + 1; // +1 for current __exit__
-        self.push_fblock_with_handler(
+        emit!(
+            self,
+            PseudoInstruction::SetupWith {
+                target: exc_handler_block
+            }
+        );
+        self.push_fblock(
             if is_async {
                 FBlockType::AsyncWith
             } else {
@@ -4803,9 +4893,6 @@ impl Compiler {
             },
             exc_handler_block, // block start (will become exit target after store)
             after_block,
-            Some(exc_handler_block),
-            with_depth,
-            true, // preserve_lasti=true
         )?;
 
         // Store or pop the enter result
@@ -4832,6 +4919,7 @@ impl Compiler {
         }
 
         // Pop fblock before normal exit
+        emit!(self, PseudoInstruction::PopBlock);
         self.pop_fblock(if is_async {
             FBlockType::AsyncWith
         } else {
@@ -4848,7 +4936,7 @@ impl Compiler {
         self.emit_load_const(ConstantData::None);
         emit!(self, Instruction::Call { nargs: 3 });
         if is_async {
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, Instruction::GetAwaitable { arg: 2 });
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         }
@@ -4869,20 +4957,13 @@ impl Compiler {
         let cleanup_block = self.new_block();
         let suppress_block = self.new_block();
 
-        // Push nested fblock for cleanup handler
-        // Stack at exc_handler_block entry: [..., __exit__, lasti, exc]
-        // After PUSH_EXC_INFO: [..., __exit__, lasti, prev_exc, exc]
-        // If exception in __exit__, cleanup handler entry: [..., __exit__, lasti, prev_exc, lasti2, exc2]
-        // cleanup_depth should be: with_depth + 2 (lasti + prev_exc)
-        let cleanup_depth = with_depth + 2;
-        self.push_fblock_with_handler(
-            FBlockType::ExceptionHandler,
-            exc_handler_block,
-            after_block,
-            Some(cleanup_block),
-            cleanup_depth,
-            true, // preserve_lasti=true
-        )?;
+        emit!(
+            self,
+            PseudoInstruction::SetupCleanup {
+                target: cleanup_block
+            }
+        );
+        self.push_fblock(FBlockType::ExceptionHandler, exc_handler_block, after_block)?;
 
         // PUSH_EXC_INFO: [exc] -> [prev_exc, exc]
         emit!(self, Instruction::PushExcInfo);
@@ -4893,7 +4974,7 @@ impl Compiler {
         emit!(self, Instruction::WithExceptStart);
 
         if is_async {
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, Instruction::GetAwaitable { arg: 2 });
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         }
@@ -4911,6 +4992,7 @@ impl Compiler {
         // handler points to the outer handler (try-except), not cleanup_block.
         // This is critical: when RERAISE propagates the exception, the exception
         // table should route it to the outer try-except, not back to cleanup.
+        emit!(self, PseudoInstruction::PopBlock);
         self.pop_fblock(FBlockType::ExceptionHandler);
 
         // Not suppressed: RERAISE 2
@@ -4980,25 +5062,19 @@ impl Compiler {
 
             self.switch_to_block(for_block);
 
-            // Push fblock for async for loop with exception handler info
-            // Note: SetupExcept is no longer emitted (exception table handles StopAsyncIteration)
-            // Stack at this point: [..., async_iterator]
-            // We need handler_stack_depth() + 1 to keep parent items + async_iterator on stack when exception occurs
-            let async_for_depth = self.handler_stack_depth() + 1;
-            self.push_fblock_with_handler(
-                FBlockType::ForLoop,
-                for_block,
-                after_block,
-                Some(else_block), // Handler for StopAsyncIteration
-                async_for_depth,  // stack depth: keep async_iterator and parent items
-                false,            // no lasti needed
-            )?;
+            // codegen_async_for: push fblock BEFORE SETUP_FINALLY
+            self.push_fblock(FBlockType::ForLoop, for_block, after_block)?;
 
+            // SETUP_FINALLY to guard the __anext__ call
+            emit!(self, PseudoInstruction::SetupFinally { target: else_block });
             emit!(self, Instruction::GetANext);
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
+            // POP_BLOCK for SETUP_FINALLY - only GetANext/yield_from are protected
+            emit!(self, PseudoInstruction::PopBlock);
+
+            // Success block for __anext__
             self.compile_store(target)?;
-            // Note: PopBlock is no longer emitted (exception table handles this)
         } else {
             // Retrieve Iterator
             emit!(self, Instruction::GetIter);
@@ -5021,7 +5097,8 @@ impl Compiler {
 
         self.switch_to_block(else_block);
 
-        // Pop fblock
+        // Except block for __anext__ / end of sync for
+        // No PopBlock here - for async, POP_BLOCK is already in for_block
         self.pop_fblock(FBlockType::ForLoop);
 
         if is_async {
@@ -5053,8 +5130,9 @@ impl Compiler {
     }
 
     fn compile_error_forbidden_name(&mut self, name: &str) -> CodegenError {
-        // TODO: make into error (fine for now since it realistically errors out earlier)
-        panic!("Failing due to forbidden name {name:?}");
+        self.error(CodegenErrorType::SyntaxError(format!(
+            "cannot use forbidden name '{name}' in pattern"
+        )))
     }
 
     /// Ensures that `pc.fail_pop` has at least `n + 1` entries.
@@ -5401,12 +5479,9 @@ impl Compiler {
 
         // Check for too many sub-patterns.
         if nargs > u32::MAX as usize || (nargs + n_attrs).saturating_sub(1) > i32::MAX as usize {
-            let msg = format!(
-                "too many sub-patterns in class pattern {:?}",
-                match_class.cls
-            );
-            panic!("{}", msg);
-            // return self.compiler_error(&msg);
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "too many sub-patterns in class pattern".to_owned(),
+            )));
         }
 
         // Validate keyword attributes if any.
@@ -5547,13 +5622,13 @@ impl Compiler {
                 "too many sub-patterns in mapping pattern".to_string(),
             )));
         }
-        #[allow(clippy::cast_possible_truncation)]
-        let size = size as u32; // checked right before
+        #[allow(clippy::cast_possible_truncation, reason = "checked right before")]
+        let size = size as u32;
 
         // Step 2: If we have keys to match
         if size > 0 {
             // Validate and compile keys
-            let mut seen = HashSet::new();
+            let mut seen = IndexSet::default();
             for key in keys {
                 let is_attribute = matches!(key, ast::Expr::Attribute(_));
                 let is_literal = matches!(
@@ -5691,7 +5766,11 @@ impl Compiler {
         // Ensure the pattern is a MatchOr.
         let end = self.new_block(); // Create a new jump target label.
         let size = p.patterns.len();
-        assert!(size > 1, "MatchOr must have more than one alternative");
+        if size <= 1 {
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "MatchOr requires at least 2 patterns".to_owned(),
+            )));
+        }
 
         // Save the current pattern context.
         let old_pc = pc.clone();
@@ -6193,8 +6272,7 @@ impl Compiler {
 
                     // Only add to __conditional_annotations__ set if actually conditional
                     if is_conditional {
-                        let cond_annotations_name = self.name("__conditional_annotations__");
-                        emit!(self, Instruction::LoadName(cond_annotations_name));
+                        self.load_name("__conditional_annotations__")?;
                         self.emit_load_const(ConstantData::Integer {
                             value: annotation_index.into(),
                         });
@@ -6548,22 +6626,18 @@ impl Compiler {
         emit!(self, Instruction::Send { target: exit_block });
 
         // SETUP_FINALLY fail - set up exception handler for YIELD_VALUE
-        // Stack at this point: [receiver, yielded_value]
-        // handler_depth = base + 2 (receiver + yielded_value)
-        let handler_depth = self.handler_stack_depth() + 2;
-        self.push_fblock_with_handler(
+        emit!(self, PseudoInstruction::SetupFinally { target: fail_block });
+        self.push_fblock(
             FBlockType::TryExcept, // Use TryExcept for exception handler
             send_block,
             exit_block,
-            Some(fail_block),
-            handler_depth,
-            false, // no lasti needed
         )?;
 
         // YIELD_VALUE with arg=1 (yield-from/await mode - not wrapped for async gen)
         emit!(self, Instruction::YieldValue { arg: 1 });
 
-        // POP_BLOCK (implicit - pop fblock before RESUME)
+        // POP_BLOCK before RESUME
+        emit!(self, PseudoInstruction::PopBlock);
         self.pop_fblock(FBlockType::TryExcept);
 
         // RESUME
@@ -6571,9 +6645,9 @@ impl Compiler {
             self,
             Instruction::Resume {
                 arg: if is_await {
-                    bytecode::ResumeType::AfterAwait as u32
+                    u32::from(bytecode::ResumeType::AfterAwait)
                 } else {
-                    bytecode::ResumeType::AfterYieldFrom as u32
+                    u32::from(bytecode::ResumeType::AfterYieldFrom)
                 }
             }
         );
@@ -6619,7 +6693,8 @@ impl Compiler {
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
 
-                // Perform operation:
+                // Restore full expression range before emitting the operation
+                self.set_source_range(range);
                 self.compile_op(op, false);
             }
             ast::Expr::Subscript(ast::ExprSubscript {
@@ -6630,7 +6705,8 @@ impl Compiler {
             ast::Expr::UnaryOp(ast::ExprUnaryOp { op, operand, .. }) => {
                 self.compile_expression(operand)?;
 
-                // Perform operation:
+                // Restore full expression range before emitting the operation
+                self.set_source_range(range);
                 match op {
                     ast::UnaryOp::UAdd => emit!(
                         self,
@@ -6726,7 +6802,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterYield as u32
+                        arg: u32::from(bytecode::ResumeType::AfterYield)
                     }
                 );
             }
@@ -6735,7 +6811,7 @@ impl Compiler {
                     return Err(self.error(CodegenErrorType::InvalidAwait));
                 }
                 self.compile_expression(value)?;
-                emit!(self, Instruction::GetAwaitable);
+                emit!(self, Instruction::GetAwaitable { arg: 0 });
                 self.emit_load_const(ConstantData::None);
                 self.compile_yield_from_sequence(true)?;
             }
@@ -6948,7 +7024,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::Resume {
-                                arg: bytecode::ResumeType::AfterYield as u32
+                                arg: u32::from(bytecode::ResumeType::AfterYield)
                             }
                         );
                         emit!(compiler, Instruction::PopTop);
@@ -7097,6 +7173,10 @@ impl Compiler {
     }
 
     fn compile_call(&mut self, func: &ast::Expr, args: &ast::Arguments) -> CompileResult<()> {
+        // Save the call expression's source range so CALL instructions use the
+        // call start line, not the last argument's line.
+        let call_range = self.current_source_range;
+
         // Method call: obj → LOAD_ATTR_METHOD → [method, self_or_null] → args → CALL
         // Regular call: func → PUSH_NULL → args → CALL
         if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = &func {
@@ -7114,21 +7194,21 @@ impl Compiler {
                         self.emit_load_zero_super_method(idx);
                     }
                 }
-                self.codegen_call_helper(0, args)?;
+                self.codegen_call_helper(0, args, call_range)?;
             } else {
                 // Normal method call: compile object, then LOAD_ATTR with method flag
                 // LOAD_ATTR(method=1) pushes [method, self_or_null] on stack
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
                 self.emit_load_attr_method(idx);
-                self.codegen_call_helper(0, args)?;
+                self.codegen_call_helper(0, args, call_range)?;
             }
         } else {
             // Regular call: push func, then NULL for self_or_null slot
             // Stack layout: [func, NULL, args...] - same as method call [func, self, args...]
             self.compile_expression(func)?;
             emit!(self, Instruction::PushNull);
-            self.codegen_call_helper(0, args)?;
+            self.codegen_call_helper(0, args, call_range)?;
         }
         Ok(())
     }
@@ -7170,10 +7250,13 @@ impl Compiler {
     }
 
     /// Compile call arguments and emit the appropriate CALL instruction.
+    /// `call_range` is the source range of the call expression, used to set
+    /// the correct line number on the CALL instruction.
     fn codegen_call_helper(
         &mut self,
         additional_positional: u32,
         arguments: &ast::Arguments,
+        call_range: TextRange,
     ) -> CompileResult<()> {
         let nelts = arguments.args.len();
         let nkwelts = arguments.keywords.len();
@@ -7204,6 +7287,8 @@ impl Compiler {
                     self.compile_expression(&keyword.value)?;
                 }
 
+                // Restore call expression range for kwnames and CALL_KW
+                self.set_source_range(call_range);
                 self.emit_load_const(ConstantData::Tuple {
                     elements: kwarg_names,
                 });
@@ -7211,6 +7296,7 @@ impl Compiler {
                 let nargs = additional_positional + nelts.to_u32() + nkwelts.to_u32();
                 emit!(self, Instruction::CallKw { nargs });
             } else {
+                self.set_source_range(call_range);
                 let nargs = additional_positional + nelts.to_u32();
                 emit!(self, Instruction::Call { nargs });
             }
@@ -7302,6 +7388,7 @@ impl Compiler {
                 emit!(self, Instruction::PushNull);
             }
 
+            self.set_source_range(call_range);
             emit!(self, Instruction::CallFunctionEx);
         }
 
@@ -7407,7 +7494,7 @@ impl Compiler {
         let return_none = init_collection.is_none();
         // Create empty object of proper type:
         if let Some(init_collection) = init_collection {
-            self._emit(init_collection, OpArg(0), BlockIdx::NULL)
+            self._emit(init_collection, OpArg::new(0), BlockIdx::NULL)
         }
 
         let mut loop_labels = vec![];
@@ -7433,23 +7520,25 @@ impl Compiler {
             loop_labels.push((loop_block, after_block, generator.is_async));
             self.switch_to_block(loop_block);
             if generator.is_async {
+                emit!(
+                    self,
+                    PseudoInstruction::SetupFinally {
+                        target: after_block
+                    }
+                );
                 emit!(self, Instruction::GetANext);
-
-                let current_depth = (init_collection.is_some() as u32)
-                    + u32::try_from(loop_labels.len()).unwrap()
-                    + 1;
-                self.push_fblock_with_handler(
+                self.push_fblock(
                     FBlockType::AsyncComprehensionGenerator,
                     loop_block,
                     after_block,
-                    Some(after_block),
-                    current_depth,
-                    false,
                 )?;
                 self.emit_load_const(ConstantData::None);
                 self.compile_yield_from_sequence(true)?;
-                self.compile_store(&generator.target)?;
+                // POP_BLOCK before store: only __anext__/yield_from are
+                // protected by SetupFinally targeting END_ASYNC_FOR.
+                emit!(self, PseudoInstruction::PopBlock);
                 self.pop_fblock(FBlockType::AsyncComprehensionGenerator);
+                self.compile_store(&generator.target)?;
             } else {
                 emit!(
                     self,
@@ -7473,8 +7562,9 @@ impl Compiler {
 
             self.switch_to_block(after_block);
             if is_async {
+                // EndAsyncFor pops both the exception and the aiter
+                // (handler depth is before GetANext, so aiter is at handler depth)
                 emit!(self, Instruction::EndAsyncFor);
-                emit!(self, Instruction::PopTop);
             } else {
                 // END_FOR + POP_ITER pattern (CPython 3.14)
                 emit!(self, Instruction::EndFor);
@@ -7510,7 +7600,7 @@ impl Compiler {
         // Call just created <listcomp> function:
         emit!(self, Instruction::Call { nargs: 1 });
         if is_async_list_set_dict_comprehension {
-            emit!(self, Instruction::GetAwaitable);
+            emit!(self, Instruction::GetAwaitable { arg: 0 });
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
         }
@@ -7600,7 +7690,7 @@ impl Compiler {
         // Step 4: Create the collection (list/set/dict)
         // For generator expressions, init_collection is None
         if let Some(init_collection) = init_collection {
-            self._emit(init_collection, OpArg(0), BlockIdx::NULL);
+            self._emit(init_collection, OpArg::new(0), BlockIdx::NULL);
             // SWAP to get iterator on top
             emit!(self, Instruction::Swap { index: 2 });
         }
@@ -7610,20 +7700,13 @@ impl Compiler {
         let end_block = self.new_block();
 
         if !pushed_locals.is_empty() {
-            // Calculate stack depth for exception handler
-            // Stack: [saved_locals..., collection?, iterator]
-            let depth = self.handler_stack_depth()
-                + u32::try_from(pushed_locals.len()).unwrap()
-                + init_collection.is_some() as u32
-                + 1;
-            self.push_fblock_with_handler(
-                FBlockType::TryExcept,
-                cleanup_block,
-                end_block,
-                Some(cleanup_block),
-                depth,
-                false,
-            )?;
+            emit!(
+                self,
+                PseudoInstruction::SetupFinally {
+                    target: cleanup_block
+                }
+            );
+            self.push_fblock(FBlockType::TryExcept, cleanup_block, end_block)?;
         }
 
         // Step 5: Compile the comprehension loop(s)
@@ -7686,6 +7769,7 @@ impl Compiler {
 
         // Step 8: Clean up - restore saved locals
         if !pushed_locals.is_empty() {
+            emit!(self, PseudoInstruction::PopBlock);
             self.pop_fblock(FBlockType::TryExcept);
 
             // Normal path: jump past cleanup
@@ -7767,7 +7851,7 @@ impl Compiler {
         let source = self.source_file.to_source_code();
         let location = source.source_location(range.start(), PositionEncoding::Utf8);
         let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
-        let except_handler = self.current_except_handler();
+        let except_handler = None;
         self.current_block().instructions.push(ir::InstructionInfo {
             instr: instr.into(),
             arg,
@@ -7780,7 +7864,7 @@ impl Compiler {
     }
 
     fn emit_no_arg<I: Into<AnyInstruction>>(&mut self, ins: I) {
-        self._emit(ins, OpArg::null(), BlockIdx::NULL)
+        self._emit(ins, OpArg::NULL, BlockIdx::NULL)
     }
 
     fn emit_arg<A: OpArgType, T: EmitArg<A>, I: Into<AnyInstruction>>(
@@ -7812,42 +7896,64 @@ impl Compiler {
     /// Emit LOAD_ATTR for attribute access (method=false).
     /// Encodes: (name_idx << 1) | 0
     fn emit_load_attr(&mut self, name_idx: u32) {
-        let encoded = encode_load_attr_arg(name_idx, false);
+        let encoded = LoadAttr::builder()
+            .name_idx(name_idx)
+            .is_method(false)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadAttr { idx: arg })
     }
 
     /// Emit LOAD_ATTR with method flag set (for method calls).
     /// Encodes: (name_idx << 1) | 1
     fn emit_load_attr_method(&mut self, name_idx: u32) {
-        let encoded = encode_load_attr_arg(name_idx, true);
+        let encoded = LoadAttr::builder()
+            .name_idx(name_idx)
+            .is_method(true)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadAttr { idx: arg })
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b10 (method=0, class=1)
     fn emit_load_super_attr(&mut self, name_idx: u32) {
-        let encoded = encode_load_super_attr_arg(name_idx, false, true);
+        let encoded = LoadSuperAttr::builder()
+            .name_idx(name_idx)
+            .is_load_method(false)
+            .has_class(true)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b11 (method=1, class=1)
     fn emit_load_super_method(&mut self, name_idx: u32) {
-        let encoded = encode_load_super_attr_arg(name_idx, true, true);
+        let encoded = LoadSuperAttr::builder()
+            .name_idx(name_idx)
+            .is_load_method(true)
+            .has_class(true)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b00 (method=0, class=0)
     fn emit_load_zero_super_attr(&mut self, name_idx: u32) {
-        let encoded = encode_load_super_attr_arg(name_idx, false, false);
+        let encoded = LoadSuperAttr::builder()
+            .name_idx(name_idx)
+            .is_load_method(false)
+            .has_class(false)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b01 (method=1, class=0)
     fn emit_load_zero_super_method(&mut self, name_idx: u32) {
-        let encoded = encode_load_super_attr_arg(name_idx, true, false);
+        let encoded = LoadSuperAttr::builder()
+            .name_idx(name_idx)
+            .is_load_method(true)
+            .has_class(false)
+            .build();
         self.emit_arg(encoded, |arg| Instruction::LoadSuperAttr { arg })
     }
 
@@ -7928,7 +8034,10 @@ impl Compiler {
             With {
                 is_async: bool,
             },
-            HandlerCleanup,
+            HandlerCleanup {
+                name: Option<String>,
+            },
+            TryExcept,
             FinallyTry {
                 body: Vec<ruff_python_ast::Stmt>,
                 fblock_idx: usize,
@@ -7949,7 +8058,14 @@ impl Compiler {
                         unwind_actions.push(UnwindAction::With { is_async: true });
                     }
                     FBlockType::HandlerCleanup => {
-                        unwind_actions.push(UnwindAction::HandlerCleanup);
+                        let name = match &code.fblock[i].fb_datum {
+                            FBlockDatum::ExceptionName(name) => Some(name.clone()),
+                            _ => None,
+                        };
+                        unwind_actions.push(UnwindAction::HandlerCleanup { name });
+                    }
+                    FBlockType::TryExcept => {
+                        unwind_actions.push(UnwindAction::TryExcept);
                     }
                     FBlockType::FinallyTry => {
                         // Need to execute finally body before break/continue
@@ -7977,6 +8093,8 @@ impl Compiler {
         for action in unwind_actions {
             match action {
                 UnwindAction::With { is_async } => {
+                    // codegen_unwind_fblock(WITH/ASYNC_WITH)
+                    emit!(self, PseudoInstruction::PopBlock);
                     // compiler_call_exit_with_nones
                     emit!(self, Instruction::PushNull);
                     self.emit_load_const(ConstantData::None);
@@ -7985,17 +8103,36 @@ impl Compiler {
                     emit!(self, Instruction::Call { nargs: 3 });
 
                     if is_async {
-                        emit!(self, Instruction::GetAwaitable);
+                        emit!(self, Instruction::GetAwaitable { arg: 2 });
                         self.emit_load_const(ConstantData::None);
                         self.compile_yield_from_sequence(true)?;
                     }
 
                     emit!(self, Instruction::PopTop);
                 }
-                UnwindAction::HandlerCleanup => {
+                UnwindAction::HandlerCleanup { ref name } => {
+                    // codegen_unwind_fblock(HANDLER_CLEANUP)
+                    if name.is_some() {
+                        // Named handler: PopBlock for inner SETUP_CLEANUP
+                        emit!(self, PseudoInstruction::PopBlock);
+                    }
+                    // PopBlock for outer SETUP_CLEANUP (ExceptionHandler)
+                    emit!(self, PseudoInstruction::PopBlock);
                     emit!(self, Instruction::PopExcept);
+                    if let Some(name) = name {
+                        self.emit_load_const(ConstantData::None);
+                        self.store_name(name)?;
+                        self.compile_name(name, NameUsage::Delete)?;
+                    }
+                }
+                UnwindAction::TryExcept => {
+                    // codegen_unwind_fblock(TRY_EXCEPT)
+                    emit!(self, PseudoInstruction::PopBlock);
                 }
                 UnwindAction::FinallyTry { body, fblock_idx } => {
+                    // codegen_unwind_fblock(FINALLY_TRY)
+                    emit!(self, PseudoInstruction::PopBlock);
+
                     // compile finally body inline
                     // Temporarily pop the FinallyTry fblock so nested break/continue
                     // in the finally body won't see it again.
@@ -8010,11 +8147,10 @@ impl Compiler {
                     code.fblock.insert(fblock_idx, saved_fblock);
                 }
                 UnwindAction::FinallyEnd => {
-                    // Stack when in FinallyEnd: [..., prev_exc, exc]
-                    // Note: No lasti here - it's only pushed for cleanup handler exceptions
-                    // We need to pop: exc, prev_exc (via PopExcept)
-                    emit!(self, Instruction::PopTop); // exc
-                    emit!(self, Instruction::PopExcept); // prev_exc is restored
+                    // codegen_unwind_fblock(FINALLY_END)
+                    emit!(self, Instruction::PopTop); // exc_value
+                    emit!(self, PseudoInstruction::PopBlock);
+                    emit!(self, Instruction::PopExcept);
                 }
                 UnwindAction::PopValue => {
                     // Pop the return value - continue/break cancels the pending return
@@ -8033,39 +8169,6 @@ impl Compiler {
         emit!(self, PseudoInstruction::Jump { target });
 
         Ok(())
-    }
-
-    /// Calculate the current exception handler stack depth.
-    /// CPython calculates this based on the SETUP_FINALLY/SETUP_CLEANUP stack depth.
-    fn handler_stack_depth(&self) -> u32 {
-        let code = match self.code_stack.last() {
-            Some(c) => c,
-            None => return 0,
-        };
-        let mut depth = 0u32;
-        for fblock in &code.fblock {
-            match fblock.fb_type {
-                FBlockType::ForLoop => depth += 1,
-                FBlockType::With | FBlockType::AsyncWith => depth += 1,
-                // HandlerCleanup does NOT add to stack depth - it only tracks
-                // cleanup code for named exception handlers. The stack item
-                // (prev_exc) is already counted by ExceptionHandler.
-                // FBlockType::HandlerCleanup => depth += 1,
-                // inside exception handler, prev_exc is on stack
-                FBlockType::ExceptionHandler => depth += 1,
-                // ExceptionGroupHandler: inside except* handler path
-                // Stack has [prev_exc, orig, list, rest] - add 4 for these
-                FBlockType::ExceptionGroupHandler => depth += 4,
-                // FinallyEnd: inside finally exception path
-                // Stack has [prev_exc, exc] - add 2 for these (no lasti at this level)
-                FBlockType::FinallyEnd => depth += 2,
-                // PopValue: preserving a return value on stack during inline finally
-                // The return value adds 1 to the stack depth
-                FBlockType::PopValue => depth += 1,
-                _ => {}
-            }
-        }
-        depth
     }
 
     fn current_block(&mut self) -> &mut ir::Block {
@@ -8328,7 +8431,7 @@ impl Compiler {
         }
 
         // Add trailing string
-        all_strings.push(std::mem::take(&mut current_string));
+        all_strings.push(core::mem::take(&mut current_string));
 
         // Now build the Template:
         // Stack currently has all interpolations from compile_tstring_into calls
@@ -8372,14 +8475,24 @@ impl Compiler {
                 }
                 ast::InterpolatedStringElement::Interpolation(interp) => {
                     // Finish current string segment
-                    strings.push(std::mem::take(current_string));
+                    strings.push(core::mem::take(current_string));
 
                     // Compile the interpolation value
                     self.compile_expression(&interp.expression)?;
 
-                    // Load the expression source string
+                    // Load the expression source string, including any
+                    // whitespace between '{' and the expression start
                     let expr_range = interp.expression.range();
-                    let expr_source = self.source_file.slice(expr_range);
+                    let expr_source = if interp.range.start() < expr_range.start()
+                        && interp.range.end() >= expr_range.end()
+                    {
+                        let after_brace = interp.range.start() + TextSize::new(1);
+                        self.source_file
+                            .slice(TextRange::new(after_brace, expr_range.end()))
+                    } else {
+                        // Fallback for programmatically constructed ASTs with dummy ranges
+                        self.source_file.slice(expr_range)
+                    };
                     self.emit_load_const(ConstantData::Str {
                         value: expr_source.to_string().into(),
                     });
@@ -8405,7 +8518,7 @@ impl Compiler {
 
                     // Emit BUILD_INTERPOLATION
                     // oparg encoding: (conversion << 2) | has_format_spec
-                    let oparg = (conversion << 2) | (has_format_spec as u32);
+                    let oparg = (conversion << 2) | u32::from(has_format_spec);
                     emit!(self, Instruction::BuildInterpolation { oparg });
 
                     *interp_count += 1;
@@ -8439,7 +8552,7 @@ impl EmitArg<bytecode::Label> for BlockIdx {
         self,
         f: impl FnOnce(OpArgMarker<bytecode::Label>) -> I,
     ) -> (AnyInstruction, OpArg, BlockIdx) {
-        (f(OpArgMarker::marker()).into(), OpArg::null(), self)
+        (f(OpArgMarker::marker()).into(), OpArg::NULL, self)
     }
 }
 

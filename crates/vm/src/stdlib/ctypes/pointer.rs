@@ -508,6 +508,10 @@ impl PyCPointer {
             for _ in 0..len {
                 let addr = (ptr_value as isize + cur * wchar_size as isize) as *const libc::wchar_t;
                 unsafe {
+                    #[allow(
+                        clippy::unnecessary_cast,
+                        reason = "wchar_t is i32 on some platforms and u32 on others"
+                    )]
                     if let Some(c) = char::from_u32(*addr as u32) {
                         result.push(c);
                     }

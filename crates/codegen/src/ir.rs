@@ -108,7 +108,7 @@ pub struct InstructionInfo {
 }
 
 /// Exception handler information for an instruction.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExceptHandlerInfo {
     /// Block to jump to when exception occurs
     pub handler_block: BlockIdx,
@@ -125,6 +125,13 @@ pub struct ExceptHandlerInfo {
 pub struct Block {
     pub instructions: Vec<InstructionInfo>,
     pub next: BlockIdx,
+    // Post-codegen analysis fields (set by label_exception_targets)
+    /// Whether this block is an exception handler target (b_except_handler)
+    pub except_handler: bool,
+    /// Whether to preserve lasti for this handler block (b_preserve_lasti)
+    pub preserve_lasti: bool,
+    /// Stack depth at block entry, set by stack depth analysis
+    pub start_depth: Option<u32>,
 }
 
 impl Default for Block {
@@ -132,6 +139,9 @@ impl Default for Block {
         Self {
             instructions: Vec::new(),
             next: BlockIdx::NULL,
+            except_handler: false,
+            preserve_lasti: false,
+            start_depth: None,
         }
     }
 }
@@ -189,6 +199,13 @@ impl CodeInfo {
             self.peephole_optimize();
         }
 
+        // Always apply LOAD_FAST_BORROW optimization
+        self.optimize_load_fast_borrow();
+
+        // Post-codegen CFG analysis passes (flowgraph.c pipeline)
+        mark_except_handlers(&mut self.blocks);
+        label_exception_targets(&mut self.blocks);
+
         let max_stackdepth = self.max_stackdepth()?;
         let cell2arg = self.cell2arg();
 
@@ -227,43 +244,15 @@ impl CodeInfo {
         let mut locations = Vec::new();
         let mut linetable_locations: Vec<LineTableLocation> = Vec::new();
 
-        // convert_pseudo_ops: instructions before the main loop
+        // Convert pseudo ops and remove resulting NOPs
+        convert_pseudo_ops(&mut blocks, varname_cache.len() as u32);
         for block in blocks
             .iter_mut()
             .filter(|b| b.next != BlockIdx::NULL || !b.instructions.is_empty())
         {
-            for info in &mut block.instructions {
-                // Real instructions are already encoded by compile.rs
-                let Some(instr) = info.instr.pseudo() else {
-                    continue;
-                };
-
-                match instr {
-                    // POP_BLOCK pseudo → NOP
-                    PseudoInstruction::PopBlock => {
-                        info.instr = Instruction::Nop.into();
-                    }
-                    // LOAD_CLOSURE pseudo → LOAD_FAST (with varnames offset)
-                    PseudoInstruction::LoadClosure(idx) => {
-                        let varnames_len = varname_cache.len() as u32;
-                        let new_idx = varnames_len + idx.get(info.arg);
-                        info.arg = OpArg(new_idx);
-                        info.instr = Instruction::LoadFast(Arg::marker()).into();
-                    }
-                    PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. } => {
-                        // Jump pseudo instructions are handled later
-                    }
-                    PseudoInstruction::AnnotationsPlaceholder
-                    | PseudoInstruction::JumpIfFalse { .. }
-                    | PseudoInstruction::JumpIfTrue { .. }
-                    | PseudoInstruction::SetupCleanup
-                    | PseudoInstruction::SetupFinally
-                    | PseudoInstruction::SetupWith
-                    | PseudoInstruction::StoreFastMaybeNull(_) => {
-                        unimplemented!("Got a placeholder pseudo instruction ({instr:?})")
-                    }
-                }
-            }
+            block
+                .instructions
+                .retain(|ins| !matches!(ins.instr.real(), Some(Instruction::Nop)));
         }
 
         let mut block_to_offset = vec![Label(0); blocks.len()];
@@ -295,7 +284,7 @@ impl CodeInfo {
                 for info in &mut block.instructions {
                     let target = info.target;
                     if target != BlockIdx::NULL {
-                        let new_arg = OpArg(block_to_offset[target.idx()].0);
+                        let new_arg = OpArg::new(block_to_offset[target.idx()].0);
                         recompile_extended_arg |= new_arg.instr_size() != info.arg.instr_size();
                         info.arg = new_arg;
                     }
@@ -454,7 +443,7 @@ impl CodeInfo {
                     continue;
                 };
 
-                let tuple_size = instr.arg.0 as usize;
+                let tuple_size = u32::from(instr.arg) as usize;
                 if tuple_size == 0 || i < tuple_size {
                     i += 1;
                     continue;
@@ -469,7 +458,7 @@ impl CodeInfo {
                     let load_instr = &block.instructions[j];
                     match load_instr.instr.real() {
                         Some(Instruction::LoadConst { .. }) => {
-                            let const_idx = load_instr.arg.0 as usize;
+                            let const_idx = u32::from(load_instr.arg) as usize;
                             if let Some(constant) =
                                 self.metadata.consts.get_index(const_idx).cloned()
                             {
@@ -481,7 +470,7 @@ impl CodeInfo {
                         }
                         Some(Instruction::LoadSmallInt { .. }) => {
                             // arg is the i32 value stored as u32 (two's complement)
-                            let value = load_instr.arg.0 as i32;
+                            let value = u32::from(load_instr.arg) as i32;
                             elements.push(ConstantData::Integer {
                                 value: BigInt::from(value),
                             });
@@ -513,7 +502,7 @@ impl CodeInfo {
 
                 // Replace BUILD_TUPLE with LOAD_CONST
                 block.instructions[i].instr = Instruction::LoadConst { idx: Arg::marker() }.into();
-                block.instructions[i].arg = OpArg(const_idx as u32);
+                block.instructions[i].arg = OpArg::new(const_idx as u32);
 
                 i += 1;
             }
@@ -540,13 +529,13 @@ impl CodeInfo {
                     match (curr_instr, next_instr) {
                         // LoadFast + LoadFast -> LoadFastLoadFast (if both indices < 16)
                         (Instruction::LoadFast(_), Instruction::LoadFast(_)) => {
-                            let idx1 = curr.arg.0;
-                            let idx2 = next.arg.0;
+                            let idx1 = u32::from(curr.arg);
+                            let idx2 = u32::from(next.arg);
                             if idx1 < 16 && idx2 < 16 {
                                 let packed = (idx1 << 4) | idx2;
                                 Some((
                                     Instruction::LoadFastLoadFast { arg: Arg::marker() },
-                                    OpArg(packed),
+                                    OpArg::new(packed),
                                 ))
                             } else {
                                 None
@@ -554,13 +543,13 @@ impl CodeInfo {
                         }
                         // StoreFast + StoreFast -> StoreFastStoreFast (if both indices < 16)
                         (Instruction::StoreFast(_), Instruction::StoreFast(_)) => {
-                            let idx1 = curr.arg.0;
-                            let idx2 = next.arg.0;
+                            let idx1 = u32::from(curr.arg);
+                            let idx2 = u32::from(next.arg);
                             if idx1 < 16 && idx2 < 16 {
                                 let packed = (idx1 << 4) | idx2;
                                 Some((
                                     Instruction::StoreFastStoreFast { arg: Arg::marker() },
-                                    OpArg(packed),
+                                    OpArg::new(packed),
                                 ))
                             } else {
                                 None
@@ -595,7 +584,7 @@ impl CodeInfo {
                 };
 
                 // Get the constant value
-                let const_idx = instr.arg.0 as usize;
+                let const_idx = u32::from(instr.arg) as usize;
                 let Some(constant) = self.metadata.consts.get_index(const_idx) else {
                     continue;
                 };
@@ -610,7 +599,7 @@ impl CodeInfo {
                     // Convert LOAD_CONST to LOAD_SMALL_INT
                     instr.instr = Instruction::LoadSmallInt { idx: Arg::marker() }.into();
                     // The arg is the i32 value stored as u32 (two's complement)
-                    instr.arg = OpArg(small as u32);
+                    instr.arg = OpArg::new(small as u32);
                 }
             }
         }
@@ -632,7 +621,7 @@ impl CodeInfo {
         for block in &self.blocks {
             for instr in &block.instructions {
                 if let Some(Instruction::LoadConst { .. }) = instr.instr.real() {
-                    let idx = instr.arg.0 as usize;
+                    let idx = u32::from(instr.arg) as usize;
                     if idx < nconsts {
                         used[idx] = true;
                     }
@@ -669,9 +658,9 @@ impl CodeInfo {
         for block in &mut self.blocks {
             for instr in &mut block.instructions {
                 if let Some(Instruction::LoadConst { .. }) = instr.instr.real() {
-                    let old_idx = instr.arg.0 as usize;
+                    let old_idx = u32::from(instr.arg) as usize;
                     if old_idx < nconsts {
-                        instr.arg = OpArg(old_to_new[old_idx] as u32);
+                        instr.arg = OpArg::new(old_to_new[old_idx] as u32);
                     }
                 }
             }
@@ -687,7 +676,100 @@ impl CodeInfo {
         }
     }
 
-    fn max_stackdepth(&self) -> crate::InternalResult<u32> {
+    /// Optimize LOAD_FAST to LOAD_FAST_BORROW where safe.
+    ///
+    /// A LOAD_FAST can be converted to LOAD_FAST_BORROW if its value is
+    /// consumed within the same basic block (not passed to another block).
+    /// This is a reference counting optimization in CPython; in RustPython
+    /// we implement it for bytecode compatibility.
+    fn optimize_load_fast_borrow(&mut self) {
+        // NOT_LOCAL marker: instruction didn't come from a LOAD_FAST
+        const NOT_LOCAL: usize = usize::MAX;
+
+        for block in &mut self.blocks {
+            if block.instructions.is_empty() {
+                continue;
+            }
+
+            // Track which instructions' outputs are still on stack at block end
+            // For each instruction, we track if its pushed value(s) are unconsumed
+            let mut unconsumed = vec![false; block.instructions.len()];
+
+            // Simulate stack: each entry is the instruction index that pushed it
+            // (or NOT_LOCAL if not from LOAD_FAST/LOAD_FAST_LOAD_FAST).
+            //
+            // CPython (flowgraph.c optimize_load_fast) pre-fills the stack with
+            // dummy refs for values inherited from predecessor blocks. We take
+            // the simpler approach of aborting the optimisation for the whole
+            // block on stack underflow.
+            let mut stack: Vec<usize> = Vec::new();
+            let mut underflow = false;
+
+            for (i, info) in block.instructions.iter().enumerate() {
+                let Some(instr) = info.instr.real() else {
+                    continue;
+                };
+
+                let stack_effect_info = instr.stack_effect_info(info.arg.into());
+                let (pushes, pops) = (stack_effect_info.pushed(), stack_effect_info.popped());
+
+                // Pop values from stack
+                for _ in 0..pops {
+                    if stack.pop().is_none() {
+                        // Stack underflow — block receives values from a predecessor.
+                        // Abort optimisation for the entire block.
+                        underflow = true;
+                        break;
+                    }
+                }
+                if underflow {
+                    break;
+                }
+
+                // Push values to stack with source instruction index
+                let source = match instr {
+                    Instruction::LoadFast(_) | Instruction::LoadFastLoadFast { .. } => i,
+                    _ => NOT_LOCAL,
+                };
+                for _ in 0..pushes {
+                    stack.push(source);
+                }
+            }
+
+            if underflow {
+                continue;
+            }
+
+            // Mark instructions whose values remain on stack at block end
+            for &src in &stack {
+                if src != NOT_LOCAL {
+                    unconsumed[src] = true;
+                }
+            }
+
+            // Convert LOAD_FAST to LOAD_FAST_BORROW where value is fully consumed
+            for (i, info) in block.instructions.iter_mut().enumerate() {
+                if unconsumed[i] {
+                    continue;
+                }
+                let Some(instr) = info.instr.real() else {
+                    continue;
+                };
+                match instr {
+                    Instruction::LoadFast(_) => {
+                        info.instr = Instruction::LoadFastBorrow(Arg::marker()).into();
+                    }
+                    Instruction::LoadFastLoadFast { .. } => {
+                        info.instr =
+                            Instruction::LoadFastBorrowLoadFastBorrow { arg: Arg::marker() }.into();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn max_stackdepth(&mut self) -> crate::InternalResult<u32> {
         let mut maxdepth = 0u32;
         let mut stack = Vec::with_capacity(self.blocks.len());
         let mut start_depths = vec![u32::MAX; self.blocks.len()];
@@ -714,12 +796,12 @@ impl CodeInfo {
             let block = &self.blocks[block_idx];
             for ins in &block.instructions {
                 let instr = &ins.instr;
-                let effect = instr.stack_effect(ins.arg);
+                let effect = instr.stack_effect(ins.arg.into());
                 if DEBUG {
                     let display_arg = if ins.target == BlockIdx::NULL {
                         ins.arg
                     } else {
-                        OpArg(ins.target.0)
+                        OpArg::new(ins.target.0)
                     };
                     let instr_display = instr.display(display_arg, self);
                     eprint!("{instr_display}: {depth} {effect:+} => ");
@@ -739,47 +821,40 @@ impl CodeInfo {
                 }
                 // Process target blocks for branching instructions
                 if ins.target != BlockIdx::NULL {
-                    // Both jump and non-jump paths have the same stack effect
-                    let target_depth = depth.checked_add_signed(effect).ok_or({
-                        if effect < 0 {
-                            InternalError::StackUnderflow
-                        } else {
-                            InternalError::StackOverflow
+                    if instr.is_block_push() {
+                        // SETUP_* pseudo ops: target is a handler block.
+                        // Handler entry depth uses the jump-path stack effect:
+                        //   SETUP_FINALLY:  +1  (pushes exc)
+                        //   SETUP_CLEANUP:  +2  (pushes lasti + exc)
+                        //   SETUP_WITH:     +1  (pops __enter__ result, pushes lasti + exc)
+                        let handler_effect: u32 = match instr.pseudo() {
+                            Some(PseudoInstruction::SetupCleanup { .. }) => 2,
+                            _ => 1, // SetupFinally and SetupWith
+                        };
+                        let handler_depth = depth + handler_effect;
+                        if handler_depth > maxdepth {
+                            maxdepth = handler_depth;
                         }
-                    })?;
-                    if target_depth > maxdepth {
-                        maxdepth = target_depth
+                        stackdepth_push(&mut stack, &mut start_depths, ins.target, handler_depth);
+                    } else {
+                        // SEND jumps to END_SEND with receiver still on stack.
+                        // END_SEND performs the receiver pop.
+                        let jump_effect = match instr.real() {
+                            Some(Instruction::Send { .. }) => 0i32,
+                            _ => effect,
+                        };
+                        let target_depth = depth.checked_add_signed(jump_effect).ok_or({
+                            if jump_effect < 0 {
+                                InternalError::StackUnderflow
+                            } else {
+                                InternalError::StackOverflow
+                            }
+                        })?;
+                        if target_depth > maxdepth {
+                            maxdepth = target_depth
+                        }
+                        stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
                     }
-                    stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
-                }
-                // Process exception handler blocks
-                // When exception occurs, stack is unwound to handler.stack_depth, then:
-                // - If preserve_lasti: push lasti (+1)
-                // - Push exception (+1)
-                // - Handler block starts with PUSH_EXC_INFO as its first instruction
-                // So the starting depth for the handler block (BEFORE PUSH_EXC_INFO) is:
-                // handler.stack_depth + preserve_lasti + 1 (exc)
-                // PUSH_EXC_INFO will then add +1 when the block is processed
-                if let Some(ref handler) = ins.except_handler {
-                    let handler_depth = handler.stack_depth + 1 + (handler.preserve_lasti as u32); // +1 for exception, +1 for lasti if preserve_lasti
-                    if DEBUG {
-                        eprintln!(
-                            "  HANDLER: block={} depth={} (base={} lasti={})",
-                            handler.handler_block.0,
-                            handler_depth,
-                            handler.stack_depth,
-                            handler.preserve_lasti
-                        );
-                    }
-                    if handler_depth > maxdepth {
-                        maxdepth = handler_depth;
-                    }
-                    stackdepth_push(
-                        &mut stack,
-                        &mut start_depths,
-                        handler.handler_block,
-                        handler_depth,
-                    );
                 }
                 depth = new_depth;
                 if instr.is_scope_exit() || instr.is_unconditional_jump() {
@@ -794,6 +869,25 @@ impl CodeInfo {
         if DEBUG {
             eprintln!("DONE: {maxdepth}");
         }
+
+        // Fix up handler stack_depth in ExceptHandlerInfo using start_depths
+        // computed above: depth = start_depth - 1 - preserve_lasti
+        for block in self.blocks.iter_mut() {
+            for ins in &mut block.instructions {
+                if let Some(ref mut handler) = ins.except_handler {
+                    let h_start = start_depths[handler.handler_block.idx()];
+                    if h_start != u32::MAX {
+                        let adjustment = 1 + handler.preserve_lasti as u32;
+                        debug_assert!(
+                            h_start >= adjustment,
+                            "handler start depth {h_start} too shallow for adjustment {adjustment}"
+                        );
+                        handler.stack_depth = h_start.saturating_sub(adjustment);
+                    }
+                }
+            }
+        }
+
         Ok(maxdepth)
     }
 }
@@ -1038,4 +1132,198 @@ fn generate_exception_table(blocks: &[Block], block_to_index: &[u32]) -> Box<[u8
     }
 
     encode_exception_table(&entries)
+}
+
+/// Mark exception handler target blocks.
+/// flowgraph.c mark_except_handlers
+pub(crate) fn mark_except_handlers(blocks: &mut [Block]) {
+    // Reset handler flags
+    for block in blocks.iter_mut() {
+        block.except_handler = false;
+        block.preserve_lasti = false;
+    }
+    // Mark target blocks of SETUP_* as except handlers
+    let targets: Vec<usize> = blocks
+        .iter()
+        .flat_map(|b| b.instructions.iter())
+        .filter(|i| i.instr.is_block_push() && i.target != BlockIdx::NULL)
+        .map(|i| i.target.idx())
+        .collect();
+    for idx in targets {
+        blocks[idx].except_handler = true;
+    }
+}
+
+/// Label exception targets: walk CFG with except stack, set per-instruction
+/// handler info and block preserve_lasti flag. Converts POP_BLOCK to NOP.
+/// flowgraph.c label_exception_targets + push_except_block
+pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
+    #[derive(Clone)]
+    struct ExceptEntry {
+        handler_block: BlockIdx,
+        preserve_lasti: bool,
+    }
+
+    let num_blocks = blocks.len();
+    if num_blocks == 0 {
+        return;
+    }
+
+    let mut visited = vec![false; num_blocks];
+    let mut block_stacks: Vec<Option<Vec<ExceptEntry>>> = vec![None; num_blocks];
+
+    // Entry block
+    visited[0] = true;
+    block_stacks[0] = Some(Vec::new());
+
+    let mut todo = vec![BlockIdx(0)];
+
+    while let Some(block_idx) = todo.pop() {
+        let bi = block_idx.idx();
+        let mut stack = block_stacks[bi].take().unwrap_or_default();
+        let mut last_yield_except_depth: i32 = -1;
+
+        let instr_count = blocks[bi].instructions.len();
+        for i in 0..instr_count {
+            // Read all needed fields (each temporary borrow ends immediately)
+            let target = blocks[bi].instructions[i].target;
+            let arg = blocks[bi].instructions[i].arg;
+            let is_push = blocks[bi].instructions[i].instr.is_block_push();
+            let is_pop = blocks[bi].instructions[i].instr.is_pop_block();
+
+            if is_push {
+                // Determine preserve_lasti from instruction type (push_except_block)
+                let preserve_lasti = matches!(
+                    blocks[bi].instructions[i].instr.pseudo(),
+                    Some(
+                        PseudoInstruction::SetupWith { .. }
+                            | PseudoInstruction::SetupCleanup { .. }
+                    )
+                );
+
+                // Set preserve_lasti on handler block
+                if preserve_lasti && target != BlockIdx::NULL {
+                    blocks[target.idx()].preserve_lasti = true;
+                }
+
+                // Propagate except stack to handler block if not visited
+                if target != BlockIdx::NULL && !visited[target.idx()] {
+                    visited[target.idx()] = true;
+                    block_stacks[target.idx()] = Some(stack.clone());
+                    todo.push(target);
+                }
+
+                // Push handler onto except stack
+                stack.push(ExceptEntry {
+                    handler_block: target,
+                    preserve_lasti,
+                });
+            } else if is_pop {
+                debug_assert!(
+                    !stack.is_empty(),
+                    "POP_BLOCK with empty except stack at block {bi} instruction {i}"
+                );
+                stack.pop();
+                // POP_BLOCK → NOP
+                blocks[bi].instructions[i].instr = Instruction::Nop.into();
+            } else {
+                // Set except_handler for this instruction from except stack top
+                // stack_depth placeholder: filled by fixup_handler_depths
+                let handler_info = stack.last().map(|e| ExceptHandlerInfo {
+                    handler_block: e.handler_block,
+                    stack_depth: 0,
+                    preserve_lasti: e.preserve_lasti,
+                });
+                blocks[bi].instructions[i].except_handler = handler_info;
+
+                // Track YIELD_VALUE except stack depth
+                if matches!(
+                    blocks[bi].instructions[i].instr.real(),
+                    Some(Instruction::YieldValue { .. })
+                ) {
+                    last_yield_except_depth = stack.len() as i32;
+                }
+
+                // Set RESUME DEPTH1 flag based on last yield's except depth
+                if matches!(
+                    blocks[bi].instructions[i].instr.real(),
+                    Some(Instruction::Resume { .. })
+                ) {
+                    const RESUME_AT_FUNC_START: u32 = 0;
+                    const RESUME_OPARG_LOCATION_MASK: u32 = 0x3;
+                    const RESUME_OPARG_DEPTH1_MASK: u32 = 0x4;
+
+                    if (u32::from(arg) & RESUME_OPARG_LOCATION_MASK) != RESUME_AT_FUNC_START {
+                        if last_yield_except_depth == 1 {
+                            blocks[bi].instructions[i].arg =
+                                OpArg::new(u32::from(arg) | RESUME_OPARG_DEPTH1_MASK);
+                        }
+                        last_yield_except_depth = -1;
+                    }
+                }
+
+                // For jump instructions, propagate except stack to target
+                if target != BlockIdx::NULL && !visited[target.idx()] {
+                    visited[target.idx()] = true;
+                    block_stacks[target.idx()] = Some(stack.clone());
+                    todo.push(target);
+                }
+            }
+        }
+
+        // Propagate to fallthrough block (block.next)
+        let next = blocks[bi].next;
+        if next != BlockIdx::NULL && !visited[next.idx()] {
+            let has_fallthrough = blocks[bi]
+                .instructions
+                .last()
+                .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
+                .unwrap_or(true); // Empty block falls through
+            if has_fallthrough {
+                visited[next.idx()] = true;
+                block_stacks[next.idx()] = Some(stack);
+                todo.push(next);
+            }
+        }
+    }
+}
+
+/// Convert remaining pseudo ops to real instructions or NOP.
+/// flowgraph.c convert_pseudo_ops
+pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], varnames_len: u32) {
+    for block in blocks.iter_mut() {
+        for info in &mut block.instructions {
+            let Some(pseudo) = info.instr.pseudo() else {
+                continue;
+            };
+            match pseudo {
+                // Block push pseudo ops → NOP
+                PseudoInstruction::SetupCleanup { .. }
+                | PseudoInstruction::SetupFinally { .. }
+                | PseudoInstruction::SetupWith { .. } => {
+                    info.instr = Instruction::Nop.into();
+                }
+                // PopBlock in reachable blocks is converted to NOP by
+                // label_exception_targets. Dead blocks may still have them.
+                PseudoInstruction::PopBlock => {
+                    info.instr = Instruction::Nop.into();
+                }
+                // LOAD_CLOSURE → LOAD_FAST (with varnames offset)
+                PseudoInstruction::LoadClosure(idx) => {
+                    let new_idx = varnames_len + idx.get(info.arg);
+                    info.arg = OpArg::new(new_idx);
+                    info.instr = Instruction::LoadFast(Arg::marker()).into();
+                }
+                // Jump pseudo ops are resolved during block linearization
+                PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. } => {}
+                // These should have been resolved earlier
+                PseudoInstruction::AnnotationsPlaceholder
+                | PseudoInstruction::JumpIfFalse { .. }
+                | PseudoInstruction::JumpIfTrue { .. }
+                | PseudoInstruction::StoreFastMaybeNull(_) => {
+                    unreachable!("Unexpected pseudo instruction in convert_pseudo_ops: {pseudo:?}")
+                }
+            }
+        }
+    }
 }

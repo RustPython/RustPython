@@ -4,7 +4,10 @@ fn main() {
     println!(r#"cargo::rustc-check-cfg=cfg(osslconf, values("OPENSSL_NO_COMP"))"#);
     println!(r#"cargo::rustc-check-cfg=cfg(openssl_vendored)"#);
 
-    #[allow(clippy::unusual_byte_groupings)]
+    #[allow(
+        clippy::unusual_byte_groupings,
+        reason = "hex groups follow OpenSSL version field boundaries"
+    )]
     let ossl_vers = [
         (0x1_00_01_00_0, "ossl101"),
         (0x1_00_02_00_0, "ossl102"),
@@ -25,7 +28,10 @@ fn main() {
 
     #[cfg(feature = "ssl-openssl")]
     {
-        #[allow(clippy::unusual_byte_groupings)]
+        #[allow(
+            clippy::unusual_byte_groupings,
+            reason = "OpenSSL version number is parsed with grouped hex fields"
+        )]
         if let Ok(v) = std::env::var("DEP_OPENSSL_VERSION_NUMBER") {
             println!("cargo:rustc-env=OPENSSL_API_VERSION={v}");
             // cfg setup from openssl crate's build script

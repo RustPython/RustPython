@@ -426,8 +426,7 @@ class CommonTest(unittest.TestCase):
             self.assertEqual(lst2, lst)
             self.assertNotEqual(id(lst2), id(lst))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    @support.suppress_immortalization()
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.type2test)
         support.check_free_after_iterating(self, reversed, self.type2test)

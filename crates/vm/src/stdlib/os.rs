@@ -20,20 +20,6 @@ pub(crate) fn fs_metadata<P: AsRef<Path>>(
     }
 }
 
-#[cfg(unix)]
-impl crate::convert::IntoPyException for nix::Error {
-    fn into_pyexception(self, vm: &VirtualMachine) -> crate::builtins::PyBaseExceptionRef {
-        io::Error::from(self).into_pyexception(vm)
-    }
-}
-
-#[cfg(unix)]
-impl crate::convert::IntoPyException for rustix::io::Errno {
-    fn into_pyexception(self, vm: &VirtualMachine) -> crate::builtins::PyBaseExceptionRef {
-        io::Error::from(self).into_pyexception(vm)
-    }
-}
-
 #[allow(dead_code)]
 #[derive(FromArgs, Default)]
 pub struct TargetIsDirectory {
@@ -87,6 +73,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<'_, AVAILABLE> {
             Some(o) if vm.is_none(&o) => Ok(DEFAULT_DIR_FD),
             None => Ok(DEFAULT_DIR_FD),
             Some(o) => {
+                warn_if_bool_fd(&o, vm).map_err(Into::<ArgumentError>::into)?;
                 let fd = o.try_index_opt(vm).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
                         "argument should be integer or None, not {}",
@@ -118,8 +105,25 @@ fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ff
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
 }
 
+pub(crate) fn warn_if_bool_fd(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    use crate::class::StaticType;
+    if obj
+        .class()
+        .is(crate::builtins::bool_::PyBool::static_type())
+    {
+        crate::stdlib::warnings::warn(
+            vm.ctx.exceptions.runtime_warning,
+            "bool is used as a file descriptor".to_owned(),
+            1,
+            vm,
+        )?;
+    }
+    Ok(())
+}
+
 impl TryFromObject for crt_fd::Owned {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        warn_if_bool_fd(&obj, vm)?;
         let fd = crt_fd::Raw::try_from_object(vm, obj)?;
         unsafe { crt_fd::Owned::try_from_raw(fd) }.map_err(|e| e.into_pyexception(vm))
     }
@@ -127,6 +131,7 @@ impl TryFromObject for crt_fd::Owned {
 
 impl TryFromObject for crt_fd::Borrowed<'_> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        warn_if_bool_fd(&obj, vm)?;
         let fd = crt_fd::Raw::try_from_object(vm, obj)?;
         unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }.map_err(|e| e.into_pyexception(vm))
     }
@@ -155,7 +160,6 @@ pub(super) mod _os {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
-            ToOSErrorBuilder,
         },
         common::{
             crt_fd,
@@ -164,12 +168,12 @@ pub(super) mod _os {
             suppress_iph,
         },
         convert::{IntoPyException, ToPyObject},
-        exceptions::OSErrorBuilder,
-        function::{ArgBytesLike, FsPath, FuncArgs, OptionalArg},
+        exceptions::{OSErrorBuilder, ToOSErrorBuilder},
+        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
+        types::{Destructor, IterNext, Iterable, PyStructSequence, Representable, SelfIter},
         vm::VirtualMachine,
     };
     use core::time::Duration;
@@ -294,6 +298,26 @@ pub(super) mod _os {
                 Err(e) => return Err(e.into_pyexception(vm)),
             }
         }
+    }
+
+    #[pyfunction]
+    fn readinto(
+        fd: crt_fd::Borrowed<'_>,
+        buffer: ArgMemoryBuffer,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        buffer.with_ref(|buf| {
+            loop {
+                match crt_fd::read(fd, buf) {
+                    Ok(n) => return Ok(n),
+                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                        vm.check_signals()?;
+                        continue;
+                    }
+                    Err(e) => return Err(e.into_pyexception(vm)),
+                }
+            }
+        })
     }
 
     #[pyfunction]
@@ -633,16 +657,28 @@ pub(super) mod _os {
                     vm,
                 )
             };
-            let lstat = || self.lstat.get_or_try_init(|| do_stat(false));
+            let lstat = || match self.lstat.get() {
+                Some(val) => Ok(val),
+                None => {
+                    let val = do_stat(false)?;
+                    let _ = self.lstat.set(val);
+                    Ok(self.lstat.get().unwrap())
+                }
+            };
             let stat = if follow_symlinks.0 {
                 // if follow_symlinks == true and we aren't a symlink, cache both stat and lstat
-                self.stat.get_or_try_init(|| {
-                    if self.is_symlink(vm)? {
-                        do_stat(true)
-                    } else {
-                        lstat().cloned()
+                match self.stat.get() {
+                    Some(val) => val,
+                    None => {
+                        let val = if self.is_symlink(vm)? {
+                            do_stat(true)?
+                        } else {
+                            lstat()?.clone()
+                        };
+                        let _ = self.stat.set(val);
+                        self.stat.get().unwrap()
                     }
-                })?
+                }
             } else {
                 lstat()?
             };
@@ -754,7 +790,7 @@ pub(super) mod _os {
         mode: OutputMode,
     }
 
-    #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Destructor, IterNext, Iterable))]
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
@@ -775,6 +811,21 @@ pub(super) mod _os {
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
+        }
+    }
+    impl Destructor for ScandirIterator {
+        fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            // Emit ResourceWarning if the iterator is not yet exhausted/closed
+            if zelf.entries.read().is_some() {
+                let _ = crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.resource_warning,
+                    format!("unclosed scandir iterator {:?}", zelf.as_object()),
+                    1,
+                    vm,
+                );
+                zelf.close();
+            }
+            Ok(())
         }
     }
     impl SelfIter for ScandirIterator {}
@@ -957,10 +1008,10 @@ pub(super) mod _os {
             let st_ino = stat.st_ino;
 
             #[cfg(not(windows))]
-            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+            #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
             let st_blksize = i64::from(stat.st_blksize);
             #[cfg(not(windows))]
-            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+            #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
             let st_blocks = i64::from(stat.st_blocks);
 
             Self {
@@ -1267,14 +1318,76 @@ pub(super) mod _os {
         }
     }
 
+    #[derive(FromArgs)]
+    struct LinkArgs {
+        #[pyarg(any)]
+        src: OsPath,
+        #[pyarg(any)]
+        dst: OsPath,
+        #[pyarg(named, name = "follow_symlinks", optional)]
+        follow_symlinks: OptionalArg<bool>,
+    }
+
     #[pyfunction]
-    fn link(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
-        fs::hard_link(&src.path, &dst.path).map_err(|err| {
-            let builder = err.to_os_error_builder(vm);
-            let builder = builder.filename(src.filename(vm));
-            let builder = builder.filename2(dst.filename(vm));
-            builder.build(vm).upcast()
-        })
+    fn link(args: LinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let LinkArgs {
+            src,
+            dst,
+            follow_symlinks,
+        } = args;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let src_cstr = alloc::ffi::CString::new(src.path.as_os_str().as_bytes())
+                .map_err(|_| vm.new_value_error("embedded null byte"))?;
+            let dst_cstr = alloc::ffi::CString::new(dst.path.as_os_str().as_bytes())
+                .map_err(|_| vm.new_value_error("embedded null byte"))?;
+
+            let follow = follow_symlinks.into_option().unwrap_or(true);
+            let flags = if follow { libc::AT_SYMLINK_FOLLOW } else { 0 };
+
+            let ret = unsafe {
+                libc::linkat(
+                    libc::AT_FDCWD,
+                    src_cstr.as_ptr(),
+                    libc::AT_FDCWD,
+                    dst_cstr.as_ptr(),
+                    flags,
+                )
+            };
+
+            if ret != 0 {
+                let err = std::io::Error::last_os_error();
+                let builder = err.to_os_error_builder(vm);
+                let builder = builder.filename(src.filename(vm));
+                let builder = builder.filename2(dst.filename(vm));
+                return Err(builder.build(vm).upcast());
+            }
+
+            Ok(())
+        }
+
+        #[cfg(not(unix))]
+        {
+            let src_path = match follow_symlinks.into_option() {
+                Some(true) => {
+                    // Explicit follow_symlinks=True: resolve symlinks
+                    fs::canonicalize(&src.path).unwrap_or_else(|_| PathBuf::from(src.path.clone()))
+                }
+                Some(false) | None => {
+                    // Default or explicit no-follow: native hard_link behavior
+                    PathBuf::from(src.path.clone())
+                }
+            };
+
+            fs::hard_link(&src_path, &dst.path).map_err(|err| {
+                let builder = err.to_os_error_builder(vm);
+                let builder = builder.filename(src.filename(vm));
+                let builder = builder.filename2(dst.filename(vm));
+                builder.build(vm).upcast()
+            })
+        }
     }
 
     #[cfg(any(unix, windows))]
@@ -1479,7 +1592,7 @@ pub(super) mod _os {
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
-            use std::mem::MaybeUninit;
+            use core::mem::MaybeUninit;
             use windows_sys::Win32::{Foundation::FILETIME, System::Threading};
 
             let mut _create = MaybeUninit::<FILETIME>::uninit();
@@ -1606,8 +1719,10 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn truncate(path: PyObjectRef, length: crt_fd::Offset, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(fd) = path.clone().try_into_value(vm) {
-            return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm));
+        match path.clone().try_into_value::<crt_fd::Borrowed<'_>>(vm) {
+            Ok(fd) => return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm)),
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.warning) => return Err(e),
+            Err(_) => {}
         }
 
         #[cold]
@@ -1695,7 +1810,7 @@ pub(super) mod _os {
             } else {
                 let encoding = unsafe {
                     let encoding = libc::nl_langinfo(libc::CODESET);
-                    if encoding.is_null() || encoding.read() == '\0' as libc::c_char {
+                    if encoding.is_null() || encoding.read() == b'\0' as libc::c_char {
                         "UTF-8".to_owned()
                     } else {
                         core::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
@@ -1842,6 +1957,7 @@ pub(super) mod _os {
             SupportFunc::new("access", Some(false), Some(false), None),
             SupportFunc::new("chdir", None, Some(false), Some(false)),
             // chflags Some, None Some
+            SupportFunc::new("link", Some(false), Some(false), Some(cfg!(unix))),
             SupportFunc::new("listdir", Some(LISTDIR_FD), Some(false), Some(false)),
             SupportFunc::new("mkdir", Some(false), Some(MKDIR_DIR_FD), Some(false)),
             // mkfifo Some Some None

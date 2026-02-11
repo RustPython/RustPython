@@ -1,6 +1,9 @@
 use crate::format::Case;
+use alloc::borrow::ToOwned;
+use alloc::format;
+use alloc::string::{String, ToString};
+use core::f64;
 use num_traits::{Float, Zero};
-use std::f64;
 
 pub fn parse_str(literal: &str) -> Option<f64> {
     parse_inner(literal.trim().as_bytes())
@@ -23,7 +26,7 @@ fn parse_inner(literal: &[u8]) -> Option<f64> {
 }
 
 pub fn is_integer(v: f64) -> bool {
-    (v - v.round()).abs() < f64::EPSILON
+    v.is_finite() && v.fract() == 0.0
 }
 
 fn format_nan(case: Case) -> String {

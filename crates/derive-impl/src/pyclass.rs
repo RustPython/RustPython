@@ -1207,13 +1207,18 @@ where
         let item_meta = MemberItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let (py_name, member_item_kind) = item_meta.member_name()?;
-        let member_kind = match item_meta.member_kind()? {
-            Some(s) => match s.as_str() {
-                "bool" => MemberKind::Bool,
-                _ => unreachable!(),
-            },
-            _ => MemberKind::ObjectEx,
-        };
+        let member_kind = item_meta.member_kind()?;
+        if let Some(ref s) = member_kind {
+            match s.as_str() {
+                "bool" | "object" => {}
+                other => {
+                    return Err(self.new_syn_error(
+                        args.item.span(),
+                        &format!("unknown member type '{other}'"),
+                    ));
+                }
+            }
+        }
 
         // Add #[allow(non_snake_case)] for setter methods
         if matches!(member_item_kind, MemberItemKind::Set) {
@@ -1393,11 +1398,20 @@ impl ToTokens for GetSetNursery {
     }
 }
 
+/// Member kind as string, matching `rustpython_vm::builtins::descriptor::MemberKind` variants.
+/// None means ObjectEx (default). Valid values: "bool", "object".
+type MemberKindStr = Option<String>;
+
 #[derive(Default)]
-#[allow(clippy::type_complexity)]
 struct MemberNursery {
-    map: HashMap<(String, MemberKind), (Option<Ident>, Option<Ident>)>,
+    map: HashMap<String, MemberNurseryEntry>,
     validated: bool,
+}
+
+struct MemberNurseryEntry {
+    kind: MemberKindStr,
+    getter: Option<Ident>,
+    setter: Option<Ident>,
 }
 
 enum MemberItemKind {
@@ -1405,25 +1419,26 @@ enum MemberItemKind {
     Set,
 }
 
-#[derive(Eq, PartialEq, Hash)]
-enum MemberKind {
-    Bool,
-    ObjectEx,
-}
-
 impl MemberNursery {
     fn add_item(
         &mut self,
         name: String,
         kind: MemberItemKind,
-        member_kind: MemberKind,
+        member_kind: MemberKindStr,
         item_ident: Ident,
     ) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
-        let entry = self.map.entry((name.clone(), member_kind)).or_default();
+        let entry = self
+            .map
+            .entry(name.clone())
+            .or_insert_with(|| MemberNurseryEntry {
+                kind: member_kind,
+                getter: None,
+                setter: None,
+            });
         let func = match kind {
-            MemberItemKind::Get => &mut entry.0,
-            MemberItemKind::Set => &mut entry.1,
+            MemberItemKind::Get => &mut entry.getter,
+            MemberItemKind::Set => &mut entry.setter,
         };
         if func.is_some() {
             bail_span!(item_ident, "Multiple member accessors with name '{}'", name);
@@ -1434,10 +1449,10 @@ impl MemberNursery {
 
     fn validate(&mut self) -> Result<()> {
         let mut errors = Vec::new();
-        for ((name, _), (getter, setter)) in &self.map {
-            if getter.is_none() {
+        for (name, entry) in &self.map {
+            if entry.getter.is_none() {
                 errors.push(err_span!(
-                    setter.as_ref().unwrap(),
+                    entry.setter.as_ref().unwrap(),
                     "Member '{}' is missing a getter",
                     name
                 ));
@@ -1452,30 +1467,31 @@ impl MemberNursery {
 impl ToTokens for MemberNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         assert!(self.validated, "Call `validate()` before token generation");
-        let properties = self
-            .map
-            .iter()
-            .map(|((name, member_kind), (getter, setter))| {
-                let setter = match setter {
-                    Some(setter) => quote_spanned! { setter.span() => Some(Self::#setter)},
-                    None => quote! { None },
-                };
-                let member_kind = match member_kind {
-                    MemberKind::Bool => {
-                        quote!(::rustpython_vm::builtins::descriptor::MemberKind::Bool)
-                    }
-                    MemberKind::ObjectEx => {
-                        quote!(::rustpython_vm::builtins::descriptor::MemberKind::ObjectEx)
-                    }
-                };
-                quote_spanned! { getter.span() =>
-                    class.set_str_attr(
-                        #name,
-                        ctx.new_member(#name, #member_kind, Self::#getter, #setter, class),
-                        ctx,
-                    );
+        let properties = self.map.iter().map(|(name, entry)| {
+            let setter = match &entry.setter {
+                Some(setter) => quote_spanned! { setter.span() => Some(Self::#setter)},
+                None => quote! { None },
+            };
+            let member_kind = match entry.kind.as_deref() {
+                Some("bool") => {
+                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::Bool)
                 }
-            });
+                Some("object") => {
+                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::Object)
+                }
+                _ => {
+                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::ObjectEx)
+                }
+            };
+            let getter = entry.getter.as_ref().unwrap();
+            quote_spanned! { getter.span() =>
+                class.set_str_attr(
+                    #name,
+                    ctx.new_member(#name, #member_kind, Self::#getter, #setter, class),
+                    ctx,
+                );
+            }
+        });
         tokens.extend(properties);
     }
 }

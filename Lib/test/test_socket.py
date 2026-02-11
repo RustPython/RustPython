@@ -2,8 +2,9 @@ import unittest
 from unittest import mock
 from test import support
 from test.support import (
-    is_apple, os_helper, refleak_helper, socket_helper, threading_helper
+    cpython_only, is_apple, os_helper, refleak_helper, socket_helper, threading_helper
 )
+from test.support.import_helper import ensure_lazy_imports
 import _thread as thread
 import array
 import contextlib
@@ -49,9 +50,9 @@ HOST = socket_helper.HOST
 # test unicode string and carriage return
 MSG = 'Michael Gilfix was here\u1234\r\n'.encode('utf-8')
 
-VMADDR_CID_LOCAL = 1
 VSOCKPORT = 1234
 AIX = platform.system() == "AIX"
+SOLARIS = sys.platform.startswith("sunos")
 WSL = "microsoft-standard-WSL" in platform.release()
 
 try:
@@ -257,6 +258,12 @@ HAVE_SOCKET_HYPERV = _have_socket_hyperv()
 
 # Size in bytes of the int type
 SIZEOF_INT = array.array("i").itemsize
+
+class TestLazyImport(unittest.TestCase):
+    @cpython_only
+    def test_lazy_import(self):
+        ensure_lazy_imports("socket", {"array", "selectors"})
+
 
 class SocketTCPTest(unittest.TestCase):
 
@@ -579,7 +586,7 @@ class ThreadedVSOCKSocketStreamTest(unittest.TestCase, ThreadableTest):
         cid = get_cid()
         if cid in (socket.VMADDR_CID_HOST, socket.VMADDR_CID_ANY):
             # gh-119461: Use the local communication address (loopback)
-            cid = VMADDR_CID_LOCAL
+            cid = socket.VMADDR_CID_LOCAL
         self.cli.connect((cid, VSOCKPORT))
 
     def testStream(self):
@@ -904,9 +911,8 @@ def requireSocket(*args):
 
 class GeneralModuleTests(unittest.TestCase):
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; gc.is_tracked not implemented
     @unittest.skipUnless(_socket is not None, 'need _socket module')
-    # TODO: RUSTPYTHON; gc.is_tracked not implemented
-    @unittest.expectedFailure
     def test_socket_type(self):
         self.assertTrue(gc.is_tracked(_socket.socket))
         with self.assertRaisesRegex(TypeError, "immutable"):
@@ -969,8 +975,7 @@ class GeneralModuleTests(unittest.TestCase):
         with self.assertRaises(OSError, msg=msg % 'socket.gaierror'):
             raise socket.gaierror
 
-    # TODO: RUSTPYTHON; error message format differs
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message format differs
     def testSendtoErrors(self):
         # Testing that sendto doesn't mask failures. See #10169.
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1083,9 +1088,7 @@ class GeneralModuleTests(unittest.TestCase):
             'IPV6_USE_MIN_MTU',
         }
         for opt in opts:
-            self.assertTrue(
-                hasattr(socket, opt), f"Missing RFC3542 socket option '{opt}'"
-            )
+            self.assertHasAttr(socket, opt)
 
     def testHostnameRes(self):
         # Testing hostname resolution mechanisms
@@ -1154,6 +1157,7 @@ class GeneralModuleTests(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(socket, 'if_nameindex'),
                          'socket.if_nameindex() not available.')
+    @support.skip_android_selinux('if_nameindex')
     def testInterfaceNameIndex(self):
         interfaces = socket.if_nameindex()
         for index, name in interfaces:
@@ -1168,14 +1172,16 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertIsInstance(_name, str)
             self.assertEqual(name, _name)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u32
     @unittest.skipUnless(hasattr(socket, 'if_indextoname'),
                          'socket.if_indextoname() not available.')
+    @support.skip_android_selinux('if_indextoname')
     def testInvalidInterfaceIndexToName(self):
         with self.assertRaises(OSError) as cm:
             socket.if_indextoname(0)
         self.assertIsNotNone(cm.exception.errno)
 
-        self.assertRaises(OverflowError, socket.if_indextoname, -1)
+        self.assertRaises(ValueError, socket.if_indextoname, -1)
         self.assertRaises(OverflowError, socket.if_indextoname, 2**1000)
         self.assertRaises(TypeError, socket.if_indextoname, '_DEADBEEF')
         if hasattr(socket, 'if_nameindex'):
@@ -1192,6 +1198,7 @@ class GeneralModuleTests(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(socket, 'if_nametoindex'),
                          'socket.if_nametoindex() not available.')
+    @support.skip_android_selinux('if_nametoindex')
     def testInvalidInterfaceNameToIndex(self):
         with self.assertRaises(OSError) as cm:
             socket.if_nametoindex("_DEADBEEF")
@@ -1233,24 +1240,24 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertEqual(swapped & mask, mask)
             self.assertRaises(OverflowError, func, 1<<34)
 
-    @support.cpython_only
-    @unittest.skipIf(_testcapi is None, "requires _testcapi")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u16
     def testNtoHErrors(self):
-        import _testcapi
         s_good_values = [0, 1, 2, 0xffff]
         l_good_values = s_good_values + [0xffffffff]
-        l_bad_values = [-1, -2, 1<<32, 1<<1000]
-        s_bad_values = (
-            l_bad_values +
-            [_testcapi.INT_MIN-1, _testcapi.INT_MAX+1] +
-            [1 << 16, _testcapi.INT_MAX]
-        )
+        neg_values = [-1, -2, -(1<<15)-1, -(1<<31)-1, -(1<<63)-1, -1<<1000]
+        l_bad_values = [1<<32, 1<<1000]
+        s_bad_values = l_bad_values + [1 << 16, (1<<31)-1, 1<<31]
         for k in s_good_values:
             socket.ntohs(k)
             socket.htons(k)
         for k in l_good_values:
             socket.ntohl(k)
             socket.htonl(k)
+        for k in neg_values:
+            self.assertRaises(ValueError, socket.ntohs, k)
+            self.assertRaises(ValueError, socket.htons, k)
+            self.assertRaises(ValueError, socket.ntohl, k)
+            self.assertRaises(ValueError, socket.htonl, k)
         for k in s_bad_values:
             self.assertRaises(OverflowError, socket.ntohs, k)
             self.assertRaises(OverflowError, socket.htons, k)
@@ -1595,11 +1602,11 @@ class GeneralModuleTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "Windows specific")
     def test_sock_ioctl(self):
-        self.assertTrue(hasattr(socket.socket, 'ioctl'))
-        self.assertTrue(hasattr(socket, 'SIO_RCVALL'))
-        self.assertTrue(hasattr(socket, 'RCVALL_ON'))
-        self.assertTrue(hasattr(socket, 'RCVALL_OFF'))
-        self.assertTrue(hasattr(socket, 'SIO_KEEPALIVE_VALS'))
+        self.assertHasAttr(socket.socket, 'ioctl')
+        self.assertHasAttr(socket, 'SIO_RCVALL')
+        self.assertHasAttr(socket, 'RCVALL_ON')
+        self.assertHasAttr(socket, 'RCVALL_OFF')
+        self.assertHasAttr(socket, 'SIO_KEEPALIVE_VALS')
         s = socket.socket()
         self.addCleanup(s.close)
         self.assertRaises(ValueError, s.ioctl, -1, None)
@@ -1690,8 +1697,11 @@ class GeneralModuleTests(unittest.TestCase):
         # Issue #6697.
         self.assertRaises(UnicodeEncodeError, socket.getaddrinfo, 'localhost', '\uD800')
 
-        # Issue 17269: test workaround for OS X platform bug segfault
         if hasattr(socket, 'AI_NUMERICSERV'):
+            self.assertRaises(socket.gaierror, socket.getaddrinfo, "localhost", "http",
+                              flags=socket.AI_NUMERICSERV)
+
+            # Issue 17269: test workaround for OS X platform bug segfault
             try:
                 # The arguments here are undefined and the call may succeed
                 # or fail.  All we care here is that it doesn't segfault.
@@ -1927,6 +1937,7 @@ class GeneralModuleTests(unittest.TestCase):
     @unittest.skipIf(sys.platform == 'win32', 'does not work on Windows')
     @unittest.skipIf(AIX, 'Symbolic scope id does not work')
     @unittest.skipUnless(hasattr(socket, 'if_nameindex'), "test needs socket.if_nameindex()")
+    @support.skip_android_selinux('if_nameindex')
     def test_getaddrinfo_ipv6_scopeid_symbolic(self):
         # Just pick up any network interface (Linux, Mac OS X)
         (ifindex, test_interface) = socket.if_nameindex()[0]
@@ -1960,6 +1971,7 @@ class GeneralModuleTests(unittest.TestCase):
     @unittest.skipIf(sys.platform == 'win32', 'does not work on Windows')
     @unittest.skipIf(AIX, 'Symbolic scope id does not work')
     @unittest.skipUnless(hasattr(socket, 'if_nameindex'), "test needs socket.if_nameindex()")
+    @support.skip_android_selinux('if_nameindex')
     def test_getnameinfo_ipv6_scopeid_symbolic(self):
         # Just pick up any network interface.
         (ifindex, test_interface) = socket.if_nameindex()[0]
@@ -2367,12 +2379,14 @@ class ISOTPTest(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             pass
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testTooLongInterfaceName(self):
         # most systems limit IFNAMSIZ to 16, take 1024 to be sure
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             with self.assertRaisesRegex(OSError, 'interface name too long'):
                 s.bind(('x' * 1024, 1, 2))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
@@ -2394,8 +2408,7 @@ class J1939Test(unittest.TestCase):
         super().__init__(*args, **kwargs)
         self.interface = "vcan0"
 
-    # TODO: RUSTPYTHON - J1939 constants not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - J1939 constants not fully implemented
     @unittest.skipUnless(hasattr(socket, "CAN_J1939"),
                          'socket.CAN_J1939 required for this test.')
     def testJ1939Constants(self):
@@ -2437,8 +2450,7 @@ class J1939Test(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
             pass
 
-    # TODO: RUSTPYTHON - AF_CAN J1939 address format not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_CAN J1939 address format not fully implemented
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
@@ -2577,6 +2589,7 @@ class BasicVSOCKTest(unittest.TestCase):
         socket.SO_VM_SOCKETS_BUFFER_MAX_SIZE
         socket.VMADDR_CID_ANY
         socket.VMADDR_PORT_ANY
+        socket.VMADDR_CID_LOCAL
         socket.VMADDR_CID_HOST
         socket.VM_SOCKETS_INVALID_VERSION
         socket.IOCTL_VM_SOCKETS_GET_LOCAL_CID
@@ -2612,23 +2625,88 @@ class BasicVSOCKTest(unittest.TestCase):
                              socket.SO_VM_SOCKETS_BUFFER_MIN_SIZE))
 
 
-@unittest.skipUnless(HAVE_SOCKET_BLUETOOTH,
+@unittest.skipUnless(hasattr(socket, 'AF_BLUETOOTH'),
                      'Bluetooth sockets required for this test.')
 class BasicBluetoothTest(unittest.TestCase):
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'socket' has no attribute 'BTPROTO_RFCOMM'
     def testBluetoothConstants(self):
         socket.BDADDR_ANY
         socket.BDADDR_LOCAL
         socket.AF_BLUETOOTH
         socket.BTPROTO_RFCOMM
+        socket.SOL_RFCOMM
+
+        if sys.platform == "win32":
+            socket.SO_BTH_ENCRYPT
+            socket.SO_BTH_MTU
+            socket.SO_BTH_MTU_MAX
+            socket.SO_BTH_MTU_MIN
 
         if sys.platform != "win32":
             socket.BTPROTO_HCI
             socket.SOL_HCI
             socket.BTPROTO_L2CAP
+            socket.SOL_L2CAP
+            socket.BTPROTO_SCO
+            socket.SOL_SCO
+            socket.HCI_DATA_DIR
 
-            if not sys.platform.startswith("freebsd"):
-                socket.BTPROTO_SCO
+        if sys.platform == "linux":
+            socket.SOL_BLUETOOTH
+            socket.HCI_DEV_NONE
+            socket.HCI_CHANNEL_RAW
+            socket.HCI_CHANNEL_USER
+            socket.HCI_CHANNEL_MONITOR
+            socket.HCI_CHANNEL_CONTROL
+            socket.HCI_CHANNEL_LOGGING
+            socket.HCI_TIME_STAMP
+            socket.BT_SECURITY
+            socket.BT_SECURITY_SDP
+            socket.BT_FLUSHABLE
+            socket.BT_POWER
+            socket.BT_CHANNEL_POLICY
+            socket.BT_CHANNEL_POLICY_BREDR_ONLY
+            if hasattr(socket, 'BT_PHY'):
+                socket.BT_PHY_BR_1M_1SLOT
+            if hasattr(socket, 'BT_MODE'):
+                socket.BT_MODE_BASIC
+            if hasattr(socket, 'BT_VOICE'):
+                socket.BT_VOICE_TRANSPARENT
+                socket.BT_VOICE_CVSD_16BIT
+            socket.L2CAP_LM
+            socket.L2CAP_LM_MASTER
+            socket.L2CAP_LM_AUTH
+
+        if sys.platform in ("linux", "freebsd"):
+            socket.BDADDR_BREDR
+            socket.BDADDR_LE_PUBLIC
+            socket.BDADDR_LE_RANDOM
+            socket.HCI_FILTER
+
+        if sys.platform.startswith(("freebsd", "netbsd", "dragonfly")):
+            socket.SO_L2CAP_IMTU
+            socket.SO_L2CAP_FLUSH
+            socket.SO_RFCOMM_MTU
+            socket.SO_RFCOMM_FC_INFO
+            socket.SO_SCO_MTU
+
+        if sys.platform == "freebsd":
+            socket.SO_SCO_CONNINFO
+
+        if sys.platform.startswith(("netbsd", "dragonfly")):
+            socket.SO_HCI_EVT_FILTER
+            socket.SO_HCI_PKT_FILTER
+            socket.SO_L2CAP_IQOS
+            socket.SO_L2CAP_LM
+            socket.L2CAP_LM_AUTH
+            socket.SO_RFCOMM_LM
+            socket.RFCOMM_LM_AUTH
+            socket.SO_SCO_HANDLE
+
+@unittest.skipUnless(HAVE_SOCKET_BLUETOOTH,
+                     'Bluetooth sockets required for this test.')
+class BluetoothTest(unittest.TestCase):
 
     def testCreateRfcommSocket(self):
         with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM) as s:
@@ -2644,11 +2722,30 @@ class BasicBluetoothTest(unittest.TestCase):
         with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as s:
             pass
 
-    @unittest.skipIf(sys.platform == "win32" or sys.platform.startswith("freebsd"),
-                     "windows and freebsd do not support SCO sockets")
+    @unittest.skipIf(sys.platform == "win32", "windows does not support SCO sockets")
     def testCreateScoSocket(self):
         with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_SCO) as s:
             pass
+
+    @unittest.skipUnless(HAVE_SOCKET_BLUETOOTH_L2CAP, 'Bluetooth L2CAP sockets required for this test')
+    def testBindLeAttL2capSocket(self):
+        BDADDR_LE_PUBLIC = support.get_attribute(socket, 'BDADDR_LE_PUBLIC')
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP) as f:
+            # ATT is the only CID allowed in userspace by the Linux kernel
+            CID_ATT = 4
+            f.bind((socket.BDADDR_ANY, 0, CID_ATT, BDADDR_LE_PUBLIC))
+            addr = f.getsockname()
+            self.assertEqual(addr, (socket.BDADDR_ANY, 0, CID_ATT, BDADDR_LE_PUBLIC))
+
+    @unittest.skipUnless(HAVE_SOCKET_BLUETOOTH_L2CAP, 'Bluetooth L2CAP sockets required for this test')
+    def testBindLePsmL2capSocket(self):
+        BDADDR_LE_RANDOM = support.get_attribute(socket, 'BDADDR_LE_RANDOM')
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP) as f:
+            # First user PSM in LE L2CAP
+            psm = 0x80
+            f.bind((socket.BDADDR_ANY, psm, 0, BDADDR_LE_RANDOM))
+            addr = f.getsockname()
+            self.assertEqual(addr, (socket.BDADDR_ANY, psm, 0, BDADDR_LE_RANDOM))
 
     @unittest.skipUnless(HAVE_SOCKET_BLUETOOTH_L2CAP, 'Bluetooth L2CAP sockets required for this test')
     def testBindBrEdrL2capSocket(self):
@@ -2663,7 +2760,7 @@ class BasicBluetoothTest(unittest.TestCase):
     def testBadL2capAddr(self):
         with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP) as f:
             with self.assertRaises(OSError):
-                f.bind((socket.BDADDR_ANY, 0, 0))
+                f.bind((socket.BDADDR_ANY, 0, 0, 0, 0))
             with self.assertRaises(OSError):
                 f.bind((socket.BDADDR_ANY,))
             with self.assertRaises(OSError):
@@ -2710,13 +2807,14 @@ class BasicBluetoothTest(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(socket, 'BTPROTO_HCI'), 'Bluetooth HCI sockets required for this test')
     def testBindHciSocket(self):
-        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as s:
-            if sys.platform.startswith(('netbsd', 'dragonfly', 'freebsd')):
+        if sys.platform.startswith(('netbsd', 'dragonfly', 'freebsd')):
+            with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as s:
                 s.bind(socket.BDADDR_ANY)
                 addr = s.getsockname()
                 self.assertEqual(addr, socket.BDADDR_ANY)
-            else:
-                dev = 0
+        else:
+            dev = 0
+            with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as s:
                 try:
                     s.bind((dev,))
                 except OSError as err:
@@ -2725,6 +2823,32 @@ class BasicBluetoothTest(unittest.TestCase):
                     raise
                 addr = s.getsockname()
                 self.assertEqual(addr, dev)
+
+            with (self.subTest('integer'),
+                  socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as s):
+                s.bind(dev)
+                addr = s.getsockname()
+                self.assertEqual(addr, dev)
+
+            with (self.subTest('channel=HCI_CHANNEL_RAW'),
+                  socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as s):
+                channel = socket.HCI_CHANNEL_RAW
+                s.bind((dev, channel))
+                addr = s.getsockname()
+                self.assertEqual(addr, dev)
+
+            with (self.subTest('channel=HCI_CHANNEL_USER'),
+                  socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as s):
+                channel = socket.HCI_CHANNEL_USER
+                try:
+                    s.bind((dev, channel))
+                except OSError as err:
+                    # Needs special permissions.
+                    if err.errno in (errno.EPERM, errno.EBUSY, errno.ERFKILL):
+                        self.skipTest(str(err))
+                    raise
+                addr = s.getsockname()
+                self.assertEqual(addr, (dev, channel))
 
     @unittest.skipUnless(hasattr(socket, 'BTPROTO_HCI'), 'Bluetooth HCI sockets required for this test')
     def testBadHciAddr(self):
@@ -2749,9 +2873,7 @@ class BasicBluetoothTest(unittest.TestCase):
                 with self.assertRaises(OSError):
                     s.bind(())
                 with self.assertRaises(OSError):
-                    s.bind((dev, 0))
-                with self.assertRaises(OSError):
-                    s.bind(dev)
+                    s.bind((dev, socket.HCI_CHANNEL_RAW, 0, 0))
                 with self.assertRaises(OSError):
                     s.bind(socket.BDADDR_ANY)
                 with self.assertRaises(OSError):
@@ -3782,6 +3904,10 @@ class CmsgMacroTests(unittest.TestCase):
         # Test CMSG_SPACE() with various valid and invalid values,
         # checking the assumptions used by sendmsg().
         toobig = self.socklen_t_limit - socket.CMSG_SPACE(1) + 1
+        if SOLARIS and platform.processor() == "sparc":
+            # On Solaris SPARC, number of bytes returned by socket.CMSG_SPACE
+            # increases at different lengths; see gh-91214.
+            toobig -= 3
         values = list(range(257)) + list(range(toobig - 257, toobig))
 
         last = socket.CMSG_SPACE(0)
@@ -3928,6 +4054,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
         self.createAndSendFDs(1)
 
     @unittest.skipIf(is_apple, "skipping, see issue #12958")
+    @unittest.skipIf(SOLARIS, "skipping, see gh-91214")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
     @requireAttrs(socket, "CMSG_SPACE")
     def testFDPassSeparate(self):
@@ -3939,6 +4066,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
 
     @testFDPassSeparate.client_skip
     @unittest.skipIf(is_apple, "skipping, see issue #12958")
+    @unittest.skipIf(SOLARIS, "skipping, see gh-91214")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
     def _testFDPassSeparate(self):
         fd0, fd1 = self.newFDs(2)
@@ -3952,6 +4080,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
             len(MSG))
 
     @unittest.skipIf(is_apple, "skipping, see issue #12958")
+    @unittest.skipIf(SOLARIS, "skipping, see gh-91214")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
     @requireAttrs(socket, "CMSG_SPACE")
     def testFDPassSeparateMinSpace(self):
@@ -3966,6 +4095,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
 
     @testFDPassSeparateMinSpace.client_skip
     @unittest.skipIf(is_apple, "skipping, see issue #12958")
+    @unittest.skipIf(SOLARIS, "skipping, see gh-91214")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
     def _testFDPassSeparateMinSpace(self):
         fd0, fd1 = self.newFDs(2)
@@ -4998,15 +5128,13 @@ class InterruptedSendTimeoutTest(InterruptedTimeoutBase,
 
 
 class TCPCloserTest(ThreadedTCPSocketTest):
-
     def testClose(self):
-        conn, addr = self.serv.accept()
-        conn.close()
+        conn, _ = self.serv.accept()
 
-        sd = self.cli
-        read, write, err = select.select([sd], [], [], 1.0)
-        self.assertEqual(read, [sd])
-        self.assertEqual(sd.recv(1), b'')
+        read, _, _ = select.select([conn], [], [], support.SHORT_TIMEOUT)
+        self.assertEqual(read, [conn])
+        self.assertEqual(conn.recv(1), b'x')
+        conn.close()
 
         # Calling close() many times should be safe.
         conn.close()
@@ -5014,7 +5142,10 @@ class TCPCloserTest(ThreadedTCPSocketTest):
 
     def _testClose(self):
         self.cli.connect((HOST, self.port))
-        time.sleep(1.0)
+        self.cli.send(b'x')
+        read, _, _ = select.select([self.cli], [], [], support.SHORT_TIMEOUT)
+        self.assertEqual(read, [self.cli])
+        self.assertEqual(self.cli.recv(1), b'')
 
 
 class BasicSocketPairTest(SocketPairTest):
@@ -5973,10 +6104,10 @@ class UDPLITETimeoutTest(SocketUDPLITETest):
 class TestExceptions(unittest.TestCase):
 
     def testExceptionTree(self):
-        self.assertTrue(issubclass(OSError, Exception))
-        self.assertTrue(issubclass(socket.herror, OSError))
-        self.assertTrue(issubclass(socket.gaierror, OSError))
-        self.assertTrue(issubclass(socket.timeout, OSError))
+        self.assertIsSubclass(OSError, Exception)
+        self.assertIsSubclass(socket.herror, OSError)
+        self.assertIsSubclass(socket.gaierror, OSError)
+        self.assertIsSubclass(socket.timeout, OSError)
         self.assertIs(socket.error, OSError)
         self.assertIs(socket.timeout, TimeoutError)
 
@@ -6489,8 +6620,7 @@ class TestSocketSharing(SocketTCPTest):
         s2.close()
         s.close()
 
-    # TODO: RUSTPYTHON; multiprocessing.SemLock not implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; multiprocessing.SemLock not implemented
     def testShare(self):
         # Transfer the listening server socket to another process
         # and service it from there.
@@ -6850,12 +6980,13 @@ class SendfileUsingSendfileTest(SendfileUsingSendTest):
         return getattr(sock, "_sendfile_use_sendfile")
 
     @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
-    def testWithTimeout(self):
-        super().testWithTimeout()
+    def testCount(self):
+        return super().testCount()
 
     @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
-    def testCount(self):
-        super().testCount()
+    def testWithTimeout(self):
+        return super().testWithTimeout()
+
 
 @unittest.skipUnless(HAVE_SOCKET_ALG, 'AF_ALG required')
 class LinuxKernelCryptoAPI(unittest.TestCase):
@@ -6873,7 +7004,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
 
     # bpo-31705: On kernel older than 4.5, sendto() failed with ENOKEY,
     # at least on ppc64le architecture
-    @unittest.expectedFailure # TODO: RUSTPYTHON - AF_ALG not fully implemented
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     @support.requires_linux_version(4, 5)
     def test_sha256(self):
         expected = bytes.fromhex("ba7816bf8f01cfea414140de5dae2223b00361a396"
@@ -6892,8 +7023,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 op.send(b'')
                 self.assertEqual(op.recv(512), expected)
 
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     def test_hmac_sha1(self):
         # gh-109396: In FIPS mode, Linux 6.5 requires a key
         # of at least 112 bits. Use a key of 152 bits.
@@ -6909,8 +7039,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
 
     # Although it should work with 3.19 and newer the test blocks on
     # Ubuntu 15.10 with Kernel 4.2.0-19.
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     @support.requires_linux_version(4, 3)
     def test_aes_cbc(self):
         key = bytes.fromhex('06a9214036b8a15b512e03d534120006')
@@ -6952,8 +7081,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
             self.assertEqual(len(dec), msglen * multiplier)
             self.assertEqual(dec, msg * multiplier)
 
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     @support.requires_linux_version(4, 9)  # see gh-73510
     def test_aead_aes_gcm(self):
         kernel_version = support._get_kernel_version("Linux")
@@ -7023,8 +7151,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 res = op.recv(len(msg) - taglen)
                 self.assertEqual(plain, res[assoclen:])
 
-    # TODO: RUSTPYTHON - AF_ALG not fully implemented
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     @support.requires_linux_version(4, 3)  # see test_aes_cbc
     def test_drbg_pr_sha256(self):
         # deterministic random bit generator, prediction resistance, sha256
@@ -7077,6 +7204,28 @@ class TestMacOSTCPFlags(unittest.TestCase):
     def test_tcp_keepalive(self):
         self.assertTrue(socket.TCP_KEEPALIVE)
 
+@unittest.skipUnless(hasattr(socket, 'TCP_QUICKACK'), 'need socket.TCP_QUICKACK')
+class TestQuickackFlag(unittest.TestCase):
+    def check_set_quickack(self, sock):
+        # quickack already true by default on some OS distributions
+        opt = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK)
+        if opt:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 0)
+
+        opt = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK)
+        self.assertFalse(opt)
+
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 1)
+
+        opt = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK)
+        self.assertTrue(opt)
+
+    def test_set_quickack(self):
+        sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM,
+                             proto=socket.IPPROTO_TCP)
+        with sock:
+            self.check_set_quickack(sock)
+
 
 @unittest.skipUnless(sys.platform.startswith("win"), "requires Windows")
 class TestMSWindowsTCPFlags(unittest.TestCase):
@@ -7090,7 +7239,9 @@ class TestMSWindowsTCPFlags(unittest.TestCase):
                        'TCP_KEEPCNT',
                        # available starting with Windows 10 1709
                        'TCP_KEEPIDLE',
-                       'TCP_KEEPINTVL'
+                       'TCP_KEEPINTVL',
+                       # available starting with Windows 7 / Server 2008 R2
+                       'TCP_QUICKACK',
                        }
 
     def test_new_tcp_flags(self):
@@ -7256,6 +7407,26 @@ class SendRecvFdsTests(unittest.TestCase):
         for index, rfd in enumerate(fds2):
             data = os.read(rfd, 100)
             self.assertEqual(data,  str(index).encode())
+
+
+class FreeThreadingTests(unittest.TestCase):
+
+    def test_close_detach_race(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        def close():
+            for _ in range(1000):
+                s.close()
+
+        def detach():
+            for _ in range(1000):
+                s.detach()
+
+        t1 = threading.Thread(target=close)
+        t2 = threading.Thread(target=detach)
+
+        with threading_helper.start_threads([t1, t2]):
+            pass
 
 
 def setUpModule():

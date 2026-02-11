@@ -567,10 +567,8 @@ fn extract_ptr_from_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<usize> 
     }
     if let Some(simple) = arg.downcast_ref::<PyCSimple>() {
         let buffer = simple.0.buffer.read();
-        if buffer.len() >= core::mem::size_of::<usize>() {
-            return Ok(usize::from_ne_bytes(
-                buffer[..core::mem::size_of::<usize>()].try_into().unwrap(),
-            ));
+        if let Some(&bytes) = buffer.first_chunk::<{ size_of::<usize>() }>() {
+            return Ok(usize::from_ne_bytes(bytes));
         }
     }
     if let Some(cdata) = arg.downcast_ref::<PyCData>() {
@@ -645,9 +643,13 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
     }
     #[cfg(not(windows))]
     {
+        #[allow(
+            clippy::useless_conversion,
+            reason = "wchar_t is i32 on some platforms and u32 on others"
+        )]
         let s: String = wchars
             .iter()
-            .filter_map(|&c| char::from_u32(c as u32))
+            .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
             .collect();
         Ok(vm.ctx.new_str(s).into())
     }
@@ -1211,7 +1213,7 @@ fn resolve_com_method(
     let self_arg = &args.args[0];
     let com_ptr = if let Some(simple) = self_arg.downcast_ref::<PyCSimple>() {
         let buffer = simple.0.buffer.read();
-        if buffer.len() >= std::mem::size_of::<usize>() {
+        if buffer.len() >= core::mem::size_of::<usize>() {
             super::base::read_ptr_from_buffer(&buffer)
         } else {
             0
@@ -1938,9 +1940,13 @@ fn ffi_to_python(ty: &Py<PyType>, ptr: *const c_void, vm: &VirtualMachine) -> Py
                     }
                     #[cfg(not(windows))]
                     {
+                        #[allow(
+                            clippy::useless_conversion,
+                            reason = "wchar_t is i32 on some platforms and u32 on others"
+                        )]
                         let s: String = slice
                             .iter()
-                            .filter_map(|&c| char::from_u32(c as u32))
+                            .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
                             .collect();
                         vm.ctx.new_str(s).into()
                     }

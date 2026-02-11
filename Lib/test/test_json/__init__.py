@@ -41,7 +41,7 @@ class TestPyTest(PyTest):
                          'json.encoder')
 
 class TestCTest(CTest):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cjson(self):
         self.assertEqual(self.json.scanner.make_scanner.__module__, '_json')
         self.assertEqual(self.json.decoder.scanstring.__module__, '_json')

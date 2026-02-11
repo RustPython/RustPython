@@ -332,16 +332,54 @@ impl VirtualMachine {
         source: Option<&str>,
         allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
+        let incomplete_or_syntax = |allow| -> &'static Py<crate::builtins::PyType> {
+            if allow {
+                self.ctx.exceptions.incomplete_input_error
+            } else {
+                self.ctx.exceptions.syntax_error
+            }
+        };
+
         let syntax_error_type = match &error {
             #[cfg(feature = "parser")]
-            // FIXME: this condition will cause TabError even when the matching actual error is IndentationError
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::IndentationError,
                     ),
                 ..
-            }) => self.ctx.exceptions.tab_error,
+            }) => {
+                // Detect tab/space mixing to raise TabError instead of IndentationError.
+                // This checks both within a single line and across different lines.
+                let is_tab_error = source.is_some_and(|source| {
+                    let mut has_space_indent = false;
+                    let mut has_tab_indent = false;
+                    for line in source.lines() {
+                        let indent: Vec<u8> = line
+                            .bytes()
+                            .take_while(|&b| b == b' ' || b == b'\t')
+                            .collect();
+                        if indent.is_empty() {
+                            continue;
+                        }
+                        if indent.contains(&b' ') && indent.contains(&b'\t') {
+                            return true;
+                        }
+                        if indent.contains(&b' ') {
+                            has_space_indent = true;
+                        }
+                        if indent.contains(&b'\t') {
+                            has_tab_indent = true;
+                        }
+                    }
+                    has_space_indent && has_tab_indent
+                });
+                if is_tab_error {
+                    self.ctx.exceptions.tab_error
+                } else {
+                    self.ctx.exceptions.indentation_error
+                }
+            }
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::UnexpectedIndentation,
@@ -354,13 +392,13 @@ impl VirtualMachine {
                         ruff_python_parser::LexicalErrorType::Eof,
                     ),
                 ..
-            }) => {
-                if allow_incomplete {
-                    self.ctx.exceptions.incomplete_input_error
-                } else {
-                    self.ctx.exceptions.syntax_error
-                }
-            }
+            }) => incomplete_or_syntax(allow_incomplete),
+            // Unclosed bracket errors (converted from Eof by from_ruff_parse_error)
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                is_unclosed_bracket: true,
+                ..
+            }) => incomplete_or_syntax(allow_incomplete),
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
@@ -370,13 +408,7 @@ impl VirtualMachine {
                         ),
                     ),
                 ..
-            }) => {
-                if allow_incomplete {
-                    self.ctx.exceptions.incomplete_input_error
-                } else {
-                    self.ctx.exceptions.syntax_error
-                }
-            }
+            }) => incomplete_or_syntax(allow_incomplete),
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
@@ -400,11 +432,7 @@ impl VirtualMachine {
                         }
                     }
 
-                    if is_incomplete {
-                        self.ctx.exceptions.incomplete_input_error
-                    } else {
-                        self.ctx.exceptions.syntax_error
-                    }
+                    incomplete_or_syntax(is_incomplete)
                 } else {
                     self.ctx.exceptions.syntax_error
                 }
@@ -440,7 +468,7 @@ impl VirtualMachine {
                         if is_incomplete {
                             self.ctx.exceptions.incomplete_input_error
                         } else {
-                            self.ctx.exceptions.indentation_error
+                            self.ctx.exceptions.indentation_error // not syntax_error
                         }
                     } else {
                         self.ctx.exceptions.indentation_error
@@ -458,6 +486,7 @@ impl VirtualMachine {
             let line = source
                 .split('\n')
                 .nth(loc?.line.to_zero_indexed())?
+                .trim_end_matches('\r')
                 .to_owned();
             Some(line + "\n")
         }
@@ -480,7 +509,24 @@ impl VirtualMachine {
                     | ruff_python_parser::ParseErrorType::UnexpectedExpressionToken,
                 ..
             }) => msg.insert_str(0, "invalid syntax: "),
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::UnrecognizedToken { .. },
+                    )
+                    | ruff_python_parser::ParseErrorType::SimpleStatementsOnSameLine
+                    | ruff_python_parser::ParseErrorType::SimpleAndCompoundStatementOnSameLine
+                    | ruff_python_parser::ParseErrorType::ExpectedToken { .. }
+                    | ruff_python_parser::ParseErrorType::ExpectedExpression,
+                ..
+            }) => {
+                msg = "invalid syntax".to_owned();
+            }
             _ => {}
+        }
+        if syntax_error_type.is(self.ctx.exceptions.tab_error) {
+            msg = "inconsistent use of tabs and spaces in indentation".to_owned();
         }
         let syntax_error = self.new_exception_msg(syntax_error_type, msg);
         let (lineno, offset) = error.python_location();
@@ -517,6 +563,23 @@ impl VirtualMachine {
             .as_object()
             .set_attr("filename", self.ctx.new_str(error.source_path()), self)
             .unwrap();
+
+        // Set _metadata for keyword typo suggestions in traceback module.
+        // Format: (start_line, col_offset, source_code)
+        // start_line=0 means "include all lines from beginning" which provides
+        // full context needed by _find_keyword_typos to compile-check suggestions.
+        if let Some(source) = source {
+            let metadata = self.ctx.new_tuple(vec![
+                self.ctx.new_int(0).into(),
+                self.ctx.new_int(0).into(),
+                self.ctx.new_str(source).into(),
+            ]);
+            syntax_error
+                .as_object()
+                .set_attr("_metadata", metadata, self)
+                .unwrap();
+        }
+
         syntax_error
     }
 

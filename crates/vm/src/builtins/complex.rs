@@ -276,9 +276,13 @@ impl PyComplex {
     }
 
     #[pymethod]
-    fn __format__(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn __format__(zelf: &Py<Self>, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+        // Empty format spec: equivalent to str(self)
+        if spec.is_empty() {
+            return Ok(zelf.as_object().str(vm)?.as_str().to_owned());
+        }
         FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_complex(&self.value))
+            .and_then(|format_spec| format_spec.format_complex(&zelf.value))
             .map_err(|err| err.into_pyexception(vm))
     }
 }

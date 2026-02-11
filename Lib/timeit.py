@@ -1,5 +1,3 @@
-#! /usr/bin/env python3
-
 """Tool for measuring execution time of small code snippets.
 
 This module avoids a number of common traps for measuring execution
@@ -46,7 +44,6 @@ Functions:
     timeit(string, string) -> float
     repeat(string, string) -> list
     default_timer() -> float
-
 """
 
 import gc
@@ -174,16 +171,14 @@ class Timer:
         the timer function to be used are passed to the constructor.
         """
         it = itertools.repeat(None, number)
-        # XXX RUSTPYTHON TODO: gc module implementation
-        # gcold = gc.isenabled()
-        # gc.disable()
-        # try:
-        #     timing = self.inner(it, self.timer)
-        # finally:
-        #     if gcold:
-        #         gc.enable()
-        # return timing
-        return self.inner(it, self.timer)
+        gcold = gc.isenabled()
+        gc.disable()
+        try:
+            timing = self.inner(it, self.timer)
+        finally:
+            if gcold:
+                gc.enable()
+        return timing
 
     def repeat(self, repeat=default_repeat, number=default_number):
         """Call timeit() a few times.
@@ -306,7 +301,7 @@ def main(args=None, *, _wrap_timer=None):
                 precision += 1
             verbose += 1
         if o in ("-h", "--help"):
-            print(__doc__, end=' ')
+            print(__doc__, end="")
             return 0
     setup = "\n".join(setup) or "pass"
 

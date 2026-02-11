@@ -198,7 +198,7 @@ mod _opcode {
         let opcode = Opcode::try_from_pyint(args.opcode, vm)?;
 
         let _ = jump; // Python API accepts jump but it's not used
-        Ok(opcode.stack_effect(oparg.into()))
+        Ok(opcode.stack_effect(oparg))
     }
 
     #[pyfunction]

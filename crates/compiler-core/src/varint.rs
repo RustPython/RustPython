@@ -3,6 +3,8 @@
 //! Uses 6-bit chunks with a continuation bit (0x40) to encode integers.
 //! Used for exception tables and line number tables.
 
+use alloc::vec::Vec;
+
 /// Write a variable-length unsigned integer using 6-bit chunks.
 /// Returns the number of bytes written.
 #[inline]

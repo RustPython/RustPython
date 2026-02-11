@@ -16,6 +16,7 @@ class seq(base_set):
         return [self.el][n]
 
 class TestContains(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_common_tests(self):
         a = base_set(1)
         b = myset(1)
@@ -24,8 +25,11 @@ class TestContains(unittest.TestCase):
         self.assertNotIn(0, b)
         self.assertIn(1, c)
         self.assertNotIn(0, c)
-        self.assertRaises(TypeError, lambda: 1 in a)
-        self.assertRaises(TypeError, lambda: 1 not in a)
+        msg = "argument of type 'base_set' is not a container or iterable"
+        with self.assertRaisesRegex(TypeError, msg):
+            1 in a
+        with self.assertRaisesRegex(TypeError, msg):
+            1 not in a
 
         # test char in string
         self.assertIn('c', 'abc')

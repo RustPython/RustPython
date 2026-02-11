@@ -116,12 +116,12 @@ macro_rules! match_class {
 
     // The default arm, binding the original object to the specified identifier.
     (match ($obj:expr) { $binding:ident => $default:expr $(,)? }) => {{
-        #[allow(clippy::redundant_locals)]
+        #[allow(clippy::redundant_locals, reason = "macro arm intentionally binds expression once to a local")]
         let $binding = $obj;
         $default
     }};
     (match ($obj:expr) { ref $binding:ident => $default:expr $(,)? }) => {{
-        #[allow(clippy::redundant_locals)]
+        #[allow(clippy::redundant_locals, reason = "macro arm intentionally binds expression once to a local reference")]
         let $binding = &$obj;
         $default
     }};
@@ -190,7 +190,7 @@ macro_rules! identifier(
 macro_rules! identifier_utf8(
     ($as_ctx:expr, $name:ident) => {
         // Safety: All known identifiers are ascii strings.
-        #[allow(clippy::macro_metavars_in_unsafe)]
+        #[allow(clippy::macro_metavars_in_unsafe, reason = "known identifiers are ASCII and downcast target is fixed")]
         unsafe { $as_ctx.as_ref().names.$name.as_object().downcast_unchecked_ref::<$crate::builtins::PyUtf8Str>() }
     };
 );

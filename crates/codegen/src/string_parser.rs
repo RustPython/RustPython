@@ -273,8 +273,15 @@ impl StringParser {
 }
 
 pub(crate) fn parse_string_literal(source: &str, flags: ast::AnyStringFlags) -> Box<Wtf8> {
-    let source = &source[flags.opener_len().to_usize()..];
-    let source = &source[..source.len() - flags.quote_len().to_usize()];
+    let opener_len = flags.opener_len().to_usize();
+    let quote_len = flags.quote_len().to_usize();
+    if source.len() < opener_len + quote_len {
+        // Source unavailable (e.g., compiling from an AST object with no
+        // backing source text).  Return the raw source as-is.
+        return Box::<Wtf8>::from(source);
+    }
+    let source = &source[opener_len..];
+    let source = &source[..source.len() - quote_len];
     StringParser::new(source.into(), flags)
         .parse_string()
         .unwrap_or_else(|x| match x {})

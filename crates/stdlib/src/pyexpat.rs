@@ -41,10 +41,10 @@ macro_rules! create_bool_property {
 mod _pyexpat {
     use crate::vm::{
         Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBytesRef, PyModule, PyStr, PyStrRef, PyType},
+        builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType},
         extend_module,
-        function::ArgBytesLike,
-        function::{Either, IntoFuncArgs, OptionalArg},
+        function::{ArgBytesLike, Either, IntoFuncArgs, OptionalArg},
+        types::Constructor,
     };
     use rustpython_common::lock::PyRwLock;
     use std::io::Cursor;
@@ -420,6 +420,17 @@ mod _pyexpat {
 
         PyExpatLikeXmlParser::new(ns_sep, args.intern, vm)
     }
+
+    // TODO: Tie this exception to the module's state.
+    #[pyattr]
+    #[pyattr(name = "error")]
+    #[pyexception(name = "ExpatError", base = PyException)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PyExpatError(PyException);
+
+    #[pyexception]
+    impl PyExpatError {}
 }
 
 #[pymodule(name = "model")]

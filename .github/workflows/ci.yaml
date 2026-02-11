@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls
-  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls,host_env
+  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
   # - rustpython-compiler-source: deprecated
@@ -85,6 +85,7 @@ env:
     test_math
     test_operator
     test_ordered_dict
+    test_pep646_syntax
     test_pow
     test_raise
     test_richcmp
@@ -99,23 +100,20 @@ env:
     test_subclassinit
     test_super
     test_syntax
+    test_tstring
     test_tuple
     test_types
     test_unary
     test_unpack
+    test_unpack_ex
     test_weakref
     test_yield_from
   ENV_POLLUTING_TESTS_COMMON: >-
   ENV_POLLUTING_TESTS_LINUX: >-
-    test.test_multiprocessing_fork.test_processes
-    test.test_multiprocessing_forkserver.test_processes
-    test.test_multiprocessing_spawn.test_processes
   ENV_POLLUTING_TESTS_MACOS: >-
-    test.test_multiprocessing_forkserver.test_processes
-    test.test_multiprocessing_spawn.test_processes
   ENV_POLLUTING_TESTS_WINDOWS: >-
   # Python version targeted by the CI.
-  PYTHON_VERSION: "3.14.2"
+  PYTHON_VERSION: "3.14.3"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
 
@@ -154,6 +152,19 @@ jobs:
 
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
+
+      - name: check compilation without host_env (sandbox mode)
+        run: |
+          cargo check -p rustpython-vm --no-default-features --features compiler
+          cargo check -p rustpython-stdlib --no-default-features --features compiler
+          cargo build --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
+        if: runner.os == 'Linux'
+
+      - name: sandbox smoke test
+        run: |
+          target/debug/rustpython extra_tests/snippets/sandbox_smoke.py
+          target/debug/rustpython extra_tests/snippets/stdlib_re.py
+        if: runner.os == 'Linux'
 
       - name: Test openssl build
         run: cargo build --no-default-features --features ssl-openssl
@@ -259,6 +270,13 @@ jobs:
 
       - name: Check compilation for freeBSD
         run: cargo check --target x86_64-unknown-freebsd ${{ env.CARGO_ARGS_NO_SSL }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: wasm32-wasip2
+
+      - name: Check compilation for wasip2
+        run: cargo check --target wasm32-wasip2 ${{ env.CARGO_ARGS_NO_SSL }}
 
       # - name: Prepare repository for redox compilation
       #   run: bash scripts/redox/uncomment-cargo.sh
@@ -460,7 +478,7 @@ jobs:
           fi
 
       - name: Install ruff
-        uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
+        uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3.6.1
         with:
           version: "0.14.11"
           args: "--version"

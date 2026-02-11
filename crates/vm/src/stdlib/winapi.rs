@@ -6,15 +6,16 @@ pub(crate) use _winapi::module_def;
 #[pymodule]
 mod _winapi {
     use crate::{
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::PyStrRef,
-        common::windows::ToWideString,
+        common::{lock::PyMutex, windows::ToWideString},
         convert::{ToPyException, ToPyResult},
         function::{ArgMapping, ArgSequence, OptionalArg},
+        types::Constructor,
         windows::{WinHandle, WindowsSysResult},
     };
-    use std::ptr::{null, null_mut};
-    use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, MAX_PATH};
+    use core::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, MAX_PATH};
 
     #[pyattr]
     use windows_sys::Win32::{
@@ -93,6 +94,7 @@ mod _winapi {
                 SEC_LARGE_PAGES, SEC_NOCACHE, SEC_RESERVE, SEC_WRITECOMBINE,
             },
             Pipes::{
+                NMPWAIT_NOWAIT, NMPWAIT_USE_DEFAULT_WAIT, NMPWAIT_WAIT_FOREVER,
                 PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
             },
             SystemServices::LOCALE_NAME_MAX_LENGTH,
@@ -118,7 +120,10 @@ mod _winapi {
 
     /// CreateFile - Create or open a file or I/O device.
     #[pyfunction]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "matches Win32 CreateFile parameter structure"
+    )]
     fn CreateFile(
         file_name: PyStrRef,
         desired_access: u32,
@@ -177,8 +182,8 @@ mod _winapi {
     ) -> PyResult<(WinHandle, WinHandle)> {
         use windows_sys::Win32::Foundation::HANDLE;
         let (read, write) = unsafe {
-            let mut read = std::mem::MaybeUninit::<HANDLE>::uninit();
-            let mut write = std::mem::MaybeUninit::<HANDLE>::uninit();
+            let mut read = core::mem::MaybeUninit::<HANDLE>::uninit();
+            let mut write = core::mem::MaybeUninit::<HANDLE>::uninit();
             WindowsSysResult(windows_sys::Win32::System::Pipes::CreatePipe(
                 read.as_mut_ptr(),
                 write.as_mut_ptr(),
@@ -203,7 +208,7 @@ mod _winapi {
     ) -> PyResult<WinHandle> {
         use windows_sys::Win32::Foundation::HANDLE;
         let target = unsafe {
-            let mut target = std::mem::MaybeUninit::<HANDLE>::uninit();
+            let mut target = core::mem::MaybeUninit::<HANDLE>::uninit();
             WindowsSysResult(windows_sys::Win32::Foundation::DuplicateHandle(
                 src_process.0,
                 src.0,
@@ -280,8 +285,8 @@ mod _winapi {
         vm: &VirtualMachine,
     ) -> PyResult<(WinHandle, WinHandle, u32, u32)> {
         let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
-            unsafe { std::mem::zeroed() };
-        si.StartupInfo.cb = std::mem::size_of_val(&si) as _;
+            unsafe { core::mem::zeroed() };
+        si.StartupInfo.cb = core::mem::size_of_val(&si) as _;
 
         macro_rules! si_attr {
             ($attr:ident, $t:ty) => {{
@@ -349,7 +354,7 @@ mod _winapi {
             .map_or_else(null_mut, |w| w.as_mut_ptr());
 
         let procinfo = unsafe {
-            let mut procinfo = std::mem::MaybeUninit::uninit();
+            let mut procinfo = core::mem::MaybeUninit::uninit();
             WindowsSysResult(windows_sys::Win32::System::Threading::CreateProcessW(
                 app_name,
                 command_line,
@@ -435,7 +440,9 @@ mod _winapi {
             return Err(vm.new_runtime_error("environment changed size during iteration"));
         }
 
-        let mut out = widestring::WideString::new();
+        // Deduplicate case-insensitive keys, keeping the last value
+        use std::collections::HashMap;
+        let mut last_entry: HashMap<String, widestring::WideString> = HashMap::new();
         for (k, v) in keys.into_iter().zip(values.into_iter()) {
             let k = PyStrRef::try_from_object(vm, k)?;
             let k = k.as_str();
@@ -447,10 +454,22 @@ mod _winapi {
             if k.is_empty() || k[1..].contains('=') {
                 return Err(vm.new_value_error("illegal environment variable name"));
             }
-            out.push_str(k);
-            out.push_str("=");
-            out.push_str(v);
-            out.push_str("\0");
+            let key_upper = k.to_uppercase();
+            let mut entry = widestring::WideString::new();
+            entry.push_str(k);
+            entry.push_str("=");
+            entry.push_str(v);
+            entry.push_str("\0");
+            last_entry.insert(key_upper, entry);
+        }
+
+        // Sort by uppercase key for case-insensitive ordering
+        let mut entries: Vec<(String, widestring::WideString)> = last_entry.into_iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut out = widestring::WideString::new();
+        for (_, entry) in entries {
+            out.push(entry);
         }
         out.push_str("\0");
         Ok(out.into_vec())
@@ -489,10 +508,10 @@ mod _winapi {
 
                 let attr_count = handlelist.is_some() as u32;
                 let (result, mut size) = unsafe {
-                    let mut size = std::mem::MaybeUninit::uninit();
+                    let mut size = core::mem::MaybeUninit::uninit();
                     let result = WindowsSysResult(
                         windows_sys::Win32::System::Threading::InitializeProcThreadAttributeList(
-                            std::ptr::null_mut(),
+                            core::ptr::null_mut(),
                             attr_count,
                             0,
                             size.as_mut_ptr(),
@@ -527,8 +546,8 @@ mod _winapi {
                             0,
                             (2 & 0xffff) | 0x20000, // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
                             handlelist.as_mut_ptr() as _,
-                            (handlelist.len() * std::mem::size_of::<usize>()) as _,
-                            std::ptr::null_mut(),
+                            (handlelist.len() * core::mem::size_of::<usize>()) as _,
+                            core::ptr::null_mut(),
                             core::ptr::null(),
                         )
                     })
@@ -558,9 +577,51 @@ mod _winapi {
     }
 
     #[pyfunction]
+    fn WaitForMultipleObjects(
+        handle_seq: ArgSequence<isize>,
+        wait_all: bool,
+        milliseconds: u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<u32> {
+        use windows_sys::Win32::Foundation::WAIT_FAILED;
+        use windows_sys::Win32::System::Threading::WaitForMultipleObjects as WinWaitForMultipleObjects;
+
+        let handles: Vec<HANDLE> = handle_seq
+            .into_vec()
+            .into_iter()
+            .map(|h| h as HANDLE)
+            .collect();
+
+        if handles.is_empty() {
+            return Err(vm.new_value_error("handle_seq must not be empty".to_owned()));
+        }
+
+        if handles.len() > 64 {
+            return Err(
+                vm.new_value_error("WaitForMultipleObjects supports at most 64 handles".to_owned())
+            );
+        }
+
+        let ret = unsafe {
+            WinWaitForMultipleObjects(
+                handles.len() as u32,
+                handles.as_ptr(),
+                if wait_all { 1 } else { 0 },
+                milliseconds,
+            )
+        };
+
+        if ret == WAIT_FAILED {
+            Err(vm.new_last_os_error())
+        } else {
+            Ok(ret)
+        }
+    }
+
+    #[pyfunction]
     fn GetExitCodeProcess(h: WinHandle, vm: &VirtualMachine) -> PyResult<u32> {
         unsafe {
-            let mut ec = std::mem::MaybeUninit::uninit();
+            let mut ec = core::mem::MaybeUninit::uninit();
             WindowsSysResult(windows_sys::Win32::System::Threading::GetExitCodeProcess(
                 h.0,
                 ec.as_mut_ptr(),
@@ -761,6 +822,239 @@ mod _winapi {
         Ok(WinHandle(handle))
     }
 
+    // ==================== Overlapped class ====================
+    // Used for asynchronous I/O operations (ConnectNamedPipe, ReadFile, WriteFile)
+
+    #[pyattr]
+    #[pyclass(name = "Overlapped", module = "_winapi")]
+    #[derive(Debug, PyPayload)]
+    struct Overlapped {
+        inner: PyMutex<OverlappedInner>,
+    }
+
+    struct OverlappedInner {
+        overlapped: windows_sys::Win32::System::IO::OVERLAPPED,
+        handle: HANDLE,
+        pending: bool,
+        completed: bool,
+        read_buffer: Option<Vec<u8>>,
+        write_buffer: Option<Vec<u8>>,
+    }
+
+    impl core::fmt::Debug for OverlappedInner {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("OverlappedInner")
+                .field("handle", &self.handle)
+                .field("pending", &self.pending)
+                .field("completed", &self.completed)
+                .finish()
+        }
+    }
+
+    unsafe impl Sync for OverlappedInner {}
+    unsafe impl Send for OverlappedInner {}
+
+    #[pyclass(with(Constructor))]
+    impl Overlapped {
+        fn new_with_handle(handle: HANDLE) -> Self {
+            use windows_sys::Win32::System::Threading::CreateEventW;
+
+            let event = unsafe { CreateEventW(null(), 1, 0, null()) };
+            let mut overlapped: windows_sys::Win32::System::IO::OVERLAPPED =
+                unsafe { core::mem::zeroed() };
+            overlapped.hEvent = event;
+
+            Overlapped {
+                inner: PyMutex::new(OverlappedInner {
+                    overlapped,
+                    handle,
+                    pending: false,
+                    completed: false,
+                    read_buffer: None,
+                    write_buffer: None,
+                }),
+            }
+        }
+
+        #[pymethod]
+        fn GetOverlappedResult(&self, wait: bool, vm: &VirtualMachine) -> PyResult<(u32, u32)> {
+            use windows_sys::Win32::Foundation::{
+                ERROR_IO_INCOMPLETE, ERROR_MORE_DATA, ERROR_OPERATION_ABORTED, ERROR_SUCCESS,
+                GetLastError,
+            };
+            use windows_sys::Win32::System::IO::GetOverlappedResult;
+
+            let mut inner = self.inner.lock();
+
+            let mut transferred: u32 = 0;
+
+            let ret = unsafe {
+                GetOverlappedResult(
+                    inner.handle,
+                    &inner.overlapped,
+                    &mut transferred,
+                    if wait { 1 } else { 0 },
+                )
+            };
+
+            let err = if ret == 0 {
+                unsafe { GetLastError() }
+            } else {
+                ERROR_SUCCESS
+            };
+
+            match err {
+                ERROR_SUCCESS | ERROR_MORE_DATA | ERROR_OPERATION_ABORTED => {
+                    inner.completed = true;
+                    inner.pending = false;
+                }
+                ERROR_IO_INCOMPLETE => {}
+                _ => {
+                    inner.pending = false;
+                    return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
+                }
+            }
+
+            if inner.completed
+                && let Some(read_buffer) = &mut inner.read_buffer
+                && transferred != read_buffer.len() as u32
+            {
+                read_buffer.truncate(transferred as usize);
+            }
+
+            Ok((transferred, err))
+        }
+
+        #[pymethod]
+        fn getbuffer(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            let inner = self.inner.lock();
+            if !inner.completed {
+                return Err(vm.new_value_error(
+                    "can't get read buffer before GetOverlappedResult() signals the operation completed"
+                        .to_owned(),
+                ));
+            }
+            Ok(inner
+                .read_buffer
+                .as_ref()
+                .map(|buf| vm.ctx.new_bytes(buf.clone()).into()))
+        }
+
+        #[pymethod]
+        fn cancel(&self, vm: &VirtualMachine) -> PyResult<()> {
+            use windows_sys::Win32::System::IO::CancelIoEx;
+
+            let mut inner = self.inner.lock();
+            let ret = if inner.pending {
+                unsafe { CancelIoEx(inner.handle, &inner.overlapped) }
+            } else {
+                1
+            };
+            if ret == 0 {
+                let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+                if err != windows_sys::Win32::Foundation::ERROR_NOT_FOUND {
+                    return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
+                }
+            }
+            inner.pending = false;
+            Ok(())
+        }
+
+        #[pygetset]
+        fn event(&self) -> isize {
+            let inner = self.inner.lock();
+            inner.overlapped.hEvent as isize
+        }
+    }
+
+    impl Constructor for Overlapped {
+        type Args = ();
+
+        fn py_new(
+            _cls: &Py<crate::builtins::PyType>,
+            _args: Self::Args,
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Overlapped::new_with_handle(null_mut()))
+        }
+    }
+
+    impl Drop for OverlappedInner {
+        fn drop(&mut self) {
+            use windows_sys::Win32::Foundation::CloseHandle;
+            if !self.overlapped.hEvent.is_null() {
+                unsafe { CloseHandle(self.overlapped.hEvent) };
+            }
+        }
+    }
+
+    /// ConnectNamedPipe - Wait for a client to connect to a named pipe
+    #[derive(FromArgs)]
+    struct ConnectNamedPipeArgs {
+        #[pyarg(positional)]
+        handle: WinHandle,
+        #[pyarg(named, optional)]
+        overlapped: OptionalArg<bool>,
+    }
+
+    #[pyfunction]
+    fn ConnectNamedPipe(args: ConnectNamedPipeArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        use windows_sys::Win32::Foundation::{
+            ERROR_IO_PENDING, ERROR_PIPE_CONNECTED, GetLastError,
+        };
+
+        let handle = args.handle;
+        let use_overlapped = args.overlapped.unwrap_or(false);
+
+        if use_overlapped {
+            // Overlapped (async) mode
+            let ov = Overlapped::new_with_handle(handle.0);
+
+            let _ret = {
+                let mut inner = ov.inner.lock();
+                unsafe {
+                    windows_sys::Win32::System::Pipes::ConnectNamedPipe(
+                        handle.0,
+                        &mut inner.overlapped,
+                    )
+                }
+            };
+
+            let err = unsafe { GetLastError() };
+            match err {
+                ERROR_IO_PENDING => {
+                    let mut inner = ov.inner.lock();
+                    inner.pending = true;
+                }
+                ERROR_PIPE_CONNECTED => {
+                    let inner = ov.inner.lock();
+                    unsafe {
+                        windows_sys::Win32::System::Threading::SetEvent(inner.overlapped.hEvent);
+                    }
+                }
+                _ => {
+                    return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
+                }
+            }
+
+            Ok(ov.into_pyobject(vm))
+        } else {
+            // Synchronous mode
+            let ret = unsafe {
+                windows_sys::Win32::System::Pipes::ConnectNamedPipe(handle.0, null_mut())
+            };
+
+            if ret == 0 {
+                let err = unsafe { GetLastError() };
+                if err != ERROR_PIPE_CONNECTED {
+                    return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
+                }
+            }
+
+            Ok(vm.ctx.none())
+        }
+    }
+
     /// Helper for GetShortPathName and GetLongPathName
     fn get_path_name_impl(
         path: &PyStrRef,
@@ -899,7 +1193,7 @@ mod _winapi {
         initial_state: bool,
         name: Option<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<WinHandle> {
+    ) -> PyResult<Option<WinHandle>> {
         use windows_sys::Win32::System::Threading::CreateEventW as WinCreateEventW;
 
         let _ = security_attributes; // Ignored, always NULL
@@ -916,11 +1210,15 @@ mod _winapi {
             )
         };
 
-        if handle.is_null() {
+        if handle == INVALID_HANDLE_VALUE {
             return Err(vm.new_last_os_error());
         }
 
-        Ok(WinHandle(handle))
+        if handle.is_null() {
+            return Ok(None);
+        }
+
+        Ok(Some(WinHandle(handle)))
     }
 
     /// SetEvent - Set the specified event object to the signaled state.
@@ -944,21 +1242,54 @@ mod _winapi {
         buffer: crate::function::ArgBytesLike,
         use_overlapped: OptionalArg<bool>,
         vm: &VirtualMachine,
-    ) -> PyResult<(u32, u32)> {
+    ) -> PyResult<PyObjectRef> {
         use windows_sys::Win32::Storage::FileSystem::WriteFile as WinWriteFile;
 
         let use_overlapped = use_overlapped.unwrap_or(false);
-
-        if use_overlapped {
-            return Err(vm.new_not_implemented_error(
-                "overlapped WriteFile is not yet implemented in _winapi".to_string(),
-            ));
-        }
-
         let buf = buffer.borrow_buf();
         let len = core::cmp::min(buf.len(), u32::MAX as usize) as u32;
-        let mut written: u32 = 0;
 
+        if use_overlapped {
+            use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
+
+            let ov = Overlapped::new_with_handle(handle.0);
+            let err = {
+                let mut inner = ov.inner.lock();
+                inner.write_buffer = Some(buf.to_vec());
+                let write_buf = inner.write_buffer.as_ref().unwrap();
+                let mut written: u32 = 0;
+                let ret = unsafe {
+                    WinWriteFile(
+                        handle.0,
+                        write_buf.as_ptr() as *const _,
+                        len,
+                        &mut written,
+                        &mut inner.overlapped,
+                    )
+                };
+
+                let err = if ret == 0 {
+                    unsafe { windows_sys::Win32::Foundation::GetLastError() }
+                } else {
+                    0
+                };
+
+                if ret == 0 && err != ERROR_IO_PENDING {
+                    return Err(vm.new_last_os_error());
+                }
+                if ret == 0 && err == ERROR_IO_PENDING {
+                    inner.pending = true;
+                }
+
+                err
+            };
+            let result = vm
+                .ctx
+                .new_tuple(vec![ov.into_pyobject(vm), vm.ctx.new_int(err).into()]);
+            return Ok(result.into());
+        }
+
+        let mut written: u32 = 0;
         let ret = unsafe {
             WinWriteFile(
                 handle.0,
@@ -968,18 +1299,21 @@ mod _winapi {
                 null_mut(),
             )
         };
-
         let err = if ret == 0 {
             unsafe { windows_sys::Win32::Foundation::GetLastError() }
         } else {
             0
         };
-
         if ret == 0 {
             return Err(vm.new_last_os_error());
         }
-
-        Ok((written, err))
+        Ok(vm
+            .ctx
+            .new_tuple(vec![
+                vm.ctx.new_int(written).into(),
+                vm.ctx.new_int(err).into(),
+            ])
+            .into())
     }
 
     const MAXIMUM_WAIT_OBJECTS: usize = 64;
@@ -992,8 +1326,8 @@ mod _winapi {
         milliseconds: OptionalArg<u32>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicU32, Ordering};
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicU32, Ordering};
         use windows_sys::Win32::Foundation::{CloseHandle, WAIT_FAILED, WAIT_OBJECT_0};
         use windows_sys::Win32::System::SystemInformation::GetTickCount64;
         use windows_sys::Win32::System::Threading::{
@@ -1035,8 +1369,28 @@ mod _winapi {
             i = end;
         }
 
+        #[cfg(feature = "threading")]
+        let sigint_event = {
+            let is_main = crate::stdlib::thread::get_ident() == vm.state.main_thread_ident.load();
+            if is_main {
+                let handle = crate::signal::get_sigint_event().unwrap_or_else(|| {
+                    let handle = unsafe { WinCreateEventW(null(), 1, 0, null()) };
+                    if !handle.is_null() {
+                        crate::signal::set_sigint_event(handle as isize);
+                    }
+                    handle as isize
+                });
+                if handle == 0 { None } else { Some(handle) }
+            } else {
+                None
+            }
+        };
+        #[cfg(not(feature = "threading"))]
+        let sigint_event: Option<isize> = None;
+
         if wait_all {
             // For wait_all, we wait sequentially for each batch
+            let mut err: Option<u32> = None;
             let deadline = if milliseconds != WIN_INFINITE {
                 Some(unsafe { GetTickCount64() } + milliseconds as u64)
             } else {
@@ -1047,9 +1401,8 @@ mod _winapi {
                 let timeout = if let Some(deadline) = deadline {
                     let now = unsafe { GetTickCount64() };
                     if now >= deadline {
-                        return Err(
-                            vm.new_exception_empty(vm.ctx.exceptions.timeout_error.to_owned())
-                        );
+                        err = Some(windows_sys::Win32::Foundation::WAIT_TIMEOUT);
+                        break;
                     }
                     (deadline - now) as u32
                 } else {
@@ -1067,11 +1420,42 @@ mod _winapi {
                 };
 
                 if result == WAIT_FAILED {
-                    return Err(vm.new_last_os_error());
+                    err = Some(unsafe { windows_sys::Win32::Foundation::GetLastError() });
+                    break;
                 }
                 if result == windows_sys::Win32::Foundation::WAIT_TIMEOUT {
+                    err = Some(windows_sys::Win32::Foundation::WAIT_TIMEOUT);
+                    break;
+                }
+
+                if let Some(sigint_event) = sigint_event {
+                    let sig_result = unsafe {
+                        windows_sys::Win32::System::Threading::WaitForSingleObject(
+                            sigint_event as _,
+                            0,
+                        )
+                    };
+                    if sig_result == WAIT_OBJECT_0 {
+                        err = Some(windows_sys::Win32::Foundation::ERROR_CONTROL_C_EXIT);
+                        break;
+                    }
+                    if sig_result == WAIT_FAILED {
+                        err = Some(unsafe { windows_sys::Win32::Foundation::GetLastError() });
+                        break;
+                    }
+                }
+            }
+
+            if let Some(err) = err {
+                if err == windows_sys::Win32::Foundation::WAIT_TIMEOUT {
                     return Err(vm.new_exception_empty(vm.ctx.exceptions.timeout_error.to_owned()));
                 }
+                if err == windows_sys::Win32::Foundation::ERROR_CONTROL_C_EXIT {
+                    return Err(vm
+                        .new_errno_error(libc::EINTR, "Interrupted system call")
+                        .upcast());
+                }
+                return Err(vm.new_os_error(err as i32));
             }
 
             Ok(vm.ctx.none())
@@ -1087,7 +1471,7 @@ mod _winapi {
                 cancel_event: isize,
                 handle_base: usize,
                 result: AtomicU32,
-                thread: std::cell::UnsafeCell<isize>,
+                thread: core::cell::UnsafeCell<isize>,
             }
 
             unsafe impl Send for BatchData {}
@@ -1105,13 +1489,13 @@ mod _winapi {
                         cancel_event: cancel_event as isize,
                         handle_base: base,
                         result: AtomicU32::new(WAIT_FAILED),
-                        thread: std::cell::UnsafeCell::new(0),
+                        thread: core::cell::UnsafeCell::new(0),
                     })
                 })
                 .collect();
 
             // Thread function
-            extern "system" fn batch_wait_thread(param: *mut std::ffi::c_void) -> u32 {
+            extern "system" fn batch_wait_thread(param: *mut core::ffi::c_void) -> u32 {
                 let data = unsafe { &*(param as *const BatchData) };
                 let handles: Vec<_> = data.handles.iter().map(|&h| h as _).collect();
                 let result = unsafe {
@@ -1172,7 +1556,10 @@ mod _winapi {
             }
 
             // Wait for any thread to complete
-            let thread_handles_raw: Vec<_> = thread_handles.iter().map(|&h| h as _).collect();
+            let mut thread_handles_raw: Vec<_> = thread_handles.iter().map(|&h| h as _).collect();
+            if let Some(sigint_event) = sigint_event {
+                thread_handles_raw.push(sigint_event as _);
+            }
             let result = unsafe {
                 WaitForMultipleObjects(
                     thread_handles_raw.len() as u32,
@@ -1186,6 +1573,10 @@ mod _winapi {
                 Some(unsafe { windows_sys::Win32::Foundation::GetLastError() })
             } else if result == windows_sys::Win32::Foundation::WAIT_TIMEOUT {
                 Some(windows_sys::Win32::Foundation::WAIT_TIMEOUT)
+            } else if sigint_event.is_some()
+                && result == WAIT_OBJECT_0 + thread_handles_raw.len() as u32
+            {
+                Some(windows_sys::Win32::Foundation::ERROR_CONTROL_C_EXIT)
             } else {
                 None
             };
@@ -1194,10 +1585,11 @@ mod _winapi {
             unsafe { WinSetEvent(cancel_event) };
 
             // Wait for all threads to finish
+            let thread_handles_only: Vec<_> = thread_handles.iter().map(|&h| h as _).collect();
             unsafe {
                 WaitForMultipleObjects(
-                    thread_handles_raw.len() as u32,
-                    thread_handles_raw.as_ptr(),
+                    thread_handles_only.len() as u32,
+                    thread_handles_only.as_ptr(),
                     1, // wait_all
                     WIN_INFINITE,
                 )
@@ -1226,6 +1618,11 @@ mod _winapi {
             if let Some(e) = thread_err {
                 if e == windows_sys::Win32::Foundation::WAIT_TIMEOUT {
                     return Err(vm.new_exception_empty(vm.ctx.exceptions.timeout_error.to_owned()));
+                }
+                if e == windows_sys::Win32::Foundation::ERROR_CONTROL_C_EXIT {
+                    return Err(vm
+                        .new_errno_error(libc::EINTR, "Interrupted system call")
+                        .upcast());
                 }
                 return Err(vm.new_os_error(e as i32));
             }

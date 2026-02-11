@@ -7,7 +7,7 @@ on:
 jobs:
   issue_assign:
     if: (!github.event.issue.pull_request) && github.event.comment.body == 'take'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     concurrency:
       group: ${{ github.actor }}-issue-assign

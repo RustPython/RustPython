@@ -1,18 +1,22 @@
 from _compat_pickle import (IMPORT_MAPPING, REVERSE_IMPORT_MAPPING,
                             NAME_MAPPING, REVERSE_NAME_MAPPING)
 import builtins
-import pickle
-import io
 import collections
+import contextlib
+import io
+import pickle
 import struct
 import sys
+import tempfile
 import warnings
 import weakref
+from textwrap import dedent
 
 import doctest
 import unittest
 from test import support
-from test.support import import_helper
+from test.support import cpython_only, import_helper, os_helper
+from test.support.import_helper import ensure_lazy_imports
 
 from test.pickletester import AbstractHookTests
 from test.pickletester import AbstractUnpickleTests
@@ -33,6 +37,12 @@ except ImportError:
     has_c_implementation = False
 
 
+class LazyImportTest(unittest.TestCase):
+    @cpython_only
+    def test_lazy_import(self):
+        ensure_lazy_imports("pickle", {"re"})
+
+
 class PyPickleTests(AbstractPickleModuleTests, unittest.TestCase):
     dump = staticmethod(pickle._dump)
     dumps = staticmethod(pickle._dumps)
@@ -41,14 +51,12 @@ class PyPickleTests(AbstractPickleModuleTests, unittest.TestCase):
     Pickler = pickle._Pickler
     Unpickler = pickle._Unpickler
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_dump_load_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_dump_load_oob_buffers(self):
         return super().test_dump_load_oob_buffers()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_dumps_loads_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_dumps_loads_oob_buffers(self):
         return super().test_dumps_loads_oob_buffers()
 
 
@@ -65,21 +73,6 @@ class PyUnpicklerTests(AbstractUnpickleTests, unittest.TestCase):
         u = self.unpickler(f, **kwds)
         return u.load()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_badly_escaped_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_badly_escaped_string()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_correctly_quoted_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_correctly_quoted_string()
-    
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_load_python2_str_as_bytes(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_load_python2_str_as_bytes()
-
 
 class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
 
@@ -92,21 +85,25 @@ class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
         f.seek(0)
         return bytes(f.read())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_picklebuffer_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_picklebuffer_error()
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bad_newobj_args(self):
+        return super().test_bad_newobj_args()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bad_newobj_ex_args(self):
+        return super().test_bad_newobj_ex_args()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_buffer_callback_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_buffer_callback_error(self):
         return super().test_buffer_callback_error()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_non_continuous_buffer(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_non_continuous_buffer(self):
         return super().test_non_continuous_buffer()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_picklebuffer_error(self):
+        return super().test_picklebuffer_error()
 
 
 class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
@@ -126,40 +123,34 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
         u = self.unpickler(f, **kwds)
         return u.load()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_c_methods()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_buffers_error(self):
         return super().test_buffers_error()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bytearray_memoization(self):
         return super().test_bytearray_memoization()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bytes_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bytes_memoization(self):
         return super().test_bytes_memoization()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_in_band_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_c_methods(self):
+        return super().test_c_methods()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_in_band_buffers(self):
         return super().test_in_band_buffers()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_oob_buffers(self):
         return super().test_oob_buffers()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_oob_buffers_writable_to_readonly(self):
         return super().test_oob_buffers_writable_to_readonly()
+
 
 class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
                           BigmemPickleTests, unittest.TestCase):
@@ -179,55 +170,34 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     test_find_class = None
     test_custom_find_class = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_c_methods()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_badly_escaped_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_badly_escaped_string()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_correctly_quoted_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_correctly_quoted_string()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_load_python2_str_as_bytes(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_load_python2_str_as_bytes()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_oob_buffers_writable_to_readonly()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_buffers_error(self):
         return super().test_buffers_error()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bytearray_memoization(self):
         return super().test_bytearray_memoization()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bytes_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_bytes_memoization(self):
         return super().test_bytes_memoization()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_in_band_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_c_methods(self):
+        return super().test_c_methods()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_in_band_buffers(self):
         return super().test_in_band_buffers()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_oob_buffers(self):
         return super().test_oob_buffers()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_oob_buffers_writable_to_readonly(self):
+        return super().test_oob_buffers_writable_to_readonly()
+
 
 class PersistentPicklerUnpicklerMixin(object):
 
@@ -451,6 +421,7 @@ class PyIdPersPicklerTests(AbstractIdentityPersistentPicklerTests,
             del unpickler.persistent_load
             self.assertEqual(unpickler.persistent_load, old_persistent_load)
 
+
 class PyPicklerUnpicklerObjectTests(AbstractPicklerUnpicklerObjectTests, unittest.TestCase):
 
     pickler_class = pickle._Pickler
@@ -526,6 +497,46 @@ if has_c_implementation:
                 unpickler.memo = {-1: None}
             unpickler.memo = {1: None}
 
+        def test_concurrent_pickler_dump(self):
+            f = io.BytesIO()
+            pickler = self.pickler_class(f)
+            class X:
+                def __reduce__(slf):
+                    self.assertRaises(RuntimeError, pickler.dump, 42)
+                    return list, ()
+            pickler.dump(X())  # should not crash
+            self.assertEqual(pickle.loads(f.getvalue()), [])
+
+        def test_concurrent_pickler_dump_and_init(self):
+            f = io.BytesIO()
+            pickler = self.pickler_class(f)
+            class X:
+                def __reduce__(slf):
+                    self.assertRaises(RuntimeError, pickler.__init__, f)
+                    return list, ()
+            pickler.dump([X()])  # should not fail
+            self.assertEqual(pickle.loads(f.getvalue()), [[]])
+
+        def test_concurrent_unpickler_load(self):
+            global reducer
+            def reducer():
+                self.assertRaises(RuntimeError, unpickler.load)
+                return 42
+            f = io.BytesIO(b'(c%b\nreducer\n(tRl.' % (__name__.encode(),))
+            unpickler = self.unpickler_class(f)
+            unpickled = unpickler.load()  # should not fail
+            self.assertEqual(unpickled, [42])
+
+        def test_concurrent_unpickler_load_and_init(self):
+            global reducer
+            def reducer():
+                self.assertRaises(RuntimeError, unpickler.__init__, f)
+                return 42
+            f = io.BytesIO(b'(c%b\nreducer\n(tRl.' % (__name__.encode(),))
+            unpickler = self.unpickler_class(f)
+            unpickled = unpickler.load()  # should not crash
+            self.assertEqual(unpickled, [42])
+
     class CDispatchTableTests(AbstractDispatchTableTests, unittest.TestCase):
         pickler_class = pickle.Pickler
         def get_dispatch_table(self):
@@ -574,7 +585,7 @@ if has_c_implementation:
         check_sizeof = support.check_sizeof
 
         def test_pickler(self):
-            basesize = support.calcobjsize('7P2n3i2n3i2P')
+            basesize = support.calcobjsize('7P2n3i2n4i2P')
             p = _pickle.Pickler(io.BytesIO())
             self.assertEqual(object.__sizeof__(p), basesize)
             MT_size = struct.calcsize('3nP0n')
@@ -591,7 +602,7 @@ if has_c_implementation:
                 0)  # Write buffer is cleared after every dump().
 
         def test_unpickler(self):
-            basesize = support.calcobjsize('2P2n2P 2P2n2i5P 2P3n8P2n2i')
+            basesize = support.calcobjsize('2P2n2P 2P2n2i5P 2P3n8P2n3i')
             unpickler = _pickle.Unpickler
             P = struct.calcsize('P')  # Size of memo table entry.
             n = struct.calcsize('n')  # Size of mark table entry.
@@ -724,10 +735,10 @@ class CompatPickleTests(unittest.TestCase):
             with self.subTest(((module3, name3), (module2, name2))):
                 if (module2, name2) == ('exceptions', 'OSError'):
                     attr = getattribute(module3, name3)
-                    self.assertTrue(issubclass(attr, OSError))
+                    self.assertIsSubclass(attr, OSError)
                 elif (module2, name2) == ('exceptions', 'ImportError'):
                     attr = getattribute(module3, name3)
-                    self.assertTrue(issubclass(attr, ImportError))
+                    self.assertIsSubclass(attr, ImportError)
                 else:
                     module, name = mapping(module2, name2)
                     if module3[:1] != '_':
@@ -772,8 +783,7 @@ class CompatPickleTests(unittest.TestCase):
                 module, name = mapping(module, name)
                 self.assertEqual((module, name), (module3, name3))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exceptions(self):
         self.assertEqual(mapping('exceptions', 'StandardError'),
                          ('builtins', 'Exception'))
@@ -822,6 +832,60 @@ class CompatPickleTests(unittest.TestCase):
                                  ('multiprocessing', name))
                 self.assertEqual(mapping('multiprocessing', name),
                                  ('multiprocessing.context', name))
+
+
+class CommandLineTest(unittest.TestCase):
+    def setUp(self):
+        self.filename = tempfile.mktemp()
+        self.addCleanup(os_helper.unlink, self.filename)
+
+    @staticmethod
+    def text_normalize(string):
+        """Dedent *string* and strip it from its surrounding whitespaces.
+
+        This method is used by the other utility functions so that any
+        string to write or to match against can be freely indented.
+        """
+        return dedent(string).strip()
+
+    def set_pickle_data(self, data):
+        with open(self.filename, 'wb') as f:
+            pickle.dump(data, f)
+
+    def invoke_pickle(self, *flags):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            pickle._main(args=[*flags, self.filename])
+        return self.text_normalize(output.getvalue())
+
+    def test_invocation(self):
+        # test 'python -m pickle pickle_file'
+        data = {
+            'a': [1, 2.0, 3+4j],
+            'b': ('character string', b'byte string'),
+            'c': 'string'
+        }
+        expect = '''
+            {'a': [1, 2.0, (3+4j)],
+             'b': ('character string', b'byte string'),
+             'c': 'string'}
+        '''
+        self.set_pickle_data(data)
+
+        with self.subTest(data=data):
+            res = self.invoke_pickle()
+            expect = self.text_normalize(expect)
+            self.assertListEqual(res.splitlines(), expect.splitlines())
+
+    @support.force_not_colorized
+    def test_unknown_flag(self):
+        stderr = io.StringIO()
+        with self.assertRaises(SystemExit):
+            # check that the parser help is shown
+            with contextlib.redirect_stderr(stderr):
+                _ = self.invoke_pickle('--unknown')
+        self.assertStartsWith(stderr.getvalue(), 'usage: ')
+
 
 def load_tests(loader, tests, pattern):
     tests.addTest(doctest.DocTestSuite(pickle))

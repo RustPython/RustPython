@@ -152,7 +152,6 @@ We also repeat each of the above scoping tests inside a function
 """
 
 class SetComprehensionTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'FrameSummary' object has no attribute 'end_lineno'
     def test_exception_locations(self):
         # The location of an exception raised from __init__ or
         # __next__ should should be the iterator expression

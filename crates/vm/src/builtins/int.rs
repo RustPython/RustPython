@@ -444,9 +444,13 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __format__(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn __format__(zelf: &Py<Self>, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+        // Empty format spec on a subclass: equivalent to str(self)
+        if spec.is_empty() && !zelf.class().is(vm.ctx.types.int_type) {
+            return Ok(zelf.as_object().str(vm)?.as_str().to_owned());
+        }
         FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_int(&self.value))
+            .and_then(|format_spec| format_spec.format_int(&zelf.value))
             .map_err(|err| err.into_pyexception(vm))
     }
 

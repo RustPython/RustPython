@@ -9,6 +9,8 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+default = ["std"]
+std = []
 threading = ["parking_lot"]
 wasm_js = ["getrandom/wasm_js"]
 
@@ -26,7 +28,6 @@ malachite-bigint = { workspace = true }
 malachite-q = { workspace = true }
 malachite-base = { workspace = true }
 num-traits = { workspace = true }
-once_cell = { workspace = true }
 parking_lot = { workspace = true, optional = true }
 unicode_names2 = { workspace = true }
 radium = { workspace = true }

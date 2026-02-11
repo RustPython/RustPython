@@ -1,4 +1,5 @@
 use crate::{OneIndexed, SourceLocation, bytecode::*};
+use alloc::{boxed::Box, vec::Vec};
 use core::convert::Infallible;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
@@ -158,13 +159,17 @@ impl Read for &[u8] {
     fn read_slice(&mut self, n: u32) -> Result<&[u8]> {
         self.read_slice_borrow(n)
     }
+
+    fn read_array<const N: usize>(&mut self) -> Result<&[u8; N]> {
+        let (chunk, rest) = self.split_first_chunk::<N>().ok_or(MarshalError::Eof)?;
+        *self = rest;
+        Ok(chunk)
+    }
 }
 
 impl<'a> ReadBorrowed<'a> for &'a [u8] {
     fn read_slice_borrow(&mut self, n: u32) -> Result<&'a [u8]> {
-        let data = self.get(..n as usize).ok_or(MarshalError::Eof)?;
-        *self = &self[n as usize..];
-        Ok(data)
+        self.split_off(..n as usize).ok_or(MarshalError::Eof)
     }
 }
 

@@ -5,7 +5,10 @@ mod _statistics {
     use crate::vm::{PyResult, VirtualMachine, function::ArgIntoFloat};
 
     // See https://github.com/python/cpython/blob/6846d6712a0894f8e1a91716c11dd79f42864216/Modules/_statisticsmodule.c#L28-L120
-    #[allow(clippy::excessive_precision)]
+    #[allow(
+        clippy::excessive_precision,
+        reason = "constants are kept at CPython precision"
+    )]
     fn normal_dist_inv_cdf(p: f64, mu: f64, sigma: f64) -> Option<f64> {
         if p <= 0.0 || p >= 1.0 {
             return None;
@@ -53,7 +56,10 @@ mod _statistics {
         let r = (-(r.ln())).sqrt();
         let num;
         let den;
-        #[allow(clippy::excessive_precision)]
+        #[allow(
+            clippy::excessive_precision,
+            reason = "piecewise polynomial coefficients match CPython"
+        )]
         if r <= 5.0 {
             let r = r - 1.6;
             // Hash sum-49.33206503301610289036

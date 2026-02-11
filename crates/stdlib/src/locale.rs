@@ -101,10 +101,42 @@ mod _locale {
 
     unsafe fn pystr_from_raw_cstr(vm: &VirtualMachine, raw_ptr: *const libc::c_char) -> PyResult {
         let slice = unsafe { CStr::from_ptr(raw_ptr) };
-        let string = slice
-            .to_str()
-            .expect("localeconv always return decodable string");
-        Ok(vm.new_pyobj(string))
+
+        // Fast path: ASCII/UTF-8
+        if let Ok(s) = slice.to_str() {
+            return Ok(vm.new_pyobj(s));
+        }
+
+        // On Windows, locale strings use the ANSI code page encoding
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Globalization::{CP_ACP, MultiByteToWideChar};
+            let bytes = slice.to_bytes();
+            unsafe {
+                let len = MultiByteToWideChar(
+                    CP_ACP,
+                    0,
+                    bytes.as_ptr(),
+                    bytes.len() as i32,
+                    ptr::null_mut(),
+                    0,
+                );
+                if len > 0 {
+                    let mut wide = vec![0u16; len as usize];
+                    MultiByteToWideChar(
+                        CP_ACP,
+                        0,
+                        bytes.as_ptr(),
+                        bytes.len() as i32,
+                        wide.as_mut_ptr(),
+                        len,
+                    );
+                    return Ok(vm.new_pyobj(String::from_utf16_lossy(&wide)));
+                }
+            }
+        }
+
+        Ok(vm.new_pyobj(String::from_utf8_lossy(slice.to_bytes()).into_owned()))
     }
 
     #[pyattr(name = "Error", once)]

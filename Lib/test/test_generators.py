@@ -176,7 +176,6 @@ class GeneratorTest(unittest.TestCase):
             g.send(0)
         self.assertEqual(next(g), 1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; NotImplementedError
     def test_handle_frame_object_in_creation(self):
 
         #Attempt to expose partially constructed frames

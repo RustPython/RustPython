@@ -1,5 +1,7 @@
-use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
+use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
+#[cfg(all(not(feature = "host_env"), feature = "stdio"))]
+pub(crate) use sys::SandboxStdio;
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
 
 #[pymodule(name = "_jit")]
@@ -29,7 +31,7 @@ mod sys_jit {
 #[pymodule]
 mod sys {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
+        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
             PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTupleRef,
             PyTypeRef,
@@ -50,7 +52,7 @@ mod sys {
     use num_traits::ToPrimitive;
     use std::{
         env::{self, VarError},
-        io::Read,
+        io::{IsTerminal, Read, Write},
     };
 
     #[cfg(windows)]
@@ -69,6 +71,149 @@ mod sys {
     /// e.g., "x86_64-unknown-linux-gnu" -> "x86_64-linux-gnu"
     pub(crate) fn multiarch() -> String {
         RUST_MULTIARCH.replace("-unknown", "")
+    }
+
+    #[pyclass(no_attr, name = "_BootstrapStderr", module = "sys")]
+    #[derive(Debug, PyPayload)]
+    pub(super) struct BootstrapStderr;
+
+    #[pyclass]
+    impl BootstrapStderr {
+        #[pymethod]
+        fn write(&self, s: PyStrRef) -> PyResult<usize> {
+            let bytes = s.as_bytes();
+            let _ = std::io::stderr().write_all(bytes);
+            Ok(bytes.len())
+        }
+
+        #[pymethod]
+        fn flush(&self) -> PyResult<()> {
+            let _ = std::io::stderr().flush();
+            Ok(())
+        }
+    }
+
+    /// Lightweight stdio wrapper for sandbox mode (no host_env).
+    /// Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
+    #[pyclass(no_attr, name = "_SandboxStdio", module = "sys")]
+    #[derive(Debug, PyPayload)]
+    pub struct SandboxStdio {
+        pub fd: i32,
+        pub name: String,
+        pub mode: String,
+    }
+
+    #[pyclass]
+    impl SandboxStdio {
+        #[pymethod]
+        fn write(&self, s: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
+            if self.fd == 0 {
+                return Err(vm.new_os_error("not writable".to_owned()));
+            }
+            let bytes = s.as_bytes();
+            if self.fd == 2 {
+                std::io::stderr()
+                    .write_all(bytes)
+                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+            } else {
+                std::io::stdout()
+                    .write_all(bytes)
+                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+            }
+            Ok(bytes.len())
+        }
+
+        #[pymethod]
+        fn readline(&self, size: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<String> {
+            if self.fd != 0 {
+                return Err(vm.new_os_error("not readable".to_owned()));
+            }
+            let size = size.unwrap_or(-1);
+            if size == 0 {
+                return Ok(String::new());
+            }
+            let mut line = String::new();
+            std::io::stdin()
+                .read_line(&mut line)
+                .map_err(|e| vm.new_os_error(e.to_string()))?;
+            if size > 0 {
+                line.truncate(size as usize);
+            }
+            Ok(line)
+        }
+
+        #[pymethod]
+        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
+            match self.fd {
+                1 => {
+                    std::io::stdout()
+                        .flush()
+                        .map_err(|e| vm.new_os_error(e.to_string()))?;
+                }
+                2 => {
+                    std::io::stderr()
+                        .flush()
+                        .map_err(|e| vm.new_os_error(e.to_string()))?;
+                }
+                _ => {}
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn fileno(&self) -> i32 {
+            self.fd
+        }
+
+        #[pymethod]
+        fn isatty(&self) -> bool {
+            match self.fd {
+                0 => std::io::stdin().is_terminal(),
+                1 => std::io::stdout().is_terminal(),
+                2 => std::io::stderr().is_terminal(),
+                _ => false,
+            }
+        }
+
+        #[pymethod]
+        fn readable(&self) -> bool {
+            self.fd == 0
+        }
+
+        #[pymethod]
+        fn writable(&self) -> bool {
+            self.fd == 1 || self.fd == 2
+        }
+
+        #[pygetset]
+        fn closed(&self) -> bool {
+            false
+        }
+
+        #[pygetset]
+        fn encoding(&self) -> String {
+            "utf-8".to_owned()
+        }
+
+        #[pygetset]
+        fn errors(&self) -> String {
+            if self.fd == 2 {
+                "backslashreplace"
+            } else {
+                "strict"
+            }
+            .to_owned()
+        }
+
+        #[pygetset(name = "name")]
+        fn name_prop(&self) -> String {
+            self.name.clone()
+        }
+
+        #[pygetset(name = "mode")]
+        fn mode_prop(&self) -> String {
+            self.mode.clone()
+        }
     }
 
     #[pyattr(name = "_rustpython_debugbuild")]
@@ -678,14 +823,21 @@ mod sys {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stderr = super::get_stderr(vm)?;
-
-        // Try to normalize the exception. If it fails, print error to stderr like CPython
         match vm.normalize_exception(exc_type.clone(), exc_val.clone(), exc_tb) {
-            Ok(exc) => vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc),
+            Ok(exc) => {
+                // Try Python traceback module first for richer output
+                // (enables features like keyword typo suggestions in SyntaxError)
+                if let Ok(tb_mod) = vm.import("traceback", 0)
+                    && let Ok(print_exc) = tb_mod.get_attr("print_exception", vm)
+                    && print_exc.call((exc.as_object().to_owned(),), vm).is_ok()
+                {
+                    return Ok(());
+                }
+                // Fallback to Rust-level exception printing
+                vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
+            }
             Err(_) => {
-                // CPython prints error message to stderr instead of raising exception
                 let type_name = exc_val.class().name();
-                // TODO: fix error message
                 let msg = format!(
                     "TypeError: print_exception(): Exception expected for value, {type_name} found\n"
                 );
@@ -908,7 +1060,7 @@ mod sys {
 
             // Get the size of the version information block
             let ver_block_size =
-                GetFileVersionInfoSizeW(kernel32_path.as_ptr(), std::ptr::null_mut());
+                GetFileVersionInfoSizeW(kernel32_path.as_ptr(), core::ptr::null_mut());
             if ver_block_size == 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -928,7 +1080,7 @@ mod sys {
             // Prepare an empty sub-block string (L"") as required by VerQueryValueW
             let sub_block: Vec<u16> = std::ffi::OsStr::new("").to_wide_with_nul();
 
-            let mut ffi_ptr: *mut VS_FIXEDFILEINFO = std::ptr::null_mut();
+            let mut ffi_ptr: *mut VS_FIXEDFILEINFO = core::ptr::null_mut();
             let mut ffi_len: u32 = 0;
             if VerQueryValueW(
                 ver_block.as_ptr() as *const _,
@@ -960,8 +1112,8 @@ mod sys {
             GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW,
         };
 
-        let mut version: OSVERSIONINFOEXW = unsafe { std::mem::zeroed() };
-        version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
+        let mut version: OSVERSIONINFOEXW = unsafe { core::mem::zeroed() };
+        version.dwOSVersionInfoSize = core::mem::size_of::<OSVERSIONINFOEXW>() as u32;
         let result = unsafe {
             let os_vi = &mut version as *mut OSVERSIONINFOEXW as *mut OSVERSIONINFOW;
             // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but windows-sys crate's type currently doesn't allow to do so.
@@ -1629,6 +1781,14 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
         "modules" => modules,
         "_jit" => jit_module,
     });
+}
+
+pub(crate) fn set_bootstrap_stderr(vm: &VirtualMachine) -> PyResult<()> {
+    let stderr = sys::BootstrapStderr.into_ref(&vm.ctx);
+    let stderr_obj: crate::PyObjectRef = stderr.into();
+    vm.sys_module.set_attr("stderr", stderr_obj.clone(), vm)?;
+    vm.sys_module.set_attr("__stderr__", stderr_obj, vm)?;
+    Ok(())
 }
 
 /// Similar to PySys_WriteStderr in CPython.

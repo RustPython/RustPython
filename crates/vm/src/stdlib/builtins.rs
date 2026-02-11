@@ -122,9 +122,7 @@ mod builtins {
         {
             use crate::{class::PyClassImpl, stdlib::ast};
 
-            if args._feature_version.is_present() {
-                // TODO: add support for _feature_version
-            }
+            let feature_version = feature_version_from_arg(args._feature_version, vm)?;
 
             let mode_str = args.mode.as_str();
 
@@ -141,6 +139,37 @@ mod builtins {
                 .source
                 .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
             {
+                use num_traits::Zero;
+                let flags: i32 = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
+                let is_ast_only = !(flags & ast::PY_CF_ONLY_AST).is_zero();
+
+                // func_type mode requires PyCF_ONLY_AST
+                if mode_str == "func_type" && !is_ast_only {
+                    return Err(vm.new_value_error(
+                        "compile() mode 'func_type' requires flag PyCF_ONLY_AST".to_owned(),
+                    ));
+                }
+
+                // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
+                if is_ast_only {
+                    let (expected_type, expected_name) = ast::mode_type_and_name(&vm.ctx, mode_str)
+                        .ok_or_else(|| {
+                            vm.new_value_error(
+                                "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
+                                    .to_owned(),
+                            )
+                        })?;
+                    if !args.source.fast_isinstance(&expected_type) {
+                        return Err(vm.new_type_error(format!(
+                            "expected {} node, got {}",
+                            expected_name,
+                            args.source.class().name()
+                        )));
+                    }
+                    ast::validate_ast_object(vm, args.source.clone())?;
+                    return Ok(args.source);
+                }
+
                 #[cfg(not(feature = "rustpython-codegen"))]
                 {
                     return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned()));
@@ -185,14 +214,32 @@ mod builtins {
                 }
 
                 let allow_incomplete = !(flags & ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
+                let type_comments = !(flags & ast::PY_CF_TYPE_COMMENTS).is_zero();
 
-                if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
+                let optimize_level = optimize;
+
+                if (flags & ast::PY_CF_ONLY_AST).is_zero() {
                     #[cfg(not(feature = "compiler"))]
                     {
                         Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED.to_owned()))
                     }
                     #[cfg(feature = "compiler")]
                     {
+                        if let Some(feature_version) = feature_version {
+                            let mode = mode_str
+                                .parse::<parser::Mode>()
+                                .map_err(|err| vm.new_value_error(err.to_string()))?;
+                            let _ = ast::parse(
+                                vm,
+                                source,
+                                mode,
+                                optimize_level,
+                                Some(feature_version),
+                                type_comments,
+                            )
+                            .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm))?;
+                        }
+
                         let mode = mode_str
                             .parse::<crate::compiler::Mode>()
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
@@ -213,14 +260,51 @@ mod builtins {
                         Ok(code.into())
                     }
                 } else {
+                    if mode_str == "func_type" {
+                        return ast::parse_func_type(vm, source, optimize_level, feature_version)
+                            .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm));
+                    }
+
                     let mode = mode_str
                         .parse::<parser::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    ast::parse(vm, source, mode)
-                        .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm))
+                    let parsed = ast::parse(
+                        vm,
+                        source,
+                        mode,
+                        optimize_level,
+                        feature_version,
+                        type_comments,
+                    )
+                    .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm))?;
+
+                    if mode_str == "single" {
+                        return ast::wrap_interactive(vm, parsed);
+                    }
+
+                    Ok(parsed)
                 }
             }
         }
+    }
+
+    #[cfg(feature = "ast")]
+    fn feature_version_from_arg(
+        feature_version: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<ruff_python_ast::PythonVersion>> {
+        let minor = match feature_version.into_option() {
+            Some(minor) => minor,
+            None => return Ok(None),
+        };
+
+        if minor < 0 {
+            return Ok(None);
+        }
+
+        let minor = u8::try_from(minor)
+            .map_err(|_| vm.new_value_error("compile() _feature_version out of range"))?;
+        Ok(Some(ruff_python_ast::PythonVersion { major: 3, minor }))
     }
 
     #[pyfunction]
@@ -628,7 +712,7 @@ mod builtins {
             Some(x) => x,
             None => {
                 return default.ok_or_else(|| {
-                    vm.new_value_error(format!("{func_name}() arg is an empty sequence"))
+                    vm.new_value_error(format!("{func_name}() iterable argument is empty"))
                 });
             }
         };
@@ -907,9 +991,24 @@ mod builtins {
         Ok(sum)
     }
 
+    #[derive(FromArgs)]
+    struct ImportArgs {
+        #[pyarg(any)]
+        name: PyStrRef,
+        #[pyarg(any, default)]
+        globals: Option<PyObjectRef>,
+        #[allow(dead_code)]
+        #[pyarg(any, default)]
+        locals: Option<PyObjectRef>,
+        #[pyarg(any, default)]
+        fromlist: Option<PyObjectRef>,
+        #[pyarg(any, default)]
+        level: i32,
+    }
+
     #[pyfunction]
-    fn __import__(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.import_func.call(args, vm)
+    fn __import__(args: ImportArgs, vm: &VirtualMachine) -> PyResult {
+        crate::import::import_module_level(&args.name, args.globals, args.fromlist, args.level, vm)
     }
 
     #[pyfunction]

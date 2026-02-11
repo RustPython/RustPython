@@ -4,7 +4,7 @@
 //!     // either:
 //!     source = "python_source_code",
 //!     // or
-//!     file = "file/path/relative/to/$CARGO_MANIFEST_DIR",
+//!     file = "file/path/relative/to/this/file",
 //!
 //!     // the mode to compile the code in
 //!     mode = "exec", // or "eval" or "single"
@@ -17,10 +17,9 @@ use crate::Diagnostic;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
-use std::sync::LazyLock;
 use std::{
     collections::HashMap,
-    env, fs,
+    fs,
     path::{Path, PathBuf},
 };
 use syn::{
@@ -29,17 +28,13 @@ use syn::{
     spanned::Spanned,
 };
 
-static CARGO_MANIFEST_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
-    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
-});
-
 enum CompilationSourceKind {
     /// Source is a File (Path)
-    File(PathBuf),
+    File { base: PathBuf, rel_path: PathBuf },
     /// Direct Raw source code
     SourceCode(String),
     /// Source is a directory
-    Dir(PathBuf),
+    Dir { base: PathBuf, rel_path: PathBuf },
 }
 
 struct CompiledModule {
@@ -85,12 +80,9 @@ impl CompilationSource {
         compiler: &dyn Compiler,
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
         match &self.kind {
-            CompilationSourceKind::Dir(rel_path) => self.compile_dir(
-                &CARGO_MANIFEST_DIR.join(rel_path),
-                String::new(),
-                mode,
-                compiler,
-            ),
+            CompilationSourceKind::Dir { base, rel_path } => {
+                self.compile_dir(base, &base.join(rel_path), String::new(), mode, compiler)
+            }
             _ => Ok(hashmap! {
                 module_name.clone() => CompiledModule {
                     code: self.compile_single(mode, module_name, compiler)?,
@@ -107,8 +99,8 @@ impl CompilationSource {
         compiler: &dyn Compiler,
     ) -> Result<CodeObject, Diagnostic> {
         match &self.kind {
-            CompilationSourceKind::File(rel_path) => {
-                let path = CARGO_MANIFEST_DIR.join(rel_path);
+            CompilationSourceKind::File { base, rel_path } => {
+                let path = base.join(rel_path);
                 let source = fs::read_to_string(&path).map_err(|err| {
                     Diagnostic::spans_error(
                         self.span,
@@ -124,7 +116,7 @@ impl CompilationSource {
                 compiler,
                 || "string literal",
             ),
-            CompilationSourceKind::Dir(_) => {
+            CompilationSourceKind::Dir { .. } => {
                 unreachable!("Can't use compile_single with directory source")
             }
         }
@@ -132,6 +124,7 @@ impl CompilationSource {
 
     fn compile_dir(
         &self,
+        base: &Path,
         path: &Path,
         parent: String,
         mode: Mode,
@@ -160,6 +153,7 @@ impl CompilationSource {
             })?;
             if path.is_dir() {
                 code_map.extend(self.compile_dir(
+                    base,
                     &path,
                     if parent.is_empty() {
                         file_name.to_string()
@@ -188,10 +182,7 @@ impl CompilationSource {
                         )
                     })?;
                     self.compile_string(&source, mode, module_name.clone(), compiler, || {
-                        path.strip_prefix(&*CARGO_MANIFEST_DIR)
-                            .ok()
-                            .unwrap_or(&path)
-                            .display()
+                        path.strip_prefix(base).ok().unwrap_or(&path).display()
                     })
                 };
                 let code = compile_path(&path).or_else(|e| {
@@ -257,6 +248,16 @@ impl PyCompileArgs {
                 .get_ident()
                 .ok_or_else(|| meta.error("unknown arg"))?;
             let check_str = || meta.value()?.call(parse_str);
+            let str_path = || {
+                let s = check_str()?;
+                let mut base_path = s
+                    .span()
+                    .unwrap()
+                    .local_file()
+                    .ok_or_else(|| err_span!(s, "filepath literal has no span information"))?;
+                base_path.pop();
+                Ok::<_, syn::Error>((base_path, PathBuf::from(s.value())))
+            };
             if ident == "mode" {
                 let s = check_str()?;
                 match s.value().parse() {
@@ -274,9 +275,9 @@ impl PyCompileArgs {
                 });
             } else if ident == "file" {
                 assert_source_empty(&source)?;
-                let path = check_str()?.value().into();
+                let (base, rel_path) = str_path()?;
                 source = Some(CompilationSource {
-                    kind: CompilationSourceKind::File(path),
+                    kind: CompilationSourceKind::File { base, rel_path },
                     span: (ident.span(), meta.input.cursor().span()),
                 });
             } else if ident == "dir" {
@@ -285,9 +286,9 @@ impl PyCompileArgs {
                 }
 
                 assert_source_empty(&source)?;
-                let path = check_str()?.value().into();
+                let (base, rel_path) = str_path()?;
                 source = Some(CompilationSource {
-                    kind: CompilationSourceKind::Dir(path),
+                    kind: CompilationSourceKind::Dir { base, rel_path },
                     span: (ident.span(), meta.input.cursor().span()),
                 });
             } else if ident == "crate_name" {

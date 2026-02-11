@@ -52,12 +52,10 @@ mod _multiprocessing {
         function::{FuncArgs, KwArgs},
         types::Constructor,
     };
+    use alloc::ffi::CString;
+    use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
     use libc::sem_t;
     use nix::errno::Errno;
-    use std::{
-        ffi::CString,
-        sync::atomic::{AtomicI32, AtomicU64, Ordering},
-    };
 
     /// Error type for sem_timedwait operations
     #[cfg(target_vendor = "apple")]
@@ -92,7 +90,7 @@ mod _multiprocessing {
                 tv_sec: 0,
                 tv_usec: 0,
             };
-            if unsafe { libc::gettimeofday(&mut now, std::ptr::null_mut()) } < 0 {
+            if unsafe { libc::gettimeofday(&mut now, core::ptr::null_mut()) } < 0 {
                 return Err(SemWaitError::OsError(Errno::last()));
             }
 
@@ -125,9 +123,9 @@ mod _multiprocessing {
             unsafe {
                 libc::select(
                     0,
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
                     &mut tv_delay,
                 )
             };
@@ -302,7 +300,7 @@ mod _multiprocessing {
                     tv_sec: 0,
                     tv_usec: 0,
                 };
-                let res = unsafe { libc::gettimeofday(&mut tv, std::ptr::null_mut()) };
+                let res = unsafe { libc::gettimeofday(&mut tv, core::ptr::null_mut()) };
                 if res < 0 {
                     return Err(vm.new_os_error("gettimeofday failed".to_string()));
                 }
