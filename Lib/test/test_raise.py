@@ -185,7 +185,6 @@ class TestCause(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: 'classmethod' object is not callable
     def test_class_cause_nonexception_result(self):
         # See https://github.com/python/cpython/issues/140530.
         class ConstructMortal(BaseException):

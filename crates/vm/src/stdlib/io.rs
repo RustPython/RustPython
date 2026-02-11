@@ -5266,7 +5266,9 @@ mod fileio {
                     let filename = OsPathOrFd::Path(path);
                     match fd {
                         Ok(fd) => (fd.into_raw(), Some(filename)),
-                        Err(e) => return Err(OSErrorBuilder::with_filename(&e, filename, vm)),
+                        Err(e) => {
+                            return Err(OSErrorBuilder::with_filename_from_errno(&e, filename, vm));
+                        }
                     }
                 }
             };

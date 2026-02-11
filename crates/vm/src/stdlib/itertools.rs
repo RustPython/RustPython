@@ -16,6 +16,7 @@ mod decl {
         stdlib::sys,
         types::{Constructor, IterNext, Iterable, Representable, SelfIter},
     };
+    use core::sync::atomic::{AtomicBool, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::BigInt;
     use num_traits::One;
@@ -943,6 +944,7 @@ mod decl {
     struct PyItertoolsTeeData {
         iterable: PyIter,
         values: PyMutex<Vec<PyObjectRef>>,
+        running: AtomicBool,
     }
 
     impl PyItertoolsTeeData {
@@ -950,19 +952,33 @@ mod decl {
             Ok(PyRc::new(Self {
                 iterable,
                 values: PyMutex::new(vec![]),
+                running: AtomicBool::new(false),
             }))
         }
 
         fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult<PyIterReturn> {
+            // Return cached value if available
+            {
+                let Some(values) = self.values.try_lock() else {
+                    return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
+                };
+                if index < values.len() {
+                    return Ok(PyIterReturn::Return(values[index].clone()));
+                }
+            }
+            // Prevent concurrent/reentrant calls to iterable.next()
+            if self.running.swap(true, Ordering::Acquire) {
+                return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
+            }
+            let result = self.iterable.next(vm);
+            self.running.store(false, Ordering::Release);
+            let obj = raise_if_stop!(result?);
             let Some(mut values) = self.values.try_lock() else {
                 return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
             };
-
             if values.len() == index {
-                let obj = raise_if_stop!(self.iterable.next(vm)?);
                 values.push(obj);
             }
-
             Ok(PyIterReturn::Return(values[index].clone()))
         }
     }

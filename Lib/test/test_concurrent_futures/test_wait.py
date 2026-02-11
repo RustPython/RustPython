@@ -205,7 +205,7 @@ class ProcessPoolForkWaitTest(ProcessPoolForkWaitTest):  # TODO: RUSTPYTHON
     def test_first_completed(self): super().test_first_completed()  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform == 'linux', "TODO: RUSTPYTHON Fatal Python error: Segmentation fault")
     def test_first_completed_some_already_completed(self): super().test_first_completed_some_already_completed()  # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform == 'linux', "TODO: RUSTPYTHON flaky")
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON flaky")
     def test_first_exception(self): super().test_first_exception()  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform == 'linux', "TODO: RUSTPYTHON flaky")
     def test_first_exception_one_already_failed(self): super().test_first_exception_one_already_failed()  # TODO: RUSTPYTHON

@@ -100,8 +100,6 @@ class ProfileHookTestCase(TestCaseBase):
     def new_watcher(self):
         return HookWatcher()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_simple(self):
         def f(p):
             pass
@@ -110,8 +108,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (112, 'f'))]
     def test_exception(self):
         def f(p):
             1/0
@@ -120,8 +117,6 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caught_exception(self):
         def f(p):
             try: 1/0
@@ -131,8 +126,6 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caught_nested_exception(self):
         def f(p):
             try: 1/0
@@ -142,8 +135,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (138, 'f'))]
     def test_nested_exception(self):
         def f(p):
             1/0
@@ -155,8 +147,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; (1, 'return', (151, 'g'))]
     def test_exception_in_except_clause(self):
         def f(p):
             1/0
@@ -176,8 +167,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', g_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; (1, 'falling through', (170, 'g'))]
     def test_exception_propagation(self):
         def f(p):
             1/0
@@ -193,8 +183,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', g_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (183, 'f'))]
     def test_raise_twice(self):
         def f(p):
             try: 1/0
@@ -204,8 +193,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (192, 'f'))]
     def test_raise_reraise(self):
         def f(p):
             try: 1/0
@@ -215,8 +203,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (201, 'f'))]
     def test_raise(self):
         def f(p):
             raise Exception()
@@ -225,8 +212,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; (5, 'call', (209, 'f'))]
     def test_distant_exception(self):
         def f():
             1/0
@@ -255,8 +241,6 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', j_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generator(self):
         def f():
             for i in range(2):
@@ -279,8 +263,6 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', g_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_stop_iteration(self):
         def f():
             for i in range(2):
@@ -307,8 +289,6 @@ class ProfileSimulatorTestCase(TestCaseBase):
     def new_watcher(self):
         return ProfileSimulator(self)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_simple(self):
         def f(p):
             pass
@@ -317,8 +297,7 @@ class ProfileSimulatorTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (293, 'f'))]
     def test_basic_exception(self):
         def f(p):
             1/0
@@ -327,8 +306,6 @@ class ProfileSimulatorTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caught_exception(self):
         def f(p):
             try: 1/0
@@ -338,8 +315,7 @@ class ProfileSimulatorTestCase(TestCaseBase):
                               (1, 'return', f_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; (5, 'call', (310, 'f'))]
     def test_distant_exception(self):
         def f():
             1/0
@@ -368,8 +344,6 @@ class ProfileSimulatorTestCase(TestCaseBase):
                               (1, 'return', j_ident),
                               ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # bpo-34125: profiling method_descriptor with **kwargs
     def test_unbound_method(self):
         kwargs = {}
@@ -379,9 +353,8 @@ class ProfileSimulatorTestCase(TestCaseBase):
         self.check_events(f, [(1, 'call', f_ident),
                               (1, 'return', f_ident)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Test an invalid call (bpo-34126)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (348, 'f'))]
     def test_unbound_method_no_args(self):
         def f(p):
             dict.get()
@@ -389,9 +362,8 @@ class ProfileSimulatorTestCase(TestCaseBase):
         self.check_events(f, [(1, 'call', f_ident),
                               (1, 'return', f_ident)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Test an invalid call (bpo-34126)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (356, 'f'))]
     def test_unbound_method_invalid_args(self):
         def f(p):
             dict.get(print, 42)
@@ -399,9 +371,8 @@ class ProfileSimulatorTestCase(TestCaseBase):
         self.check_events(f, [(1, 'call', f_ident),
                               (1, 'return', f_ident)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Test an invalid call (bpo-34125)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (365, 'f'))]
     def test_unbound_method_no_keyword_args(self):
         kwargs = {}
         def f(p):
@@ -410,9 +381,8 @@ class ProfileSimulatorTestCase(TestCaseBase):
         self.check_events(f, [(1, 'call', f_ident),
                               (1, 'return', f_ident)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Test an invalid call (bpo-34125)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; [(1, 'call', (374, 'f'))]
     def test_unbound_method_invalid_keyword_args(self):
         kwargs = {}
         def f(p):

@@ -7,7 +7,7 @@ use crate::{
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, Representable, SelfIter},
+    types::{Destructor, IterNext, Iterable, Representable, SelfIter},
 };
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -31,7 +31,10 @@ impl PyPayload for PyCoroutine {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, IterNext, Representable))]
+#[pyclass(
+    flags(DISALLOW_INSTANTIATION),
+    with(Py, IterNext, Representable, Destructor)
+)]
 impl PyCoroutine {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
@@ -130,7 +133,7 @@ impl Py<PyCoroutine> {
     }
 
     #[pymethod]
-    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+    fn close(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.inner.close(self.as_object(), vm)
     }
 }
@@ -146,6 +149,22 @@ impl SelfIter for PyCoroutine {}
 impl IterNext for PyCoroutine {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.send(vm.ctx.none(), vm)
+    }
+}
+
+impl Destructor for PyCoroutine {
+    fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        if zelf.inner.closed() || zelf.inner.running() {
+            return Ok(());
+        }
+        if zelf.inner.frame().lasti() == 0 {
+            zelf.inner.closed.store(true);
+            return Ok(());
+        }
+        if let Err(e) = zelf.inner.close(zelf.as_object(), vm) {
+            vm.run_unraisable(e, None, zelf.as_object().to_owned());
+        }
+        Ok(())
     }
 }
 
@@ -209,7 +228,7 @@ impl PyCoroutineWrapper {
     }
 
     #[pymethod]
-    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+    fn close(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.closed.store(true);
         self.coro.close(vm)
     }

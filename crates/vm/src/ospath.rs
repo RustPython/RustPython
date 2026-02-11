@@ -327,4 +327,21 @@ impl crate::exceptions::OSErrorBuilder {
         let builder = builder.filename(filename.into().filename(vm));
         builder.build(vm).upcast()
     }
+
+    /// Like `with_filename`, but strips winerror on Windows.
+    /// Use for C runtime errors (open, fstat, etc.) that should produce
+    /// `[Errno X]` format instead of `[WinError X]`.
+    #[must_use]
+    pub(crate) fn with_filename_from_errno<'a>(
+        error: &std::io::Error,
+        filename: impl Into<OsPathOrFd<'a>>,
+        vm: &VirtualMachine,
+    ) -> crate::builtins::PyBaseExceptionRef {
+        use crate::exceptions::ToOSErrorBuilder;
+        let builder = error.to_os_error_builder(vm);
+        #[cfg(windows)]
+        let builder = builder.without_winerror();
+        let builder = builder.filename(filename.into().filename(vm));
+        builder.build(vm).upcast()
+    }
 }
