@@ -43,7 +43,10 @@ impl Frame {
 
     #[pygetset]
     fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
-        self.locals(vm).map(Into::into)
+        let result = self.locals(vm).map(Into::into);
+        self.locals_dirty
+            .store(true, core::sync::atomic::Ordering::Release);
+        result
     }
 
     #[pygetset]

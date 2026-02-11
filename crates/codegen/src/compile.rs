@@ -151,6 +151,9 @@ struct Compiler {
     ctx: CompileContext,
     opts: CompileOpts,
     in_annotation: bool,
+    /// True when compiling in "single" (interactive) mode.
+    /// Expression statements at module scope emit CALL_INTRINSIC_1(Print).
+    interactive: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -461,6 +464,7 @@ impl Compiler {
             },
             opts,
             in_annotation: false,
+            interactive: false,
         }
     }
 
@@ -1706,6 +1710,7 @@ impl Compiler {
         body: &[ast::Stmt],
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
+        self.interactive = true;
         // Set future_annotations from symbol table (detected during symbol table scan)
         self.future_annotations = symbol_table.future_annotations;
         self.symbol_table_stack.push(symbol_table);
@@ -2151,7 +2156,15 @@ impl Compiler {
             ast::Stmt::Expr(ast::StmtExpr { value, .. }) => {
                 self.compile_expression(value)?;
 
-                // Pop result of stack, since we not use it:
+                if self.interactive && !self.ctx.in_func() && !self.ctx.in_class {
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::Print
+                        }
+                    );
+                }
+
                 emit!(self, Instruction::PopTop);
             }
             ast::Stmt::Global(_) | ast::Stmt::Nonlocal(_) => {

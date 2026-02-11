@@ -225,7 +225,13 @@ impl PyList {
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
-            SequenceIndex::Int(i) => self.borrow_vec().getitem_by_index(vm, i),
+            SequenceIndex::Int(i) => {
+                let vec = self.borrow_vec();
+                let pos = vec
+                    .wrap_index(i)
+                    .ok_or_else(|| vm.new_index_error("list index out of range"))?;
+                Ok(vec.do_get(pos))
+            }
             SequenceIndex::Slice(slice) => self
                 .borrow_vec()
                 .getitem_by_slice(vm, slice)
@@ -448,9 +454,12 @@ impl AsSequence for PyList {
                     .map(|x| x.into())
             }),
             item: atomic_func!(|seq, i, vm| {
-                PyList::sequence_downcast(seq)
-                    .borrow_vec()
-                    .getitem_by_index(vm, i)
+                let list = PyList::sequence_downcast(seq);
+                let vec = list.borrow_vec();
+                let pos = vec
+                    .wrap_index(i)
+                    .ok_or_else(|| vm.new_index_error("list index out of range"))?;
+                Ok(vec.do_get(pos))
             }),
             ass_item: atomic_func!(|seq, i, value, vm| {
                 let zelf = PyList::sequence_downcast(seq);

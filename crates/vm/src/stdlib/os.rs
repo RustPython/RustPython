@@ -274,7 +274,7 @@ pub(super) mod _os {
                 crt_fd::open(&name, flags, mode)
             }
         };
-        fd.map_err(|err| OSErrorBuilder::with_filename(&err, name, vm))
+        fd.map_err(|err| OSErrorBuilder::with_filename_from_errno(&err, name, vm))
     }
 
     #[pyfunction]

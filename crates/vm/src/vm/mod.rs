@@ -1018,7 +1018,28 @@ impl VirtualMachine {
                 crate::frame::FrameOwner::Thread as i8,
                 core::sync::atomic::Ordering::AcqRel,
             );
-            let result = f(frame);
+            use crate::protocol::TraceEvent;
+            // Fire 'call' trace event after pushing frame
+            // (current_frame() now returns the callee's frame)
+            let result = match self.trace_event(TraceEvent::Call, None) {
+                Ok(()) => {
+                    // Set per-frame trace function so line events fire for this frame.
+                    // Frames entered before sys.settrace() keep trace=None and skip line events.
+                    if self.use_tracing.get() {
+                        let trace_func = self.trace_func.borrow().clone();
+                        if !self.is_none(&trace_func) {
+                            *frame.trace.lock() = trace_func;
+                        }
+                    }
+                    let result = f(frame);
+                    // Fire 'return' trace event on success
+                    if result.is_ok() {
+                        let _ = self.trace_event(TraceEvent::Return, None);
+                    }
+                    result
+                }
+                Err(e) => Err(e),
+            };
             // SAFETY: frame_ptr is valid because self.frames holds a clone
             // of the frame, keeping the underlying allocation alive.
             unsafe { &*frame_ptr }
