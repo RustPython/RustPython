@@ -413,7 +413,6 @@ class DeferredEvaluationTests(unittest.TestCase):
         self.assertEqual(Outer.meth.__annotations__, {"x": Outer.Nested})
         self.assertEqual(Outer.__annotations__, {"x": Outer.Nested})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_no_exotic_expressions(self):
         preludes = [
             "",
@@ -431,7 +430,6 @@ class DeferredEvaluationTests(unittest.TestCase):
                 check_syntax_error(self, prelude + "def func(x: {y async for y in x}): ...", "asynchronous comprehension outside of an asynchronous function")
                 check_syntax_error(self, prelude + "def func(x: {y: y async for y in x}): ...", "asynchronous comprehension outside of an asynchronous function")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_no_exotic_expressions_in_unevaluated_annotations(self):
         preludes = [
             "",
