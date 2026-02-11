@@ -528,7 +528,6 @@ impl SymbolTableAnalyzer {
                     if !self.tables.as_ref().is_empty() {
                         let scope_depth = self.tables.as_ref().len();
                         // check if the name is already defined in any outer scope
-                        // therefore
                         if scope_depth < 2
                             || self.found_in_outer_scope(&symbol.name, st_typ)
                                 != Some(SymbolScope::Free)
@@ -538,6 +537,25 @@ impl SymbolTableAnalyzer {
                                 // TODO: accurate location info, somehow
                                 location: None,
                             });
+                        }
+                        // Check if the nonlocal binding refers to a type parameter
+                        if symbol.flags.contains(SymbolFlags::NONLOCAL) {
+                            for (symbols, _typ) in self.tables.iter().rev() {
+                                if let Some(sym) = symbols.get(&symbol.name) {
+                                    if sym.flags.contains(SymbolFlags::TYPE_PARAM) {
+                                        return Err(SymbolTableError {
+                                            error: format!(
+                                                "nonlocal binding not allowed for type parameter '{}'",
+                                                symbol.name
+                                            ),
+                                            location: None,
+                                        });
+                                    }
+                                    if sym.is_bound() {
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     } else {
                         return Err(SymbolTableError {

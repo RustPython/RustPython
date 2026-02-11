@@ -69,11 +69,11 @@ pub(crate) mod typevar {
     #[allow(dead_code)]
     pub struct TypeVar {
         name: PyObjectRef, // TODO PyStrRef?
-        bound: parking_lot::Mutex<PyObjectRef>,
+        bound: PyMutex<PyObjectRef>,
         evaluate_bound: PyObjectRef,
-        constraints: parking_lot::Mutex<PyObjectRef>,
+        constraints: PyMutex<PyObjectRef>,
         evaluate_constraints: PyObjectRef,
-        default_value: parking_lot::Mutex<PyObjectRef>,
+        default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
         covariant: bool,
         contravariant: bool,
@@ -396,11 +396,11 @@ pub(crate) mod typevar {
 
             Ok(Self {
                 name,
-                bound: parking_lot::Mutex::new(bound_obj),
+                bound: PyMutex::new(bound_obj),
                 evaluate_bound,
-                constraints: parking_lot::Mutex::new(constraints_obj),
+                constraints: PyMutex::new(constraints_obj),
                 evaluate_constraints,
-                default_value: parking_lot::Mutex::new(default_value),
+                default_value: PyMutex::new(default_value),
                 evaluate_default: PyMutex::new(evaluate_default),
                 covariant,
                 contravariant,
@@ -418,11 +418,11 @@ pub(crate) mod typevar {
         ) -> Self {
             Self {
                 name,
-                bound: parking_lot::Mutex::new(vm.ctx.none()),
+                bound: PyMutex::new(vm.ctx.none()),
                 evaluate_bound,
-                constraints: parking_lot::Mutex::new(vm.ctx.none()),
+                constraints: PyMutex::new(vm.ctx.none()),
                 evaluate_constraints,
-                default_value: parking_lot::Mutex::new(vm.ctx.typing_no_default.clone().into()),
+                default_value: PyMutex::new(vm.ctx.typing_no_default.clone().into()),
                 evaluate_default: PyMutex::new(vm.ctx.none()),
                 covariant: false,
                 contravariant: false,
@@ -438,7 +438,7 @@ pub(crate) mod typevar {
     pub struct ParamSpec {
         name: PyObjectRef,
         bound: Option<PyObjectRef>,
-        default_value: parking_lot::Mutex<PyObjectRef>,
+        default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
         covariant: bool,
         contravariant: bool,
@@ -637,7 +637,7 @@ pub(crate) mod typevar {
             let paramspec = Self {
                 name,
                 bound,
-                default_value: parking_lot::Mutex::new(default_value),
+                default_value: PyMutex::new(default_value),
                 evaluate_default: PyMutex::new(vm.ctx.none()),
                 covariant,
                 contravariant,
@@ -668,7 +668,7 @@ pub(crate) mod typevar {
             Self {
                 name,
                 bound: None,
-                default_value: parking_lot::Mutex::new(vm.ctx.typing_no_default.clone().into()),
+                default_value: PyMutex::new(vm.ctx.typing_no_default.clone().into()),
                 evaluate_default: PyMutex::new(vm.ctx.none()),
                 covariant: false,
                 contravariant: false,
@@ -683,7 +683,7 @@ pub(crate) mod typevar {
     #[allow(dead_code)]
     pub struct TypeVarTuple {
         name: PyObjectRef,
-        default_value: parking_lot::Mutex<PyObjectRef>,
+        default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
     }
     #[pyclass(flags(HAS_DICT), with(Constructor, Representable, Iterable))]
@@ -813,7 +813,7 @@ pub(crate) mod typevar {
 
             let typevartuple = Self {
                 name,
-                default_value: parking_lot::Mutex::new(default_value),
+                default_value: PyMutex::new(default_value),
                 evaluate_default: PyMutex::new(evaluate_default),
             };
 
@@ -840,7 +840,7 @@ pub(crate) mod typevar {
         pub fn new(name: PyObjectRef, vm: &VirtualMachine) -> Self {
             Self {
                 name,
-                default_value: parking_lot::Mutex::new(vm.ctx.typing_no_default.clone().into()),
+                default_value: PyMutex::new(vm.ctx.typing_no_default.clone().into()),
                 evaluate_default: PyMutex::new(vm.ctx.none()),
             }
         }

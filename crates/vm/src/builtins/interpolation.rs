@@ -1,4 +1,7 @@
-use super::{PyStr, PyStrRef, PyTupleRef, PyType, tuple::IntoPyTuple};
+use super::{
+    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, genericalias::PyGenericAlias,
+    tuple::IntoPyTuple,
+};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -133,6 +136,11 @@ impl PyInterpolation {
     #[pygetset]
     fn format_spec(&self) -> PyStrRef {
         self.format_spec.clone()
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 
     #[pymethod]

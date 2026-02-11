@@ -140,17 +140,15 @@ pub(crate) mod decl {
             return Ok(obj.repr(vm)?.to_string());
         }
         // Has __qualname__ and __module__
-        if let Ok(qualname) = obj.get_attr("__qualname__", vm) {
-            if let Ok(module) = obj.get_attr("__module__", vm) {
-                if !vm.is_none(&module) {
-                    if let Some(module_str) = module.downcast_ref::<crate::builtins::PyStr>() {
-                        if module_str.as_str() == "builtins" {
-                            return Ok(qualname.str(vm)?.to_string());
-                        }
-                        return Ok(format!("{}.{}", module_str.as_str(), qualname.str(vm)?));
-                    }
-                }
+        if let Ok(qualname) = obj.get_attr("__qualname__", vm)
+            && let Ok(module) = obj.get_attr("__module__", vm)
+            && !vm.is_none(&module)
+            && let Some(module_str) = module.downcast_ref::<crate::builtins::PyStr>()
+        {
+            if module_str.as_str() == "builtins" {
+                return Ok(qualname.str(vm)?.to_string());
             }
+            return Ok(format!("{}.{}", module_str.as_str(), qualname.str(vm)?));
         }
         // Fallback to repr
         Ok(obj.repr(vm)?.to_string())
