@@ -2,6 +2,7 @@ use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
     PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, iter::builtins_iter,
 };
+use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine, atomic_func,
@@ -30,7 +31,6 @@ use core::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use rustpython_common::lock::PyMutex;
-use crate::common::lock::LazyLock;
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {

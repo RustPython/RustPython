@@ -1,4 +1,5 @@
 use super::{PyStr, PyTupleRef, PyType};
+use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
@@ -10,7 +11,6 @@ use crate::{
         SelfIter,
     },
 };
-use crate::common::lock::LazyLock;
 
 use super::interpolation::PyInterpolation;
 
