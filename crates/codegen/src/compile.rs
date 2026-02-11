@@ -2461,6 +2461,10 @@ impl Compiler {
                     self.push_symbol_table()?;
                     let inner_key = self.symbol_table_stack.len() - 1;
                     self.enter_scope("TypeAlias", CompilerScope::TypeParams, inner_key, lineno)?;
+                    // Evaluator takes a positional-only format parameter
+                    self.current_code_info().metadata.argcount = 1;
+                    self.current_code_info().metadata.posonlyargcount = 1;
+                    self.emit_format_validation()?;
                     self.compile_expression(value)?;
                     emit!(self, Instruction::ReturnValue);
                     let value_code = self.exit_scope();
@@ -2494,6 +2498,10 @@ impl Compiler {
                     let key = self.symbol_table_stack.len() - 1;
                     let lineno = self.get_source_line_number().get().to_u32();
                     self.enter_scope("TypeAlias", CompilerScope::TypeParams, key, lineno)?;
+                    // Evaluator takes a positional-only format parameter
+                    self.current_code_info().metadata.argcount = 1;
+                    self.current_code_info().metadata.posonlyargcount = 1;
+                    self.emit_format_validation()?;
 
                     let prev_ctx = self.ctx;
                     self.ctx = CompileContext {
@@ -2634,6 +2642,12 @@ impl Compiler {
 
         // Enter scope with the type parameter name
         self.enter_scope(name, CompilerScope::TypeParams, key, lineno)?;
+
+        // Evaluator takes a positional-only format parameter
+        self.current_code_info().metadata.argcount = 1;
+        self.current_code_info().metadata.posonlyargcount = 1;
+
+        self.emit_format_validation()?;
 
         // TypeParams scope is function-like
         let prev_ctx = self.ctx;
