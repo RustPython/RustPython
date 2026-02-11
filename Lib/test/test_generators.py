@@ -660,6 +660,7 @@ class GeneratorCloseTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             gen.close()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no deterministic GC finalization
     def test_close_releases_frame_locals(self):
         # See gh-118272
 
@@ -722,6 +723,7 @@ class GeneratorDeallocTest(unittest.TestCase):
                 self.assertIn('a', frame_locals)
                 self.assertEqual(frame_locals['a'], 42)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; frame locals don't survive generator deallocation
     def test_frame_locals_outlive_generator(self):
         frame_locals1 = None
 
@@ -1332,7 +1334,7 @@ From the Iterators list, about the types of these things.
 >>> [s for s in dir(i) if not s.startswith('_')]
 ['close', 'gi_code', 'gi_frame', 'gi_running', 'gi_suspended', 'gi_yieldfrom', 'send', 'throw']
 >>> from test.support import HAVE_DOCSTRINGS
->>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')
+>>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
 Implement next(self).
 >>> iter(i) is i
 True
@@ -2484,17 +2486,17 @@ Traceback (most recent call last):
   ...
 SyntaxError: 'yield from' outside function
 
->>> def f(): x = yield = y
+>>> def f(): x = yield = y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
   ...
 SyntaxError: assignment to yield expression not possible
 
->>> def f(): (yield bar) = y
+>>> def f(): (yield bar) = y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
   ...
 SyntaxError: cannot assign to yield expression here. Maybe you meant '==' instead of '='?
 
->>> def f(): (yield bar) += y
+>>> def f(): (yield bar) += y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
   ...
 SyntaxError: 'yield expression' is an illegal expression for augmented assignment
@@ -2690,7 +2692,7 @@ RuntimeError: generator ignored GeneratorExit
 
 Our ill-behaved code should be invoked during GC:
 
->>> with support.catch_unraisable_exception() as cm:
+>>> with support.catch_unraisable_exception() as cm:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
 ...     g = f()
 ...     next(g)
 ...     gen_repr = repr(g)
@@ -2808,7 +2810,7 @@ to test.
 ...             raise RuntimeError(message)
 ...         invoke("del failed")
 ...
->>> with support.catch_unraisable_exception() as cm:
+>>> with support.catch_unraisable_exception() as cm:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
 ...     leaker = Leaker()
 ...     del_repr = repr(type(leaker).__del__)
 ...     del leaker
@@ -2841,7 +2843,8 @@ __test__ = {"tut":      tutorial_tests,
             }
 
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite())
+    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker()))  # TODO: RUSTPYTHON
     return tests
 
 
