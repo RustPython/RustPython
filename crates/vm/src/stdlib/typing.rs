@@ -175,7 +175,7 @@ pub(crate) mod decl {
         }
     }
 
-    pub(crate) fn constevaluator_alloc(value: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn const_evaluator_alloc(value: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         ConstEvaluator { value }.into_ref(&vm.ctx).into()
     }
 
@@ -294,7 +294,7 @@ pub(crate) mod decl {
             if self.is_lazy {
                 return Ok(self.compute_value.clone());
             }
-            Ok(constevaluator_alloc(self.compute_value.clone(), vm))
+            Ok(const_evaluator_alloc(self.compute_value.clone(), vm))
         }
 
         /// Check type_params ordering: non-default params must precede default params.

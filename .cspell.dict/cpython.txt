@@ -31,6 +31,7 @@ CLASSDEREF
 classdict
 cmpop
 codedepth
+constevaluator
 CODEUNIT
 CONVFUNC
 convparam
