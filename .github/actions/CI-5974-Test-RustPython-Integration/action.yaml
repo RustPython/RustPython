@@ -277,7 +277,6 @@ runs:
         cat <"${TEST_STEP_SUMMARY}" >> "$GITHUB_STEP_SUMMARY" ;
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
     - name: Format GitHub Actions environment file to JSON
-      id: summarize
       if: ${{ always() }}
       shell: bash
       run: |

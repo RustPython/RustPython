@@ -150,7 +150,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           max-test-time: ${{ env.SUBSHELL_TIMEOUT }} # seconds
       - name: Format GitHub Actions environment file to JSON
-        id: summarize
+        id: reformat_json
         if: ${{ always() }}
         shell: bash
         run: |
