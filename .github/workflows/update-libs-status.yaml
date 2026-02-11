@@ -43,7 +43,7 @@ jobs:
       - name: Get current date
         id: current_date
         run: |
-          now=$(date +"%Y-%m-%d %H:%M:%S")
+          now=$(date -u +"%Y-%m-%d %H:%M:%S")
           echo "date=$now" >> "$GITHUB_OUTPUT"
 
       - name: Write body prefix
@@ -72,7 +72,7 @@ jobs:
 
           ## Details
 
-          ${{ steps.current_date.outputs.date }}
+          ${{ steps.current_date.outputs.date }} (UTC)
           \`\`\`shell
           $ python3 scripts/update_lib todo --done
           \`\`\`
