@@ -25,6 +25,13 @@ pub(crate) mod _ast {
     impl NodeAst {
         #[extend_class]
         fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
+            // AST types are mutable (heap types, not IMMUTABLETYPE)
+            // Safety: called during type initialization before any concurrent access
+            unsafe {
+                let flags = &class.slots.flags as *const crate::types::PyTypeFlags
+                    as *mut crate::types::PyTypeFlags;
+                (*flags).remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
+            }
             let empty_tuple = ctx.empty_tuple.clone();
             class.set_str_attr("_fields", empty_tuple.clone(), ctx);
             class.set_str_attr("_attributes", empty_tuple.clone(), ctx);

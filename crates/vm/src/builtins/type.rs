@@ -927,10 +927,11 @@ impl PyType {
         }
 
         let mut attrs = self.attributes.write();
-        // Store to __annotate_func__
+        // Clear cached annotations only when setting to a new callable
+        if !vm.is_none(&value) {
+            attrs.swap_remove(identifier!(vm, __annotations_cache__));
+        }
         attrs.insert(identifier!(vm, __annotate_func__), value.clone());
-        // Always clear cached annotations when __annotate__ is updated
-        attrs.swap_remove(identifier!(vm, __annotations_cache__));
 
         Ok(())
     }
@@ -999,7 +1000,11 @@ impl PyType {
     }
 
     #[pygetset(setter)]
-    fn set___annotations__(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
+    fn set___annotations__(
+        &self,
+        value: crate::function::PySetterValue<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '__annotations__' attribute of immutable type '{}'",
@@ -1008,33 +1013,40 @@ impl PyType {
         }
 
         let mut attrs = self.attributes.write();
-        // conditional update based on __annotations__ presence
         let has_annotations = attrs.contains_key(identifier!(vm, __annotations__));
 
-        if has_annotations {
-            // If __annotations__ is in dict, update it
-            if let Some(value) = value {
-                attrs.insert(identifier!(vm, __annotations__), value);
-            } else if attrs
-                .swap_remove(identifier!(vm, __annotations__))
-                .is_none()
-            {
-                return Err(vm.new_attribute_error("__annotations__".to_owned()));
+        match value {
+            crate::function::PySetterValue::Assign(value) => {
+                // SET path: store the value (including None)
+                let key = if has_annotations {
+                    identifier!(vm, __annotations__)
+                } else {
+                    identifier!(vm, __annotations_cache__)
+                };
+                attrs.insert(key, value);
+                if has_annotations {
+                    attrs.swap_remove(identifier!(vm, __annotations_cache__));
+                }
             }
-            // Also clear __annotations_cache__
-            attrs.swap_remove(identifier!(vm, __annotations_cache__));
-        } else {
-            // Otherwise update only __annotations_cache__
-            if let Some(value) = value {
-                attrs.insert(identifier!(vm, __annotations_cache__), value);
-            } else if attrs
-                .swap_remove(identifier!(vm, __annotations_cache__))
-                .is_none()
-            {
-                return Err(vm.new_attribute_error("__annotations__".to_owned()));
+            crate::function::PySetterValue::Delete => {
+                // DELETE path: remove the key
+                let removed = if has_annotations {
+                    attrs
+                        .swap_remove(identifier!(vm, __annotations__))
+                        .is_some()
+                } else {
+                    attrs
+                        .swap_remove(identifier!(vm, __annotations_cache__))
+                        .is_some()
+                };
+                if !removed {
+                    return Err(vm.new_attribute_error("__annotations__".to_owned()));
+                }
+                if has_annotations {
+                    attrs.swap_remove(identifier!(vm, __annotations_cache__));
+                }
             }
         }
-        // Always clear __annotate_func__ and __annotate__
         attrs.swap_remove(identifier!(vm, __annotate_func__));
         attrs.swap_remove(identifier!(vm, __annotate__));
 
@@ -1055,7 +1067,15 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_str(ascii!("builtins")).into())
+            .unwrap_or_else(|| {
+                // For non-heap types, extract module from tp_name (e.g. "typing.TypeAliasType" -> "typing")
+                let slot_name = self.slot_name();
+                if let Some((module, _)) = slot_name.rsplit_once('.') {
+                    vm.ctx.intern_str(module).to_object()
+                } else {
+                    vm.ctx.new_str(ascii!("builtins")).into()
+                }
+            })
     }
 
     #[pygetset(setter)]
@@ -1838,6 +1858,13 @@ impl SetAttr for PyType {
     ) -> PyResult<()> {
         // TODO: pass PyRefExact instead of &str
         let attr_name = vm.ctx.intern_str(attr_name.as_str());
+        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '{}' attribute of immutable type '{}'",
+                attr_name,
+                zelf.slot_name()
+            )));
+        }
         if let Some(attr) = zelf.get_class_attr(attr_name) {
             let descr_set = attr.class().slots.descr_set.load();
             if let Some(descriptor) = descr_set {

@@ -700,7 +700,18 @@ impl ModuleItem for ClassItem {
             };
             let class_new = quote_spanned!(ident.span() =>
                 let new_class = <#ident as ::rustpython_vm::class::PyClassImpl>::make_class(ctx);
-                new_class.set_attr(rustpython_vm::identifier!(ctx, __module__), vm.new_pyobj(#module_name));
+                // Only set __module__ string if the class doesn't already have a
+                // getset descriptor for __module__ (which provides instance-level
+                // module resolution, e.g. TypeAliasType)
+                {
+                    let module_key = rustpython_vm::identifier!(ctx, __module__);
+                    let has_module_getset = new_class.attributes.read()
+                        .get(module_key)
+                        .is_some_and(|v| v.downcastable::<rustpython_vm::builtins::PyGetSet>());
+                    if !has_module_getset {
+                        new_class.set_attr(module_key, vm.new_pyobj(#module_name));
+                    }
+                }
             );
             (class_name, class_new)
         };
@@ -778,7 +789,15 @@ impl ModuleItem for StructSequenceItem {
         // Generate the class creation code
         let class_new = quote_spanned!(pytype_ident.span() =>
             let new_class = <#pytype_ident as ::rustpython_vm::class::PyClassImpl>::make_class(ctx);
-            new_class.set_attr(rustpython_vm::identifier!(ctx, __module__), vm.new_pyobj(#module_name));
+            {
+                let module_key = rustpython_vm::identifier!(ctx, __module__);
+                let has_module_getset = new_class.attributes.read()
+                    .get(module_key)
+                    .is_some_and(|v| v.downcastable::<rustpython_vm::builtins::PyGetSet>());
+                if !has_module_getset {
+                    new_class.set_attr(module_key, vm.new_pyobj(#module_name));
+                }
+            }
         );
 
         // Handle py_attrs for custom names, or use class_name as default
