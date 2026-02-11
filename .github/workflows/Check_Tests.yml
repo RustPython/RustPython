@@ -20,12 +20,12 @@ on:  # yamllint disable-line rule:truthy
   workflow_dispatch:
     inputs:
       python-version:
-        description: Target python version to target. Expected format: X.Y (e.g., 3.14)
+        description: 'Target python version to target. Expected format: X.Y (e.g., 3.14)'
         type: string
         default: "3.14"
         inputs:
      subshell-timeout:
-        description: Max time in seconds before marking a subshell as hung (per-subshell).
+        description: 'Max time in seconds before marking a subshell as hung (per-subshell).'
         type: int
         default: 30
 
