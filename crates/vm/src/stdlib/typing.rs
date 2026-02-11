@@ -34,7 +34,7 @@ pub(crate) mod decl {
         builtins::{PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_},
         function::FuncArgs,
         protocol::{PyMappingMethods, PyNumberMethods},
-        types::{AsMapping, AsNumber, Constructor, Iterable, Representable},
+        types::{AsMapping, AsNumber, Callable, Constructor, Iterable, Representable},
     };
 
     #[pyfunction]
@@ -82,6 +82,103 @@ pub(crate) mod decl {
         fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             Ok("typing.NoDefault".to_owned())
         }
+    }
+
+    #[pyattr]
+    #[pyclass(name = "_ConstEvaluator", module = "_typing")]
+    #[derive(Debug, PyPayload)]
+    pub(crate) struct ConstEvaluator {
+        value: PyObjectRef,
+    }
+
+    #[pyclass(with(Constructor, Callable, Representable), flags(IMMUTABLETYPE))]
+    impl ConstEvaluator {}
+
+    impl Constructor for ConstEvaluator {
+        type Args = FuncArgs;
+
+        fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot create '_typing._ConstEvaluator' instances".to_owned()))
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unreachable!("ConstEvaluator cannot be instantiated from Python")
+        }
+    }
+
+    /// annotationlib.Format.STRING = 4
+    const ANNOTATE_FORMAT_STRING: i32 = 4;
+
+    impl Callable for ConstEvaluator {
+        type Args = FuncArgs;
+
+        fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let (format,): (i32,) = args.bind(vm)?;
+            let value = &zelf.value;
+            if format == ANNOTATE_FORMAT_STRING {
+                return typing_type_repr_value(value, vm);
+            }
+            Ok(value.clone())
+        }
+    }
+
+    /// String representation of a type for annotation purposes.
+    /// Equivalent of _Py_typing_type_repr.
+    fn typing_type_repr(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        // Ellipsis
+        if obj.is(&vm.ctx.ellipsis) {
+            return Ok("...".to_owned());
+        }
+        // NoneType -> "None"
+        if obj.is(&vm.ctx.types.none_type.as_object()) {
+            return Ok("None".to_owned());
+        }
+        // Generic aliases (has __origin__ and __args__) -> repr
+        let has_origin = obj.get_attr("__origin__", vm).is_ok();
+        let has_args = obj.get_attr("__args__", vm).is_ok();
+        if has_origin && has_args {
+            return Ok(obj.repr(vm)?.to_string());
+        }
+        // Has __qualname__ and __module__
+        if let Ok(qualname) = obj.get_attr("__qualname__", vm) {
+            if let Ok(module) = obj.get_attr("__module__", vm) {
+                if !vm.is_none(&module) {
+                    if let Some(module_str) = module.downcast_ref::<crate::builtins::PyStr>() {
+                        if module_str.as_str() == "builtins" {
+                            return Ok(qualname.str(vm)?.to_string());
+                        }
+                        return Ok(format!("{}.{}", module_str.as_str(), qualname.str(vm)?));
+                    }
+                }
+            }
+        }
+        // Fallback to repr
+        Ok(obj.repr(vm)?.to_string())
+    }
+
+    /// Format a value as a string for ANNOTATE_FORMAT_STRING.
+    /// Handles tuples specially by wrapping in parentheses.
+    fn typing_type_repr_value(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(tuple) = value.try_to_ref::<PyTuple>(vm) {
+            let mut parts = Vec::with_capacity(tuple.len());
+            for item in tuple.iter() {
+                parts.push(typing_type_repr(item, vm)?);
+            }
+            Ok(vm.ctx.new_str(format!("({})", parts.join(", "))).into())
+        } else {
+            Ok(vm.ctx.new_str(typing_type_repr(value, vm)?).into())
+        }
+    }
+
+    impl Representable for ConstEvaluator {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let value_repr = zelf.value.repr(vm)?;
+            Ok(format!("<constevaluator {}>", value_repr))
+        }
+    }
+
+    pub(crate) fn constevaluator_alloc(value: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        ConstEvaluator { value }.into_ref(&vm.ctx).into()
     }
 
     #[pyattr]
@@ -140,7 +237,8 @@ pub(crate) mod decl {
             if let Some(value) = cached {
                 return Ok(value);
             }
-            let value = self.compute_value.call((), vm)?;
+            // Call evaluator with format=1 (FORMAT_VALUE)
+            let value = self.compute_value.call((1i32,), vm)?;
             *self.cached_value.lock() = Some(value.clone());
             Ok(value)
         }
@@ -193,20 +291,12 @@ pub(crate) mod decl {
             vm.ctx.none()
         }
 
-        /// Returns the evaluator for the alias value.
         #[pygetset]
         fn evaluate_value(&self, vm: &VirtualMachine) -> PyResult {
             if self.is_lazy {
-                // Lazy path: return the compute function directly
                 return Ok(self.compute_value.clone());
             }
-            // Eager path: wrap value in a ConstEvaluator
-            let value = self.compute_value.clone();
-            Ok(vm
-                .new_function("_ConstEvaluator", move |_args: FuncArgs| -> PyResult {
-                    Ok(value.clone())
-                })
-                .into())
+            Ok(constevaluator_alloc(self.compute_value.clone(), vm))
         }
 
         /// Check type_params ordering: non-default params must precede default params.

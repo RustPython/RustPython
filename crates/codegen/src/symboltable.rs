@@ -1485,6 +1485,8 @@ impl SymbolTableBuilder {
                     CompilerScope::TypeParams,
                     self.line_index_start(value.range()),
                 );
+                // Evaluator takes a format parameter
+                self.register_name("format", SymbolUsage::Parameter, TextRange::default())?;
                 if in_class {
                     if let Some(table) = self.tables.last_mut() {
                         table.can_see_class_scope = true;
@@ -1990,6 +1992,8 @@ impl SymbolTableBuilder {
         let in_class = self.tables.last().is_some_and(|t| t.can_see_class_scope);
         let line_number = self.line_index_start(expr.range());
         self.enter_scope(scope_name, CompilerScope::TypeParams, line_number);
+        // Evaluator takes a format parameter
+        self.register_name("format", SymbolUsage::Parameter, TextRange::default())?;
 
         if in_class {
             if let Some(table) = self.tables.last_mut() {
@@ -2015,15 +2019,34 @@ impl SymbolTableBuilder {
     fn scan_type_params(&mut self, type_params: &ast::TypeParams) -> SymbolTableResult {
         // Check for duplicate type parameter names
         let mut seen_names: IndexSet<&str> = IndexSet::default();
+        // Check for non-default type parameter after default type parameter
+        let mut default_seen = false;
         for type_param in &type_params.type_params {
-            let (name, range) = match type_param {
-                ast::TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range),
-                ast::TypeParam::ParamSpec(ps) => (ps.name.as_str(), ps.range),
-                ast::TypeParam::TypeVarTuple(tvt) => (tvt.name.as_str(), tvt.range),
+            let (name, range, has_default) = match type_param {
+                ast::TypeParam::TypeVar(tv) => (tv.name.as_str(), tv.range, tv.default.is_some()),
+                ast::TypeParam::ParamSpec(ps) => (ps.name.as_str(), ps.range, ps.default.is_some()),
+                ast::TypeParam::TypeVarTuple(tvt) => {
+                    (tvt.name.as_str(), tvt.range, tvt.default.is_some())
+                }
             };
             if !seen_names.insert(name) {
                 return Err(SymbolTableError {
                     error: format!("duplicate type parameter '{}'", name),
+                    location: Some(
+                        self.source_file
+                            .to_source_code()
+                            .source_location(range.start(), PositionEncoding::Utf8),
+                    ),
+                });
+            }
+            if has_default {
+                default_seen = true;
+            } else if default_seen {
+                return Err(SymbolTableError {
+                    error: format!(
+                        "non-default type parameter '{}' follows default type parameter",
+                        name
+                    ),
                     location: Some(
                         self.source_file
                             .to_source_code()

@@ -10,7 +10,7 @@ pub(crate) mod typevar {
         common::lock::PyMutex,
         function::{FuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
-        stdlib::typing::call_typing_func_object,
+        stdlib::typing::{call_typing_func_object, decl::constevaluator_alloc},
         types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
     };
 
@@ -98,7 +98,7 @@ pub(crate) mod typevar {
                 return Ok(constraints.clone());
             }
             let r = if !vm.is_none(&self.evaluate_constraints) {
-                *constraints = self.evaluate_constraints.call((), vm)?;
+                *constraints = self.evaluate_constraints.call((1i32,), vm)?;
                 constraints.clone()
             } else {
                 vm.ctx.empty_tuple.clone().into()
@@ -113,7 +113,7 @@ pub(crate) mod typevar {
                 return Ok(bound.clone());
             }
             let r = if !vm.is_none(&self.evaluate_bound) {
-                *bound = self.evaluate_bound.call((), vm)?;
+                *bound = self.evaluate_bound.call((1i32,), vm)?;
                 bound.clone()
             } else {
                 vm.ctx.none()
@@ -139,18 +139,53 @@ pub(crate) mod typevar {
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
             let mut default_value = self.default_value.lock();
-            // Check if default_value is NoDefault (not just None)
             if !default_value.is(&vm.ctx.typing_no_default) {
                 return Ok(default_value.clone());
             }
             let evaluate_default = self.evaluate_default.lock();
             if !vm.is_none(&evaluate_default) {
-                *default_value = evaluate_default.call((), vm)?;
+                *default_value = evaluate_default.call((1i32,), vm)?;
                 Ok(default_value.clone())
             } else {
-                // Return NoDefault singleton
                 Ok(vm.ctx.typing_no_default.clone().into())
             }
+        }
+
+        #[pygetset]
+        fn evaluate_bound(&self, vm: &VirtualMachine) -> PyResult {
+            if !vm.is_none(&self.evaluate_bound) {
+                return Ok(self.evaluate_bound.clone());
+            }
+            let bound = self.bound.lock();
+            if !vm.is_none(&bound) {
+                return Ok(constevaluator_alloc(bound.clone(), vm));
+            }
+            Ok(vm.ctx.none())
+        }
+
+        #[pygetset]
+        fn evaluate_constraints(&self, vm: &VirtualMachine) -> PyResult {
+            if !vm.is_none(&self.evaluate_constraints) {
+                return Ok(self.evaluate_constraints.clone());
+            }
+            let constraints = self.constraints.lock();
+            if !vm.is_none(&constraints) {
+                return Ok(constevaluator_alloc(constraints.clone(), vm));
+            }
+            Ok(vm.ctx.none())
+        }
+
+        #[pygetset]
+        fn evaluate_default(&self, vm: &VirtualMachine) -> PyResult {
+            let evaluate_default = self.evaluate_default.lock();
+            if !vm.is_none(&evaluate_default) {
+                return Ok(evaluate_default.clone());
+            }
+            let default_value = self.default_value.lock();
+            if !default_value.is(&vm.ctx.typing_no_default) {
+                return Ok(constevaluator_alloc(default_value.clone(), vm));
+            }
+            Ok(vm.ctx.none())
         }
 
         #[pymethod]
@@ -333,7 +368,7 @@ pub(crate) mod typevar {
                     return Err(vm.new_type_error("Constraints cannot be used with bound"));
                 }
                 let constraints_tuple = vm.ctx.new_tuple(constraints);
-                (constraints_tuple.clone().into(), constraints_tuple.into())
+                (constraints_tuple.into(), vm.ctx.none())
             } else {
                 (vm.ctx.none(), vm.ctx.none())
             };
@@ -403,7 +438,7 @@ pub(crate) mod typevar {
     pub struct ParamSpec {
         name: PyObjectRef,
         bound: Option<PyObjectRef>,
-        default_value: PyObjectRef,
+        default_value: parking_lot::Mutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
         covariant: bool,
         contravariant: bool,
@@ -465,23 +500,30 @@ pub(crate) mod typevar {
 
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
-            // Check if default_value is NoDefault (not just None)
-            if !self.default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(self.default_value.clone());
+            let mut default_value = self.default_value.lock();
+            if !default_value.is(&vm.ctx.typing_no_default) {
+                return Ok(default_value.clone());
             }
-            // handle evaluate_default
             let evaluate_default = self.evaluate_default.lock();
             if !vm.is_none(&evaluate_default) {
-                let default_value = evaluate_default.call((), vm)?;
-                return Ok(default_value);
+                *default_value = evaluate_default.call((1i32,), vm)?;
+                Ok(default_value.clone())
+            } else {
+                Ok(vm.ctx.typing_no_default.clone().into())
             }
-            // Return NoDefault singleton
-            Ok(vm.ctx.typing_no_default.clone().into())
         }
 
         #[pygetset]
-        fn evaluate_default(&self, _vm: &VirtualMachine) -> PyObjectRef {
-            self.evaluate_default.lock().clone()
+        fn evaluate_default(&self, vm: &VirtualMachine) -> PyResult {
+            let evaluate_default = self.evaluate_default.lock();
+            if !vm.is_none(&evaluate_default) {
+                return Ok(evaluate_default.clone());
+            }
+            let default_value = self.default_value.lock();
+            if !default_value.is(&vm.ctx.typing_no_default) {
+                return Ok(constevaluator_alloc(default_value.clone(), vm));
+            }
+            Ok(vm.ctx.none())
         }
 
         #[pymethod]
@@ -494,8 +536,7 @@ pub(crate) mod typevar {
             if !vm.is_none(&self.evaluate_default.lock()) {
                 return true;
             }
-            // Check if default_value is not NoDefault
-            !self.default_value.is(&vm.ctx.typing_no_default)
+            !self.default_value.lock().is(&vm.ctx.typing_no_default)
         }
 
         #[pymethod]
@@ -596,7 +637,7 @@ pub(crate) mod typevar {
             let paramspec = Self {
                 name,
                 bound,
-                default_value,
+                default_value: parking_lot::Mutex::new(default_value),
                 evaluate_default: PyMutex::new(vm.ctx.none()),
                 covariant,
                 contravariant,
@@ -627,7 +668,7 @@ pub(crate) mod typevar {
             Self {
                 name,
                 bound: None,
-                default_value: vm.ctx.typing_no_default.clone().into(),
+                default_value: parking_lot::Mutex::new(vm.ctx.typing_no_default.clone().into()),
                 evaluate_default: PyMutex::new(vm.ctx.none()),
                 covariant: false,
                 contravariant: false,
@@ -655,18 +696,29 @@ pub(crate) mod typevar {
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
             let mut default_value = self.default_value.lock();
-            // Check if default_value is NoDefault (not just None)
             if !default_value.is(&vm.ctx.typing_no_default) {
                 return Ok(default_value.clone());
             }
             let evaluate_default = self.evaluate_default.lock();
             if !vm.is_none(&evaluate_default) {
-                *default_value = evaluate_default.call((), vm)?;
+                *default_value = evaluate_default.call((1i32,), vm)?;
                 Ok(default_value.clone())
             } else {
-                // Return NoDefault singleton
                 Ok(vm.ctx.typing_no_default.clone().into())
             }
+        }
+
+        #[pygetset]
+        fn evaluate_default(&self, vm: &VirtualMachine) -> PyResult {
+            let evaluate_default = self.evaluate_default.lock();
+            if !vm.is_none(&evaluate_default) {
+                return Ok(evaluate_default.clone());
+            }
+            let default_value = self.default_value.lock();
+            if !default_value.is(&vm.ctx.typing_no_default) {
+                return Ok(constevaluator_alloc(default_value.clone(), vm));
+            }
+            Ok(vm.ctx.none())
         }
 
         #[pymethod]
@@ -675,7 +727,6 @@ pub(crate) mod typevar {
                 return true;
             }
             let default_value = self.default_value.lock();
-            // Check if default_value is not NoDefault
             !default_value.is(&vm.ctx.typing_no_default)
         }
 

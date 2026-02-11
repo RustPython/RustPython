@@ -1374,13 +1374,11 @@ class DefaultsTest(unittest.TestCase):
         Ts, = ns["Alias"].__type_params__
         self.assertEqual(Ts.__default__, next(iter(ns["default"])))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_nondefault_after_default(self):
         check_syntax_error(self, "def func[T=int, U](): pass", "non-default type parameter 'U' follows default type parameter")
         check_syntax_error(self, "class C[T=int, U]: pass", "non-default type parameter 'U' follows default type parameter")
         check_syntax_error(self, "type A[T=int, U] = int", "non-default type parameter 'U' follows default type parameter")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + defined
     def test_lazy_evaluation(self):
         ns = run_code("""
             type Alias[T = Undefined, *U = Undefined, **V = Undefined] = int
@@ -1431,7 +1429,6 @@ class DefaultsTest(unittest.TestCase):
 
 
 class TestEvaluateFunctions(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'TypeAliasType' object has no attribute 'evaluate_value'
     def test_general(self):
         type Alias = int
         Alias2 = TypeAliasType("Alias2", int)
@@ -1459,7 +1456,6 @@ class TestEvaluateFunctions(unittest.TestCase):
                 self.assertIs(annotationlib.call_evaluate_function(case, annotationlib.Format.FORWARDREF), int)
                 self.assertEqual(annotationlib.call_evaluate_function(case, annotationlib.Format.STRING), 'int')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constraints(self):
         def f[T: (int, str)](): pass
         T, = f.__type_params__
@@ -1471,7 +1467,6 @@ class TestEvaluateFunctions(unittest.TestCase):
                 self.assertEqual(annotationlib.call_evaluate_function(case.evaluate_constraints, annotationlib.Format.FORWARDREF), (int, str))
                 self.assertEqual(annotationlib.call_evaluate_function(case.evaluate_constraints, annotationlib.Format.STRING), '(int, str)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'TypeVar' object has no attribute 'evaluate_bound'
     def test_const_evaluator(self):
         T = TypeVar("T", bound=int)
         self.assertEqual(repr(T.evaluate_bound), "<constevaluator <class 'int'>>")
