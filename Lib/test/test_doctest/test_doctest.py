@@ -742,12 +742,12 @@ plain ol' Python and is guaranteed to be available.
 
     >>> import builtins
     >>> tests = doctest.DocTestFinder().find(builtins)
-    >>> 750 < len(tests) < 800 # approximate number of objects with docstrings
+    >>> 750 < len(tests) < 800 # approximate number of objects with docstrings  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
     True
     >>> real_tests = [t for t in tests if len(t.examples) > 0]
-    >>> len(real_tests) # objects that actually have doctests
+    >>> len(real_tests) # objects that actually have doctests  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
     14
-    >>> for t in real_tests:
+    >>> for t in real_tests:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
     ...     print('{}  {}'.format(len(t.examples), t.name))
     ...
     1  builtins.bin
@@ -2063,7 +2063,7 @@ if not hasattr(sys, 'gettrace') or not sys.gettrace():
           ...    'continue', # stop debugging
           ...    ''])
 
-          >>> try: runner.run(test)
+          >>> try: runner.run(test)  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
           ... finally: sys.stdin = real_stdin
           > <doctest foo-bar@baz[2]>(1)<module>()
           -> import pdb; pdb.set_trace()
@@ -2091,7 +2091,7 @@ if not hasattr(sys, 'gettrace') or not sys.gettrace():
           ...    'continue', # stop debugging
           ...    ''])
 
-          >>> try:
+          >>> try:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
           ...     runner.run(test)
           ... finally:
           ...     sys.stdin = real_stdin
@@ -2129,7 +2129,7 @@ if not hasattr(sys, 'gettrace') or not sys.gettrace():
           ...    'list',     # list source from example 3
           ...    'continue', # stop debugging
           ...    ''])
-          >>> try: runner.run(test)
+          >>> try: runner.run(test)  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
           ... finally: sys.stdin = real_stdin
           ... # doctest: +NORMALIZE_WHITESPACE
           > <doctest foo-bar@baz[1]>(3)g()
@@ -2209,7 +2209,7 @@ if not hasattr(sys, 'gettrace') or not sys.gettrace():
         ...    'continue', # stop debugging
         ...    ''])
 
-        >>> try:
+        >>> try:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
         ...     runner.run(test)
         ... finally:
         ...     sys.stdin = real_stdin
@@ -3855,7 +3855,8 @@ def test_syntax_error_with_incorrect_expected_note():
 
 def load_tests(loader, tests, pattern):
     tests.addTest(doctest.DocTestSuite(doctest))
-    tests.addTest(doctest.DocTestSuite())
+    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker()))  # TODO: RUSTPYTHON
     return tests
 
 

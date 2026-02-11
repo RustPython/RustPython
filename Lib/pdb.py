@@ -185,6 +185,15 @@ class Pdb(bdb.Bdb, cmd.Cmd):
         self.commands_bnum = None # The breakpoint number for which we are
                                   # defining a list
 
+    def set_trace(self, frame=None, *, commands=None):
+        if frame is None:
+            frame = sys._getframe().f_back
+
+        if commands is not None:
+            self.rcLines.extend(commands)
+
+        super().set_trace(frame)
+
     def sigint_handler(self, signum, frame):
         if self.allow_kbdint:
             raise KeyboardInterrupt

@@ -786,7 +786,6 @@ class TestPEP380Operation(unittest.TestCase):
                 repr(value),
             ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_throwing_GeneratorExit_into_subgen_that_returns(self):
         """
         Test throwing GeneratorExit into a subgenerator that
@@ -817,7 +816,6 @@ class TestPEP380Operation(unittest.TestCase):
             "Enter f",
         ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_throwing_GeneratorExit_into_subgenerator_that_yields(self):
         """
         Test throwing GeneratorExit into a subgenerator that
@@ -1135,7 +1133,6 @@ class TestInterestingEdgeCases(unittest.TestCase):
             self.assertIsNone(caught.exception.__context__)
             self.assert_stop_iteration(g)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: GeneratorExit() is not GeneratorExit()
     def test_close_and_throw_raise_generator_exit(self):
 
         yielded_first = object()
@@ -1524,7 +1521,6 @@ class TestInterestingEdgeCases(unittest.TestCase):
             self.assertIsNone(caught.exception.__context__)
             self.assert_stop_iteration(g)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_close_and_throw_return(self):
 
         yielded_first = object()
