@@ -252,7 +252,7 @@ runs:
                     fi ;
                   fi ; # end copy
                   printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Fix:%s\n\n" "${REF_TEST_NAME}" "${RAW_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
-                  wait ; # used to force boundry for std out read/write race in UI
+                  wait ; # used to force boundary for std out read/write race in UI
                   printf "FIX_COPY_%s.py_OUTCOME=%s\n" "${REF_TEST_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
                   printf "RAW_COPY_%s.py_OUTCOME=%s\n" "${REF_TEST_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
                   # should dump a diff or something here
@@ -280,8 +280,54 @@ runs:
       if: ${{ always() }}
       shell: bash
       run: |
-        echo '{}' > formatted_env.json  # Initialize an empty JSON file
-        jq -Rn 'inputs | split("=") | { (.[0]): .[1] }' < "$GITHUB_ENV" | jq -s 'add' > formatted_env.json
+        # Initialize empty JSON object
+        echo '{}' > formatted_env.json
+        # Define patterns for variables to include (allowlist approach)
+        INCLUDE_PATTERNS=(
+          '^FIX_COPY_.*_OUTCOME='
+          '^RAW_COPY_.*_OUTCOME='
+          '^PYTHON_VERSION='
+          '^TEST_STEP_SUMMARY='
+          '^CARGO_ARGS='
+          '^OVERRIDE_RUSTPYTHONPATH='
+          '^RUNNER_OS='
+          '^SUBSHELL_TIMEOUT='
+          '^GITHUB_SHA='
+        )
+        # Define patterns for sensitive variables to always exclude (denylist)
+        EXCLUDE_PATTERNS=(
+          'TOKEN'
+          'SECRET'
+          'PASSWORD'
+          'KEY'
+          'CREDENTIAL'
+          'AUTH'
+          '_PWD'
+          'GITHUB_TOKEN'
+        )
+        # Filter GITHUB_ENV to include only safe, relevant variables
+        # Initialize a JSON object
+        echo "{" > formatted_env.json
+        # Filter GITHUB_ENV to include only safe, relevant variables
+        grep -E "$(IFS='|'; echo "${INCLUDE_PATTERNS[*]}")" "$GITHUB_ENV" | \
+          grep -viE "$(IFS='|'; echo "${EXCLUDE_PATTERNS[*]}")" | \
+          while IFS='=' read -r key value; do
+            # Append each key-value pair to the JSON file
+            # Escape characters that need to be escaped in JSON
+            escaped_key=$(echo "$key" | jq -R @json)
+            escaped_value=$(echo "$value" | jq -R @json)
+            echo "  $escaped_key: $escaped_value," >> formatted_env.json
+        done
+        # Remove the trailing comma and close the JSON object
+        sed -i '$ s/,$//' formatted_env.json
+        echo "}" >> formatted_env.json
+        # Verify the output contains data
+        if [[ -s formatted_env.json ]] && jq -e 'length > 0' formatted_env.json >/dev/null 2>&1; then
+          echo "::debug::Successfully created filtered environment JSON with $(jq 'length' formatted_env.json) variables"
+        else
+          echo "::warning::No matching environment variables found to export"
+          echo '{}' > formatted_env.json
+        fi
     - name: Upload JSON as artifact
       if: ${{ !cancelled() }}
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
