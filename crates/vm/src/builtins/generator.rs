@@ -11,7 +11,7 @@ use crate::{
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, Representable, SelfIter},
+    types::{Destructor, IterNext, Iterable, Representable, SelfIter},
 };
 
 #[pyclass(module = false, name = "generator", traverse = "manual")]
@@ -33,7 +33,10 @@ impl PyPayload for PyGenerator {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, IterNext, Iterable))]
+#[pyclass(
+    flags(DISALLOW_INSTANTIATION),
+    with(Py, IterNext, Iterable, Representable, Destructor)
+)]
 impl PyGenerator {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
@@ -89,6 +92,11 @@ impl PyGenerator {
         self.inner.frame().yield_from_target()
     }
 
+    #[pygetset]
+    fn gi_suspended(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.suspended()
+    }
+
     #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::from_args(cls, args, vm)
@@ -121,7 +129,7 @@ impl Py<PyGenerator> {
     }
 
     #[pymethod]
-    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+    fn close(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.inner.close(self.as_object(), vm)
     }
 }
@@ -137,6 +145,25 @@ impl SelfIter for PyGenerator {}
 impl IterNext for PyGenerator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.send(vm.ctx.none(), vm)
+    }
+}
+
+impl Destructor for PyGenerator {
+    fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        // _PyGen_Finalize: close the generator if it's still suspended
+        if zelf.inner.closed() || zelf.inner.running() {
+            return Ok(());
+        }
+        // Generator was never started, just mark as closed
+        if zelf.inner.frame().lasti() == 0 {
+            zelf.inner.closed.store(true);
+            return Ok(());
+        }
+        // Throw GeneratorExit to run finally blocks
+        if let Err(e) = zelf.inner.close(zelf.as_object(), vm) {
+            vm.run_unraisable(e, None, zelf.as_object().to_owned());
+        }
+        Ok(())
     }
 }
 

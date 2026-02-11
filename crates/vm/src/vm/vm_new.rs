@@ -501,6 +501,7 @@ impl VirtualMachine {
         if let Some(msg) = msg.get_mut(..1) {
             msg.make_ascii_lowercase();
         }
+        let mut narrow_caret = false;
         match error {
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
@@ -523,6 +524,14 @@ impl VirtualMachine {
             }) => {
                 msg = "invalid syntax".to_owned();
             }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::InvalidStarredExpressionUsage,
+                ..
+            }) => {
+                msg = "invalid syntax".to_owned();
+                narrow_caret = true;
+            }
             _ => {}
         }
         if syntax_error_type.is(self.ctx.exceptions.tab_error) {
@@ -543,6 +552,12 @@ impl VirtualMachine {
 
         // Set end_lineno and end_offset if available
         if let Some((end_lineno, end_offset)) = error.python_end_location() {
+            let (end_lineno, end_offset) = if narrow_caret {
+                let (l, o) = error.python_location();
+                (l, o + 1)
+            } else {
+                (end_lineno, end_offset)
+            };
             let end_lineno = self.ctx.new_int(end_lineno);
             let end_offset = self.ctx.new_int(end_offset);
             syntax_error
