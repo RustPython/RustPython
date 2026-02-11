@@ -516,6 +516,7 @@ DEPENDENCIES = {
         ],
     },
     "io": {
+        "hard_deps": ["_pyio.py"],
         "test": [
             "test_io.py",
             "test_bufio.py",
