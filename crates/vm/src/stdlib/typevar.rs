@@ -138,14 +138,17 @@ pub(crate) mod typevar {
 
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
-            let mut default_value = self.default_value.lock();
-            if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(default_value.clone());
+            {
+                let default_value = self.default_value.lock();
+                if !default_value.is(&vm.ctx.typing_no_default) {
+                    return Ok(default_value.clone());
+                }
             }
-            let evaluate_default = self.evaluate_default.lock();
-            if !vm.is_none(&evaluate_default) {
-                *default_value = evaluate_default.call((1i32,), vm)?;
-                Ok(default_value.clone())
+            let evaluator = self.evaluate_default.lock().clone();
+            if !vm.is_none(&evaluator) {
+                let result = evaluator.call((1i32,), vm)?;
+                *self.default_value.lock() = result.clone();
+                Ok(result)
             } else {
                 Ok(vm.ctx.typing_no_default.clone().into())
             }
@@ -177,13 +180,13 @@ pub(crate) mod typevar {
 
         #[pygetset]
         fn evaluate_default(&self, vm: &VirtualMachine) -> PyResult {
-            let evaluate_default = self.evaluate_default.lock();
-            if !vm.is_none(&evaluate_default) {
-                return Ok(evaluate_default.clone());
+            let evaluator = self.evaluate_default.lock().clone();
+            if !vm.is_none(&evaluator) {
+                return Ok(evaluator);
             }
-            let default_value = self.default_value.lock();
+            let default_value = self.default_value.lock().clone();
             if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(const_evaluator_alloc(default_value.clone(), vm));
+                return Ok(const_evaluator_alloc(default_value, vm));
             }
             Ok(vm.ctx.none())
         }
@@ -500,14 +503,17 @@ pub(crate) mod typevar {
 
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
-            let mut default_value = self.default_value.lock();
-            if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(default_value.clone());
+            {
+                let default_value = self.default_value.lock();
+                if !default_value.is(&vm.ctx.typing_no_default) {
+                    return Ok(default_value.clone());
+                }
             }
-            let evaluate_default = self.evaluate_default.lock();
-            if !vm.is_none(&evaluate_default) {
-                *default_value = evaluate_default.call((1i32,), vm)?;
-                Ok(default_value.clone())
+            let evaluator = self.evaluate_default.lock().clone();
+            if !vm.is_none(&evaluator) {
+                let result = evaluator.call((1i32,), vm)?;
+                *self.default_value.lock() = result.clone();
+                Ok(result)
             } else {
                 Ok(vm.ctx.typing_no_default.clone().into())
             }
@@ -515,13 +521,13 @@ pub(crate) mod typevar {
 
         #[pygetset]
         fn evaluate_default(&self, vm: &VirtualMachine) -> PyResult {
-            let evaluate_default = self.evaluate_default.lock();
-            if !vm.is_none(&evaluate_default) {
-                return Ok(evaluate_default.clone());
+            let evaluator = self.evaluate_default.lock().clone();
+            if !vm.is_none(&evaluator) {
+                return Ok(evaluator);
             }
-            let default_value = self.default_value.lock();
+            let default_value = self.default_value.lock().clone();
             if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(const_evaluator_alloc(default_value.clone(), vm));
+                return Ok(const_evaluator_alloc(default_value, vm));
             }
             Ok(vm.ctx.none())
         }
@@ -695,14 +701,17 @@ pub(crate) mod typevar {
 
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
-            let mut default_value = self.default_value.lock();
-            if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(default_value.clone());
+            {
+                let default_value = self.default_value.lock();
+                if !default_value.is(&vm.ctx.typing_no_default) {
+                    return Ok(default_value.clone());
+                }
             }
-            let evaluate_default = self.evaluate_default.lock();
-            if !vm.is_none(&evaluate_default) {
-                *default_value = evaluate_default.call((1i32,), vm)?;
-                Ok(default_value.clone())
+            let evaluator = self.evaluate_default.lock().clone();
+            if !vm.is_none(&evaluator) {
+                let result = evaluator.call((1i32,), vm)?;
+                *self.default_value.lock() = result.clone();
+                Ok(result)
             } else {
                 Ok(vm.ctx.typing_no_default.clone().into())
             }
@@ -710,13 +719,13 @@ pub(crate) mod typevar {
 
         #[pygetset]
         fn evaluate_default(&self, vm: &VirtualMachine) -> PyResult {
-            let evaluate_default = self.evaluate_default.lock();
-            if !vm.is_none(&evaluate_default) {
-                return Ok(evaluate_default.clone());
+            let evaluator = self.evaluate_default.lock().clone();
+            if !vm.is_none(&evaluator) {
+                return Ok(evaluator);
             }
-            let default_value = self.default_value.lock();
+            let default_value = self.default_value.lock().clone();
             if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(const_evaluator_alloc(default_value.clone(), vm));
+                return Ok(const_evaluator_alloc(default_value, vm));
             }
             Ok(vm.ctx.none())
         }
@@ -1034,7 +1043,7 @@ pub(crate) mod typevar {
     #[allow(dead_code)]
     pub struct Generic;
 
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE, HEAPTYPE))]
     impl Generic {
         #[pyattr]
         fn __slots__(ctx: &Context) -> PyTupleRef {
