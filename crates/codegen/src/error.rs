@@ -107,9 +107,9 @@ impl fmt::Display for CodegenErrorType {
             Delete(target) => write!(f, "cannot delete {target}"),
             SyntaxError(err) => write!(f, "{}", err.as_str()),
             MultipleStarArgs => {
-                write!(f, "two starred expressions in assignment")
+                write!(f, "multiple starred expressions in assignment")
             }
-            InvalidStarExpr => write!(f, "cannot use starred expression here"),
+            InvalidStarExpr => write!(f, "can't use starred expression here"),
             InvalidBreak => write!(f, "'break' outside loop"),
             InvalidContinue => write!(f, "'continue' outside loop"),
             InvalidReturn => write!(f, "'return' outside function"),

@@ -113,7 +113,7 @@ Dict display element unpacking
     >>> sorted({**{'x': 1}, 'y': 2, **{'x': 3}}.items())
     [('x', 3), ('y', 2)]
 
-    >>> sorted({**{'x': 1}, **{'x': 3}, 'x': 4}.items()) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> sorted({**{'x': 1}, **{'x': 3}, 'x': 4}.items())
     [('x', 4)]
 
     >>> {**{}}
@@ -138,7 +138,7 @@ Dict display element unpacking
     ...                          for i in range(1000)) + "}"))
     1000
 
-    >>> {0:1, **{0:2}, 0:3, 0:4} # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> {0:1, **{0:2}, 0:3, 0:4}
     {0: 4}
 
 List comprehension element unpacking
@@ -249,34 +249,34 @@ Make sure the raised errors are right for keyword argument unpackings
 
 Overridden parameters
 
-    >>> f(x=5, **{'x': 3}, y=2) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> f(x=5, **{'x': 3}, y=2)
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument 'x'
 
-    >>> f(**{'x': 3}, x=5, y=2) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> f(**{'x': 3}, x=5, y=2)
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument 'x'
 
-    >>> f(**{'x': 3}, **{'x': 5}, y=2) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> f(**{'x': 3}, **{'x': 5}, y=2)
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument 'x'
 
-    >>> f(x=5, **{'x': 3}, **{'x': 2}) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> f(x=5, **{'x': 3}, **{'x': 2})
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument 'x'
 
-    >>> f(**{1: 3}, **{1: 5}) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> f(**{1: 3}, **{1: 5})
     Traceback (most recent call last):
       ...
     TypeError: test.test_unpack_ex.f() got multiple values for keyword argument '1'
 
 Unpacking non-sequence
 
-    >>> a, *b = 7 # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> a, *b = 7
     Traceback (most recent call last):
       ...
     TypeError: cannot unpack non-iterable int object
@@ -321,17 +321,17 @@ error)
 
 Now some general starred expressions (all fail).
 
-    >>> a, *b, c, *d, e = range(10) # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> a, *b, c, *d, e = range(10) # doctest:+ELLIPSIS
     Traceback (most recent call last):
       ...
     SyntaxError: multiple starred expressions in assignment
 
-    >>> [*b, *c] = range(10) # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> [*b, *c] = range(10) # doctest:+ELLIPSIS
     Traceback (most recent call last):
       ...
     SyntaxError: multiple starred expressions in assignment
 
-    >>> a,*b,*c,*d = range(4) # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> a,*b,*c,*d = range(4) # doctest:+ELLIPSIS
     Traceback (most recent call last):
       ...
     SyntaxError: multiple starred expressions in assignment
@@ -341,17 +341,17 @@ Now some general starred expressions (all fail).
       ...
     SyntaxError: starred assignment target must be in a list or tuple
 
-    >>> *a # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> *a # doctest:+ELLIPSIS
     Traceback (most recent call last):
       ...
     SyntaxError: can't use starred expression here
 
-    >>> *1 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> *1 # doctest:+ELLIPSIS
     Traceback (most recent call last):
       ...
     SyntaxError: can't use starred expression here
 
-    >>> x = *a # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> x = *a # doctest:+ELLIPSIS
     Traceback (most recent call last):
       ...
     SyntaxError: can't use starred expression here

@@ -25,6 +25,37 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
+fn format_missing_args(
+    qualname: impl core::fmt::Display,
+    kind: &str,
+    missing: &mut Vec<impl core::fmt::Display>,
+) -> String {
+    let count = missing.len();
+    let last = if missing.len() > 1 {
+        missing.pop()
+    } else {
+        None
+    };
+    let (and, right): (&str, String) = if let Some(last) = last {
+        (
+            if missing.len() == 1 {
+                "' and '"
+            } else {
+                "', and '"
+            },
+            format!("{last}"),
+        )
+    } else {
+        ("", String::new())
+    };
+    format!(
+        "{qualname}() missing {count} required {kind} argument{}: '{}{}{right}'",
+        if count == 1 { "" } else { "s" },
+        missing.iter().join("', '"),
+        and,
+    )
+}
+
 #[pyclass(module = false, name = "function", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyFunction {
@@ -227,13 +258,37 @@ impl PyFunction {
                 } else {
                     n_expected_args.to_string()
                 };
+
+                // Count keyword-only arguments that were actually provided
+                let kw_only_given = if code.kwonlyarg_count > 0 {
+                    let start = code.arg_count as usize;
+                    let end = start + code.kwonlyarg_count as usize;
+                    code.varnames[start..end]
+                        .iter()
+                        .filter(|name| func_args.kwargs.contains_key(name.as_str()))
+                        .count()
+                } else {
+                    0
+                };
+
+                let given_msg = if kw_only_given > 0 {
+                    format!(
+                        "{} positional argument{} (and {} keyword-only argument{}) were",
+                        nargs,
+                        if nargs == 1 { "" } else { "s" },
+                        kw_only_given,
+                        if kw_only_given == 1 { "" } else { "s" },
+                    )
+                } else {
+                    format!("{} {}", nargs, if nargs == 1 { "was" } else { "were" })
+                };
+
                 return Err(vm.new_type_error(format!(
-                    "{}() takes {} positional argument{} but {} {} given",
+                    "{}() takes {} positional argument{} but {} given",
                     self.__qualname__(),
                     takes_msg,
                     if n_expected_args == 1 { "" } else { "s" },
-                    nargs,
-                    if nargs == 1 { "was" } else { "were" }
+                    given_msg,
                 )));
             }
         }
@@ -319,36 +374,12 @@ impl PyFunction {
                     }
                 })
                 .collect();
-            let missing_args_len = missing.len();
 
             if !missing.is_empty() {
-                let last = if missing.len() > 1 {
-                    missing.pop()
-                } else {
-                    None
-                };
-
-                let (and, right) = if let Some(last) = last {
-                    (
-                        if missing.len() == 1 {
-                            "' and '"
-                        } else {
-                            "', and '"
-                        },
-                        last.as_str(),
-                    )
-                } else {
-                    ("", "")
-                };
-
-                return Err(vm.new_type_error(format!(
-                    "{}() missing {} required positional argument{}: '{}{}{}'",
+                return Err(vm.new_type_error(format_missing_args(
                     self.__qualname__(),
-                    missing_args_len,
-                    if missing_args_len == 1 { "" } else { "s" },
-                    missing.iter().join("', '"),
-                    and,
-                    right,
+                    "positional",
+                    &mut missing,
                 )));
             }
 
@@ -368,8 +399,7 @@ impl PyFunction {
         };
 
         if code.kwonlyarg_count > 0 {
-            // TODO: compile a list of missing arguments
-            // let mut missing = vec![];
+            let mut missing = Vec::new();
             // Check if kw only arguments are all present:
             for (slot, kwarg) in fastlocals
                 .iter_mut()
@@ -386,9 +416,15 @@ impl PyFunction {
                 }
 
                 // No default value and not specified.
-                return Err(
-                    vm.new_type_error(format!("Missing required kw only argument: '{kwarg}'"))
-                );
+                missing.push(kwarg);
+            }
+
+            if !missing.is_empty() {
+                return Err(vm.new_type_error(format_missing_args(
+                    self.__qualname__(),
+                    "keyword-only",
+                    &mut missing,
+                )));
             }
         }
 
