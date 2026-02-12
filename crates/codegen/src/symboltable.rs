@@ -1026,6 +1026,26 @@ impl SymbolTableBuilder {
             .insert(SymbolFlags::REFERENCED | SymbolFlags::FREE_CLASS);
     }
 
+    /// Walk up the scope chain to determine if we're inside an async function.
+    /// Annotation and TypeParams scopes act as async barriers (always non-async).
+    /// Comprehension scopes are transparent (inherit parent's async context).
+    fn is_in_async_context(&self) -> bool {
+        for table in self.tables.iter().rev() {
+            match table.typ {
+                CompilerScope::AsyncFunction => return true,
+                CompilerScope::Function
+                | CompilerScope::Lambda
+                | CompilerScope::Class
+                | CompilerScope::Module
+                | CompilerScope::Annotation
+                | CompilerScope::TypeParams => return false,
+                // Comprehension inherits parent's async context
+                CompilerScope::Comprehension => continue,
+            }
+        }
+        false
+    }
+
     fn line_index_start(&self, range: TextRange) -> u32 {
         self.source_file
             .to_source_code()
@@ -1127,15 +1147,6 @@ impl SymbolTableBuilder {
         self.in_annotation = was_in_annotation;
 
         self.leave_annotation_scope();
-
-        // Module scope: re-scan to register symbols (builtins like str, int)
-        // Class scope: do NOT re-scan to preserve class-local symbol resolution
-        if matches!(current_scope, Some(CompilerScope::Module)) {
-            let was_in_annotation = self.in_annotation;
-            self.in_annotation = true;
-            let _ = self.scan_expression(annotation, ExpressionContext::Load);
-            self.in_annotation = was_in_annotation;
-        }
 
         result
     }
@@ -1939,6 +1950,20 @@ impl SymbolTableBuilder {
         range: TextRange,
         is_generator: bool,
     ) -> SymbolTableResult {
+        // Check for async comprehension outside async function
+        // (list/set/dict comprehensions only, not generator expressions)
+        let has_async_gen = generators.iter().any(|g| g.is_async);
+        if has_async_gen && !is_generator && !self.is_in_async_context() {
+            return Err(SymbolTableError {
+                error: "asynchronous comprehension outside of an asynchronous function".to_owned(),
+                location: Some(
+                    self.source_file
+                        .to_source_code()
+                        .source_location(range.start(), PositionEncoding::Utf8),
+                ),
+            });
+        }
+
         // Comprehensions are compiled as functions, so create a scope for them:
         self.enter_scope(
             scope_name,
