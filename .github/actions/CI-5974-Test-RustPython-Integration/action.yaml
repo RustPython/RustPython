@@ -280,8 +280,6 @@ runs:
       if: ${{ always() }}
       shell: bash
       run: |
-        # Initialize empty JSON object
-        echo '{}' > formatted_env.json
         # Define patterns for variables to include (allowlist approach)
         INCLUDE_PATTERNS=(
           '^FIX_COPY_.*_OUTCOME='
@@ -307,7 +305,7 @@ runs:
         )
         # Filter GITHUB_ENV to include only safe, relevant variables
         # Initialize a JSON object
-        echo "{" > formatted_env.json
+        echo "{" > formatted_env.json || true ;
         # Filter GITHUB_ENV to include only safe, relevant variables
         grep -E "$(IFS='|'; echo "${INCLUDE_PATTERNS[*]}")" "$GITHUB_ENV" | \
           grep -viE "$(IFS='|'; echo "${EXCLUDE_PATTERNS[*]}")" | \
@@ -317,7 +315,7 @@ runs:
             escaped_key=$(echo "$key" | jq -R @json)
             escaped_value=$(echo "$value" | jq -R @json)
             echo "  $escaped_key: $escaped_value," >> formatted_env.json
-        done
+        done ;
         # Remove the trailing comma and close the JSON object
         sed -i '$ s/,$//' formatted_env.json
         echo "}" >> formatted_env.json
@@ -325,9 +323,13 @@ runs:
         if [[ -s formatted_env.json ]] && jq -e 'length > 0' formatted_env.json >/dev/null 2>&1; then
           echo "::debug::Successfully created filtered environment JSON with $(jq 'length' formatted_env.json) variables"
         else
-          echo "::warning::No matching environment variables found to export"
-          echo '{}' > formatted_env.json
-        fi
+          if [[ -s formatted_env.json ]] ; then
+            echo "::debug::Incompletely created environment JSON with unknown variables"
+          else
+            echo "::warning::No matching environment variables found to export"
+            echo '{}' > formatted_env.json
+          fi ;
+        fi ;
     - name: Upload JSON as artifact
       if: ${{ !cancelled() }}
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
