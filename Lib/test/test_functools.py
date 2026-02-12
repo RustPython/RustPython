@@ -438,6 +438,7 @@ class TestPartial:
         self.assertIs(type(r[0]), tuple)
 
     @support.skip_if_sanitizer("thread sanitizer crashes in __tsan::FuncEntry", thread=True)
+    @support.skip_if_unlimited_stack_size
     @support.skip_emscripten_stack_overflow()
     def test_recursive_pickle(self):
         with replaced_module('functools', self.module):
@@ -1223,14 +1224,6 @@ class TestCmpToKeyC(TestCmpToKey, unittest.TestCase):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
     def test_sort_int_str(self):
         return super().test_sort_int_str()
-
-
-
-
-
-
-
-
 
 
 class TestCmpToKeyPy(TestCmpToKey, unittest.TestCase):
@@ -2181,6 +2174,7 @@ class TestLRU:
     @support.skip_on_s390x
     @unittest.skipIf(support.is_wasi, "WASI has limited C stack")
     @support.skip_if_sanitizer("requires deep stack", ub=True, thread=True)
+    @support.skip_if_unlimited_stack_size
     @support.skip_emscripten_stack_overflow()
     def test_lru_recursion(self):
 
@@ -3488,16 +3482,11 @@ class TestSingleDispatch(unittest.TestCase):
 
     def test_method_signatures(self):
         class A:
-            def m(self, item, arg: int) -> str:
-                return str(item)
-            @classmethod
-            def cm(cls, item, arg: int) -> str:
-                return str(item)
             @functools.singledispatchmethod
             def func(self, item, arg: int) -> str:
                 return str(item)
             @func.register
-            def _(self, item, arg: bytes) -> str:
+            def _(self, item: int, arg: bytes) -> str:
                 return str(item)
 
             @functools.singledispatchmethod
@@ -3506,7 +3495,7 @@ class TestSingleDispatch(unittest.TestCase):
                 return str(arg)
             @func.register
             @classmethod
-            def _(cls, item, arg: bytes) -> str:
+            def _(cls, item: int, arg: bytes) -> str:
                 return str(item)
 
             @functools.singledispatchmethod
@@ -3515,7 +3504,7 @@ class TestSingleDispatch(unittest.TestCase):
                 return str(arg)
             @func.register
             @staticmethod
-            def _(item, arg: bytes) -> str:
+            def _(item: int, arg: bytes) -> str:
                 return str(item)
 
         self.assertEqual(str(Signature.from_callable(A.func)),
