@@ -2,6 +2,7 @@
 
 import dis
 import pickle
+import types
 import unittest
 
 from test.support import check_syntax_error
@@ -22,13 +23,13 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(SyntaxError, regex):
             compile(codestr + "\n", "<test>", "single")
 
-    # TODO: RUSTPYTHON: wrong error message
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_invalid_syntax_errors(self):
-        check_syntax_error(self, "def f(a, b = 5, /, c): pass", "non-default argument follows default argument")
-        check_syntax_error(self, "def f(a = 5, b, /, c): pass", "non-default argument follows default argument")
-        check_syntax_error(self, "def f(a = 5, b=1, /, c, *, d=2): pass", "non-default argument follows default argument")
-        check_syntax_error(self, "def f(a = 5, b, /): pass", "non-default argument follows default argument")
+        check_syntax_error(self, "def f(a, b = 5, /, c): pass", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "def f(a = 5, b, /, c): pass", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "def f(a = 5, b=1, /, c, *, d=2): pass", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "def f(a = 5, b, /): pass", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "def f(a, /, b = 5, c): pass", "parameter without a default follows parameter with a default")
         check_syntax_error(self, "def f(*args, /): pass")
         check_syntax_error(self, "def f(*args, a, /): pass")
         check_syntax_error(self, "def f(**kwargs, /): pass")
@@ -45,13 +46,13 @@ class PositionalOnlyTestCase(unittest.TestCase):
         check_syntax_error(self, "def f(a, /, c, /, d, *, e): pass")
         check_syntax_error(self, "def f(a, *, c, /, d, e): pass")
 
-    # TODO: RUSTPYTHON: wrong error message
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_invalid_syntax_errors_async(self):
-        check_syntax_error(self, "async def f(a, b = 5, /, c): pass", "non-default argument follows default argument")
-        check_syntax_error(self, "async def f(a = 5, b, /, c): pass", "non-default argument follows default argument")
-        check_syntax_error(self, "async def f(a = 5, b=1, /, c, d=2): pass", "non-default argument follows default argument")
-        check_syntax_error(self, "async def f(a = 5, b, /): pass", "non-default argument follows default argument")
+        check_syntax_error(self, "async def f(a, b = 5, /, c): pass", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "async def f(a = 5, b, /, c): pass", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "async def f(a = 5, b=1, /, c, d=2): pass", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "async def f(a = 5, b, /): pass", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "async def f(a, /, b = 5, c): pass", "parameter without a default follows parameter with a default")
         check_syntax_error(self, "async def f(*args, /): pass")
         check_syntax_error(self, "async def f(*args, a, /): pass")
         check_syntax_error(self, "async def f(**kwargs, /): pass")
@@ -234,12 +235,13 @@ class PositionalOnlyTestCase(unittest.TestCase):
         x = lambda a, b, /, : a + b
         self.assertEqual(x(1, 2), 3)
 
-    # TODO: RUSTPYTHON: wrong error message
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_invalid_syntax_lambda(self):
-        check_syntax_error(self, "lambda a, b = 5, /, c: None", "non-default argument follows default argument")
-        check_syntax_error(self, "lambda a = 5, b, /, c: None", "non-default argument follows default argument")
-        check_syntax_error(self, "lambda a = 5, b, /: None", "non-default argument follows default argument")
+        check_syntax_error(self, "lambda a, b = 5, /, c: None", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "lambda a = 5, b, /, c: None", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "lambda a = 5, b=1, /, c, *, d=2: None", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "lambda a = 5, b, /: None", "parameter without a default follows parameter with a default")
+        check_syntax_error(self, "lambda a, /, b = 5, c: None", "parameter without a default follows parameter with a default")
         check_syntax_error(self, "lambda *args, /: None")
         check_syntax_error(self, "lambda *args, a, /: None")
         check_syntax_error(self, "lambda **kwargs, /: None")
@@ -336,8 +338,7 @@ class PositionalOnlyTestCase(unittest.TestCase):
 
         self.assertEqual(f(42), (42, {}))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mangling(self):
         class X:
             def f(self, __a=42, /):
@@ -437,8 +438,7 @@ class PositionalOnlyTestCase(unittest.TestCase):
 
         self.assertEqual(C().method(), sentinel)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_annotations_constant_fold(self):
         def g():
             def f(x: not (int is int), /): ...
@@ -446,7 +446,9 @@ class PositionalOnlyTestCase(unittest.TestCase):
         # without constant folding we end up with
         # COMPARE_OP(is), IS_OP (0)
         # with constant folding we should expect a IS_OP (1)
-        codes = [(i.opname, i.argval) for i in dis.get_instructions(g)]
+        code_obj = next(const for const in g.__code__.co_consts
+                        if isinstance(const, types.CodeType) and const.co_name == "__annotate__")
+        codes = [(i.opname, i.argval) for i in dis.get_instructions(code_obj)]
         self.assertNotIn(('UNARY_NOT', None), codes)
         self.assertIn(('IS_OP', 1), codes)
 
