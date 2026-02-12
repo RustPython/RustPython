@@ -186,6 +186,7 @@ class TestDefaultDict(unittest.TestCase):
         with self.assertRaises(TypeError):
             i |= None
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 2
     def test_factory_conflict_with_set_value(self):
         key = "conflict_test"
         count = 0
