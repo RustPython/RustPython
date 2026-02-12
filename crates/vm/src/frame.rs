@@ -1070,28 +1070,32 @@ impl ExecutingFrame<'_> {
 
                 let dict: &Py<PyDict> = unsafe { dict_ref.downcast_unchecked_ref() };
 
+                // Get callable for error messages
+                // Stack: [callable, self_or_null, args_tuple, kwargs_dict]
+                let callable = self.nth_value(idx + 2);
+                let func_str = Self::object_function_str(callable, vm);
+
                 // Check if source is a mapping
                 if vm
                     .get_method(source.clone(), vm.ctx.intern_str("keys"))
                     .is_none()
                 {
                     return Err(vm.new_type_error(format!(
-                        "'{}' object is not a mapping",
+                        "{} argument after ** must be a mapping, not {}",
+                        func_str,
                         source.class().name()
                     )));
                 }
 
-                // Check for duplicate keys
+                // Merge keys, checking for duplicates
                 let keys_iter = vm.call_method(&source, "keys", ())?;
                 for key in keys_iter.try_to_value::<Vec<PyObjectRef>>(vm)? {
-                    if key.downcast_ref::<PyStr>().is_none() {
-                        return Err(vm.new_type_error("keywords must be strings".to_owned()));
-                    }
                     if dict.contains_key(&*key, vm) {
-                        let key_repr = key.repr(vm)?;
+                        let key_str = key.str(vm)?;
                         return Err(vm.new_type_error(format!(
-                            "got multiple values for keyword argument {}",
-                            key_repr.as_str()
+                            "{} got multiple values for keyword argument '{}'",
+                            func_str,
+                            key_str.as_str()
                         )));
                     }
                     let value = vm.call_method(&source, "__getitem__", (key.clone(),))?;
@@ -1323,7 +1327,23 @@ impl ExecutingFrame<'_> {
                     // SAFETY: compiler guarantees correct type
                     obj.downcast_unchecked_ref()
                 };
-                list.extend(iterable, vm)?;
+                let type_name = iterable.class().name().to_owned();
+                // Only rewrite the error if the type is truly not iterable
+                // (no __iter__ and no __getitem__). Preserve original TypeError
+                // from custom iterables that raise during iteration.
+                let not_iterable = iterable.class().slots.iter.load().is_none()
+                    && iterable
+                        .get_class_attr(vm.ctx.intern_str("__getitem__"))
+                        .is_none();
+                list.extend(iterable, vm).map_err(|e| {
+                    if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
+                        vm.new_type_error(format!(
+                            "Value after * must be an iterable, not {type_name}"
+                        ))
+                    } else {
+                        e
+                    }
+                })?;
                 Ok(None)
             }
             Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
@@ -2587,8 +2607,11 @@ impl ExecutingFrame<'_> {
         let kwargs = if let Some(kw_obj) = kwargs_or_null {
             let mut kwargs = IndexMap::new();
 
-            // Use keys() method for all mapping objects to preserve order
-            Self::iterate_mapping_keys(vm, &kw_obj, "argument after **", |key| {
+            // Stack: [callable, self_or_null, args_tuple]
+            let callable = self.nth_value(2);
+            let func_str = Self::object_function_str(callable, vm);
+
+            Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key| {
                 let key_str = key
                     .downcast_ref::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
@@ -2600,11 +2623,56 @@ impl ExecutingFrame<'_> {
         } else {
             IndexMap::new()
         };
-        // SAFETY: trust compiler
-        let args = unsafe { self.pop_value().downcast_unchecked::<PyTuple>() }
-            .as_slice()
-            .to_vec();
+        let args_obj = self.pop_value();
+        let args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
+            tuple.as_slice().to_vec()
+        } else {
+            // Single *arg passed directly; convert to sequence at runtime.
+            // Stack: [callable, self_or_null]
+            let callable = self.nth_value(1);
+            let func_str = Self::object_function_str(callable, vm);
+            let not_iterable = args_obj.class().slots.iter.load().is_none()
+                && args_obj
+                    .get_class_attr(vm.ctx.intern_str("__getitem__"))
+                    .is_none();
+            args_obj.try_to_value::<Vec<PyObjectRef>>(vm).map_err(|e| {
+                if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
+                    vm.new_type_error(format!(
+                        "{} argument after * must be an iterable, not {}",
+                        func_str,
+                        args_obj.class().name()
+                    ))
+                } else {
+                    e
+                }
+            })?
+        };
         Ok(FuncArgs { args, kwargs })
+    }
+
+    /// Returns a display string for a callable object for use in error messages.
+    /// For objects with `__qualname__`, returns "module.qualname()" or "qualname()".
+    /// For other objects, returns repr(obj).
+    fn object_function_str(obj: &PyObject, vm: &VirtualMachine) -> String {
+        let Ok(qualname) = obj.get_attr(vm.ctx.intern_str("__qualname__"), vm) else {
+            return obj
+                .repr(vm)
+                .map(|s| s.as_str().to_owned())
+                .unwrap_or_else(|_| "?".to_owned());
+        };
+        let Some(qualname_str) = qualname.downcast_ref::<PyStr>() else {
+            return obj
+                .repr(vm)
+                .map(|s| s.as_str().to_owned())
+                .unwrap_or_else(|_| "?".to_owned());
+        };
+        if let Ok(module) = obj.get_attr(vm.ctx.intern_str("__module__"), vm)
+            && let Some(module_str) = module.downcast_ref::<PyStr>()
+            && module_str.as_str() != "builtins"
+        {
+            return format!("{}.{}()", module_str.as_str(), qualname_str.as_str());
+        }
+        format!("{}()", qualname_str.as_str())
     }
 
     /// Helper function to iterate over mapping keys using the keys() method.
@@ -2612,14 +2680,18 @@ impl ExecutingFrame<'_> {
     fn iterate_mapping_keys<F>(
         vm: &VirtualMachine,
         mapping: &PyObject,
-        error_prefix: &str,
+        func_str: &str,
         mut key_handler: F,
     ) -> PyResult<()>
     where
         F: FnMut(PyObjectRef) -> PyResult<()>,
     {
         let Some(keys_method) = vm.get_method(mapping.to_owned(), vm.ctx.intern_str("keys")) else {
-            return Err(vm.new_type_error(format!("{error_prefix} must be a mapping")));
+            return Err(vm.new_type_error(format!(
+                "{} argument after ** must be a mapping, not {}",
+                func_str,
+                mapping.class().name()
+            )));
         };
 
         let keys = keys_method?.call((), vm)?.get_iter(vm)?;
@@ -2731,7 +2803,20 @@ impl ExecutingFrame<'_> {
     fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u8) -> FrameResult {
         let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
-        let elements: Vec<_> = value.try_to_value(vm)?;
+        let not_iterable = value.class().slots.iter.load().is_none()
+            && value
+                .get_class_attr(vm.ctx.intern_str("__getitem__"))
+                .is_none();
+        let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
+            if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
+                vm.new_type_error(format!(
+                    "cannot unpack non-iterable {} object",
+                    value.class().name()
+                ))
+            } else {
+                e
+            }
+        })?;
         let min_expected = before + after;
 
         let middle = elements.len().checked_sub(min_expected).ok_or_else(|| {
@@ -2932,8 +3017,12 @@ impl ExecutingFrame<'_> {
 
     fn unpack_sequence(&mut self, size: u32, vm: &VirtualMachine) -> FrameResult {
         let value = self.pop_value();
+        let not_iterable = value.class().slots.iter.load().is_none()
+            && value
+                .get_class_attr(vm.ctx.intern_str("__getitem__"))
+                .is_none();
         let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
-            if e.class().is(vm.ctx.exceptions.type_error) {
+            if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
                 vm.new_type_error(format!(
                     "cannot unpack non-iterable {} object",
                     value.class().name()

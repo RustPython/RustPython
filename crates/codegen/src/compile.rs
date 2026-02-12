@@ -6647,20 +6647,67 @@ impl Compiler {
     }
 
     fn compile_dict(&mut self, items: &[ast::DictItem]) -> CompileResult<()> {
-        // FIXME: correct order to build map, etc d = {**a, 'key': 2} should override
-        // 'key' in dict a
-        let mut size = 0;
-        let (packed, unpacked): (Vec<_>, Vec<_>) = items.iter().partition(|x| x.key.is_some());
-        for item in packed {
-            self.compile_expression(item.key.as_ref().unwrap())?;
-            self.compile_expression(&item.value)?;
-            size += 1;
-        }
-        emit!(self, Instruction::BuildMap { size });
+        let has_unpacking = items.iter().any(|item| item.key.is_none());
 
-        for item in unpacked {
-            self.compile_expression(&item.value)?;
-            emit!(self, Instruction::DictUpdate { index: 1 });
+        if !has_unpacking {
+            // Simple case: no ** unpacking, build all pairs directly
+            for item in items {
+                self.compile_expression(item.key.as_ref().unwrap())?;
+                self.compile_expression(&item.value)?;
+            }
+            emit!(
+                self,
+                Instruction::BuildMap {
+                    size: u32::try_from(items.len()).expect("too many dict items"),
+                }
+            );
+            return Ok(());
+        }
+
+        // Complex case with ** unpacking: preserve insertion order.
+        // Collect runs of regular k:v pairs and emit BUILD_MAP + DICT_UPDATE
+        // for each run, and DICT_UPDATE for each ** entry.
+        let mut have_dict = false;
+        let mut elements: u32 = 0;
+
+        // Flush pending regular pairs as a BUILD_MAP, merging into the
+        // accumulator dict via DICT_UPDATE when one already exists.
+        macro_rules! flush_pending {
+            () => {
+                #[allow(unused_assignments)]
+                if elements > 0 {
+                    emit!(self, Instruction::BuildMap { size: elements });
+                    if have_dict {
+                        emit!(self, Instruction::DictUpdate { index: 1 });
+                    } else {
+                        have_dict = true;
+                    }
+                    elements = 0;
+                }
+            };
+        }
+
+        for item in items {
+            if let Some(key) = &item.key {
+                // Regular key: value pair
+                self.compile_expression(key)?;
+                self.compile_expression(&item.value)?;
+                elements += 1;
+            } else {
+                // ** unpacking entry
+                flush_pending!();
+                if !have_dict {
+                    emit!(self, Instruction::BuildMap { size: 0 });
+                    have_dict = true;
+                }
+                self.compile_expression(&item.value)?;
+                emit!(self, Instruction::DictUpdate { index: 1 });
+            }
+        }
+
+        flush_pending!();
+        if !have_dict {
+            emit!(self, Instruction::BuildMap { size: 0 });
         }
 
         Ok(())
@@ -7372,26 +7419,10 @@ impl Compiler {
                 && nelts == 1
                 && matches!(arguments.args[0], ast::Expr::Starred(_))
             {
-                // Special case: single starred arg
-                // Even in this case, we need to ensure it's a tuple for CallFunctionEx
+                // Single starred arg: pass value directly to CallFunctionEx.
+                // Runtime will convert to tuple and validate with function name.
                 if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = &arguments.args[0] {
-                    // Check if the value is already a tuple expression
-                    if matches!(value.as_ref(), ast::Expr::Tuple(_)) {
-                        // Tuple literals can be used directly
-                        self.compile_expression(value)?;
-                    } else {
-                        // For all other cases (including variables that might be lists),
-                        // build a list and convert to tuple to ensure correct type
-                        emit!(self, Instruction::BuildList { size: 0 });
-                        self.compile_expression(value)?;
-                        emit!(self, Instruction::ListExtend { i: 0 });
-                        emit!(
-                            self,
-                            Instruction::CallIntrinsic1 {
-                                func: IntrinsicFunction1::ListToTuple
-                            }
-                        );
-                    }
+                    self.compile_expression(value)?;
                 }
             } else {
                 // Use starunpack_helper to build a list, then convert to tuple

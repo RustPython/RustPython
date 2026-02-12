@@ -50,15 +50,15 @@ Here we add keyword arguments
 
     >>> f(1, 2, 3, **{'a':4, 'b':5})
     (1, 2, 3) {'a': 4, 'b': 5}
-    >>> f(1, 2, **{'a': -1, 'b': 5}, **{'a': 4, 'c': 6}) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f(1, 2, **{'a': -1, 'b': 5}, **{'a': 4, 'c': 6})
     Traceback (most recent call last):
         ...
     TypeError: test.test_extcall.f() got multiple values for keyword argument 'a'
-    >>> f(1, 2, **{'a': -1, 'b': 5}, a=4, c=6) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f(1, 2, **{'a': -1, 'b': 5}, a=4, c=6)
     Traceback (most recent call last):
         ...
     TypeError: test.test_extcall.f() got multiple values for keyword argument 'a'
-    >>> f(1, 2, a=3, **{'a': 4}, **{'a': 5}) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f(1, 2, a=3, **{'a': 4}, **{'a': 5})
     Traceback (most recent call last):
         ...
     TypeError: test.test_extcall.f() got multiple values for keyword argument 'a'
@@ -134,7 +134,7 @@ Verify clearing of SF bug #733667
 
     >>> class Nothing: pass
     ...
-    >>> g(*Nothing()) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> g(*Nothing())
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.g() argument after * must be an iterable, not Nothing
@@ -143,7 +143,7 @@ Verify clearing of SF bug #733667
     ...     def __len__(self): return 5
     ...
 
-    >>> g(*Nothing()) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> g(*Nothing())
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.g() argument after * must be an iterable, not Nothing
@@ -263,75 +263,75 @@ What about willful misconduct?
       ...
     TypeError: h() got an unexpected keyword argument 'e'
 
-    >>> h(*h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> h(*h)
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.h() argument after * must be an iterable, not function
 
-    >>> h(1, *h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> h(1, *h)
     Traceback (most recent call last):
       ...
     TypeError: Value after * must be an iterable, not function
 
-    >>> h(*[1], *h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> h(*[1], *h)
     Traceback (most recent call last):
       ...
     TypeError: Value after * must be an iterable, not function
 
-    >>> dir(*h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> dir(*h)
     Traceback (most recent call last):
       ...
     TypeError: dir() argument after * must be an iterable, not function
 
     >>> nothing = None
-    >>> nothing(*h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> nothing(*h)
     Traceback (most recent call last):
       ...
     TypeError: None argument after * must be an iterable, \
 not function
 
-    >>> h(**h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> h(**h)
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.h() argument after ** must be a mapping, not function
 
-    >>> h(**[]) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> h(**[])
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.h() argument after ** must be a mapping, not list
 
-    >>> h(a=1, **h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> h(a=1, **h)
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.h() argument after ** must be a mapping, not function
 
-    >>> h(a=1, **[]) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> h(a=1, **[])
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.h() argument after ** must be a mapping, not list
 
-    >>> h(**{'a': 1}, **h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> h(**{'a': 1}, **h)
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.h() argument after ** must be a mapping, not function
 
-    >>> h(**{'a': 1}, **[]) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> h(**{'a': 1}, **[])
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.h() argument after ** must be a mapping, not list
 
-    >>> dir(**h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> dir(**h)
     Traceback (most recent call last):
       ...
     TypeError: dir() argument after ** must be a mapping, not function
 
-    >>> nothing(**h) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> nothing(**h)
     Traceback (most recent call last):
       ...
     TypeError: None argument after ** must be a mapping, \
 not function
 
-    >>> dir(b=1, **{'b': 1}) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> dir(b=1, **{'b': 1})
     Traceback (most recent call last):
       ...
     TypeError: dir() got multiple values for keyword argument 'b'
@@ -367,17 +367,17 @@ Test a kwargs mapping with duplicated keys.
     >>> g(**MultiDict([('x', 1), ('y', 2)]))
     1 () {'y': 2}
 
-    >>> g(**MultiDict([('x', 1), ('x', 2)])) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> g(**MultiDict([('x', 1), ('x', 2)]))
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.g() got multiple values for keyword argument 'x'
 
-    >>> g(a=3, **MultiDict([('x', 1), ('x', 2)])) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> g(a=3, **MultiDict([('x', 1), ('x', 2)]))
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.g() got multiple values for keyword argument 'x'
 
-    >>> g(**MultiDict([('a', 3)]), **MultiDict([('x', 1), ('x', 2)])) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> g(**MultiDict([('a', 3)]), **MultiDict([('x', 1), ('x', 2)]))
     Traceback (most recent call last):
       ...
     TypeError: test.test_extcall.g() got multiple values for keyword argument 'x'
@@ -398,7 +398,7 @@ Call with dict subtype:
     >>> assert s1(**md) == {'a': 1, 'b': 2}
     >>> assert s2(*(1, 2), **md) == ((1, 2), {'a': 1, 'b': 2})
     >>> assert s3(**MyDict({'n': 1, 'b': 2})) == (1, {'b': 2})
-    >>> s3(**md) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> s3(**md)
     Traceback (most recent call last):
       ...
     TypeError: s3() missing 1 required keyword-only argument: 'n'
@@ -442,7 +442,7 @@ TypeError if te dictionary is not empty
     ...     False
     True
 
-    >>> id(1, **{'foo': 1}) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> id(1, **{'foo': 1}) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
     Traceback (most recent call last):
       ...
     TypeError: id() takes no keyword arguments
@@ -484,17 +484,17 @@ Too many arguments:
       ...
     TypeError: f() takes from 1 to 2 positional arguments but 3 were given
     >>> def f(*, kw): pass
-    >>> f(1, kw=3) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f(1, kw=3)
     Traceback (most recent call last):
       ...
     TypeError: f() takes 0 positional arguments but 1 positional argument (and 1 keyword-only argument) were given
     >>> def f(*, kw, b): pass
-    >>> f(1, 2, 3, b=3, kw=3) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f(1, 2, 3, b=3, kw=3)
     Traceback (most recent call last):
       ...
     TypeError: f() takes 0 positional arguments but 3 positional arguments (and 2 keyword-only arguments) were given
     >>> def f(a, b=2, *, kw): pass
-    >>> f(2, 3, 4, kw=4) # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f(2, 3, 4, kw=4)
     Traceback (most recent call last):
       ...
     TypeError: f() takes from 1 to 2 positional arguments but 3 positional arguments (and 1 keyword-only argument) were given
@@ -530,12 +530,12 @@ Too few and missing arguments:
 Same with keyword only args:
 
     >>> def f(*, w): pass
-    >>> f() # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f()
     Traceback (most recent call last):
       ...
     TypeError: f() missing 1 required keyword-only argument: 'w'
     >>> def f(*, a, b, c, d, e): pass
-    >>> f() # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f()
     Traceback (most recent call last):
       ...
     TypeError: f() missing 5 required keyword-only arguments: 'a', 'b', 'c', 'd', and 'e'
@@ -545,9 +545,15 @@ Same with keyword only args:
 import doctest
 import unittest
 
+EXPECTED_FAILURE = doctest.register_optionflag('EXPECTED_FAILURE') # TODO: RUSTPYTHON
+class CustomOutputChecker(doctest.OutputChecker): # TODO: RUSTPYTHON
+    def check_output(self, want, got, optionflags): # TODO: RUSTPYTHON
+        if optionflags & EXPECTED_FAILURE: # TODO: RUSTPYTHON
+            return not super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
+        return super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
+
 def load_tests(loader, tests, pattern):
-    from test.support.rustpython import DocTestChecker # TODO: RUSTPYTHON
-    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker())) # XXX: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(checker=CustomOutputChecker())) # TODO: RUSTPYTHON
     return tests
 
 

@@ -2247,7 +2247,6 @@ class TestGetcallargsFunctions(unittest.TestCase):
         self.assertEqualCallArgs(f, '**collections.UserDict(a=1, b=2)')
         self.assertEqualCallArgs(f, 'c=3, **collections.UserDict(a=1, b=2)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ? ^^^^^^^^^^^^      ++           ++ ^^^^
     def test_keyword_only(self):
         f = self.makeCallable('a=3, *, c, d=2')
         self.assertEqualCallArgs(f, 'c=3')
