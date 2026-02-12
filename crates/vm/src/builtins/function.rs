@@ -25,6 +25,37 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
+fn format_missing_args(
+    qualname: impl core::fmt::Display,
+    kind: &str,
+    missing: &mut Vec<impl core::fmt::Display>,
+) -> String {
+    let count = missing.len();
+    let last = if missing.len() > 1 {
+        missing.pop()
+    } else {
+        None
+    };
+    let (and, right): (&str, String) = if let Some(last) = last {
+        (
+            if missing.len() == 1 {
+                "' and '"
+            } else {
+                "', and '"
+            },
+            format!("{last}"),
+        )
+    } else {
+        ("", String::new())
+    };
+    format!(
+        "{qualname}() missing {count} required {kind} argument{}: '{}{}{right}'",
+        if count == 1 { "" } else { "s" },
+        missing.iter().join("', '"),
+        and,
+    )
+}
+
 #[pyclass(module = false, name = "function", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyFunction {
@@ -343,36 +374,12 @@ impl PyFunction {
                     }
                 })
                 .collect();
-            let missing_args_len = missing.len();
 
             if !missing.is_empty() {
-                let last = if missing.len() > 1 {
-                    missing.pop()
-                } else {
-                    None
-                };
-
-                let (and, right) = if let Some(last) = last {
-                    (
-                        if missing.len() == 1 {
-                            "' and '"
-                        } else {
-                            "', and '"
-                        },
-                        last.as_str(),
-                    )
-                } else {
-                    ("", "")
-                };
-
-                return Err(vm.new_type_error(format!(
-                    "{}() missing {} required positional argument{}: '{}{}{}'",
+                return Err(vm.new_type_error(format_missing_args(
                     self.__qualname__(),
-                    missing_args_len,
-                    if missing_args_len == 1 { "" } else { "s" },
-                    missing.iter().join("', '"),
-                    and,
-                    right,
+                    "positional",
+                    &mut missing,
                 )));
             }
 
@@ -413,34 +420,10 @@ impl PyFunction {
             }
 
             if !missing.is_empty() {
-                let missing_len = missing.len();
-                let last = if missing.len() > 1 {
-                    missing.pop()
-                } else {
-                    None
-                };
-
-                let (and, right) = if let Some(last) = last {
-                    (
-                        if missing.len() == 1 {
-                            "' and '"
-                        } else {
-                            "', and '"
-                        },
-                        last.as_str(),
-                    )
-                } else {
-                    ("", "")
-                };
-
-                return Err(vm.new_type_error(format!(
-                    "{}() missing {} required keyword-only argument{}: '{}{}{}'",
+                return Err(vm.new_type_error(format_missing_args(
                     self.__qualname__(),
-                    missing_len,
-                    if missing_len == 1 { "" } else { "s" },
-                    missing.iter().join("', '"),
-                    and,
-                    right,
+                    "keyword-only",
+                    &mut missing,
                 )));
             }
         }

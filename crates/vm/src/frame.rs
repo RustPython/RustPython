@@ -2803,8 +2803,12 @@ impl ExecutingFrame<'_> {
     fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u8) -> FrameResult {
         let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
+        let not_iterable = value.class().slots.iter.load().is_none()
+            && value
+                .get_class_attr(vm.ctx.intern_str("__getitem__"))
+                .is_none();
         let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
-            if e.class().is(vm.ctx.exceptions.type_error) {
+            if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
                 vm.new_type_error(format!(
                     "cannot unpack non-iterable {} object",
                     value.class().name()
@@ -3013,8 +3017,12 @@ impl ExecutingFrame<'_> {
 
     fn unpack_sequence(&mut self, size: u32, vm: &VirtualMachine) -> FrameResult {
         let value = self.pop_value();
+        let not_iterable = value.class().slots.iter.load().is_none()
+            && value
+                .get_class_attr(vm.ctx.intern_str("__getitem__"))
+                .is_none();
         let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
-            if e.class().is(vm.ctx.exceptions.type_error) {
+            if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
                 vm.new_type_error(format!(
                     "cannot unpack non-iterable {} object",
                     value.class().name()
