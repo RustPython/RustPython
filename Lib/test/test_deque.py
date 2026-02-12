@@ -726,8 +726,7 @@ class TestBasic(unittest.TestCase):
             d.append(1)
             gc.collect()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_container_iterator(self):
         # Bug #3680: tp_traverse was not implemented for deque iterator objects
         class C(object):
@@ -818,8 +817,7 @@ class TestSubclass(unittest.TestCase):
         d.clear()
         self.assertEqual(len(d), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_copy_pickle(self):
         for cls in Deque, DequeWithSlots:
             for d in cls('abc'), cls('abcde', maxlen=4):
@@ -842,10 +840,9 @@ class TestSubclass(unittest.TestCase):
                     self.assertEqual(list(d), list(e))
                     self.assertEqual(e.x, d.x)
                     self.assertEqual(e.z, d.z)
-                    self.assertFalse(hasattr(e, 'y'))
+                    self.assertNotHasAttr(e, 'y')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pickle_recursive(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             for d in Deque('abc'), Deque('abc', 3):
