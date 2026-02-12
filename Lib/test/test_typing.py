@@ -10916,7 +10916,6 @@ class TypeIterationTests(BaseTestCase):
         Annotated[T, ''],
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cannot_iterate(self):
         expected_error_regex = "object is not iterable"
         for test_type in self._UNITERABLE_TYPES:
