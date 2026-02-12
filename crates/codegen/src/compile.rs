@@ -6670,6 +6670,23 @@ impl Compiler {
         let mut have_dict = false;
         let mut elements: u32 = 0;
 
+        // Flush pending regular pairs as a BUILD_MAP, merging into the
+        // accumulator dict via DICT_UPDATE when one already exists.
+        macro_rules! flush_pending {
+            () => {
+                #[allow(unused_assignments)]
+                if elements > 0 {
+                    emit!(self, Instruction::BuildMap { size: elements });
+                    if have_dict {
+                        emit!(self, Instruction::DictUpdate { index: 1 });
+                    } else {
+                        have_dict = true;
+                    }
+                    elements = 0;
+                }
+            };
+        }
+
         for item in items {
             if let Some(key) = &item.key {
                 // Regular key: value pair
@@ -6678,17 +6695,7 @@ impl Compiler {
                 elements += 1;
             } else {
                 // ** unpacking entry
-                if elements > 0 {
-                    // Flush pending regular pairs
-                    if !have_dict {
-                        emit!(self, Instruction::BuildMap { size: elements });
-                        have_dict = true;
-                    } else {
-                        emit!(self, Instruction::BuildMap { size: elements });
-                        emit!(self, Instruction::DictUpdate { index: 1 });
-                    }
-                    elements = 0;
-                }
+                flush_pending!();
                 if !have_dict {
                     emit!(self, Instruction::BuildMap { size: 0 });
                     have_dict = true;
@@ -6698,13 +6705,9 @@ impl Compiler {
             }
         }
 
-        if elements > 0 || !have_dict {
-            if !have_dict {
-                emit!(self, Instruction::BuildMap { size: elements });
-            } else {
-                emit!(self, Instruction::BuildMap { size: elements });
-                emit!(self, Instruction::DictUpdate { index: 1 });
-            }
+        flush_pending!();
+        if !have_dict {
+            emit!(self, Instruction::BuildMap { size: 0 });
         }
 
         Ok(())
