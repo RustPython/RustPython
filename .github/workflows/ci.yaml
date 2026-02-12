@@ -508,7 +508,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NIGHTLY_CHANNEL: nightly
+      NIGHTLY_CHANNEL: nightly-2026-02-11 # https://github.com/rust-lang/miri/issues/4855
     steps:
       - uses: actions/checkout@v6.0.2
 
