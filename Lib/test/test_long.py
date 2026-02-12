@@ -386,15 +386,6 @@ class LongTest(unittest.TestCase):
                 return 42
         self.assertRaises(TypeError, int, JustLong())
 
-        class LongTrunc:
-            # __long__ should be ignored in 3.x
-            def __long__(self):
-                return 42
-            def __trunc__(self):
-                return 1729
-        with self.assertWarns(DeprecationWarning):
-            self.assertEqual(int(LongTrunc()), 1729)
-
     def check_float_conversion(self, n):
         # Check that int -> float conversion behaviour matches
         # that of the pure Python version above.
@@ -412,7 +403,7 @@ class LongTest(unittest.TestCase):
                "Got {}, expected {}.".format(n, actual, expected))
         self.assertEqual(actual, expected, msg)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.requires_IEEE_754
     def test_float_conversion(self):
 
@@ -482,6 +473,12 @@ class LongTest(unittest.TestCase):
         for value in test_values:
             self.check_float_conversion(value)
             self.check_float_conversion(-value)
+
+    @support.requires_IEEE_754
+    @support.bigmemtest(2**32, memuse=0.2)
+    def test_float_conversion_huge_integer(self, size):
+        v = 1 << size
+        self.assertRaises(OverflowError, float, v)
 
     def test_float_overflow(self):
         for x in -2.0, -1.0, 0.0, 1.0, 2.0:
@@ -623,6 +620,56 @@ class LongTest(unittest.TestCase):
                     eq(x <= y, Rcmp <= 0)
                     eq(x > y, Rcmp > 0)
                     eq(x >= y, Rcmp >= 0)
+
+    @support.requires_IEEE_754
+    @support.bigmemtest(2**32, memuse=0.2)
+    def test_mixed_compares_huge_integer(self, size):
+        v = 1 << size
+        f = sys.float_info.max
+        self.assertIs(f == v, False)
+        self.assertIs(f != v, True)
+        self.assertIs(f < v, True)
+        self.assertIs(f <= v, True)
+        self.assertIs(f > v, False)
+        self.assertIs(f >= v, False)
+        f = float('inf')
+        self.assertIs(f == v, False)
+        self.assertIs(f != v, True)
+        self.assertIs(f < v, False)
+        self.assertIs(f <= v, False)
+        self.assertIs(f > v, True)
+        self.assertIs(f >= v, True)
+        f = float('nan')
+        self.assertIs(f == v, False)
+        self.assertIs(f != v, True)
+        self.assertIs(f < v, False)
+        self.assertIs(f <= v, False)
+        self.assertIs(f > v, False)
+        self.assertIs(f >= v, False)
+
+        del v
+        v = (-1) << size
+        f = -sys.float_info.max
+        self.assertIs(f == v, False)
+        self.assertIs(f != v, True)
+        self.assertIs(f < v, False)
+        self.assertIs(f <= v, False)
+        self.assertIs(f > v, True)
+        self.assertIs(f >= v, True)
+        f = float('-inf')
+        self.assertIs(f == v, False)
+        self.assertIs(f != v, True)
+        self.assertIs(f < v, True)
+        self.assertIs(f <= v, True)
+        self.assertIs(f > v, False)
+        self.assertIs(f >= v, False)
+        f = float('nan')
+        self.assertIs(f == v, False)
+        self.assertIs(f != v, True)
+        self.assertIs(f < v, False)
+        self.assertIs(f <= v, False)
+        self.assertIs(f > v, False)
+        self.assertIs(f >= v, False)
 
     def test__format__(self):
         self.assertEqual(format(123456789, 'd'), '123456789')
@@ -823,7 +870,7 @@ class LongTest(unittest.TestCase):
         self.assertEqual(expected, got, "Incorrectly rounded division {}/{}: "
                          "expected {}, got {}".format(a, b, expected, got))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.requires_IEEE_754
     def test_correctly_rounded_true_division(self):
         # more stringent tests than those above, checking that the
@@ -944,9 +991,12 @@ class LongTest(unittest.TestCase):
         self.assertEqual(0 << (sys.maxsize + 1), 0)
 
     @support.cpython_only
-    @support.bigmemtest(sys.maxsize + 1000, memuse=2/15 * 2, dry_run=False)
+    @support.bigmemtest(2**32, memuse=0.2)
     def test_huge_lshift(self, size):
-        self.assertEqual(1 << (sys.maxsize + 1000), 1 << 1000 << sys.maxsize)
+        v = 5 << size
+        self.assertEqual(v.bit_length(), size + 3)
+        self.assertEqual(v.bit_count(), 2)
+        self.assertEqual(v >> size, 5)
 
     def test_huge_rshift(self):
         huge_shift = 1 << 1000
@@ -958,11 +1008,13 @@ class LongTest(unittest.TestCase):
         self.assertEqual(-2**128 >> huge_shift, -1)
 
     @support.cpython_only
-    @support.bigmemtest(sys.maxsize + 500, memuse=2/15, dry_run=False)
+    @support.bigmemtest(2**32, memuse=0.2)
     def test_huge_rshift_of_huge(self, size):
-        huge = ((1 << 500) + 11) << sys.maxsize
-        self.assertEqual(huge >> (sys.maxsize + 1), (1 << 499) + 5)
-        self.assertEqual(huge >> (sys.maxsize + 1000), 0)
+        huge = ((1 << 500) + 11) << size
+        self.assertEqual(huge.bit_length(), size + 501)
+        self.assertEqual(huge.bit_count(), 4)
+        self.assertEqual(huge >> (size + 1), (1 << 499) + 5)
+        self.assertEqual(huge >> (size + 1000), 0)
 
     def test_small_rshift(self):
         self.assertEqual(42 >> 1, 21)
@@ -1347,7 +1399,7 @@ class LongTest(unittest.TestCase):
         self.assertEqual((0).to_bytes(1, SubStr('big')), b'\x00')
         self.assertEqual((0).to_bytes(0, SubStr('little')), b'')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_from_bytes(self):
         def check(tests, byteorder, signed=False):
             def equivalent_python(byte_array, byteorder, signed=False):
@@ -1426,7 +1478,6 @@ class LongTest(unittest.TestCase):
             b'\x00': 0,
             b'\x00\x00': 0,
             b'\x01': 1,
-            b'\x00\x01': 256,
             b'\xff': -1,
             b'\xff\xff': -1,
             b'\x81': -127,
@@ -1609,7 +1660,7 @@ class LongTest(unittest.TestCase):
                 self.assertEqual(n**2,
                     (1 << (2 * bitlen)) - (1 << (bitlen + 1)) + 1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test___sizeof__(self):
         self.assertEqual(int.__itemsize__, sys.int_info.sizeof_digit)
 
