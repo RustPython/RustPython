@@ -519,7 +519,8 @@ mod _operator {
         }
     }
 
-    /// methodcaller(name, ...) --> methodcaller object
+    /// methodcaller(name, /, *args, **kwargs)
+    /// --
     ///
     /// Return a callable object that calls the given method on its operand.
     /// After f = methodcaller('name'), the call f(r) returns r.name().
@@ -535,6 +536,11 @@ mod _operator {
 
     #[pyclass(with(Callable, Constructor, Representable))]
     impl PyMethodCaller {
+        #[pygetset]
+        fn __text_signature__(&self) -> &'static str {
+            "(obj, /)"
+        }
+
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
