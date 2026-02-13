@@ -325,6 +325,21 @@ impl PyFloat {
     }
 
     #[pyclassmethod]
+    fn from_number(cls: PyTypeRef, number: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if number.class().is(vm.ctx.types.float_type) && cls.is(vm.ctx.types.float_type) {
+            return Ok(number);
+        }
+
+        let value = number.try_float(vm)?.to_f64();
+        let result = vm.ctx.new_float(value);
+        if cls.is(vm.ctx.types.float_type) {
+            Ok(result.into())
+        } else {
+            PyType::call(&cls, vec![result.into()].into(), vm)
+        }
+    }
+
+    #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let result = crate::literal::float::from_hex(string.as_str().trim())
             .ok_or_else(|| vm.new_value_error("invalid hexadecimal floating-point string"))?;
