@@ -67,23 +67,21 @@ class FutureTest(unittest.TestCase):
         with import_helper.CleanImport(
             'test.test_future_stmt.test_future_single_import',
         ):
-            from test.test_future_stmt import test_future_single_import
+            from test.test_future_stmt import test_future_single_import  # noqa: F401
 
     def test_future_multiple_imports(self):
         with import_helper.CleanImport(
             'test.test_future_stmt.test_future_multiple_imports',
         ):
-            from test.test_future_stmt import test_future_multiple_imports
+            from test.test_future_stmt import test_future_multiple_imports  # noqa: F401
 
     def test_future_multiple_features(self):
         with import_helper.CleanImport(
             "test.test_future_stmt.test_future_multiple_features",
         ):
-            from test.test_future_stmt import test_future_multiple_features
+            from test.test_future_stmt import test_future_multiple_features  # noqa: F401
 
-    # TODO: RUSTPYTHON
-    # AssertionError: 1 != 24
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 24
     def test_unknown_future_flag(self):
         code = """
             from __future__ import nested_scopes
@@ -114,9 +112,7 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(code, lineno=3)
 
-    # TODO: RUSTPYTHON
-    # AssertionError: SyntaxError not raised
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_future_import_with_extra_string(self):
         code = """
             '''Docstring'''
@@ -139,18 +135,14 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(code, offset=54)
 
-    # TODO: RUSTPYTHON
-    # AssertionError: 1 != 24
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 24
     def test_future_import_star(self):
         code = """
             from __future__ import *
         """
         self.assertSyntaxError(code, message='future feature * is not defined', offset=24)
 
-    # TODO: RUSTPYTHON
-    # AssertionError: 'not a chance (<string>, line 2)' != 'future feature braces is not defined (<string>, line 2)'
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_future_import_braces(self):
         code = """
             from __future__ import braces
@@ -165,7 +157,7 @@ class FutureTest(unittest.TestCase):
 
     def test_module_with_future_import_not_on_top(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test.test_future_stmt import badsyntax_future
+            from test.test_future_stmt import badsyntax_future  # noqa: F401
         self.check_syntax_error(cm.exception, "badsyntax_future", lineno=3)
 
     def test_ensure_flags_dont_clash(self):
@@ -188,8 +180,7 @@ class FutureTest(unittest.TestCase):
         exec("from __future__ import unicode_literals; x = ''", {}, scope)
         self.assertIsInstance(scope["x"], str)
 
-    # TODO: RUSTPYTHON; barry_as_FLUFL (<> operator) not supported
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; barry_as_FLUFL (<> operator) not supported
     def test_syntactical_future_repl(self):
         p = spawn_python('-i')
         p.stdin.write(b"from __future__ import barry_as_FLUFL\n")
@@ -197,8 +188,7 @@ class FutureTest(unittest.TestCase):
         out = kill_python(p)
         self.assertNotIn(b'SyntaxError: invalid syntax', out)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    # SyntaxError: future feature spam is not defined
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_future_dotted_import(self):
         with self.assertRaises(ImportError):
             exec("from .__future__ import spam")
@@ -275,6 +265,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         )
         return scope
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "t'{a + b}'" != "t'{a    +  b}'"
     def test_annotations(self):
         eq = self.assertAnnotationEqual
         eq('...')
@@ -438,6 +429,11 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         eq('(((a)))', 'a')
         eq('(((a, b)))', '(a, b)')
         eq("1 + 2 + 3")
+        eq("t''")
+        eq("t'{a    +  b}'")
+        eq("t'{a!s}'")
+        eq("t'{a:b}'")
+        eq("t'{a:b=}'")
 
     def test_fstring_debug_annotations(self):
         # f-strings with '=' don't round trip very well, so set the expected
@@ -484,9 +480,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertEqual(foo.__code__.co_cellvars, ())
         self.assertEqual(foo().__code__.co_freevars, ())
 
-    # TODO: RUSTPYTHON
-    # AssertionError: SyntaxError not raised
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_annotations_forbidden(self):
         with self.assertRaises(SyntaxError):
             self._exec_future("test: (yield)")

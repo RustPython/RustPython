@@ -4071,8 +4071,6 @@ class TextIOWrapperTest(unittest.TestCase):
                 self.assertEqual(newtxt.tag, 'ham')
         del MyTextIO
 
-    # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'NoneType'
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
     def test_read_non_blocking(self):
         import os
@@ -4112,6 +4110,11 @@ def _to_memoryview(buf):
 class CTextIOWrapperTest(TextIOWrapperTest):
     io = io
     shutdown_error = "LookupError: unknown encoding: ascii"
+
+    @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
+    @unittest.expectedFailure
+    def test_read_non_blocking(self):
+        return super().test_read_non_blocking()
 
     def test_initialization(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
@@ -4231,14 +4234,28 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     def test_seek_with_encoder_state(self):
         return super().test_seek_with_encoder_state()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'NoneType'
+    def test_read_non_blocking(self):
+        return super().test_read_non_blocking()
+
 
 class PyTextIOWrapperTest(TextIOWrapperTest):
     io = pyio
     shutdown_error = "LookupError: unknown encoding: ascii"
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; os.set_blocking not available on Windows")
+    def test_read_non_blocking(self):
+        return super().test_read_non_blocking()
+
     @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
     def test_seek_with_encoder_state(self):
         return super().test_seek_with_encoder_state()
+
+    if sys.platform == "win32":
+        @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
+        @unittest.expectedFailure
+        def test_read_non_blocking(self):
+            return super().test_read_non_blocking()
 
 
 class IncrementalNewlineDecoderTest(unittest.TestCase):
@@ -5097,12 +5114,10 @@ class ProtocolsTest(unittest.TestCase):
         def write(self, b: bytes):
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'io' has no attribute 'Reader'
     def test_reader_subclass(self):
         self.assertIsSubclass(self.MyReader, io.Reader)
         self.assertNotIsSubclass(str, io.Reader)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'io' has no attribute 'Writer'
     def test_writer_subclass(self):
         self.assertIsSubclass(self.MyWriter, io.Writer)
         self.assertNotIsSubclass(str, io.Writer)
