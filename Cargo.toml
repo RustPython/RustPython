@@ -144,12 +144,12 @@ rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.4.0" }
 rustpython-doc = { path = "crates/doc", version = "0.4.0" }
 
-# Ruff tag 0.15.0 is based on commit ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0
+# Ruff tag 0.15.1 is based on commit a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d
 # at the time of this capture. We use the commit hash to ensure reproducible builds.
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0" }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0" }
-ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", rev = "a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", rev = "a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", rev = "a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d" }
+ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", rev = "a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d" }
 
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 ahash = "0.8.12"
