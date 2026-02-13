@@ -6,10 +6,12 @@ BytesIO -- for bytes
 import unittest
 from test import support
 
+import gc
 import io
 import _pyio as pyio
 import pickle
 import sys
+import weakref
 
 class IntLike:
     def __init__(self, num):
@@ -51,6 +53,12 @@ class MemorySeekTestMixin:
         bytesIo.seek(3)
         self.assertEqual(buf[3:], bytesIo.read())
         self.assertRaises(TypeError, bytesIo.seek, 0.0)
+
+        self.assertEqual(sys.maxsize, bytesIo.seek(sys.maxsize))
+        self.assertEqual(self.EOF, bytesIo.read(4))
+
+        self.assertEqual(sys.maxsize - 2, bytesIo.seek(sys.maxsize - 2))
+        self.assertEqual(self.EOF, bytesIo.read(4))
 
     def testTell(self):
         buf = self.buftype("1234567890")
@@ -263,8 +271,8 @@ class MemoryTestMixin:
         memio = self.ioclass(buf * 10)
 
         self.assertEqual(iter(memio), memio)
-        self.assertTrue(hasattr(memio, '__iter__'))
-        self.assertTrue(hasattr(memio, '__next__'))
+        self.assertHasAttr(memio, '__iter__')
+        self.assertHasAttr(memio, '__next__')
         i = 0
         for line in memio:
             self.assertEqual(line, buf)
@@ -463,6 +471,40 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         memio.close()
         self.assertRaises(ValueError, memio.getbuffer)
 
+    def test_getbuffer_empty(self):
+        memio = self.ioclass()
+        buf = memio.getbuffer()
+        self.assertEqual(bytes(buf), b"")
+        # Trying to change the size of the BytesIO while a buffer is exported
+        # raises a BufferError.
+        self.assertRaises(BufferError, memio.write, b'x')
+        buf2 = memio.getbuffer()
+        self.assertRaises(BufferError, memio.write, b'x')
+        buf.release()
+        self.assertRaises(BufferError, memio.write, b'x')
+        buf2.release()
+        memio.write(b'x')
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <memory at 0xbb894d200> is not None
+    def test_getbuffer_gc_collect(self):
+        memio = self.ioclass(b"1234567890")
+        buf = memio.getbuffer()
+        memiowr = weakref.ref(memio)
+        bufwr = weakref.ref(buf)
+        # Create a reference loop.
+        a = [buf]
+        a.append(a)
+        # The Python implementation emits an unraisable exception.
+        with support.catch_unraisable_exception():
+            del memio
+        del buf
+        del a
+        # The C implementation emits an unraisable exception.
+        with support.catch_unraisable_exception():
+            gc.collect()
+        self.assertIsNone(memiowr())
+        self.assertIsNone(bufwr())
+
     def test_read1(self):
         buf = self.buftype("1234567890")
         self.assertEqual(self.ioclass(buf).read1(), buf)
@@ -517,6 +559,14 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         memio.seek(1, 1)
         self.assertEqual(memio.read(), buf[1:])
 
+    def test_issue141311(self):
+        memio = self.ioclass()
+        # Seek allows PY_SSIZE_T_MAX, read should handle that.
+        # Past end of buffer read should always return 0 (EOF).
+        self.assertEqual(sys.maxsize, memio.seek(sys.maxsize))
+        buf = bytearray(2)
+        self.assertEqual(0, memio.readinto(buf))
+
     def test_unicode(self):
         memio = self.ioclass()
 
@@ -537,6 +587,75 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         buf = self.buftype("1234567890")
         self.ioclass(initial_bytes=buf)
         self.assertRaises(TypeError, self.ioclass, buf, foo=None)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
+    def test_write_concurrent_close(self):
+        class B:
+            def __buffer__(self, flags):
+                memio.close()
+                return memoryview(b"A")
+
+        memio = self.ioclass()
+        self.assertRaises(ValueError, memio.write, B())
+
+    # Prevent crashes when memio.write() or memio.writelines()
+    # concurrently mutates (e.g., closes or exports) 'memio'.
+    # See: https://github.com/python/cpython/issues/143378.
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
+    def test_writelines_concurrent_close(self):
+        class B:
+            def __buffer__(self, flags):
+                memio.close()
+                return memoryview(b"A")
+
+        memio = self.ioclass()
+        self.assertRaises(ValueError, memio.writelines, [B()])
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
+    def test_write_concurrent_export(self):
+        class B:
+            buf = None
+            def __buffer__(self, flags):
+                self.buf = memio.getbuffer()
+                return memoryview(b"A")
+
+        memio = self.ioclass()
+        self.assertRaises(BufferError, memio.write, B())
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
+    def test_writelines_concurrent_export(self):
+        class B:
+            buf = None
+            def __buffer__(self, flags):
+                self.buf = memio.getbuffer()
+                return memoryview(b"A")
+
+        memio = self.ioclass()
+        self.assertRaises(BufferError, memio.writelines, [B()])
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
+    def test_write_mutating_buffer(self):
+        # Test that buffer is exported only once during write().
+        # See: https://github.com/python/cpython/issues/143602.
+        class B:
+            count = 0
+            def __buffer__(self, flags):
+                self.count += 1
+                if self.count == 1:
+                    return memoryview(b"AAA")
+                else:
+                    return memoryview(b"BBBBBBBBB")
+
+        memio = self.ioclass(b'0123456789')
+        memio.seek(2)
+        b = B()
+        n = memio.write(b)
+
+        self.assertEqual(b.count, 1)
+        self.assertEqual(n, 3)
+        self.assertEqual(memio.getvalue(), b"01AAA56789")
+        self.assertEqual(memio.tell(), 5)
 
 
 class TextIOTestMixin:
@@ -724,54 +843,6 @@ class CBytesIOTest(PyBytesIOTest):
     ioclass = io.BytesIO
     UnsupportedOperation = io.UnsupportedOperation
 
-    def test_bytes_array(self):
-        super().test_bytes_array()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_flags(self):
-        super().test_flags()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_getbuffer(self):
-        super().test_getbuffer()
-
-    def test_init(self):
-        super().test_init()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_issue5449(self):
-        super().test_issue5449()
-
-    def test_read(self):
-        super().test_read()
-
-    def test_readline(self):
-        super().test_readline()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_relative_seek(self):
-        super().test_relative_seek()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_seek(self):
-        super().test_seek()
-
-    def test_subclassing(self):
-        super().test_subclassing()
-
-    def test_truncate(self):
-        super().test_truncate()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_write(self):
-        super().test_write()
-
     def test_getstate(self):
         memio = self.ioclass()
         state = memio.__getstate__()
@@ -783,8 +854,7 @@ class CBytesIOTest(PyBytesIOTest):
         memio.close()
         self.assertRaises(ValueError, memio.__getstate__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'bytes' but 'bytearray' found.
     def test_setstate(self):
         # This checks whether __setstate__ does proper input validation.
         memio = self.ioclass()
@@ -816,7 +886,7 @@ class CBytesIOTest(PyBytesIOTest):
 
     def _test_cow_mutation(self, mutation):
         # Common code for all BytesIO copy-on-write mutation tests.
-        imm = b' ' * 1024
+        imm = (' ' * 1024).encode("ascii")
         old_rc = sys.getrefcount(imm)
         memio = self.ioclass(imm)
         self.assertEqual(sys.getrefcount(imm), old_rc + 1)
@@ -857,79 +927,25 @@ class CBytesIOTest(PyBytesIOTest):
         memio = self.ioclass(ba)
         self.assertEqual(sys.getrefcount(ba), old_rc)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by writable
+    def test_flags(self):
+        return super().test_flags()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by write
+    def test_write(self):
+        return super().test_write()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u64
+    def test_seek(self):
+        return super().test_seek()
+
 class CStringIOTest(PyStringIOTest):
     ioclass = io.StringIO
     UnsupportedOperation = io.UnsupportedOperation
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_detach(self):
-        super().test_detach()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_flags(self):
-        super().test_flags()
-
-    def test_init(self):
-        super().test_init()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_issue5265(self):
-        super().test_issue5265()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newline_cr(self):
-        super().test_newline_cr()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newline_crlf(self):
-        super().test_newline_crlf()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newline_empty(self):
-        super().test_newline_empty()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newline_none(self):
-        super().test_newline_none()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newlines_property(self):
-        super().test_newlines_property()
-
-    def test_read(self):
-        super().test_read()
-
-    def test_readline(self):
-        super().test_readline()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_relative_seek(self):
-        super().test_relative_seek()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_seek(self):
-        super().test_seek()
-
-    def test_textio_properties(self):
-        super().test_textio_properties()
-
-    def test_truncate(self):
-        super().test_truncate()
-
     # XXX: For the Python version of io.StringIO, this is highly
     # dependent on the encoding used for the underlying buffer.
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 8 != 2
     def test_widechar(self):
         buf = self.buftype("\U0002030a\U00020347")
         memio = self.ioclass(buf)
@@ -954,8 +970,7 @@ class CStringIOTest(PyStringIOTest):
         memio.close()
         self.assertRaises(ValueError, memio.__getstate__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by __setstate__
     def test_setstate(self):
         # This checks whether __setstate__ does proper input validation.
         memio = self.ioclass()
@@ -973,53 +988,83 @@ class CStringIOTest(PyStringIOTest):
         memio.close()
         self.assertRaises(ValueError, memio.__setstate__, ("closed", "", 0, None))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
+    def test_issue5265(self):
+        return super().test_issue5265()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                      ++++
+    def test_newline_empty(self):
+        return super().test_newline_empty()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                   ^^^^^
+    def test_newline_none(self):
+        return super().test_newline_none()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by seek
+    def test_relative_seek(self):
+        return super().test_relative_seek()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by writable
+    def test_flags(self):
+        return super().test_flags()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'detach'
+    def test_detach(self):
+        return super().test_detach()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
+    def test_newlines_property(self):
+        return super().test_newlines_property()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u64
+    def test_seek(self):
+        return super().test_seek()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
+    def test_newline_cr(self):
+        return super().test_newline_cr()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
+    def test_newline_crlf(self):
+        return super().test_newline_crlf()
+
 
 class CStringIOPickleTest(PyStringIOPickleTest):
     UnsupportedOperation = io.UnsupportedOperation
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_issue5265(self):
-        super().test_issue5265()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newline_cr(self):
-        super().test_newline_cr()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newline_crlf(self):
-        super().test_newline_crlf()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newline_empty(self):
-        super().test_newline_empty()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newline_none(self):
-        super().test_newline_none()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newlines_property(self):
-        super().test_newlines_property()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_relative_seek(self):
-        super().test_relative_seek()
-
-    def test_textio_properties(self):
-        super().test_textio_properties()
 
     class ioclass(io.StringIO):
         def __new__(cls, *args, **kwargs):
             return pickle.loads(pickle.dumps(io.StringIO(*args, **kwargs)))
         def __init__(self, *args, **kwargs):
             pass
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
+    def test_issue5265(self):
+        return super().test_issue5265()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                      ++++
+    def test_newline_empty(self):
+        return super().test_newline_empty()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                   ^^^^^
+    def test_newline_none(self):
+        return super().test_newline_none()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by seek
+    def test_relative_seek(self):
+        return super().test_relative_seek()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
+    def test_newlines_property(self):
+        return super().test_newlines_property()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
+    def test_newline_cr(self):
+        return super().test_newline_cr()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
+    def test_newline_crlf(self):
+        return super().test_newline_crlf()
 
 
 if __name__ == '__main__':
