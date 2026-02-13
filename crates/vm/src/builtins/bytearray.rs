@@ -538,6 +538,15 @@ impl PyByteArray {
         self.borrow_buf_mut().reverse();
     }
 
+    #[pymethod]
+    fn resize(&self, size: isize, vm: &VirtualMachine) -> PyResult<()> {
+        if size < 0 {
+            return Err(vm.new_value_error("bytearray.resize(): new size must be >= 0".to_owned()));
+        }
+        self.try_resizable(vm)?.elements.resize(size as usize, 0);
+        Ok(())
+    }
+
     // TODO: Uncomment when Python adds __class_getitem__ to bytearray
     // #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
