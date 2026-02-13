@@ -138,11 +138,12 @@ impl Initializer for PyBaseObject {
             ));
         }
 
-        let typ_new = typ.slots.new.load().map(|f| f as usize);
-        let object_new = object_type.slots.new.load().map(|f| f as usize);
-
         // if (type->tp_new == object_new) → second error
-        if typ_new == object_new {
+        if let (Some(typ_new), Some(object_new)) = (
+            typ.get_attr(identifier!(vm, __new__)),
+            object_type.get_attr(identifier!(vm, __new__)),
+        ) && typ_new.is(&object_new)
+        {
             return Err(vm.new_type_error(format!(
                 "{}.__init__() takes exactly one argument (the instance to initialize)",
                 typ.name()
