@@ -671,7 +671,6 @@ class COperatorTestCase(OperatorTestCase, unittest.TestCase):
     def test_attrgetter_signature(self):
         return super().test_attrgetter_signature()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_itemgetter_signature(self):
         return super().test_itemgetter_signature()
 

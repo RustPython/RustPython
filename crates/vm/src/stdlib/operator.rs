@@ -446,7 +446,8 @@ mod _operator {
         }
     }
 
-    /// itemgetter(item, ...) --> itemgetter object
+    /// itemgetter(item, /, *items)
+    /// --
     ///
     /// Return a callable object that fetches the given item(s) from its operand.
     /// After f = itemgetter(2), the call f(r) returns r[2].
@@ -460,6 +461,11 @@ mod _operator {
 
     #[pyclass(with(Callable, Constructor, Representable))]
     impl PyItemGetter {
+        #[pygetset]
+        fn __text_signature__(&self) -> &'static str {
+            "(obj, /)"
+        }
+
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
