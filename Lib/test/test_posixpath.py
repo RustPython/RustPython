@@ -1084,15 +1084,11 @@ class PosixPathTest(unittest.TestCase):
                           ['usr/lib/', b'/usr/lib/python3'])
 
 
-# TODO: RUSTPYTHON
-@unittest.skip("TODO: RUSTPYTHON, flaky tests")
 class PosixCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     pathmodule = posixpath
     attributes = ['relpath', 'samefile', 'sameopenfile', 'samestat']
 
 
-# TODO: RUSTPYTHON
-@unittest.skipIf(os.getenv("CI"), "TODO: RUSTPYTHON,  FileExistsError: (17, 'File exists (os error 17)')")
 class PathLikeTests(unittest.TestCase):
 
     path = posixpath
