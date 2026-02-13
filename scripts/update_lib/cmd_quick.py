@@ -406,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
             # Collect hard dependencies for commit
             lib_deps = DEPENDENCIES.get(module_name, {})
             for dep_name in lib_deps.get("hard_deps", []):
-                dep_lib_path = construct_lib_path("Lib", dep_name)
+                dep_lib_path = pathlib.Path("Lib") / dep_name
                 if dep_lib_path.exists():
                     hard_deps_for_commit.append(dep_lib_path)
 

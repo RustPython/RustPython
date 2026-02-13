@@ -4393,6 +4393,12 @@ mod _io {
         }
     }
 
+    #[derive(FromArgs)]
+    struct BytesIOArgs {
+        #[pyarg(any, optional)]
+        initial_bytes: OptionalArg<Option<ArgBytesLike>>,
+    }
+
     #[pyattr]
     #[pyclass(name = "BytesIO", base = _BufferedIOBase)]
     #[derive(Debug)]
@@ -4417,15 +4423,17 @@ mod _io {
     }
 
     impl Initializer for BytesIO {
-        type Args = OptionalArg<Option<ArgBytesLike>>;
+        type Args = BytesIOArgs;
 
-        fn init(zelf: PyRef<Self>, object: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.exports.load() > 0 {
                 return Err(vm.new_buffer_error(
                     "Existing exports of data: object cannot be re-sized".to_owned(),
                 ));
             }
-            let raw_bytes = object
+
+            let raw_bytes = args
+                .initial_bytes
                 .flatten()
                 .map_or_else(Vec::new, |input| input.borrow_buf().to_vec());
             *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
@@ -4503,9 +4511,20 @@ mod _io {
             how: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<u64> {
-            self.buffer(vm)?
-                .seek(seekfrom(vm, offset, how)?)
-                .map_err(|err| os_err(vm, err))
+            let seek_from = seekfrom(vm, offset, how)?;
+            let mut buffer = self.buffer(vm)?;
+
+            // Handle negative positions by clamping to 0
+            match seek_from {
+                SeekFrom::Current(offset) if offset < 0 => {
+                    let current = buffer.tell();
+                    let new_pos = current.saturating_add_signed(offset);
+                    buffer
+                        .seek(SeekFrom::Start(new_pos))
+                        .map_err(|err| os_err(vm, err))
+                }
+                _ => buffer.seek(seek_from).map_err(|err| os_err(vm, err)),
+            }
         }
 
         #[pymethod]
@@ -4534,8 +4553,14 @@ mod _io {
         }
 
         #[pymethod]
-        fn close(&self) {
+        fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.exports.load() > 0 {
+                return Err(vm.new_buffer_error(
+                    "Existing exports of data: object cannot be closed".to_owned(),
+                ));
+            }
             self.closed.store(true);
+            Ok(())
         }
 
         #[pymethod]
@@ -4602,6 +4627,9 @@ mod _io {
     impl PyRef<BytesIO> {
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
+            if self.closed.load() {
+                return Err(vm.new_value_error("I/O operation on closed file.".to_owned()));
+            }
             let len = self.buffer.read().cursor.get_ref().len();
             let buffer = PyBuffer::new(
                 self.into(),
@@ -4931,14 +4959,19 @@ mod _io {
     }
 
     fn create_unsupported_operation(ctx: &Context) -> PyTypeRef {
+        use crate::builtins::type_::PyAttributes;
         use crate::types::PyTypeSlots;
+
+        let mut attrs = PyAttributes::default();
+        attrs.insert(identifier!(ctx, __module__), ctx.new_str("io").into());
+
         PyType::new_heap(
             "UnsupportedOperation",
             vec![
                 ctx.exceptions.os_error.to_owned(),
                 ctx.exceptions.value_error.to_owned(),
             ],
-            Default::default(),
+            attrs,
             PyTypeSlots::heap_default(),
             ctx.types.type_type.to_owned(),
             ctx,
