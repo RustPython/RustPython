@@ -1,6 +1,7 @@
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
+use crate::vm::PyMethod;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef},
@@ -534,7 +535,30 @@ pub(crate) fn richcompare_wrapper(
 }
 
 fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(&zelf, identifier!(vm, __iter__), ())
+    fn method_is_none(method: &PyMethod, vm: &VirtualMachine) -> bool {
+        match method {
+            PyMethod::Attribute(meth) => vm.is_none(meth),
+            _ => false,
+        }
+    }
+
+    //
+    // look-up '__iter__' method
+    //
+    let method_ident = identifier!(vm, __iter__);
+    let method = vm
+        .get_special_method(&zelf, method_ident)?
+        .ok_or_else(|| vm.new_attribute_error(method_ident.as_str().to_owned()))?;
+
+    //
+    // setting '__iter__' method to 'None' value is used
+    // to mark non-iterable objects, raise TypeError
+    //
+    if method_is_none(&method, vm) {
+        return Err(vm.new_type_error(format!("'{}' object is not iterable", zelf.class().name())));
+    }
+
+    method.invoke((), vm)
 }
 
 fn bool_wrapper(num: PyNumber<'_>, vm: &VirtualMachine) -> PyResult<bool> {
