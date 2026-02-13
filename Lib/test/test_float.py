@@ -287,7 +287,6 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqual(actual, expected_value)
         self.assertIs(type(actual), expected_type)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'float' has no attribute 'from_number'
     def test_from_number(self, cls=float):
         def eq(actual, expected):
             self.assertEqual(actual, expected)
@@ -312,7 +311,6 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertRaises(TypeError, cls.from_number, {})
         self.assertRaises(TypeError, cls.from_number)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'FloatSubclass' has no attribute 'from_number'
     def test_from_number_subclass(self):
         self.test_from_number(FloatSubclass)
 
