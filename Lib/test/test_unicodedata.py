@@ -120,7 +120,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
             char = chr(i)
             self.assertRaises(ValueError, self.db.name, char)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: undefined character name 'LATIN SMLL LETR A'
     def test_lookup_nonexistant(self):
         # just make sure that lookup can fail
         for nonexistent in [
@@ -133,7 +132,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         ]:
             self.assertRaises(KeyError, self.db.lookup, nonexistent)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'digit'
     def test_digit(self):
         self.assertEqual(self.db.digit('A', None), None)
         self.assertEqual(self.db.digit('9'), 9)
@@ -146,7 +144,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.digit, 'xx')
         self.assertRaises(ValueError, self.db.digit, 'x')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'numeric'
     def test_numeric(self):
         self.assertEqual(self.db.numeric('A',None), None)
         self.assertEqual(self.db.numeric('9'), 9)
@@ -160,7 +157,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.numeric, 'xx')
         self.assertRaises(ValueError, self.db.numeric, 'x')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'decimal'
     def test_decimal(self):
         self.assertEqual(self.db.decimal('A',None), None)
         self.assertEqual(self.db.decimal('9'), 9)
@@ -193,7 +189,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.bidirectional)
         self.assertRaises(TypeError, self.db.bidirectional, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'decomposition'
     def test_decomposition(self):
         self.assertEqual(self.db.decomposition('\uFFFE'),'')
         self.assertEqual(self.db.decomposition('\u00bc'), '<fraction> 0031 2044 0034')
@@ -210,7 +205,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.mirrored)
         self.assertRaises(TypeError, self.db.mirrored, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'combining'
     def test_combining(self):
         self.assertEqual(self.db.combining('\uFFFE'), 0)
         self.assertEqual(self.db.combining('a'), 0)
@@ -313,7 +307,6 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
             "(can't load unicodedata module)"
         self.assertIn(error, result.err.decode("ascii"))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'decimal'
     def test_decimal_numeric_consistent(self):
         # Test that decimal and numeric are consistent,
         # i.e. if a character has a decimal value,
@@ -327,7 +320,6 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
                 count += 1
         self.assertTrue(count >= 10) # should have tested at least the ASCII digits
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'digit'
     def test_digit_numeric_consistent(self):
         # Test that digit and numeric are consistent,
         # i.e. if a character has a digit value,

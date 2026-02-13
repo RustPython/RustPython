@@ -203,7 +203,6 @@ class UnicodeNamesTest(unittest.TestCase):
                 with self.assertRaises(KeyError):
                     unicodedata.ucd_3_2_0.lookup(seqname)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_errors(self):
         self.assertRaises(TypeError, unicodedata.name)
         self.assertRaises(TypeError, unicodedata.name, 'xx')
