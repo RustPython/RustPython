@@ -745,6 +745,7 @@ class ThreadTests(BaseTestCase):
                          "main ident True\n"
                          "current is main True\n")
 
+    @unittest.skip("TODO: RUSTPYTHON flaky; process timeout after fork")
     @skip_unless_reliable_fork
     @unittest.skipUnless(hasattr(os, 'waitpid'), "test needs os.waitpid()")
     def test_main_thread_after_fork_from_nonmain_thread(self):

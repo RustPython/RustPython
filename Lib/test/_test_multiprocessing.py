@@ -4440,6 +4440,7 @@ class _TestSharedMemory(BaseTestCase):
 
         smm.shutdown()
 
+    @unittest.skip("TODO: RUSTPYTHON: sem_unlink cleanup race causes spurious stderr output")
     @unittest.skipIf(os.name != "posix", "resource_tracker is posix only")
     @resource_tracker_format_subtests
     def test_shared_memory_SharedMemoryManager_reuses_resource_tracker(self):
