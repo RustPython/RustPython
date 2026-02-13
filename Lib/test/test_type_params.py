@@ -243,7 +243,6 @@ class TypeParamsAccessTest(unittest.TestCase):
         A, B = func.__type_params__
         self.assertEqual(func.__annotations__["a"], dict[A, B])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: the symbol 'list' must be present in the symbol table
     def test_function_access_02(self):
         code = """
             def func[A](a = list[A]()):
@@ -866,7 +865,6 @@ class TypeParamsManglingTest(unittest.TestCase):
         self.assertEqual(Outer.Inner._Inner__x, "inner")
         self.assertEqual(Outer._Outer__after, "after")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_Derived__Base' is not defined
     def test_no_mangling_in_bases(self):
         ns = run_code("""
             class __Base:
@@ -880,7 +878,6 @@ class TypeParamsManglingTest(unittest.TestCase):
         self.assertEqual(Derived.__bases__, (ns["__Base"], Generic))
         self.assertEqual(Derived.kwargs, {"__kwarg": 1})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: the symbol '_Y__X' must be present in the symbol table
     def test_no_mangling_in_nested_scopes(self):
         ns = run_code("""
             from test.test_type_params import make_base
@@ -911,7 +908,6 @@ class TypeParamsManglingTest(unittest.TestCase):
         base3 = Y.__bases__[3]
         self.assertEqual(list(base3.__arg__), [ns["__X"]])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: the symbol '_Foo__T' must be present in the symbol table
     def test_type_params_are_mangled(self):
         ns = run_code("""
             from test.test_type_params import make_base

@@ -23,6 +23,25 @@ pub(crate) mod typevar {
         call_typing_func_object(vm, "_type_check", (arg, message_str))
     }
 
+    fn variance_repr(
+        name: &str,
+        infer_variance: bool,
+        covariant: bool,
+        contravariant: bool,
+    ) -> String {
+        if infer_variance {
+            return name.to_string();
+        }
+        let prefix = if covariant {
+            '+'
+        } else if contravariant {
+            '-'
+        } else {
+            '~'
+        };
+        format!("{prefix}{name}")
+    }
+
     /// Get the module of the caller frame, similar to CPython's caller() function.
     /// Returns the module name or None if not found.
     ///
@@ -270,14 +289,12 @@ pub(crate) mod typevar {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let name = zelf.name.str(vm)?;
-            let repr = if zelf.covariant {
-                format!("+{name}")
-            } else if zelf.contravariant {
-                format!("-{name}")
-            } else {
-                format!("~{name}")
-            };
-            Ok(repr)
+            Ok(variance_repr(
+                name.as_str(),
+                zelf.infer_variance,
+                zelf.covariant,
+                zelf.contravariant,
+            ))
         }
     }
 
@@ -601,7 +618,10 @@ pub(crate) mod typevar {
                 return Err(vm.new_type_error("ParamSpec() takes at most 1 positional argument"));
             };
 
-            let bound = kwargs.swap_remove("bound");
+            let bound = kwargs
+                .swap_remove("bound")
+                .map(|b| type_check(b, "Bound must be a type.", vm))
+                .transpose()?;
             let covariant = kwargs
                 .swap_remove("covariant")
                 .map(|v| v.try_to_bool(vm))
@@ -665,7 +685,12 @@ pub(crate) mod typevar {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let name = zelf.__name__().str(vm)?;
-            Ok(format!("~{name}"))
+            Ok(variance_repr(
+                name.as_str(),
+                zelf.infer_variance,
+                zelf.covariant,
+                zelf.contravariant,
+            ))
         }
     }
 
@@ -902,35 +927,19 @@ pub(crate) mod typevar {
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
-            fn eq(
-                zelf: &crate::Py<ParamSpecArgs>,
-                other: PyObjectRef,
-                _vm: &VirtualMachine,
-            ) -> PyResult<bool> {
-                // First check if other is also ParamSpecArgs
-                if let Ok(other_args) = other.downcast::<ParamSpecArgs>() {
-                    // Check if they have the same origin
-                    return Ok(zelf.__origin__.is(&other_args.__origin__));
+            op.eq_only(|| {
+                if other.class().is(zelf.class())
+                    && let Some(other_args) = other.downcast_ref::<ParamSpecArgs>()
+                {
+                    let eq = zelf.__origin__.rich_compare_bool(
+                        &other_args.__origin__,
+                        PyComparisonOp::Eq,
+                        vm,
+                    )?;
+                    return Ok(PyComparisonValue::Implemented(eq));
                 }
-                Ok(false)
-            }
-            match op {
-                PyComparisonOp::Eq => {
-                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
-                        Ok(result.into())
-                    } else {
-                        Ok(PyComparisonValue::NotImplemented)
-                    }
-                }
-                PyComparisonOp::Ne => {
-                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
-                        Ok((!result).into())
-                    } else {
-                        Ok(PyComparisonValue::NotImplemented)
-                    }
-                }
-                _ => Ok(PyComparisonValue::NotImplemented),
-            }
+                Ok(PyComparisonValue::NotImplemented)
+            })
         }
     }
 
@@ -981,35 +990,19 @@ pub(crate) mod typevar {
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
-            fn eq(
-                zelf: &crate::Py<ParamSpecKwargs>,
-                other: PyObjectRef,
-                _vm: &VirtualMachine,
-            ) -> PyResult<bool> {
-                // First check if other is also ParamSpecKwargs
-                if let Ok(other_kwargs) = other.downcast::<ParamSpecKwargs>() {
-                    // Check if they have the same origin
-                    return Ok(zelf.__origin__.is(&other_kwargs.__origin__));
+            op.eq_only(|| {
+                if other.class().is(zelf.class())
+                    && let Some(other_kwargs) = other.downcast_ref::<ParamSpecKwargs>()
+                {
+                    let eq = zelf.__origin__.rich_compare_bool(
+                        &other_kwargs.__origin__,
+                        PyComparisonOp::Eq,
+                        vm,
+                    )?;
+                    return Ok(PyComparisonValue::Implemented(eq));
                 }
-                Ok(false)
-            }
-            match op {
-                PyComparisonOp::Eq => {
-                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
-                        Ok(result.into())
-                    } else {
-                        Ok(PyComparisonValue::NotImplemented)
-                    }
-                }
-                PyComparisonOp::Ne => {
-                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
-                        Ok((!result).into())
-                    } else {
-                        Ok(PyComparisonValue::NotImplemented)
-                    }
-                }
-                _ => Ok(PyComparisonValue::NotImplemented),
-            }
+                Ok(PyComparisonValue::NotImplemented)
+            })
         }
     }
 
