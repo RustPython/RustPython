@@ -146,7 +146,7 @@ class TestPy2MigrationHint(unittest.TestCase):
     if print statement is executed as in Python 2.
     """
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_normal_string(self):
         python2_print_str = 'print "Hello World"'
         with self.assertRaises(SyntaxError) as context:
@@ -155,7 +155,7 @@ class TestPy2MigrationHint(unittest.TestCase):
         self.assertIn("Missing parentheses in call to 'print'. Did you mean print(...)",
                 str(context.exception))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_string_with_soft_space(self):
         python2_print_str = 'print "Hello World",'
         with self.assertRaises(SyntaxError) as context:
@@ -164,7 +164,7 @@ class TestPy2MigrationHint(unittest.TestCase):
         self.assertIn("Missing parentheses in call to 'print'. Did you mean print(...)",
                 str(context.exception))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_string_with_excessive_whitespace(self):
         python2_print_str = 'print  "Hello World", '
         with self.assertRaises(SyntaxError) as context:
@@ -173,7 +173,7 @@ class TestPy2MigrationHint(unittest.TestCase):
         self.assertIn("Missing parentheses in call to 'print'. Did you mean print(...)",
                 str(context.exception))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_string_with_leading_whitespace(self):
         python2_print_str = '''if 1:
             print "Hello World"
@@ -187,7 +187,7 @@ class TestPy2MigrationHint(unittest.TestCase):
     # bpo-32685: Suggestions for print statement should be proper when
     # it is in the same line as the header of a compound statement
     # and/or followed by a semicolon
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_string_with_semicolon(self):
         python2_print_str = 'print p;'
         with self.assertRaises(SyntaxError) as context:
@@ -196,7 +196,7 @@ class TestPy2MigrationHint(unittest.TestCase):
         self.assertIn("Missing parentheses in call to 'print'. Did you mean print(...)",
                 str(context.exception))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_string_in_loop_on_same_line(self):
         python2_print_str = 'for i in s: print i'
         with self.assertRaises(SyntaxError) as context:
@@ -204,39 +204,6 @@ class TestPy2MigrationHint(unittest.TestCase):
 
         self.assertIn("Missing parentheses in call to 'print'. Did you mean print(...)",
                 str(context.exception))
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_stream_redirection_hint_for_py2_migration(self):
-        # Test correct hint produced for Py2 redirection syntax
-        with self.assertRaises(TypeError) as context:
-            print >> sys.stderr, "message"
-        self.assertIn('Did you mean "print(<message>, '
-                'file=<output_stream>)"?', str(context.exception))
-
-        # Test correct hint is produced in the case where RHS implements
-        # __rrshift__ but returns NotImplemented
-        with self.assertRaises(TypeError) as context:
-            print >> 42
-        self.assertIn('Did you mean "print(<message>, '
-                'file=<output_stream>)"?', str(context.exception))
-
-        # Test stream redirection hint is specific to print
-        with self.assertRaises(TypeError) as context:
-            max >> sys.stderr
-        self.assertNotIn('Did you mean ', str(context.exception))
-
-        # Test stream redirection hint is specific to rshift
-        with self.assertRaises(TypeError) as context:
-            print << sys.stderr
-        self.assertNotIn('Did you mean', str(context.exception))
-
-        # Ensure right operand implementing rrshift still works
-        class OverrideRRShift:
-            def __rrshift__(self, lhs):
-                return 42 # Force result independent of LHS
-
-        self.assertEqual(print >> OverrideRRShift(), 42)
-
 
 
 if __name__ == "__main__":
