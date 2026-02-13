@@ -668,7 +668,6 @@ class PyOperatorTestCase(OperatorTestCase, unittest.TestCase):
 class COperatorTestCase(OperatorTestCase, unittest.TestCase):
     module = c_operator
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_attrgetter_signature(self):
         return super().test_attrgetter_signature()
 

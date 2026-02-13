@@ -340,7 +340,8 @@ mod _operator {
         Ok(res)
     }
 
-    /// attrgetter(attr, ...) --> attrgetter object
+    /// attrgetter(attr, /, *attrs)
+    /// --
     ///
     /// Return a callable object that fetches the given attribute(s) from its operand.
     /// After f = attrgetter('name'), the call f(r) returns r.name.
@@ -356,6 +357,11 @@ mod _operator {
 
     #[pyclass(with(Callable, Constructor, Representable))]
     impl PyAttrGetter {
+        #[pygetset]
+        fn __text_signature__(&self) -> &'static str {
+            "(obj, /)"
+        }
+
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
             let attrs = vm
