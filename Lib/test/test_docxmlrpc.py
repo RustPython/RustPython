@@ -88,8 +88,6 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
         self.thread.join()
         self.serv.server_close()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_get_response(self):
         self.client.request("GET", "/")
         response = self.client.getresponse()
@@ -119,7 +117,6 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
 
         response.read()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     def test_lambda(self):
         """Test that lambda functionality stays the same.  The output produced
         currently is, I suspect invalid because of the unencoded brackets in the
@@ -134,8 +131,6 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
                        b'&lt;lambda&gt;</strong></a>(x, y)</dt></dl>'),
                       response.read())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @make_request_and_skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_autolinking(self):
@@ -160,7 +155,6 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
              b'auto-linked,&nbsp;too:<br>\n<a href="http://google.com">'
              b'http://google.com</a>.</tt></dd></dl>'), response)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     @make_request_and_skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_system_methods(self):
@@ -190,7 +184,6 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
              b'<br>\nThis&nbsp;server&nbsp;does&nbsp;NOT&nbsp;support&nbsp;system'
              b'.methodSignature.</tt></dd></dl>'), response)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     def test_autolink_dotted_methods(self):
         """Test that selfdot values are made strong automatically in the
         documentation."""
@@ -200,7 +193,6 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
         self.assertIn(b"""Try&nbsp;self.<strong>add</strong>,&nbsp;too.""",
                       response.read())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; http.client.RemoteDisconnected: Remote end closed connection without response
     def test_annotations(self):
         """ Test that annotations works as expected """
         self.client.request("GET", "/")
@@ -214,7 +206,6 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
              b'method_annotation</strong></a>(x: bytes)</dt></dl>'),
             response.read())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: HTMLDoc.heading() missing 2 required positional arguments: "fgcol" and "bgcol"
     def test_server_title_escape(self):
         # bpo-38243: Ensure that the server title and documentation
         # are escaped for HTML.

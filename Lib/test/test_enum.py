@@ -5042,7 +5042,6 @@ class TestStdLib(unittest.TestCase):
         MAGENTA = 2
         YELLOW = 3
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; |      is a read-only view of the internal mapping.
     def test_pydoc(self):
         # indirectly test __objclass__
         if StrEnum.__doc__ is None:
