@@ -397,7 +397,7 @@ impl VirtualMachine {
                     )?;
                     let mode = if write { "w" } else { "r" };
                     stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
-                    Ok(stdio)
+                    Ok::<_, self::PyBaseExceptionRef>(stdio)
                 };
 
                 // Sandbox stdio: lightweight wrapper using Rust's std::io directly
