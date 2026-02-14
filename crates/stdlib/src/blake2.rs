@@ -9,11 +9,11 @@ mod _blake2 {
 
     #[pyfunction]
     fn blake2b(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_blake2b(args).into_pyobject(vm))
+        Ok(local_blake2b(args, vm)?.into_pyobject(vm))
     }
 
     #[pyfunction]
     fn blake2s(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_blake2s(args).into_pyobject(vm))
+        Ok(local_blake2s(args, vm)?.into_pyobject(vm))
     }
 }
