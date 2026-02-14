@@ -546,34 +546,6 @@ class UTF32Test(ReadTest, unittest.TestCase):
         self.assertEqual('\U00010000' * 1024,
                          codecs.utf_32_decode(encoded_be)[0])
 
-    def test_bug1098990_a(self):
-        return super().test_bug1098990_a()
-
-    def test_bug1098990_b(self):
-        return super().test_bug1098990_b()
-
-    def test_bug1175396(self):
-        return super().test_bug1175396()
-
-    def test_incremental_surrogatepass(self):
-        return super().test_incremental_surrogatepass()
-
-    def test_mixed_readline_and_read(self):
-        return super().test_mixed_readline_and_read()
-
-    def test_readline(self):
-        return super().test_readline()
-
-    def test_readlinequeue(self):
-        return super().test_readlinequeue()
-
-
-
-
-
-
-
-
 
 class UTF32LETest(ReadTest, unittest.TestCase):
     encoding = "utf-32-le"
@@ -621,13 +593,6 @@ class UTF32LETest(ReadTest, unittest.TestCase):
                          codecs.utf_32_le_decode(encoded)[0])
 
 
-
-
-
-
-
-
-
 class UTF32BETest(ReadTest, unittest.TestCase):
     encoding = "utf-32-be"
     ill_formed_sequence = b"\x00\x00\xdc\x80"
@@ -672,13 +637,6 @@ class UTF32BETest(ReadTest, unittest.TestCase):
         encoded = b'\x00\x01\x00\x00' * 1024
         self.assertEqual('\U00010000' * 1024,
                          codecs.utf_32_be_decode(encoded)[0])
-
-
-
-
-
-
-
 
 
 class UTF16Test(ReadTest, unittest.TestCase):
@@ -779,10 +737,6 @@ class UTF16Test(ReadTest, unittest.TestCase):
             self.assertIn("can't have text and binary mode at once",
                           str(cm.exception))
 
-    def test_incremental_surrogatepass(self):
-        return super().test_incremental_surrogatepass()
-
-
 
 class UTF16LETest(ReadTest, unittest.TestCase):
     encoding = "utf-16-le"
@@ -828,10 +782,6 @@ class UTF16LETest(ReadTest, unittest.TestCase):
         self.assertEqual(b'\x00\xd8\x03\xde'.decode(self.encoding),
                          "\U00010203")
 
-    def test_incremental_surrogatepass(self):
-        return super().test_incremental_surrogatepass()
-
-
 class UTF16BETest(ReadTest, unittest.TestCase):
     encoding = "utf-16-be"
     ill_formed_sequence = b"\xdc\x80"
@@ -875,10 +825,6 @@ class UTF16BETest(ReadTest, unittest.TestCase):
                          b'\xd8\x00\xde\x03')
         self.assertEqual(b'\xd8\x00\xde\x03'.decode(self.encoding),
                          "\U00010203")
-
-    def test_incremental_surrogatepass(self):
-        return super().test_incremental_surrogatepass()
-
 
 class UTF8Test(ReadTest, unittest.TestCase):
     encoding = "utf-8"
@@ -1106,15 +1052,6 @@ class UTF7Test(ReadTest, unittest.TestCase):
         for raw, expected in tests:
             with self.subTest(raw=raw):
                 self.assertEqual(raw.decode('utf-7', 'replace'), expected)
-
-    def test_readline(self):
-        return super().test_readline()
-
-    def test_incremental_surrogatepass(self):
-        return super().test_incremental_surrogatepass()
-
-
-
 
 
 class UTF16ExTest(unittest.TestCase):
@@ -2843,11 +2780,6 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
     def test_incremental_surrogatepass(self):
         return super().test_incremental_surrogatepass()
 
-    def test_readline(self):
-        return super().test_readline()
-
-
-
 class RawUnicodeEscapeTest(ReadTest, unittest.TestCase):
     encoding = "raw-unicode-escape"
 
@@ -2929,14 +2861,6 @@ class RawUnicodeEscapeTest(ReadTest, unittest.TestCase):
                 '\x00\t\n\r\\\xff\uffff\U00010000',
             ]
         )
-
-    def test_incremental_surrogatepass(self):
-        return super().test_incremental_surrogatepass()
-
-    def test_readline(self):
-        return super().test_readline()
-
-
 
 
 class EscapeEncodeTest(unittest.TestCase):
@@ -3548,7 +3472,7 @@ class CodePageTest(unittest.TestCase):
             (b'(\xbf)', 'surrogatepass', None),
         ))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; # TODO: RUSTPYTHON
     def test_cp_utf7(self):
         cp = 65000
         self.check_encode(cp, (
