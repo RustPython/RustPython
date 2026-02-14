@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-import stat
 import socket
 import email
 import email.message
@@ -13,7 +12,6 @@ from test.support import import_helper
 from test.support import os_helper
 from test.support import refleak_helper
 from test.support import socket_helper
-from test.support.testcase import ExtraAssertions
 import unittest
 import textwrap
 import mailbox
@@ -1267,7 +1265,7 @@ class _TestMboxMMDF(_TestSingleFile):
         self._box.close()
 
 
-class TestMbox(_TestMboxMMDF, unittest.TestCase, ExtraAssertions):
+class TestMbox(_TestMboxMMDF, unittest.TestCase):
 
     _factory = lambda self, path, factory=None: mailbox.mbox(path, factory)
 
