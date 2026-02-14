@@ -295,8 +295,6 @@ class HashLibTestCase(unittest.TestCase):
                 self.assertIsInstance(h.digest(), bytes)
                 self.assertEqual(hexstr(h.digest()), h.hexdigest())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_digest_length_overflow(self):
         # See issue #34922
         large_sizes = (2**29, 2**32-10, 2**32+10, 2**61, 2**64-10, 2**64+10)
