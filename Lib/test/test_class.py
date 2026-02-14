@@ -741,7 +741,6 @@ class ClassTests(unittest.TestCase):
         with self.assertRaisesRegex(AttributeError, error_msg):
             del B().z
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testConstructorErrorMessages(self):
         # bpo-31506: Improves the error message logic for object_new & object_init
 
