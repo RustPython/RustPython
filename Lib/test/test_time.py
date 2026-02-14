@@ -208,8 +208,6 @@ class TimeTestCase(unittest.TestCase):
                     except ValueError as exc:
                         self.assertEqual(str(exc), 'Invalid format string')
 
-    # TODO: RUSTPYTHON; chrono fallback on Windows does not preserve surrogates
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
     def test_strftime_special(self):
         tt = time.gmtime(self.t)
         s1 = time.strftime('%c', tt)
@@ -294,8 +292,6 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(ValueError, func,
                             (1900, 1, 1, 0, 0, 0, 0, 367, -1))
 
-    # TODO: RUSTPYTHON; chrono on Windows rejects month=0/day=0 and raises wrong error type
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
     def test_strftime_bounding_check(self):
         self._bounds_checking(lambda tup: time.strftime('', tup))
 
@@ -312,8 +308,6 @@ class TimeTestCase(unittest.TestCase):
                     except ValueError:
                         pass
 
-    # TODO: RUSTPYTHON; chrono on Windows does not handle month=0/day=0 in struct_time
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
     def test_default_values_for_zero(self):
         # Make sure that using all zeros uses the proper default
         # values.  No test for daylight savings since strftime() does
@@ -324,8 +318,6 @@ class TimeTestCase(unittest.TestCase):
             result = time.strftime("%Y %m %d %H %M %S %w %j", (2000,)+(0,)*8)
         self.assertEqual(expected, result)
 
-    # TODO: RUSTPYTHON; chrono %Z on Windows not compatible with strptime
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
     @skip_if_buggy_ucrt_strfptime
     def test_strptime(self):
         # Should be able to go round-trip from strftime to strptime without
@@ -382,13 +374,9 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(TypeError, time.asctime, ())
         self.assertRaises(TypeError, time.asctime, (0,) * 10)
 
-    # TODO: RUSTPYTHON; chrono on Windows rejects month=0/day=0
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
     def test_asctime_bounding_check(self):
         self._bounds_checking(time.asctime)
 
-    # TODO: RUSTPYTHON; chrono on Windows formats negative years differently
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
     def test_ctime(self):
         t = time.mktime((1973, 9, 16, 1, 3, 52, 0, 0, -1))
         self.assertEqual(time.ctime(t), 'Sun Sep 16 01:03:52 1973')
@@ -761,37 +749,13 @@ class _Test4dYear:
 
 
 class TestAsctime4dyear(_TestAsctimeYear, _Test4dYear, unittest.TestCase):
-    # TODO: RUSTPYTHON; chrono on Windows cannot handle month=0/day=0 in struct_time
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
-    def test_year(self, *args, **kwargs):
-        return super().test_year(*args, **kwargs)
-
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
-    def test_large_year(self):
-        return super().test_large_year()
-
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
-    def test_negative(self):
-        return super().test_negative()
+    pass
 
 class TestStrftime4dyear(_TestStrftimeYear, _Test4dYear, unittest.TestCase):
-    # TODO: RUSTPYTHON; chrono on Windows cannot handle month=0/day=0 in struct_time
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
-    def test_year(self, *args, **kwargs):
-        return super().test_year(*args, **kwargs)
-
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
-    def test_large_year(self):
-        return super().test_large_year()
-
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
-    def test_negative(self):
-        return super().test_negative()
+    pass
 
 
 class TestPytime(unittest.TestCase):
-    # TODO: RUSTPYTHON; chrono %Z on Windows gives offset instead of timezone name
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
     @skip_if_buggy_ucrt_strfptime
     @unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
     def test_localtime_timezone(self):
