@@ -75,6 +75,28 @@ pub mod _hashlib {
         }
     }
 
+    const KECCAK_WIDTH_BITS: usize = 1600;
+
+    fn keccak_suffix(name: &str) -> Option<u8> {
+        match name {
+            "sha3_224" | "sha3_256" | "sha3_384" | "sha3_512" => Some(0x06),
+            "shake_128" | "shake_256" => Some(0x1f),
+            _ => None,
+        }
+    }
+
+    fn keccak_rate_bits(name: &str, block_size: usize) -> Option<usize> {
+        keccak_suffix(name).map(|_| block_size * 8)
+    }
+
+    fn keccak_capacity_bits(name: &str, block_size: usize) -> Option<usize> {
+        keccak_rate_bits(name, block_size).map(|rate| KECCAK_WIDTH_BITS - rate)
+    }
+
+    fn missing_hash_attribute<T>(vm: &VirtualMachine, class_name: &str, attr: &str) -> PyResult<T> {
+        Err(vm.new_attribute_error(format!("'{class_name}' object has no attribute '{attr}'")))
+    }
+
     #[derive(FromArgs)]
     #[allow(unused)]
     struct XofDigestArgs {
@@ -130,6 +152,32 @@ pub mod _hashlib {
         #[pygetset]
         fn block_size(&self) -> usize {
             self.ctx.read().block_size()
+        }
+
+        #[pygetset]
+        fn _capacity_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            let block_size = self.ctx.read().block_size();
+            match keccak_capacity_bits(&self.name, block_size) {
+                Some(capacity) => Ok(capacity),
+                None => missing_hash_attribute(vm, "HASH", "_capacity_bits"),
+            }
+        }
+
+        #[pygetset]
+        fn _rate_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            let block_size = self.ctx.read().block_size();
+            match keccak_rate_bits(&self.name, block_size) {
+                Some(rate) => Ok(rate),
+                None => missing_hash_attribute(vm, "HASH", "_rate_bits"),
+            }
+        }
+
+        #[pygetset]
+        fn _suffix(&self, vm: &VirtualMachine) -> PyResult<PyBytes> {
+            match keccak_suffix(&self.name) {
+                Some(suffix) => Ok(vec![suffix].into()),
+                None => missing_hash_attribute(vm, "HASH", "_suffix"),
+            }
         }
 
         #[pymethod]
@@ -203,6 +251,32 @@ pub mod _hashlib {
         #[pygetset]
         fn block_size(&self) -> usize {
             self.ctx.read().block_size()
+        }
+
+        #[pygetset]
+        fn _capacity_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            let block_size = self.ctx.read().block_size();
+            match keccak_capacity_bits(&self.name, block_size) {
+                Some(capacity) => Ok(capacity),
+                None => missing_hash_attribute(vm, "HASHXOF", "_capacity_bits"),
+            }
+        }
+
+        #[pygetset]
+        fn _rate_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            let block_size = self.ctx.read().block_size();
+            match keccak_rate_bits(&self.name, block_size) {
+                Some(rate) => Ok(rate),
+                None => missing_hash_attribute(vm, "HASHXOF", "_rate_bits"),
+            }
+        }
+
+        #[pygetset]
+        fn _suffix(&self, vm: &VirtualMachine) -> PyResult<PyBytes> {
+            match keccak_suffix(&self.name) {
+                Some(suffix) => Ok(vec![suffix].into()),
+                None => missing_hash_attribute(vm, "HASHXOF", "_suffix"),
+            }
         }
 
         #[pymethod]
