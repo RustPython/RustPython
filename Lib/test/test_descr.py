@@ -1853,7 +1853,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             __new__ = object.__new__
         self.assertRaises(TypeError, C)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_object_new(self):
         class A(object):
             pass
