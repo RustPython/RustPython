@@ -68,6 +68,11 @@ pub struct SymbolTable {
 
     /// Whether `from __future__ import annotations` is active
     pub future_annotations: bool,
+
+    /// Names of type parameters that should still be mangled in type param scopes.
+    /// When Some, only names in this set are mangled; other names are left unmangled.
+    /// Set on type param blocks for generic classes; inherited by non-class child scopes.
+    pub mangled_names: Option<IndexSet<String>>,
 }
 
 impl SymbolTable {
@@ -88,6 +93,7 @@ impl SymbolTable {
             annotation_block: None,
             has_conditional_annotations: false,
             future_annotations: false,
+            mangled_names: None,
         }
     }
 
@@ -905,14 +911,26 @@ impl SymbolTableBuilder {
                     )
             })
             .unwrap_or(false);
-        let table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
+        // Inherit mangled_names from parent for non-class scopes
+        let inherited_mangled_names = self
+            .tables
+            .last()
+            .and_then(|t| t.mangled_names.clone())
+            .filter(|_| typ != CompilerScope::Class);
+        let mut table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
+        table.mangled_names = inherited_mangled_names;
         self.tables.push(table);
         // Save parent's varnames and start fresh for the new scope
         self.varnames_stack
             .push(core::mem::take(&mut self.current_varnames));
     }
 
-    fn enter_type_param_block(&mut self, name: &str, line_number: u32) -> SymbolTableResult {
+    fn enter_type_param_block(
+        &mut self,
+        name: &str,
+        line_number: u32,
+        for_class: bool,
+    ) -> SymbolTableResult {
         // Check if we're in a class scope
         let in_class = self
             .tables
@@ -921,14 +939,19 @@ impl SymbolTableBuilder {
 
         self.enter_scope(name, CompilerScope::TypeParams, line_number);
 
-        // If we're in a class, mark that this type param scope can see the class scope
+        // Set properties on the newly created type param scope
         if let Some(table) = self.tables.last_mut() {
             table.can_see_class_scope = in_class;
-
-            // Add __classdict__ as a USE symbol in type param scope if in class
-            if in_class {
-                self.register_name("__classdict__", SymbolUsage::Used, TextRange::default())?;
+            // For generic classes, create mangled_names set so that only
+            // type parameter names get mangled (not bases or other expressions)
+            if for_class {
+                table.mangled_names = Some(IndexSet::default());
             }
+        }
+
+        // Add __classdict__ as a USE symbol in type param scope if in class
+        if in_class {
+            self.register_name("__classdict__", SymbolUsage::Used, TextRange::default())?;
         }
 
         // Register .type_params as a SET symbol (it will be converted to cell variable later)
@@ -1202,12 +1225,20 @@ impl SymbolTableBuilder {
                     None
                 };
 
+                // For generic functions, scan defaults before entering type_param_block
+                // (defaults are evaluated in the enclosing scope, not the type param scope)
+                let has_type_params = type_params.is_some();
+                if has_type_params {
+                    self.scan_parameter_defaults(parameters)?;
+                }
+
                 // For generic functions, enter type_param block FIRST so that
                 // annotation scopes are nested inside and can see type parameters.
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
                         &format!("<generic parameters of {}>", name.as_str()),
                         self.line_index_start(type_params.range),
+                        false,
                     )?;
                     self.scan_type_params(type_params)?;
                 }
@@ -1223,6 +1254,7 @@ impl SymbolTableBuilder {
                     self.line_index_start(*range),
                     has_return_annotation,
                     *is_async,
+                    has_type_params, // skip_defaults: already scanned above
                 )?;
                 self.scan_statements(body)?;
                 self.leave_scope();
@@ -1244,11 +1276,16 @@ impl SymbolTableBuilder {
                 range,
                 node_index: _,
             }) => {
+                // Save class_name for the entire ClassDef processing
+                let prev_class = self.class_name.take();
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
                         &format!("<generic parameters of {}>", name.as_str()),
                         self.line_index_start(type_params.range),
+                        true, // for_class: enable selective mangling
                     )?;
+                    // Set class_name for mangling in type param scope
+                    self.class_name = Some(name.to_string());
                     self.scan_type_params(type_params)?;
                 }
                 self.enter_scope(
@@ -1257,10 +1294,9 @@ impl SymbolTableBuilder {
                     self.line_index_start(*range),
                 );
                 // Reset in_conditional_block for new class scope
-                // (each scope has its own conditional context)
                 let saved_in_conditional = self.in_conditional_block;
                 self.in_conditional_block = false;
-                let prev_class = self.class_name.replace(name.to_string());
+                self.class_name = Some(name.to_string());
                 self.register_name("__module__", SymbolUsage::Assigned, *range)?;
                 self.register_name("__qualname__", SymbolUsage::Assigned, *range)?;
                 self.register_name("__doc__", SymbolUsage::Assigned, *range)?;
@@ -1268,7 +1304,13 @@ impl SymbolTableBuilder {
                 self.scan_statements(body)?;
                 self.leave_scope();
                 self.in_conditional_block = saved_in_conditional;
-                self.class_name = prev_class;
+                // For non-generic classes, restore class_name before base scanning.
+                // Bases are evaluated in the enclosing scope, not the class scope.
+                // For generic classes, bases are scanned within the type_param scope
+                // where class_name is already correctly set.
+                if type_params.is_none() {
+                    self.class_name = prev_class.clone();
+                }
                 if let Some(arguments) = arguments {
                     self.scan_expressions(&arguments.args, ExpressionContext::Load)?;
                     for keyword in &arguments.keywords {
@@ -1278,6 +1320,8 @@ impl SymbolTableBuilder {
                 if type_params.is_some() {
                     self.leave_scope();
                 }
+                // Restore class_name after all ClassDef processing
+                self.class_name = prev_class;
                 self.scan_decorators(decorator_list, ExpressionContext::Load)?;
                 self.register_ident(name, SymbolUsage::Assigned)?;
             }
@@ -1506,6 +1550,7 @@ impl SymbolTableBuilder {
                     self.enter_type_param_block(
                         "TypeAlias",
                         self.line_index_start(type_params.range),
+                        false,
                     )?;
                     self.scan_type_params(type_params)?;
                 }
@@ -1833,6 +1878,7 @@ impl SymbolTableBuilder {
                         self.line_index_start(expression.range()),
                         false, // lambdas have no return annotation
                         false, // lambdas are never async
+                        false, // don't skip defaults
                     )?;
                 } else {
                     self.enter_scope(
@@ -2233,15 +2279,8 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    fn enter_scope_with_parameters(
-        &mut self,
-        name: &str,
-        parameters: &ast::Parameters,
-        line_number: u32,
-        has_return_annotation: bool,
-        is_async: bool,
-    ) -> SymbolTableResult {
-        // Evaluate eventual default parameters:
+    /// Scan default parameter values (evaluated in the enclosing scope)
+    fn scan_parameter_defaults(&mut self, parameters: &ast::Parameters) -> SymbolTableResult {
         for default in parameters
             .posonlyargs
             .iter()
@@ -2249,7 +2288,23 @@ impl SymbolTableBuilder {
             .chain(parameters.kwonlyargs.iter())
             .filter_map(|arg| arg.default.as_ref())
         {
-            self.scan_expression(default, ExpressionContext::Load)?; // not ExprContext?
+            self.scan_expression(default, ExpressionContext::Load)?;
+        }
+        Ok(())
+    }
+
+    fn enter_scope_with_parameters(
+        &mut self,
+        name: &str,
+        parameters: &ast::Parameters,
+        line_number: u32,
+        has_return_annotation: bool,
+        is_async: bool,
+        skip_defaults: bool,
+    ) -> SymbolTableResult {
+        // Evaluate eventual default parameters (unless already scanned before type_param_block):
+        if !skip_defaults {
+            self.scan_parameter_defaults(parameters)?;
         }
 
         // Annotations are scanned in outer scope:
@@ -2381,7 +2436,18 @@ impl SymbolTableBuilder {
         let scope_depth = self.tables.len();
         let table = self.tables.last_mut().unwrap();
 
-        let name = mangle_name(self.class_name.as_deref(), name);
+        // Add type param names to mangled_names set for selective mangling
+        if matches!(role, SymbolUsage::TypeParam)
+            && let Some(ref mut set) = table.mangled_names
+        {
+            set.insert(name.to_owned());
+        }
+
+        let name = maybe_mangle_name(
+            self.class_name.as_deref(),
+            table.mangled_names.as_ref(),
+            name,
+        );
         // Some checks for the symbol that present on this scope level:
         let symbol = if let Some(symbol) = table.symbols.get_mut(name.as_ref()) {
             let flags = &symbol.flags;
@@ -2574,11 +2640,27 @@ pub(crate) fn mangle_name<'a>(class_name: Option<&str>, name: &'a str) -> Cow<'a
     if !name.starts_with("__") || name.ends_with("__") || name.contains('.') {
         return name.into();
     }
-    // strip leading underscore
-    let class_name = class_name.strip_prefix(|c| c == '_').unwrap_or(class_name);
+    // Strip leading underscores from class name
+    let class_name = class_name.trim_start_matches('_');
     let mut ret = String::with_capacity(1 + class_name.len() + name.len());
     ret.push('_');
     ret.push_str(class_name);
     ret.push_str(name);
     ret.into()
+}
+
+/// Selective mangling for type parameter scopes around generic classes.
+/// If `mangled_names` is Some, only mangle names that are in the set;
+/// other names are left unmangled.
+pub(crate) fn maybe_mangle_name<'a>(
+    class_name: Option<&str>,
+    mangled_names: Option<&IndexSet<String>>,
+    name: &'a str,
+) -> Cow<'a, str> {
+    if let Some(set) = mangled_names
+        && !set.contains(name)
+    {
+        return name.into();
+    }
+    mangle_name(class_name, name)
 }

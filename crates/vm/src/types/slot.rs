@@ -534,7 +534,15 @@ pub(crate) fn richcompare_wrapper(
 }
 
 fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(&zelf, identifier!(vm, __iter__), ())
+    // slot_tp_iter: if __iter__ is None, the type is explicitly not iterable
+    let cls = zelf.class();
+    let iter_attr = cls.get_attr(identifier!(vm, __iter__));
+    match iter_attr {
+        Some(attr) if vm.is_none(&attr) => {
+            Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())))
+        }
+        _ => vm.call_special_method(&zelf, identifier!(vm, __iter__), ()),
+    }
 }
 
 fn bool_wrapper(num: PyNumber<'_>, vm: &VirtualMachine) -> PyResult<bool> {

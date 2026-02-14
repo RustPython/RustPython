@@ -1852,7 +1852,8 @@ impl Compiler {
             .code_stack
             .last()
             .and_then(|info| info.private.as_deref());
-        symboltable::mangle_name(private, name)
+        let mangled_names = self.current_symbol_table().mangled_names.as_ref();
+        symboltable::maybe_mangle_name(private, mangled_names, name)
     }
 
     // = compiler_nameop

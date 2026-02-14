@@ -121,6 +121,7 @@
     "sysmodule",
     "tracebacks",
     "typealiases",
+    "typevartuples",
     "unhashable",
     "uninit",
     "unraisable",

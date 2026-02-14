@@ -720,24 +720,22 @@ impl crate::types::IterNext for PyGenericAliasIterator {
     }
 }
 
-/// Creates a GenericAlias from type parameters, equivalent to CPython's _Py_subscript_generic
-/// This is used for PEP 695 classes to create Generic[T] from type parameters
+/// Creates a GenericAlias from type parameters, equivalent to _Py_subscript_generic.
+/// This is used for PEP 695 classes to create Generic[T] from type parameters.
 // _Py_subscript_generic
 pub fn subscript_generic(type_params: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    // Get typing module and _GenericAlias
     let typing_module = vm.import("typing", 0)?;
     let generic_type = typing_module.get_attr("Generic", vm)?;
-
-    // Call typing._GenericAlias(Generic, type_params)
     let generic_alias_class = typing_module.get_attr("_GenericAlias", vm)?;
 
-    let args = if let Ok(tuple) = type_params.try_to_ref::<PyTuple>(vm) {
+    let params = if let Ok(tuple) = type_params.try_to_ref::<PyTuple>(vm) {
         tuple.to_owned()
     } else {
         PyTuple::new_ref(vec![type_params], &vm.ctx)
     };
 
-    // Create _GenericAlias instance
+    let args = crate::stdlib::typing::unpack_typevartuples(&params, vm)?;
+
     generic_alias_class.call((generic_type, args.to_pyobject(vm)), vm)
 }
 

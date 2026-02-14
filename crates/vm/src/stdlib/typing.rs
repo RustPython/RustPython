@@ -56,7 +56,7 @@ pub(crate) mod decl {
     #[derive(Debug, PyPayload)]
     pub struct NoDefault;
 
-    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
     impl NoDefault {
         #[pymethod]
         fn __reduce__(&self, _vm: &VirtualMachine) -> String {
@@ -467,7 +467,10 @@ pub(crate) mod decl {
     }
 
     /// Wrap TypeVarTuples in Unpack[], matching unpack_typevartuples()
-    fn unpack_typevartuples(type_params: &PyTupleRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    pub(crate) fn unpack_typevartuples(
+        type_params: &PyTupleRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyTupleRef> {
         let has_tvt = type_params
             .iter()
             .any(|p| p.downcastable::<crate::stdlib::typevar::TypeVarTuple>());
