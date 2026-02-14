@@ -156,7 +156,6 @@ class KeywordOnlyArgTestCase(unittest.TestCase):
         # used to fail with a SystemError.
         lambda *, k1=unittest: None
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_mangling(self):
         class X:
             def f(self, *, __a=42):
