@@ -338,7 +338,6 @@ class PositionalOnlyTestCase(unittest.TestCase):
 
         self.assertEqual(f(42), (42, {}))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mangling(self):
         class X:
             def f(self, __a=42, /):

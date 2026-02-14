@@ -1176,7 +1176,6 @@ class SMTPSimTests(unittest.TestCase):
         finally:
             smtp.close()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @hashlib_helper.requires_hashdigest('md5', openssl=True)
     def testAUTH_CRAM_MD5(self):
         self.serv.add_feature("AUTH CRAM-MD5")
@@ -1229,7 +1228,6 @@ class SMTPSimTests(unittest.TestCase):
         self.assertEqual(resp, (235, b'Authentication Succeeded'))
         smtp.close()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_auth_function(self):
         supported = {'PLAIN', 'LOGIN'}
         try:

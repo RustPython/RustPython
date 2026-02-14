@@ -1583,7 +1583,6 @@ class PyMiscellaneousTests(unittest.TestCase):
                 hmac.HMAC(b'a', b'b', digestmod=MockCrazyHash)
                 self.fail('Expected warning about small block_size')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'hmac_digest'
     @hashlib_helper.requires_hashdigest('sha256')
     def test_with_fallback(self):
         cache = getattr(hashlib, '__builtin_constructor_cache')
