@@ -851,7 +851,6 @@ class ReTests(unittest.TestCase):
             with self.subTest(c):
                 self.assertRaises(re.PatternError, re.compile, '[\\%c]' % c)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_unicode_escapes(self):
         # test individual Unicode named escapes
         self.assertTrue(re.match(r'\N{LESS-THAN SIGN}', '<'))

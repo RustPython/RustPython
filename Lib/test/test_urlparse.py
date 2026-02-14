@@ -1495,7 +1495,6 @@ class UrlParseTestCase(unittest.TestCase):
                 expected.append(name)
         self.assertCountEqual(urllib.parse.__all__, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_urlsplit_normalization(self):
         # Certain characters should never occur in the netloc,
         # including under normalization.

@@ -43,7 +43,7 @@ mod unicodedata {
     };
     use itertools::Itertools;
     use rustpython_common::wtf8::{CodePoint, Wtf8Buf};
-    use ucd::{Codepoint, EastAsianWidth};
+    use ucd::{Codepoint, DecompositionType, EastAsianWidth, Number, NumericType};
     use unic_char_property::EnumeratedCharProperty;
     use unic_normal::StrNormalForm;
     use unic_ucd_age::{Age, UNICODE_VERSION, UnicodeVersion};
@@ -62,9 +62,15 @@ mod unicodedata {
             "lookup",
             "name",
             "bidirectional",
+            "combining",
+            "decimal",
+            "decomposition",
+            "digit",
             "east_asian_width",
-            "normalize",
+            "is_normalized",
             "mirrored",
+            "normalize",
+            "numeric",
         ] {
             module.set_attr(attr, ucd.get_attr(attr, vm)?, vm)?;
         }
@@ -125,7 +131,11 @@ mod unicodedata {
             {
                 return Ok(character.to_string());
             }
-            Err(vm.new_lookup_error(format!("undefined character name '{name}'")))
+            Err(vm.new_key_error(
+                vm.ctx
+                    .new_str(format!("undefined character name '{name}'"))
+                    .into(),
+            ))
         }
 
         #[pymethod]
@@ -190,6 +200,19 @@ mod unicodedata {
         }
 
         #[pymethod]
+        fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<bool> {
+            use super::NormalizeForm::*;
+            let text = unistr.as_wtf8();
+            let normalized: Wtf8Buf = match form {
+                Nfc => text.map_utf8(|s| s.nfc()).collect(),
+                Nfkc => text.map_utf8(|s| s.nfkc()).collect(),
+                Nfd => text.map_utf8(|s| s.nfd()).collect(),
+                Nfkd => text.map_utf8(|s| s.nfkd()).collect(),
+            };
+            Ok(text == &*normalized)
+        }
+
+        #[pymethod]
         fn mirrored(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
             match self.extract_char(character, vm)? {
                 Some(c) => {
@@ -204,9 +227,117 @@ mod unicodedata {
             }
         }
 
+        #[pymethod]
+        fn combining(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
+            Ok(self
+                .extract_char(character, vm)?
+                .and_then(|c| c.to_char())
+                .map_or(0, |ch| ch.canonical_combining_class() as i32))
+        }
+
+        #[pymethod]
+        fn decomposition(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+            let ch = match self.extract_char(character, vm)?.and_then(|c| c.to_char()) {
+                Some(ch) => ch,
+                None => return Ok(String::new()),
+            };
+            let chars: Vec<char> = ch.decomposition_map().collect();
+            // If decomposition maps to just the character itself, there's no decomposition
+            if chars.len() == 1 && chars[0] == ch {
+                return Ok(String::new());
+            }
+            let hex_parts = chars.iter().map(|c| format!("{:04X}", *c as u32)).join(" ");
+            let tag = match ch.decomposition_type() {
+                Some(DecompositionType::Canonical) | None => return Ok(hex_parts),
+                Some(dt) => decomposition_type_tag(dt),
+            };
+            Ok(format!("<{tag}> {hex_parts}"))
+        }
+
+        #[pymethod]
+        fn digit(
+            &self,
+            character: PyStrRef,
+            default: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let ch = self.extract_char(character, vm)?.and_then(|c| c.to_char());
+            if let Some(ch) = ch
+                && matches!(
+                    ch.numeric_type(),
+                    Some(NumericType::Decimal) | Some(NumericType::Digit)
+                )
+                && let Some(Number::Integer(n)) = ch.numeric_value()
+            {
+                return Ok(vm.ctx.new_int(n).into());
+            }
+            default.ok_or_else(|| vm.new_value_error("not a digit"))
+        }
+
+        #[pymethod]
+        fn decimal(
+            &self,
+            character: PyStrRef,
+            default: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let ch = self.extract_char(character, vm)?.and_then(|c| c.to_char());
+            if let Some(ch) = ch
+                && ch.numeric_type() == Some(NumericType::Decimal)
+                && let Some(Number::Integer(n)) = ch.numeric_value()
+            {
+                return Ok(vm.ctx.new_int(n).into());
+            }
+            default.ok_or_else(|| vm.new_value_error("not a decimal"))
+        }
+
+        #[pymethod]
+        fn numeric(
+            &self,
+            character: PyStrRef,
+            default: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let ch = self.extract_char(character, vm)?.and_then(|c| c.to_char());
+            if let Some(ch) = ch {
+                match ch.numeric_value() {
+                    Some(Number::Integer(n)) => {
+                        return Ok(vm.ctx.new_float(n as f64).into());
+                    }
+                    Some(Number::Rational(num, den)) => {
+                        return Ok(vm.ctx.new_float(num as f64 / den as f64).into());
+                    }
+                    None => {}
+                }
+            }
+            default.ok_or_else(|| vm.new_value_error("not a numeric character"))
+        }
+
         #[pygetset]
         fn unidata_version(&self) -> String {
             self.unic_version.to_string()
+        }
+    }
+
+    fn decomposition_type_tag(dt: DecompositionType) -> &'static str {
+        match dt {
+            DecompositionType::Canonical => "canonical",
+            DecompositionType::Compat => "compat",
+            DecompositionType::Circle => "circle",
+            DecompositionType::Final => "final",
+            DecompositionType::Font => "font",
+            DecompositionType::Fraction => "fraction",
+            DecompositionType::Initial => "initial",
+            DecompositionType::Isolated => "isolated",
+            DecompositionType::Medial => "medial",
+            DecompositionType::Narrow => "narrow",
+            DecompositionType::Nobreak => "noBreak",
+            DecompositionType::Small => "small",
+            DecompositionType::Square => "square",
+            DecompositionType::Sub => "sub",
+            DecompositionType::Super => "super",
+            DecompositionType::Vertical => "vertical",
+            DecompositionType::Wide => "wide",
         }
     }
 
