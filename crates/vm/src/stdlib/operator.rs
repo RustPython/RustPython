@@ -340,7 +340,8 @@ mod _operator {
         Ok(res)
     }
 
-    /// attrgetter(attr, ...) --> attrgetter object
+    /// attrgetter(attr, /, *attrs)
+    /// --
     ///
     /// Return a callable object that fetches the given attribute(s) from its operand.
     /// After f = attrgetter('name'), the call f(r) returns r.name.
@@ -356,6 +357,11 @@ mod _operator {
 
     #[pyclass(with(Callable, Constructor, Representable))]
     impl PyAttrGetter {
+        #[pygetset]
+        fn __text_signature__(&self) -> &'static str {
+            "(obj, /)"
+        }
+
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
             let attrs = vm
@@ -440,7 +446,8 @@ mod _operator {
         }
     }
 
-    /// itemgetter(item, ...) --> itemgetter object
+    /// itemgetter(item, /, *items)
+    /// --
     ///
     /// Return a callable object that fetches the given item(s) from its operand.
     /// After f = itemgetter(2), the call f(r) returns r[2].
@@ -454,6 +461,11 @@ mod _operator {
 
     #[pyclass(with(Callable, Constructor, Representable))]
     impl PyItemGetter {
+        #[pygetset]
+        fn __text_signature__(&self) -> &'static str {
+            "(obj, /)"
+        }
+
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
@@ -507,7 +519,8 @@ mod _operator {
         }
     }
 
-    /// methodcaller(name, ...) --> methodcaller object
+    /// methodcaller(name, /, *args, **kwargs)
+    /// --
     ///
     /// Return a callable object that calls the given method on its operand.
     /// After f = methodcaller('name'), the call f(r) returns r.name().
@@ -523,6 +536,11 @@ mod _operator {
 
     #[pyclass(with(Callable, Constructor, Representable))]
     impl PyMethodCaller {
+        #[pygetset]
+        fn __text_signature__(&self) -> &'static str {
+            "(obj, /)"
+        }
+
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
