@@ -66,3 +66,5 @@ Lib/test/certdata/*.0                               generated
 Lib/test/levenshtein_examples.json                  generated
 Lib/test/test_stable_abi_ctypes.py                  generated
 Lib/token.py                                        generated
+
+.github/workflows/*.lock.yml linguist-generated=true merge=ours
