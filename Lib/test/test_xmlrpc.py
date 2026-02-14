@@ -187,7 +187,7 @@ class XMLRPCTestCase(unittest.TestCase):
                           xmlrpclib.loads(strg)[0][0])
         self.assertRaises(TypeError, xmlrpclib.dumps, (arg1,))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dump_encoding(self):
         value = {'key\u20ac\xa4':
                  'value\u20ac\xa4'}
@@ -228,7 +228,7 @@ class XMLRPCTestCase(unittest.TestCase):
             self.assertIs(type(newvalue), xmlrpclib.Binary)
             self.assertIsNone(m)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_loads_unsupported(self):
         ResponseError = xmlrpclib.ResponseError
         data = '<params><param><value><spam/></value></param></params>'
@@ -278,7 +278,7 @@ class XMLRPCTestCase(unittest.TestCase):
               '<member><name>a</name><value><int>1</int></value></member>'
               '</struct>', {'a': 1, 'b': 2})
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_load_extension_types(self):
         check = self.check_loads
         check('<nil/>', None)
@@ -311,7 +311,7 @@ class XMLRPCTestCase(unittest.TestCase):
 
     def test_ssl_presence(self):
         try:
-            import ssl
+            import ssl  # noqa: F401
         except ImportError:
             has_ssl = False
         else:
@@ -832,7 +832,7 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_client_encoding(self):
         start_string = '\u20ac'
         end_string = '\xa4'
@@ -1013,7 +1013,7 @@ class SimpleServerEncodingTestCase(BaseServerTestCase):
     def threadFunc(evt, numrequests, requestHandler=None, encoding=None):
         http_server(evt, numrequests, requestHandler, 'iso-8859-15')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_server_encoding(self):
         start_string = '\u20ac'
         end_string = '\xa4'
