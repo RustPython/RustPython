@@ -24,7 +24,7 @@ network:
     - rust
     - python
 
-engine: claude
+engine: copilot
 
 runtimes:
   python:
@@ -45,6 +45,12 @@ safe-outputs:
     draft: false
     expires: 30
 
+cache:
+  key: cpython-lib-${{ env.PYTHON_VERSION }}
+  path: cpython
+  restore-keys:
+    - cpython-lib-
+
 env:
   PYTHON_VERSION: "v3.14.3"
   ISSUE_ID: "6839"
@@ -56,10 +62,14 @@ You are an automated maintenance agent for RustPython, a Python 3 interpreter wr
 
 ## Step 1: Set up the environment
 
-Clone CPython at the correct version tag under the working directory:
+The CPython source may already be cached. Check if the `cpython` directory exists and has the correct version:
 
 ```bash
-git clone --depth 1 --branch "$PYTHON_VERSION" https://github.com/python/cpython.git cpython
+if [ -d "cpython/Lib" ]; then
+    echo "CPython cache hit, skipping clone"
+else
+    git clone --depth 1 --branch "$PYTHON_VERSION" https://github.com/python/cpython.git cpython
+fi
 ```
 
 ## Step 2: Pick a module to upgrade
