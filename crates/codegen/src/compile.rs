@@ -3717,7 +3717,7 @@ impl Compiler {
             // Compile kwdefaults and build dict
             for (arg, default) in &kw_with_defaults {
                 self.emit_load_const(ConstantData::Str {
-                    value: arg.name.as_str().into(),
+                    value: self.mangle(arg.name.as_str()).into_owned().into(),
                 });
                 self.compile_expression(default)?;
             }
@@ -6983,7 +6983,7 @@ impl Compiler {
                     let default_kw_count = kw_with_defaults.len();
                     for (arg, default) in &kw_with_defaults {
                         self.emit_load_const(ConstantData::Str {
-                            value: arg.name.as_str().into(),
+                            value: self.mangle(arg.name.as_str()).into_owned().into(),
                         });
                         self.compile_expression(default)?;
                     }

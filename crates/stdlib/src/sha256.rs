@@ -5,12 +5,12 @@ mod _sha256 {
 
     #[pyfunction]
     fn sha224(args: HashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_sha224(args).into_pyobject(vm))
+        Ok(local_sha224(args, vm)?.into_pyobject(vm))
     }
 
     #[pyfunction]
     fn sha256(args: HashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_sha256(args).into_pyobject(vm))
+        Ok(local_sha256(args, vm)?.into_pyobject(vm))
     }
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {

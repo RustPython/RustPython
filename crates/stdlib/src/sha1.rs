@@ -7,6 +7,6 @@ mod _sha1 {
 
     #[pyfunction]
     fn sha1(args: HashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_sha1(args).into_pyobject(vm))
+        Ok(local_sha1(args, vm)?.into_pyobject(vm))
     }
 }

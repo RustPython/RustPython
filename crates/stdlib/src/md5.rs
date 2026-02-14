@@ -7,6 +7,6 @@ mod _md5 {
 
     #[pyfunction]
     fn md5(args: HashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_md5(args).into_pyobject(vm))
+        Ok(local_md5(args, vm)?.into_pyobject(vm))
     }
 }
