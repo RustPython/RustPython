@@ -5161,7 +5161,6 @@ class TestSignatureObject(unittest.TestCase):
         sig = test.__signature__ = inspect.Signature(parameters=(spam_param,))
         self.assertEqual(sig, inspect.signature(test))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Ellipsis)
     def test_signature_on_mangled_parameters(self):
         class Spam:
             def foo(self, __p1:1=2, *, __p2:2=3):
