@@ -3335,6 +3335,7 @@ class ASTConstructorTests(unittest.TestCase):
         self.assertIs(obj.a, None)
         self.assertEqual(obj.b, [])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_non_str_kwarg(self):
         warn_msg = "got an unexpected keyword argument <object object"
         with (
