@@ -485,8 +485,6 @@ class HashLibTestCase(unittest.TestCase):
             self.assertEqual(m._rate_bits, rate)
             self.assertEqual(m._suffix, suffix)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @requires_sha3
     def test_extra_sha3(self):
         self.check_sha3('sha3_224', 448, 1152, b'\x06')
