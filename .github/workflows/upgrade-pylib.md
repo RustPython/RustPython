@@ -24,7 +24,7 @@ network:
     - rust
     - python
 
-engine: claude
+engine: copilot
 
 runtimes:
   python:
