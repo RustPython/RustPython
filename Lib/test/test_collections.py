@@ -262,7 +262,7 @@ class TestChainMap(unittest.TestCase):
         d = c.new_child(b=20, c=30)
         self.assertEqual(d.maps, [{'b': 20, 'c': 30}, {'a': 1, 'b': 2}])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_union_operators(self):
         cm1 = ChainMap(dict(a=1, b=2), dict(c=3, d=4))
         cm2 = ChainMap(dict(a=10, e=5), dict(b=20, d=4))
@@ -1957,7 +1957,7 @@ class TestCollectionABCs(ABCTestCase):
             # No metaclass conflict
             class Z(ByteString, Awaitable): pass
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Need to implement __buffer__ and __release_buffer__ (https://docs.python.org/3.13/reference/datamodel.html#emulating-buffer-types)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Need to implement __buffer__ and __release_buffer__ (https://docs.python.org/3.13/reference/datamodel.html#emulating-buffer-types)
     def test_Buffer(self):
         for sample in [bytes, bytearray, memoryview]:
             self.assertIsInstance(sample(b"x"), Buffer)
@@ -2029,7 +2029,7 @@ class TestCollectionABCs(ABCTestCase):
         self.assertEqual(len(mss), len(mss2))
         self.assertEqual(list(mss), list(mss2))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_illegal_patma_flags(self):
         with self.assertRaises(TypeError):
             class Both(Collection):
@@ -2120,6 +2120,19 @@ class TestCounter(unittest.TestCase):
         self.assertEqual(c['d'], 1)
         self.assertEqual(c.setdefault('e', 5), 5)
         self.assertEqual(c['e'], 5)
+
+    def test_update_reentrant_add_clears_counter(self):
+        c = Counter()
+        key = object()
+
+        class Evil(int):
+            def __add__(self, other):
+                c.clear()
+                return NotImplemented
+
+        c[key] = Evil()
+        c.update([key])
+        self.assertEqual(c[key], 1)
 
     def test_init(self):
         self.assertEqual(list(Counter(self=42).items()), [('self', 42)])
