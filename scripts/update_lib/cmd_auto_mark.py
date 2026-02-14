@@ -697,7 +697,30 @@ def strip_reasonless_expected_failures(
     for idx in sorted(lines_to_remove, reverse=True):
         del lines[idx]
 
-    return "\n".join(lines) + "\n" if lines else "", stripped_tests
+    # Check if any classes are now empty and add 'pass' if needed
+    result = "\n".join(lines) + "\n" if lines else ""
+    try:
+        result_tree = ast.parse(result)
+        # Track classes that need 'pass' added
+        classes_needing_pass = []
+        for node in result_tree.body:
+            if isinstance(node, ast.ClassDef) and len(node.body) == 0:
+                # Empty class - need to add pass
+                classes_needing_pass.append((node.lineno, node.col_offset))
+        
+        if classes_needing_pass:
+            result_lines = result.splitlines()
+            # Insert 'pass' for each empty class (in reverse order to preserve line numbers)
+            for lineno, col_offset in reversed(classes_needing_pass):
+                class_line_idx = lineno - 1
+                indent = " " * (col_offset + 4)  # Class body indent
+                result_lines.insert(class_line_idx + 1, f"{indent}pass")
+            result = "\n".join(result_lines) + "\n"
+    except SyntaxError:
+        # If result has syntax errors, return original contents
+        return contents, set()
+
+    return result, stripped_tests
 
 
 def extract_test_methods(contents: str) -> set[tuple[str, str]]:

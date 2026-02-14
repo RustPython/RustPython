@@ -10,7 +10,7 @@ class TestDefault:
             self.dumps(type, default=repr),
             self.dumps(repr(type)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; 'when serializing type object']
     def test_bad_default(self):
         def default(obj):
             if obj is NotImplemented:

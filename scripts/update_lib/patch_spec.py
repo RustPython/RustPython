@@ -352,6 +352,20 @@ def apply_patches(contents: str, patches: Patches) -> str:
     tree = ast.parse(contents)
     lines = contents.splitlines()
 
+    # First pass: Expand classes with only 'pass' on the same line if they need methods added
+    classes_needing_methods = set(patches.keys())
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name in classes_needing_methods:
+            # Check if class has only 'pass' on the same line
+            if (
+                len(node.body) == 1
+                and isinstance(node.body[0], ast.Pass)
+                and node.lineno == node.end_lineno
+            ):
+                # Expand the class: replace ': pass' with ':'
+                line_idx = node.lineno - 1  # Convert to 0-indexed
+                lines[line_idx] = lines[line_idx].replace(': pass', ':')
+
     modifications = list(_iter_patch_lines(tree, patches))
 
     # If we have modifications and unittest is not imported, add it

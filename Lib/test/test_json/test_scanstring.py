@@ -144,7 +144,7 @@ class TestScanstring:
             with self.assertRaises(self.JSONDecodeError, msg=s):
                 scanstring(s, 1, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; json.decoder.JSONDecodeError: Unterminated string starting at: line 1 column 9223372036854775808 (char 9223372036854775807)
     def test_overflow(self):
         with self.assertRaises(OverflowError):
             self.json.decoder.scanstring("xxx", sys.maxsize+1)
