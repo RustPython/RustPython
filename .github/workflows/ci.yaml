@@ -459,6 +459,7 @@ jobs:
     name: Lint Rust & Python code
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6.0.2
       - uses: actions/setup-python@v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
