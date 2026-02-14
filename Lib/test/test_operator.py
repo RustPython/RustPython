@@ -668,18 +668,6 @@ class PyOperatorTestCase(OperatorTestCase, unittest.TestCase):
 class COperatorTestCase(OperatorTestCase, unittest.TestCase):
     module = c_operator
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_attrgetter_signature(self):
-        return super().test_attrgetter_signature()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_itemgetter_signature(self):
-        return super().test_itemgetter_signature()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_methodcaller_signature(self):
-        return super().test_methodcaller_signature()
-
 
 @support.thread_unsafe("swaps global operator module")
 class OperatorPickleTestCase:
