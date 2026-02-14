@@ -64,9 +64,9 @@ git clone --depth 1 --branch "$PYTHON_VERSION" https://github.com/python/cpython
 
 ## Step 2: Pick a module to upgrade
 
-If the user provided a module name via `${{ github.event.inputs.name }}`, use that module.
+If the user provided a module name via `${{ github.event.inputs.name }}`, use **exactly** that module. Skip the selection logic below and go directly to Step 3.
 
-Otherwise, run the todo script to find candidates:
+If NO module name was provided, run the todo script to auto-pick one:
 
 ```bash
 python3 scripts/update_lib todo
