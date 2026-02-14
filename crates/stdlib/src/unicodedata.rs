@@ -246,10 +246,7 @@ mod unicodedata {
             if chars.len() == 1 && chars[0] == ch {
                 return Ok(String::new());
             }
-            let hex_parts = chars
-                .iter()
-                .map(|c| format!("{:04X}", *c as u32))
-                .join(" ");
+            let hex_parts = chars.iter().map(|c| format!("{:04X}", *c as u32)).join(" ");
             let tag = match ch.decomposition_type() {
                 Some(DecompositionType::Canonical) | None => return Ok(hex_parts),
                 Some(dt) => decomposition_type_tag(dt),
