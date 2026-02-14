@@ -1185,13 +1185,15 @@ impl SymbolTableBuilder {
 
         match &statement {
             Stmt::Global(StmtGlobal { names, .. }) => {
+                let statement_range = statement.range();
                 for name in names {
-                    self.register_ident(name, SymbolUsage::Global)?;
+                    self.register_name(name.as_str(), SymbolUsage::Global, statement_range)?;
                 }
             }
             Stmt::Nonlocal(StmtNonlocal { names, .. }) => {
+                let statement_range = statement.range();
                 for name in names {
-                    self.register_ident(name, SymbolUsage::Nonlocal)?;
+                    self.register_name(name.as_str(), SymbolUsage::Nonlocal, statement_range)?;
                 }
             }
             Stmt::FunctionDef(StmtFunctionDef {
