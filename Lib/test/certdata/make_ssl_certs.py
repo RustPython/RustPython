@@ -1,7 +1,6 @@
 """Make the custom certificate and private key files used by test_ssl
 and friends."""
 
-import argparse
 import os
 import pprint
 import shutil
@@ -9,8 +8,7 @@ import tempfile
 from subprocess import *
 
 startdate = "20180829142316Z"
-enddate_default = "25251028142316Z"
-days_default = "140000"
+enddate = "20371028142316Z"
 
 req_template = """
     [ default ]
@@ -81,8 +79,8 @@ req_template = """
     default_startdate = {startdate}
     enddate = {enddate}
     default_enddate = {enddate}
-    default_days = {days}
-    default_crl_days = {days}
+    default_days = 7000
+    default_crl_days = 7000
     certificate = pycacert.pem
     private_key = pycakey.pem
     serial    = $dir/serial
@@ -119,7 +117,7 @@ req_template = """
 here = os.path.abspath(os.path.dirname(__file__))
 
 
-def make_cert_key(cmdlineargs, hostname, sign=False, extra_san='',
+def make_cert_key(hostname, sign=False, extra_san='',
                   ext='req_x509_extensions_full', key='rsa:3072'):
     print("creating cert for " + hostname)
     tempnames = []
@@ -132,13 +130,13 @@ def make_cert_key(cmdlineargs, hostname, sign=False, extra_san='',
             hostname=hostname,
             extra_san=extra_san,
             startdate=startdate,
-            enddate=cmdlineargs.enddate,
-            days=cmdlineargs.days
+            enddate=enddate
         )
         with open(req_file, 'w') as f:
             f.write(req)
-        args = ['req', '-new', '-nodes', '-days', cmdlineargs.days,
+        args = ['req', '-new', '-nodes', '-days', '7000',
                 '-newkey', key, '-keyout', key_file,
+                '-extensions', ext,
                 '-config', req_file]
         if sign:
             with tempfile.NamedTemporaryFile(delete=False) as f:
@@ -147,7 +145,7 @@ def make_cert_key(cmdlineargs, hostname, sign=False, extra_san='',
             args += ['-out', reqfile ]
 
         else:
-            args += ['-extensions', ext, '-x509', '-out', cert_file ]
+            args += ['-x509', '-out', cert_file ]
         check_call(['openssl'] + args)
 
         if sign:
@@ -177,7 +175,7 @@ TMP_CADIR = 'cadir'
 def unmake_ca():
     shutil.rmtree(TMP_CADIR)
 
-def make_ca(cmdlineargs):
+def make_ca():
     os.mkdir(TMP_CADIR)
     with open(os.path.join('cadir','index.txt'),'a+') as f:
         pass # empty file
@@ -194,8 +192,7 @@ def make_ca(cmdlineargs):
             hostname='our-ca-server',
             extra_san='',
             startdate=startdate,
-            enddate=cmdlineargs.enddate,
-            days=cmdlineargs.days
+            enddate=enddate
         )
         t.write(req)
         t.flush()
@@ -222,22 +219,14 @@ def make_ca(cmdlineargs):
     shutil.copy('capath/ceff1710.0', 'capath/b1930218.0')
 
 
-def write_cert_reference(path):
+def print_cert(path):
     import _ssl
-    refdata = pprint.pformat(_ssl._test_decode_cert(path))
-    print(refdata)
-    with open(path + '.reference', 'w') as f:
-        print(refdata, file=f)
+    pprint.pprint(_ssl._test_decode_cert(path))
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Make the custom certificate and private key files used by test_ssl and friends.')
-    parser.add_argument('--days', default=days_default)
-    parser.add_argument('--enddate', default=enddate_default)
-    cmdlineargs = parser.parse_args()
-
     os.chdir(here)
-    cert, key = make_cert_key(cmdlineargs, 'localhost', ext='req_x509_extensions_simple')
+    cert, key = make_cert_key('localhost', ext='req_x509_extensions_simple')
     with open('ssl_cert.pem', 'w') as f:
         f.write(cert)
     with open('ssl_key.pem', 'w') as f:
@@ -254,26 +243,26 @@ if __name__ == '__main__':
         f.write(cert)
 
     # For certificate matching tests
-    make_ca(cmdlineargs)
-    cert, key = make_cert_key(cmdlineargs, 'fakehostname', ext='req_x509_extensions_simple')
+    make_ca()
+    cert, key = make_cert_key('fakehostname', ext='req_x509_extensions_simple')
     with open('keycert2.pem', 'w') as f:
         f.write(key)
         f.write(cert)
 
-    cert, key = make_cert_key(cmdlineargs, 'localhost', sign=True)
+    cert, key = make_cert_key('localhost', sign=True)
     with open('keycert3.pem', 'w') as f:
         f.write(key)
         f.write(cert)
 
     check_call(['openssl', 'x509', '-outform', 'pem', '-in', 'keycert3.pem', '-out', 'cert3.pem'])
 
-    cert, key = make_cert_key(cmdlineargs, 'fakehostname', sign=True)
+    cert, key = make_cert_key('fakehostname', sign=True)
     with open('keycert4.pem', 'w') as f:
         f.write(key)
         f.write(cert)
 
     cert, key = make_cert_key(
-        cmdlineargs, 'localhost-ecc', sign=True, key='param:secp384r1.pem'
+        'localhost-ecc', sign=True, key='param:secp384r1.pem'
     )
     with open('keycertecc.pem', 'w') as f:
         f.write(key)
@@ -293,7 +282,7 @@ if __name__ == '__main__':
         'RID.1 = 1.2.3.4.5',
     ]
 
-    cert, key = make_cert_key(cmdlineargs, 'allsans', sign=True, extra_san='\n'.join(extra_san))
+    cert, key = make_cert_key('allsans', sign=True, extra_san='\n'.join(extra_san))
     with open('allsans.pem', 'w') as f:
         f.write(key)
         f.write(cert)
@@ -310,17 +299,17 @@ if __name__ == '__main__':
     ]
 
     # IDN SANS, signed
-    cert, key = make_cert_key(cmdlineargs, 'idnsans', sign=True, extra_san='\n'.join(extra_san))
+    cert, key = make_cert_key('idnsans', sign=True, extra_san='\n'.join(extra_san))
     with open('idnsans.pem', 'w') as f:
         f.write(key)
         f.write(cert)
 
-    cert, key = make_cert_key(cmdlineargs, 'nosan', sign=True, ext='req_x509_extensions_nosan')
+    cert, key = make_cert_key('nosan', sign=True, ext='req_x509_extensions_nosan')
     with open('nosan.pem', 'w') as f:
         f.write(key)
         f.write(cert)
 
     unmake_ca()
-    print("Writing out reference data for Lib/test/test_ssl.py and Lib/test/test_asyncio/utils.py")
-    write_cert_reference('keycert.pem')
-    write_cert_reference('keycert3.pem')
+    print("update Lib/test/test_ssl.py and Lib/test/test_asyncio/utils.py")
+    print_cert('keycert.pem')
+    print_cert('keycert3.pem')
