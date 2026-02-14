@@ -3,9 +3,10 @@ pub(crate) use _symtable::module_def;
 #[pymodule]
 mod _symtable {
     use crate::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStrRef},
         compiler,
+        types::Representable,
     };
     use alloc::fmt;
     use rustpython_codegen::symboltable::{
@@ -132,7 +133,7 @@ mod _symtable {
     }
 
     #[pyattr]
-    #[pyclass(name = "SymbolTable")]
+    #[pyclass(name = "symtable entry")]
     #[derive(PyPayload)]
     struct PySymbolTable {
         symtable: SymbolTable,
@@ -144,7 +145,7 @@ mod _symtable {
         }
     }
 
-    #[pyclass]
+    #[pyclass(with(Representable))]
     impl PySymbolTable {
         #[pygetset]
         fn name(&self) -> String {
@@ -207,6 +208,19 @@ mod _symtable {
         #[pygetset]
         const fn nested(&self) -> bool {
             self.symtable.is_nested
+        }
+    }
+
+    impl Representable for PySymbolTable {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!(
+                "<{} {}({}), line {}>",
+                Self::class(&vm.ctx).name(),
+                zelf.symtable.name,
+                zelf.id(),
+                zelf.symtable.line_number
+            ))
         }
     }
 

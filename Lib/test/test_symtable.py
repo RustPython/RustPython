@@ -543,7 +543,6 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(repr(class_A.lookup('x')),
                          "<symbol 'x': LOCAL, DEF_LOCAL|DEF_FREE_CLASS>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_symtable_entry_repr(self):
         expected = f"<symtable entry top({self.top.get_id()}), line {self.top.get_lineno()}>"
         self.assertEqual(repr(self.top._table), expected)
