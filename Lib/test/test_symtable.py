@@ -457,7 +457,6 @@ class SymtableTest(unittest.TestCase):
                         check_body('\n'.join((gen, func)), ('genexpr',))
                         check_body('\n'.join((func, gen)), ('genexpr',))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_filename_correct(self):
         ### Bug tickler: SyntaxError file name correct whether error raised
         ### while parsing or building symbol table.

@@ -6,6 +6,7 @@ mod _symtable {
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStrRef},
         compiler,
+        ospath::OsPath,
     };
     use alloc::fmt;
     use rustpython_codegen::symboltable::{
@@ -111,7 +112,7 @@ mod _symtable {
     #[pyfunction]
     fn symtable(
         source: PyStrRef,
-        filename: PyStrRef,
+        filename: OsPath,
         mode: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PySymbolTable>> {
@@ -119,8 +120,9 @@ mod _symtable {
             .as_str()
             .parse::<compiler::Mode>()
             .map_err(|err| vm.new_value_error(err.to_string()))?;
+        let filename = filename.to_string_lossy();
 
-        let symtable = compiler::compile_symtable(source.as_str(), mode, filename.as_str())
+        let symtable = compiler::compile_symtable(source.as_str(), mode, filename.as_ref())
             .map_err(|err| vm.new_syntax_error(&err, Some(source.as_str())))?;
 
         let py_symbol_table = to_py_symbol_table(symtable);
