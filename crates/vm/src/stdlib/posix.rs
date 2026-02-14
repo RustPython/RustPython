@@ -31,7 +31,7 @@ pub mod module {
         builtins::{PyDictRef, PyInt, PyListRef, PyStr, PyTupleRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{Either, KwArgs, OptionalArg},
+        function::{ArgMapping, Either, KwArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
             _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata,
@@ -1073,11 +1073,26 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
+    fn envobj_to_dict(env: ArgMapping, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        let obj = env.obj();
+        if let Some(dict) = obj.downcast_ref_if_exact::<crate::builtins::PyDict>(vm) {
+            return Ok(dict.to_owned());
+        }
+        let keys = vm.call_method(obj, "keys", ())?;
+        let dict = vm.ctx.new_dict();
+        for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm)? {
+            let key = key?;
+            let val = obj.get_item(&*key, vm)?;
+            dict.set_item(&*key, val, vm)?;
+        }
+        Ok(dict)
+    }
+
     #[pyfunction]
     fn execve(
         path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
-        env: PyDictRef,
+        env: ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let path = path.into_cstring(vm)?;
@@ -1095,6 +1110,7 @@ pub mod module {
             return Err(vm.new_value_error("execve() arg 2 first element cannot be empty"));
         }
 
+        let env = envobj_to_dict(env, vm)?;
         let env = env
             .into_iter()
             .map(|(k, v)| -> PyResult<_> {
