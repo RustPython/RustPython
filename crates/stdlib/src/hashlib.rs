@@ -83,9 +83,16 @@ pub mod _hashlib {
     }
 
     impl XofDigestArgs {
+        // Match CPython's SHAKE output guard in Modules/sha3module.c.
+        const MAX_SHAKE_OUTPUT_LENGTH: usize = 1 << 29;
+
         fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            usize::try_from(self.length)
-                .map_err(|_| vm.new_value_error("length must be non-negative"))
+            let length = usize::try_from(self.length)
+                .map_err(|_| vm.new_value_error("length must be non-negative"))?;
+            if length >= Self::MAX_SHAKE_OUTPUT_LENGTH {
+                return Err(vm.new_value_error("length is too large"));
+            }
+            Ok(length)
         }
     }
 
