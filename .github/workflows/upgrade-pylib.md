@@ -72,21 +72,23 @@ else
 fi
 ```
 
-## Step 2: Pick a module to upgrade
+## Step 2: Determine module name
 
-If the user provided a module name via `${{ github.event.inputs.name }}`, use **exactly** that module. Skip the selection logic below and go directly to Step 3.
-
-If NO module name was provided, run the todo script to auto-pick one:
+Run this script to determine the module name:
 
 ```bash
-python3 scripts/update_lib todo
+MODULE_NAME="${{ github.event.inputs.name }}"
+if [ -z "$MODULE_NAME" ]; then
+    echo "No module specified, running todo to find one..."
+    python3 scripts/update_lib todo
+    echo "Pick one module from the list above that is marked [ ], has no unmet deps, and has a small Δ number."
+    echo "Do NOT pick: opcode, datetime, random, hashlib, tokenize, pdb, _pyrepl, concurrent, asyncio, multiprocessing, ctypes, idlelib, tkinter, shutil, tarfile, email, unittest"
+else
+    echo "Module specified by user: $MODULE_NAME"
+fi
 ```
 
-From the output, pick **one** module that:
-- Is marked `[ ]` (not yet up-to-date)
-- Has `[no deps]` or `[0/N deps]` (all dependencies are satisfied)
-- Has a small diff count (`Δ` number) — prefer modules with smaller diffs for reliability
-- Is NOT one of these complex modules: `opcode`, `datetime`, `collections`, `random`, `hashlib`, `tokenize`, `pdb`, `_pyrepl`, `concurrent`, `asyncio`, `multiprocessing`, `ctypes`, `idlelib`, `tkinter`, `shutil`, `tarfile`, `email`, `unittest`
+If the script printed "Module specified by user: ...", use that exact name. If it printed the todo list, pick one suitable module from it.
 
 ## Step 3: Run the upgrade
 
