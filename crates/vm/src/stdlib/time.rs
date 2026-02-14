@@ -939,7 +939,10 @@ mod decl {
 
     /// Extract fields from StructTimeData into a libc::tm for mktime.
     #[cfg(any(unix, windows))]
-    pub(super) fn tm_from_struct_time(t: &StructTimeData, vm: &VirtualMachine) -> PyResult<libc::tm> {
+    pub(super) fn tm_from_struct_time(
+        t: &StructTimeData,
+        vm: &VirtualMachine,
+    ) -> PyResult<libc::tm> {
         let invalid_tuple = || vm.new_type_error("mktime(): illegal time tuple argument");
         let year: i32 = t
             .tm_year
@@ -1002,9 +1005,7 @@ mod decl {
                 }
                 let secs = float.floor();
                 if secs < libc::time_t::MIN as f64 || secs > libc::time_t::MAX as f64 {
-                    return Err(
-                        vm.new_overflow_error("timestamp out of range for platform time_t")
-                    );
+                    return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
                 }
                 Ok(secs as libc::time_t)
             }
