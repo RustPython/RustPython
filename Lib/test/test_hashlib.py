@@ -557,7 +557,6 @@ class HashLibTestCase(unittest.TestCase):
         self.check_blocksize_name('sha384', 128, 48)
         self.check_blocksize_name('sha512', 128, 64)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'shake' not found in '<_hashlib.hashxof object at 0xc68a2c800>'
     @requires_sha3
     def test_blocksize_name_sha3(self):
         self.check_blocksize_name('sha3_224', 144, 28)
