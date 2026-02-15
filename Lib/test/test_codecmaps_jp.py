@@ -20,12 +20,24 @@ class TestCP932Map(multibytecodec_support.TestBase_Mapping,
     for i in range(0xa1, 0xe0):
         supmaps.append((bytes([i]), chr(i+0xfec0)))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
+    def test_mapping_file(self):
+        return super().test_mapping_file()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
+    def test_mapping_supplemental(self):
+        return super().test_mapping_supplemental()
+
 
 class TestEUCJPCOMPATMap(multibytecodec_support.TestBase_Mapping,
                          unittest.TestCase):
     encoding = 'euc_jp'
     mapfilename = 'EUC-JP.TXT'
     mapfileurl = 'http://www.pythontest.net/unicode/EUC-JP.TXT'
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
+    def test_mapping_file(self):
+        return super().test_mapping_file()
 
 
 class TestSJISCOMPATMap(multibytecodec_support.TestBase_Mapping,
@@ -42,11 +54,19 @@ class TestSJISCOMPATMap(multibytecodec_support.TestBase_Mapping,
         (b'\x81_', '\\'),
     ]
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
+    def test_mapping_file(self):
+        return super().test_mapping_file()
+
 class TestEUCJISX0213Map(multibytecodec_support.TestBase_Mapping,
                          unittest.TestCase):
     encoding = 'euc_jisx0213'
     mapfilename = 'EUC-JISX0213.TXT'
     mapfileurl = 'http://www.pythontest.net/unicode/EUC-JISX0213.TXT'
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
+    def test_mapping_file(self):
+        return super().test_mapping_file()
 
 
 class TestSJISX0213Map(multibytecodec_support.TestBase_Mapping,
@@ -54,6 +74,10 @@ class TestSJISX0213Map(multibytecodec_support.TestBase_Mapping,
     encoding = 'shift_jisx0213'
     mapfilename = 'SHIFT_JISX0213.TXT'
     mapfileurl = 'http://www.pythontest.net/unicode/SHIFT_JISX0213.TXT'
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
+    def test_mapping_file(self):
+        return super().test_mapping_file()
 
 
 if __name__ == "__main__":
