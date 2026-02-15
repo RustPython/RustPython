@@ -29,6 +29,8 @@ fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     file.get_attr("closed", vm)?.try_to_bool(vm)
 }
 
+const DEFAULT_BUFFER_SIZE: usize = 128 * 1024;
+
 /// iobase_finalize in Modules/_io/iobase.c
 fn iobase_finalize(zelf: &PyObject, vm: &VirtualMachine) {
     // If `closed` doesn't exist or can't be evaluated as bool, then the
@@ -110,7 +112,7 @@ mod _io {
         TryFromBorrowedObject, TryFromObject,
         builtins::{
             PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyBytesRef, PyDict, PyMemoryView,
-            PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
+            PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str, PyUtf8StrRef,
         },
         class::StaticType,
         common::lock::{
@@ -244,7 +246,7 @@ mod _io {
     }
 
     #[pyattr]
-    const DEFAULT_BUFFER_SIZE: usize = 8 * 1024;
+    const DEFAULT_BUFFER_SIZE: usize = super::DEFAULT_BUFFER_SIZE;
 
     pub(super) fn seekfrom(
         vm: &VirtualMachine,
@@ -4860,11 +4862,23 @@ mod _io {
             nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD).map_err(|_| vm.new_last_errno_error())?;
         }
 
-        // Construct a FileIO (subclass of RawIOBase)
+        // Construct a RawIO (subclass of RawIOBase)
+        // On Windows, use _WindowsConsoleIO for console handles.
         // This is subsequently consumed by a Buffered Class.
+        #[cfg(all(feature = "host_env", windows))]
+        let is_console = super::winconsoleio::pyio_get_console_type(&file, vm) != '\0';
+        #[cfg(not(all(feature = "host_env", windows)))]
+        let is_console = false;
+
         let file_io_class: &Py<PyType> = {
             cfg_if::cfg_if! {
-                if #[cfg(feature = "host_env")] {
+                if #[cfg(all(feature = "host_env", windows))] {
+                    if is_console {
+                        Some(super::winconsoleio::WindowsConsoleIO::static_type())
+                    } else {
+                        Some(super::fileio::FileIO::static_type())
+                    }
+                } else if #[cfg(feature = "host_env")] {
                     Some(super::fileio::FileIO::static_type())
                 } else {
                     None
@@ -4928,11 +4942,17 @@ mod _io {
 
         match mode.encode {
             EncodeMode::Text => {
-                let encoding = match opts.encoding {
-                    Some(enc) => Some(enc),
-                    None => {
-                        let encoding = text_encoding(vm.ctx.none(), OptionalArg::Present(2), vm)?;
-                        Some(PyUtf8StrRef::try_from_object(vm, encoding.into())?)
+                let encoding = if is_console && opts.encoding.is_none() {
+                    // Console IO always uses utf-8
+                    Some(PyUtf8Str::from("utf-8").into_ref(&vm.ctx))
+                } else {
+                    match opts.encoding {
+                        Some(enc) => Some(enc),
+                        None => {
+                            let encoding =
+                                text_encoding(vm.ctx.none(), OptionalArg::Present(2), vm)?;
+                            Some(PyUtf8StrRef::try_from_object(vm, encoding.into())?)
+                        }
                     }
                 };
                 let tio = TextIOWrapper::static_type();
@@ -5067,6 +5087,10 @@ mod _io {
         // Initialize FileIO types (requires host_env for filesystem access)
         #[cfg(feature = "host_env")]
         super::fileio::module_exec(vm, module)?;
+
+        // Initialize WindowsConsoleIO type (Windows only)
+        #[cfg(all(feature = "host_env", windows))]
+        super::winconsoleio::module_exec(vm, module)?;
 
         let unsupported_operation = unsupported_operation().to_owned();
         extend_module!(vm, module, {
@@ -5230,7 +5254,7 @@ mod fileio {
                 closefd: AtomicCell::new(true),
                 mode: AtomicCell::new(Mode::empty()),
                 seekable: AtomicCell::new(None),
-                blksize: AtomicCell::new(8 * 1024), // DEFAULT_BUFFER_SIZE
+                blksize: AtomicCell::new(super::DEFAULT_BUFFER_SIZE as _),
                 finalizing: AtomicCell::new(false),
             }
         }
@@ -5723,6 +5747,1054 @@ mod fileio {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             if let Some(fileio) = zelf.downcast_ref::<FileIO>() {
                 fileio.finalizing.store(true);
+            }
+            iobase_finalize(zelf, vm);
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
+        }
+    }
+}
+
+// WindowsConsoleIO requires host environment and Windows
+#[cfg(all(feature = "host_env", windows))]
+#[pymodule]
+mod winconsoleio {
+    use super::{_io::*, iobase_finalize};
+    use crate::{
+        AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyUtf8StrRef},
+        common::lock::PyMutex,
+        convert::{IntoPyException, ToPyException},
+        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
+        types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
+    };
+    use crossbeam_utils::atomic::AtomicCell;
+    use windows_sys::Win32::{
+        Foundation::{self, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE},
+        Globalization::{CP_UTF8, MultiByteToWideChar, WideCharToMultiByte},
+        Storage::FileSystem::{
+            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFullPathNameW, OPEN_EXISTING,
+        },
+        System::Console::{
+            GetConsoleMode, GetNumberOfConsoleInputEvents, ReadConsoleW, WriteConsoleW,
+        },
+    };
+
+    type HANDLE = Foundation::HANDLE;
+
+    const SMALLBUF: usize = 4;
+    const BUFMAX: usize = 32 * 1024 * 1024;
+
+    fn handle_from_fd(fd: i32) -> HANDLE {
+        unsafe { rustpython_common::suppress_iph!(libc::get_osfhandle(fd)) as HANDLE }
+    }
+
+    fn is_invalid_handle(handle: HANDLE) -> bool {
+        handle == INVALID_HANDLE_VALUE || handle.is_null()
+    }
+
+    /// Check if a HANDLE is a console and what type ('r', 'w', or '\0').
+    fn get_console_type(handle: HANDLE) -> char {
+        if is_invalid_handle(handle) {
+            return '\0';
+        }
+        let mut mode: u32 = 0;
+        if unsafe { GetConsoleMode(handle, &mut mode) } == 0 {
+            return '\0';
+        }
+        let mut peek_count: u32 = 0;
+        if unsafe { GetNumberOfConsoleInputEvents(handle, &mut peek_count) } != 0 {
+            'r'
+        } else {
+            'w'
+        }
+    }
+
+    /// Check if a Python object (fd or path string) refers to a console.
+    /// Returns 'r' (input), 'w' (output), 'x' (generic CON), or '\0' (not a console).
+    pub(super) fn pyio_get_console_type(path_or_fd: &PyObject, vm: &VirtualMachine) -> char {
+        // Try as integer fd first
+        if let Ok(fd) = i32::try_from_object(vm, path_or_fd.to_owned()) {
+            if fd >= 0 {
+                let handle = handle_from_fd(fd);
+                return get_console_type(handle);
+            }
+            return '\0';
+        }
+
+        // Try as string path
+        let Ok(name) = path_or_fd.str(vm) else {
+            return '\0';
+        };
+        let Some(name_str) = name.to_str() else {
+            // Surrogate strings can't be console device names
+            return '\0';
+        };
+
+        if name_str.eq_ignore_ascii_case("CONIN$") {
+            return 'r';
+        }
+        if name_str.eq_ignore_ascii_case("CONOUT$") {
+            return 'w';
+        }
+        if name_str.eq_ignore_ascii_case("CON") {
+            return 'x';
+        }
+
+        // Resolve full path and check for console device names
+        let wide: Vec<u16> = name_str.encode_utf16().chain(core::iter::once(0)).collect();
+        let mut buf = [0u16; 260]; // MAX_PATH
+        let length = unsafe {
+            GetFullPathNameW(
+                wide.as_ptr(),
+                buf.len() as u32,
+                buf.as_mut_ptr(),
+                core::ptr::null_mut(),
+            )
+        };
+        if length == 0 || length as usize > buf.len() {
+            return '\0';
+        }
+        let full_path = &buf[..length as usize];
+        // Skip \\?\ or \\.\ prefix
+        let path_part = if full_path.len() >= 4
+            && full_path[0] == b'\\' as u16
+            && full_path[1] == b'\\' as u16
+            && (full_path[2] == b'.' as u16 || full_path[2] == b'?' as u16)
+            && full_path[3] == b'\\' as u16
+        {
+            &full_path[4..]
+        } else {
+            full_path
+        };
+
+        let path_str = String::from_utf16_lossy(path_part);
+        if path_str.eq_ignore_ascii_case("CONIN$") {
+            'r'
+        } else if path_str.eq_ignore_ascii_case("CONOUT$") {
+            'w'
+        } else if path_str.eq_ignore_ascii_case("CON") {
+            'x'
+        } else {
+            '\0'
+        }
+    }
+
+    /// Find the last valid UTF-8 boundary in a byte slice.
+    fn find_last_utf8_boundary(buf: &[u8], len: usize) -> usize {
+        let len = len.min(buf.len());
+        for count in 1..=4.min(len) {
+            let c = buf[len - count];
+            if c < 0x80 {
+                return len;
+            }
+            if c >= 0xc0 {
+                let expected = if c < 0xe0 {
+                    2
+                } else if c < 0xf0 {
+                    3
+                } else {
+                    4
+                };
+                if count < expected {
+                    // Incomplete multibyte sequence
+                    return len - count;
+                }
+                return len;
+            }
+        }
+        len
+    }
+
+    #[pyattr]
+    #[pyclass(module = "_io", name = "_WindowsConsoleIO", base = _RawIOBase)]
+    #[derive(Debug)]
+    pub(super) struct WindowsConsoleIO {
+        _base: _RawIOBase,
+        fd: AtomicCell<i32>,
+        readable: AtomicCell<bool>,
+        writable: AtomicCell<bool>,
+        closefd: AtomicCell<bool>,
+        finalizing: AtomicCell<bool>,
+        blksize: AtomicCell<i64>,
+        buf: PyMutex<[u8; SMALLBUF]>,
+    }
+
+    impl Default for WindowsConsoleIO {
+        fn default() -> Self {
+            Self {
+                _base: Default::default(),
+                fd: AtomicCell::new(-1),
+                readable: AtomicCell::new(false),
+                writable: AtomicCell::new(false),
+                closefd: AtomicCell::new(false),
+                finalizing: AtomicCell::new(false),
+                blksize: AtomicCell::new(super::DEFAULT_BUFFER_SIZE as _),
+                buf: PyMutex::new([0u8; SMALLBUF]),
+            }
+        }
+    }
+
+    impl DefaultConstructor for WindowsConsoleIO {}
+
+    #[derive(FromArgs)]
+    pub struct WindowsConsoleIOArgs {
+        #[pyarg(positional)]
+        name: PyObjectRef,
+        #[pyarg(any, default)]
+        mode: Option<PyUtf8StrRef>,
+        #[pyarg(any, default = true)]
+        closefd: bool,
+        #[allow(dead_code)]
+        #[pyarg(any, default)]
+        opener: Option<PyObjectRef>,
+    }
+
+    impl Initializer for WindowsConsoleIO {
+        type Args = WindowsConsoleIOArgs;
+
+        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let nameobj = args.name;
+
+            if zelf.fd.load() >= 0 {
+                if zelf.closefd.load() {
+                    internal_close(&zelf);
+                } else {
+                    zelf.fd.store(-1);
+                }
+            }
+
+            // Warn if bool is used as file descriptor
+            if nameobj.class().is(vm.ctx.types.bool_type) {
+                crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.runtime_warning,
+                    "bool is used as a file descriptor".to_owned(),
+                    1,
+                    vm,
+                )?;
+            }
+
+            // Try to get fd from integer
+            let mut fd: i32 = -1;
+            if let Some(i) = nameobj.downcast_ref::<crate::builtins::PyInt>() {
+                fd = i.try_to_primitive::<i32>(vm).unwrap_or(-1);
+                if fd < 0 {
+                    return Err(vm.new_value_error("negative file descriptor"));
+                }
+            }
+
+            // Parse mode
+            let mode_str: &str = args
+                .mode
+                .as_ref()
+                .map(|s: &PyUtf8StrRef| s.as_str())
+                .unwrap_or("r");
+
+            let mut rwa = false;
+            let mut readable = false;
+            let mut writable = false;
+            let mut console_type = '\0';
+            for c in mode_str.bytes() {
+                match c {
+                    b'+' | b'a' | b'b' | b'x' => {}
+                    b'r' => {
+                        if rwa {
+                            return Err(
+                                vm.new_value_error("Must have exactly one of read or write mode")
+                            );
+                        }
+                        rwa = true;
+                        readable = true;
+                    }
+                    b'w' => {
+                        if rwa {
+                            return Err(
+                                vm.new_value_error("Must have exactly one of read or write mode")
+                            );
+                        }
+                        rwa = true;
+                        writable = true;
+                    }
+                    _ => {
+                        return Err(vm.new_value_error(format!("invalid mode: {mode_str}")));
+                    }
+                }
+            }
+            if !rwa {
+                return Err(vm.new_value_error("Must have exactly one of read or write mode"));
+            }
+
+            zelf.readable.store(readable);
+            zelf.writable.store(writable);
+
+            let mut _name_wide: Option<Vec<u16>> = None;
+
+            if fd < 0 {
+                // Get console type from name
+                console_type = pyio_get_console_type(&nameobj, vm);
+                if console_type == 'x' {
+                    if writable {
+                        console_type = 'w';
+                    } else {
+                        console_type = 'r';
+                    }
+                }
+
+                // Opening by name
+                zelf.closefd.store(true);
+                if !args.closefd {
+                    return Err(vm.new_value_error("Cannot use closefd=False with file name"));
+                }
+
+                let name_str = nameobj.str(vm)?;
+                let wide: Vec<u16> = name_str
+                    .as_str()
+                    .encode_utf16()
+                    .chain(core::iter::once(0))
+                    .collect();
+
+                let access = if writable {
+                    GENERIC_WRITE
+                } else {
+                    GENERIC_READ
+                };
+
+                // Try read/write first, fall back to specific access
+                let mut handle: HANDLE = unsafe {
+                    CreateFileW(
+                        wide.as_ptr(),
+                        GENERIC_READ | GENERIC_WRITE,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        core::ptr::null(),
+                        OPEN_EXISTING,
+                        0,
+                        core::ptr::null_mut(),
+                    )
+                };
+                if is_invalid_handle(handle) {
+                    handle = unsafe {
+                        CreateFileW(
+                            wide.as_ptr(),
+                            access,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE,
+                            core::ptr::null(),
+                            OPEN_EXISTING,
+                            0,
+                            core::ptr::null_mut(),
+                        )
+                    };
+                }
+
+                if is_invalid_handle(handle) {
+                    return Err(std::io::Error::last_os_error().to_pyexception(vm));
+                }
+
+                let osf_flags = if writable {
+                    libc::O_WRONLY | libc::O_BINARY | 0x80 /* O_NOINHERIT */
+                } else {
+                    libc::O_RDONLY | libc::O_BINARY | 0x80 /* O_NOINHERIT */
+                };
+
+                fd = unsafe { libc::open_osfhandle(handle as isize, osf_flags) };
+                if fd < 0 {
+                    unsafe {
+                        Foundation::CloseHandle(handle);
+                    }
+                    return Err(std::io::Error::last_os_error().to_pyexception(vm));
+                }
+
+                _name_wide = Some(wide);
+            } else {
+                // When opened by fd, never close the fd (user owns it)
+                zelf.closefd.store(false);
+            }
+
+            zelf.fd.store(fd);
+
+            // Validate console type
+            if console_type == '\0' {
+                let handle = handle_from_fd(fd);
+                console_type = get_console_type(handle);
+            }
+
+            if console_type == '\0' {
+                // Not a console at all
+                internal_close(&zelf);
+                return Err(vm.new_value_error("Cannot open non-console file"));
+            }
+
+            if writable && console_type != 'w' {
+                internal_close(&zelf);
+                return Err(vm.new_value_error("Cannot open console input buffer for writing"));
+            }
+            if readable && console_type != 'r' {
+                internal_close(&zelf);
+                return Err(vm.new_value_error("Cannot open console output buffer for reading"));
+            }
+
+            zelf.blksize.store(super::DEFAULT_BUFFER_SIZE as _);
+            *zelf.buf.lock() = [0u8; SMALLBUF];
+
+            zelf.as_object().set_attr("name", nameobj, vm)?;
+
+            Ok(())
+        }
+    }
+
+    fn internal_close(zelf: &WindowsConsoleIO) {
+        let fd = zelf.fd.swap(-1);
+        if fd >= 0 && zelf.closefd.load() {
+            unsafe {
+                libc::close(fd);
+            }
+        }
+    }
+
+    impl Representable for WindowsConsoleIO {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            let type_name = zelf.class().slot_name();
+            let fd = zelf.fd.load();
+            if fd < 0 {
+                return Ok(format!("<{type_name} [closed]>"));
+            }
+            let mode = if zelf.readable.load() { "rb" } else { "wb" };
+            let closefd = if zelf.closefd.load() { "True" } else { "False" };
+            Ok(format!("<{type_name} mode='{mode}' closefd={closefd}>"))
+        }
+    }
+
+    #[pyclass(
+        with(Constructor, Initializer, Representable, Destructor),
+        flags(BASETYPE, HAS_DICT)
+    )]
+    impl WindowsConsoleIO {
+        #[allow(dead_code)]
+        fn io_error(
+            zelf: &Py<Self>,
+            error: std::io::Error,
+            vm: &VirtualMachine,
+        ) -> PyBaseExceptionRef {
+            let exc = error.to_pyexception(vm);
+            if let Ok(name) = zelf.as_object().get_attr("name", vm) {
+                exc.as_object()
+                    .set_attr("filename", name, vm)
+                    .expect("OSError.filename set must succeed");
+            }
+            exc
+        }
+
+        #[pygetset]
+        fn closed(&self) -> bool {
+            self.fd.load() < 0
+        }
+
+        #[pygetset]
+        fn closefd(&self) -> bool {
+            self.closefd.load()
+        }
+
+        #[pygetset(name = "_blksize")]
+        fn blksize(&self) -> i64 {
+            self.blksize.load()
+        }
+
+        #[pygetset]
+        fn mode(&self) -> &'static str {
+            if self.readable.load() { "rb" } else { "wb" }
+        }
+
+        #[pymethod]
+        fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
+            let fd = self.fd.load();
+            if fd >= 0 {
+                Ok(fd)
+            } else {
+                Err(io_closed_error(vm))
+            }
+        }
+
+        fn get_fd(&self, vm: &VirtualMachine) -> PyResult<i32> {
+            self.fileno(vm)
+        }
+
+        #[pymethod]
+        fn readable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            if self.fd.load() < 0 {
+                return Err(io_closed_error(vm));
+            }
+            Ok(self.readable.load())
+        }
+
+        #[pymethod]
+        fn writable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            if self.fd.load() < 0 {
+                return Err(io_closed_error(vm));
+            }
+            Ok(self.writable.load())
+        }
+
+        #[pymethod]
+        fn isatty(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            if self.fd.load() < 0 {
+                return Err(io_closed_error(vm));
+            }
+            Ok(true)
+        }
+
+        #[pymethod]
+        fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            let res = iobase_close(zelf.as_object(), vm);
+            if !zelf.closefd.load() {
+                zelf.fd.store(-1);
+                return res;
+            }
+            let flush_exc = res.err();
+            if zelf.finalizing.load() {
+                Self::dealloc_warn(zelf, zelf.as_object().to_owned(), vm);
+            }
+            let fd = zelf.fd.swap(-1);
+            let close_err: Option<PyBaseExceptionRef> = if fd >= 0 {
+                let result = unsafe { libc::close(fd) };
+                if result < 0 {
+                    Some(std::io::Error::last_os_error().into_pyexception(vm))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            match (flush_exc, close_err) {
+                (Some(fe), Some(ce)) => {
+                    ce.set___context__(Some(fe));
+                    Err(ce)
+                }
+                (Some(e), None) | (None, Some(e)) => Err(e),
+                (None, None) => Ok(()),
+            }
+        }
+
+        fn dealloc_warn(zelf: &Py<Self>, source: PyObjectRef, vm: &VirtualMachine) {
+            if zelf.fd.load() >= 0 && zelf.closefd.load() {
+                let repr = source
+                    .repr(vm)
+                    .map(|s| s.as_str().to_owned())
+                    .unwrap_or_else(|_| "<file>".to_owned());
+                if let Err(e) = crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.resource_warning,
+                    format!("unclosed file {repr}"),
+                    1,
+                    vm,
+                ) {
+                    vm.run_unraisable(e, None, zelf.as_object().to_owned());
+                }
+            }
+        }
+
+        fn copy_from_buf(buf: &mut [u8; SMALLBUF], dest: &mut [u8]) -> usize {
+            let mut n = 0;
+            while buf[0] != 0 && n < dest.len() {
+                dest[n] = buf[0];
+                n += 1;
+                for i in 1..SMALLBUF {
+                    buf[i - 1] = buf[i];
+                }
+                buf[SMALLBUF - 1] = 0;
+            }
+            n
+        }
+
+        #[pymethod]
+        fn readinto(&self, buffer: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
+            let fd = self.get_fd(vm)?;
+            if !self.readable.load() {
+                return Err(new_unsupported_operation(
+                    vm,
+                    "Console buffer does not support reading".to_owned(),
+                ));
+            }
+            let mut buf_ref = buffer.borrow_buf_mut();
+            let len = buf_ref.len();
+            if len == 0 {
+                return Ok(0);
+            }
+            if len > BUFMAX {
+                return Err(vm.new_value_error(format!("cannot read more than {BUFMAX} bytes")));
+            }
+
+            let handle = handle_from_fd(fd);
+            if is_invalid_handle(handle) {
+                return Err(std::io::Error::last_os_error().to_pyexception(vm));
+            }
+
+            // Each character may take up to 4 bytes in UTF-8.
+            let mut wlen = (len / 4) as u32;
+            if wlen == 0 {
+                wlen = 1;
+            }
+
+            let dest = &mut *buf_ref;
+
+            // Copy from internal buffer first
+            let mut read_len = {
+                let mut buf = self.buf.lock();
+                Self::copy_from_buf(&mut buf, dest)
+            };
+            if read_len > 0 {
+                wlen = wlen.saturating_sub(1);
+            }
+            if read_len >= len || wlen == 0 {
+                return Ok(read_len);
+            }
+
+            // Read from console
+            let mut wbuf = vec![0u16; wlen as usize];
+            let mut nread: u32 = 0;
+            let res = unsafe {
+                ReadConsoleW(
+                    handle,
+                    wbuf.as_mut_ptr() as _,
+                    wlen,
+                    &mut nread,
+                    core::ptr::null(),
+                )
+            };
+            if res == 0 {
+                return Err(std::io::Error::last_os_error().into_pyexception(vm));
+            }
+            if nread == 0 {
+                return Ok(read_len);
+            }
+
+            // Check for Ctrl+Z (EOF)
+            if nread > 0 && wbuf[0] == 0x1A {
+                return Ok(read_len);
+            }
+
+            // Convert wchar to UTF-8
+            let remaining = len - read_len;
+            let u8n;
+            if remaining < 4 {
+                // Buffer the result in the internal small buffer
+                let mut buf = self.buf.lock();
+                let converted = unsafe {
+                    WideCharToMultiByte(
+                        CP_UTF8,
+                        0,
+                        wbuf.as_ptr(),
+                        nread as i32,
+                        buf.as_mut_ptr() as _,
+                        SMALLBUF as i32,
+                        core::ptr::null(),
+                        core::ptr::null_mut(),
+                    )
+                };
+                if converted > 0 {
+                    u8n = Self::copy_from_buf(&mut buf, &mut dest[read_len..]) as i32;
+                } else {
+                    u8n = 0;
+                }
+            } else {
+                u8n = unsafe {
+                    WideCharToMultiByte(
+                        CP_UTF8,
+                        0,
+                        wbuf.as_ptr(),
+                        nread as i32,
+                        dest[read_len..].as_mut_ptr() as _,
+                        remaining as i32,
+                        core::ptr::null(),
+                        core::ptr::null_mut(),
+                    )
+                };
+            }
+
+            if u8n > 0 {
+                read_len += u8n as usize;
+            } else {
+                let err = std::io::Error::last_os_error();
+                if err.raw_os_error() == Some(122) {
+                    // ERROR_INSUFFICIENT_BUFFER
+                    let needed = unsafe {
+                        WideCharToMultiByte(
+                            CP_UTF8,
+                            0,
+                            wbuf.as_ptr(),
+                            nread as i32,
+                            core::ptr::null_mut(),
+                            0,
+                            core::ptr::null(),
+                            core::ptr::null_mut(),
+                        )
+                    };
+                    if needed > 0 {
+                        return Err(vm.new_system_error(format!(
+                            "Buffer had room for {remaining} bytes but {needed} bytes required",
+                        )));
+                    }
+                }
+                return Err(err.into_pyexception(vm));
+            }
+
+            Ok(read_len)
+        }
+
+        #[pymethod]
+        fn readall(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            if self.fd.load() < 0 {
+                return Err(io_closed_error(vm));
+            }
+
+            let handle = handle_from_fd(self.fd.load());
+            if is_invalid_handle(handle) {
+                return Err(std::io::Error::last_os_error().to_pyexception(vm));
+            }
+
+            let mut result = Vec::new();
+
+            // Copy any buffered bytes first
+            {
+                let mut buf = self.buf.lock();
+                let mut tmp = [0u8; SMALLBUF];
+                let n = Self::copy_from_buf(&mut buf, &mut tmp);
+                result.extend_from_slice(&tmp[..n]);
+            }
+
+            let mut wbuf = vec![0u16; 8192];
+            loop {
+                let mut nread: u32 = 0;
+                let res = unsafe {
+                    ReadConsoleW(
+                        handle,
+                        wbuf.as_mut_ptr() as _,
+                        wbuf.len() as u32,
+                        &mut nread,
+                        core::ptr::null(),
+                    )
+                };
+                if res == 0 {
+                    return Err(std::io::Error::last_os_error().into_pyexception(vm));
+                }
+                if nread == 0 {
+                    break;
+                }
+                // Ctrl+Z at start -> EOF
+                if wbuf[0] == 0x1A {
+                    break;
+                }
+                // Convert to UTF-8
+                let needed = unsafe {
+                    WideCharToMultiByte(
+                        CP_UTF8,
+                        0,
+                        wbuf.as_ptr(),
+                        nread as i32,
+                        core::ptr::null_mut(),
+                        0,
+                        core::ptr::null(),
+                        core::ptr::null_mut(),
+                    )
+                };
+                if needed == 0 {
+                    return Err(std::io::Error::last_os_error().into_pyexception(vm));
+                }
+                let offset = result.len();
+                result.resize(offset + needed as usize, 0);
+                let written = unsafe {
+                    WideCharToMultiByte(
+                        CP_UTF8,
+                        0,
+                        wbuf.as_ptr(),
+                        nread as i32,
+                        result[offset..].as_mut_ptr() as _,
+                        needed,
+                        core::ptr::null(),
+                        core::ptr::null_mut(),
+                    )
+                };
+                if written == 0 {
+                    return Err(std::io::Error::last_os_error().into_pyexception(vm));
+                }
+                // If we didn't fill the buffer, no more data
+                if nread < wbuf.len() as u32 {
+                    break;
+                }
+            }
+
+            Ok(vm.ctx.new_bytes(result).into())
+        }
+
+        #[pymethod]
+        fn read(&self, size: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            if self.fd.load() < 0 {
+                return Err(io_closed_error(vm));
+            }
+            if !self.readable.load() {
+                return Err(new_unsupported_operation(
+                    vm,
+                    "Console buffer does not support reading".to_owned(),
+                ));
+            }
+            let size = size.unwrap_or(-1);
+            if size < 0 {
+                return self.readall(vm);
+            }
+            if size as usize > BUFMAX {
+                return Err(vm.new_value_error(format!("cannot read more than {BUFMAX} bytes")));
+            }
+            let mut buf = vec![0u8; size as usize];
+            let handle = handle_from_fd(self.fd.load());
+            if is_invalid_handle(handle) {
+                return Err(std::io::Error::last_os_error().to_pyexception(vm));
+            }
+
+            let len = size as usize;
+
+            let mut wlen = (len / 4) as u32;
+            if wlen == 0 {
+                wlen = 1;
+            }
+
+            let mut read_len = {
+                let mut ibuf = self.buf.lock();
+                Self::copy_from_buf(&mut ibuf, &mut buf)
+            };
+            if read_len > 0 {
+                wlen = wlen.saturating_sub(1);
+            }
+            if read_len >= len || wlen == 0 {
+                buf.truncate(read_len);
+                return Ok(vm.ctx.new_bytes(buf).into());
+            }
+
+            let mut wbuf = vec![0u16; wlen as usize];
+            let mut nread: u32 = 0;
+            let res = unsafe {
+                ReadConsoleW(
+                    handle,
+                    wbuf.as_mut_ptr() as _,
+                    wlen,
+                    &mut nread,
+                    core::ptr::null(),
+                )
+            };
+            if res == 0 {
+                return Err(std::io::Error::last_os_error().into_pyexception(vm));
+            }
+            if nread == 0 || wbuf[0] == 0x1A {
+                buf.truncate(read_len);
+                return Ok(vm.ctx.new_bytes(buf).into());
+            }
+
+            let remaining = len - read_len;
+            let u8n;
+            if remaining < 4 {
+                let mut ibuf = self.buf.lock();
+                let converted = unsafe {
+                    WideCharToMultiByte(
+                        CP_UTF8,
+                        0,
+                        wbuf.as_ptr(),
+                        nread as i32,
+                        ibuf.as_mut_ptr() as _,
+                        SMALLBUF as i32,
+                        core::ptr::null(),
+                        core::ptr::null_mut(),
+                    )
+                };
+                if converted > 0 {
+                    u8n = Self::copy_from_buf(&mut ibuf, &mut buf[read_len..]) as i32;
+                } else {
+                    u8n = 0;
+                }
+            } else {
+                u8n = unsafe {
+                    WideCharToMultiByte(
+                        CP_UTF8,
+                        0,
+                        wbuf.as_ptr(),
+                        nread as i32,
+                        buf[read_len..].as_mut_ptr() as _,
+                        remaining as i32,
+                        core::ptr::null(),
+                        core::ptr::null_mut(),
+                    )
+                };
+            }
+
+            if u8n > 0 {
+                read_len += u8n as usize;
+            } else {
+                let err = std::io::Error::last_os_error();
+                if err.raw_os_error() == Some(122) {
+                    // ERROR_INSUFFICIENT_BUFFER
+                    let needed = unsafe {
+                        WideCharToMultiByte(
+                            CP_UTF8,
+                            0,
+                            wbuf.as_ptr(),
+                            nread as i32,
+                            core::ptr::null_mut(),
+                            0,
+                            core::ptr::null(),
+                            core::ptr::null_mut(),
+                        )
+                    };
+                    if needed > 0 {
+                        return Err(vm.new_system_error(format!(
+                            "Buffer had room for {remaining} bytes but {needed} bytes required",
+                        )));
+                    }
+                }
+                return Err(err.into_pyexception(vm));
+            }
+
+            buf.truncate(read_len);
+            Ok(vm.ctx.new_bytes(buf).into())
+        }
+
+        #[pymethod]
+        fn write(&self, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            if self.fd.load() < 0 {
+                return Err(io_closed_error(vm));
+            }
+            if !self.writable.load() {
+                return Err(new_unsupported_operation(
+                    vm,
+                    "Console buffer does not support writing".to_owned(),
+                ));
+            }
+
+            let handle = handle_from_fd(self.fd.load());
+            if is_invalid_handle(handle) {
+                return Err(std::io::Error::last_os_error().to_pyexception(vm));
+            }
+
+            let data = b.borrow_buf();
+            let data = &*data;
+            if data.is_empty() {
+                return Ok(0);
+            }
+
+            let mut len = data.len().min(BUFMAX);
+
+            // Cap at 32766/2 wchars * 3 bytes (UTF-8 to wchar ratio is at most 3:1)
+            let max_wlen: u32 = 32766 / 2;
+            len = len.min(max_wlen as usize * 3);
+
+            // Reduce len until wlen fits within max_wlen
+            let wlen;
+            loop {
+                len = find_last_utf8_boundary(data, len);
+                let w = unsafe {
+                    MultiByteToWideChar(
+                        CP_UTF8,
+                        0,
+                        data.as_ptr(),
+                        len as i32,
+                        core::ptr::null_mut(),
+                        0,
+                    )
+                };
+                if w as u32 <= max_wlen {
+                    wlen = w;
+                    break;
+                }
+                len /= 2;
+            }
+            if wlen == 0 {
+                return Ok(0);
+            }
+
+            let mut wbuf = vec![0u16; wlen as usize];
+            let wlen = unsafe {
+                MultiByteToWideChar(
+                    CP_UTF8,
+                    0,
+                    data.as_ptr(),
+                    len as i32,
+                    wbuf.as_mut_ptr(),
+                    wlen,
+                )
+            };
+            if wlen == 0 {
+                return Err(std::io::Error::last_os_error().into_pyexception(vm));
+            }
+
+            let mut n_written: u32 = 0;
+            let res = unsafe {
+                WriteConsoleW(
+                    handle,
+                    wbuf.as_ptr() as _,
+                    wlen as u32,
+                    &mut n_written,
+                    core::ptr::null(),
+                )
+            };
+            if res == 0 {
+                return Err(std::io::Error::last_os_error().into_pyexception(vm));
+            }
+
+            // If we wrote fewer wchars than expected, recalculate bytes consumed
+            if n_written < wlen as u32 {
+                // Binary search to find how many input bytes correspond to n_written wchars
+                len = wchar_to_utf8_count(data, len, n_written);
+            }
+
+            Ok(len)
+        }
+
+        #[pymethod(name = "__reduce__")]
+        fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot pickle '_WindowsConsoleIO' instances".to_owned()))
+        }
+    }
+
+    /// Find how many UTF-8 bytes correspond to n wide chars.
+    fn wchar_to_utf8_count(data: &[u8], mut len: usize, mut n: u32) -> usize {
+        let mut start: usize = 0;
+        loop {
+            let mut mid = 0;
+            for i in (len / 2)..=len {
+                mid = find_last_utf8_boundary(data, i);
+                if mid != 0 {
+                    break;
+                }
+            }
+            if mid == len {
+                return start + len;
+            }
+            if mid == 0 {
+                mid = if len > 1 { len - 1 } else { 1 };
+            }
+            let wlen = unsafe {
+                MultiByteToWideChar(
+                    CP_UTF8,
+                    0,
+                    data[start..].as_ptr(),
+                    mid as i32,
+                    core::ptr::null_mut(),
+                    0,
+                )
+            } as u32;
+            if wlen <= n {
+                start += mid;
+                len -= mid;
+                n -= wlen;
+            } else {
+                len = mid;
+            }
+        }
+    }
+
+    impl Destructor for WindowsConsoleIO {
+        fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            if let Some(cio) = zelf.downcast_ref::<WindowsConsoleIO>() {
+                cio.finalizing.store(true);
             }
             iobase_finalize(zelf, vm);
             Ok(())
