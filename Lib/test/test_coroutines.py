@@ -1250,7 +1250,6 @@ class CoroutineTest(unittest.TestCase):
         with self.assertRaises(ZeroDivisionError):
             run_async(foo())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "asynchronous context manager.*__aexit__" does not match "'CM' object does not support the context manager protocol (missed __aexit__ method)"
     def test_with_2(self):
         class CM:
             def __aenter__(self):
@@ -1267,7 +1266,6 @@ class CoroutineTest(unittest.TestCase):
             run_async(foo())
         self.assertIs(body_executed, False)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "asynchronous context manager" does not match "'CM' object does not support the context manager protocol (missed __aenter__ method)"
     def test_with_3(self):
         class CM:
             def __aexit__(self):
@@ -1284,7 +1282,6 @@ class CoroutineTest(unittest.TestCase):
             run_async(foo())
         self.assertIs(body_executed, False)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "asynchronous context manager" does not match "'CM' object does not support the context manager protocol (missed __aexit__ method)"
     def test_with_4(self):
         class CM:
             pass
