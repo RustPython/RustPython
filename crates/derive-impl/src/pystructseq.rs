@@ -299,11 +299,12 @@ pub(crate) fn impl_pystruct_sequence_data(
                     obj: ::rustpython_vm::PyObjectRef,
                 ) -> ::rustpython_vm::PyResult<Self> {
                     let seq: Vec<::rustpython_vm::PyObjectRef> = obj.try_into_value(vm)?;
-                    if seq.len() < #n_required {
+                    if seq.len() != #n_required {
                         return Err(vm.new_type_error(format!(
-                            "{} requires at least {} elements",
+                            "{} requires a {}-sequence ({}-sequence given)",
                             stringify!(#data_ident),
-                            #n_required
+                            #n_required,
+                            seq.len()
                         )));
                     }
                     <Self as ::rustpython_vm::types::PyStructSequenceData>::try_from_elements(seq, vm)
