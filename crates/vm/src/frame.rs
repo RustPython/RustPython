@@ -3454,17 +3454,17 @@ fn special_method_can_suggest(
 ) -> PyResult<bool> {
     Ok(match oparg {
         SpecialMethod::Enter | SpecialMethod::Exit => {
-            vm.get_special_method(&obj, get_special_method_name(SpecialMethod::AEnter, vm))?
+            vm.get_special_method(obj, get_special_method_name(SpecialMethod::AEnter, vm))?
                 .is_some()
                 && vm
-                    .get_special_method(&obj, get_special_method_name(SpecialMethod::AExit, vm))?
+                    .get_special_method(obj, get_special_method_name(SpecialMethod::AExit, vm))?
                     .is_some()
         }
         SpecialMethod::AEnter | SpecialMethod::AExit => {
-            vm.get_special_method(&obj, get_special_method_name(SpecialMethod::Enter, vm))?
+            vm.get_special_method(obj, get_special_method_name(SpecialMethod::Enter, vm))?
                 .is_some()
                 && vm
-                    .get_special_method(&obj, get_special_method_name(SpecialMethod::Exit, vm))?
+                    .get_special_method(obj, get_special_method_name(SpecialMethod::Exit, vm))?
                     .is_some()
         }
     })
