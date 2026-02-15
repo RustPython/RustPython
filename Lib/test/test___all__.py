@@ -97,7 +97,6 @@ class AllTest(unittest.TestCase):
                 continue
             yield path, modpath + modname
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_all(self):
         # List of denied modules and packages
         denylist = set([

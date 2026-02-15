@@ -1553,7 +1553,6 @@ class OpenTestCase(unittest.TestCase):
 
 class MiscellaneousTestCase(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'lzma' has no attribute 'CHECK_ID_MAX'
     def test_is_check_supported(self):
         # CHECK_NONE and CHECK_CRC32 should always be supported,
         # regardless of the options liblzma was compiled with.

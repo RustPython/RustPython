@@ -188,10 +188,7 @@ pub(super) mod _os {
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
 
     #[pyattr]
-    use libc::{
-        O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END,
-        SEEK_SET,
-    };
+    use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 
     #[pyattr]
     pub(crate) const F_OK: u8 = 0;
