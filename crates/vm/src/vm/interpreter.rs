@@ -491,6 +491,13 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
                 package: false,
             },
         ));
+        entries.push((
+            "__hello_only__",
+            FrozenModule {
+                code: hello_code,
+                package: false,
+            },
+        ));
     }
     if let Some(code) = entries
         .iter()
