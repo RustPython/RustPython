@@ -692,7 +692,7 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(c.dec(), 1)
         self.assertEqual(c.dec(), 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; figure out how to communicate that `y = 9` should be stored as a global rather than a STORE_NAME, even when the `global y` is in a nested subscope
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; figure out how to communicate that `y = 9` should be stored as a global rather than a STORE_NAME, even when the `global y` is in a nested subscope
     def testGlobalInParallelNestedFunctions(self):
         # A symbol table bug leaked the global statement from one
         # function to other nested functions in the same block.
@@ -779,7 +779,7 @@ class ScopeTests(unittest.TestCase):
         class X:
             locals()["x"] = 43
             del x
-        self.assertFalse(hasattr(X, "x"))
+        self.assertNotHasAttr(X, "x")
         self.assertEqual(x, 42)
 
     @cpython_only
