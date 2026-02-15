@@ -506,8 +506,49 @@ impl VirtualMachine {
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
+                    ruff_python_parser::ParseErrorType::FStringError(
+                        ruff_python_parser::InterpolatedStringErrorType::UnterminatedString,
+                    )
+                    | ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::FStringError(
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedString,
+                        ),
+                    ),
+                ..
+            }) => {
+                msg = "unterminated f-string literal".to_owned();
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::FStringError(
+                        ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                    )
+                    | ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::FStringError(
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                        ),
+                    ),
+                ..
+            }) => {
+                msg = "unterminated triple-quoted f-string literal".to_owned();
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
                     ruff_python_parser::ParseErrorType::FStringError(_)
-                    | ruff_python_parser::ParseErrorType::UnexpectedExpressionToken,
+                    | ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::FStringError(_),
+                    ),
+                ..
+            }) => {
+                // Replace backticks with single quotes to match CPython's error messages
+                msg = msg.replace('`', "'");
+                msg.insert_str(0, "invalid syntax: ");
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::UnexpectedExpressionToken,
                 ..
             }) => msg.insert_str(0, "invalid syntax: "),
             #[cfg(feature = "parser")]
@@ -531,6 +572,47 @@ impl VirtualMachine {
             }) => {
                 msg = "invalid syntax".to_owned();
                 narrow_caret = true;
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::InvalidDeleteTarget,
+                ..
+            }) => {
+                msg = "invalid syntax".to_owned();
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::LineContinuationError,
+                    ),
+                ..
+            }) => {
+                msg = "unexpected character after line continuation".to_owned();
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::UnclosedStringError,
+                    ),
+                ..
+            }) => {
+                msg = "unterminated string".to_owned();
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::OtherError(s),
+                ..
+            }) if s.eq_ignore_ascii_case("bytes literal cannot be mixed with non-bytes literals") => {
+                msg = "cannot mix bytes and nonbytes literals".to_owned();
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::OtherError(s),
+                ..
+            }) if s.starts_with("Expected an identifier, but found a keyword") => {
+                msg = "invalid syntax".to_owned();
             }
             _ => {}
         }
