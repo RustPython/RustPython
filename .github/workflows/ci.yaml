@@ -456,10 +456,17 @@ jobs:
         run: python -I scripts/whats_left.py --no-default-features --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading" # no jit on macOS for now
 
   lint:
-    name: Check Rust code with clippy
+    name: Lint Rust & Python code
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Check for redundant test patches
+        run: python scripts/check_redundant_patches.py
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
