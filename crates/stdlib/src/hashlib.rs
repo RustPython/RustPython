@@ -19,7 +19,7 @@ pub mod _hashlib {
         types::{Constructor, Representable},
     };
     use blake2::{Blake2b512, Blake2s256};
-    use digest::{DynDigest, core_api::BlockSizeUser};
+    use digest::{DynDigest, OutputSizeUser, core_api::BlockSizeUser};
     use digest::{ExtendableOutput, Update};
     use dyn_clone::{DynClone, clone_trait_object};
     use hmac::Mac;
@@ -256,6 +256,105 @@ pub mod _hashlib {
             UnsupportedDigestmodError::static_type().to_owned(),
             format!("unsupported hash type {name}"),
         )
+    }
+
+    // Object-safe HMAC trait for type-erased dispatch
+    trait DynHmac: Send + Sync {
+        fn dyn_update(&mut self, data: &[u8]);
+        fn dyn_finalize(&self) -> Vec<u8>;
+        fn dyn_clone(&self) -> Box<dyn DynHmac>;
+    }
+
+    struct TypedHmac<D>(D);
+
+    impl<D> DynHmac for TypedHmac<D>
+    where
+        D: Mac + Clone + Send + Sync + 'static,
+    {
+        fn dyn_update(&mut self, data: &[u8]) {
+            Mac::update(&mut self.0, data);
+        }
+
+        fn dyn_finalize(&self) -> Vec<u8> {
+            self.0.clone().finalize().into_bytes().to_vec()
+        }
+
+        fn dyn_clone(&self) -> Box<dyn DynHmac> {
+            Box::new(TypedHmac(self.0.clone()))
+        }
+    }
+
+    #[pyattr]
+    #[pyclass(module = "_hashlib", name = "HMAC")]
+    #[derive(PyPayload)]
+    pub struct PyHmac {
+        algo_name: String,
+        digest_size: usize,
+        block_size: usize,
+        ctx: PyRwLock<Box<dyn DynHmac>>,
+    }
+
+    impl core::fmt::Debug for PyHmac {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(f, "HMAC {}", self.algo_name)
+        }
+    }
+
+    #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
+    impl PyHmac {
+        #[pyslot]
+        fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot create '_hashlib.HMAC' instances".to_owned()))
+        }
+
+        #[pygetset]
+        fn name(&self) -> String {
+            format!("hmac-{}", self.algo_name)
+        }
+
+        #[pygetset]
+        fn digest_size(&self) -> usize {
+            self.digest_size
+        }
+
+        #[pygetset]
+        fn block_size(&self) -> usize {
+            self.block_size
+        }
+
+        #[pymethod]
+        fn update(&self, msg: ArgBytesLike) {
+            msg.with_ref(|bytes| self.ctx.write().dyn_update(bytes));
+        }
+
+        #[pymethod]
+        fn digest(&self) -> PyBytes {
+            self.ctx.read().dyn_finalize().into()
+        }
+
+        #[pymethod]
+        fn hexdigest(&self) -> String {
+            hex::encode(self.ctx.read().dyn_finalize())
+        }
+
+        #[pymethod]
+        fn copy(&self) -> Self {
+            Self {
+                algo_name: self.algo_name.clone(),
+                digest_size: self.digest_size,
+                block_size: self.block_size,
+                ctx: PyRwLock::new(self.ctx.read().dyn_clone()),
+            }
+        }
+    }
+
+    impl Representable for PyHmac {
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!(
+                "<{} HMAC object @ {:#x}>",
+                zelf.algo_name, zelf as *const _ as usize
+            ))
+        }
     }
 
     #[pyattr]
@@ -646,18 +745,50 @@ pub mod _hashlib {
         #[pyarg(positional)]
         key: ArgBytesLike,
         #[pyarg(any, optional)]
-        msg: OptionalArg<ArgBytesLike>,
+        msg: OptionalArg<Option<ArgBytesLike>>,
         #[pyarg(named, optional)]
         digestmod: OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
-    fn hmac_new(args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let _ = args;
-        Err(vm.new_exception_msg(
-            UnsupportedDigestmodError::static_type().to_owned(),
-            "unsupported hash type".to_owned(),
-        ))
+    fn hmac_new(args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyHmac> {
+        let digestmod = args.digestmod.into_option().ok_or_else(|| {
+            vm.new_type_error("Missing required parameter 'digestmod'.".to_owned())
+        })?;
+        let name = resolve_digestmod(&digestmod, vm)?;
+
+        let key_buf = args.key.borrow_buf();
+        let msg_data = args.msg.flatten();
+
+        macro_rules! make_hmac {
+            ($hash_ty:ty) => {{
+                let mut mac = <hmac::Hmac<$hash_ty> as Mac>::new_from_slice(&key_buf)
+                    .map_err(|_| vm.new_value_error("invalid key length".to_owned()))?;
+                if let Some(ref m) = msg_data {
+                    m.with_ref(|bytes| Mac::update(&mut mac, bytes));
+                }
+                Ok(PyHmac {
+                    algo_name: name,
+                    digest_size: <$hash_ty as OutputSizeUser>::output_size(),
+                    block_size: <$hash_ty as BlockSizeUser>::block_size(),
+                    ctx: PyRwLock::new(Box::new(TypedHmac(mac))),
+                })
+            }};
+        }
+
+        match name.as_str() {
+            "md5" => make_hmac!(Md5),
+            "sha1" => make_hmac!(Sha1),
+            "sha224" => make_hmac!(Sha224),
+            "sha256" => make_hmac!(Sha256),
+            "sha384" => make_hmac!(Sha384),
+            "sha512" => make_hmac!(Sha512),
+            "sha3_224" => make_hmac!(Sha3_224),
+            "sha3_256" => make_hmac!(Sha3_256),
+            "sha3_384" => make_hmac!(Sha3_384),
+            "sha3_512" => make_hmac!(Sha3_512),
+            _ => Err(unsupported_hash(&name, vm)),
+        }
     }
 
     #[pyfunction]
