@@ -326,7 +326,7 @@ mod decl {
 
     /// Write a frame's info to an fd using signal-safe I/O.
     #[cfg(any(unix, windows))]
-    fn dump_frame_from_ref(fd: i32, frame: &crate::vm::PyRef<Frame>) {
+    fn dump_frame_from_ref(fd: i32, frame: &crate::vm::Py<Frame>) {
         let funcname = frame.code.obj_name.as_str();
         let filename = frame.code.source_path().as_str();
         let lineno = if frame.lasti() == 0 {
@@ -382,8 +382,9 @@ mod decl {
             } else {
                 puts(fd, "Stack (most recent call first):\n");
                 let frames = vm.frames.borrow();
-                for frame in frames.iter().rev() {
-                    dump_frame_from_ref(fd, frame);
+                for fp in frames.iter().rev() {
+                    // SAFETY: the frame is alive while it's in the Vec
+                    dump_frame_from_ref(fd, unsafe { fp.as_ref() });
                 }
             }
         }
@@ -421,8 +422,8 @@ mod decl {
             if frames.is_empty() {
                 puts(fd, "  <no Python frame>\n");
             } else {
-                for frame in frames.iter().rev() {
-                    dump_frame_from_ref(fd, frame);
+                for fp in frames.iter().rev() {
+                    dump_frame_from_ref(fd, unsafe { fp.as_ref() });
                 }
             }
         }
@@ -431,8 +432,8 @@ mod decl {
         {
             write_thread_id(fd, current_thread_id(), true);
             let frames = vm.frames.borrow();
-            for frame in frames.iter().rev() {
-                dump_frame_from_ref(fd, frame);
+            for fp in frames.iter().rev() {
+                dump_frame_from_ref(fd, unsafe { fp.as_ref() });
             }
         }
     }
