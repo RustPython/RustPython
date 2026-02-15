@@ -1058,7 +1058,7 @@ mod winreg {
         let res =
             unsafe { Registry::RegSetValueExW(key.hkey.load(), value_name_ptr, 0, typ, ptr, len) };
         if res != 0 {
-            return Err(vm.new_os_error(format!("error code: {res}")));
+            return Err(os_error_from_windows_code(vm, res as i32));
         }
         Ok(())
     }
