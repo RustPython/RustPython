@@ -3,7 +3,7 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
-mod monitoring;
+pub(crate) mod monitoring;
 
 #[pymodule(name = "_jit")]
 mod sys_jit {

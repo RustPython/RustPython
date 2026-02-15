@@ -138,6 +138,10 @@ pub struct PyGlobalState {
     /// Registry for non-daemon threads that need to be joined at shutdown
     #[cfg(feature = "threading")]
     pub shutdown_handles: parking_lot::Mutex<Vec<stdlib::thread::ShutdownEntry>>,
+    /// sys.monitoring state (tool names, events, callbacks)
+    pub monitoring: PyMutex<stdlib::sys::monitoring::MonitoringState>,
+    /// Fast-path mask: OR of all tools' events. 0 means no monitoring overhead.
+    pub monitoring_events: stdlib::sys::monitoring::MonitoringEventsMask,
 }
 
 pub fn process_hash_secret_seed() -> u32 {

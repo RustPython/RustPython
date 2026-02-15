@@ -124,6 +124,8 @@ where
         thread_handles: parking_lot::Mutex::new(Vec::new()),
         #[cfg(feature = "threading")]
         shutdown_handles: parking_lot::Mutex::new(Vec::new()),
+        monitoring: PyMutex::default(),
+        monitoring_events: crossbeam_utils::atomic::AtomicCell::new(0),
     });
 
     // Create VM with the global state
