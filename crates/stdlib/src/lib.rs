@@ -78,6 +78,8 @@ mod posixsubprocess;
     not(any(target_os = "android", target_arch = "wasm32"))
 ))]
 mod _sqlite3;
+#[cfg(all(feature = "host_env", windows))]
+mod _testconsole;
 #[cfg(all(
     feature = "host_env",
     unix,
@@ -182,6 +184,8 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             feature = "ssl-openssl"
         ))]
         openssl::module_def(ctx),
+        #[cfg(all(feature = "host_env", windows))]
+        _testconsole::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]
         overlapped::module_def(ctx),
         #[cfg(all(feature = "host_env", unix))]
