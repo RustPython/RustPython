@@ -240,6 +240,7 @@ class TestFail:
 
 class TestPyFail(TestFail, PyTest): pass
 class TestCFail(TestFail, CTest):
+
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_failures(self):
         return super().test_failures()

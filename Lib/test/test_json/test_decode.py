@@ -136,6 +136,7 @@ class TestDecode:
 
 class TestPyDecode(TestDecode, PyTest): pass
 class TestCDecode(TestDecode, CTest):
+
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_limit_int(self):
         return super().test_limit_int()

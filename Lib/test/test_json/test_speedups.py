@@ -62,7 +62,7 @@ class TestEncode(CTest):
         with self.assertRaises(ZeroDivisionError):
             enc('spam', 4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "make_encoder\(\) argument 1 must be dict or None, not int" does not match "'NoneType' object is not callable"
     def test_bad_markers_argument_to_encoder(self):
         # https://bugs.python.org/issue45269
         with self.assertRaisesRegex(
