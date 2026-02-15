@@ -93,6 +93,7 @@ unic-ucd-category = { workspace = true }
 unic-ucd-ident = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
+parking_lot_core = { workspace = true, features = ["fork"] }
 rustix = { workspace = true }
 nix = { workspace = true }
 exitcode = "1.1.2"

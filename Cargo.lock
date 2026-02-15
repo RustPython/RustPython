@@ -2234,8 +2234,7 @@ dependencies = [
 [[package]]
 name = "parking_lot_core"
 version = "0.9.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
+source = "git+https://github.com/youknowone/parking_lot?rev=5953f33ea399365bd15fdd9b6aaf8bc5ad7c8e46#5953f33ea399365bd15fdd9b6aaf8bc5ad7c8e46"
 dependencies = [
  "cfg-if",
  "libc",
@@ -3340,6 +3339,7 @@ dependencies = [
  "num_enum",
  "optional",
  "parking_lot",
+ "parking_lot_core",
  "paste",
  "psm",
  "result-like",
