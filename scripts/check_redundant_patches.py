@@ -18,7 +18,7 @@ def main():
         try:
             tree = ast.parse(contents)
         except SyntaxError:
-            pass
+            continue
 
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
