@@ -357,8 +357,6 @@ class TimeTestCase(unittest.TestCase):
                                    r'.*day of month without a year.*'):
             time.strptime('02-07 18:28', '%m-%d %H:%M')
 
-    # TODO: RUSTPYTHON; chrono on Windows cannot handle month=0/big years
-    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
     def test_asctime(self):
         time.asctime(time.gmtime(self.t))
 

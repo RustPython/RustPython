@@ -371,7 +371,7 @@ pub mod _hashlib {
         }
     }
 
-    #[pyclass(flags(IMMUTABLETYPE))]
+    #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
     impl PyHasherXof {
         fn new(name: &str, d: HashXofWrapper) -> Self {
             Self {
@@ -444,6 +444,15 @@ pub mod _hashlib {
         #[pymethod]
         fn copy(&self) -> Self {
             Self::new(&self.name, self.ctx.read().clone())
+        }
+    }
+
+    impl Representable for PyHasherXof {
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!(
+                "<{} _hashlib.HASHXOF object @ {:#x}>",
+                zelf.name, zelf as *const _ as usize
+            ))
         }
     }
 
@@ -701,9 +710,8 @@ pub mod _hashlib {
                 if len < 1 {
                     return Err(vm.new_value_error("key length must be greater than 0.".to_owned()));
                 }
-                usize::try_from(len).map_err(|_| {
-                    vm.new_overflow_error("key length is too great.".to_owned())
-                })?
+                usize::try_from(len)
+                    .map_err(|_| vm.new_overflow_error("key length is too great.".to_owned()))?
             }
             None => hash_digest_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?,
         };
