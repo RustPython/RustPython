@@ -58,6 +58,8 @@ pub(crate) mod msvcrt;
 ))]
 mod pwd;
 
+#[cfg(all(feature = "host_env", windows))]
+mod _wmi;
 #[cfg(feature = "host_env")]
 pub(crate) mod signal;
 pub mod sys;
@@ -129,5 +131,7 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         winapi::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]
         winreg::module_def(ctx),
+        #[cfg(all(feature = "host_env", windows))]
+        _wmi::module_def(ctx),
     ]
 }
