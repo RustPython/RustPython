@@ -1255,7 +1255,6 @@ class UnicodeTest(StringTest, unittest.TestCase):
         self.assertRaises(ValueError, a.tounicode)
         self.assertRaises(ValueError, str, a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: DeprecationWarning not triggered
     def test_typecode_u_deprecation(self):
         with self.assertWarns(DeprecationWarning):
             array.array("u")
