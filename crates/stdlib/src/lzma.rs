@@ -51,7 +51,9 @@ mod _lzma {
     #[pyattr]
     const FILTER_DELTA: i32 = 3;
     #[pyattr]
-    const CHECK_UNKNOWN: i32 = 16;
+    const CHECK_ID_MAX: i32 = 15;
+    #[pyattr]
+    const CHECK_UNKNOWN: i32 = CHECK_ID_MAX + 1;
 
     // the variant ids are hardcoded to be equivalent to the C enum values
     enum Format {
