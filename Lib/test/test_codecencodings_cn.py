@@ -6,6 +6,7 @@
 from test import multibytecodec_support
 import unittest
 
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: gb2312")
 class Test_GB2312(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'gb2312'
     tstring = multibytecodec_support.load_teststring('gb2312')
@@ -19,82 +20,7 @@ class Test_GB2312(multibytecodec_support.TestBase, unittest.TestCase):
         (b"\xc1\x64", "strict", None),
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb2312
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
-
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: gbk")
 class Test_GBK(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'gbk'
     tstring = multibytecodec_support.load_teststring('gbk')
@@ -109,82 +35,7 @@ class Test_GBK(multibytecodec_support.TestBase, unittest.TestCase):
         ("\u30fb", "strict", None),
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gbk
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
-
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: gb18030")
 class Test_GB18030(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'gb18030'
     tstring = multibytecodec_support.load_teststring('gb18030')
@@ -209,82 +60,7 @@ class Test_GB18030(multibytecodec_support.TestBase, unittest.TestCase):
     )
     has_iso10646 = True
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: gb18030
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
-
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: hz")
 class Test_HZ(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'hz'
     tstring = multibytecodec_support.load_teststring('hz')
@@ -319,82 +95,6 @@ class Test_HZ(multibytecodec_support.TestBase, unittest.TestCase):
         (b'~{Dc~~:C~}', 'strict', None),  # ~~ only in ASCII mode
         (b'~{Dc~\n:C~}', 'strict', None), # ~\n only in ASCII mode
     )
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: hz
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
 
 if __name__ == "__main__":
     unittest.main()

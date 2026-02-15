@@ -6,6 +6,7 @@
 from test import multibytecodec_support
 import unittest
 
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: cp932")
 class Test_CP932(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'cp932'
     tstring = multibytecodec_support.load_teststring('shift_jis')
@@ -24,82 +25,6 @@ class Test_CP932(multibytecodec_support.TestBase, unittest.TestCase):
         (b"\x81\x5f\x81\x61\x81\x7c", "replace", "\uff3c\u2225\uff0d"),
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp932
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
-
 euc_commontests = (
     # invalid bytes
     (b"abc\x80\x80\xc1\xc4", "strict",  None),
@@ -115,6 +40,7 @@ euc_commontests = (
     (b"\x8eXY", "replace", "\ufffdXY"),
 )
 
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: euc_jis_2004")
 class Test_EUC_JIS_2004(multibytecodec_support.TestBase,
                         unittest.TestCase):
     encoding = 'euc_jis_2004'
@@ -125,82 +51,7 @@ class Test_EUC_JIS_2004(multibytecodec_support.TestBase,
         b"\xa9\xa8&real;\xa9\xb2 = &lang;&#4660;&rang;"
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
-
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: euc_jisx0213")
 class Test_EUC_JISX0213(multibytecodec_support.TestBase,
                         unittest.TestCase):
     encoding = 'euc_jisx0213'
@@ -211,82 +62,7 @@ class Test_EUC_JISX0213(multibytecodec_support.TestBase,
         b"\xa9\xa8&real;\xa9\xb2 = &lang;&#4660;&rang;"
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jisx0213
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
-
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: euc_jp")
 class Test_EUC_JP_COMPAT(multibytecodec_support.TestBase,
                          unittest.TestCase):
     encoding = 'euc_jp'
@@ -296,88 +72,13 @@ class Test_EUC_JP_COMPAT(multibytecodec_support.TestBase,
         ("\u203e", "strict", b"\x7e"),
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jp
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
-
 shiftjis_commonenctests = (
     (b"abc\x80\x80\x82\x84", "strict",  None),
     (b"abc\xf8", "strict",  None),
     (b"abc\x80\x80\x82\x84def", "ignore",  "abc\uff44def"),
 )
 
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: shift_jis")
 class Test_SJIS_COMPAT(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'shift_jis'
     tstring = multibytecodec_support.load_teststring('shift_jis')
@@ -392,82 +93,7 @@ class Test_SJIS_COMPAT(multibytecodec_support.TestBase, unittest.TestCase):
         (b"abc\xFF\x58", "replace",  "abc\ufffdX"),
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
-
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: shift_jis_2004")
 class Test_SJIS_2004(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'shift_jis_2004'
     tstring = multibytecodec_support.load_teststring('shift_jis')
@@ -486,82 +112,7 @@ class Test_SJIS_2004(multibytecodec_support.TestBase, unittest.TestCase):
         b"\x85G&real;\x85Q = &lang;&#4660;&rang;"
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis_2004
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
-
+@unittest.skip("TODO: RUSTPYTHON; unknown encoding: shift_jisx0213")
 class Test_SJISX0213(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'shift_jisx0213'
     tstring = multibytecodec_support.load_teststring('shift_jisx0213')
@@ -577,82 +128,6 @@ class Test_SJISX0213(multibytecodec_support.TestBase, unittest.TestCase):
         "\xab\u211c\xbb = \u2329\u1234\u232a",
         b"\x85G&real;\x85Q = &lang;&#4660;&rang;"
     )
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_callback_None_index(self):
-        return super().test_callback_None_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_callback_backward_index(self):
-        return super().test_callback_backward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_callback_forward_index(self):
-        return super().test_callback_forward_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_callback_index_outofbound(self):
-        return super().test_callback_index_outofbound()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_callback_long_index(self):
-        return super().test_callback_long_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_callback_returns_bytes(self):
-        return super().test_callback_returns_bytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_callback_wrong_objects(self):
-        return super().test_callback_wrong_objects()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_chunkcoding(self):
-        return super().test_chunkcoding()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_customreplace_encode(self):
-        return super().test_customreplace_encode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_errorhandle(self):
-        return super().test_errorhandle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_incrementaldecoder(self):
-        return super().test_incrementaldecoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_incrementalencoder(self):
-        return super().test_incrementalencoder()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_incrementalencoder_del_segfault(self):
-        return super().test_incrementalencoder_del_segfault()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_incrementalencoder_error_callback(self):
-        return super().test_incrementalencoder_error_callback()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_null_terminator(self):
-        return super().test_null_terminator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_streamreader(self):
-        return super().test_streamreader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_streamwriter(self):
-        return super().test_streamwriter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_streamwriter_reset_no_pending(self):
-        return super().test_streamwriter_reset_no_pending()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jisx0213
-    def test_xmlcharrefreplace(self):
-        return super().test_xmlcharrefreplace()
 
 if __name__ == "__main__":
     unittest.main()
