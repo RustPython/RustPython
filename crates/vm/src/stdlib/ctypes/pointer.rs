@@ -27,15 +27,23 @@ impl Initializer for PyCPointerType {
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
 
-        new_type.check_not_initialized(vm)?;
+        if new_type.is_initialized() {
+            return Ok(());
+        }
 
         // Get the _type_ attribute (element type)
-        // PyCPointerType_init gets the element type from _type_ attribute
         let proto = new_type
             .as_object()
             .get_attr("_type_", vm)
             .ok()
             .and_then(|obj| obj.downcast::<PyType>().ok());
+
+        // Validate that _type_ has storage info (is a ctypes type)
+        if let Some(ref proto_type) = proto
+            && proto_type.stg_info_opt().is_none()
+        {
+            return Err(vm.new_type_error(format!("{} must have storage info", proto_type.name())));
+        }
 
         // Initialize StgInfo for pointer type
         let pointer_size = core::mem::size_of::<usize>();
@@ -62,12 +70,31 @@ impl Initializer for PyCPointerType {
 
         let _ = new_type.init_type_data(stg_info);
 
+        // Cache: set target_type.__pointer_type__ = self (via StgInfo, not as inheritable attr)
+        if let Ok(type_attr) = new_type.as_object().get_attr("_type_", vm)
+            && let Ok(target_type) = type_attr.downcast::<PyType>()
+            && let Some(mut target_info) = target_type.get_type_data_mut::<StgInfo>()
+        {
+            let zelf_obj: PyObjectRef = zelf.into();
+            target_info.pointer_type = Some(zelf_obj);
+        }
+
         Ok(())
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE), with(AsNumber, Initializer))]
+#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(AsNumber, Initializer))]
 impl PyCPointerType {
+    #[pygetset(name = "__pointer_type__")]
+    fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        super::base::pointer_type_get(&zelf, vm)
+    }
+
+    #[pygetset(name = "__pointer_type__", setter)]
+    fn set_pointer_type(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        super::base::pointer_type_set(&zelf, value, vm)
+    }
+
     #[pymethod]
     fn from_param(zelf: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // zelf is the pointer type class that from_param was called on
@@ -182,7 +209,12 @@ impl PyCPointerType {
         }
 
         // 4. Set _type_ attribute on the pointer type
-        zelf.as_object().set_attr("_type_", typ_type, vm)?;
+        zelf.as_object().set_attr("_type_", typ_type.clone(), vm)?;
+
+        // 5. Cache: set target_type.__pointer_type__ = self (via StgInfo)
+        if let Some(mut target_info) = typ_type.get_type_data_mut::<StgInfo>() {
+            target_info.pointer_type = Some(zelf.into());
+        }
 
         Ok(())
     }
@@ -598,11 +630,12 @@ impl PyCPointer {
             if type_code.as_deref() == Some("z")
                 && let Some(bytes) = value.downcast_ref::<PyBytes>()
             {
-                let (converted, ptr_val) = super::base::ensure_z_null_terminated(bytes, vm);
+                let (kept_alive, ptr_val) = super::base::ensure_z_null_terminated(bytes, vm);
                 unsafe {
                     *(addr as *mut usize) = ptr_val;
                 }
-                return zelf.0.keep_ref(index as usize, converted, vm);
+                zelf.0.keep_alive(index as usize, kept_alive);
+                return zelf.0.keep_ref(index as usize, value.clone(), vm);
             } else if type_code.as_deref() == Some("Z")
                 && let Some(s) = value.downcast_ref::<PyStr>()
             {

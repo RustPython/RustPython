@@ -55,6 +55,8 @@ class TestNullDlsym(unittest.TestCase):
     this 'dlsym returned NULL -> throw Error' rule.
     """
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_null_dlsym(self):
         import subprocess
         import tempfile

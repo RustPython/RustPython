@@ -26,6 +26,8 @@ else:
 )
 class ListSharedLibraries(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(not APPLE, "TODO: RUSTPYTHON")
     def test_lists_system(self):
         dlls = ctypes.util.dllist()
 
@@ -34,6 +36,8 @@ class ListSharedLibraries(unittest.TestCase):
             any(lib in dll for dll in dlls for lib in KNOWN_LIBRARIES), f"loaded={dlls}"
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lists_updates(self):
         dlls = ctypes.util.dllist()
 

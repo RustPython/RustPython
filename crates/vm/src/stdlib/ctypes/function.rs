@@ -31,6 +31,7 @@ use rustpython_common::lock::PyRwLock;
 pub(super) const INTERNAL_CAST_ADDR: usize = 1;
 pub(super) const INTERNAL_STRING_AT_ADDR: usize = 2;
 pub(super) const INTERNAL_WSTRING_AT_ADDR: usize = 3;
+pub(super) const INTERNAL_MEMORYVIEW_AT_ADDR: usize = 4;
 
 // Thread-local errno storage for ctypes
 std::thread_local! {
@@ -512,7 +513,17 @@ impl Initializer for PyCFuncPtrType {
 }
 
 #[pyclass(flags(IMMUTABLETYPE), with(Initializer))]
-impl PyCFuncPtrType {}
+impl PyCFuncPtrType {
+    #[pygetset(name = "__pointer_type__")]
+    fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        super::base::pointer_type_get(&zelf, vm)
+    }
+
+    #[pygetset(name = "__pointer_type__", setter)]
+    fn set_pointer_type(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        super::base::pointer_type_set(&zelf, value, vm)
+    }
+}
 
 /// PyCFuncPtr - Function pointer instance
 /// Saved in _base.buffer
@@ -561,6 +572,16 @@ impl Debug for PyCFuncPtr {
 
 /// Extract pointer value from a ctypes argument (c_void_p conversion)
 fn extract_ptr_from_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+    // Try CArgObject first - extract the wrapped pointer value, applying offset
+    if let Some(carg) = arg.downcast_ref::<super::_ctypes::CArgObject>() {
+        if carg.offset != 0
+            && let Some(cdata) = carg.obj.downcast_ref::<PyCData>()
+        {
+            let base = cdata.buffer.read().as_ptr() as isize;
+            return Ok((base + carg.offset) as usize);
+        }
+        return extract_ptr_from_arg(&carg.obj, vm);
+    }
     // Try to get pointer value from various ctypes types
     if let Some(ptr) = arg.downcast_ref::<PyCPointer>() {
         return Ok(ptr.get_ptr_value());
@@ -653,6 +674,68 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
             .collect();
         Ok(vm.ctx.new_str(s).into())
     }
+}
+
+/// A buffer wrapping raw memory at a given pointer, for zero-copy memoryview.
+#[pyclass(name = "_RawMemoryBuffer", module = "_ctypes")]
+#[derive(Debug, PyPayload)]
+pub(super) struct RawMemoryBuffer {
+    ptr: *const u8,
+    size: usize,
+    readonly: bool,
+}
+
+// SAFETY: The caller ensures the pointer remains valid
+unsafe impl Send for RawMemoryBuffer {}
+unsafe impl Sync for RawMemoryBuffer {}
+
+static RAW_MEMORY_BUFFER_METHODS: crate::protocol::BufferMethods = crate::protocol::BufferMethods {
+    obj_bytes: |buffer| {
+        let raw = buffer.obj_as::<RawMemoryBuffer>();
+        let slice = unsafe { core::slice::from_raw_parts(raw.ptr, raw.size) };
+        rustpython_common::borrow::BorrowedValue::Ref(slice)
+    },
+    obj_bytes_mut: |buffer| {
+        let raw = buffer.obj_as::<RawMemoryBuffer>();
+        let slice = unsafe { core::slice::from_raw_parts_mut(raw.ptr as *mut u8, raw.size) };
+        rustpython_common::borrow::BorrowedValueMut::RefMut(slice)
+    },
+    release: |_| {},
+    retain: |_| {},
+};
+
+#[pyclass(with(AsBuffer))]
+impl RawMemoryBuffer {}
+
+impl AsBuffer for RawMemoryBuffer {
+    fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        Ok(PyBuffer::new(
+            zelf.to_owned().into(),
+            BufferDescriptor::simple(zelf.size, zelf.readonly),
+            &RAW_MEMORY_BUFFER_METHODS,
+        ))
+    }
+}
+
+/// memoryview_at implementation - create a memoryview from memory at ptr
+fn memoryview_at_impl(ptr: usize, size: isize, readonly: bool, vm: &VirtualMachine) -> PyResult {
+    use crate::builtins::PyMemoryView;
+
+    if ptr == 0 {
+        return Err(vm.new_value_error("NULL pointer access"));
+    }
+    if size < 0 {
+        return Err(vm.new_value_error("negative size"));
+    }
+    let len = size as usize;
+    let raw_buf = RawMemoryBuffer {
+        ptr: ptr as *const u8,
+        size: len,
+        readonly,
+    }
+    .into_pyobject(vm);
+    let mv = PyMemoryView::from_object(&raw_buf, vm)?;
+    Ok(mv.into_pyobject(vm))
 }
 
 // cast_check_pointertype
@@ -1061,6 +1144,25 @@ fn handle_internal_func(addr: usize, args: &FuncArgs, vm: &VirtualMachine) -> Op
                 .and_then(|i| i.as_bigint().to_isize())
                 .unwrap_or(-1);
             wstring_at_impl(ptr, size, vm)
+        }));
+    }
+
+    if addr == INTERNAL_MEMORYVIEW_AT_ADDR {
+        let result: PyResult<(PyObjectRef, PyObjectRef, Option<PyObjectRef>)> =
+            args.clone().bind(vm);
+        return Some(result.and_then(|(ptr_arg, size_arg, readonly_arg)| {
+            let ptr = extract_ptr_from_arg(&ptr_arg, vm)?;
+            let size_int = size_arg.try_int(vm)?;
+            let size = size_int
+                .as_bigint()
+                .to_isize()
+                .ok_or_else(|| vm.new_value_error("size too large"))?;
+            let readonly = readonly_arg
+                .and_then(|r| r.try_int(vm).ok())
+                .and_then(|i| i.as_bigint().to_i32())
+                .unwrap_or(0)
+                != 0;
+            memoryview_at_impl(ptr, size, readonly, vm)
         }));
     }
 
@@ -2091,7 +2193,7 @@ unsafe extern "C" fn thunk_callback(
                 .map(|s| s.to_string())
                 .unwrap_or_else(|_| "<unknown>".to_string());
             let msg = format!(
-                "Exception ignored on calling ctypes callback function {}",
+                "Exception ignored while calling ctypes callback function {}",
                 repr
             );
             vm.run_unraisable(exc.clone(), Some(msg), vm.ctx.none());
