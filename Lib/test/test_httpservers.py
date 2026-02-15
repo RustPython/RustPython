@@ -994,7 +994,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
                                  msg='path = %r\nGot:    %r\nWanted: %r' %
                                  (path, actual, expected))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"", None, 200) != (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>)')
     def test_headers_and_content(self):
         res = self.request('/cgi-bin/file1.py')
         self.assertEqual(
@@ -1005,7 +1004,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
         res = self.request('///////////nocgi.py/../cgi-bin/nothere.sh')
         self.assertEqual(res.status, HTTPStatus.NOT_FOUND)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; b"" != b"1, python, 123456\n"')
     def test_post(self):
         params = urllib.parse.urlencode(
             {'spam' : 1, 'eggs' : 'python', 'bacon' : 123456})
@@ -1014,7 +1012,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
 
         self.assertEqual(res.read(), b'1, python, 123456' + self.linesep)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"" != b"32768 32768\n"')
     def test_large_content_length(self):
         for w in range(15, 25):
             size = 1 << w
@@ -1023,7 +1020,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
             res = self.request('/cgi-bin/file7.py', 'POST', body, headers)
             self.assertEqual(res.read(), b'%d %d' % (size, size) + self.linesep)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"" != b"Hello World\n"')
     def test_large_content_length_truncated(self):
         with support.swap_attr(self.request_handler, 'timeout', 0.001):
             for w in range(18, 65):
@@ -1037,7 +1033,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
         res.read()
         self.assertEqual(res.status, HTTPStatus.NOT_FOUND)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
     def test_authorization(self):
         headers = {b'Authorization' : b'Basic ' +
                    base64.b64encode(b'username:pass')}
@@ -1046,7 +1041,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
     def test_no_leading_slash(self):
         # http://bugs.python.org/issue2254
         res = self.request('cgi-bin/file1.py')
@@ -1054,7 +1048,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; ValueError: signal only works in main thread')
     def test_os_environ_is_not_altered(self):
         signature = "Test CGI Server"
         os.environ['SERVER_SOFTWARE'] = signature
@@ -1064,28 +1057,24 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (res.read(), res.getheader('Content-type'), res.status))
         self.assertEqual(os.environ['SERVER_SOFTWARE'], signature)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; ValueError: signal only works in main thread')
     def test_urlquote_decoding_in_cgi_check(self):
         res = self.request('/cgi-bin%2ffile1.py')
         self.assertEqual(
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
     def test_nested_cgi_path_issue21323(self):
         res = self.request('/cgi-bin/child-dir/file3.py')
         self.assertEqual(
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; ValueError: signal only works in main thread')
     def test_query_with_multiple_question_mark(self):
         res = self.request('/cgi-bin/file4.py?a=b?c=d')
         self.assertEqual(
             (b'a=b?c=d' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"k=aa%2F%2Fbb&//q//p//=//a//b//\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
     def test_query_with_continuous_slashes(self):
         res = self.request('/cgi-bin/file4.py?k=aa%2F%2Fbb&//q//p//=//a//b//')
         self.assertEqual(
@@ -1093,7 +1082,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
              'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; Tuples differ: (b"", None, 200) != (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>)')
     def test_cgi_path_in_sub_directories(self):
         try:
             CGIHTTPRequestHandler.cgi_directories.append('/sub/dir/cgi-bin')
@@ -1104,7 +1092,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
         finally:
             CGIHTTPRequestHandler.cgi_directories.remove('/sub/dir/cgi-bin')
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"HTTP_ACCEPT=text/html,text/plain" not found in b""')
     def test_accept(self):
         browser_accept = \
                     'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
