@@ -8450,7 +8450,12 @@ impl Compiler {
                     if let Some(ast::DebugText { leading, trailing }) = &fstring_expr.debug_text {
                         let range = fstring_expr.expression.range();
                         let source = self.source_file.slice(range);
-                        let text = [leading, source, trailing].concat();
+                        let text = [
+                            strip_fstring_debug_comments(leading).as_str(),
+                            source,
+                            strip_fstring_debug_comments(trailing).as_str(),
+                        ]
+                        .concat();
 
                         self.emit_load_const(ConstantData::Str { value: text.into() });
                         element_count += 1;
@@ -8784,6 +8789,27 @@ impl ToU32 for usize {
     fn to_u32(self) -> u32 {
         self.try_into().unwrap()
     }
+}
+
+/// Strip Python comments from f-string debug text (leading/trailing around `=`).
+/// A comment starts with `#` and extends to the end of the line.
+/// The newline character itself is preserved.
+fn strip_fstring_debug_comments(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut in_comment = false;
+    for ch in text.chars() {
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+                result.push(ch);
+            }
+        } else if ch == '#' {
+            in_comment = true;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 #[cfg(test)]

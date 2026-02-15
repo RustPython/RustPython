@@ -587,7 +587,6 @@ x = (
         exec(c)
         self.assertEqual(x[0], 'foo3')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compile_time_concat_errors(self):
         self.assertAllRaise(SyntaxError,
                             'cannot mix bytes and nonbytes literals',
@@ -600,7 +599,6 @@ x = (
         self.assertEqual(f'a', 'a')
         self.assertEqual(f' ', ' ')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unterminated_string(self):
         self.assertAllRaise(SyntaxError, 'unterminated string',
                             [r"""f'{"x'""",
@@ -852,7 +850,6 @@ x = (
                              """f'{"s"!{"r"}}'""",
                              ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxWarning not triggered
     def test_custom_format_specifier(self):
         class CustomFormat:
             def __format__(self, format_spec):
@@ -956,7 +953,6 @@ x = (
                             "f-string: expecting a valid expression after '{'",
                 ["f'{.}'", "\nf'{.}'", "\n\nf'{.}'"])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxWarning not triggered
     def test_backslashes_in_string_part(self):
         self.assertEqual(f'\t', '\t')
         self.assertEqual(r'\t', '\\t')
@@ -1051,7 +1047,6 @@ x = (
                             ["f'{\n}'",
                              ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_backslashes_inside_fstring_context(self):
         # All of these variations are invalid python syntax,
         # so they are also invalid in f-strings as well.
@@ -1129,7 +1124,6 @@ x = (
         self.assertEqual(fr'\'\"\'', '\\\'\\"\\\'')
         self.assertEqual(fr'\"\'\"\'', '\\"\\\'\\"\\\'')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_fstring_backslash_before_double_bracket(self):
         deprecated_cases = [
             (r"f'\{{\}}'",   '\\{\\}'),
@@ -1149,7 +1143,6 @@ x = (
         self.assertEqual(fr'\}}{1+1}', '\\}2')
         self.assertEqual(fr'{1+1}\}}', '2\\}')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxWarning not triggered
     def test_fstring_backslash_before_double_bracket_warns_once(self):
         with self.assertWarns(SyntaxWarning) as w:
             eval(r"f'\{{'")
@@ -1418,7 +1411,6 @@ x = (
                              "f'{x}' = x",
                              ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_del(self):
         self.assertAllRaise(SyntaxError, 'invalid syntax',
                             ["del f''",
@@ -1524,7 +1516,6 @@ x = (
         self.assertEqual('{d[a]}'.format(d=d), 'string')
         self.assertEqual('{d[0]}'.format(d=d), 'integer')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_errors(self):
         # see issue 26287
         self.assertAllRaise(TypeError, 'unsupported',
@@ -1567,7 +1558,6 @@ x = (
         self.assertEqual(eval('f"\\\n"'), '')
         self.assertEqual(eval('f"\\\r"'), '')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '1+2 = # my comment\n  3' != '1+2 = \n  3'
     def test_debug_conversion(self):
         x = 'A string'
         self.assertEqual(f'{x=}', 'x=' + repr(x))
@@ -1798,7 +1788,6 @@ print(f'''{{
         self.assertEqual(stdout.decode('utf-8').strip().replace('\r\n', '\n').replace('\r', '\n'),
                          "3\n=3")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 2
     def test_syntax_warning_infinite_recursion_in_file(self):
         with temp_cwd():
             script = 'script.py'
