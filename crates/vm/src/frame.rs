@@ -10,7 +10,7 @@ use crate::{
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
     },
-    bytecode::{self, Instruction, LoadAttr, LoadSuperAttr},
+    bytecode::{self, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod},
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
@@ -1614,15 +1614,10 @@ impl ExecutingFrame<'_> {
                 // Input: [..., obj]
                 // Output: [..., bound_method]
                 use crate::vm::PyMethod;
-                use bytecode::SpecialMethod;
 
                 let obj = self.pop_value();
-                let method_name = match method.get(arg) {
-                    SpecialMethod::Enter => identifier!(vm, __enter__),
-                    SpecialMethod::Exit => identifier!(vm, __exit__),
-                    SpecialMethod::AEnter => identifier!(vm, __aenter__),
-                    SpecialMethod::AExit => identifier!(vm, __aexit__),
-                };
+                let oparg = method.get(arg);
+                let method_name = get_special_method_name(oparg, vm);
 
                 let bound = match vm.get_special_method(&obj, method_name)? {
                     Some(PyMethod::Function { target, func }) => {
@@ -1633,10 +1628,10 @@ impl ExecutingFrame<'_> {
                     }
                     Some(PyMethod::Attribute(bound)) => bound,
                     None => {
-                        return Err(vm.new_type_error(format!(
-                            "'{}' object does not support the context manager protocol (missed {} method)",
-                            obj.class().name(),
-                            method_name
+                        return Err(vm.new_type_error(get_special_method_error_msg(
+                            oparg,
+                            &obj.class().name(),
+                            special_method_can_suggest(&obj, oparg, vm)?,
                         )));
                     }
                 };
@@ -3448,6 +3443,78 @@ impl fmt::Debug for Frame {
             stack_str,
             locals.into_object()
         )
+    }
+}
+
+/// _PyEval_SpecialMethodCanSuggest
+fn special_method_can_suggest(
+    obj: &PyObjectRef,
+    oparg: SpecialMethod,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    Ok(match oparg {
+        SpecialMethod::Enter | SpecialMethod::Exit => {
+            vm.get_special_method(obj, get_special_method_name(SpecialMethod::AEnter, vm))?
+                .is_some()
+                && vm
+                    .get_special_method(obj, get_special_method_name(SpecialMethod::AExit, vm))?
+                    .is_some()
+        }
+        SpecialMethod::AEnter | SpecialMethod::AExit => {
+            vm.get_special_method(obj, get_special_method_name(SpecialMethod::Enter, vm))?
+                .is_some()
+                && vm
+                    .get_special_method(obj, get_special_method_name(SpecialMethod::Exit, vm))?
+                    .is_some()
+        }
+    })
+}
+
+fn get_special_method_name(oparg: SpecialMethod, vm: &VirtualMachine) -> &'static PyStrInterned {
+    match oparg {
+        SpecialMethod::Enter => identifier!(vm, __enter__),
+        SpecialMethod::Exit => identifier!(vm, __exit__),
+        SpecialMethod::AEnter => identifier!(vm, __aenter__),
+        SpecialMethod::AExit => identifier!(vm, __aexit__),
+    }
+}
+
+/// _Py_SpecialMethod _Py_SpecialMethods
+fn get_special_method_error_msg(
+    oparg: SpecialMethod,
+    class_name: &str,
+    can_suggest: bool,
+) -> String {
+    if can_suggest {
+        match oparg {
+            SpecialMethod::Enter => format!(
+                "'{class_name}' object does not support the context manager protocol (missed __enter__ method) but it supports the asynchronous context manager protocol. Did you mean to use 'async with'?"
+            ),
+            SpecialMethod::Exit => format!(
+                "'{class_name}' object does not support the context manager protocol (missed __exit__ method) but it supports the asynchronous context manager protocol. Did you mean to use 'async with'?"
+            ),
+            SpecialMethod::AEnter => format!(
+                "'{class_name}' object does not support the asynchronous context manager protocol (missed __aenter__ method) but it supports the context manager protocol. Did you mean to use 'with'?"
+            ),
+            SpecialMethod::AExit => format!(
+                "'{class_name}' object does not support the asynchronous context manager protocol (missed __aexit__ method) but it supports the context manager protocol. Did you mean to use 'with'?"
+            ),
+        }
+    } else {
+        match oparg {
+            SpecialMethod::Enter => format!(
+                "'{class_name}' object does not support the context manager protocol (missed __enter__ method)"
+            ),
+            SpecialMethod::Exit => format!(
+                "'{class_name}' object does not support the context manager protocol (missed __exit__ method)"
+            ),
+            SpecialMethod::AEnter => format!(
+                "'{class_name}' object does not support the asynchronous context manager protocol (missed __aenter__ method)"
+            ),
+            SpecialMethod::AExit => format!(
+                "'{class_name}' object does not support the asynchronous context manager protocol (missed __aexit__ method)"
+            ),
+        }
     }
 }
 
