@@ -1,8 +1,7 @@
 use super::base::{CDATA_BUFFER_METHODS, PyCData, PyCField, StgInfo, StgInfoFlags};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
-use crate::function::FuncArgs;
-use crate::function::PySetterValue;
+use crate::function::{FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
@@ -154,6 +153,55 @@ impl PyCStructType {
         )))
     }
 
+    // CDataType methods - delegated to PyCData implementations
+
+    #[pymethod]
+    fn from_address(zelf: PyObjectRef, address: isize, vm: &VirtualMachine) -> PyResult {
+        let cls: PyTypeRef = zelf
+            .downcast()
+            .map_err(|_| vm.new_type_error("expected a type"))?;
+        PyCData::from_address(cls, address, vm)
+    }
+
+    #[pymethod]
+    fn from_buffer(
+        zelf: PyObjectRef,
+        source: PyObjectRef,
+        offset: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let cls: PyTypeRef = zelf
+            .downcast()
+            .map_err(|_| vm.new_type_error("expected a type"))?;
+        PyCData::from_buffer(cls, source, offset, vm)
+    }
+
+    #[pymethod]
+    fn from_buffer_copy(
+        zelf: PyObjectRef,
+        source: crate::function::ArgBytesLike,
+        offset: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let cls: PyTypeRef = zelf
+            .downcast()
+            .map_err(|_| vm.new_type_error("expected a type"))?;
+        PyCData::from_buffer_copy(cls, source, offset, vm)
+    }
+
+    #[pymethod]
+    fn in_dll(
+        zelf: PyObjectRef,
+        dll: PyObjectRef,
+        name: crate::builtins::PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let cls: PyTypeRef = zelf
+            .downcast()
+            .map_err(|_| vm.new_type_error("expected a type"))?;
+        PyCData::in_dll(cls, dll, name, vm)
+    }
+
     /// Called when a new Structure subclass is created
     #[pyclassmethod]
     fn __init_subclass__(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -220,6 +268,9 @@ impl PyCStructType {
         // Initialize PEP3118 format string
         let mut format = String::from("T{");
         let mut last_end = 0usize; // Track end of last field for padding calculation
+
+        // Bitfield layout tracking (gcc-sysv style)
+        let mut bitfield_bit_offset: u16 = 0; // Current bit position within bitfield group
 
         for (index, field) in fields.iter().enumerate() {
             let field_tuple = field
@@ -336,14 +387,77 @@ impl PyCStructType {
                 .clone()
                 .downcast::<PyType>()
                 .map_err(|_| vm.new_type_error("_fields_ type must be a ctypes type"))?;
-            let c_field = PyCField::new(field_type_ref, offset as isize, size as isize, index);
+
+            // Check for bitfield size (optional 3rd element in tuple)
+            let (c_field, field_advances_offset) = if field_tuple.len() > 2 {
+                let bit_size_obj = field_tuple.get(2).expect("len checked");
+                let bit_size = bit_size_obj
+                    .try_int(vm)?
+                    .as_bigint()
+                    .to_u16()
+                    .ok_or_else(|| {
+                        vm.new_value_error("number of bits invalid for bit field".to_string())
+                    })?;
+                has_bitfield = true;
+
+                // gcc-sysv layout: track bit_offset within the storage unit
+                let type_bits = (size * 8) as u16;
+                let fits_in_current = bitfield_bit_offset + bit_size <= type_bits;
+                let advances = if fits_in_current && bitfield_bit_offset > 0 {
+                    // Fits in current unit, reuse same offset
+                    false
+                } else if !fits_in_current {
+                    // Doesn't fit, start new storage unit
+                    bitfield_bit_offset = 0;
+                    true
+                } else {
+                    // First bitfield at this position
+                    true
+                };
+                let bit_offset = bitfield_bit_offset;
+                bitfield_bit_offset += bit_size;
+
+                // For packed bitfields that share offset, use the same offset as previous
+                let field_offset = if !advances {
+                    offset - size // Reuse the previous field's offset
+                } else {
+                    offset
+                };
+
+                (
+                    PyCField::new_bitfield(
+                        name.clone(),
+                        field_type_ref,
+                        field_offset as isize,
+                        size as isize,
+                        bit_size,
+                        bit_offset,
+                        index,
+                    ),
+                    advances,
+                )
+            } else {
+                bitfield_bit_offset = 0; // Reset on non-bitfield
+                (
+                    PyCField::new(
+                        name.clone(),
+                        field_type_ref,
+                        offset as isize,
+                        size as isize,
+                        index,
+                    ),
+                    true,
+                )
+            };
 
             // Set the CField as a class attribute
             cls.set_attr(vm.ctx.intern_str(name.clone()), c_field.to_pyobject(vm));
 
-            // Update tracking
-            last_end = offset + size;
-            offset += size;
+            // Update tracking - don't advance offset for packed bitfields
+            if field_advances_offset {
+                last_end = offset + size;
+                offset += size;
+            }
         }
 
         // Calculate total_align = max(max_align, forced_alignment)
@@ -365,6 +479,16 @@ impl PyCStructType {
             format.push('x');
         }
         format.push('}');
+
+        // Check for circular self-reference: if a field of the same type as this
+        // structure was encountered, it would have marked this type's stginfo as FINAL.
+        if let Some(stg_info) = cls.get_type_data::<StgInfo>()
+            && stg_info.is_final()
+        {
+            return Err(vm.new_attribute_error(
+                "Structure or union cannot contain itself".to_string(),
+            ));
+        }
 
         // Store StgInfo with aligned size and total alignment
         let mut stg_info = StgInfo::new(aligned_size, total_align);

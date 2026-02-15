@@ -31,6 +31,7 @@ use rustpython_common::lock::PyRwLock;
 pub(super) const INTERNAL_CAST_ADDR: usize = 1;
 pub(super) const INTERNAL_STRING_AT_ADDR: usize = 2;
 pub(super) const INTERNAL_WSTRING_AT_ADDR: usize = 3;
+pub(super) const INTERNAL_MEMORYVIEW_AT_ADDR: usize = 4;
 
 // Thread-local errno storage for ctypes
 std::thread_local! {
@@ -561,6 +562,10 @@ impl Debug for PyCFuncPtr {
 
 /// Extract pointer value from a ctypes argument (c_void_p conversion)
 fn extract_ptr_from_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+    // Try CArgObject first - extract the wrapped pointer value
+    if let Some(carg) = arg.downcast_ref::<super::_ctypes::CArgObject>() {
+        return extract_ptr_from_arg(&carg.obj, vm);
+    }
     // Try to get pointer value from various ctypes types
     if let Some(ptr) = arg.downcast_ref::<PyCPointer>() {
         return Ok(ptr.get_ptr_value());
@@ -653,6 +658,24 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
             .collect();
         Ok(vm.ctx.new_str(s).into())
     }
+}
+
+/// memoryview_at implementation - create a memoryview from memory at ptr
+fn memoryview_at_impl(ptr: usize, size: isize, readonly: bool, vm: &VirtualMachine) -> PyResult {
+    use crate::builtins::PyMemoryView;
+
+    if ptr == 0 {
+        return Err(vm.new_value_error("NULL pointer access"));
+    }
+    let len = size as usize;
+    let buf = unsafe { core::slice::from_raw_parts(ptr as *const u8, len) };
+    let obj: PyObjectRef = if readonly {
+        vm.ctx.new_bytes(buf.to_vec()).into()
+    } else {
+        vm.ctx.new_bytearray(buf.to_vec()).into()
+    };
+    let mv = PyMemoryView::from_object(&obj, vm)?;
+    Ok(mv.into_pyobject(vm))
 }
 
 // cast_check_pointertype
@@ -1061,6 +1084,25 @@ fn handle_internal_func(addr: usize, args: &FuncArgs, vm: &VirtualMachine) -> Op
                 .and_then(|i| i.as_bigint().to_isize())
                 .unwrap_or(-1);
             wstring_at_impl(ptr, size, vm)
+        }));
+    }
+
+    if addr == INTERNAL_MEMORYVIEW_AT_ADDR {
+        let result: PyResult<(PyObjectRef, PyObjectRef, Option<PyObjectRef>)> =
+            args.clone().bind(vm);
+        return Some(result.and_then(|(ptr_arg, size_arg, readonly_arg)| {
+            let ptr = extract_ptr_from_arg(&ptr_arg, vm)?;
+            let size = size_arg
+                .try_int(vm)
+                .ok()
+                .and_then(|i| i.as_bigint().to_isize())
+                .unwrap_or(0);
+            let readonly = readonly_arg
+                .and_then(|r| r.try_int(vm).ok())
+                .and_then(|i| i.as_bigint().to_i32())
+                .unwrap_or(0)
+                != 0;
+            memoryview_at_impl(ptr, size, readonly, vm)
         }));
     }
 
@@ -2091,7 +2133,7 @@ unsafe extern "C" fn thunk_callback(
                 .map(|s| s.to_string())
                 .unwrap_or_else(|_| "<unknown>".to_string());
             let msg = format!(
-                "Exception ignored on calling ctypes callback function {}",
+                "Exception ignored while calling ctypes callback function {}",
                 repr
             );
             vm.run_unraisable(exc.clone(), Some(msg), vm.ctx.none());

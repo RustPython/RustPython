@@ -777,8 +777,9 @@ impl PyCArray {
                 let (ptr_val, converted) = if value.is(&vm.ctx.none) {
                     (0usize, None)
                 } else if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    let (c, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
-                    (ptr, Some(c))
+                    let (obj_val, _kept_alive, ptr) =
+                        super::base::ensure_z_null_terminated(bytes, vm);
+                    (ptr, Some(obj_val))
                 } else if let Ok(int_val) = value.try_index(vm) {
                     (int_val.as_bigint().to_usize().unwrap_or(0), None)
                 } else {

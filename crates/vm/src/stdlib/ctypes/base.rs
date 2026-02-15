@@ -1,9 +1,9 @@
 use super::array::{WCHAR_SIZE, wchar_from_bytes, wchar_to_bytes};
-use crate::builtins::{PyBytes, PyDict, PyMemoryView, PyStr, PyType, PyTypeRef};
+use crate::builtins::{PyBytes, PyDict, PyMemoryView, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::class::StaticType;
 use crate::function::{ArgBytesLike, OptionalArg, PySetterValue};
 use crate::protocol::{BufferMethods, PyBuffer};
-use crate::types::{GetDescriptor, Representable};
+use crate::types::{Constructor, GetDescriptor, Representable};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
@@ -380,24 +380,25 @@ fn vec_to_bytes<T>(vec: Vec<T>) -> Vec<u8> {
     unsafe { Vec::from_raw_parts(ptr, len, cap) }
 }
 
-/// Ensure PyBytes is null-terminated. Returns (PyBytes to keep, pointer).
-/// If already contains null, returns original. Otherwise creates new with null appended.
+/// Ensure PyBytes is null-terminated. Returns (object_for_objects_dict, kept_alive_obj, pointer).
+/// The first element is the original bytes (without null) for `_objects` storage.
+/// The second element is the null-terminated bytes to keep alive for the pointer.
 pub(super) fn ensure_z_null_terminated(
     bytes: &PyBytes,
     vm: &VirtualMachine,
-) -> (PyObjectRef, usize) {
+) -> (PyObjectRef, PyObjectRef, usize) {
     let data = bytes.as_bytes();
+    let original: PyObjectRef = vm.ctx.new_bytes(data.to_vec()).into();
     if data.contains(&0) {
-        // Already has null, use original
-        let original: PyObjectRef = vm.ctx.new_bytes(data.to_vec()).into();
-        (original, data.as_ptr() as usize)
+        // Already has null, use original for both
+        (original.clone(), original, data.as_ptr() as usize)
     } else {
-        // Create new with null appended
+        // Create new with null appended for pointer, keep original for _objects
         let mut buffer = data.to_vec();
         buffer.push(0);
         let ptr = buffer.as_ptr() as usize;
-        let new_bytes: PyObjectRef = vm.ctx.new_bytes(buffer).into();
-        (new_bytes, ptr)
+        let kept_alive: PyObjectRef = vm.ctx.new_bytes(buffer).into();
+        (original, kept_alive, ptr)
     }
 }
 
@@ -942,6 +943,41 @@ impl PyCData {
             return Ok(());
         }
 
+        // For array fields with tuple/list input, instantiate the array type
+        // and unpack elements as positional args (Array_init expects *args)
+        if let Some(proto_type) = proto.downcast_ref::<PyType>()
+            && let Some(stg) = proto_type.stg_info_opt()
+            && stg.element_type.is_some()
+        {
+            let items: Option<Vec<PyObjectRef>> =
+                if let Some(tuple) = value.downcast_ref::<PyTuple>() {
+                    Some(tuple.to_vec())
+                } else {
+                    value
+                        .downcast_ref::<crate::builtins::PyList>()
+                        .map(|list| list.borrow_vec().to_vec())
+                };
+            if let Some(items) = items {
+                let array_obj = proto_type.as_object().call(items, vm).map_err(|e| {
+                    // Wrap errors in RuntimeError with type name prefix
+                    let type_name = proto_type.name().to_string();
+                    let exc_name = e.class().name().to_string();
+                    let exc_args = e.args();
+                    let exc_msg = exc_args
+                        .first()
+                        .and_then(|a| a.downcast_ref::<PyStr>().map(|s| s.to_string()))
+                        .unwrap_or_default();
+                    vm.new_runtime_error(format!("({type_name}) {exc_name}: {exc_msg}"))
+                })?;
+                if let Some(arr) = array_obj.downcast_ref::<super::array::PyCArray>() {
+                    let arr_buffer = arr.0.buffer.read();
+                    let len = core::cmp::min(arr_buffer.len(), size);
+                    self.write_bytes_at_offset(offset, &arr_buffer[..len]);
+                    return Ok(());
+                }
+            }
+        }
+
         // Get field type code for special handling
         let field_type_code = proto
             .get_attr("_type_", vm)
@@ -1111,7 +1147,7 @@ impl PyCData {
     // CDataType_methods - shared across all ctypes types
 
     #[pyclassmethod]
-    fn from_buffer(
+    pub(super) fn from_buffer(
         cls: PyTypeRef,
         source: PyObjectRef,
         offset: OptionalArg<isize>,
@@ -1122,7 +1158,7 @@ impl PyCData {
     }
 
     #[pyclassmethod]
-    fn from_buffer_copy(
+    pub(super) fn from_buffer_copy(
         cls: PyTypeRef,
         source: ArgBytesLike,
         offset: OptionalArg<isize>,
@@ -1134,7 +1170,7 @@ impl PyCData {
     }
 
     #[pyclassmethod]
-    fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
         let size = {
             let stg_info = cls.stg_info(vm)?;
             stg_info.size
@@ -1150,7 +1186,7 @@ impl PyCData {
     }
 
     #[pyclassmethod]
-    fn in_dll(
+    pub(super) fn in_dll(
         cls: PyTypeRef,
         dll: PyObjectRef,
         name: crate::builtins::PyStrRef,
@@ -1217,84 +1253,185 @@ impl PyCData {
 #[pyclass(name = "CField", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
 pub struct PyCField {
+    /// Field name
+    pub(crate) name: String,
     /// Byte offset of the field within the structure/union
     pub(crate) offset: isize,
-    /// Encoded size: for bitfields (bit_size << 16) | bit_offset, otherwise byte size
-    pub(crate) size: isize,
+    /// Byte size of the underlying type
+    pub(crate) byte_size_val: isize,
     /// Index into PyCData's object array
     pub(crate) index: usize,
     /// The ctypes type for this field
     pub(crate) proto: PyTypeRef,
     /// Flag indicating if the field is anonymous (MakeAnonFields sets this)
     pub(crate) anonymous: bool,
-}
-
-#[inline(always)]
-const fn num_bits(size: isize) -> isize {
-    size >> 16
-}
-
-#[inline(always)]
-const fn field_size(size: isize) -> isize {
-    size & 0xFFFF
-}
-
-#[inline(always)]
-const fn is_bitfield(size: isize) -> bool {
-    (size >> 16) != 0
+    /// Bitfield size in bits (0 for non-bitfield)
+    pub(crate) bitfield_size: u16,
+    /// Bit offset within the storage unit (only meaningful for bitfields)
+    pub(crate) bit_offset_val: u16,
 }
 
 impl PyCField {
     /// Create a new CField descriptor (non-bitfield)
-    pub fn new(proto: PyTypeRef, offset: isize, size: isize, index: usize) -> Self {
+    pub fn new(
+        name: String,
+        proto: PyTypeRef,
+        offset: isize,
+        byte_size: isize,
+        index: usize,
+    ) -> Self {
         Self {
+            name,
             offset,
-            size,
+            byte_size_val: byte_size,
             index,
             proto,
             anonymous: false,
+            bitfield_size: 0,
+            bit_offset_val: 0,
         }
     }
 
     /// Create a new CField descriptor for a bitfield
-    #[allow(dead_code)]
     pub fn new_bitfield(
+        name: String,
         proto: PyTypeRef,
         offset: isize,
-        bit_size: u16,
+        byte_size: isize,
+        bitfield_size: u16,
         bit_offset: u16,
         index: usize,
     ) -> Self {
-        let encoded_size = ((bit_size as isize) << 16) | (bit_offset as isize);
         Self {
+            name,
             offset,
-            size: encoded_size,
+            byte_size_val: byte_size,
             index,
             proto,
             anonymous: false,
+            bitfield_size,
+            bit_offset_val: bit_offset,
         }
     }
 
-    /// Get the actual byte size (for non-bitfields) or bit storage size (for bitfields)
-    pub fn byte_size(&self) -> usize {
-        field_size(self.size) as usize
+    /// Get the byte size of the field's underlying type
+    pub fn get_byte_size(&self) -> usize {
+        self.byte_size_val as usize
     }
 
     /// Create a new CField from an existing field with adjusted offset and index
     /// Used by MakeFields to promote anonymous fields
     pub fn new_from_field(fdescr: &PyCField, index_offset: usize, offset_delta: isize) -> Self {
         Self {
+            name: fdescr.name.clone(),
             offset: fdescr.offset + offset_delta,
-            size: fdescr.size,
+            byte_size_val: fdescr.byte_size_val,
             index: fdescr.index + index_offset,
             proto: fdescr.proto.clone(),
             anonymous: false, // promoted fields are not anonymous themselves
+            bitfield_size: fdescr.bitfield_size,
+            bit_offset_val: fdescr.bit_offset_val,
         }
     }
 
     /// Set anonymous flag
     pub fn set_anonymous(&mut self, anonymous: bool) {
         self.anonymous = anonymous;
+    }
+}
+
+impl Constructor for PyCField {
+    type Args = crate::function::FuncArgs;
+
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        // PyCField_new_impl: requires _internal_use=True
+        let internal_use = if let Some(v) = args.kwargs.get("_internal_use") {
+            v.clone().try_to_bool(vm)?
+        } else {
+            false
+        };
+
+        if !internal_use {
+            return Err(vm.new_type_error(
+                "CField is not intended to be used directly; use it via Structure or Union fields"
+                    .to_string(),
+            ));
+        }
+
+        let name: String = args
+            .kwargs
+            .get("name")
+            .ok_or_else(|| vm.new_type_error("missing required argument: 'name'"))?
+            .try_to_value(vm)?;
+
+        let field_type: PyTypeRef = args
+            .kwargs
+            .get("type")
+            .ok_or_else(|| vm.new_type_error("missing required argument: 'type'"))?
+            .clone()
+            .downcast()
+            .map_err(|_| vm.new_type_error("'type' must be a ctypes type"))?;
+
+        let byte_size: isize = args
+            .kwargs
+            .get("byte_size")
+            .ok_or_else(|| vm.new_type_error("missing required argument: 'byte_size'"))?
+            .try_to_value(vm)?;
+
+        let byte_offset: isize = args
+            .kwargs
+            .get("byte_offset")
+            .ok_or_else(|| vm.new_type_error("missing required argument: 'byte_offset'"))?
+            .try_to_value(vm)?;
+
+        let index: usize = args
+            .kwargs
+            .get("index")
+            .ok_or_else(|| vm.new_type_error("missing required argument: 'index'"))?
+            .try_to_value(vm)?;
+
+        // Validate byte_size matches the type
+        let type_size = super::base::get_field_size(field_type.as_object(), vm)? as isize;
+        if byte_size != type_size {
+            return Err(vm.new_value_error(format!(
+                "byte_size {} does not match type size {}",
+                byte_size, type_size
+            )));
+        }
+
+        let bit_size_val: Option<isize> = args
+            .kwargs
+            .get("bit_size")
+            .map(|v| v.try_to_value(vm))
+            .transpose()?;
+
+        let bit_offset_val: Option<isize> = args
+            .kwargs
+            .get("bit_offset")
+            .map(|v| v.try_to_value(vm))
+            .transpose()?;
+
+        if let Some(bs) = bit_size_val {
+            let bo = bit_offset_val.unwrap_or(0);
+            let type_bits = byte_size * 8;
+            if bo + bs > type_bits {
+                return Err(vm.new_value_error(format!(
+                    "bit field '{}' overflows its type ({} + {} > {})",
+                    name, bo, bs, type_bits
+                )));
+            }
+            Ok(Self::new_bitfield(
+                name,
+                field_type,
+                byte_offset,
+                byte_size,
+                bs as u16,
+                bo as u16,
+                index,
+            ))
+        } else {
+            Ok(Self::new(name, field_type, byte_offset, byte_size, index))
+        }
     }
 }
 
@@ -1305,17 +1442,15 @@ impl Representable for PyCField {
 
         // Bitfield: <Field type=TYPE, ofs=OFFSET:BIT_OFFSET, bits=NUM_BITS>
         // Regular:  <Field type=TYPE, ofs=OFFSET, size=SIZE>
-        if is_bitfield(zelf.size) {
-            let bit_offset = field_size(zelf.size);
-            let bits = num_bits(zelf.size);
+        if zelf.bitfield_size > 0 {
             Ok(format!(
                 "<Field type={}, ofs={}:{}, bits={}>",
-                tp_name, zelf.offset, bit_offset, bits
+                tp_name, zelf.offset, zelf.bit_offset_val, zelf.bitfield_size
             ))
         } else {
             Ok(format!(
                 "<Field type={}, ofs={}, size={}>",
-                tp_name, zelf.offset, zelf.size
+                tp_name, zelf.offset, zelf.byte_size_val
             ))
         }
     }
@@ -1340,7 +1475,7 @@ impl GetDescriptor for PyCField {
         };
 
         let offset = zelf.offset as usize;
-        let size = zelf.byte_size();
+        let size = zelf.get_byte_size();
 
         // Get PyCData from obj (works for both Structure and Union)
         let cdata = PyCField::get_cdata_from_obj(&obj, vm)?;
@@ -1470,12 +1605,12 @@ impl PyCField {
             "z" => {
                 // c_char_p: store pointer to null-terminated bytes
                 if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    let (converted, ptr) = ensure_z_null_terminated(bytes, vm);
+                    let (obj_val, _kept_alive, ptr) = ensure_z_null_terminated(bytes, vm);
                     let mut result = vec![0u8; size];
                     let addr_bytes = ptr.to_ne_bytes();
                     let len = core::cmp::min(addr_bytes.len(), size);
                     result[..len].copy_from_slice(&addr_bytes[..len]);
-                    return Ok((result, Some(converted)));
+                    return Ok((result, Some(obj_val)));
                 }
                 // Integer address
                 if let Ok(int_val) = value.try_index(vm) {
@@ -1584,8 +1719,8 @@ impl PyCField {
 }
 
 #[pyclass(
-    flags(DISALLOW_INSTANTIATION, IMMUTABLETYPE),
-    with(Representable, GetDescriptor)
+    flags(IMMUTABLETYPE),
+    with(Representable, GetDescriptor, Constructor)
 )]
 impl PyCField {
     /// Get PyCData from object (works for both Structure and Union)
@@ -1615,7 +1750,7 @@ impl PyCField {
             .ok_or_else(|| vm.new_type_error("expected CField"))?;
 
         let offset = zelf.offset as usize;
-        let size = zelf.byte_size();
+        let size = zelf.get_byte_size();
 
         // Get PyCData from obj (works for both Structure and Union)
         let cdata = Self::get_cdata_from_obj(&obj, vm)?;
@@ -1651,13 +1786,64 @@ impl PyCField {
     }
 
     #[pygetset]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    #[pygetset(name = "type")]
+    fn type_(&self) -> PyTypeRef {
+        self.proto.clone()
+    }
+
+    #[pygetset]
     fn offset(&self) -> isize {
         self.offset
     }
 
     #[pygetset]
+    fn byte_offset(&self) -> isize {
+        self.offset
+    }
+
+    #[pygetset]
     fn size(&self) -> isize {
-        self.size
+        // Legacy: encode as (bitfield_size << 16) | bit_offset for bitfields
+        if self.bitfield_size > 0 {
+            ((self.bitfield_size as isize) << 16) | (self.bit_offset_val as isize)
+        } else {
+            self.byte_size_val
+        }
+    }
+
+    #[pygetset]
+    fn byte_size(&self) -> isize {
+        self.byte_size_val
+    }
+
+    #[pygetset]
+    fn bit_offset(&self) -> isize {
+        self.bit_offset_val as isize
+    }
+
+    #[pygetset]
+    fn bit_size(&self, vm: &VirtualMachine) -> PyObjectRef {
+        if self.bitfield_size > 0 {
+            vm.ctx.new_int(self.bitfield_size).into()
+        } else {
+            // Non-bitfield: bit_size = byte_size * 8
+            let byte_size = self.byte_size_val as i128;
+            vm.ctx.new_int(byte_size * 8).into()
+        }
+    }
+
+    #[pygetset]
+    fn is_bitfield(&self) -> bool {
+        self.bitfield_size > 0
+    }
+
+    #[pygetset]
+    fn is_anonymous(&self) -> bool {
+        self.anonymous
     }
 }
 

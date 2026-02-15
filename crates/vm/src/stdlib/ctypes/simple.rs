@@ -19,7 +19,10 @@ use num_traits::ToPrimitive;
 
 /// Valid type codes for ctypes simple types
 // spell-checker: disable-next-line
+#[cfg(windows)]
 pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPXOv?g";
+#[cfg(not(windows))]
+pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPOv?g";
 
 /// Convert ctypes type code to PEP 3118 format code.
 /// Some ctypes codes need to be mapped to standard-size codes based on platform.
@@ -327,10 +330,10 @@ impl PyCSimpleType {
             Some("z") => {
                 // 1. bytes → create CArgObject with null-terminated buffer
                 if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    let (holder, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
+                    let (_, kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     return Ok(CArgObject {
                         tag: b'z',
-                        value: FfiArgValue::OwnedPointer(ptr, holder),
+                        value: FfiArgValue::OwnedPointer(ptr, kept_alive),
                         obj: value.clone(),
                         size: 0,
                         offset: 0,
@@ -381,10 +384,10 @@ impl PyCSimpleType {
                 }
                 // 2. bytes → create CArgObject with null-terminated buffer
                 if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    let (holder, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
+                    let (_, kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     return Ok(CArgObject {
                         tag: b'z',
-                        value: FfiArgValue::OwnedPointer(ptr, holder),
+                        value: FfiArgValue::OwnedPointer(ptr, kept_alive),
                         obj: value.clone(),
                         size: 0,
                         offset: 0,
@@ -1027,9 +1030,12 @@ impl Constructor for PyCSimple {
         if let Some(ref v) = init_arg {
             if _type_ == "z" {
                 if let Some(bytes) = v.downcast_ref::<PyBytes>() {
-                    let (converted, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
+                    let (obj_val, kept_alive, ptr) =
+                        super::base::ensure_z_null_terminated(bytes, vm);
                     let buffer = ptr.to_ne_bytes().to_vec();
-                    let cdata = PyCData::from_bytes(buffer, Some(converted));
+                    let cdata = PyCData::from_bytes(buffer, Some(obj_val));
+                    // Store the null-terminated buffer in base to keep it alive
+                    *cdata.base.write() = Some(kept_alive);
                     return PyCSimple(cdata).into_ref_with_type(vm, cls).map(Into::into);
                 }
             } else if _type_ == "Z"
@@ -1258,9 +1264,11 @@ impl PyCSimple {
         // Handle z/Z types with PyBytes/PyStr separately to avoid memory leak
         if type_code == "z" {
             if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                let (converted, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
+                let (obj_val, kept_alive, ptr) =
+                    super::base::ensure_z_null_terminated(bytes, vm);
                 *zelf.0.buffer.write() = alloc::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
-                *zelf.0.objects.write() = Some(converted);
+                *zelf.0.objects.write() = Some(obj_val);
+                *zelf.0.base.write() = Some(kept_alive);
                 return Ok(());
             }
         } else if type_code == "Z"

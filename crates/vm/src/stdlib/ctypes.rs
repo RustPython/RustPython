@@ -988,6 +988,11 @@ pub(crate) mod _ctypes {
         super::function::INTERNAL_CAST_ADDR
     }
 
+    #[pyattr]
+    fn _memoryview_at_addr(_vm: &VirtualMachine) -> usize {
+        super::function::INTERNAL_MEMORYVIEW_AT_ADDR
+    }
+
     #[pyfunction]
     fn _cast(
         obj: PyObjectRef,

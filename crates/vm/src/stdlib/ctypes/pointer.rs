@@ -62,6 +62,12 @@ impl Initializer for PyCPointerType {
 
         let _ = new_type.init_type_data(stg_info);
 
+        // Cache: set target_type.__pointer_type__ = self
+        if let Ok(type_attr) = new_type.as_object().get_attr("_type_", vm) {
+            let zelf_obj: PyObjectRef = zelf.into();
+            let _ = type_attr.set_attr("__pointer_type__", zelf_obj, vm);
+        }
+
         Ok(())
     }
 }
@@ -182,7 +188,13 @@ impl PyCPointerType {
         }
 
         // 4. Set _type_ attribute on the pointer type
-        zelf.as_object().set_attr("_type_", typ_type, vm)?;
+        zelf.as_object()
+            .set_attr("_type_", typ_type.clone(), vm)?;
+
+        // 5. Cache: set target_type.__pointer_type__ = self
+        let _ = typ_type
+            .as_object()
+            .set_attr("__pointer_type__", zelf, vm);
 
         Ok(())
     }
@@ -598,11 +610,12 @@ impl PyCPointer {
             if type_code.as_deref() == Some("z")
                 && let Some(bytes) = value.downcast_ref::<PyBytes>()
             {
-                let (converted, ptr_val) = super::base::ensure_z_null_terminated(bytes, vm);
+                let (obj_val, _kept_alive, ptr_val) =
+                    super::base::ensure_z_null_terminated(bytes, vm);
                 unsafe {
                     *(addr as *mut usize) = ptr_val;
                 }
-                return zelf.0.keep_ref(index as usize, converted, vm);
+                return zelf.0.keep_ref(index as usize, obj_val, vm);
             } else if type_code.as_deref() == Some("Z")
                 && let Some(s) = value.downcast_ref::<PyStr>()
             {
