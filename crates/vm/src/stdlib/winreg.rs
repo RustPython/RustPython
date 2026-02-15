@@ -37,20 +37,12 @@ mod winreg {
         u16_slice
     }
 
-    // TODO: check if errno.rs can be reused here or not
     fn os_error_from_windows_code(
         vm: &VirtualMachine,
         code: i32,
-        func_name: &str,
     ) -> crate::PyRef<crate::builtins::PyBaseException> {
-        use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND};
-        let msg = format!("[WinError {}] {}", code, func_name);
-        let exc_type = match code as u32 {
-            ERROR_FILE_NOT_FOUND => vm.ctx.exceptions.file_not_found_error.to_owned(),
-            ERROR_ACCESS_DENIED => vm.ctx.exceptions.permission_error.to_owned(),
-            _ => vm.ctx.exceptions.os_error.to_owned(),
-        };
-        vm.new_exception_msg(exc_type, msg)
+        use crate::convert::ToPyException;
+        std::io::Error::from_raw_os_error(code).to_pyexception(vm)
     }
 
     /// Wrapper type for HKEY that can be created from PyHkey or int
@@ -454,7 +446,7 @@ mod winreg {
             )
         };
         if res != 0 {
-            return Err(vm.new_os_error(format!("error code: {res}")));
+            return Err(os_error_from_windows_code(vm, res as i32));
         }
         String::from_utf16(&tmpbuf[..len as usize])
             .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))
@@ -613,7 +605,7 @@ mod winreg {
                 hkey: AtomicHKEY::new(res),
             })
         } else {
-            Err(os_error_from_windows_code(vm, err as i32, "RegOpenKeyEx"))
+            Err(os_error_from_windows_code(vm, err as i32))
         }
     }
 
@@ -661,7 +653,6 @@ mod winreg {
             return Err(os_error_from_windows_code(
                 vm,
                 Foundation::ERROR_INVALID_HANDLE as i32,
-                "RegQueryValue",
             ));
         }
 
@@ -680,7 +671,7 @@ mod winreg {
                     )
                 };
                 if res != 0 {
-                    return Err(os_error_from_windows_code(vm, res as i32, "RegOpenKeyEx"));
+                    return Err(os_error_from_windows_code(vm, res as i32));
                 }
                 Some(out_key)
             } else {
@@ -718,17 +709,12 @@ mod winreg {
                 break Ok(String::new());
             }
             if res != 0 {
-                break Err(os_error_from_windows_code(
-                    vm,
-                    res as i32,
-                    "RegQueryValueEx",
-                ));
+                break Err(os_error_from_windows_code(vm, res as i32));
             }
             if reg_type != Registry::REG_SZ {
                 break Err(os_error_from_windows_code(
                     vm,
                     Foundation::ERROR_INVALID_DATA as i32,
-                    "RegQueryValue",
                 ));
             }
 
@@ -769,11 +755,7 @@ mod winreg {
         if res == ERROR_MORE_DATA || buf_size == 0 {
             buf_size = 256;
         } else if res != 0 {
-            return Err(os_error_from_windows_code(
-                vm,
-                res as i32,
-                "RegQueryValueEx",
-            ));
+            return Err(os_error_from_windows_code(vm, res as i32));
         }
 
         let mut ret_buf = vec![0u8; buf_size as usize];
@@ -796,11 +778,7 @@ mod winreg {
 
             if res != ERROR_MORE_DATA {
                 if res != 0 {
-                    return Err(os_error_from_windows_code(
-                        vm,
-                        res as i32,
-                        "RegQueryValueEx",
-                    ));
+                    return Err(os_error_from_windows_code(vm, res as i32));
                 }
                 break;
             }
@@ -846,7 +824,6 @@ mod winreg {
             return Err(os_error_from_windows_code(
                 vm,
                 Foundation::ERROR_INVALID_HANDLE as i32,
-                "RegSetValue",
             ));
         }
 
@@ -868,7 +845,7 @@ mod winreg {
                 )
             };
             if res != 0 {
-                return Err(os_error_from_windows_code(vm, res as i32, "RegCreateKeyEx"));
+                return Err(os_error_from_windows_code(vm, res as i32));
             }
             Some(out_key)
         } else {
@@ -897,7 +874,7 @@ mod winreg {
         if res == 0 {
             Ok(())
         } else {
-            Err(os_error_from_windows_code(vm, res as i32, "RegSetValueEx"))
+            Err(os_error_from_windows_code(vm, res as i32))
         }
     }
 
@@ -1063,50 +1040,25 @@ mod winreg {
     #[pyfunction]
     fn SetValueEx(
         key: PyRef<PyHkey>,
-        value_name: String,
+        value_name: Option<String>,
         _reserved: PyObjectRef,
         typ: u32,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match py2reg(value, typ, vm) {
-            Ok(Some(v)) => {
-                let len = v.len() as u32;
-                let ptr = v.as_ptr();
-                let wide_value_name = value_name.to_wide_with_nul();
-                let res = unsafe {
-                    Registry::RegSetValueExW(
-                        key.hkey.load(),
-                        wide_value_name.as_ptr(),
-                        0,
-                        typ,
-                        ptr,
-                        len,
-                    )
-                };
-                if res != 0 {
-                    return Err(vm.new_os_error(format!("error code: {res}")));
-                }
-            }
-            Ok(None) => {
-                let len = 0;
-                let ptr = core::ptr::null();
-                let wide_value_name = value_name.to_wide_with_nul();
-                let res = unsafe {
-                    Registry::RegSetValueExW(
-                        key.hkey.load(),
-                        wide_value_name.as_ptr(),
-                        0,
-                        typ,
-                        ptr,
-                        len,
-                    )
-                };
-                if res != 0 {
-                    return Err(vm.new_os_error(format!("error code: {res}")));
-                }
-            }
-            Err(e) => return Err(e),
+        let wide_value_name = value_name.as_deref().map(|s| s.to_wide_with_nul());
+        let value_name_ptr = wide_value_name
+            .as_deref()
+            .map_or(core::ptr::null(), |s| s.as_ptr());
+        let reg_value = py2reg(value, typ, vm)?;
+        let (ptr, len) = match &reg_value {
+            Some(v) => (v.as_ptr(), v.len() as u32),
+            None => (core::ptr::null(), 0),
+        };
+        let res =
+            unsafe { Registry::RegSetValueExW(key.hkey.load(), value_name_ptr, 0, typ, ptr, len) };
+        if res != 0 {
+            return Err(os_error_from_windows_code(vm, res as i32));
         }
         Ok(())
     }
