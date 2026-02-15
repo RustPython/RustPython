@@ -190,7 +190,7 @@ proc-macro2 = "1.0.105"
 pymath = { version = "0.1.5", features = ["mul_add", "malachite-bigint", "complex"] }
 quote = "1.0.44"
 radium = "1.1.1"
-rand = "0.9"
+rand = "0.10"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.1", features = ["event"] }
 rustyline = "17.0.1"
