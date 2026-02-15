@@ -371,7 +371,7 @@ pub mod _hashlib {
         }
     }
 
-    #[pyclass(flags(IMMUTABLETYPE))]
+    #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
     impl PyHasherXof {
         fn new(name: &str, d: HashXofWrapper) -> Self {
             Self {
@@ -444,6 +444,15 @@ pub mod _hashlib {
         #[pymethod]
         fn copy(&self) -> Self {
             Self::new(&self.name, self.ctx.read().clone())
+        }
+    }
+
+    impl Representable for PyHasherXof {
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!(
+                "<{} _hashlib.HASHXOF object @ {:#x}>",
+                zelf.name, zelf as *const _ as usize
+            ))
         }
     }
 
