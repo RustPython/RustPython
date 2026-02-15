@@ -29,6 +29,8 @@ fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     file.get_attr("closed", vm)?.try_to_bool(vm)
 }
 
+const DEFAULT_BUFFER_SIZE: usize = 128 * 1024;
+
 /// iobase_finalize in Modules/_io/iobase.c
 fn iobase_finalize(zelf: &PyObject, vm: &VirtualMachine) {
     // If `closed` doesn't exist or can't be evaluated as bool, then the
@@ -244,7 +246,7 @@ mod _io {
     }
 
     #[pyattr]
-    const DEFAULT_BUFFER_SIZE: usize = 8 * 1024;
+    const DEFAULT_BUFFER_SIZE: usize = super::DEFAULT_BUFFER_SIZE;
 
     pub(super) fn seekfrom(
         vm: &VirtualMachine,
@@ -5252,7 +5254,7 @@ mod fileio {
                 closefd: AtomicCell::new(true),
                 mode: AtomicCell::new(Mode::empty()),
                 seekable: AtomicCell::new(None),
-                blksize: AtomicCell::new(8 * 1024), // DEFAULT_BUFFER_SIZE
+                blksize: AtomicCell::new(super::DEFAULT_BUFFER_SIZE as _),
                 finalizing: AtomicCell::new(false),
             }
         }
@@ -5828,7 +5830,10 @@ mod winconsoleio {
         let Ok(name) = path_or_fd.str(vm) else {
             return '\0';
         };
-        let name_str = name.as_str();
+        let Some(name_str) = name.to_str() else {
+            // Surrogate strings can't be console device names
+            return '\0';
+        };
 
         if name_str.eq_ignore_ascii_case("CONIN$") {
             return 'r';
@@ -5928,7 +5933,7 @@ mod winconsoleio {
                 writable: AtomicCell::new(false),
                 closefd: AtomicCell::new(false),
                 finalizing: AtomicCell::new(false),
-                blksize: AtomicCell::new(8 * 1024),
+                blksize: AtomicCell::new(super::DEFAULT_BUFFER_SIZE as _),
                 buf: PyMutex::new([0u8; SMALLBUF]),
             }
         }
@@ -6131,7 +6136,7 @@ mod winconsoleio {
                 return Err(vm.new_value_error("Cannot open console output buffer for reading"));
             }
 
-            zelf.blksize.store(8 * 1024);
+            zelf.blksize.store(super::DEFAULT_BUFFER_SIZE as _);
             *zelf.buf.lock() = [0u8; SMALLBUF];
 
             zelf.as_object().set_attr("name", nameobj, vm)?;
