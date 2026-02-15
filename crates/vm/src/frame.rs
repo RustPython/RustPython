@@ -724,6 +724,19 @@ impl ExecutingFrame<'_> {
                     Ok(())
                 };
                 if let Err(err) = close_result {
+                    let idx = self.lasti().saturating_sub(1) as usize;
+                    if idx < self.code.locations.len() {
+                        let (loc, _end_loc) = self.code.locations[idx];
+                        let next = err.__traceback__();
+                        let new_traceback = PyTraceback::new(
+                            next,
+                            self.object.to_owned(),
+                            idx as u32 * 2,
+                            loc.line,
+                        );
+                        err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                    }
+
                     self.push_value(vm.ctx.none());
                     vm.contextualize_exception(&err);
                     return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
@@ -749,6 +762,23 @@ impl ExecutingFrame<'_> {
                         Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
                     };
                     return ret.map(ExecutionResult::Yield).or_else(|err| {
+                        // Add traceback entry for the yield-from/await point.
+                        // gen_send_ex2 resumes the frame with a pending exception,
+                        // which goes through error: → PyTraceBack_Here. We add the
+                        // entry here before calling unwind_blocks.
+                        let idx = self.lasti().saturating_sub(1) as usize;
+                        if idx < self.code.locations.len() {
+                            let (loc, _end_loc) = self.code.locations[idx];
+                            let next = err.__traceback__();
+                            let new_traceback = PyTraceback::new(
+                                next,
+                                self.object.to_owned(),
+                                idx as u32 * 2,
+                                loc.line,
+                            );
+                            err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        }
+
                         self.push_value(vm.ctx.none());
                         vm.contextualize_exception(&err);
                         match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {

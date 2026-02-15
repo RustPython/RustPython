@@ -998,34 +998,34 @@ mod sys {
     #[pyfunction]
     fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
         let offset = offset.into_option().unwrap_or(0);
-        if offset > vm.frames.borrow().len() - 1 {
+        let frames = vm.frames.borrow();
+        let len = frames.len();
+        if offset >= len {
             return Err(vm.new_value_error("call stack is not deep enough"));
         }
-        let idx = vm.frames.borrow().len() - offset - 1;
-        let frame = &vm.frames.borrow()[idx];
-        Ok(frame.clone())
+        // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
+        let frame = unsafe { frames[len - offset - 1].as_ref() };
+        Ok(frame.to_owned())
     }
 
     #[pyfunction]
     fn _getframemodulename(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult {
         let depth = depth.into_option().unwrap_or(0);
 
-        // Get the frame at the specified depth
-        if depth > vm.frames.borrow().len() - 1 {
+        let frames = vm.frames.borrow();
+        let len = frames.len();
+        if depth >= len {
             return Ok(vm.ctx.none());
         }
 
-        let idx = vm.frames.borrow().len() - depth - 1;
-        let frame = &vm.frames.borrow()[idx];
+        // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
+        let frame = unsafe { frames[len - depth - 1].as_ref() };
 
         // If the frame has a function object, return its __module__ attribute
         if let Some(func_obj) = &frame.func_obj {
             match func_obj.get_attr(identifier!(vm, __module__), vm) {
                 Ok(module) => Ok(module),
-                Err(_) => {
-                    // CPython clears the error and returns None
-                    Ok(vm.ctx.none())
-                }
+                Err(_) => Ok(vm.ctx.none()),
             }
         } else {
             Ok(vm.ctx.none())

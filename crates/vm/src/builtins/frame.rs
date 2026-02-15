@@ -204,11 +204,13 @@ impl Py<Frame> {
             .frames
             .borrow()
             .iter()
-            .find(|f| {
-                let ptr: *const Frame = &****f;
+            .find(|fp| {
+                // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
+                let py: &crate::Py<Frame> = unsafe { fp.as_ref() };
+                let ptr: *const Frame = &**py;
                 core::ptr::eq(ptr, previous)
             })
-            .cloned()
+            .map(|fp| unsafe { fp.as_ref() }.to_owned())
         {
             return Some(frame);
         }

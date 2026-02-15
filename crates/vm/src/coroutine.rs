@@ -3,7 +3,7 @@ use crate::{
     builtins::PyStrRef,
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, FrameOwner, FrameRef},
+    frame::{ExecutionResult, Frame, FrameOwner, FrameRef},
     function::OptionalArg,
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -94,7 +94,7 @@ impl Coro {
         func: F,
     ) -> PyResult<ExecutionResult>
     where
-        F: FnOnce(FrameRef) -> PyResult<ExecutionResult>,
+        F: FnOnce(&Py<Frame>) -> PyResult<ExecutionResult>,
     {
         if self.running.compare_exchange(false, true).is_err() {
             return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));

@@ -157,7 +157,12 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 #[cfg(feature = "threading")]
 pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     let current_ident = crate::stdlib::thread::get_ident();
-    let current_frames: Vec<FrameRef> = vm.frames.borrow().clone();
+    let current_frames: Vec<FrameRef> = vm
+        .frames
+        .borrow()
+        .iter()
+        .map(|fp| unsafe { fp.as_ref() }.to_owned())
+        .collect();
     let new_slot = Arc::new(ThreadSlot {
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
