@@ -228,6 +228,11 @@ impl FormatCode {
         let mut arg_count = 0usize;
         let mut codes = vec![];
         while chars.peek().is_some() {
+            // Skip whitespace before repeat count or format char
+            while let Some(b' ' | b'\t' | b'\n' | b'\r') = chars.peek() {
+                chars.next();
+            }
+
             // determine repeat operator:
             let repeat = match chars.peek() {
                 Some(b'0'..=b'9') => {
@@ -245,11 +250,6 @@ impl FormatCode {
                 }
                 _ => 1,
             };
-
-            // Skip whitespace (Python ignores whitespace in format strings)
-            while let Some(b' ' | b'\t' | b'\n' | b'\r') = chars.peek() {
-                chars.next();
-            }
 
             // determine format char:
             let c = match chars.next() {
