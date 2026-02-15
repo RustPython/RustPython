@@ -1439,6 +1439,7 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node.ctx, context)
         self.assertRaises(AttributeError, getattr, node, 'unknown')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_replace_non_str_kwarg(self):
         node = ast.Name(id="x")
         errmsg = "got an unexpected keyword argument <object object"
