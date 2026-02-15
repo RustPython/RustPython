@@ -1066,6 +1066,14 @@ class OpenSSLConstructorTestCase(ThroughOpenSSLAPIMixin,
             ):
                 self.hmac_digest(b'key', b'msg', value)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'HMAC'. Did you mean: 'exc_type'?
+    def test_internal_types(self):
+        return super().test_internal_types()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'hmac_digest'
+    def test_digest(self):
+        return super().test_digest()
+
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constructor(self):
         return super().test_constructor()
@@ -1077,14 +1085,6 @@ class OpenSSLConstructorTestCase(ThroughOpenSSLAPIMixin,
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constructor_unknown_digestmod(self):
         return super().test_constructor_unknown_digestmod()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'HMAC'. Did you mean: 'exc_type'?
-    def test_internal_types(self):
-        return super().test_internal_types()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'hmac_digest'
-    def test_digest(self):
-        return super().test_digest()
 
 
 class BuiltinConstructorTestCase(ThroughBuiltinAPIMixin,
@@ -1137,6 +1137,15 @@ class SanityTestCaseMixin(CreatorMixin):
         self.assertEqual(h.digest_size, self.digest_size)
         self.assertEqual(h.block_size, self.block_size)
 
+    def test_copy(self):
+        # Test a generic copy() and the attributes it exposes.
+        # See https://github.com/python/cpython/issues/142451.
+        h1 = self.hmac_new(b"my secret key", digestmod=self.digestname)
+        h2 = h1.copy()
+        self.assertEqual(h1.name, h2.name)
+        self.assertEqual(h1.digest_size, h2.digest_size)
+        self.assertEqual(h1.block_size, h2.block_size)
+
     def test_repr(self):
         # HMAC object representation may differ across implementations
         raise NotImplementedError
@@ -1160,7 +1169,6 @@ class PySanityTestCase(ThroughObjectMixin, PyModuleMixin, SanityTestCaseMixin,
 
 
 @hashlib_helper.requires_openssl_hashdigest('sha256')
-@unittest.skip("TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'HMAC'")
 class OpenSSLSanityTestCase(ThroughOpenSSLAPIMixin, SanityTestCaseMixin,
                             unittest.TestCase):
 
@@ -1257,10 +1265,6 @@ class OpenSSLUpdateTestCase(UpdateTestCaseMixin, unittest.TestCase):
     def gil_minsize(self):
         return _hashlib._GIL_MINSIZE
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_update(self):
-        return super().test_update()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute '_GIL_MINSIZE'
     def test_update_large(self):
         return super().test_update_large()
@@ -1268,6 +1272,10 @@ class OpenSSLUpdateTestCase(UpdateTestCaseMixin, unittest.TestCase):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'NoneType'
     def test_update_exceptions(self):
         return super().test_update_exceptions()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_update(self):
+        return super().test_update()
 
 
 class BuiltinUpdateTestCase(BuiltinModuleMixin,
