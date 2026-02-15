@@ -508,10 +508,6 @@ class PyAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
     modulename = '_pyio'
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; _blksize mismatch on Windows')
-    def testBlksize(self):
-        return super().testBlksize()
-
 
 class OtherFileTests:
 
