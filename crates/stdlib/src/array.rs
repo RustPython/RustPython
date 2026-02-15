@@ -35,6 +35,7 @@ mod array {
                 SaturatedSlice, SequenceIndex, SequenceIndexOp, SliceableSequenceMutOp,
                 SliceableSequenceOp,
             },
+            stdlib::warnings,
             types::{
                 AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext, Iterable,
                 PyComparisonOp, Representable, SelfIter,
@@ -643,6 +644,15 @@ mod array {
 
             if cls.is(Self::class(&vm.ctx)) && !kwargs.is_empty() {
                 return Err(vm.new_type_error("array.array() takes no keyword arguments"));
+            }
+
+            if spec == 'u' {
+                warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    "The 'u' type code is deprecated and will be removed in Python 3.16".to_owned(),
+                    1,
+                    vm,
+                )?;
             }
 
             let mut array =
