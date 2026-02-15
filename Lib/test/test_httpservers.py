@@ -4,7 +4,7 @@ Written by Cody A.W. Somerville <cody-somerville@ubuntu.com>,
 Josip Dzolonga, and Michael Otteneder for the 2007/08 GHOP contest.
 """
 from collections import OrderedDict
-from http.server import BaseHTTPRequestHandler, HTTPServer, \
+from http.server import BaseHTTPRequestHandler, HTTPServer, HTTPSServer, \
      SimpleHTTPRequestHandler, CGIHTTPRequestHandler
 from http import server, HTTPStatus
 
@@ -32,9 +32,13 @@ from io import BytesIO, StringIO
 import unittest
 from test import support
 from test.support import (
-    is_apple, os_helper, requires_subprocess, threading_helper
+    is_apple, import_helper, os_helper, requires_subprocess, threading_helper
 )
-from test.support.testcase import ExtraAssertions
+
+try:
+    import ssl
+except ImportError:
+    ssl = None
 
 support.requires_working_socket(module=True)
 
@@ -47,14 +51,49 @@ class NoLogRequestHandler:
         return ''
 
 
+class DummyRequestHandler(NoLogRequestHandler, SimpleHTTPRequestHandler):
+    pass
+
+
+def create_https_server(
+    certfile,
+    keyfile=None,
+    password=None,
+    *,
+    address=('localhost', 0),
+    request_handler=DummyRequestHandler,
+):
+    return HTTPSServer(
+        address, request_handler,
+        certfile=certfile, keyfile=keyfile, password=password
+    )
+
+
+class TestSSLDisabled(unittest.TestCase):
+    def test_https_server_raises_runtime_error(self):
+        with import_helper.isolated_modules():
+            sys.modules['ssl'] = None
+            certfile = certdata_file("keycert.pem")
+            with self.assertRaises(RuntimeError):
+                create_https_server(certfile)
+
+
 class TestServerThread(threading.Thread):
-    def __init__(self, test_object, request_handler):
+    def __init__(self, test_object, request_handler, tls=None):
         threading.Thread.__init__(self)
         self.request_handler = request_handler
         self.test_object = test_object
+        self.tls = tls
 
     def run(self):
-        self.server = HTTPServer(('localhost', 0), self.request_handler)
+        if self.tls:
+            certfile, keyfile, password = self.tls
+            self.server = create_https_server(
+                certfile, keyfile, password,
+                request_handler=self.request_handler,
+            )
+        else:
+            self.server = HTTPServer(('localhost', 0), self.request_handler)
         self.test_object.HOST, self.test_object.PORT = self.server.socket.getsockname()
         self.test_object.server_started.set()
         self.test_object = None
@@ -68,12 +107,16 @@ class TestServerThread(threading.Thread):
         self.join()
 
 
-class BaseTestCase(unittest.TestCase, ExtraAssertions):
+class BaseTestCase(unittest.TestCase):
+
+    # Optional tuple (certfile, keyfile, password) to use for HTTPS servers.
+    tls = None
+
     def setUp(self):
         self._threads = threading_helper.threading_setup()
         os.environ = os_helper.EnvironmentVarGuard()
         self.server_started = threading.Event()
-        self.thread = TestServerThread(self, self.request_handler)
+        self.thread = TestServerThread(self, self.request_handler, self.tls)
         self.thread.start()
         self.server_started.wait()
 
@@ -353,6 +396,74 @@ class HTTP09ServerTestCase(BaseTestCase):
             res = self.sock.recv(1024)
             # The server should not process our request.
             self.assertEqual(res, b'')
+
+
+def certdata_file(*path):
+    return os.path.join(os.path.dirname(__file__), "certdata", *path)
+
+
+@unittest.skipIf(ssl is None, "requires ssl")
+class BaseHTTPSServerTestCase(BaseTestCase):
+    CERTFILE = certdata_file("keycert.pem")
+    ONLYCERT = certdata_file("ssl_cert.pem")
+    ONLYKEY = certdata_file("ssl_key.pem")
+    CERTFILE_PROTECTED = certdata_file("keycert.passwd.pem")
+    ONLYKEY_PROTECTED = certdata_file("ssl_key.passwd.pem")
+    EMPTYCERT = certdata_file("nullcert.pem")
+    BADCERT = certdata_file("badcert.pem")
+    KEY_PASSWORD = "somepass"
+    BADPASSWORD = "badpass"
+
+    tls = (ONLYCERT, ONLYKEY, None)  # values by default
+
+    request_handler = DummyRequestHandler
+
+    def test_get(self):
+        response = self.request('/')
+        self.assertEqual(response.status, HTTPStatus.OK)
+
+    def request(self, uri, method='GET', body=None, headers={}):
+        context = ssl._create_unverified_context()
+        self.connection = http.client.HTTPSConnection(
+            self.HOST, self.PORT, context=context
+        )
+        self.connection.request(method, uri, body, headers)
+        return self.connection.getresponse()
+
+    def test_valid_certdata(self):
+        valid_certdata= [
+            (self.CERTFILE, None, None),
+            (self.CERTFILE, self.CERTFILE, None),
+            (self.CERTFILE_PROTECTED, None, self.KEY_PASSWORD),
+            (self.ONLYCERT, self.ONLYKEY_PROTECTED, self.KEY_PASSWORD),
+        ]
+        for certfile, keyfile, password in valid_certdata:
+            with self.subTest(
+                certfile=certfile, keyfile=keyfile, password=password
+            ):
+                server = create_https_server(certfile, keyfile, password)
+                self.assertIsInstance(server, HTTPSServer)
+                server.server_close()
+
+    def test_invalid_certdata(self):
+        invalid_certdata = [
+            (self.BADCERT, None, None),
+            (self.EMPTYCERT, None, None),
+            (self.ONLYCERT, None, None),
+            (self.ONLYKEY, None, None),
+            (self.ONLYKEY, self.ONLYCERT, None),
+            (self.CERTFILE_PROTECTED, None, self.BADPASSWORD),
+            # TODO: test the next case and add same case to test_ssl (We
+            # specify a cert and a password-protected file, but no password):
+            # (self.CERTFILE_PROTECTED, None, None),
+            # see issue #132102
+        ]
+        for certfile, keyfile, password in invalid_certdata:
+            with self.subTest(
+                certfile=certfile, keyfile=keyfile, password=password
+            ):
+                with self.assertRaises(ssl.SSLError):
+                    create_https_server(certfile, keyfile, password)
 
 
 class RequestHandlerLoggingTestCase(BaseTestCase):
@@ -994,7 +1105,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
                                  msg='path = %r\nGot:    %r\nWanted: %r' %
                                  (path, actual, expected))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"", None, 200) != (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>)')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; AssertionError: Tuples differ: (b\"\", None, 200) != (b\"Hello World\n\", \"text/html\", <HTTPStatus.OK: 200>)")
     def test_headers_and_content(self):
         res = self.request('/cgi-bin/file1.py')
         self.assertEqual(
@@ -1005,7 +1116,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         res = self.request('///////////nocgi.py/../cgi-bin/nothere.sh')
         self.assertEqual(res.status, HTTPStatus.NOT_FOUND)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; b"" != b"1, python, 123456\n"')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; b\"\" != b\"1, python, 123456\n\"")
     def test_post(self):
         params = urllib.parse.urlencode(
             {'spam' : 1, 'eggs' : 'python', 'bacon' : 123456})
@@ -1014,7 +1125,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
 
         self.assertEqual(res.read(), b'1, python, 123456' + self.linesep)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"" != b"32768 32768\n"')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; AssertionError: b\"\" != b\"32768 32768\n\"")
     def test_large_content_length(self):
         for w in range(15, 25):
             size = 1 << w
@@ -1023,7 +1134,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             res = self.request('/cgi-bin/file7.py', 'POST', body, headers)
             self.assertEqual(res.read(), b'%d %d' % (size, size) + self.linesep)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"" != b"Hello World\n"')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; AssertionError: b\"\" != b\"Hello World\n\"")
     def test_large_content_length_truncated(self):
         with support.swap_attr(self.request_handler, 'timeout', 0.001):
             for w in range(18, 65):
@@ -1037,7 +1148,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         res.read()
         self.assertEqual(res.status, HTTPStatus.NOT_FOUND)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; AssertionError: Tuples differ: (b\"Hello World\n\", \"text/html\", <HTTPStatus.OK: 200>) != (b\"\", None, 200)")
     def test_authorization(self):
         headers = {b'Authorization' : b'Basic ' +
                    base64.b64encode(b'username:pass')}
@@ -1046,7 +1157,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; AssertionError: Tuples differ: (b\"Hello World\n\", \"text/html\", <HTTPStatus.OK: 200>) != (b\"\", None, 200)")
     def test_no_leading_slash(self):
         # http://bugs.python.org/issue2254
         res = self.request('cgi-bin/file1.py')
@@ -1054,7 +1165,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; ValueError: signal only works in main thread')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; ValueError: signal only works in main thread")
     def test_os_environ_is_not_altered(self):
         signature = "Test CGI Server"
         os.environ['SERVER_SOFTWARE'] = signature
@@ -1064,28 +1175,28 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (res.read(), res.getheader('Content-type'), res.status))
         self.assertEqual(os.environ['SERVER_SOFTWARE'], signature)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; ValueError: signal only works in main thread')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; ValueError: signal only works in main thread")
     def test_urlquote_decoding_in_cgi_check(self):
         res = self.request('/cgi-bin%2ffile1.py')
         self.assertEqual(
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; AssertionError: Tuples differ: (b\"Hello World\n\", \"text/html\", <HTTPStatus.OK: 200>) != (b\"\", None, 200)")
     def test_nested_cgi_path_issue21323(self):
         res = self.request('/cgi-bin/child-dir/file3.py')
         self.assertEqual(
             (b'Hello World' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; ValueError: signal only works in main thread')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; ValueError: signal only works in main thread")
     def test_query_with_multiple_question_mark(self):
         res = self.request('/cgi-bin/file4.py?a=b?c=d')
         self.assertEqual(
             (b'a=b?c=d' + self.linesep, 'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: Tuples differ: (b"k=aa%2F%2Fbb&//q//p//=//a//b//\n", "text/html", <HTTPStatus.OK: 200>) != (b"", None, 200)')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; AssertionError: Tuples differ: (b\"k=aa%2F%2Fbb&//q//p//=//a//b//\n\", \"text/html\", <HTTPStatus.OK: 200>) != (b\"\", None, 200)")
     def test_query_with_continuous_slashes(self):
         res = self.request('/cgi-bin/file4.py?k=aa%2F%2Fbb&//q//p//=//a//b//')
         self.assertEqual(
@@ -1093,7 +1204,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
              'text/html', HTTPStatus.OK),
             (res.read(), res.getheader('Content-type'), res.status))
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; Tuples differ: (b"", None, 200) != (b"Hello World\n", "text/html", <HTTPStatus.OK: 200>)')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; Tuples differ: (b\"\", None, 200) != (b\"Hello World\n\", \"text/html\", <HTTPStatus.OK: 200>)")
     def test_cgi_path_in_sub_directories(self):
         try:
             CGIHTTPRequestHandler.cgi_directories.append('/sub/dir/cgi-bin')
@@ -1104,7 +1215,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         finally:
             CGIHTTPRequestHandler.cgi_directories.remove('/sub/dir/cgi-bin')
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON; AssertionError: b"HTTP_ACCEPT=text/html,text/plain" not found in b""')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON; AssertionError: b\"HTTP_ACCEPT=text/html,text/plain\" not found in b\"\"")
     def test_accept(self):
         browser_accept = \
                     'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
@@ -1165,7 +1276,7 @@ class AuditableBytesIO:
         return len(self.datas)
 
 
-class BaseHTTPRequestHandlerTestCase(unittest.TestCase, ExtraAssertions):
+class BaseHTTPRequestHandlerTestCase(unittest.TestCase):
     """Test the functionality of the BaseHTTPServer.
 
        Test the support for the Expect 100-continue header.
