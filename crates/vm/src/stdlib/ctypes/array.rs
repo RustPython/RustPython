@@ -301,6 +301,16 @@ impl Initializer for PyCArrayType {
 
 #[pyclass(flags(IMMUTABLETYPE), with(Initializer, AsNumber))]
 impl PyCArrayType {
+    #[pygetset(name = "__pointer_type__")]
+    fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        super::base::pointer_type_get(&zelf, vm)
+    }
+
+    #[pygetset(name = "__pointer_type__", setter)]
+    fn set_pointer_type(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        super::base::pointer_type_set(&zelf, value, vm)
+    }
+
     #[pymethod]
     fn from_param(zelf: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // zelf is the array type class that from_param was called on
@@ -777,9 +787,10 @@ impl PyCArray {
                 let (ptr_val, converted) = if value.is(&vm.ctx.none) {
                     (0usize, None)
                 } else if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    let (obj_val, _kept_alive, ptr) =
+                    let (kept_alive, ptr) =
                         super::base::ensure_z_null_terminated(bytes, vm);
-                    (ptr, Some(obj_val))
+                    zelf.0.keep_alive(kept_alive);
+                    (ptr, Some(value.to_owned()))
                 } else if let Ok(int_val) = value.try_index(vm) {
                     (int_val.as_bigint().to_usize().unwrap_or(0), None)
                 } else {

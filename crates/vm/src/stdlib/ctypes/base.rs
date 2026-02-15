@@ -97,6 +97,9 @@ pub struct StgInfo {
 
     // FFI field types for structure/union passing (inherited from base class)
     pub ffi_field_types: Vec<libffi::middle::Type>,
+
+    // Cached pointer type (non-inheritable via descriptor)
+    pub pointer_type: Option<PyObjectRef>,
 }
 
 // StgInfo is stored in type_data which requires Send + Sync.
@@ -141,6 +144,7 @@ impl Default for StgInfo {
             paramfunc: ParamFunc::None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
             ffi_field_types: Vec::new(),
+            pointer_type: None,
         }
     }
 }
@@ -161,6 +165,7 @@ impl StgInfo {
             paramfunc: ParamFunc::None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
             ffi_field_types: Vec::new(),
+            pointer_type: None,
         }
     }
 
@@ -212,6 +217,7 @@ impl StgInfo {
             paramfunc: ParamFunc::Array,
             big_endian: cfg!(target_endian = "big"), // native endian by default
             ffi_field_types: Vec::new(),
+            pointer_type: None,
         }
     }
 
@@ -290,6 +296,37 @@ impl StgInfo {
     /// Get proto type reference (for Pointer/Array types)
     pub fn proto(&self) -> &Py<PyType> {
         self.proto.as_deref().expect("type has proto")
+    }
+}
+
+/// __pointer_type__ getter for ctypes metaclasses.
+/// Reads from StgInfo.pointer_type (non-inheritable).
+pub(super) fn pointer_type_get(zelf: &Py<PyType>, vm: &VirtualMachine) -> PyResult {
+    zelf.stg_info_opt()
+        .and_then(|info| info.pointer_type.clone())
+        .ok_or_else(|| {
+            vm.new_attribute_error(format!(
+                "type {} has no attribute '__pointer_type__'",
+                zelf.name()
+            ))
+        })
+}
+
+/// __pointer_type__ setter for ctypes metaclasses.
+/// Writes to StgInfo.pointer_type (non-inheritable).
+pub(super) fn pointer_type_set(
+    zelf: &Py<PyType>,
+    value: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if let Some(mut info) = zelf.get_type_data_mut::<StgInfo>() {
+        info.pointer_type = Some(value);
+        Ok(())
+    } else {
+        Err(vm.new_attribute_error(format!(
+            "cannot set __pointer_type__ on {}",
+            zelf.name()
+        )))
     }
 }
 
@@ -380,26 +417,20 @@ fn vec_to_bytes<T>(vec: Vec<T>) -> Vec<u8> {
     unsafe { Vec::from_raw_parts(ptr, len, cap) }
 }
 
-/// Ensure PyBytes is null-terminated. Returns (object_for_objects_dict, kept_alive_obj, pointer).
-/// The first element is the original bytes (without null) for `_objects` storage.
-/// The second element is the null-terminated bytes to keep alive for the pointer.
+/// Ensure PyBytes data is null-terminated. Returns (kept_alive_obj, pointer).
+/// The caller must keep the returned object alive to keep the pointer valid.
 pub(super) fn ensure_z_null_terminated(
     bytes: &PyBytes,
     vm: &VirtualMachine,
-) -> (PyObjectRef, PyObjectRef, usize) {
+) -> (PyObjectRef, usize) {
     let data = bytes.as_bytes();
-    let original: PyObjectRef = vm.ctx.new_bytes(data.to_vec()).into();
-    if data.contains(&0) {
-        // Already has null, use original for both
-        (original.clone(), original, data.as_ptr() as usize)
-    } else {
-        // Create new with null appended for pointer, keep original for _objects
-        let mut buffer = data.to_vec();
+    let mut buffer = data.to_vec();
+    if !buffer.ends_with(&[0]) {
         buffer.push(0);
-        let ptr = buffer.as_ptr() as usize;
-        let kept_alive: PyObjectRef = vm.ctx.new_bytes(buffer).into();
-        (original, kept_alive, ptr)
     }
+    let ptr = buffer.as_ptr() as usize;
+    let kept_alive: PyObjectRef = vm.ctx.new_bytes(buffer).into();
+    (kept_alive, ptr)
 }
 
 /// Convert str to null-terminated wchar_t buffer. Returns (PyBytes holder, pointer).
@@ -435,6 +466,10 @@ pub struct PyCData {
     pub objects: PyRwLock<Option<PyObjectRef>>,
     /// number of references we need (b_length)
     pub length: AtomicCell<usize>,
+    /// References kept alive but not visible in _objects.
+    /// Used for null-terminated c_char_p buffer copies, since
+    /// RustPython's PyBytes lacks CPython's internal trailing null.
+    pub(super) kept_refs: PyRwLock<Vec<PyObjectRef>>,
 }
 
 impl PyCData {
@@ -447,6 +482,7 @@ impl PyCData {
             index: AtomicCell::new(0),
             objects: PyRwLock::new(None),
             length: AtomicCell::new(stg_info.length),
+            kept_refs: PyRwLock::new(Vec::new()),
         }
     }
 
@@ -459,6 +495,7 @@ impl PyCData {
             index: AtomicCell::new(0),
             objects: PyRwLock::new(objects),
             length: AtomicCell::new(0),
+            kept_refs: PyRwLock::new(Vec::new()),
         }
     }
 
@@ -475,6 +512,7 @@ impl PyCData {
             index: AtomicCell::new(0),
             objects: PyRwLock::new(objects),
             length: AtomicCell::new(length),
+            kept_refs: PyRwLock::new(Vec::new()),
         }
     }
 
@@ -495,6 +533,7 @@ impl PyCData {
             index: AtomicCell::new(0),
             objects: PyRwLock::new(None),
             length: AtomicCell::new(0),
+            kept_refs: PyRwLock::new(Vec::new()),
         }
     }
 
@@ -517,6 +556,7 @@ impl PyCData {
             index: AtomicCell::new(idx),
             objects: PyRwLock::new(None),
             length: AtomicCell::new(length),
+            kept_refs: PyRwLock::new(Vec::new()),
         }
     }
 
@@ -543,6 +583,7 @@ impl PyCData {
             index: AtomicCell::new(idx),
             objects: PyRwLock::new(None),
             length: AtomicCell::new(0),
+            kept_refs: PyRwLock::new(Vec::new()),
         }
     }
 
@@ -577,6 +618,7 @@ impl PyCData {
             index: AtomicCell::new(0),
             objects: PyRwLock::new(Some(objects_dict.into())),
             length: AtomicCell::new(length),
+            kept_refs: PyRwLock::new(Vec::new()),
         }
     }
 
@@ -798,6 +840,20 @@ impl PyCData {
         Ok(())
     }
 
+    /// Keep a reference alive without exposing it in _objects.
+    /// Walks up to root object (same as keep_ref) so the reference
+    /// lives as long as the owning ctypes object.
+    pub fn keep_alive(&self, obj: PyObjectRef) {
+        if let Some(base_obj) = self.base.read().clone() {
+            let root = Self::find_root_object(&base_obj);
+            if let Some(cdata) = root.downcast_ref::<PyCData>() {
+                cdata.kept_refs.write().push(obj);
+                return;
+            }
+        }
+        self.kept_refs.write().push(obj);
+    }
+
     /// Find the root object (one without a base) by walking up the base chain
     fn find_root_object(obj: &PyObject) -> PyObjectRef {
         // Try to get base from different ctypes types
@@ -983,6 +1039,25 @@ impl PyCData {
             .get_attr("_type_", vm)
             .ok()
             .and_then(|attr| attr.downcast_ref::<PyStr>().map(|s| s.to_string()));
+
+        // c_char_p (z type) with bytes: store original in _objects, keep
+        // null-terminated copy alive separately for the pointer.
+        if field_type_code.as_deref() == Some("z")
+            && let Some(bytes_val) = value.downcast_ref::<PyBytes>()
+        {
+            let (kept_alive, ptr) = ensure_z_null_terminated(bytes_val, vm);
+            let mut result = vec![0u8; size];
+            let addr_bytes = ptr.to_ne_bytes();
+            let len = core::cmp::min(addr_bytes.len(), size);
+            result[..len].copy_from_slice(&addr_bytes[..len]);
+            if needs_swap {
+                result.reverse();
+            }
+            self.write_bytes_at_offset(offset, &result);
+            self.keep_ref(index, value, vm)?;
+            self.keep_alive(kept_alive);
+            return Ok(());
+        }
 
         let (mut bytes, converted_value) = if let Some(type_code) = &field_type_code {
             PyCField::value_to_bytes_for_type(type_code, &value, size, vm)?
@@ -1603,15 +1678,8 @@ impl PyCField {
                 Ok((f.to_ne_bytes().to_vec(), None))
             }
             "z" => {
-                // c_char_p: store pointer to null-terminated bytes
-                if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    let (obj_val, _kept_alive, ptr) = ensure_z_null_terminated(bytes, vm);
-                    let mut result = vec![0u8; size];
-                    let addr_bytes = ptr.to_ne_bytes();
-                    let len = core::cmp::min(addr_bytes.len(), size);
-                    result[..len].copy_from_slice(&addr_bytes[..len]);
-                    return Ok((result, Some(obj_val)));
-                }
+                // c_char_p with bytes is handled in set_field before this call.
+                // This handles integer address and None cases.
                 // Integer address
                 if let Ok(int_val) = value.try_index(vm) {
                     let v = int_val.as_bigint().to_usize().unwrap_or(0);
@@ -1718,10 +1786,7 @@ impl PyCField {
     }
 }
 
-#[pyclass(
-    flags(IMMUTABLETYPE),
-    with(Representable, GetDescriptor, Constructor)
-)]
+#[pyclass(flags(IMMUTABLETYPE), with(Representable, GetDescriptor, Constructor))]
 impl PyCField {
     /// Get PyCData from object (works for both Structure and Union)
     fn get_cdata_from_obj<'a>(obj: &'a PyObjectRef, vm: &VirtualMachine) -> PyResult<&'a PyCData> {
@@ -2325,7 +2390,12 @@ pub(super) fn set_or_init_stginfo(type_ref: &PyType, stg_info: StgInfo) {
     if type_ref.init_type_data(stg_info.clone()).is_err()
         && let Some(mut existing) = type_ref.get_type_data_mut::<StgInfo>()
     {
+        // Preserve pointer_type cache across StgInfo replacement
+        let old_pointer_type = existing.pointer_type.take();
         *existing = stg_info;
+        if existing.pointer_type.is_none() {
+            existing.pointer_type = old_pointer_type;
+        }
     }
 }
 

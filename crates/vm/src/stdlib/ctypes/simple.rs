@@ -238,6 +238,16 @@ pub struct PyCSimpleType(PyType);
 
 #[pyclass(flags(BASETYPE), with(AsNumber, Initializer))]
 impl PyCSimpleType {
+    #[pygetset(name = "__pointer_type__")]
+    fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        super::base::pointer_type_get(&zelf, vm)
+    }
+
+    #[pygetset(name = "__pointer_type__", setter)]
+    fn set_pointer_type(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        super::base::pointer_type_set(&zelf, value, vm)
+    }
+
     #[allow(clippy::new_ret_no_self)]
     #[pymethod]
     fn new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -330,7 +340,7 @@ impl PyCSimpleType {
             Some("z") => {
                 // 1. bytes → create CArgObject with null-terminated buffer
                 if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    let (_, kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
+                    let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     return Ok(CArgObject {
                         tag: b'z',
                         value: FfiArgValue::OwnedPointer(ptr, kept_alive),
@@ -384,7 +394,7 @@ impl PyCSimpleType {
                 }
                 // 2. bytes → create CArgObject with null-terminated buffer
                 if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    let (_, kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
+                    let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     return Ok(CArgObject {
                         tag: b'z',
                         value: FfiArgValue::OwnedPointer(ptr, kept_alive),
@@ -1030,11 +1040,10 @@ impl Constructor for PyCSimple {
         if let Some(ref v) = init_arg {
             if _type_ == "z" {
                 if let Some(bytes) = v.downcast_ref::<PyBytes>() {
-                    let (obj_val, kept_alive, ptr) =
+                    let (kept_alive, ptr) =
                         super::base::ensure_z_null_terminated(bytes, vm);
                     let buffer = ptr.to_ne_bytes().to_vec();
-                    let cdata = PyCData::from_bytes(buffer, Some(obj_val));
-                    // Store the null-terminated buffer in base to keep it alive
+                    let cdata = PyCData::from_bytes(buffer, Some(v.clone()));
                     *cdata.base.write() = Some(kept_alive);
                     return PyCSimple(cdata).into_ref_with_type(vm, cls).map(Into::into);
                 }
@@ -1264,10 +1273,9 @@ impl PyCSimple {
         // Handle z/Z types with PyBytes/PyStr separately to avoid memory leak
         if type_code == "z" {
             if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                let (obj_val, kept_alive, ptr) =
-                    super::base::ensure_z_null_terminated(bytes, vm);
+                let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                 *zelf.0.buffer.write() = alloc::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
-                *zelf.0.objects.write() = Some(obj_val);
+                *zelf.0.objects.write() = Some(value);
                 *zelf.0.base.write() = Some(kept_alive);
                 return Ok(());
             }

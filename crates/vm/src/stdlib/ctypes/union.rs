@@ -4,6 +4,7 @@ use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer};
+use crate::stdlib::warnings;
 use crate::types::{AsBuffer, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
@@ -106,6 +107,7 @@ impl Initializer for PyCUnionType {
                     let mut stg_info = baseinfo.clone();
                     stg_info.flags &= !StgInfoFlags::DICTFLAG_FINAL; // Clear FINAL flag in subclass
                     stg_info.initialized = true;
+                    stg_info.pointer_type = None; // Non-inheritable
                     stg_info
                 });
 
@@ -163,6 +165,22 @@ impl PyCUnionType {
         };
 
         let pack = super::base::get_usize_attr(cls.as_object(), "_pack_", 0, vm)?;
+
+        // Emit DeprecationWarning on non-Windows when _pack_ is set without _layout_
+        if pack > 0 && !cfg!(windows) {
+            let has_layout = cls.as_object().get_attr("_layout_", vm).is_ok();
+            if !has_layout {
+                let msg = format!(
+                    "Due to '_pack_', the '{}' Union will use memory layout compatible with \
+                     MSVC (Windows). If this is intended, set _layout_ to 'ms'. \
+                     The implicit default is deprecated and slated to become an error in \
+                     Python 3.19.",
+                    cls.name(),
+                );
+                warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
+            }
+        }
+
         let forced_alignment =
             super::base::get_usize_attr(cls.as_object(), "_align_", 1, vm)?.max(1);
 
@@ -311,9 +329,9 @@ impl PyCUnionType {
         if let Some(stg_info) = cls.get_type_data::<StgInfo>()
             && stg_info.is_final()
         {
-            return Err(vm.new_attribute_error(
-                "Structure or union cannot contain itself".to_string(),
-            ));
+            return Err(
+                vm.new_attribute_error("Structure or union cannot contain itself".to_string())
+            );
         }
 
         // Store StgInfo with aligned size
@@ -344,6 +362,16 @@ impl PyCUnionType {
 
 #[pyclass(flags(BASETYPE), with(Constructor, Initializer, SetAttr))]
 impl PyCUnionType {
+    #[pygetset(name = "__pointer_type__")]
+    fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        super::base::pointer_type_get(&zelf, vm)
+    }
+
+    #[pygetset(name = "__pointer_type__", setter)]
+    fn set_pointer_type(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        super::base::pointer_type_set(&zelf, value, vm)
+    }
+
     #[pymethod]
     fn from_param(zelf: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // zelf is the union type class that from_param was called on

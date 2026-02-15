@@ -513,7 +513,17 @@ impl Initializer for PyCFuncPtrType {
 }
 
 #[pyclass(flags(IMMUTABLETYPE), with(Initializer))]
-impl PyCFuncPtrType {}
+impl PyCFuncPtrType {
+    #[pygetset(name = "__pointer_type__")]
+    fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        super::base::pointer_type_get(&zelf, vm)
+    }
+
+    #[pygetset(name = "__pointer_type__", setter)]
+    fn set_pointer_type(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        super::base::pointer_type_set(&zelf, value, vm)
+    }
+}
 
 /// PyCFuncPtr - Function pointer instance
 /// Saved in _base.buffer
@@ -660,6 +670,47 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+/// A buffer wrapping raw memory at a given pointer, for zero-copy memoryview.
+#[pyclass(name = "_RawMemoryBuffer", module = "_ctypes")]
+#[derive(Debug, PyPayload)]
+pub(super) struct RawMemoryBuffer {
+    ptr: *const u8,
+    size: usize,
+    readonly: bool,
+}
+
+// SAFETY: The caller ensures the pointer remains valid
+unsafe impl Send for RawMemoryBuffer {}
+unsafe impl Sync for RawMemoryBuffer {}
+
+static RAW_MEMORY_BUFFER_METHODS: crate::protocol::BufferMethods = crate::protocol::BufferMethods {
+    obj_bytes: |buffer| {
+        let raw = buffer.obj_as::<RawMemoryBuffer>();
+        let slice = unsafe { core::slice::from_raw_parts(raw.ptr, raw.size) };
+        rustpython_common::borrow::BorrowedValue::Ref(slice)
+    },
+    obj_bytes_mut: |buffer| {
+        let raw = buffer.obj_as::<RawMemoryBuffer>();
+        let slice = unsafe { core::slice::from_raw_parts_mut(raw.ptr as *mut u8, raw.size) };
+        rustpython_common::borrow::BorrowedValueMut::RefMut(slice)
+    },
+    release: |_| {},
+    retain: |_| {},
+};
+
+#[pyclass(with(AsBuffer))]
+impl RawMemoryBuffer {}
+
+impl AsBuffer for RawMemoryBuffer {
+    fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        Ok(PyBuffer::new(
+            zelf.to_owned().into(),
+            BufferDescriptor::simple(zelf.size, zelf.readonly),
+            &RAW_MEMORY_BUFFER_METHODS,
+        ))
+    }
+}
+
 /// memoryview_at implementation - create a memoryview from memory at ptr
 fn memoryview_at_impl(ptr: usize, size: isize, readonly: bool, vm: &VirtualMachine) -> PyResult {
     use crate::builtins::PyMemoryView;
@@ -667,14 +718,17 @@ fn memoryview_at_impl(ptr: usize, size: isize, readonly: bool, vm: &VirtualMachi
     if ptr == 0 {
         return Err(vm.new_value_error("NULL pointer access"));
     }
+    if size < 0 {
+        return Err(vm.new_value_error("negative size"));
+    }
     let len = size as usize;
-    let buf = unsafe { core::slice::from_raw_parts(ptr as *const u8, len) };
-    let obj: PyObjectRef = if readonly {
-        vm.ctx.new_bytes(buf.to_vec()).into()
-    } else {
-        vm.ctx.new_bytearray(buf.to_vec()).into()
-    };
-    let mv = PyMemoryView::from_object(&obj, vm)?;
+    let raw_buf = RawMemoryBuffer {
+        ptr: ptr as *const u8,
+        size: len,
+        readonly,
+    }
+    .into_pyobject(vm);
+    let mv = PyMemoryView::from_object(&raw_buf, vm)?;
     Ok(mv.into_pyobject(vm))
 }
 
@@ -1092,11 +1146,11 @@ fn handle_internal_func(addr: usize, args: &FuncArgs, vm: &VirtualMachine) -> Op
             args.clone().bind(vm);
         return Some(result.and_then(|(ptr_arg, size_arg, readonly_arg)| {
             let ptr = extract_ptr_from_arg(&ptr_arg, vm)?;
-            let size = size_arg
-                .try_int(vm)
-                .ok()
-                .and_then(|i| i.as_bigint().to_isize())
-                .unwrap_or(0);
+            let size_int = size_arg.try_int(vm)?;
+            let size = size_int
+                .as_bigint()
+                .to_isize()
+                .ok_or_else(|| vm.new_value_error("size too large"))?;
             let readonly = readonly_arg
                 .and_then(|r| r.try_int(vm).ok())
                 .and_then(|i| i.as_bigint().to_i32())

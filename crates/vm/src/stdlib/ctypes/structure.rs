@@ -3,6 +3,7 @@ use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::{FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
+use crate::stdlib::warnings;
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
@@ -102,6 +103,7 @@ impl Initializer for PyCStructType {
                     let mut stg_info = baseinfo.clone();
                     stg_info.flags &= !StgInfoFlags::DICTFLAG_FINAL; // Clear FINAL in subclass
                     stg_info.initialized = true;
+                    stg_info.pointer_type = None; // Non-inheritable
                     stg_info
                 });
 
@@ -129,6 +131,16 @@ impl Initializer for PyCStructType {
 
 #[pyclass(flags(BASETYPE), with(AsNumber, Constructor, Initializer, SetAttr))]
 impl PyCStructType {
+    #[pygetset(name = "__pointer_type__")]
+    fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        super::base::pointer_type_get(&zelf, vm)
+    }
+
+    #[pygetset(name = "__pointer_type__", setter)]
+    fn set_pointer_type(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        super::base::pointer_type_set(&zelf, value, vm)
+    }
+
     #[pymethod]
     fn from_param(zelf: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // zelf is the structure type class that from_param was called on
@@ -233,6 +245,24 @@ impl PyCStructType {
         };
 
         let pack = super::base::get_usize_attr(cls.as_object(), "_pack_", 0, vm)?;
+
+        // Emit DeprecationWarning on non-Windows when _pack_ is set without _layout_
+        if pack > 0 && !cfg!(windows) {
+            let has_layout = cls.as_object().get_attr("_layout_", vm).is_ok();
+            if !has_layout {
+                let base_type_name = "Structure";
+                let msg = format!(
+                    "Due to '_pack_', the '{}' {} will use memory layout compatible with \
+                     MSVC (Windows). If this is intended, set _layout_ to 'ms'. \
+                     The implicit default is deprecated and slated to become an error in \
+                     Python 3.19.",
+                    cls.name(),
+                    base_type_name,
+                );
+                warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
+            }
+        }
+
         let forced_alignment =
             super::base::get_usize_attr(cls.as_object(), "_align_", 1, vm)?.max(1);
 
@@ -269,8 +299,10 @@ impl PyCStructType {
         let mut format = String::from("T{");
         let mut last_end = 0usize; // Track end of last field for padding calculation
 
-        // Bitfield layout tracking (gcc-sysv style)
+        // Bitfield layout tracking
         let mut bitfield_bit_offset: u16 = 0; // Current bit position within bitfield group
+        let mut last_field_bit_size: u16 = 0; // For MSVC: bit size of previous storage unit
+        let use_msvc_bitfields = pack > 0; // MSVC layout when _pack_ is set
 
         for (index, field) in fields.iter().enumerate() {
             let field_tuple = field
@@ -400,22 +432,37 @@ impl PyCStructType {
                     })?;
                 has_bitfield = true;
 
-                // gcc-sysv layout: track bit_offset within the storage unit
                 let type_bits = (size * 8) as u16;
-                let fits_in_current = bitfield_bit_offset + bit_size <= type_bits;
-                let advances = if fits_in_current && bitfield_bit_offset > 0 {
-                    // Fits in current unit, reuse same offset
-                    false
-                } else if !fits_in_current {
-                    // Doesn't fit, start new storage unit
-                    bitfield_bit_offset = 0;
-                    true
+                let (advances, bit_offset);
+
+                if use_msvc_bitfields {
+                    // MSVC layout: different types start new storage unit
+                    if bitfield_bit_offset + bit_size > type_bits
+                        || type_bits != last_field_bit_size
+                    {
+                        // Close previous bitfield, start new allocation unit
+                        bitfield_bit_offset = 0;
+                        advances = true;
+                    } else {
+                        advances = false;
+                    }
+                    bit_offset = bitfield_bit_offset;
+                    bitfield_bit_offset += bit_size;
+                    last_field_bit_size = type_bits;
                 } else {
-                    // First bitfield at this position
-                    true
-                };
-                let bit_offset = bitfield_bit_offset;
-                bitfield_bit_offset += bit_size;
+                    // gcc-sysv layout: pack within same type
+                    let fits_in_current = bitfield_bit_offset + bit_size <= type_bits;
+                    advances = if fits_in_current && bitfield_bit_offset > 0 {
+                        false
+                    } else if !fits_in_current {
+                        bitfield_bit_offset = 0;
+                        true
+                    } else {
+                        true
+                    };
+                    bit_offset = bitfield_bit_offset;
+                    bitfield_bit_offset += bit_size;
+                }
 
                 // For packed bitfields that share offset, use the same offset as previous
                 let field_offset = if !advances {
@@ -438,6 +485,7 @@ impl PyCStructType {
                 )
             } else {
                 bitfield_bit_offset = 0; // Reset on non-bitfield
+                last_field_bit_size = 0;
                 (
                     PyCField::new(
                         name.clone(),
@@ -485,9 +533,9 @@ impl PyCStructType {
         if let Some(stg_info) = cls.get_type_data::<StgInfo>()
             && stg_info.is_final()
         {
-            return Err(vm.new_attribute_error(
-                "Structure or union cannot contain itself".to_string(),
-            ));
+            return Err(
+                vm.new_attribute_error("Structure or union cannot contain itself".to_string())
+            );
         }
 
         // Store StgInfo with aligned size and total alignment
