@@ -1078,10 +1078,7 @@ impl PyObject {
                 Some(true) => Ok(()),
                 // we've been resurrected by __del__
                 Some(false) => Err(()),
-                None => {
-                    warn!("couldn't run __del__ method for object");
-                    Ok(())
-                }
+                None => Ok(()),
             }
         }
 

@@ -3,6 +3,7 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
+pub(crate) mod monitoring;
 
 #[pymodule(name = "_jit")]
 mod sys_jit {
@@ -33,8 +34,8 @@ mod sys {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
-            PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTupleRef,
-            PyTypeRef,
+            PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef,
         },
         common::{
             ascii,
@@ -72,6 +73,9 @@ mod sys {
     pub(crate) fn multiarch() -> String {
         RUST_MULTIARCH.replace("-unknown", "")
     }
+
+    #[pymodule(name = "monitoring", with(super::monitoring::sys_monitoring))]
+    pub(super) mod monitoring {}
 
     #[pyclass(no_attr, name = "_BootstrapStderr", module = "sys")]
     #[derive(Debug, PyPayload)]
@@ -789,8 +793,22 @@ mod sys {
 
     #[pyfunction]
     fn exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let code = code.unwrap_or_none(vm);
-        Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
+        let status = code.unwrap_or_none(vm);
+        let args = if let Some(status_tuple) = status.downcast_ref::<PyTuple>() {
+            status_tuple.as_slice().to_vec()
+        } else {
+            vec![status]
+        };
+        let exc = vm.invoke_exception(vm.ctx.exceptions.system_exit.to_owned(), args)?;
+        Err(exc)
+    }
+
+    #[pyfunction]
+    fn call_tracing(func: PyObjectRef, args: PyTupleRef, vm: &VirtualMachine) -> PyResult {
+        // CPython temporarily enables tracing state around this call.
+        // RustPython does not currently model the full C-level tracing toggles,
+        // but call semantics (func(*args)) are matched.
+        func.call(PosArgs::new(args.as_slice().to_vec()), vm)
     }
 
     #[pyfunction]
@@ -827,6 +845,15 @@ mod sys {
             Ok(exc) => {
                 // Try Python traceback module first for richer output
                 // (enables features like keyword typo suggestions in SyntaxError)
+                if let Ok(tb_mod) = vm.import("traceback", 0)
+                    && let Ok(print_exc_builtin) = tb_mod.get_attr("_print_exception_bltin", vm)
+                    && print_exc_builtin
+                        .call((exc.as_object().to_owned(),), vm)
+                        .is_ok()
+                {
+                    return Ok(());
+                }
+                // Fallback to public traceback.print_exception API
                 if let Ok(tb_mod) = vm.import("traceback", 0)
                     && let Ok(print_exc) = tb_mod.get_attr("print_exception", vm)
                     && print_exc.call((exc.as_object().to_owned(),), vm).is_ok()
@@ -971,34 +998,34 @@ mod sys {
     #[pyfunction]
     fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
         let offset = offset.into_option().unwrap_or(0);
-        if offset > vm.frames.borrow().len() - 1 {
+        let frames = vm.frames.borrow();
+        let len = frames.len();
+        if offset >= len {
             return Err(vm.new_value_error("call stack is not deep enough"));
         }
-        let idx = vm.frames.borrow().len() - offset - 1;
-        let frame = &vm.frames.borrow()[idx];
-        Ok(frame.clone())
+        // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
+        let frame = unsafe { frames[len - offset - 1].as_ref() };
+        Ok(frame.to_owned())
     }
 
     #[pyfunction]
     fn _getframemodulename(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult {
         let depth = depth.into_option().unwrap_or(0);
 
-        // Get the frame at the specified depth
-        if depth > vm.frames.borrow().len() - 1 {
+        let frames = vm.frames.borrow();
+        let len = frames.len();
+        if depth >= len {
             return Ok(vm.ctx.none());
         }
 
-        let idx = vm.frames.borrow().len() - depth - 1;
-        let frame = &vm.frames.borrow()[idx];
+        // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
+        let frame = unsafe { frames[len - depth - 1].as_ref() };
 
         // If the frame has a function object, return its __module__ attribute
         if let Some(func_obj) = &frame.func_obj {
             match func_obj.get_attr(identifier!(vm, __module__), vm) {
                 Ok(module) => Ok(module),
-                Err(_) => {
-                    // CPython clears the error and returns None
-                    Ok(vm.ctx.none())
-                }
+                Err(_) => Ok(vm.ctx.none()),
             }
         } else {
             Ok(vm.ctx.none())
@@ -1021,6 +1048,33 @@ mod sys {
             dict.set_item(key.as_object(), frame.into(), vm)?;
         }
 
+        Ok(dict)
+    }
+
+    /// Return a dictionary mapping each thread's identifier to its currently
+    /// active exception, or None if no exception is active.
+    #[cfg(feature = "threading")]
+    #[pyfunction]
+    fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        use crate::AsObject;
+        use crate::vm::thread::get_all_current_exceptions;
+
+        let dict = vm.ctx.new_dict();
+        for (thread_id, exc) in get_all_current_exceptions(vm) {
+            let key = vm.ctx.new_int(thread_id);
+            let value = exc.map_or_else(|| vm.ctx.none(), |e| e.into());
+            dict.set_item(key.as_object(), value, vm)?;
+        }
+
+        Ok(dict)
+    }
+
+    #[cfg(not(feature = "threading"))]
+    #[pyfunction]
+    fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        let dict = vm.ctx.new_dict();
+        let key = vm.ctx.new_int(0);
+        dict.set_item(key.as_object(), vm.topmost_exception().to_pyobject(vm), vm)?;
         Ok(dict)
     }
 
@@ -1517,10 +1571,6 @@ mod sys {
         safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
         warn_default_encoding: u8,
-        /// -X thread_inherit_context, whether new threads inherit context from parent
-        thread_inherit_context: bool,
-        /// -X context_aware_warnings, whether warnings are context aware
-        context_aware_warnings: bool,
     }
 
     impl FlagsData {
@@ -1544,8 +1594,6 @@ mod sys {
                 int_max_str_digits: settings.int_max_str_digits,
                 safe_path: settings.safe_path,
                 warn_default_encoding: settings.warn_default_encoding as u8,
-                thread_inherit_context: settings.thread_inherit_context,
-                context_aware_warnings: settings.context_aware_warnings,
             }
         }
     }
@@ -1558,6 +1606,16 @@ mod sys {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create 'sys.flags' instances"))
+        }
+
+        #[pygetset]
+        fn context_aware_warnings(&self, vm: &VirtualMachine) -> bool {
+            vm.state.config.settings.context_aware_warnings
+        }
+
+        #[pygetset]
+        fn thread_inherit_context(&self, vm: &VirtualMachine) -> bool {
+            vm.state.config.settings.thread_inherit_context
         }
     }
 
@@ -1619,7 +1677,7 @@ mod sys {
         };
     }
 
-    #[pystruct_sequence(name = "float_info", data = "FloatInfoData", no_attr)]
+    #[pystruct_sequence(name = "float_info", module = "sys", data = "FloatInfoData", no_attr)]
     pub(super) struct PyFloatInfo;
 
     #[pyclass(with(PyStructSequence))]

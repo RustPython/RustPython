@@ -891,7 +891,7 @@ pub(crate) mod _thread {
         let registry = vm.state.thread_frames.lock();
         registry
             .iter()
-            .filter_map(|(id, slot)| slot.lock().last().cloned().map(|f| (*id, f)))
+            .filter_map(|(id, slot)| slot.frames.lock().last().cloned().map(|f| (*id, f)))
             .collect()
     }
 

@@ -463,7 +463,7 @@ impl ExecutingFrame<'_> {
         // Execute until return or exception:
         let instructions = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
-        let mut prev_line: usize = 0;
+        let mut prev_line: u32 = 0;
         loop {
             let idx = self.lasti() as usize;
             // Fire 'line' trace event when line number changes.
@@ -472,15 +472,35 @@ impl ExecutingFrame<'_> {
             if vm.use_tracing.get()
                 && !vm.is_none(&self.object.trace.lock())
                 && let Some((loc, _)) = self.code.locations.get(idx)
-                && loc.line.get() != prev_line
+                && loc.line.get() as u32 != prev_line
             {
-                prev_line = loc.line.get();
+                prev_line = loc.line.get() as u32;
                 vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
             }
             self.update_lasti(|i| *i += 1);
             let bytecode::CodeUnit { op, arg } = instructions[idx];
             let arg = arg_state.extend(arg);
             let mut do_extend_arg = false;
+
+            // Always track current line for LINE monitoring, even when
+            // monitoring is off. This prevents spurious LINE events when
+            // monitoring is enabled mid-function.
+            if !matches!(op, Instruction::Resume { .. } | Instruction::ExtendedArg) {
+                let line = self.code.locations[idx].0.line.get() as u32;
+                let monitoring_mask = vm.state.monitoring_events.load();
+                if monitoring_mask != 0 {
+                    use crate::stdlib::sys::monitoring;
+                    let offset = idx as u32 * 2;
+                    if monitoring_mask & monitoring::EVENT_LINE != 0 && line != prev_line {
+                        monitoring::fire_line(vm, self.code, offset, line)?;
+                    }
+                    if monitoring_mask & monitoring::EVENT_INSTRUCTION != 0 {
+                        monitoring::fire_instruction(vm, self.code, offset)?;
+                    }
+                }
+                prev_line = line;
+            }
+
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
             match result {
                 Ok(None) => {}
@@ -543,13 +563,16 @@ impl ExecutingFrame<'_> {
                     // Check if this is a RERAISE instruction
                     // Both AnyInstruction::Raise { kind: Reraise/ReraiseFromStack } and
                     // AnyInstruction::Reraise are reraise operations that should not add
-                    // new traceback entries
+                    // new traceback entries.
+                    // EndAsyncFor and CleanupThrow also re-raise non-matching exceptions.
                     let is_reraise = match op {
                         Instruction::RaiseVarargs { kind } => matches!(
                             kind.get(arg),
                             bytecode::RaiseKind::BareRaise | bytecode::RaiseKind::ReraiseFromStack
                         ),
-                        Instruction::Reraise { .. } => true,
+                        Instruction::Reraise { .. }
+                        | Instruction::EndAsyncFor
+                        | Instruction::CleanupThrow => true,
                         _ => false,
                     };
 
@@ -564,10 +587,58 @@ impl ExecutingFrame<'_> {
                             )
                     );
 
+                    // Fire RAISE or RERAISE monitoring event.
+                    // fire_reraise internally deduplicates: only the first
+                    // re-raise after each EXCEPTION_HANDLED fires the event.
+                    // If the callback raises (e.g. ValueError for illegal DISABLE),
+                    // replace the original exception.
+                    let exception = {
+                        use crate::stdlib::sys::monitoring;
+                        let monitoring_mask = vm.state.monitoring_events.load();
+                        if is_reraise {
+                            if monitoring_mask & monitoring::EVENT_RERAISE != 0 {
+                                let offset = idx as u32 * 2;
+                                let exc_obj: PyObjectRef = exception.clone().into();
+                                match monitoring::fire_reraise(vm, self.code, offset, &exc_obj) {
+                                    Ok(()) => exception,
+                                    Err(monitor_exc) => monitor_exc,
+                                }
+                            } else {
+                                exception
+                            }
+                        } else if monitoring_mask & monitoring::EVENT_RAISE != 0 {
+                            let offset = idx as u32 * 2;
+                            let exc_obj: PyObjectRef = exception.clone().into();
+                            match monitoring::fire_raise(vm, self.code, offset, &exc_obj) {
+                                Ok(()) => exception,
+                                Err(monitor_exc) => monitor_exc,
+                            }
+                        } else {
+                            exception
+                        }
+                    };
+
                     match handle_exception(self, exception, idx, is_reraise, is_new_raise, vm) {
                         Ok(None) => {}
                         Ok(Some(result)) => break Ok(result),
                         Err(exception) => {
+                            // Fire PY_UNWIND: exception escapes this frame
+                            let exception = if vm.state.monitoring_events.load()
+                                & crate::stdlib::sys::monitoring::EVENT_PY_UNWIND
+                                != 0
+                            {
+                                let offset = idx as u32 * 2;
+                                let exc_obj: PyObjectRef = exception.clone().into();
+                                match crate::stdlib::sys::monitoring::fire_py_unwind(
+                                    vm, self.code, offset, &exc_obj,
+                                ) {
+                                    Ok(()) => exception,
+                                    Err(monitor_exc) => monitor_exc,
+                                }
+                            } else {
+                                exception
+                            };
+
                             // Restore lasti from traceback so frame.f_lineno matches tb_lineno
                             // The traceback was created with the correct lasti when exception
                             // was first raised, but frame.lasti may have changed during cleanup
@@ -653,6 +724,19 @@ impl ExecutingFrame<'_> {
                     Ok(())
                 };
                 if let Err(err) = close_result {
+                    let idx = self.lasti().saturating_sub(1) as usize;
+                    if idx < self.code.locations.len() {
+                        let (loc, _end_loc) = self.code.locations[idx];
+                        let next = err.__traceback__();
+                        let new_traceback = PyTraceback::new(
+                            next,
+                            self.object.to_owned(),
+                            idx as u32 * 2,
+                            loc.line,
+                        );
+                        err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                    }
+
                     self.push_value(vm.ctx.none());
                     vm.contextualize_exception(&err);
                     return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
@@ -678,6 +762,23 @@ impl ExecutingFrame<'_> {
                         Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
                     };
                     return ret.map(ExecutionResult::Yield).or_else(|err| {
+                        // Add traceback entry for the yield-from/await point.
+                        // gen_send_ex2 resumes the frame with a pending exception,
+                        // which goes through error: → PyTraceBack_Here. We add the
+                        // entry here before calling unwind_blocks.
+                        let idx = self.lasti().saturating_sub(1) as usize;
+                        if idx < self.code.locations.len() {
+                            let (loc, _end_loc) = self.code.locations[idx];
+                            let next = err.__traceback__();
+                            let new_traceback = PyTraceback::new(
+                                next,
+                                self.object.to_owned(),
+                                idx as u32 * 2,
+                                loc.line,
+                            );
+                            err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        }
+
                         self.push_value(vm.ctx.none());
                         vm.contextualize_exception(&err);
                         match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
@@ -714,6 +815,23 @@ impl ExecutingFrame<'_> {
             exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
         }
 
+        // Fire PY_THROW event before raising the exception in the generator
+        {
+            use crate::stdlib::sys::monitoring;
+            let monitoring_mask = vm.state.monitoring_events.load();
+            if monitoring_mask & monitoring::EVENT_PY_THROW != 0 {
+                let offset = idx as u32 * 2;
+                let exc_obj: PyObjectRef = exception.clone().into();
+                let _ = monitoring::fire_py_throw(vm, self.code, offset, &exc_obj);
+            }
+            // Fire RAISE: the thrown exception is raised in this frame
+            if monitoring_mask & monitoring::EVENT_RAISE != 0 {
+                let offset = idx as u32 * 2;
+                let exc_obj: PyObjectRef = exception.clone().into();
+                let _ = monitoring::fire_raise(vm, self.code, offset, &exc_obj);
+            }
+        }
+
         // when raising an exception, set __context__ to the current exception
         // This is done in _PyErr_SetObject
         vm.contextualize_exception(&exception);
@@ -725,7 +843,20 @@ impl ExecutingFrame<'_> {
         match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
             Ok(None) => self.run(vm),
             Ok(Some(result)) => Ok(result),
-            Err(exception) => Err(exception),
+            Err(exception) => {
+                // Fire PY_UNWIND: exception escapes the generator frame
+                if vm.state.monitoring_events.load()
+                    & crate::stdlib::sys::monitoring::EVENT_PY_UNWIND
+                    != 0
+                {
+                    let offset = idx as u32 * 2;
+                    let exc_obj: PyObjectRef = exception.clone().into();
+                    let _ = crate::stdlib::sys::monitoring::fire_py_unwind(
+                        vm, self.code, offset, &exc_obj,
+                    );
+                }
+                Err(exception)
+            }
         }
     }
 
@@ -1303,7 +1434,20 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::JumpBackward { target } => {
-                self.jump(target.get(arg));
+                let src_offset = (self.lasti() - 1) * 2;
+                let dest = target.get(arg);
+                self.jump(dest);
+                // JUMP events fire only for backward jumps (loop iterations)
+                if vm.state.monitoring_events.load() & crate::stdlib::sys::monitoring::EVENT_JUMP
+                    != 0
+                {
+                    let _ = crate::stdlib::sys::monitoring::fire_jump(
+                        vm,
+                        self.code,
+                        src_offset,
+                        dest.0 * 2,
+                    );
+                }
                 Ok(None)
             }
             Instruction::JumpBackwardNoInterrupt { target } => {
@@ -1901,15 +2045,77 @@ impl ExecutingFrame<'_> {
             Instruction::PopJumpIfTrue { target } => self.pop_jump_if(vm, target.get(arg), true),
             Instruction::PopJumpIfNone { target } => {
                 let value = self.pop_value();
-                if vm.is_none(&value) {
-                    self.jump(target.get(arg));
+                let branch_taken = vm.is_none(&value);
+                let target = target.get(arg);
+                let src_offset = (self.lasti() - 1) * 2; // Save before jump modifies lasti
+                if branch_taken {
+                    self.jump(target);
+                }
+                // Fire BRANCH monitoring events
+                let monitoring_mask = vm.state.monitoring_events.load();
+                if monitoring_mask
+                    & (crate::stdlib::sys::monitoring::EVENT_BRANCH_LEFT
+                        | crate::stdlib::sys::monitoring::EVENT_BRANCH_RIGHT)
+                    != 0
+                {
+                    let dest_offset = if branch_taken {
+                        target.0 * 2
+                    } else {
+                        self.lasti() * 2
+                    };
+                    if branch_taken {
+                        let _ = crate::stdlib::sys::monitoring::fire_branch_right(
+                            vm,
+                            self.code,
+                            src_offset,
+                            dest_offset,
+                        );
+                    } else {
+                        let _ = crate::stdlib::sys::monitoring::fire_branch_left(
+                            vm,
+                            self.code,
+                            src_offset,
+                            dest_offset,
+                        );
+                    }
                 }
                 Ok(None)
             }
             Instruction::PopJumpIfNotNone { target } => {
                 let value = self.pop_value();
-                if !vm.is_none(&value) {
-                    self.jump(target.get(arg));
+                let branch_taken = !vm.is_none(&value);
+                let target = target.get(arg);
+                let src_offset = (self.lasti() - 1) * 2; // Save before jump modifies lasti
+                if branch_taken {
+                    self.jump(target);
+                }
+                // Fire BRANCH monitoring events
+                let monitoring_mask = vm.state.monitoring_events.load();
+                if monitoring_mask
+                    & (crate::stdlib::sys::monitoring::EVENT_BRANCH_LEFT
+                        | crate::stdlib::sys::monitoring::EVENT_BRANCH_RIGHT)
+                    != 0
+                {
+                    let dest_offset = if branch_taken {
+                        target.0 * 2
+                    } else {
+                        self.lasti() * 2
+                    };
+                    if branch_taken {
+                        let _ = crate::stdlib::sys::monitoring::fire_branch_right(
+                            vm,
+                            self.code,
+                            src_offset,
+                            dest_offset,
+                        );
+                    } else {
+                        let _ = crate::stdlib::sys::monitoring::fire_branch_left(
+                            vm,
+                            self.code,
+                            src_offset,
+                            dest_offset,
+                        );
+                    }
                 }
                 Ok(None)
             }
@@ -1935,19 +2141,23 @@ impl ExecutingFrame<'_> {
             }
             Instruction::RaiseVarargs { kind } => self.execute_raise(vm, kind.get(arg)),
             Instruction::Resume { arg: resume_arg } => {
-                // Resume execution after yield, await, or at function start
-                // In CPython, this checks instrumentation and eval breaker
-                // For now, we just check for signals/interrupts
-                let _resume_type = resume_arg.get(arg);
-
-                // Check for interrupts if not resuming from yield_from
-                // if resume_type < bytecode::ResumeType::AfterYieldFrom as u32 {
-                //     vm.check_signals()?;
-                // }
+                let resume_type = resume_arg.get(arg);
+                if vm.state.monitoring_events.load() != 0 {
+                    let offset = (self.lasti() - 1) * 2;
+                    if resume_type == 0 {
+                        crate::stdlib::sys::monitoring::fire_py_start(vm, self.code, offset)?;
+                    } else {
+                        crate::stdlib::sys::monitoring::fire_py_resume(vm, self.code, offset)?;
+                    }
+                }
                 Ok(None)
             }
             Instruction::ReturnValue => {
                 let value = self.pop_value();
+                if vm.state.monitoring_events.load() != 0 {
+                    let offset = (self.lasti() - 1) * 2;
+                    crate::stdlib::sys::monitoring::fire_py_return(vm, self.code, offset, &value)?;
+                }
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             Instruction::SetAdd { i } => {
@@ -1986,8 +2196,10 @@ impl ExecutingFrame<'_> {
                     vm.set_exception(Some(exc_ref.to_owned()));
                 }
 
+                // Complete stack operations
                 self.push_value(prev_exc);
                 self.push_value(exc);
+
                 Ok(None)
             }
             Instruction::CheckExcMatch => {
@@ -2170,6 +2382,10 @@ impl ExecutingFrame<'_> {
             }
             Instruction::YieldValue { arg: oparg } => {
                 let value = self.pop_value();
+                if vm.state.monitoring_events.load() != 0 {
+                    let offset = (self.lasti() - 1) * 2;
+                    crate::stdlib::sys::monitoring::fire_py_yield(vm, self.code, offset, &value)?;
+                }
                 // arg=0: direct yield (wrapped for async generators)
                 // arg=1: yield from await/yield-from (NOT wrapped)
                 let wrap = oparg.get(arg) == 0;
@@ -2498,6 +2714,23 @@ impl ExecutingFrame<'_> {
                 if let Some(entry) =
                     bytecode::find_exception_handler(&self.code.exceptiontable, offset)
                 {
+                    // Fire EXCEPTION_HANDLED before setting up handler.
+                    // If the callback raises, the handler is NOT set up and the
+                    // new exception propagates instead.
+                    if vm.state.monitoring_events.load()
+                        & crate::stdlib::sys::monitoring::EVENT_EXCEPTION_HANDLED
+                        != 0
+                    {
+                        let byte_offset = offset * 2;
+                        let exc_obj: PyObjectRef = exception.clone().into();
+                        crate::stdlib::sys::monitoring::fire_exception_handled(
+                            vm,
+                            self.code,
+                            byte_offset,
+                            &exc_obj,
+                        )?;
+                    }
+
                     // 1. Pop stack to entry.depth
                     while self.state.stack.len() > entry.depth as usize {
                         self.state.stack.pop();
@@ -2698,6 +2931,8 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn execute_call(&mut self, args: FuncArgs, vm: &VirtualMachine) -> FrameResult {
+        use crate::stdlib::sys::monitoring;
+
         // Stack: [callable, self_or_null, ...]
         let self_or_null = self.pop_value_opt(); // Option<PyObjectRef>
         let callable = self.pop_value();
@@ -2716,9 +2951,44 @@ impl ExecutingFrame<'_> {
             args
         };
 
-        let value = callable.call(final_args, vm)?;
-        self.push_value(value);
-        Ok(None)
+        let monitoring_mask = vm.state.monitoring_events.load();
+        let is_python_call = callable.downcast_ref::<PyFunction>().is_some();
+
+        // Compute arg0 once for CALL, C_RETURN, and C_RAISE events
+        let call_arg0 = if monitoring_mask & monitoring::EVENT_CALL != 0 {
+            let arg0 = final_args
+                .args
+                .first()
+                .cloned()
+                .unwrap_or_else(|| monitoring::get_missing(vm));
+            let offset = (self.lasti() - 1) * 2;
+            monitoring::fire_call(vm, self.code, offset, &callable, arg0.clone())?;
+            Some(arg0)
+        } else {
+            None
+        };
+
+        match callable.call(final_args, vm) {
+            Ok(value) => {
+                if let Some(arg0) = call_arg0
+                    && !is_python_call
+                {
+                    let offset = (self.lasti() - 1) * 2;
+                    monitoring::fire_c_return(vm, self.code, offset, &callable, arg0)?;
+                }
+                self.push_value(value);
+                Ok(None)
+            }
+            Err(exc) => {
+                if let Some(arg0) = call_arg0
+                    && !is_python_call
+                {
+                    let offset = (self.lasti() - 1) * 2;
+                    let _ = monitoring::fire_c_raise(vm, self.code, offset, &callable, arg0);
+                }
+                Err(exc)
+            }
+        }
     }
 
     fn execute_raise(&mut self, vm: &VirtualMachine, kind: bytecode::RaiseKind) -> FrameResult {
@@ -2856,8 +3126,38 @@ impl ExecutingFrame<'_> {
     ) -> FrameResult {
         let obj = self.pop_value();
         let value = obj.try_to_bool(vm)?;
-        if value == flag {
+        let branch_taken = value == flag;
+        let src_offset = (self.lasti() - 1) * 2; // Save before jump modifies lasti
+        if branch_taken {
             self.jump(target);
+        }
+        // Fire BRANCH monitoring events
+        let monitoring_mask = vm.state.monitoring_events.load();
+        if monitoring_mask
+            & (crate::stdlib::sys::monitoring::EVENT_BRANCH_LEFT
+                | crate::stdlib::sys::monitoring::EVENT_BRANCH_RIGHT)
+            != 0
+        {
+            let dest_offset = if branch_taken {
+                target.0 * 2
+            } else {
+                self.lasti() * 2
+            };
+            if branch_taken {
+                let _ = crate::stdlib::sys::monitoring::fire_branch_right(
+                    vm,
+                    self.code,
+                    src_offset,
+                    dest_offset,
+                );
+            } else {
+                let _ = crate::stdlib::sys::monitoring::fire_branch_left(
+                    vm,
+                    self.code,
+                    src_offset,
+                    dest_offset,
+                );
+            }
         }
         Ok(None)
     }
@@ -2866,11 +3166,27 @@ impl ExecutingFrame<'_> {
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
         let top_of_stack = PyIter::new(self.top_value());
         let next_obj = top_of_stack.next(vm);
+        let src_offset = (self.lasti() - 1) * 2;
 
         // Check the next object:
         match next_obj {
             Ok(PyIterReturn::Return(value)) => {
                 self.push_value(value);
+                // Fire BRANCH_LEFT: iterator has more items, continue loop
+                let monitoring_mask = vm.state.monitoring_events.load();
+                if monitoring_mask
+                    & (crate::stdlib::sys::monitoring::EVENT_BRANCH_LEFT
+                        | crate::stdlib::sys::monitoring::EVENT_BRANCH_RIGHT)
+                    != 0
+                {
+                    let dest_offset = self.lasti() * 2;
+                    let _ = crate::stdlib::sys::monitoring::fire_branch_left(
+                        vm,
+                        self.code,
+                        src_offset,
+                        dest_offset,
+                    );
+                }
                 Ok(None)
             }
             Ok(PyIterReturn::StopIteration(_)) => {
@@ -2894,6 +3210,21 @@ impl ExecutingFrame<'_> {
                     target
                 };
                 self.jump(jump_target);
+                // Fire BRANCH_RIGHT: iterator exhausted, exit loop
+                let monitoring_mask = vm.state.monitoring_events.load();
+                if monitoring_mask
+                    & (crate::stdlib::sys::monitoring::EVENT_BRANCH_LEFT
+                        | crate::stdlib::sys::monitoring::EVENT_BRANCH_RIGHT)
+                    != 0
+                {
+                    let dest_offset = jump_target.0 * 2;
+                    let _ = crate::stdlib::sys::monitoring::fire_branch_right(
+                        vm,
+                        self.code,
+                        src_offset,
+                        dest_offset,
+                    );
+                }
                 Ok(None)
             }
             Err(next_error) => {
