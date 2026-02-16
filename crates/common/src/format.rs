@@ -149,6 +149,7 @@ pub enum FormatType {
     GeneralFormat(Case),
     FixedPoint(Case),
     Percentage,
+    Unknown(char),
 }
 
 impl From<&FormatType> for char {
@@ -170,6 +171,7 @@ impl From<&FormatType> for char {
             FormatType::FixedPoint(Case::Lower) => 'f',
             FormatType::FixedPoint(Case::Upper) => 'F',
             FormatType::Percentage => '%',
+            FormatType::Unknown(c) => *c,
         }
     }
 }
@@ -194,6 +196,7 @@ impl FormatParse for FormatType {
             Some('g') => (Some(Self::GeneralFormat(Case::Lower)), chars.as_wtf8()),
             Some('G') => (Some(Self::GeneralFormat(Case::Upper)), chars.as_wtf8()),
             Some('%') => (Some(Self::Percentage), chars.as_wtf8()),
+            Some(c) => (Some(Self::Unknown(c)), chars.as_wtf8()),
             _ => (None, text),
         }
     }
@@ -429,7 +432,8 @@ impl FormatSpec {
                 | FormatType::FixedPoint(_)
                 | FormatType::GeneralFormat(_)
                 | FormatType::Exponent(_)
-                | FormatType::Percentage,
+                | FormatType::Percentage
+                | FormatType::Number(_),
             ) => 3,
             None => 3,
             _ => panic!("Separators only valid for numbers!"),
@@ -475,6 +479,7 @@ impl FormatSpec {
                 let first_letter = (input.to_string().as_bytes()[0] as char).to_uppercase();
                 Ok(first_letter.collect::<String>() + &input.to_string()[1..])
             }
+            Some(FormatType::Unknown(c)) => Err(FormatSpecError::UnknownFormatCode(*c, "int")),
             _ => Err(FormatSpecError::InvalidFormatSpecifier),
         }
     }
@@ -496,7 +501,8 @@ impl FormatSpec {
             | Some(FormatType::Hex(_))
             | Some(FormatType::String)
             | Some(FormatType::Character)
-            | Some(FormatType::Number(Case::Upper)) => {
+            | Some(FormatType::Number(Case::Upper))
+            | Some(FormatType::Unknown(_)) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "float"))
             }
@@ -609,6 +615,7 @@ impl FormatSpec {
                 Some(float) => return self.format_float(float),
                 _ => Err(FormatSpecError::UnableToConvert),
             },
+            Some(FormatType::Unknown(c)) => Err(FormatSpecError::UnknownFormatCode(c, "int")),
             None => self.format_int_radix(magnitude, 10),
         }?;
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
@@ -707,7 +714,8 @@ impl FormatSpec {
             | Some(FormatType::String)
             | Some(FormatType::Character)
             | Some(FormatType::Number(Case::Upper))
-            | Some(FormatType::Percentage) => {
+            | Some(FormatType::Percentage)
+            | Some(FormatType::Unknown(_)) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "complex"))
             }
