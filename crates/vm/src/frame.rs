@@ -3043,13 +3043,54 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
+    /// _PyEval_UnpackIterableStackRef
     fn unpack_sequence(&mut self, size: u32, vm: &VirtualMachine) -> FrameResult {
         let value = self.pop_value();
+        let size = size as usize;
+
+        // Fast path for exact tuple/list types (not subclasses) — check
+        // length directly without creating an iterator, matching
+        // UNPACK_SEQUENCE_TUPLE / UNPACK_SEQUENCE_LIST specializations.
+        let cls = value.class();
+        let fast_elements: Option<Vec<PyObjectRef>> = if cls.is(vm.ctx.types.tuple_type) {
+            Some(value.downcast_ref::<PyTuple>().unwrap().as_slice().to_vec())
+        } else if cls.is(vm.ctx.types.list_type) {
+            Some(
+                value
+                    .downcast_ref::<PyList>()
+                    .unwrap()
+                    .borrow_vec()
+                    .to_vec(),
+            )
+        } else {
+            None
+        };
+        if let Some(elements) = fast_elements {
+            return match elements.len().cmp(&size) {
+                core::cmp::Ordering::Equal => {
+                    self.state
+                        .stack
+                        .extend(elements.into_iter().rev().map(Some));
+                    Ok(None)
+                }
+                core::cmp::Ordering::Greater => Err(vm.new_value_error(format!(
+                    "too many values to unpack (expected {size}, got {})",
+                    elements.len()
+                ))),
+                core::cmp::Ordering::Less => Err(vm.new_value_error(format!(
+                    "not enough values to unpack (expected {size}, got {})",
+                    elements.len()
+                ))),
+            };
+        }
+
+        // General path — iterate up to `size + 1` elements to avoid
+        // consuming the entire iterator (fixes hang on infinite sequences).
         let not_iterable = value.class().slots.iter.load().is_none()
             && value
                 .get_class_attr(vm.ctx.intern_str("__getitem__"))
                 .is_none();
-        let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
+        let iter = PyIter::try_from_object(vm, value.clone()).map_err(|e| {
             if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
                 vm.new_type_error(format!(
                     "cannot unpack non-iterable {} object",
@@ -3059,24 +3100,48 @@ impl ExecutingFrame<'_> {
                 e
             }
         })?;
-        let msg = match elements.len().cmp(&(size as usize)) {
-            core::cmp::Ordering::Equal => {
-                // Wrap each element in Some() for Option<PyObjectRef> stack
+
+        let mut elements = Vec::with_capacity(size);
+        for _ in 0..size {
+            match iter.next(vm)? {
+                PyIterReturn::Return(item) => elements.push(item),
+                PyIterReturn::StopIteration(_) => {
+                    return Err(vm.new_value_error(format!(
+                        "not enough values to unpack (expected {size}, got {})",
+                        elements.len()
+                    )));
+                }
+            }
+        }
+
+        // Check that the iterator is exhausted.
+        match iter.next(vm)? {
+            PyIterReturn::Return(_) => {
+                // For exact dict types, show "got N" using the container's
+                // size (PyDict_Size). Exact tuple/list are handled by the
+                // fast path above and never reach here.
+                let msg = if value.class().is(vm.ctx.types.dict_type) {
+                    if let Ok(got) = value.length(vm) {
+                        if got > size {
+                            format!("too many values to unpack (expected {size}, got {got})")
+                        } else {
+                            format!("too many values to unpack (expected {size})")
+                        }
+                    } else {
+                        format!("too many values to unpack (expected {size})")
+                    }
+                } else {
+                    format!("too many values to unpack (expected {size})")
+                };
+                Err(vm.new_value_error(msg))
+            }
+            PyIterReturn::StopIteration(_) => {
                 self.state
                     .stack
                     .extend(elements.into_iter().rev().map(Some));
-                return Ok(None);
+                Ok(None)
             }
-            core::cmp::Ordering::Greater => {
-                format!("too many values to unpack (expected {size})")
-            }
-            core::cmp::Ordering::Less => format!(
-                "not enough values to unpack (expected {}, got {})",
-                size,
-                elements.len()
-            ),
-        };
-        Err(vm.new_value_error(msg))
+        }
     }
 
     fn convert_value(
