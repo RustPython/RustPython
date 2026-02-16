@@ -1,4 +1,4 @@
-use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDictRef, PyInt, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
@@ -544,6 +544,13 @@ impl PyBaseObject {
 
     #[pymethod]
     fn __sizeof__(zelf: PyObjectRef) -> usize {
+        if let Some(int) = zelf.downcast_ref::<PyInt>() {
+            let digits = int.as_bigint().iter_u32_digits().count();
+            let basicsize = zelf.class().slots.basicsize;
+            let itemsize = zelf.class().slots.itemsize;
+            return basicsize + itemsize * digits;
+        }
+
         zelf.class().slots.basicsize
     }
 }
