@@ -154,7 +154,7 @@ ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", rev = "a2f11
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 ahash = "0.8.12"
 ascii = "1.1"
-bitflags = "2.9.4"
+bitflags = "2.11.0"
 bstr = "1"
 bytes = "1.11.1"
 cfg-if = "1.0"
