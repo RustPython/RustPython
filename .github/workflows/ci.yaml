@@ -299,6 +299,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v6.2.0
         with:
@@ -306,6 +307,39 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
+      - name: Set up coverage environment (Unix)
+        run: |
+          eval "$(cargo llvm-cov show-env --export-prefix)"
+          echo "RUSTFLAGS<<EOF" >> $GITHUB_ENV
+          echo "$RUSTFLAGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" >> $GITHUB_ENV
+          echo "CARGO_LLVM_COV=1" >> $GITHUB_ENV
+          echo "CARGO_LLVM_COV_TARGET_DIR=$CARGO_LLVM_COV_TARGET_DIR" >> $GITHUB_ENV
+        shell: bash
+        if: runner.os != 'Windows'
+      - name: Set up coverage environment (Windows)
+        run: |
+          $output = cargo llvm-cov show-env --export-prefix
+          foreach ($line in $output) {
+            $line = $line.Trim()
+            if ($line -match "^export\s+([A-Z_]+)='([^']*)'") {
+              $name = $Matches[1]
+              $value = $Matches[2]
+              Write-Host "Setting $name"
+              if ($name -eq "RUSTFLAGS") {
+                "$name<<EOF" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+                $value | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+                "EOF" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              } else {
+                "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              }
+            }
+          }
+        shell: pwsh
+        if: runner.os == 'Windows'
+      - name: Clean coverage data
+        run: cargo llvm-cov clean --workspace
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
@@ -454,6 +488,41 @@ jobs:
         name: Check whats_left is not broken (macOS)
         shell: bash
         run: python -I scripts/whats_left.py --no-default-features --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading" # no jit on macOS for now
+
+      - name: Generate coverage report
+        run: cargo llvm-cov report --release --lcov --output-path=codecov.lcov
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: ./codecov.lcov
+
+  coverage:
+    name: Upload coverage to Codecov
+    runs-on: ubuntu-latest
+    needs: snippets_cpython
+    if: always() && !contains(github.event.pull_request.labels.*.name, 'skip:ci')
+    steps:
+      - uses: actions/checkout@v6.0.1
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage
+          merge-multiple: false
+      - name: List coverage files
+        run: |
+          if [ -d coverage ]; then
+            find coverage -name "*.lcov" -type f
+          else
+            echo "No coverage directory found"
+          fi
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        if: hashFiles('coverage/**/*.lcov') != ''
+        with:
+          directory: ./coverage
+          fail_ci_if_error: false
 
   lint:
     name: Lint Rust & Python code
