@@ -402,15 +402,10 @@ Some size constraints (all fail.)
 
 __test__ = {'doctests' : doctests}
 
-EXPECTED_FAILURE = doctest.register_optionflag('EXPECTED_FAILURE') # TODO: RUSTPYTHON
-class CustomOutputChecker(doctest.OutputChecker): # TODO: RUSTPYTHON
-    def check_output(self, want, got, optionflags): # TODO: RUSTPYTHON
-        if optionflags & EXPECTED_FAILURE: # TODO: RUSTPYTHON
-            return not super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
-        return super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
 
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite(checker=CustomOutputChecker())) # TODO: RUSTPYTHON
+    from test.support.rustpython import DocTestChecker # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker())) # XXX: RUSTPYTHON
     return tests
 
 
