@@ -76,11 +76,7 @@ mod escape_warnings {
         };
         let cs = s + qi + ql;
         let ce = e.checked_sub(ql)?;
-        if cs <= ce {
-            Some((cs, ce))
-        } else {
-            None
-        }
+        if cs <= ce { Some((cs, ce)) } else { None }
     }
 
     /// Scan `source[start..end]` for the first invalid escape sequence.
