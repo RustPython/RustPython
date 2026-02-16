@@ -50,6 +50,16 @@ mod array {
     use std::os::raw;
     macro_rules! def_array_enum {
         ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {
+            #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+            enum ArrayType {
+                $($n,)*
+            }
+
+            #[derive(Debug)]
+            enum ArrayElementValue {
+                $($n($t),)*
+            }
+
             #[derive(Debug, Clone)]
             pub enum ArrayContentType {
                 $($n(Vec<$t>),)*
@@ -102,6 +112,12 @@ mod array {
                     }
                 }
 
+                fn kind(&self) -> ArrayType {
+                    match self {
+                        $(ArrayContentType::$n(_) => ArrayType::$n,)*
+                    }
+                }
+
                 fn reserve(&mut self, len: usize) {
                     match self {
                         $(ArrayContentType::$n(v) => v.reserve(len),)*
@@ -116,6 +132,25 @@ mod array {
                         })*
                     }
                     Ok(())
+                }
+
+                fn truncate(&mut self, len: usize) {
+                    match self {
+                        $(ArrayContentType::$n(v) => v.truncate(len),)*
+                    }
+                }
+
+                fn set_or_push(&mut self, index: usize, value: ArrayElementValue) {
+                    match (self, value) {
+                        $((ArrayContentType::$n(v), ArrayElementValue::$n(val)) => {
+                            if index < v.len() {
+                                v[index] = val;
+                            } else {
+                                v.push(val);
+                            }
+                        },)*
+                        _ => unreachable!(),
+                    }
                 }
 
                 fn pop(&mut self, i: isize, vm: &VirtualMachine) -> PyResult {
@@ -465,6 +500,15 @@ mod array {
                         })*
                     }
                 }
+
+            }
+
+            impl ArrayType {
+                fn convert(self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ArrayElementValue> {
+                    match self {
+                        $(ArrayType::$n => <$t>::try_into_from_object(vm, obj).map(ArrayElementValue::$n),)*
+                    }
+                }
             }
         };
     }
@@ -730,9 +774,22 @@ mod array {
             self.read().itemsize()
         }
 
+        /// Append a new item to the end of the array.
+        /// Matches `ins1()` in arraymodule.c.
         #[pymethod]
         fn append(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.try_resizable(vm)?.push(x, vm)
+            let (n, kind) = {
+                let r = zelf.read();
+                (r.len(), r.kind())
+            };
+            // First conversion (validation, result discarded)
+            kind.convert(x.clone(), vm)?;
+            // Truncate to n+1 if array grew during first conversion
+            zelf.try_resizable(vm)?.truncate(n + 1);
+            // Second conversion and store at position n
+            let value = kind.convert(x, vm)?;
+            zelf.try_resizable(vm)?.set_or_push(n, value);
+            Ok(())
         }
 
         #[pymethod]
