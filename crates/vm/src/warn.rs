@@ -551,7 +551,7 @@ fn setup_context(
     skip_file_prefixes: Option<&PyTupleRef>,
     vm: &VirtualMachine,
 ) -> PyResult<(PyStrRef, usize, Option<PyObjectRef>, PyObjectRef)> {
-    let mut f = vm.current_frame().as_deref().cloned();
+    let mut f = vm.current_frame();
 
     // Stack level comparisons to Python code is off by one as there is no
     // warnings-related stack level to avoid.

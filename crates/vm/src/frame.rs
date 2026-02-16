@@ -463,7 +463,7 @@ impl ExecutingFrame<'_> {
         // Execute until return or exception:
         let instructions = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
-        let mut prev_line: usize = 0;
+        let mut prev_line: u32 = 0;
         loop {
             let idx = self.lasti() as usize;
             // Fire 'line' trace event when line number changes.
@@ -472,9 +472,9 @@ impl ExecutingFrame<'_> {
             if vm.use_tracing.get()
                 && !vm.is_none(&self.object.trace.lock())
                 && let Some((loc, _)) = self.code.locations.get(idx)
-                && loc.line.get() != prev_line
+                && loc.line.get() as u32 != prev_line
             {
-                prev_line = loc.line.get();
+                prev_line = loc.line.get() as u32;
                 vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
             }
             self.update_lasti(|i| *i += 1);
@@ -543,13 +543,16 @@ impl ExecutingFrame<'_> {
                     // Check if this is a RERAISE instruction
                     // Both AnyInstruction::Raise { kind: Reraise/ReraiseFromStack } and
                     // AnyInstruction::Reraise are reraise operations that should not add
-                    // new traceback entries
+                    // new traceback entries.
+                    // EndAsyncFor and CleanupThrow also re-raise non-matching exceptions.
                     let is_reraise = match op {
                         Instruction::RaiseVarargs { kind } => matches!(
                             kind.get(arg),
                             bytecode::RaiseKind::BareRaise | bytecode::RaiseKind::ReraiseFromStack
                         ),
-                        Instruction::Reraise { .. } => true,
+                        Instruction::Reraise { .. }
+                        | Instruction::EndAsyncFor
+                        | Instruction::CleanupThrow => true,
                         _ => false,
                     };
 
@@ -653,6 +656,19 @@ impl ExecutingFrame<'_> {
                     Ok(())
                 };
                 if let Err(err) = close_result {
+                    let idx = self.lasti().saturating_sub(1) as usize;
+                    if idx < self.code.locations.len() {
+                        let (loc, _end_loc) = self.code.locations[idx];
+                        let next = err.__traceback__();
+                        let new_traceback = PyTraceback::new(
+                            next,
+                            self.object.to_owned(),
+                            idx as u32 * 2,
+                            loc.line,
+                        );
+                        err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                    }
+
                     self.push_value(vm.ctx.none());
                     vm.contextualize_exception(&err);
                     return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
@@ -678,6 +694,23 @@ impl ExecutingFrame<'_> {
                         Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
                     };
                     return ret.map(ExecutionResult::Yield).or_else(|err| {
+                        // Add traceback entry for the yield-from/await point.
+                        // gen_send_ex2 resumes the frame with a pending exception,
+                        // which goes through error: → PyTraceBack_Here. We add the
+                        // entry here before calling unwind_blocks.
+                        let idx = self.lasti().saturating_sub(1) as usize;
+                        if idx < self.code.locations.len() {
+                            let (loc, _end_loc) = self.code.locations[idx];
+                            let next = err.__traceback__();
+                            let new_traceback = PyTraceback::new(
+                                next,
+                                self.object.to_owned(),
+                                idx as u32 * 2,
+                                loc.line,
+                            );
+                            err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        }
+
                         self.push_value(vm.ctx.none());
                         vm.contextualize_exception(&err);
                         match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {

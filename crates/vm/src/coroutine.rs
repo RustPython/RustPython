@@ -1,11 +1,11 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyStrRef},
+    builtins::PyStrRef,
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, FrameOwner, FrameRef},
+    frame::{ExecutionResult, Frame, FrameOwner, FrameRef},
     function::OptionalArg,
-    object::{Traverse, TraverseFn},
+    object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -36,7 +36,7 @@ pub struct Coro {
     // _weakreflist
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
-    exception: PyMutex<Option<PyBaseExceptionRef>>, // exc_state
+    exception: PyAtomicRef<Option<PyBaseException>>, // exc_state
 }
 
 unsafe impl Traverse for Coro {
@@ -44,7 +44,9 @@ unsafe impl Traverse for Coro {
         self.frame.traverse(tracer_fn);
         self.name.traverse(tracer_fn);
         self.qualname.traverse(tracer_fn);
-        self.exception.traverse(tracer_fn);
+        if let Some(exc) = self.exception.deref() {
+            exc.traverse(tracer_fn);
+        }
     }
 }
 
@@ -65,7 +67,7 @@ impl Coro {
             frame,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
-            exception: PyMutex::default(),
+            exception: PyAtomicRef::from(None),
             name: PyMutex::new(name),
             qualname: PyMutex::new(qualname),
         }
@@ -92,33 +94,20 @@ impl Coro {
         func: F,
     ) -> PyResult<ExecutionResult>
     where
-        F: FnOnce(FrameRef) -> PyResult<ExecutionResult>,
+        F: FnOnce(&Py<Frame>) -> PyResult<ExecutionResult>,
     {
         if self.running.compare_exchange(false, true).is_err() {
             return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
         }
 
-        // swap exception state
-        // Get generator's saved exception state from last yield
-        let gen_exc = self.exception.lock().take();
+        // SAFETY: running.compare_exchange guarantees exclusive access
+        let gen_exc = unsafe { self.exception.swap(None) };
+        let exception_ptr = &self.exception as *const PyAtomicRef<Option<PyBaseException>>;
 
-        // Use a slot to capture generator's exception state before with_frame pops
-        let exception_slot = &self.exception;
-
-        // Run the generator frame
-        // with_frame does push_exception(None) which creates a new exception context
-        // The caller's exception remains in the chain via prev, so topmost_exception()
-        // will find it if generator's exception is None
-        let result = vm.with_frame(self.frame.clone(), |f| {
-            // with_frame pushed None, creating: { exc: None, prev: caller's exc_info }
-            // Pop None and push generator's exception instead
-            // This maintains the chain: { exc: gen_exc, prev: caller's exc_info }
-            vm.pop_exception();
-            vm.push_exception(gen_exc);
+        let result = vm.resume_gen_frame(&self.frame, gen_exc, |f| {
             let result = func(f);
-            // Save generator's exception state BEFORE with_frame pops
-            // This is the generator's current exception context
-            *exception_slot.lock() = vm.current_exception();
+            // SAFETY: exclusive access guaranteed by running flag
+            let _old = unsafe { (*exception_ptr).swap(vm.current_exception()) };
             result
         });
 
