@@ -631,8 +631,7 @@ impl PyCPointer {
             if type_code.as_deref() == Some("z")
                 && let Some(bytes) = value.downcast_ref::<PyBytes>()
             {
-                let (kept_alive, ptr_val) =
-                    super::base::ensure_z_null_terminated(bytes, vm);
+                let (kept_alive, ptr_val) = super::base::ensure_z_null_terminated(bytes, vm);
                 unsafe {
                     *(addr as *mut usize) = ptr_val;
                 }

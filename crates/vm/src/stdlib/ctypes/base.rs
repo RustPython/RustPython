@@ -323,10 +323,7 @@ pub(super) fn pointer_type_set(
         info.pointer_type = Some(value);
         Ok(())
     } else {
-        Err(vm.new_attribute_error(format!(
-            "cannot set __pointer_type__ on {}",
-            zelf.name()
-        )))
+        Err(vm.new_attribute_error(format!("cannot set __pointer_type__ on {}", zelf.name())))
     }
 }
 

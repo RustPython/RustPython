@@ -1040,8 +1040,7 @@ impl Constructor for PyCSimple {
         if let Some(ref v) = init_arg {
             if _type_ == "z" {
                 if let Some(bytes) = v.downcast_ref::<PyBytes>() {
-                    let (kept_alive, ptr) =
-                        super::base::ensure_z_null_terminated(bytes, vm);
+                    let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     let buffer = ptr.to_ne_bytes().to_vec();
                     let cdata = PyCData::from_bytes(buffer, Some(v.clone()));
                     *cdata.base.write() = Some(kept_alive);
