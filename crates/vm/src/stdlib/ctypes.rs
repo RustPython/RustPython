@@ -70,17 +70,25 @@ impl Py<PyType> {
 }
 
 impl PyType {
-    /// Check if StgInfo is already initialized - prevent double initialization
+    /// Check if StgInfo is already initialized.
+    /// Raises SystemError if already initialized.
     pub(crate) fn check_not_initialized(&self, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(stg_info) = self.get_type_data::<StgInfo>()
             && stg_info.initialized
         {
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.system_error.to_owned(),
-                format!("StgInfo of '{}' is already initialized.", self.name()),
+                format!("class \"{}\" already initialized", self.name()),
             ));
         }
         Ok(())
+    }
+
+    /// Check if StgInfo is already initialized, returning true if so.
+    /// Unlike check_not_initialized, does not raise an error.
+    pub(crate) fn is_initialized(&self) -> bool {
+        self.get_type_data::<StgInfo>()
+            .is_some_and(|stg_info| stg_info.initialized)
     }
 }
 
@@ -988,6 +996,11 @@ pub(crate) mod _ctypes {
         super::function::INTERNAL_CAST_ADDR
     }
 
+    #[pyattr]
+    fn _memoryview_at_addr(_vm: &VirtualMachine) -> usize {
+        super::function::INTERNAL_MEMORYVIEW_AT_ADDR
+    }
+
     #[pyfunction]
     fn _cast(
         obj: PyObjectRef,
@@ -1293,6 +1306,7 @@ pub(crate) mod _ctypes {
         structure::PyCStructType::make_class(ctx);
         union::PyCUnionType::make_class(ctx);
         function::PyCFuncPtrType::make_class(ctx);
+        function::RawMemoryBuffer::make_class(ctx);
 
         extend_module!(vm, module, {
             "_CData" => PyCData::make_class(ctx),
