@@ -1448,12 +1448,7 @@ impl VirtualMachine {
     }
 
     pub(crate) fn current_exception(&self) -> Option<PyBaseExceptionRef> {
-        self.exceptions
-            .borrow()
-            .stack
-            .last()
-            .cloned()
-            .flatten()
+        self.exceptions.borrow().stack.last().cloned().flatten()
     }
 
     pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
