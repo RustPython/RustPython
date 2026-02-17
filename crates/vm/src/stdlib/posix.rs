@@ -716,7 +716,15 @@ pub mod module {
         vm.signal_handlers
             .get_or_init(crate::signal::new_signal_handlers);
 
-        let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
+        let after_forkers_child = match vm.state.after_forkers_child.try_lock() {
+            Some(guard) => guard.clone(),
+            None => {
+                // SAFETY: After fork in child process, only the current thread
+                // exists. The lock holder no longer exists.
+                unsafe { vm.state.after_forkers_child.force_unlock() };
+                vm.state.after_forkers_child.lock().clone()
+            }
+        };
         run_at_forkers(after_forkers_child, false, vm);
     }
 
@@ -1073,21 +1081,6 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    fn envobj_to_dict(env: ArgMapping, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        let obj = env.obj();
-        if let Some(dict) = obj.downcast_ref_if_exact::<crate::builtins::PyDict>(vm) {
-            return Ok(dict.to_owned());
-        }
-        let keys = vm.call_method(obj, "keys", ())?;
-        let dict = vm.ctx.new_dict();
-        for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm)? {
-            let key = key?;
-            let val = obj.get_item(&*key, vm)?;
-            dict.set_item(&*key, val, vm)?;
-        }
-        Ok(dict)
-    }
-
     #[pyfunction]
     fn execve(
         path: OsPath,
@@ -1110,7 +1103,7 @@ pub mod module {
             return Err(vm.new_value_error("execve() arg 2 first element cannot be empty"));
         }
 
-        let env = envobj_to_dict(env, vm)?;
+        let env = crate::stdlib::os::envobj_to_dict(env, vm)?;
         let env = env
             .into_iter()
             .map(|(k, v)| -> PyResult<_> {
