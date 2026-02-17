@@ -238,8 +238,7 @@ mod escape_warnings {
             // so the `\` sits at the end of the literal range and the `{`/`}`
             // sits just after it.  Only warn when the number of trailing
             // backslashes is odd (an even count means they are all escaped).
-            let trailing_bs = self.source[start..end]
-                .as_bytes()
+            let trailing_bs = self.source.as_bytes()[start..end]
                 .iter()
                 .rev()
                 .take_while(|&&b| b == b'\\')
