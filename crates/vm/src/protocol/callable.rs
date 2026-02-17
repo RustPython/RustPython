@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyBoundMethod, PyFunction},
     function::{FuncArgs, IntoFuncArgs},
     types::GenericMethod,
-    {AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine},
+    {PyObject, PyObjectRef, PyResult, VirtualMachine},
 };
 
 impl PyObject {
@@ -111,12 +111,11 @@ impl VirtualMachine {
             return Ok(());
         }
 
-        let frame_ref = self.current_frame();
-        if frame_ref.is_none() {
+        let Some(frame_ref) = self.current_frame() else {
             return Ok(());
-        }
+        };
 
-        let frame = frame_ref.unwrap().as_object().to_owned();
+        let frame: PyObjectRef = frame_ref.into();
         let event = self.ctx.new_str(event.to_string()).into();
         let args = vec![frame, event, arg.unwrap_or_else(|| self.ctx.none())];
 

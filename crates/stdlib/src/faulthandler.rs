@@ -96,9 +96,8 @@ mod decl {
         all_threads: AtomicBool::new(true),
     };
 
-    /// Arc<Mutex<Vec<FrameRef>>> - shared frame slot for a thread
     #[cfg(feature = "threading")]
-    type ThreadFrameSlot = Arc<parking_lot::Mutex<Vec<crate::vm::frame::FrameRef>>>;
+    type ThreadFrameSlot = Arc<rustpython_vm::vm::thread::ThreadSlot>;
 
     // Watchdog thread state for dump_traceback_later
     struct WatchdogState {
@@ -326,7 +325,7 @@ mod decl {
 
     /// Write a frame's info to an fd using signal-safe I/O.
     #[cfg(any(unix, windows))]
-    fn dump_frame_from_ref(fd: i32, frame: &crate::vm::PyRef<Frame>) {
+    fn dump_frame_from_ref(fd: i32, frame: &crate::vm::Py<Frame>) {
         let funcname = frame.code.obj_name.as_str();
         let filename = frame.code.source_path().as_str();
         let lineno = if frame.lasti() == 0 {
@@ -345,20 +344,23 @@ mod decl {
     }
 
     /// Dump traceback for a thread given its frame stack (for cross-thread dumping).
+    /// # Safety
+    /// Each `FramePtr` must point to a live frame (caller holds the Mutex).
     #[cfg(all(any(unix, windows), feature = "threading"))]
     fn dump_traceback_thread_frames(
         fd: i32,
         thread_id: u64,
         is_current: bool,
-        frames: &[crate::vm::frame::FrameRef],
+        frames: &[rustpython_vm::vm::FramePtr],
     ) {
         write_thread_id(fd, thread_id, is_current);
 
         if frames.is_empty() {
             puts(fd, "  <no Python frame>\n");
         } else {
-            for frame in frames.iter().rev() {
-                dump_frame_from_ref(fd, frame);
+            for fp in frames.iter().rev() {
+                // SAFETY: caller holds the Mutex, so the owning thread can't pop.
+                dump_frame_from_ref(fd, unsafe { fp.as_ref() });
             }
         }
     }
@@ -382,8 +384,9 @@ mod decl {
             } else {
                 puts(fd, "Stack (most recent call first):\n");
                 let frames = vm.frames.borrow();
-                for frame in frames.iter().rev() {
-                    dump_frame_from_ref(fd, frame);
+                for fp in frames.iter().rev() {
+                    // SAFETY: the frame is alive while it's in the Vec
+                    dump_frame_from_ref(fd, unsafe { fp.as_ref() });
                 }
             }
         }
@@ -410,7 +413,7 @@ mod decl {
                 if tid == current_tid {
                     continue;
                 }
-                let frames_guard = slot.lock();
+                let frames_guard = slot.frames.lock();
                 dump_traceback_thread_frames(fd, tid, false, &frames_guard);
                 puts(fd, "\n");
             }
@@ -421,8 +424,8 @@ mod decl {
             if frames.is_empty() {
                 puts(fd, "  <no Python frame>\n");
             } else {
-                for frame in frames.iter().rev() {
-                    dump_frame_from_ref(fd, frame);
+                for fp in frames.iter().rev() {
+                    dump_frame_from_ref(fd, unsafe { fp.as_ref() });
                 }
             }
         }
@@ -431,8 +434,8 @@ mod decl {
         {
             write_thread_id(fd, current_thread_id(), true);
             let frames = vm.frames.borrow();
-            for frame in frames.iter().rev() {
-                dump_frame_from_ref(fd, frame);
+            for fp in frames.iter().rev() {
+                dump_frame_from_ref(fd, unsafe { fp.as_ref() });
             }
         }
     }
@@ -870,7 +873,7 @@ mod decl {
                 #[cfg(feature = "threading")]
                 {
                     for (tid, slot) in &thread_frame_slots {
-                        let frames = slot.lock();
+                        let frames = slot.frames.lock();
                         dump_traceback_thread_frames(fd, *tid, false, &frames);
                     }
                 }

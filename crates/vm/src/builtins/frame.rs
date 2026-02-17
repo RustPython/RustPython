@@ -4,7 +4,7 @@
 
 use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
+    Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     frame::{Frame, FrameOwner, FrameRef},
     function::PySetterValue,
@@ -195,16 +195,43 @@ impl Py<Frame> {
 
     #[pygetset]
     pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<Frame>> {
-        // TODO: actually store f_back inside Frame struct
+        let previous = self.previous_frame();
+        if previous.is_null() {
+            return None;
+        }
 
-        // get the frame in the frame stack that appears before this one.
-        // won't work if  this frame isn't in the frame stack, hence the todo above
-        vm.frames
+        if let Some(frame) = vm
+            .frames
             .borrow()
             .iter()
-            .rev()
-            .skip_while(|p| !p.is(self.as_object()))
-            .nth(1)
-            .cloned()
+            .find(|fp| {
+                // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
+                let py: &crate::Py<Frame> = unsafe { fp.as_ref() };
+                let ptr: *const Frame = &**py;
+                core::ptr::eq(ptr, previous)
+            })
+            .map(|fp| unsafe { fp.as_ref() }.to_owned())
+        {
+            return Some(frame);
+        }
+
+        #[cfg(feature = "threading")]
+        {
+            let registry = vm.state.thread_frames.lock();
+            for slot in registry.values() {
+                let frames = slot.frames.lock();
+                // SAFETY: the owning thread can't pop while we hold the Mutex,
+                // so FramePtr is valid for the duration of the lock.
+                if let Some(frame) = frames.iter().find_map(|fp| {
+                    let f = unsafe { fp.as_ref() };
+                    let ptr: *const Frame = &**f;
+                    core::ptr::eq(ptr, previous).then(|| f.to_owned())
+                }) {
+                    return Some(frame);
+                }
+            }
+        }
+
+        None
     }
 }
