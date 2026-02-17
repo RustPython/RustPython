@@ -15,7 +15,7 @@ mod _winapi {
         windows::{WinHandle, WindowsSysResult},
     };
     use core::ptr::{null, null_mut};
-    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, MAX_PATH};
+    use windows_sys::Win32::Foundation::{HANDLE, MAX_PATH};
 
     #[pyattr]
     use windows_sys::Win32::{
@@ -87,7 +87,8 @@ mod _winapi {
         System::{
             Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
             Memory::{
-                FILE_MAP_ALL_ACCESS, MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE,
+                FILE_MAP_ALL_ACCESS, FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ,
+                FILE_MAP_WRITE, MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE,
                 MEM_RESERVE, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
                 PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_NOCACHE, PAGE_READONLY,
                 PAGE_READWRITE, PAGE_WRITECOMBINE, PAGE_WRITECOPY, SEC_COMMIT, SEC_IMAGE,
@@ -112,6 +113,9 @@ mod _winapi {
 
     #[pyattr]
     const NULL: isize = 0;
+
+    #[pyattr]
+    const INVALID_HANDLE_VALUE: isize = -1;
 
     #[pyfunction]
     fn CloseHandle(handle: WinHandle) -> WindowsSysResult<i32> {
@@ -150,7 +154,7 @@ mod _winapi {
             )
         };
 
-        if handle == INVALID_HANDLE_VALUE {
+        if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
             return Err(vm.new_last_os_error());
         }
 
@@ -163,7 +167,7 @@ mod _winapi {
         vm: &VirtualMachine,
     ) -> PyResult<Option<WinHandle>> {
         let handle = unsafe { windows_sys::Win32::System::Console::GetStdHandle(std_handle) };
-        if handle == INVALID_HANDLE_VALUE {
+        if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
             return Err(vm.new_last_os_error());
         }
         Ok(if handle.is_null() {
@@ -638,8 +642,7 @@ mod _winapi {
         })
     }
 
-    // TODO: ctypes.LibraryLoader.LoadLibrary
-    #[allow(dead_code)]
+    #[pyfunction]
     fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
         let path_wide = path.as_wtf8().to_wide_with_nul();
         let handle =
@@ -684,7 +687,7 @@ mod _winapi {
                 name_wide.as_ptr(),
             )
         };
-        if handle == INVALID_HANDLE_VALUE {
+        if handle.is_null() {
             return Err(vm.new_last_os_error());
         }
         Ok(handle as _)
@@ -815,7 +818,7 @@ mod _winapi {
             )
         };
 
-        if handle == INVALID_HANDLE_VALUE {
+        if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
             return Err(vm.new_last_os_error());
         }
 
@@ -1210,7 +1213,7 @@ mod _winapi {
             )
         };
 
-        if handle == INVALID_HANDLE_VALUE {
+        if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
             return Err(vm.new_last_os_error());
         }
 
@@ -1314,6 +1317,177 @@ mod _winapi {
                 vm.ctx.new_int(err).into(),
             ])
             .into())
+    }
+
+    /// ReadFile - Read data from a file or I/O device.
+    #[pyfunction]
+    fn ReadFile(
+        handle: WinHandle,
+        size: u32,
+        use_overlapped: OptionalArg<bool>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        use windows_sys::Win32::Storage::FileSystem::ReadFile as WinReadFile;
+
+        let use_overlapped = use_overlapped.unwrap_or(false);
+
+        if use_overlapped {
+            use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
+
+            let ov = Overlapped::new_with_handle(handle.0);
+            let err = {
+                let mut inner = ov.inner.lock();
+                inner.read_buffer = Some(vec![0u8; size as usize]);
+                let read_buf = inner.read_buffer.as_mut().unwrap();
+                let mut nread: u32 = 0;
+                let ret = unsafe {
+                    WinReadFile(
+                        handle.0,
+                        read_buf.as_mut_ptr() as *mut _,
+                        size,
+                        &mut nread,
+                        &mut inner.overlapped,
+                    )
+                };
+
+                let err = if ret == 0 {
+                    unsafe { windows_sys::Win32::Foundation::GetLastError() }
+                } else {
+                    0
+                };
+
+                if ret == 0 && err != ERROR_IO_PENDING && err != ERROR_MORE_DATA {
+                    return Err(vm.new_last_os_error());
+                }
+                if ret == 0 && err == ERROR_IO_PENDING {
+                    inner.pending = true;
+                }
+
+                err
+            };
+            let result = vm
+                .ctx
+                .new_tuple(vec![ov.into_pyobject(vm), vm.ctx.new_int(err).into()]);
+            return Ok(result.into());
+        }
+
+        let mut buf = vec![0u8; size as usize];
+        let mut nread: u32 = 0;
+        let ret = unsafe {
+            WinReadFile(
+                handle.0,
+                buf.as_mut_ptr() as *mut _,
+                size,
+                &mut nread,
+                null_mut(),
+            )
+        };
+        let err = if ret == 0 {
+            unsafe { windows_sys::Win32::Foundation::GetLastError() }
+        } else {
+            0
+        };
+        if ret == 0 && err != ERROR_MORE_DATA {
+            return Err(vm.new_last_os_error());
+        }
+        buf.truncate(nread as usize);
+        Ok(vm
+            .ctx
+            .new_tuple(vec![
+                vm.ctx.new_bytes(buf).into(),
+                vm.ctx.new_int(err).into(),
+            ])
+            .into())
+    }
+
+    /// SetNamedPipeHandleState - Set the read mode and other options of a named pipe.
+    #[pyfunction]
+    fn SetNamedPipeHandleState(
+        named_pipe: WinHandle,
+        mode: PyObjectRef,
+        max_collection_count: PyObjectRef,
+        collect_data_timeout: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use windows_sys::Win32::System::Pipes::SetNamedPipeHandleState as WinSetNamedPipeHandleState;
+
+        let mut dw_args: [u32; 3] = [0; 3];
+        let mut p_args: [*mut u32; 3] = [null_mut(); 3];
+
+        let objs = [&mode, &max_collection_count, &collect_data_timeout];
+        for (i, obj) in objs.iter().enumerate() {
+            if !vm.is_none(obj) {
+                dw_args[i] = u32::try_from_object(vm, (*obj).clone())?;
+                p_args[i] = &mut dw_args[i];
+            }
+        }
+
+        let ret =
+            unsafe { WinSetNamedPipeHandleState(named_pipe.0, p_args[0], p_args[1], p_args[2]) };
+
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(())
+    }
+
+    /// ResetEvent - Reset the specified event object to the nonsignaled state.
+    #[pyfunction]
+    fn ResetEvent(event: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
+        use windows_sys::Win32::System::Threading::ResetEvent as WinResetEvent;
+
+        let ret = unsafe { WinResetEvent(event.0) };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(())
+    }
+
+    /// CreateMutexW - Create or open a named or unnamed mutex object.
+    #[pyfunction]
+    fn CreateMutex(
+        security_attributes: isize,
+        initial_owner: bool,
+        name: Option<PyStrRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        use windows_sys::Win32::System::Threading::CreateMutexW as WinCreateMutexW;
+
+        let _ = security_attributes;
+        let name_wide = name.map(|n| n.as_wtf8().to_wide_with_nul());
+        let name_ptr = name_wide.as_ref().map_or(null(), |n| n.as_ptr());
+
+        let handle = unsafe { WinCreateMutexW(null(), i32::from(initial_owner), name_ptr) };
+
+        if handle.is_null() {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(WinHandle(handle))
+    }
+
+    /// OpenEventW - Open an existing named event object.
+    #[pyfunction]
+    fn OpenEventW(
+        desired_access: u32,
+        inherit_handle: bool,
+        name: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        use windows_sys::Win32::System::Threading::OpenEventW as WinOpenEventW;
+
+        let name_wide = name.as_wtf8().to_wide_with_nul();
+        let handle = unsafe {
+            WinOpenEventW(
+                desired_access,
+                i32::from(inherit_handle),
+                name_wide.as_ptr(),
+            )
+        };
+
+        if handle.is_null() {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(WinHandle(handle))
     }
 
     const MAXIMUM_WAIT_OBJECTS: usize = 64;
@@ -1641,5 +1815,276 @@ mod _winapi {
 
             Ok(vm.ctx.new_list(triggered_indices).into())
         }
+    }
+
+    /// CreateFileMapping - Create or open a named or unnamed file mapping object.
+    #[pyfunction]
+    fn CreateFileMapping(
+        file_handle: WinHandle,
+        _security_attributes: PyObjectRef,
+        protect: u32,
+        max_size_high: u32,
+        max_size_low: u32,
+        name: Option<PyStrRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        use windows_sys::Win32::System::Memory::CreateFileMappingW;
+
+        let name_wide = name.as_ref().map(|n| n.as_wtf8().to_wide_with_nul());
+        let name_ptr = name_wide.as_ref().map_or(null(), |n| n.as_ptr());
+
+        let handle = unsafe {
+            CreateFileMappingW(
+                file_handle.0,
+                null(),
+                protect,
+                max_size_high,
+                max_size_low,
+                name_ptr,
+            )
+        };
+
+        if handle.is_null() {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(WinHandle(handle))
+    }
+
+    /// OpenFileMapping - Open a named file mapping object.
+    #[pyfunction]
+    fn OpenFileMapping(
+        desired_access: u32,
+        inherit_handle: bool,
+        name: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        use windows_sys::Win32::System::Memory::OpenFileMappingW;
+
+        let name_wide = name.as_wtf8().to_wide_with_nul();
+        let handle = unsafe {
+            OpenFileMappingW(
+                desired_access,
+                i32::from(inherit_handle),
+                name_wide.as_ptr(),
+            )
+        };
+
+        if handle.is_null() {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(WinHandle(handle))
+    }
+
+    /// MapViewOfFile - Map a view of a file mapping into the address space.
+    #[pyfunction]
+    fn MapViewOfFile(
+        file_map: WinHandle,
+        desired_access: u32,
+        file_offset_high: u32,
+        file_offset_low: u32,
+        number_bytes: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<isize> {
+        let address = unsafe {
+            windows_sys::Win32::System::Memory::MapViewOfFile(
+                file_map.0,
+                desired_access,
+                file_offset_high,
+                file_offset_low,
+                number_bytes,
+            )
+        };
+
+        let ptr = address.Value;
+        if ptr.is_null() {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(ptr as isize)
+    }
+
+    /// UnmapViewOfFile - Unmap a mapped view of a file.
+    #[pyfunction]
+    fn UnmapViewOfFile(address: isize, vm: &VirtualMachine) -> PyResult<()> {
+        use windows_sys::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS;
+
+        let view = MEMORY_MAPPED_VIEW_ADDRESS {
+            Value: address as *mut core::ffi::c_void,
+        };
+        let ret = unsafe { windows_sys::Win32::System::Memory::UnmapViewOfFile(view) };
+
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(())
+    }
+
+    /// VirtualQuerySize - Return the size of a memory region.
+    #[pyfunction]
+    fn VirtualQuerySize(address: isize, vm: &VirtualMachine) -> PyResult<usize> {
+        use windows_sys::Win32::System::Memory::{MEMORY_BASIC_INFORMATION, VirtualQuery};
+
+        let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
+        let ret = unsafe {
+            VirtualQuery(
+                address as *const core::ffi::c_void,
+                &mut mbi,
+                core::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+            )
+        };
+
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(mbi.RegionSize)
+    }
+
+    /// CopyFile2 - Copy a file with extended parameters.
+    #[pyfunction]
+    fn CopyFile2(
+        existing_file_name: PyStrRef,
+        new_file_name: PyStrRef,
+        flags: u32,
+        _progress_routine: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use windows_sys::Win32::Storage::FileSystem::{
+            COPYFILE2_EXTENDED_PARAMETERS, CopyFile2 as WinCopyFile2,
+        };
+
+        let src_wide = existing_file_name.as_wtf8().to_wide_with_nul();
+        let dst_wide = new_file_name.as_wtf8().to_wide_with_nul();
+
+        let mut params: COPYFILE2_EXTENDED_PARAMETERS = unsafe { core::mem::zeroed() };
+        params.dwSize = core::mem::size_of::<COPYFILE2_EXTENDED_PARAMETERS>() as u32;
+        params.dwCopyFlags = flags;
+
+        let hr = unsafe { WinCopyFile2(src_wide.as_ptr(), dst_wide.as_ptr(), &params) };
+
+        if hr < 0 {
+            // HRESULT failure - convert to Windows error code
+            let err = if (hr as u32 >> 16) == 0x8007 {
+                (hr as u32) & 0xFFFF
+            } else {
+                hr as u32
+            };
+            return Err(vm.new_os_error(err as i32));
+        }
+        Ok(())
+    }
+
+    /// _mimetypes_read_windows_registry - Read MIME type associations from registry.
+    #[pyfunction]
+    fn _mimetypes_read_windows_registry(
+        on_type_read: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use windows_sys::Win32::System::Registry::{
+            HKEY, HKEY_CLASSES_ROOT, KEY_READ, REG_SZ, RegCloseKey, RegEnumKeyExW, RegOpenKeyExW,
+            RegQueryValueExW,
+        };
+
+        let mut hkcr: HKEY = null_mut() as HKEY;
+        let err = unsafe { RegOpenKeyExW(HKEY_CLASSES_ROOT, null(), 0, KEY_READ, &mut hkcr) };
+        if err != 0 {
+            return Err(vm.new_os_error(err as i32));
+        }
+
+        let mut i: u32 = 0;
+        let mut entries: Vec<(String, String)> = Vec::new();
+
+        loop {
+            let mut ext_buf = [0u16; 128];
+            let mut cch_ext: u32 = ext_buf.len() as u32;
+
+            let err = unsafe {
+                RegEnumKeyExW(
+                    hkcr,
+                    i,
+                    ext_buf.as_mut_ptr(),
+                    &mut cch_ext,
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                )
+            };
+            i += 1;
+
+            if err == windows_sys::Win32::Foundation::ERROR_NO_MORE_ITEMS {
+                break;
+            }
+            if err != 0 && err != windows_sys::Win32::Foundation::ERROR_MORE_DATA {
+                unsafe { RegCloseKey(hkcr) };
+                return Err(vm.new_os_error(err as i32));
+            }
+
+            // Only process keys starting with '.'
+            if cch_ext == 0 || ext_buf[0] != b'.' as u16 {
+                continue;
+            }
+
+            let ext_wide = &ext_buf[..cch_ext as usize];
+
+            // Open subkey to read Content Type
+            let mut subkey: HKEY = null_mut() as HKEY;
+            let err = unsafe { RegOpenKeyExW(hkcr, ext_buf.as_ptr(), 0, KEY_READ, &mut subkey) };
+            if err == windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND
+                || err == windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED
+            {
+                continue;
+            }
+            if err != 0 {
+                unsafe { RegCloseKey(hkcr) };
+                return Err(vm.new_os_error(err as i32));
+            }
+
+            let content_type_key: Vec<u16> = "Content Type\0".encode_utf16().collect();
+            let mut type_buf = [0u16; 256];
+            let mut cb_type: u32 = (type_buf.len() * 2) as u32;
+            let mut reg_type: u32 = 0;
+
+            let err = unsafe {
+                RegQueryValueExW(
+                    subkey,
+                    content_type_key.as_ptr(),
+                    null_mut(),
+                    &mut reg_type,
+                    type_buf.as_mut_ptr() as *mut u8,
+                    &mut cb_type,
+                )
+            };
+            unsafe { RegCloseKey(subkey) };
+
+            if err != 0 || reg_type != REG_SZ || cb_type == 0 {
+                continue;
+            }
+
+            // Convert wide strings to Rust strings
+            let type_len = (cb_type as usize / 2).saturating_sub(1); // exclude null terminator
+            let type_str = String::from_utf16_lossy(&type_buf[..type_len]);
+            let ext_str = String::from_utf16_lossy(ext_wide);
+
+            if type_str.is_empty() {
+                continue;
+            }
+
+            entries.push((type_str, ext_str));
+
+            // Flush buffer periodically to call Python callback
+            if entries.len() >= 64 {
+                for (mime_type, ext) in entries.drain(..) {
+                    on_type_read.call((vm.ctx.new_str(mime_type), vm.ctx.new_str(ext)), vm)?;
+                }
+            }
+        }
+
+        unsafe { RegCloseKey(hkcr) };
+
+        // Process remaining entries
+        for (mime_type, ext) in entries {
+            on_type_read.call((vm.ctx.new_str(mime_type), vm.ctx.new_str(ext)), vm)?;
+        }
+
+        Ok(())
     }
 }
