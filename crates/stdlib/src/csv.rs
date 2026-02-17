@@ -17,7 +17,7 @@ mod _csv {
     use itertools::{self, Itertools};
     use parking_lot::Mutex;
     use rustpython_common::lock::LazyLock;
-    use rustpython_vm::match_class;
+    use rustpython_vm::{match_class, sliceable::SliceableSequenceOp};
     use std::collections::HashMap;
 
     #[pyattr]
@@ -139,34 +139,43 @@ mod _csv {
             match_class!(match obj.to_owned() {
                 s @ PyStr => {
                     Ok(s.as_str().bytes().exactly_one().map_err(|_| {
-                        let msg = r#""delimiter" must be a 1-character string"#;
-                        vm.new_type_error(msg.to_owned())
+                        vm.new_type_error(format!(
+                            r#""delimiter" must be a unicode character, not a string of length {}"#,
+                            s.len()
+                        ))
                     })?)
                 }
                 attr => {
-                    let msg = format!("\"delimiter\" must be string, not {}", attr.class());
+                    let msg = format!(
+                        r#""delimiter" must be a unicode character, not {}"#,
+                        attr.class()
+                    );
                     Err(vm.new_type_error(msg))
                 }
             })
         }
     }
+
     fn parse_quotechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
         match_class!(match obj.get_attr("quotechar", vm)? {
             s @ PyStr => {
                 Ok(Some(s.as_str().bytes().exactly_one().map_err(|_| {
                     vm.new_exception_msg(
                         super::_csv::error(vm),
-                        r#""quotechar" must be a 1-character string"#.to_owned(),
+                        format!(r#""quotechar" must be a unicode character or None, not a string of length {}"#, s.len()),
                     )
                 })?))
             }
             _n @ PyNone => {
                 Ok(None)
             }
-            _ => {
+            attr => {
                 Err(vm.new_exception_msg(
                     super::_csv::error(vm),
-                    r#""quotechar" must be string or None, not int"#.to_owned(),
+                    format!(
+                        r#""quotechar" must be a unicode character or None, not {}"#,
+                        attr.class()
+                    ),
                 ))
             }
         })
@@ -177,7 +186,7 @@ mod _csv {
                 Ok(Some(s.as_str().bytes().exactly_one().map_err(|_| {
                     vm.new_exception_msg(
                         super::_csv::error(vm),
-                        r#""escapechar" must be a 1-character string"#.to_owned(),
+                        format!(r#""escapechar" must be a unicode character or None, not a string of length {}"#, s.len()),
                     )
                 })?))
             }
@@ -186,7 +195,7 @@ mod _csv {
             }
             attr => {
                 let msg = format!(
-                    "\"escapechar\" must be string or None, not {}",
+                    r#""escapechar" must be a unicode character or None, not {}"#,
                     attr.class()
                 );
                 Err(vm.new_type_error(msg.to_owned()))
@@ -210,9 +219,11 @@ mod _csv {
                     ));
                 })
             }
-            _ => {
-                let msg = "\"lineterminator\" must be a string".to_string();
-                Err(vm.new_type_error(msg.to_owned()))
+            attr => {
+                Err(vm.new_type_error(format!(
+                    r#""lineterminator" must be a string, not {}"#,
+                    attr.class()
+                )))
             }
         })
     }
@@ -225,7 +236,7 @@ mod _csv {
                 })?)
             }
             attr => {
-                let msg = format!("\"quoting\" must be string or None, not {}", attr.class());
+                let msg = format!(r#""quoting" must be string or None, not {}"#, attr.class());
                 Err(vm.new_type_error(msg.to_owned()))
             }
         })
