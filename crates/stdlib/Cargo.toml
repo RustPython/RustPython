@@ -58,7 +58,7 @@ xml = "1.2"
 
 # random
 rand_core = { workspace = true }
-mt19937 = "3.1"
+mt19937 = "<=3.2"  # upgrade it once rand is upgraded
 
 # Crypto:
 digest = "0.10.7"
