@@ -383,7 +383,7 @@ a = f'''
         self.assertEqual(t.body[0].value.values[1].value.col_offset, 11)
         self.assertEqual(t.body[0].value.values[1].value.end_col_offset, 16)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 4 != 5
     def test_ast_line_numbers_with_parentheses(self):
         expr = """
 x = (
@@ -587,7 +587,6 @@ x = (
         exec(c)
         self.assertEqual(x[0], 'foo3')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_compile_time_concat_errors(self):
         self.assertAllRaise(SyntaxError,
                             'cannot mix bytes and nonbytes literals',
@@ -600,7 +599,6 @@ x = (
         self.assertEqual(f'a', 'a')
         self.assertEqual(f' ', ' ')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_unterminated_string(self):
         self.assertAllRaise(SyntaxError, 'unterminated string',
                             [r"""f'{"x'""",
@@ -609,7 +607,7 @@ x = (
                              r"""f'{("x}'""",
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(support.is_wasi, "exhausts limited stack on WASI")
     def test_mismatched_parens(self):
         self.assertAllRaise(SyntaxError, r"closing parenthesis '\}' "
@@ -632,14 +630,24 @@ x = (
                             r"does not match opening parenthesis '\('",
                             ["f'{a(4}'",
                             ])
-        self.assertRaises(SyntaxError, eval, "f'{" + "("*500 + "}'")
+        self.assertRaises(SyntaxError, eval, "f'{" + "("*20 + "}'")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: No exception raised
     @unittest.skipIf(support.is_wasi, "exhausts limited stack on WASI")
     def test_fstring_nested_too_deeply(self):
-        self.assertAllRaise(SyntaxError,
-                            "f-string: expressions nested too deeply",
-                            ['f"{1+2:{1+2:{1+1:{1}}}}"'])
+        def raises_syntax_or_memory_error(txt):
+            try:
+                eval(txt)
+            except SyntaxError:
+                pass
+            except MemoryError:
+                pass
+            except Exception as ex:
+                self.fail(f"Should raise SyntaxError or MemoryError, not {type(ex)}")
+            else:
+                self.fail("No exception raised")
+
+        raises_syntax_or_memory_error('f"{1+2:{1+2:{1+1:{1}}}}"')
 
         def create_nested_fstring(n):
             if n == 0:
@@ -647,9 +655,10 @@ x = (
             prev = create_nested_fstring(n-1)
             return f'f"{{{prev}}}"'
 
-        self.assertAllRaise(SyntaxError,
-                            "too many nested f-strings",
-                            [create_nested_fstring(160)])
+        raises_syntax_or_memory_error(create_nested_fstring(160))
+        raises_syntax_or_memory_error("f'{" + "("*100 + "}'")
+        raises_syntax_or_memory_error("f'{" + "("*1000 + "}'")
+        raises_syntax_or_memory_error("f'{" + "("*10_000 + "}'")
 
     def test_syntax_error_in_nested_fstring(self):
         # See gh-104016 for more information on this crash
@@ -692,7 +701,7 @@ x = (
                             ["f'{ {{}} }'", # dict in a set
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compile_time_concat(self):
         x = 'def'
         self.assertEqual('abc' f'## {x}ghi', 'abc## defghi')
@@ -730,7 +739,7 @@ x = (
                             ['''f'{3' f"}"''',  # can't concat to get a valid f-string
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_comments(self):
         # These aren't comments, since they're in strings.
         d = {'#': 'hash'}
@@ -807,7 +816,7 @@ x = (
         s = "f'{1}' 'x' 'y'" * 1024
         self.assertEqual(eval(s), '1xy' * 1024)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_format_specifier_expressions(self):
         width = 10
         precision = 4
@@ -841,7 +850,6 @@ x = (
                              """f'{"s"!{"r"}}'""",
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_custom_format_specifier(self):
         class CustomFormat:
             def __format__(self, format_spec):
@@ -863,7 +871,7 @@ x = (
         x = X()
         self.assertEqual(f'{x} {x}', '1 2')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_missing_expression(self):
         self.assertAllRaise(SyntaxError,
                             "f-string: valid expression required before '}'",
@@ -926,7 +934,7 @@ x = (
                              "\xa0",
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parens_in_expressions(self):
         self.assertEqual(f'{3,}', '(3,)')
 
@@ -939,13 +947,12 @@ x = (
                             ["f'{3)+(4}'",
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_newlines_before_syntax_error(self):
         self.assertAllRaise(SyntaxError,
                             "f-string: expecting a valid expression after '{'",
                 ["f'{.}'", "\nf'{.}'", "\n\nf'{.}'"])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_backslashes_in_string_part(self):
         self.assertEqual(f'\t', '\t')
         self.assertEqual(r'\t', '\\t')
@@ -1004,7 +1011,7 @@ x = (
         self.assertEqual(fr'\N{AMPERSAND}', '\\Nspam')
         self.assertEqual(f'\\\N{AMPERSAND}', '\\&')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_misformed_unicode_character_name(self):
         # These test are needed because unicode names are parsed
         # differently inside f-strings.
@@ -1024,7 +1031,7 @@ x = (
                              r"'\N{GREEK CAPITAL LETTER DELTA'",
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_backslashes_in_expression_part(self):
         self.assertEqual(f"{(
                         1 +
@@ -1040,7 +1047,6 @@ x = (
                             ["f'{\n}'",
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_backslashes_inside_fstring_context(self):
         # All of these variations are invalid python syntax,
         # so they are also invalid in f-strings as well.
@@ -1075,7 +1081,7 @@ x = (
         self.assertEqual(rf'''{3+
 4}''', '7')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "f-string: expecting a valid expression after '{'" does not match "invalid syntax (<string>, line 1)"
     def test_lambda(self):
         x = 5
         self.assertEqual(f'{(lambda y:x*y)("8")!r}', "'88888'")
@@ -1118,7 +1124,6 @@ x = (
         self.assertEqual(fr'\'\"\'', '\\\'\\"\\\'')
         self.assertEqual(fr'\"\'\"\'', '\\"\\\'\\"\\\'')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_fstring_backslash_before_double_bracket(self):
         deprecated_cases = [
             (r"f'\{{\}}'",   '\\{\\}'),
@@ -1138,7 +1143,6 @@ x = (
         self.assertEqual(fr'\}}{1+1}', '\\}2')
         self.assertEqual(fr'{1+1}\}}', '2\\}')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_fstring_backslash_before_double_bracket_warns_once(self):
         with self.assertWarns(SyntaxWarning) as w:
             eval(r"f'\{{'")
@@ -1288,6 +1292,7 @@ x = (
         self.assertEqual(f'{f"{0}"*3}', '000')
         self.assertEqual(f'{f"{y}"*3}', '555')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_string_prefixes(self):
         single_quote_cases = ["fu''",
                              "uf''",
@@ -1312,7 +1317,7 @@ x = (
                              "Bf''",
                              "BF''",]
         double_quote_cases = [case.replace("'", '"') for case in single_quote_cases]
-        self.assertAllRaise(SyntaxError, 'invalid syntax',
+        self.assertAllRaise(SyntaxError, 'prefixes are incompatible',
                             single_quote_cases + double_quote_cases)
 
     def test_leading_trailing_spaces(self):
@@ -1342,7 +1347,7 @@ x = (
 
         self.assertEqual(f'{0==1}', 'False')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_conversions(self):
         self.assertEqual(f'{3.14:10.10}', '      3.14')
         self.assertEqual(f'{1.25!s:10.10}', '1.25      ')
@@ -1367,7 +1372,6 @@ x = (
         self.assertAllRaise(SyntaxError, "f-string: expecting '}'",
                             ["f'{3!'",
                              "f'{3!s'",
-                             "f'{3!g'",
                              ])
 
         self.assertAllRaise(SyntaxError, 'f-string: missing conversion character',
@@ -1408,14 +1412,13 @@ x = (
                              "f'{x}' = x",
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_del(self):
         self.assertAllRaise(SyntaxError, 'invalid syntax',
                             ["del f''",
                              "del '' f''",
                              ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mismatched_braces(self):
         self.assertAllRaise(SyntaxError, "f-string: single '}' is not allowed",
                             ["f'{{}'",
@@ -1514,7 +1517,6 @@ x = (
         self.assertEqual('{d[a]}'.format(d=d), 'string')
         self.assertEqual('{d[0]}'.format(d=d), 'integer')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_errors(self):
         # see issue 26287
         self.assertAllRaise(TypeError, 'unsupported',
@@ -1557,7 +1559,6 @@ x = (
         self.assertEqual(eval('f"\\\n"'), '')
         self.assertEqual(eval('f"\\\r"'), '')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: '1+2 = # my comment\n  3' != '1+2 = \n  3'
     def test_debug_conversion(self):
         x = 'A string'
         self.assertEqual(f'{x=}', 'x=' + repr(x))
@@ -1705,7 +1706,7 @@ x = (
         self.assertEqual(f'{(x:=10)}', '10')
         self.assertEqual(x, 10)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "f-string: expecting '=', or '!', or ':', or '}'" does not match "invalid syntax (?, line 1)"
     def test_invalid_syntax_error_message(self):
         with self.assertRaisesRegex(SyntaxError,
                                     "f-string: expecting '=', or '!', or ':', or '}'"):
@@ -1731,7 +1732,7 @@ x = (
         with self.assertRaisesRegex(ValueError, error_msg):
             f'{1:_,}'
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "f-string: expecting a valid expression after '{'" does not match "invalid syntax (?, line 1)"
     def test_syntax_error_for_starred_expressions(self):
         with self.assertRaisesRegex(SyntaxError, "can't use starred expression here"):
             compile("f'{*a}'", "?", "exec")
@@ -1740,7 +1741,7 @@ x = (
                                     "f-string: expecting a valid expression after '{'"):
             compile("f'{**a}'", "?", "exec")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; -
     def test_not_closing_quotes(self):
         self.assertAllRaise(SyntaxError, "unterminated f-string literal", ['f"', "f'"])
         self.assertAllRaise(SyntaxError, "unterminated triple-quoted f-string literal",
@@ -1760,7 +1761,7 @@ sdfsdfs{1+
         except SyntaxError as e:
             self.assertEqual(e.text, 'z = f"""')
             self.assertEqual(e.lineno, 3)
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntax_error_after_debug(self):
         self.assertAllRaise(SyntaxError, "f-string: expecting a valid expression after '{'",
                             [
@@ -1788,7 +1789,6 @@ print(f'''{{
         self.assertEqual(stdout.decode('utf-8').strip().replace('\r\n', '\n').replace('\r', '\n'),
                          "3\n=3")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_syntax_warning_infinite_recursion_in_file(self):
         with temp_cwd():
             script = 'script.py'
@@ -1877,6 +1877,13 @@ print(f'''{{
 
         # Test multiple format specs in same raw f-string
         self.assertEqual(rf"{UnchangedFormat():\xFF} {UnchangedFormat():\n}", '\\xFF \\n')
+
+    def test_gh139516(self):
+        with temp_cwd():
+            script = 'script.py'
+            with open(script, 'wb') as f:
+                f.write('''def f(a): pass\nf"{f(a=lambda: 'à'\n)}"'''.encode())
+            assert_python_ok(script)
 
 
 if __name__ == '__main__':
