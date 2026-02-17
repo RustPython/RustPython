@@ -1253,18 +1253,24 @@ mod _winapi {
         Ok(())
     }
 
+    #[derive(FromArgs)]
+    struct WriteFileArgs {
+        #[pyarg(positional)]
+        handle: WinHandle,
+        #[pyarg(positional)]
+        buffer: crate::function::ArgBytesLike,
+        #[pyarg(named, default = false)]
+        overlapped: bool,
+    }
+
     /// WriteFile - Write data to a file or I/O device.
     #[pyfunction]
-    fn WriteFile(
-        handle: WinHandle,
-        buffer: crate::function::ArgBytesLike,
-        use_overlapped: OptionalArg<bool>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
+    fn WriteFile(args: WriteFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         use windows_sys::Win32::Storage::FileSystem::WriteFile as WinWriteFile;
 
-        let use_overlapped = use_overlapped.unwrap_or(false);
-        let buf = buffer.borrow_buf();
+        let handle = args.handle;
+        let use_overlapped = args.overlapped;
+        let buf = args.buffer.borrow_buf();
         let len = core::cmp::min(buf.len(), u32::MAX as usize) as u32;
 
         if use_overlapped {
@@ -1334,17 +1340,24 @@ mod _winapi {
             .into())
     }
 
+    #[derive(FromArgs)]
+    struct ReadFileArgs {
+        #[pyarg(positional)]
+        handle: WinHandle,
+        #[pyarg(positional)]
+        size: u32,
+        #[pyarg(named, default = false)]
+        overlapped: bool,
+    }
+
     /// ReadFile - Read data from a file or I/O device.
     #[pyfunction]
-    fn ReadFile(
-        handle: WinHandle,
-        size: u32,
-        use_overlapped: OptionalArg<bool>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
+    fn ReadFile(args: ReadFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         use windows_sys::Win32::Storage::FileSystem::ReadFile as WinReadFile;
 
-        let use_overlapped = use_overlapped.unwrap_or(false);
+        let handle = args.handle;
+        let size = args.size;
+        let use_overlapped = args.overlapped;
 
         if use_overlapped {
             use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
