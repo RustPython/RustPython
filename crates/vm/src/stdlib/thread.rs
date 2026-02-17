@@ -891,7 +891,14 @@ pub(crate) mod _thread {
         let registry = vm.state.thread_frames.lock();
         registry
             .iter()
-            .filter_map(|(id, slot)| slot.lock().last().cloned().map(|f| (*id, f)))
+            .filter_map(|(id, slot)| {
+                let frames = slot.frames.lock();
+                // SAFETY: the owning thread can't pop while we hold the Mutex,
+                // so the FramePtr is valid for the duration of the lock.
+                frames
+                    .last()
+                    .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
+            })
             .collect()
     }
 

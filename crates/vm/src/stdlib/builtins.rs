@@ -384,7 +384,7 @@ mod builtins {
                     )
                 }
                 None => (
-                    vm.current_globals().clone(),
+                    vm.current_globals(),
                     if let Some(locals) = self.locals {
                         locals
                     } else {
@@ -503,7 +503,7 @@ mod builtins {
 
     #[pyfunction]
     fn globals(vm: &VirtualMachine) -> PyDictRef {
-        vm.current_globals().clone()
+        vm.current_globals()
     }
 
     #[pyfunction]
