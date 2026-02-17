@@ -25,7 +25,7 @@ mod _winapi {
             ERROR_NETNAME_DELETED, ERROR_NO_DATA, ERROR_NO_SYSTEM_RESOURCES,
             ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED,
             ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT, GENERIC_READ, GENERIC_WRITE,
-            STILL_ACTIVE, WAIT_ABANDONED, WAIT_ABANDONED_0, WAIT_OBJECT_0, WAIT_TIMEOUT,
+            STILL_ACTIVE, WAIT_ABANDONED_0, WAIT_OBJECT_0, WAIT_TIMEOUT,
         },
         Globalization::{
             LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA,
@@ -54,36 +54,19 @@ mod _winapi {
             COPYFILE2_PROGRESS_PAUSE,
             COPYFILE2_PROGRESS_QUIET,
             COPYFILE2_PROGRESS_STOP,
-            CREATE_ALWAYS,
-            // CreateFile constants
-            CREATE_NEW,
-            FILE_ATTRIBUTE_NORMAL,
-            FILE_FLAG_BACKUP_SEMANTICS,
-            FILE_FLAG_DELETE_ON_CLOSE,
             FILE_FLAG_FIRST_PIPE_INSTANCE,
-            FILE_FLAG_NO_BUFFERING,
-            FILE_FLAG_OPEN_REPARSE_POINT,
             FILE_FLAG_OVERLAPPED,
-            FILE_FLAG_POSIX_SEMANTICS,
-            FILE_FLAG_RANDOM_ACCESS,
-            FILE_FLAG_SEQUENTIAL_SCAN,
-            FILE_FLAG_WRITE_THROUGH,
             FILE_GENERIC_READ,
             FILE_GENERIC_WRITE,
-            FILE_SHARE_DELETE,
-            FILE_SHARE_READ,
-            FILE_SHARE_WRITE,
             FILE_TYPE_CHAR,
             FILE_TYPE_DISK,
             FILE_TYPE_PIPE,
             FILE_TYPE_REMOTE,
             FILE_TYPE_UNKNOWN,
-            OPEN_ALWAYS,
             OPEN_EXISTING,
             PIPE_ACCESS_DUPLEX,
             PIPE_ACCESS_INBOUND,
             SYNCHRONIZE,
-            TRUNCATE_EXISTING,
         },
         System::{
             Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
@@ -96,8 +79,8 @@ mod _winapi {
                 SEC_LARGE_PAGES, SEC_NOCACHE, SEC_RESERVE, SEC_WRITECOMBINE,
             },
             Pipes::{
-                NMPWAIT_NOWAIT, NMPWAIT_USE_DEFAULT_WAIT, NMPWAIT_WAIT_FOREVER,
-                PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+                NMPWAIT_WAIT_FOREVER, PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE,
+                PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
             },
             SystemServices::LOCALE_NAME_MAX_LENGTH,
             Threading::{
@@ -647,17 +630,6 @@ mod _winapi {
         WindowsSysResult(unsafe {
             windows_sys::Win32::System::Threading::TerminateProcess(h.0, exit_code)
         })
-    }
-
-    #[pyfunction]
-    fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
-        let path_wide = path.as_wtf8().to_wide_with_nul();
-        let handle =
-            unsafe { windows_sys::Win32::System::LibraryLoader::LoadLibraryW(path_wide.as_ptr()) };
-        if handle.is_null() {
-            return Err(vm.new_runtime_error("LoadLibrary failed"));
-        }
-        Ok(handle as isize)
     }
 
     #[pyfunction]
