@@ -1232,7 +1232,6 @@ class SysModuleTest(unittest.TestCase):
         self.assertIsInstance(level, int)
         self.assertGreater(level, 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @force_not_colorized
     @support.requires_subprocess()
     def test_sys_tracebacklimit(self):

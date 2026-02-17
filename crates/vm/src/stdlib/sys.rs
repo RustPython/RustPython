@@ -825,11 +825,13 @@ mod sys {
         let stderr = super::get_stderr(vm)?;
         match vm.normalize_exception(exc_type.clone(), exc_val.clone(), exc_tb) {
             Ok(exc) => {
-                // Try Python traceback module first for richer output
-                // (enables features like keyword typo suggestions in SyntaxError)
+                // PyErr_Display: try traceback._print_exception_bltin first
                 if let Ok(tb_mod) = vm.import("traceback", 0)
-                    && let Ok(print_exc) = tb_mod.get_attr("print_exception", vm)
-                    && print_exc.call((exc.as_object().to_owned(),), vm).is_ok()
+                    && let Ok(print_exc_builtin) =
+                        tb_mod.get_attr("_print_exception_bltin", vm)
+                    && print_exc_builtin
+                        .call((exc.as_object().to_owned(),), vm)
+                        .is_ok()
                 {
                     return Ok(());
                 }
