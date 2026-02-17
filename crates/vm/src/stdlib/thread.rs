@@ -914,11 +914,13 @@ pub(crate) mod _thread {
         // Reinitialize frame slot for current thread
         crate::vm::thread::reinit_frame_slot_after_fork(vm);
 
-        // Clean up thread handles if we can acquire the lock.
-        // Use try_lock because the mutex might have been held during fork.
-        // If we can't acquire it, just skip - the child process will work
-        // correctly with new handles it creates.
-        if let Some(mut handles) = vm.state.thread_handles.try_lock() {
+        // Clean up thread handles. Force-unlock if held by a dead thread.
+        // SAFETY: After fork, only the current thread exists.
+        if vm.state.thread_handles.try_lock().is_none() {
+            unsafe { vm.state.thread_handles.force_unlock() };
+        }
+        {
+            let mut handles = vm.state.thread_handles.lock();
             // Clean up dead weak refs and mark non-current threads as done
             handles.retain(|(inner_weak, done_event_weak): &HandleEntry| {
                 let Some(inner) = inner_weak.upgrade() else {
@@ -957,10 +959,13 @@ pub(crate) mod _thread {
             });
         }
 
-        // Clean up shutdown_handles as well.
-        // This is critical to prevent _shutdown() from waiting on threads
-        // that don't exist in the child process after fork.
-        if let Some(mut handles) = vm.state.shutdown_handles.try_lock() {
+        // Clean up shutdown_handles. Force-unlock if held by a dead thread.
+        // SAFETY: After fork, only the current thread exists.
+        if vm.state.shutdown_handles.try_lock().is_none() {
+            unsafe { vm.state.shutdown_handles.force_unlock() };
+        }
+        {
+            let mut handles = vm.state.shutdown_handles.lock();
             // Mark all non-current threads as done in shutdown_handles
             handles.retain(|(inner_weak, done_event_weak): &ShutdownEntry| {
                 let Some(inner) = inner_weak.upgrade() else {
