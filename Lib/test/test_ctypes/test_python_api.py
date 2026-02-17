@@ -7,7 +7,7 @@ from ctypes import (pythonapi, POINTER, create_string_buffer, sizeof,
 
 
 class PythonAPITestCase(unittest.TestCase):
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON - requires pythonapi (Python C API)
     @unittest.expectedFailure
     def test_PyBytes_FromStringAndSize(self):
         PyBytes_FromStringAndSize = pythonapi.PyBytes_FromStringAndSize
@@ -59,7 +59,7 @@ class PythonAPITestCase(unittest.TestCase):
         del pyobj
         self.assertEqual(sys.getrefcount(s), ref)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON - requires pythonapi (Python C API)
     @unittest.expectedFailure
     def test_PyOS_snprintf(self):
         PyOS_snprintf = pythonapi.PyOS_snprintf
