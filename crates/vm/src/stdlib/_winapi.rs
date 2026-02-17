@@ -20,11 +20,12 @@ mod _winapi {
     #[pyattr]
     use windows_sys::Win32::{
         Foundation::{
-            DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ALREADY_EXISTS, ERROR_BROKEN_PIPE,
-            ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_NETNAME_DELETED, ERROR_NO_DATA,
-            ERROR_NO_SYSTEM_RESOURCES, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY,
-            ERROR_PIPE_CONNECTED, ERROR_SEM_TIMEOUT, GENERIC_READ, GENERIC_WRITE, STILL_ACTIVE,
-            WAIT_ABANDONED, WAIT_ABANDONED_0, WAIT_OBJECT_0, WAIT_TIMEOUT,
+            DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED,
+            ERROR_ALREADY_EXISTS, ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA,
+            ERROR_NETNAME_DELETED, ERROR_NO_DATA, ERROR_NO_SYSTEM_RESOURCES,
+            ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED,
+            ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT, GENERIC_READ, GENERIC_WRITE,
+            STILL_ACTIVE, WAIT_ABANDONED, WAIT_ABANDONED_0, WAIT_OBJECT_0, WAIT_TIMEOUT,
         },
         Globalization::{
             LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA,
@@ -103,9 +104,12 @@ mod _winapi {
                 ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS,
                 CREATE_BREAKAWAY_FROM_JOB, CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE,
                 CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, HIGH_PRIORITY_CLASS,
-                IDLE_PRIORITY_CLASS, INFINITE, NORMAL_PRIORITY_CLASS, PROCESS_DUP_HANDLE,
-                REALTIME_PRIORITY_CLASS, STARTF_FORCEOFFFEEDBACK, STARTF_FORCEONFEEDBACK,
-                STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES,
+                IDLE_PRIORITY_CLASS, INFINITE, NORMAL_PRIORITY_CLASS, PROCESS_ALL_ACCESS,
+                PROCESS_DUP_HANDLE, REALTIME_PRIORITY_CLASS, STARTF_FORCEOFFFEEDBACK,
+                STARTF_FORCEONFEEDBACK, STARTF_PREVENTPINNING, STARTF_RUNFULLSCREEN,
+                STARTF_TITLEISAPPID, STARTF_TITLEISLINKNAME, STARTF_UNTRUSTEDSOURCE,
+                STARTF_USECOUNTCHARS, STARTF_USEFILLATTRIBUTE, STARTF_USEHOTKEY,
+                STARTF_USEPOSITION, STARTF_USESHOWWINDOW, STARTF_USESIZE, STARTF_USESTDHANDLES,
             },
         },
         UI::WindowsAndMessaging::SW_HIDE,
@@ -116,6 +120,9 @@ mod _winapi {
 
     #[pyattr]
     const INVALID_HANDLE_VALUE: isize = -1;
+
+    #[pyattr]
+    const COPY_FILE_DIRECTORY: u32 = 0x00000080;
 
     #[pyfunction]
     fn CloseHandle(handle: WinHandle) -> WindowsSysResult<i32> {
@@ -678,7 +685,7 @@ mod _winapi {
         inherit_handle: bool,
         name: PyStrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<isize> {
+    ) -> PyResult<WinHandle> {
         let name_wide = name.as_wtf8().to_wide_with_nul();
         let handle = unsafe {
             windows_sys::Win32::System::Threading::OpenMutexW(
@@ -690,19 +697,27 @@ mod _winapi {
         if handle.is_null() {
             return Err(vm.new_last_os_error());
         }
-        Ok(handle as _)
+        Ok(WinHandle(handle))
     }
 
     #[pyfunction]
-    fn ReleaseMutex(handle: isize) -> WindowsSysResult<i32> {
+    fn ReleaseMutex(handle: WinHandle) -> WindowsSysResult<i32> {
         WindowsSysResult(unsafe {
-            windows_sys::Win32::System::Threading::ReleaseMutex(handle as _)
+            windows_sys::Win32::System::Threading::ReleaseMutex(handle.0)
         })
     }
 
     // LOCALE_NAME_INVARIANT is an empty string in Windows API
     #[pyattr]
     const LOCALE_NAME_INVARIANT: &str = "";
+
+    #[pyattr]
+    const LOCALE_NAME_SYSTEM_DEFAULT: &str = "!x-sys-default-locale";
+
+    #[pyattr(name = "LOCALE_NAME_USER_DEFAULT")]
+    fn locale_name_user_default(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.none()
+    }
 
     /// LCMapStringEx - Map a string to another string using locale-specific rules
     /// This is used by ntpath.normcase() for proper Windows case conversion
@@ -1445,7 +1460,7 @@ mod _winapi {
 
     /// CreateMutexW - Create or open a named or unnamed mutex object.
     #[pyfunction]
-    fn CreateMutex(
+    fn CreateMutexW(
         security_attributes: isize,
         initial_owner: bool,
         name: Option<PyStrRef>,
