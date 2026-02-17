@@ -6,7 +6,7 @@ pub use module::raw_set_handle_inheritable;
 #[pymodule(name = "nt", with(super::os::_os))]
 pub(crate) mod module {
     use crate::{
-        Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        Py, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyTupleRef},
         common::{crt_fd, suppress_iph, windows::ToWideString},
         convert::ToPyException,
@@ -1212,21 +1212,6 @@ pub(crate) mod module {
         }
     }
 
-    fn envobj_to_dict(env: ArgMapping, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        let obj = env.obj();
-        if let Some(dict) = obj.downcast_ref_if_exact::<crate::builtins::PyDict>(vm) {
-            return Ok(dict.to_owned());
-        }
-        let keys = vm.call_method(obj, "keys", ())?;
-        let dict = vm.ctx.new_dict();
-        for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm)? {
-            let key = key?;
-            let val = obj.get_item(&*key, vm)?;
-            dict.set_item(&*key, val, vm)?;
-        }
-        Ok(dict)
-    }
-
     #[cfg(target_env = "msvc")]
     #[pyfunction]
     fn execve(
@@ -1261,7 +1246,7 @@ pub(crate) mod module {
             .chain(once(core::ptr::null()))
             .collect();
 
-        let env = envobj_to_dict(env, vm)?;
+        let env = crate::stdlib::os::envobj_to_dict(env, vm)?;
         // Build environment strings as "KEY=VALUE\0" wide strings
         let mut env_strings: Vec<widestring::WideCString> = Vec::new();
         for (key, value) in env.into_iter() {

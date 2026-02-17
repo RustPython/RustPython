@@ -2,10 +2,10 @@
 
 use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyModule, PySet},
+    builtins::{PyDictRef, PyModule, PySet},
     common::crt_fd,
     convert::{IntoPyException, ToPyException, ToPyObject},
-    function::{ArgumentError, FromArgs, FuncArgs},
+    function::{ArgMapping, ArgumentError, FromArgs, FuncArgs},
 };
 use std::{fs, io, path::Path};
 
@@ -2036,6 +2036,32 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
     });
 
     Ok(())
+}
+
+/// Convert a mapping (e.g. os._Environ) to a plain dict for use by execve/posix_spawn.
+///
+/// For `os._Environ`, accesses the internal `_data` dict directly at the Rust level.
+/// This avoids Python-level method calls that can deadlock after fork() when
+/// parking_lot locks are held by threads that no longer exist.
+pub(crate) fn envobj_to_dict(env: ArgMapping, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    let obj = env.obj();
+    if let Some(dict) = obj.downcast_ref_if_exact::<crate::builtins::PyDict>(vm) {
+        return Ok(dict.to_owned());
+    }
+    if let Some(inst_dict) = obj.dict()
+        && let Ok(Some(data)) = inst_dict.get_item_opt("_data", vm)
+        && let Some(dict) = data.downcast_ref_if_exact::<crate::builtins::PyDict>(vm)
+    {
+        return Ok(dict.to_owned());
+    }
+    let keys = vm.call_method(obj, "keys", ())?;
+    let dict = vm.ctx.new_dict();
+    for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm)? {
+        let key = key?;
+        let val = obj.get_item(&*key, vm)?;
+        dict.set_item(&*key, val, vm)?;
+    }
+    Ok(dict)
 }
 
 #[cfg(not(windows))]
