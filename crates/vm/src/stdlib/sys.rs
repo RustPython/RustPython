@@ -827,8 +827,7 @@ mod sys {
             Ok(exc) => {
                 // PyErr_Display: try traceback._print_exception_bltin first
                 if let Ok(tb_mod) = vm.import("traceback", 0)
-                    && let Ok(print_exc_builtin) =
-                        tb_mod.get_attr("_print_exception_bltin", vm)
+                    && let Ok(print_exc_builtin) = tb_mod.get_attr("_print_exception_bltin", vm)
                     && print_exc_builtin
                         .call((exc.as_object().to_owned(),), vm)
                         .is_ok()
