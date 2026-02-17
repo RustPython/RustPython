@@ -61,7 +61,7 @@ mod _random {
                     MT19937::new_with_slice_seed(key)
                 }
                 None => MT19937::try_from_os_rng()
-                    .map_err(|e| std::io::Error::other(format!("{}", e)).to_pyexception(vm))?,
+                    .map_err(|e| std::io::Error::other(e.to_string()).to_pyexception(vm))?,
             };
             Ok(())
         }
