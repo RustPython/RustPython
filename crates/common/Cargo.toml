@@ -12,7 +12,7 @@ license.workspace = true
 default = ["std"]
 std = []
 threading = ["parking_lot"]
-wasm_js = ["getrandom/wasm_js"]
+wasm_js = ["getrandom/wasm_js", "getrandom_03/wasm_js"]
 
 [dependencies]
 rustpython-literal = { workspace = true }
@@ -22,6 +22,8 @@ ascii = { workspace = true }
 bitflags = { workspace = true }
 cfg-if = { workspace = true }
 getrandom = { workspace = true }
+# Also add getrandom 0.3 to ensure wasm_js feature is enabled for transitive deps (e.g., ahash)
+getrandom_03 = { package = "getrandom", version = "0.3" }
 itertools = { workspace = true }
 libc = { workspace = true }
 malachite-bigint = { workspace = true }
