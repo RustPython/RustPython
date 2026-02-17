@@ -211,7 +211,7 @@ impl Default for Settings {
             allow_external_library: cfg!(feature = "importlib"),
             stdio_encoding: None,
             stdio_errors: None,
-            utf8_mode: 1,
+            utf8_mode: 0,
             int_max_str_digits: 4300,
             #[cfg(feature = "flame-it")]
             profile_output: None,

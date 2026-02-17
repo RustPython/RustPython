@@ -260,6 +260,21 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     settings.check_hash_pycs_mode = args.check_hash_based_pycs;
 
+    if let Some(val) = get_env("PYTHONUTF8") {
+        settings.utf8_mode = match val.to_str() {
+            Some("1") | Some("") => 1,
+            Some("0") => 0,
+            _ => {
+                error!(
+                    "Fatal Python error: config_init_utf8_mode: \
+                     PYTHONUTF8=N: N is missing or invalid\n\
+                     Python runtime state: preinitialized"
+                );
+                std::process::exit(1);
+            }
+        };
+    }
+
     let xopts = args.implementation_option.into_iter().map(|s| {
         let (name, value) = match s.split_once('=') {
             Some((name, value)) => (name.to_owned(), Some(value)),
