@@ -70,14 +70,14 @@ Unpacking non-sequence
 
 Unpacking tuple of wrong size
 
-    >>> a, b = t # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> a, b = t
     Traceback (most recent call last):
       ...
     ValueError: too many values to unpack (expected 2, got 3)
 
 Unpacking tuple of wrong size
 
-    >>> a, b = l # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> a, b = l
     Traceback (most recent call last):
       ...
     ValueError: too many values to unpack (expected 2, got 3)
@@ -144,7 +144,7 @@ Unpacking non-iterables should raise TypeError
 
 Unpacking to an empty iterable should raise ValueError
 
-    >>> () = [42] # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> () = [42]
     Traceback (most recent call last):
       ...
     ValueError: too many values to unpack (expected 0, got 1)
@@ -157,13 +157,13 @@ should not entirely consume the iterable
     Traceback (most recent call last):
       ...
     ValueError: too many values to unpack (expected 3)
-    >>> next(it) # TODO: RUSTPYTHON; Raise `StopIteration`  # doctest: +SKIP
+    >>> next(it)
     4
 
 Unpacking unbalanced dict
 
     >>> d = {4: 'four', 5: 'five', 6: 'six', 7: 'seven'}
-    >>> a, b, c = d # TODO: RUSTPYTHON; # doctest: +EXPECTED_FAILURE
+    >>> a, b, c = d
     Traceback (most recent call last):
       ...
     ValueError: too many values to unpack (expected 3, got 4)
@@ -176,7 +176,7 @@ Ensure that custom `__len__()` is NOT called when showing the error message
     ...     def __getitem__(self, i):
     ...         return i*2
     ...
-    >>> x, y, z = LengthTooLong() # TODO: RUSTPYTHON; Hangs # doctest: +SKIP
+    >>> x, y, z = LengthTooLong()
     Traceback (most recent call last):
       ...
     ValueError: too many values to unpack (expected 3)
@@ -189,7 +189,7 @@ For evil cases like these as well, no actual count to be shown
     ...     def __getitem__(self, i):
     ...         return i*2
     ...
-    >>> x, y, z = BadLength() # TODO: RUSTPYTHON; Hangs # doctest: +SKIP
+    >>> x, y, z = BadLength()
     Traceback (most recent call last):
       ...
     ValueError: too many values to unpack (expected 3)
