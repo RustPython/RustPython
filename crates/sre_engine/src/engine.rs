@@ -470,7 +470,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                     Jump::PossessiveRepeat1 => {
                         let min_count = ctx.peek_code(req, 2) as isize;
                         if ctx.count < min_count {
-                            // modified next.toplevel from herited to false
+                            // modified next.toplevel from inherited to false
                             let mut next = ctx.next_offset(4, Jump::PossessiveRepeat2);
                             next.toplevel = false;
                             break 'context next;
@@ -498,7 +498,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                             state.marks.push();
                             ctx.cursor = state.cursor;
                             let mut next = ctx.next_offset(4, Jump::PossessiveRepeat4);
-                            next.toplevel = false; // modified next.toplevel from herited to false
+                            next.toplevel = false; // modified next.toplevel from inherited to false
                             break 'context next;
                         }
                         ctx.cursor = state.cursor;
@@ -838,7 +838,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                         SreOpcode::ATOMIC_GROUP => {
                             state.cursor = ctx.cursor;
                             let mut next_ctx = ctx.next_offset(2, Jump::AtomicGroup1);
-                            next_ctx.toplevel = false; // modified next.toplevel from herited to false
+                            next_ctx.toplevel = false; // modified next.toplevel from inherited to false
                             break 'context next_ctx;
                         }
                         /* <POSSESSIVE_REPEAT> <skip> <1=min> <2=max> pattern

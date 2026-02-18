@@ -14,9 +14,6 @@ license.workspace = true
 name = "benches"
 harness = false
 
-[[test]]
-name = "tests"
-
 
 [dependencies]
 rustpython-wtf8 = { workspace = true }
