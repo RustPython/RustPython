@@ -32,8 +32,6 @@ class Test(unittest.TestCase):
         ptr = cast(address, POINTER(c_int))
         self.assertEqual([ptr[i] for i in range(3)], [42, 17, 2])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_p2a_objects(self):
         array = (c_char_p * 5)()
         self.assertEqual(array._objects, None)

@@ -322,7 +322,12 @@ impl PyObject {
         match op {
             PyComparisonOp::Eq => Ok(Either::B(self.is(&other))),
             PyComparisonOp::Ne => Ok(Either::B(!self.is(&other))),
-            _ => Err(vm.new_unsupported_bin_op_error(self, other, op.operator_token())),
+            _ => Err(vm.new_type_error(format!(
+                "'{}' not supported between instances of '{}' and '{}'",
+                op.operator_token(),
+                self.class().name(),
+                other.class().name()
+            ))),
         }
     }
     #[inline(always)]

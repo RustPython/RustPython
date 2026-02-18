@@ -51,7 +51,7 @@ class CallbackTracbackTestCase(unittest.TestCase):
             if exc_msg is not None:
                 self.assertEqual(str(cm.unraisable.exc_value), exc_msg)
             self.assertEqual(cm.unraisable.err_msg,
-                             f"Exception ignored on calling ctypes "
+                             f"Exception ignored while calling ctypes "
                              f"callback function {callback_func!r}")
             self.assertIsNone(cm.unraisable.object)
 
@@ -70,8 +70,6 @@ class CallbackTracbackTestCase(unittest.TestCase):
         with self.expect_unraisable(ZeroDivisionError):
             cb(0.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_TypeErrorDivisionError(self):
         cb = CFUNCTYPE(c_int, c_char_p)(callback_func)
         err_msg = "unsupported operand type(s) for /: 'int' and 'bytes'"

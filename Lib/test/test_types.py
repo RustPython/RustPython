@@ -431,7 +431,7 @@ class TypesTests(unittest.TestCase):
         test(123456, "1=20", '11111111111111123456')
         test(123456, "*=20", '**************123456')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + 1234.57
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8', '')
     def test_float__format__locale(self):
         # test locale support for __format__ code 'n'
@@ -441,7 +441,7 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(locale.format_string('%g', x, grouping=True), format(x, 'n'))
             self.assertEqual(locale.format_string('%.10g', x, grouping=True), format(x, '.10n'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + 123456789012345678901234567890
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8', '')
     def test_int__format__locale(self):
         # test locale support for __format__ code 'n' for integers
@@ -632,7 +632,7 @@ class TypesTests(unittest.TestCase):
         self.assertGreater(object.__basicsize__, 0)
         self.assertGreater(tuple.__itemsize__, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <method '__lt__' of 'int' objects> is not an instance of <class 'wrapper_descriptor'>
     def test_slot_wrapper_types(self):
         self.assertIsInstance(object.__init__, types.WrapperDescriptorType)
         self.assertIsInstance(object.__str__, types.WrapperDescriptorType)
@@ -648,7 +648,7 @@ class TypesTests(unittest.TestCase):
         # gh-93021: Second parameter is optional
         self.assertIs(sig.parameters["owner"].default, None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <built-in method __lt__ of int object at 0xad6c41080> is not an instance of <class 'method-wrapper'>
     def test_method_wrapper_types(self):
         self.assertIsInstance(object().__init__, types.MethodWrapperType)
         self.assertIsInstance(object().__str__, types.MethodWrapperType)
@@ -1364,7 +1364,7 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(view['key1'], 70)
         self.assertEqual(copy['key1'], 27)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: unsupported operand type(s) for |: 'dict' and 'mappingproxy'
     def test_union(self):
         mapping = {'a': 0, 'b': 1, 'c': 2}
         view = self.mappingproxy(mapping)
@@ -2257,8 +2257,8 @@ class CoroutineTests(unittest.TestCase):
         self.assertIs(wrapper.__name__, gen.__name__)
 
         # Test AttributeErrors
-        for name in {'gi_running', 'gi_frame', 'gi_code', 'gi_yieldfrom',
-                     'cr_running', 'cr_frame', 'cr_code', 'cr_await'}:
+        for name in {'gi_running', 'gi_frame', 'gi_code', 'gi_yieldfrom', 'gi_suspended',
+                     'cr_running', 'cr_frame', 'cr_code', 'cr_await', 'cr_suspended'}:
             with self.assertRaises(AttributeError):
                 getattr(wrapper, name)
 
@@ -2267,14 +2267,17 @@ class CoroutineTests(unittest.TestCase):
         gen.gi_frame = object()
         gen.gi_code = object()
         gen.gi_yieldfrom = object()
+        gen.gi_suspended = object()
         self.assertIs(wrapper.gi_running, gen.gi_running)
         self.assertIs(wrapper.gi_frame, gen.gi_frame)
         self.assertIs(wrapper.gi_code, gen.gi_code)
         self.assertIs(wrapper.gi_yieldfrom, gen.gi_yieldfrom)
+        self.assertIs(wrapper.gi_suspended, gen.gi_suspended)
         self.assertIs(wrapper.cr_running, gen.gi_running)
         self.assertIs(wrapper.cr_frame, gen.gi_frame)
         self.assertIs(wrapper.cr_code, gen.gi_code)
         self.assertIs(wrapper.cr_await, gen.gi_yieldfrom)
+        self.assertIs(wrapper.cr_suspended, gen.gi_suspended)
 
         wrapper.close()
         gen.close.assert_called_once_with()
@@ -2393,7 +2396,7 @@ class CoroutineTests(unittest.TestCase):
         self.assertIs(wrapper.__await__(), gen)
 
         for name in ('__name__', '__qualname__', 'gi_code',
-                     'gi_running', 'gi_frame'):
+                     'gi_running', 'gi_frame', 'gi_suspended'):
             self.assertIs(getattr(foo(), name),
                           getattr(gen, name))
         self.assertIs(foo().cr_code, gen.gi_code)
@@ -2456,8 +2459,8 @@ class CoroutineTests(unittest.TestCase):
         self.assertEqual(repr(wrapper), str(wrapper))
         self.assertTrue(set(dir(wrapper)).issuperset({
             '__await__', '__iter__', '__next__', 'cr_code', 'cr_running',
-            'cr_frame', 'gi_code', 'gi_frame', 'gi_running', 'send',
-            'close', 'throw'}))
+            'cr_frame', 'cr_suspended', 'gi_code', 'gi_frame', 'gi_running',
+            'gi_suspended', 'send', 'close', 'throw'}))
 
 
 class FunctionTests(unittest.TestCase):

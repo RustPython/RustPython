@@ -2,12 +2,13 @@ use super::base::{CDATA_BUFFER_METHODS, StgInfoFlags};
 use super::{PyCData, PyCField, StgInfo};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
-use crate::function::FuncArgs;
-use crate::function::PySetterValue;
+use crate::function::{ArgBytesLike, FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer};
+use crate::stdlib::warnings;
 use crate::types::{AsBuffer, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
+use num_traits::ToPrimitive;
 
 /// Calculate Union type size from _fields_ (max field size)
 pub(super) fn calculate_union_size(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResult<usize> {
@@ -106,6 +107,7 @@ impl Initializer for PyCUnionType {
                     let mut stg_info = baseinfo.clone();
                     stg_info.flags &= !StgInfoFlags::DICTFLAG_FINAL; // Clear FINAL flag in subclass
                     stg_info.initialized = true;
+                    stg_info.pointer_type = None; // Non-inheritable
                     stg_info
                 });
 
@@ -163,6 +165,22 @@ impl PyCUnionType {
         };
 
         let pack = super::base::get_usize_attr(cls.as_object(), "_pack_", 0, vm)?;
+
+        // Emit DeprecationWarning on non-Windows when _pack_ is set without _layout_
+        if pack > 0 && !cfg!(windows) {
+            let has_layout = cls.as_object().get_attr("_layout_", vm).is_ok();
+            if !has_layout {
+                let msg = format!(
+                    "Due to '_pack_', the '{}' Union will use memory layout compatible with \
+                     MSVC (Windows). If this is intended, set _layout_ to 'ms'. \
+                     The implicit default is deprecated and slated to become an error in \
+                     Python 3.19.",
+                    cls.name(),
+                );
+                warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
+            }
+        }
+
         let forced_alignment =
             super::base::get_usize_attr(cls.as_object(), "_align_", 1, vm)?.max(1);
 
@@ -258,7 +276,42 @@ impl PyCUnionType {
                 .clone()
                 .downcast::<PyType>()
                 .map_err(|_| vm.new_type_error("_fields_ type must be a ctypes type"))?;
-            let c_field = PyCField::new(field_type_ref, 0, size as isize, index);
+
+            // Check for bitfield size (optional 3rd element in tuple)
+            // For unions, each field starts fresh (CPython: _layout.py)
+            let c_field = if field_tuple.len() > 2 {
+                let bit_size_obj = field_tuple.get(2).expect("len checked");
+                let bit_size = bit_size_obj
+                    .try_int(vm)?
+                    .as_bigint()
+                    .to_u16()
+                    .ok_or_else(|| {
+                        vm.new_value_error("number of bits invalid for bit field".to_string())
+                    })?;
+                has_bitfield = true;
+
+                // Union fields all start at offset 0, so bit_offset = 0
+                let mut bit_offset: u16 = 0;
+                let type_bits = (size * 8) as u16;
+
+                // Big-endian: bit_offset = type_bits - bit_size
+                let big_endian = is_swapped != cfg!(target_endian = "big");
+                if big_endian && type_bits >= bit_size {
+                    bit_offset = type_bits - bit_size;
+                }
+
+                PyCField::new_bitfield(
+                    name.clone(),
+                    field_type_ref,
+                    0, // Union fields always at offset 0
+                    size as isize,
+                    bit_size,
+                    bit_offset,
+                    index,
+                )
+            } else {
+                PyCField::new(name.clone(), field_type_ref, 0, size as isize, index)
+            };
 
             cls.set_attr(vm.ctx.intern_str(name), c_field.to_pyobject(vm));
         }
@@ -270,6 +323,15 @@ impl PyCUnionType {
         } else {
             max_size
         };
+
+        // Check for circular self-reference
+        if let Some(stg_info) = cls.get_type_data::<StgInfo>()
+            && stg_info.is_final()
+        {
+            return Err(
+                vm.new_attribute_error("Structure or union cannot contain itself".to_string())
+            );
+        }
 
         // Store StgInfo with aligned size
         let mut stg_info = StgInfo::new(aligned_size, total_align);
@@ -299,6 +361,16 @@ impl PyCUnionType {
 
 #[pyclass(flags(BASETYPE), with(Constructor, Initializer, SetAttr))]
 impl PyCUnionType {
+    #[pygetset(name = "__pointer_type__")]
+    fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        super::base::pointer_type_get(&zelf, vm)
+    }
+
+    #[pygetset(name = "__pointer_type__", setter)]
+    fn set_pointer_type(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        super::base::pointer_type_set(&zelf, value, vm)
+    }
+
     #[pymethod]
     fn from_param(zelf: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // zelf is the union type class that from_param was called on
@@ -344,6 +416,55 @@ impl PyCUnionType {
         )))
     }
 
+    // CDataType methods - delegated to PyCData implementations
+
+    #[pymethod]
+    fn from_address(zelf: PyObjectRef, address: isize, vm: &VirtualMachine) -> PyResult {
+        let cls: PyTypeRef = zelf
+            .downcast()
+            .map_err(|_| vm.new_type_error("expected a type"))?;
+        PyCData::from_address(cls, address, vm)
+    }
+
+    #[pymethod]
+    fn from_buffer(
+        zelf: PyObjectRef,
+        source: PyObjectRef,
+        offset: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let cls: PyTypeRef = zelf
+            .downcast()
+            .map_err(|_| vm.new_type_error("expected a type"))?;
+        PyCData::from_buffer(cls, source, offset, vm)
+    }
+
+    #[pymethod]
+    fn from_buffer_copy(
+        zelf: PyObjectRef,
+        source: ArgBytesLike,
+        offset: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let cls: PyTypeRef = zelf
+            .downcast()
+            .map_err(|_| vm.new_type_error("expected a type"))?;
+        PyCData::from_buffer_copy(cls, source, offset, vm)
+    }
+
+    #[pymethod]
+    fn in_dll(
+        zelf: PyObjectRef,
+        dll: PyObjectRef,
+        name: crate::builtins::PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let cls: PyTypeRef = zelf
+            .downcast()
+            .map_err(|_| vm.new_type_error("expected a type"))?;
+        PyCData::in_dll(cls, dll, name, vm)
+    }
+
     /// Called when a new Union subclass is created
     #[pyclassmethod]
     fn __init_subclass__(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -383,6 +504,14 @@ impl SetAttr for PyCUnionType {
             }
         }
 
+        // 2. If _fields_, call process_fields (which checks FINAL internally)
+        // Check BEFORE writing to dict to avoid storing _fields_ when FINAL
+        if attr_name.as_str() == "_fields_"
+            && let PySetterValue::Assign(ref fields_value) = value
+        {
+            PyCUnionType::process_fields(pytype, fields_value.clone(), vm)?;
+        }
+
         // Store in type's attributes dict
         match &value {
             PySetterValue::Assign(v) => {
@@ -401,13 +530,6 @@ impl SetAttr for PyCUnionType {
                     )));
                 }
             }
-        }
-
-        // 2. If _fields_, call process_fields (which checks FINAL internally)
-        if attr_name.as_str() == "_fields_"
-            && let PySetterValue::Assign(fields_value) = value
-        {
-            PyCUnionType::process_fields(pytype, fields_value, vm)?;
         }
 
         Ok(())
