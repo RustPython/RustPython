@@ -1776,10 +1776,15 @@ mod sys {
         build: u32,
         platform: u32,
         service_pack: String,
+        #[pystruct_sequence(skip)]
         service_pack_major: u16,
+        #[pystruct_sequence(skip)]
         service_pack_minor: u16,
+        #[pystruct_sequence(skip)]
         suite_mask: u16,
+        #[pystruct_sequence(skip)]
         product_type: u8,
+        #[pystruct_sequence(skip)]
         platform_version: (u32, u32, u32),
     }
 
