@@ -14,7 +14,6 @@ license.workspace = true
 name = "benches"
 harness = false
 
-
 [dependencies]
 rustpython-wtf8 = { workspace = true }
 num_enum = { workspace = true }
