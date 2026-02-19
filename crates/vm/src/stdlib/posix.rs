@@ -732,8 +732,7 @@ pub mod module {
         vm.signal_handlers
             .get_or_init(crate::signal::new_signal_handlers);
 
-        let after_forkers_child: Vec<PyObjectRef> =
-            vm.state.after_forkers_child.lock().clone();
+        let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
         run_at_forkers(after_forkers_child, false, vm);
     }
 
@@ -741,9 +740,7 @@ pub mod module {
     ///
     /// # Safety
     /// Must only be called after fork() in the child process.
-    unsafe fn force_unlock_mutex_after_fork<T>(
-        mutex: &crate::common::lock::PyMutex<T>,
-    ) {
+    unsafe fn force_unlock_mutex_after_fork<T>(mutex: &crate::common::lock::PyMutex<T>) {
         if mutex.try_lock().is_none() {
             // SAFETY: Lock is held by a dead thread after fork.
             unsafe { mutex.force_unlock() };
