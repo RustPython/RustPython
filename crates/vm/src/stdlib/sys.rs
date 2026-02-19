@@ -73,7 +73,7 @@ mod sys {
         RUST_MULTIARCH.replace("-unknown", "")
     }
 
-    #[pyclass(no_attr, name = "_BootstrapStderr", module = "sys")]
+    #[pyclass(no_attr, name = "_BootstrapStderr")]
     #[derive(Debug, PyPayload)]
     pub(super) struct BootstrapStderr;
 
@@ -95,7 +95,7 @@ mod sys {
 
     /// Lightweight stdio wrapper for sandbox mode (no host_env).
     /// Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
-    #[pyclass(no_attr, name = "_SandboxStdio", module = "sys")]
+    #[pyclass(no_attr, name = "_SandboxStdio")]
     #[derive(Debug, PyPayload)]
     pub struct SandboxStdio {
         pub fd: i32,

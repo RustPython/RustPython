@@ -2607,6 +2607,92 @@ mod _io {
         }
     }
 
+    #[pyclass(module = "_io", name, no_attr)]
+    #[derive(Debug, PyPayload)]
+    struct StatelessIncrementalEncoder {
+        encode: PyObjectRef,
+        errors: Option<PyStrRef>,
+        name: Option<PyStrRef>,
+    }
+
+    #[pyclass]
+    impl StatelessIncrementalEncoder {
+        #[pymethod]
+        fn encode(
+            &self,
+            input: PyObjectRef,
+            _final: OptionalArg<bool>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let mut args: Vec<PyObjectRef> = vec![input];
+            if let Some(errors) = &self.errors {
+                args.push(errors.to_owned().into());
+            }
+            let res = self.encode.call(args, vm)?;
+            let tuple: PyTupleRef = res.try_into_value(vm)?;
+            if tuple.len() != 2 {
+                return Err(vm.new_type_error("encoder must return a tuple (object, integer)"));
+            }
+            Ok(tuple[0].clone())
+        }
+
+        #[pymethod]
+        fn reset(&self) {}
+
+        #[pymethod]
+        fn setstate(&self, _state: PyObjectRef) {}
+
+        #[pymethod]
+        fn getstate(&self, vm: &VirtualMachine) -> PyObjectRef {
+            vm.ctx.new_int(0).into()
+        }
+
+        #[pygetset]
+        fn name(&self) -> Option<PyStrRef> {
+            self.name.clone()
+        }
+    }
+
+    #[pyclass(module = "_io", name, no_attr)]
+    #[derive(Debug, PyPayload)]
+    struct StatelessIncrementalDecoder {
+        decode: PyObjectRef,
+        errors: Option<PyStrRef>,
+    }
+
+    #[pyclass]
+    impl StatelessIncrementalDecoder {
+        #[pymethod]
+        fn decode(
+            &self,
+            input: PyObjectRef,
+            _final: OptionalArg<bool>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let mut args: Vec<PyObjectRef> = vec![input];
+            if let Some(errors) = &self.errors {
+                args.push(errors.to_owned().into());
+            }
+            let res = self.decode.call(args, vm)?;
+            let tuple: PyTupleRef = res.try_into_value(vm)?;
+            if tuple.len() != 2 {
+                return Err(vm.new_type_error("decoder must return a tuple (object, integer)"));
+            }
+            Ok(tuple[0].clone())
+        }
+
+        #[pymethod]
+        fn getstate(&self, vm: &VirtualMachine) -> (PyBytesRef, u64) {
+            (vm.ctx.empty_bytes.to_owned(), 0)
+        }
+
+        #[pymethod]
+        fn setstate(&self, _state: PyTupleRef, _vm: &VirtualMachine) {}
+
+        #[pymethod]
+        fn reset(&self) {}
+    }
+
     #[pyattr]
     #[pyclass(name = "TextIOWrapper", base = _TextIOBase)]
     #[derive(Debug, Default)]
@@ -2830,7 +2916,25 @@ mod _io {
 
             let encoder = if vm.call_method(buffer, "writable", ())?.try_to_bool(vm)? {
                 let incremental_encoder =
-                    codec.get_incremental_encoder(Some(errors.to_owned()), vm)?;
+                    match codec.get_incremental_encoder(Some(errors.to_owned()), vm) {
+                        Ok(encoder) => encoder,
+                        Err(err)
+                            if err.fast_isinstance(vm.ctx.exceptions.type_error)
+                                || err.fast_isinstance(vm.ctx.exceptions.attribute_error) =>
+                        {
+                            let name = vm
+                                .get_attribute_opt(codec.as_tuple().to_owned().into(), "name")?
+                                .and_then(|obj| obj.downcast::<PyStr>().ok());
+                            StatelessIncrementalEncoder {
+                                encode: codec.get_encode_func().to_owned(),
+                                errors: Some(errors.to_owned()),
+                                name,
+                            }
+                            .into_ref(&vm.ctx)
+                            .into()
+                        }
+                        Err(err) => return Err(err),
+                    };
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
                 let encode_func = encoding_name.and_then(|name| {
                     let name = name.downcast_ref::<PyStr>()?;
@@ -2845,7 +2949,21 @@ mod _io {
             };
 
             let decoder = if vm.call_method(buffer, "readable", ())?.try_to_bool(vm)? {
-                let decoder = codec.get_incremental_decoder(Some(errors.to_owned()), vm)?;
+                let decoder = match codec.get_incremental_decoder(Some(errors.to_owned()), vm) {
+                    Ok(decoder) => decoder,
+                    Err(err)
+                        if err.fast_isinstance(vm.ctx.exceptions.type_error)
+                            || err.fast_isinstance(vm.ctx.exceptions.attribute_error) =>
+                    {
+                        StatelessIncrementalDecoder {
+                            decode: codec.get_decode_func().to_owned(),
+                            errors: Some(errors.to_owned()),
+                        }
+                        .into_ref(&vm.ctx)
+                        .into()
+                    }
+                    Err(err) => return Err(err),
+                };
                 if let Newlines::Universal | Newlines::Passthrough = newline {
                     let args = IncrementalNewlineDecoderArgs {
                         decoder,

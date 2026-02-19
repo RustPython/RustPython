@@ -209,7 +209,6 @@ class SysModuleTest(unittest.TestCase):
     def tearDown(self):
         test.support.reap_children()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; latin-1 codec not registered
     def test_exit(self):
         # call with two arguments
         self.assertRaises(TypeError, sys.exit, 42, 42)
@@ -1057,12 +1056,10 @@ class SysModuleTest(unittest.TestCase):
                          'stdout: surrogateescape\n'
                          'stderr: backslashreplace\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; stderr: backslashreplace
     @support.requires_subprocess()
     def test_c_locale_surrogateescape(self):
         self.check_locale_surrogateescape('C')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; stderr: backslashreplace
     @support.requires_subprocess()
     def test_posix_locale_surrogateescape(self):
         self.check_locale_surrogateescape('POSIX')
