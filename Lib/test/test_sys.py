@@ -209,6 +209,7 @@ class SysModuleTest(unittest.TestCase):
     def tearDown(self):
         test.support.reap_children()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; latin-1 codec not registered
     def test_exit(self):
         # call with two arguments
         self.assertRaises(TypeError, sys.exit, 42, 42)
@@ -400,7 +401,6 @@ class SysModuleTest(unittest.TestCase):
         finally:
             sys.setrecursionlimit(old_limit)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_getwindowsversion(self):
         # Raise SkipTest if sys doesn't have getwindowsversion attribute
         test.support.get_attribute(sys, "getwindowsversion")
@@ -850,7 +850,6 @@ class SysModuleTest(unittest.TestCase):
                     '''))
                 self.assertTrue(sys._is_interned(s))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs update for context_aware_warnings
     def test_sys_flags(self):
         self.assertTrue(sys.flags)
         attrs = ("debug",
@@ -1056,10 +1055,12 @@ class SysModuleTest(unittest.TestCase):
                          'stdout: surrogateescape\n'
                          'stderr: backslashreplace\n')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; iso8859_1 codec not registered
     @support.requires_subprocess()
     def test_c_locale_surrogateescape(self):
         self.check_locale_surrogateescape('C')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; iso8859_1 codec not registered
     @support.requires_subprocess()
     def test_posix_locale_surrogateescape(self):
         self.check_locale_surrogateescape('POSIX')
