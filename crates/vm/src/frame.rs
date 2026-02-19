@@ -2091,15 +2091,13 @@ impl ExecutingFrame<'_> {
                 self.fastlocals.lock()[idx.get(arg) as usize] = Some(value);
                 Ok(None)
             }
-            Instruction::StoreFastLoadFast {
-                store_idx,
-                load_idx,
-            } => {
+            Instruction::StoreFastLoadFast { var_nums } => {
                 // Store to one slot and load from another (often the same) - for inlined comprehensions
                 let value = self.pop_value();
                 let mut locals = self.fastlocals.lock();
-                locals[store_idx.get(arg) as usize] = Some(value);
-                let load_value = locals[load_idx.get(arg) as usize]
+                let oparg = var_nums.get(arg);
+                locals[oparg.store_idx() as usize] = Some(value);
+                let load_value = locals[oparg.load_idx() as usize]
                     .clone()
                     .expect("StoreFastLoadFast: load slot should have value after store");
                 drop(locals);

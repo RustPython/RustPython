@@ -7,7 +7,7 @@ use crate::{
             BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator,
             ConvertValueOparg, IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr,
             LoadSuperAttr, MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind,
-            SpecialMethod, UnpackExArgs,
+            SpecialMethod, StoreFastLoadFast, UnpackExArgs,
         },
     },
     marshal::MarshalError,
@@ -241,8 +241,7 @@ pub enum Instruction {
     StoreDeref(Arg<NameIdx>) = 111,
     StoreFast(Arg<NameIdx>) = 112,
     StoreFastLoadFast {
-        store_idx: Arg<NameIdx>,
-        load_idx: Arg<NameIdx>,
+        var_nums: Arg<StoreFastLoadFast>,
     } = 113,
     StoreFastStoreFast {
         arg: Arg<u32>,
@@ -901,12 +900,12 @@ impl InstructionMetadata for Instruction {
             Self::StoreAttr { idx } => w!(STORE_ATTR, name = idx),
             Self::StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
             Self::StoreFast(idx) => w!(STORE_FAST, varname = idx),
-            Self::StoreFastLoadFast {
-                store_idx,
-                load_idx,
-            } => {
+            Self::StoreFastLoadFast { var_nums } => {
+                let oparg = var_nums.get(arg);
+                let store_idx = oparg.store_idx();
+                let load_idx = oparg.load_idx();
                 write!(f, "STORE_FAST_LOAD_FAST")?;
-                write!(f, " ({}, {})", store_idx.get(arg), load_idx.get(arg))
+                write!(f, " ({}, {})", store_idx, load_idx)
             }
             Self::StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
             Self::StoreName(idx) => w!(STORE_NAME, name = idx),

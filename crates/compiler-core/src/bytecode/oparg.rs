@@ -323,6 +323,47 @@ impl fmt::Display for Label {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[repr(transparent)]
+pub struct StoreFastLoadFast(u32);
+
+impl StoreFastLoadFast {
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn store_idx(self) -> NameIdx {
+        self.0 >> 4
+    }
+
+    #[must_use]
+    pub const fn load_idx(self) -> NameIdx {
+        self.0 & 15
+    }
+}
+
+impl From<u32> for StoreFastLoadFast {
+    fn from(value: u32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<StoreFastLoadFast> for u32 {
+    fn from(value: StoreFastLoadFast) -> Self {
+        value.0
+    }
+}
+
+impl OpArgType for StoreFastLoadFast {}
+
+impl fmt::Display for StoreFastLoadFast {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 oparg_enum!(
     /// The kind of Raise that occurred.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
