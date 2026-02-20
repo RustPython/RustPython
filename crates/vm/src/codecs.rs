@@ -150,6 +150,31 @@ impl ToPyObject for PyCodec {
 }
 
 impl CodecsRegistry {
+    /// Force-unlock the inner RwLock after fork in the child process.
+    ///
+    /// # Safety
+    /// Must only be called after fork() in the child process when no other
+    /// threads exist. The calling thread must NOT hold this lock.
+    #[cfg(all(unix, feature = "host_env"))]
+    pub(crate) unsafe fn force_unlock_after_fork(&self) {
+        if self.inner.try_write().is_some() {
+            return;
+        }
+        let is_shared = self.inner.try_read().is_some();
+        if is_shared {
+            loop {
+                // SAFETY: Lock is shared-locked by dead thread(s).
+                unsafe { self.inner.force_unlock_read() };
+                if self.inner.try_write().is_some() {
+                    return;
+                }
+            }
+        } else {
+            // SAFETY: Lock is exclusively locked by a dead thread.
+            unsafe { self.inner.force_unlock_write() };
+        }
+    }
+
     pub(crate) fn new(ctx: &Context) -> Self {
         ::rustpython_vm::common::static_cell! {
             static METHODS: Box<[PyMethodDef]>;
