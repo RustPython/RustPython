@@ -1944,7 +1944,9 @@ mod _winapi {
             } else {
                 hr as u32
             };
-            return Err(vm.new_os_error(err as i32));
+            return Err(
+                std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm),
+            );
         }
         Ok(())
     }
