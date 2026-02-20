@@ -75,3 +75,7 @@ assert urlpattern.match(url).group(1) == "www.example.org:80"
 
 assert re.compile("(?:\w+(?:\s|/(?!>))*)*").match("a /bb />ccc").group() == "a /bb "
 assert re.compile("(?:(1)?)*").match("111").group() == "111"
+
+# Test of fix re.fullmatch POSSESSIVE_REPEAT, issue #7183
+assert re.fullmatch(r"([0-9]++(?:\.[0-9]+)*+)", "1.25.38")
+assert re.fullmatch(r"([0-9]++(?:\.[0-9]+)*+)", "1.25.38").group(0) == "1.25.38"

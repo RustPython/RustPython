@@ -2537,7 +2537,6 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match("^x{}+$", "xxx"))
         self.assertTrue(re.match("^x{}+$", "x{}"))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_fullmatch_possessive_quantifiers(self):
         self.assertTrue(re.fullmatch(r'a++', 'a'))
         self.assertTrue(re.fullmatch(r'a*+', 'a'))
@@ -2590,7 +2589,6 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match(r'(?>x)++x', 'xxx'))
         self.assertIsNone(re.match(r'(?>x++)x', 'xxx'))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_fullmatch_atomic_grouping(self):
         self.assertTrue(re.fullmatch(r'(?>a+)', 'a'))
         self.assertTrue(re.fullmatch(r'(?>a*)', 'a'))
@@ -2629,7 +2627,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.findall(r'(?>(?:ab)?)', 'ababc'), ['ab', 'ab', '', ''])
         self.assertEqual(re.findall(r'(?>(?:ab){1,3})', 'ababc'), ['abab'])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_gh91616(self):
         self.assertTrue(re.fullmatch(r'(?s:(?>.*?\.).*)\z', "a.txt")) # reproducer
         self.assertTrue(re.fullmatch(r'(?s:(?=(?P<g0>.*?\.))(?P=g0).*)\z', "a.txt"))

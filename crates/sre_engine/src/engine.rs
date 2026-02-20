@@ -470,7 +470,10 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                     Jump::PossessiveRepeat1 => {
                         let min_count = ctx.peek_code(req, 2) as isize;
                         if ctx.count < min_count {
-                            break 'context ctx.next_offset(4, Jump::PossessiveRepeat2);
+                            // modified next.toplevel from inherited to false
+                            let mut next = ctx.next_offset(4, Jump::PossessiveRepeat2);
+                            next.toplevel = false;
+                            break 'context next;
                         }
                         // zero match protection
                         ctx.cursor.position = usize::MAX;
@@ -494,7 +497,9 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                         {
                             state.marks.push();
                             ctx.cursor = state.cursor;
-                            break 'context ctx.next_offset(4, Jump::PossessiveRepeat4);
+                            let mut next = ctx.next_offset(4, Jump::PossessiveRepeat4);
+                            next.toplevel = false; // modified next.toplevel from inherited to false
+                            break 'context next;
                         }
                         ctx.cursor = state.cursor;
                         ctx.skip_code_from(req, 1);
@@ -832,7 +837,9 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                         /* <ATOMIC_GROUP> <skip> pattern <SUCCESS> tail */
                         SreOpcode::ATOMIC_GROUP => {
                             state.cursor = ctx.cursor;
-                            break 'context ctx.next_offset(2, Jump::AtomicGroup1);
+                            let mut next_ctx = ctx.next_offset(2, Jump::AtomicGroup1);
+                            next_ctx.toplevel = false; // modified next.toplevel from inherited to false
+                            break 'context next_ctx;
                         }
                         /* <POSSESSIVE_REPEAT> <skip> <1=min> <2=max> pattern
                         <SUCCESS> tail */
