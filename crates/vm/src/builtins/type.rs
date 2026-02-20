@@ -423,6 +423,10 @@ impl PyType {
 
         // Static types are not tracked by GC.
         // They are immortal and never participate in collectable cycles.
+        unsafe {
+            crate::gc_state::gc_state()
+                .untrack_object(core::ptr::NonNull::from(new_type.as_object()));
+        }
         new_type.as_object().clear_gc_tracked();
 
         new_type.mro.write().insert(0, new_type.clone());

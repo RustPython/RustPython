@@ -43,6 +43,7 @@ thread_local! {
     /// while the owning thread is writing).
     pub(crate) static CURRENT_FRAME: AtomicPtr<Frame> =
         const { AtomicPtr::new(core::ptr::null_mut()) };
+
 }
 
 scoped_tls::scoped_thread_local!(static VM_CURRENT: VirtualMachine);

@@ -730,26 +730,25 @@ impl VirtualMachine {
 
         // Phase 2: Remove all modules from sys.modules (set values to None),
         // and collect weakrefs to modules preserving import order.
-        // Also keeps strong refs (module_refs) to prevent premature deallocation.
-        // CPython uses _PyGC_CollectNoFail() here to collect __globals__ cycles;
-        // since RustPython has no working GC, we keep modules alive through
-        // Phase 4 so their dicts can be explicitly cleared.
-        let (module_weakrefs, module_refs) = self.finalize_remove_modules();
+        // No strong refs are kept — modules freed when their last ref drops.
+        let module_weakrefs = self.finalize_remove_modules();
 
         // Phase 3: Clear sys.modules dict
         self.finalize_clear_modules_dict();
 
-        // Phase 4: Clear module dicts in reverse import order using 2-pass algorithm.
-        // All modules are still alive (held by module_refs), so all weakrefs are valid.
-        // This breaks __globals__ cycles: dict entries set to None → functions freed →
-        // __globals__ refs dropped → dict refcount decreases.
+        // Phase 4: GC collect — modules removed from sys.modules are freed,
+        // exposing cycles (e.g., dict ↔ function.__globals__). GC collects
+        // these and calls __del__ while module dicts are still intact.
+        crate::gc_state::gc_state().collect_force(2);
+
+        // Phase 5: Clear module dicts in reverse import order using 2-pass algorithm.
+        // Skip builtins and sys — those are cleared last.
         self.finalize_clear_module_dicts(&module_weakrefs);
 
-        // Drop strong refs → modules freed with already-cleared dicts.
-        // No __globals__ cycles remain (broken by Phase 4).
-        drop(module_refs);
+        // Phase 6: GC collect — pick up anything freed by dict clearing.
+        crate::gc_state::gc_state().collect_force(2);
 
-        // Phase 5: Clear sys and builtins dicts last
+        // Phase 7: Clear sys and builtins dicts last
         self.finalize_clear_sys_builtins_dict();
     }
 
@@ -793,17 +792,17 @@ impl VirtualMachine {
         let _ = self.builtins.dict().set_item("_", none, self);
     }
 
-    /// Phase 2: Set all sys.modules values to None and collect weakrefs to modules.
-    /// Returns (weakrefs for Phase 4, strong refs to keep modules alive).
-    fn finalize_remove_modules(&self) -> (Vec<(String, PyRef<PyWeak>)>, Vec<PyObjectRef>) {
+    /// Phase 2: Set all sys.modules values to None and collect weakrefs.
+    /// No strong refs are kept — modules are freed when removed from sys.modules
+    /// (if nothing else references them), allowing GC to collect their cycles.
+    fn finalize_remove_modules(&self) -> Vec<(String, PyRef<PyWeak>)> {
         let mut module_weakrefs = Vec::new();
-        let mut module_refs = Vec::new();
 
         let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self) else {
-            return (module_weakrefs, module_refs);
+            return module_weakrefs;
         };
         let Some(modules_dict) = modules.downcast_ref::<PyDict>() else {
-            return (module_weakrefs, module_refs);
+            return module_weakrefs;
         };
 
         let none = self.ctx.none();
@@ -815,19 +814,18 @@ impl VirtualMachine {
                 .map(|s| s.as_str().to_owned())
                 .unwrap_or_default();
 
-            // Save weakref and strong ref to module for later clearing
-            if value.downcast_ref::<PyModule>().is_some() {
-                if let Ok(weak) = value.downgrade(None, self) {
-                    module_weakrefs.push((name, weak));
-                }
-                module_refs.push(value.clone());
+            // Save weakref to module (for later dict clearing)
+            if value.downcast_ref::<PyModule>().is_some()
+                && let Ok(weak) = value.downgrade(None, self)
+            {
+                module_weakrefs.push((name, weak));
             }
 
             // Set the value to None in sys.modules
             let _ = modules_dict.set_item(&*key, none.clone(), self);
         }
 
-        (module_weakrefs, module_refs)
+        module_weakrefs
     }
 
     /// Phase 3: Clear sys.modules dict.
@@ -839,18 +837,13 @@ impl VirtualMachine {
         }
     }
 
-    /// Phase 4: Clear module dicts in reverse import order using 2-pass algorithm.
-    /// Without GC, only clear __main__ — other modules' __del__ handlers
-    /// need their globals intact. CPython can clear ALL module dicts because
-    /// _PyGC_CollectNoFail() finalizes cycle-participating objects beforehand.
+    /// Phase 5: Clear module dicts in reverse import order.
+    /// Skip builtins and sys — those are cleared last in Phase 7.
     fn finalize_clear_module_dicts(&self, module_weakrefs: &[(String, PyRef<PyWeak>)]) {
-        for (name, weakref) in module_weakrefs.iter().rev() {
-            // Only clear __main__ — user objects with __del__ get finalized
-            // while other modules' globals remain intact for their __del__ handlers.
-            if name != "__main__" {
-                continue;
-            }
+        let builtins_dict = self.builtins.dict();
+        let sys_dict = self.sys_module.dict();
 
+        for (_name, weakref) in module_weakrefs.iter().rev() {
             let Some(module_obj) = weakref.upgrade() else {
                 continue;
             };
@@ -858,7 +851,13 @@ impl VirtualMachine {
                 continue;
             };
 
-            Self::module_clear_dict(&module.dict(), self);
+            let dict = module.dict();
+            // Skip builtins and sys — they are cleared last
+            if dict.is(&builtins_dict) || dict.is(&sys_dict) {
+                continue;
+            }
+
+            Self::module_clear_dict(&dict, self);
         }
     }
 
@@ -875,7 +874,7 @@ impl VirtualMachine {
             }
             if let Some(key_str) = key.downcast_ref::<PyStr>() {
                 let name = key_str.as_str();
-                if name.starts_with('_') && name != "__builtins__" && name != "__spec__" {
+                if name.starts_with('_') && name != "__builtins__" {
                     let _ = dict.set_item(name, none.clone(), vm);
                 }
             }
@@ -888,14 +887,13 @@ impl VirtualMachine {
             }
             if let Some(key_str) = key.downcast_ref::<PyStr>()
                 && key_str.as_str() != "__builtins__"
-                && key_str.as_str() != "__spec__"
             {
                 let _ = dict.set_item(key_str.as_str(), none.clone(), vm);
             }
         }
     }
 
-    /// Phase 5: Clear sys and builtins dicts last.
+    /// Phase 7: Clear sys and builtins dicts last.
     fn finalize_clear_sys_builtins_dict(&self) {
         Self::module_clear_dict(&self.sys_module.dict(), self);
         Self::module_clear_dict(&self.builtins.dict(), self);
@@ -1148,6 +1146,7 @@ impl VirtualMachine {
             self.frames.borrow_mut().pop();
             #[cfg(feature = "threading")]
             crate::vm::thread::pop_thread_frame();
+
             self.recursion_depth.update(|d| d - 1);
         }
 

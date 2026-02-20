@@ -89,11 +89,23 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         return; // resurrected by __del__
     }
 
-    // Extract child references before deallocation to break circular refs (tp_clear).
-    // This ensures that when edges are dropped after the object is freed,
-    // any pointers back to this object are already gone.
+    let vtable = obj_ref.0.vtable;
+
+    // Untrack from GC BEFORE deallocation.
+    if obj_ref.is_gc_tracked() {
+        let ptr = unsafe { NonNull::new_unchecked(obj) };
+        rustpython_common::refcount::try_defer_drop(move || {
+            // untrack_object only removes the pointer address from a HashSet.
+            // It does NOT dereference the pointer, so it's safe even after deallocation.
+            unsafe {
+                crate::gc_state::gc_state().untrack_object(ptr);
+            }
+        });
+    }
+
+    // Extract child references before deallocation to break circular refs (tp_clear)
     let mut edges = Vec::new();
-    if let Some(clear_fn) = obj_ref.0.vtable.clear {
+    if let Some(clear_fn) = vtable.clear {
         unsafe { clear_fn(obj, &mut edges) };
     }
 
@@ -316,20 +328,24 @@ impl WeakRefList {
         dict: Option<PyDictRef>,
     ) -> PyRef<PyWeak> {
         let is_generic = cls_is_weakref && callback.is_none();
-        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
 
-        // try_reuse_basic_ref: reuse cached generic weakref
-        if is_generic {
-            let generic_ptr = self.generic.load(Ordering::Relaxed);
-            if !generic_ptr.is_null() {
-                let generic = unsafe { &*generic_ptr };
-                if generic.0.ref_count.safe_inc() {
-                    return unsafe { PyRef::from_raw(generic_ptr) };
+        // Try reuse under lock first (fast path, no allocation)
+        {
+            let _lock = weakref_lock::lock(obj as *const PyObject as usize);
+            if is_generic {
+                let generic_ptr = self.generic.load(Ordering::Relaxed);
+                if !generic_ptr.is_null() {
+                    let generic = unsafe { &*generic_ptr };
+                    if generic.0.ref_count.safe_inc() {
+                        return unsafe { PyRef::from_raw(generic_ptr) };
+                    }
                 }
             }
         }
 
-        // Allocate new PyWeak with wr_object pointing to referent
+        // Allocate OUTSIDE the stripe lock. PyRef::new_ref may trigger
+        // maybe_collect → GC → WeakRefList::clear on another object that
+        // hashes to the same stripe, which would deadlock on the spinlock.
         let weak_payload = PyWeak {
             pointers: Pointers::new(),
             wr_object: Radium::new(obj as *const PyObject as *mut PyObject),
@@ -337,6 +353,9 @@ impl WeakRefList {
             hash: Radium::new(crate::common::hash::SENTINEL),
         };
         let weak = PyRef::new_ref(weak_payload, cls, dict);
+
+        // Re-acquire lock for linked list insertion
+        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
 
         // Insert into linked list under stripe lock
         let node_ptr = NonNull::from(&*weak);
@@ -1070,7 +1089,7 @@ impl PyObject {
                 // Undo the temporary resurrection. Always remove both
                 // temporary refs; the second dec returns true only when
                 // ref_count drops to 0 (no resurrection).
-                zelf.0.ref_count.dec();
+                let _ = zelf.0.ref_count.dec();
                 zelf.0.ref_count.dec()
             });
             match ret {
@@ -1147,7 +1166,7 @@ impl PyObject {
     /// Call __del__ if present, without triggering object deallocation.
     /// Used by GC to call finalizers before breaking cycles.
     /// This allows proper resurrection detection.
-    /// CPython: PyObject_CallFinalizerFromDealloc in Objects/object.c
+    /// PyObject_CallFinalizerFromDealloc
     pub fn try_call_finalizer(&self) {
         let del = self.class().slots.del.load();
         if let Some(slot_del) = del
