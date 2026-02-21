@@ -331,6 +331,21 @@ impl VirtualMachine {
         self.state
             .codec_registry
             .register_manual("utf8", utf8_codec)?;
+
+        // Register latin-1 / iso8859-1 aliases needed very early for stdio
+        // bootstrap (e.g. PYTHONIOENCODING=latin-1).
+        if cfg!(feature = "freeze-stdlib") {
+            self.import("encodings.latin_1", 0)?;
+            let latin1_module = sys_modules.get_item("encodings.latin_1", self)?;
+            let getregentry = latin1_module.get_attr("getregentry", self)?;
+            let codec_info = getregentry.call((), self)?;
+            let latin1_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
+            for name in ["latin-1", "latin_1", "latin1", "iso8859-1", "iso8859_1"] {
+                self.state
+                    .codec_registry
+                    .register_manual(name, latin1_codec.clone())?;
+            }
+        }
         Ok(())
     }
 
@@ -367,8 +382,8 @@ impl VirtualMachine {
                 let io = import::import_builtin(self, "_io")?;
 
                 // Full stdio: FileIO → BufferedWriter → TextIOWrapper
-                #[cfg(feature = "host_env")]
-                let make_stdio = |name: &str, fd: i32, write: bool| {
+                #[cfg(all(feature = "host_env", feature = "stdio"))]
+                let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
                     let buffered_stdio = self.state.config.settings.buffered_stdio;
                     let unbuffered = write && !buffered_stdio;
                     let buf = crate::stdlib::io::open(
@@ -397,12 +412,13 @@ impl VirtualMachine {
                     let errors = if fd == 2 {
                         Some("backslashreplace")
                     } else {
-                        self.state
-                            .config
-                            .settings
-                            .stdio_errors
-                            .as_deref()
-                            .or(Some("surrogateescape"))
+                        self.state.config.settings.stdio_errors.as_deref().or(
+                            if self.state.config.settings.stdio_encoding.is_some() {
+                                Some("strict")
+                            } else {
+                                Some("surrogateescape")
+                            },
+                        )
                     };
 
                     let stdio = self.call_method(

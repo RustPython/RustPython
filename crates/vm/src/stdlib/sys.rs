@@ -73,7 +73,7 @@ mod sys {
         RUST_MULTIARCH.replace("-unknown", "")
     }
 
-    #[pyclass(no_attr, name = "_BootstrapStderr", module = "sys")]
+    #[pyclass(no_attr, name = "_BootstrapStderr")]
     #[derive(Debug, PyPayload)]
     pub(super) struct BootstrapStderr;
 
@@ -95,7 +95,7 @@ mod sys {
 
     /// Lightweight stdio wrapper for sandbox mode (no host_env).
     /// Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
-    #[pyclass(no_attr, name = "_SandboxStdio", module = "sys")]
+    #[pyclass(no_attr, name = "_SandboxStdio")]
     #[derive(Debug, PyPayload)]
     pub struct SandboxStdio {
         pub fd: i32,
@@ -1565,10 +1565,6 @@ mod sys {
         safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
         warn_default_encoding: u8,
-        /// -X thread_inherit_context, whether new threads inherit context from parent
-        thread_inherit_context: bool,
-        /// -X context_aware_warnings, whether warnings are context aware
-        context_aware_warnings: bool,
     }
 
     impl FlagsData {
@@ -1592,13 +1588,11 @@ mod sys {
                 int_max_str_digits: settings.int_max_str_digits,
                 safe_path: settings.safe_path,
                 warn_default_encoding: settings.warn_default_encoding as u8,
-                thread_inherit_context: settings.thread_inherit_context,
-                context_aware_warnings: settings.context_aware_warnings,
             }
         }
     }
 
-    #[pystruct_sequence(name = "flags", module = "sys", data = "FlagsData", no_attr)]
+    #[pystruct_sequence(name = "flags", data = "FlagsData", no_attr)]
     pub(super) struct PyFlags;
 
     #[pyclass(with(PyStructSequence))]
@@ -1606,6 +1600,16 @@ mod sys {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create 'sys.flags' instances"))
+        }
+
+        #[pygetset]
+        fn context_aware_warnings(&self, vm: &VirtualMachine) -> bool {
+            vm.state.config.settings.context_aware_warnings
+        }
+
+        #[pygetset]
+        fn thread_inherit_context(&self, vm: &VirtualMachine) -> bool {
+            vm.state.config.settings.thread_inherit_context
         }
     }
 
@@ -1776,10 +1780,15 @@ mod sys {
         build: u32,
         platform: u32,
         service_pack: String,
+        #[pystruct_sequence(skip)]
         service_pack_major: u16,
+        #[pystruct_sequence(skip)]
         service_pack_minor: u16,
+        #[pystruct_sequence(skip)]
         suite_mask: u16,
+        #[pystruct_sequence(skip)]
         product_type: u8,
+        #[pystruct_sequence(skip)]
         platform_version: (u32, u32, u32),
     }
 
