@@ -1,7 +1,7 @@
 use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-    builtins::{PyBaseExceptionRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::{PyClassImpl, StaticType},
     function::{Either, FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags},
     iter::PyExactSizeIterator,
@@ -225,7 +225,21 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             } else {
                 (String::new(), "...")
             };
-        let repr_str = format!("{}({}{})", Self::TP_NAME, body, suffix);
+        // Build qualified name: if MODULE_NAME is already in TP_NAME, use it directly.
+        // Otherwise, check __module__ attribute (set by #[pymodule] at runtime).
+        let type_name = if Self::MODULE_NAME.is_some() {
+            alloc::borrow::Cow::Borrowed(Self::TP_NAME)
+        } else {
+            let typ = zelf.class();
+            match typ.get_attr(identifier!(vm.ctx, __module__)) {
+                Some(module) if module.downcastable::<PyStr>() => {
+                    let module_str = module.downcast_ref::<PyStr>().unwrap();
+                    alloc::borrow::Cow::Owned(format!("{}.{}", module_str.as_str(), Self::NAME))
+                }
+                _ => alloc::borrow::Cow::Borrowed(Self::TP_NAME),
+            }
+        };
+        let repr_str = format!("{}({}{})", type_name, body, suffix);
         Ok(vm.ctx.new_str(repr_str))
     }
 
