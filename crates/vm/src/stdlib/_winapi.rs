@@ -279,9 +279,9 @@ mod _winapi {
         }
         si_attr!(dwFlags);
         si_attr!(wShowWindow);
-        si_attr!(hStdInput, usize);
-        si_attr!(hStdOutput, usize);
-        si_attr!(hStdError, usize);
+        si_attr!(hStdInput, isize);
+        si_attr!(hStdOutput, isize);
+        si_attr!(hStdError, isize);
 
         let mut env = args
             .env_mapping
@@ -1160,7 +1160,7 @@ mod _winapi {
         initial_state: bool,
         name: Option<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<WinHandle>> {
+    ) -> PyResult<WinHandle> {
         use windows_sys::Win32::System::Threading::CreateEventW as WinCreateEventW;
 
         let _ = security_attributes; // Ignored, always NULL
@@ -1177,15 +1177,11 @@ mod _winapi {
             )
         };
 
-        if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+        if handle.is_null() {
             return Err(vm.new_last_os_error());
         }
 
-        if handle.is_null() {
-            return Ok(None);
-        }
-
-        Ok(Some(WinHandle(handle)))
+        Ok(WinHandle(handle))
     }
 
     /// SetEvent - Set the specified event object to the signaled state.
@@ -1944,9 +1940,7 @@ mod _winapi {
             } else {
                 hr as u32
             };
-            return Err(
-                std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm),
-            );
+            return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
         }
         Ok(())
     }
@@ -1967,6 +1961,7 @@ mod _winapi {
         if err != 0 {
             return Err(vm.new_os_error(err as i32));
         }
+        scopeguard::defer! { unsafe { RegCloseKey(hkcr) }; }
 
         let mut i: u32 = 0;
         let mut entries: Vec<(String, String)> = Vec::new();
@@ -1993,7 +1988,6 @@ mod _winapi {
                 break;
             }
             if err != 0 && err != windows_sys::Win32::Foundation::ERROR_MORE_DATA {
-                unsafe { RegCloseKey(hkcr) };
                 return Err(vm.new_os_error(err as i32));
             }
 
@@ -2013,7 +2007,6 @@ mod _winapi {
                 continue;
             }
             if err != 0 {
-                unsafe { RegCloseKey(hkcr) };
                 return Err(vm.new_os_error(err as i32));
             }
 
@@ -2056,8 +2049,6 @@ mod _winapi {
                 }
             }
         }
-
-        unsafe { RegCloseKey(hkcr) };
 
         // Process remaining entries
         for (mime_type, ext) in entries {
