@@ -837,7 +837,14 @@ impl ModuleItem for StructSequenceItem {
                 "#[pystruct_sequence] requires name parameter",
             )
         })?;
+        let has_module = meta.module()?.is_some();
         let module_name = meta.module()?.unwrap_or_else(|| args.context.name.clone());
+        if !has_module {
+            let structseq_attr = &mut args.attrs[self.inner.index];
+            structseq_attr.fill_nested_meta("module", || {
+                parse_quote! {module = #module_name}
+            })?;
+        }
         let no_attr = meta.no_attr()?;
 
         // Generate the class creation code
