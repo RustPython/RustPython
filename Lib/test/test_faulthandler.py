@@ -199,7 +199,6 @@ class FaultHandlerTests(unittest.TestCase):
             3,
             'Segmentation fault')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '(?m)^Fatal Python error: Segmentation fault\n\n<Cannot show all threads while the GIL is disabled>\nStack\\ \\(most\\ recent\\ call\\ first\\):\n  File "<string>", line 9 in __del__\nCurrent thread\'s C stack trace \\(most recent call first\\):\n(  Binary file ".+"(, at .*(\\+|-)0x[0-9a-f]+)? \\[0x[0-9a-f]+\\])|(<.+>)' not found in 'exit'
     @skip_segfault_on_android
     def test_gc(self):
         # bpo-44466: Detect if the GC is running

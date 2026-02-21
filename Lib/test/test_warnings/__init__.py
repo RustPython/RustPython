@@ -1610,7 +1610,6 @@ class BootstrapTest(unittest.TestCase):
 
 
 class FinalizationTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - TypeError: 'NoneType' object is not callable
     def test_finalization(self):
         # Issue #19421: warnings.warn() should not crash
         # during Python finalization

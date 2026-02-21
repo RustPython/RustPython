@@ -485,7 +485,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         buf2.release()
         memio.write(b'x')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <memory at 0xbb894d200> is not None
     def test_getbuffer_gc_collect(self):
         memio = self.ioclass(b"1234567890")
         buf = memio.getbuffer()
