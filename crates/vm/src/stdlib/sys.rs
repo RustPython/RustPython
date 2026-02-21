@@ -33,8 +33,8 @@ mod sys {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
-            PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTupleRef,
-            PyTypeRef,
+            PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef,
         },
         common::{
             ascii,
@@ -789,8 +789,22 @@ mod sys {
 
     #[pyfunction]
     fn exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let code = code.unwrap_or_none(vm);
-        Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
+        let status = code.unwrap_or_none(vm);
+        let args = if let Some(status_tuple) = status.downcast_ref::<PyTuple>() {
+            status_tuple.as_slice().to_vec()
+        } else {
+            vec![status]
+        };
+        let exc = vm.invoke_exception(vm.ctx.exceptions.system_exit.to_owned(), args)?;
+        Err(exc)
+    }
+
+    #[pyfunction]
+    fn call_tracing(func: PyObjectRef, args: PyTupleRef, vm: &VirtualMachine) -> PyResult {
+        // CPython temporarily enables tracing state around this call.
+        // RustPython does not currently model the full C-level tracing toggles,
+        // but call semantics (func(*args)) are matched.
+        func.call(PosArgs::new(args.as_slice().to_vec()), vm)
     }
 
     #[pyfunction]
@@ -1028,6 +1042,33 @@ mod sys {
             dict.set_item(key.as_object(), frame.into(), vm)?;
         }
 
+        Ok(dict)
+    }
+
+    /// Return a dictionary mapping each thread's identifier to its currently
+    /// active exception, or None if no exception is active.
+    #[cfg(feature = "threading")]
+    #[pyfunction]
+    fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        use crate::AsObject;
+        use crate::vm::thread::get_all_current_exceptions;
+
+        let dict = vm.ctx.new_dict();
+        for (thread_id, exc) in get_all_current_exceptions(vm) {
+            let key = vm.ctx.new_int(thread_id);
+            let value = exc.map_or_else(|| vm.ctx.none(), |e| e.into());
+            dict.set_item(key.as_object(), value, vm)?;
+        }
+
+        Ok(dict)
+    }
+
+    #[cfg(not(feature = "threading"))]
+    #[pyfunction]
+    fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        let dict = vm.ctx.new_dict();
+        let key = vm.ctx.new_int(0);
+        dict.set_item(key.as_object(), vm.topmost_exception().to_pyobject(vm), vm)?;
         Ok(dict)
     }
 
