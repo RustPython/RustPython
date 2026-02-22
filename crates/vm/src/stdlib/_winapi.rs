@@ -800,7 +800,11 @@ mod _winapi {
     }
 
     struct OverlappedInner {
-        overlapped: windows_sys::Win32::System::IO::OVERLAPPED,
+        // Box ensures the OVERLAPPED struct stays at a stable heap address
+        // even when the containing Overlapped Python object is moved during
+        // into_pyobject(). The OS holds a pointer to this struct for pending
+        // I/O operations, so it must not be relocated.
+        overlapped: Box<windows_sys::Win32::System::IO::OVERLAPPED>,
         handle: HANDLE,
         pending: bool,
         completed: bool,
@@ -833,7 +837,7 @@ mod _winapi {
 
             Overlapped {
                 inner: PyMutex::new(OverlappedInner {
-                    overlapped,
+                    overlapped: Box::new(overlapped),
                     handle,
                     pending: false,
                     completed: false,
@@ -858,7 +862,7 @@ mod _winapi {
             let ret = unsafe {
                 GetOverlappedResult(
                     inner.handle,
-                    &inner.overlapped,
+                    &*inner.overlapped,
                     &mut transferred,
                     if wait { 1 } else { 0 },
                 )
@@ -913,7 +917,7 @@ mod _winapi {
 
             let mut inner = self.inner.lock();
             let ret = if inner.pending {
-                unsafe { CancelIoEx(inner.handle, &inner.overlapped) }
+                unsafe { CancelIoEx(inner.handle, &*inner.overlapped) }
             } else {
                 1
             };
@@ -958,9 +962,9 @@ mod _winapi {
     /// ConnectNamedPipe - Wait for a client to connect to a named pipe
     #[derive(FromArgs)]
     struct ConnectNamedPipeArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         handle: WinHandle,
-        #[pyarg(named, optional)]
+        #[pyarg(any, optional)]
         overlapped: OptionalArg<bool>,
     }
 
@@ -982,7 +986,7 @@ mod _winapi {
                 unsafe {
                     windows_sys::Win32::System::Pipes::ConnectNamedPipe(
                         handle.0,
-                        &mut inner.overlapped,
+                        &mut *inner.overlapped,
                     )
                 }
             };
@@ -1200,11 +1204,11 @@ mod _winapi {
 
     #[derive(FromArgs)]
     struct WriteFileArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         handle: WinHandle,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         buffer: crate::function::ArgBytesLike,
-        #[pyarg(named, default = false)]
+        #[pyarg(any, default = false)]
         overlapped: bool,
     }
 
@@ -1233,7 +1237,7 @@ mod _winapi {
                         write_buf.as_ptr() as *const _,
                         len,
                         &mut written,
-                        &mut inner.overlapped,
+                        &mut *inner.overlapped,
                     )
                 };
 
@@ -1287,11 +1291,11 @@ mod _winapi {
 
     #[derive(FromArgs)]
     struct ReadFileArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         handle: WinHandle,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         size: u32,
-        #[pyarg(named, default = false)]
+        #[pyarg(any, default = false)]
         overlapped: bool,
     }
 
@@ -1319,7 +1323,7 @@ mod _winapi {
                         read_buf.as_mut_ptr() as *mut _,
                         size,
                         &mut nread,
-                        &mut inner.overlapped,
+                        &mut *inner.overlapped,
                     )
                 };
 
