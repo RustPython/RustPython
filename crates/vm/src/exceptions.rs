@@ -2084,10 +2084,12 @@ pub(super) mod types {
                         }
                         result.push(args_reduced.into_pytuple(vm).into());
                     } else {
-                        result.push(vm.new_tuple((errno, msg)).into());
+                        // filename is None - use original args as-is
+                        // (may contain winerror at position 3)
+                        result.push(args.into());
                     }
                 } else {
-                    result.push(vm.new_tuple((errno, msg)).into());
+                    result.push(args.into());
                 }
             } else {
                 result.push(args.into());
