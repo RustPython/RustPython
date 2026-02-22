@@ -75,12 +75,6 @@ mod _multiprocessing {
             if handle == 0 as HANDLE {
                 return Err(vm.new_last_os_error());
             }
-            // Check ERROR_ALREADY_EXISTS
-            let last_err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
-            if last_err != 0 {
-                unsafe { CloseHandle(handle) };
-                return Err(vm.new_last_os_error());
-            }
             Ok(SemHandle { raw: handle })
         }
 
@@ -184,21 +178,44 @@ mod _multiprocessing {
                 return Ok(true);
             }
 
-            // Do the wait
-            let res = unsafe { WaitForSingleObjectEx(self.handle.as_raw(), full_msecs, 0) };
+            // Poll with signal checking (CPython uses WaitForMultipleObjectsEx
+            // with sigint_event; we poll since RustPython has no sigint event)
+            let poll_ms: u32 = 100;
+            let mut elapsed: u32 = 0;
+            loop {
+                let wait_ms = if full_msecs == INFINITE {
+                    poll_ms
+                } else {
+                    let remaining = full_msecs.saturating_sub(elapsed);
+                    if remaining == 0 {
+                        return Ok(false);
+                    }
+                    remaining.min(poll_ms)
+                };
 
-            match res {
-                WAIT_TIMEOUT => Ok(false),
-                WAIT_OBJECT_0 => {
-                    self.last_tid
-                        .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
-                    self.count.fetch_add(1, Ordering::Release);
-                    Ok(true)
+                let res =
+                    unsafe { WaitForSingleObjectEx(self.handle.as_raw(), wait_ms, 0) };
+
+                match res {
+                    WAIT_OBJECT_0 => {
+                        self.last_tid
+                            .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+                        self.count.fetch_add(1, Ordering::Release);
+                        return Ok(true);
+                    }
+                    WAIT_TIMEOUT => {
+                        vm.check_signals()?;
+                        if full_msecs != INFINITE {
+                            elapsed = elapsed.saturating_add(wait_ms);
+                        }
+                    }
+                    WAIT_FAILED => return Err(vm.new_last_os_error()),
+                    _ => {
+                        return Err(vm.new_runtime_error(format!(
+                            "WaitForSingleObject() gave unrecognized value {res}"
+                        )))
+                    }
                 }
-                WAIT_FAILED => Err(vm.new_last_os_error()),
-                _ => Err(vm.new_runtime_error(format!(
-                    "WaitForSingleObject() gave unrecognized value {res}"
-                ))),
             }
         }
 
@@ -363,14 +380,15 @@ mod _multiprocessing {
     }
 
     #[pyfunction]
-    fn recv(socket: usize, size: usize, vm: &VirtualMachine) -> PyResult<libc::c_int> {
-        let mut buf = vec![0; size];
+    fn recv(socket: usize, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut buf = vec![0u8; size];
         let n_read =
             unsafe { WinSock::recv(socket as SOCKET, buf.as_mut_ptr() as *mut _, size as i32, 0) };
         if n_read < 0 {
             Err(vm.new_last_os_error())
         } else {
-            Ok(n_read)
+            buf.truncate(n_read as usize);
+            Ok(buf)
         }
     }
 
