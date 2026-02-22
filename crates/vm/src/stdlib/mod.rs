@@ -64,6 +64,7 @@ mod _wmi;
 pub(crate) mod signal;
 pub mod sys;
 #[cfg(all(feature = "host_env", windows))]
+#[path = "_winapi.rs"]
 mod winapi;
 #[cfg(all(feature = "host_env", windows))]
 mod winreg;

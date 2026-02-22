@@ -147,6 +147,7 @@
     // "stat"
     "FIRMLINK",
     // CPython internal names
+    "PYTHONUTF",
     "sysdict",
     "settraceallthreads",
     "setprofileallthreads"

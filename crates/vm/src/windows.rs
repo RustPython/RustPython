@@ -61,7 +61,7 @@ impl<T: WindowsSysResultValue> ToPyResult for WindowsSysResult<T> {
     }
 }
 
-type HandleInt = usize; // TODO: change to isize when fully ported to windows-rs
+type HandleInt = isize;
 
 impl TryFromObject for WinHandle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {

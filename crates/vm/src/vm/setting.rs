@@ -124,7 +124,7 @@ pub struct Settings {
     pub stdio_encoding: Option<String>,
     /// PYTHONIOENCODING - stdio error handler
     pub stdio_errors: Option<String>,
-    pub utf8_mode: u8,
+    pub utf8_mode: i8,
     /// --check-hash-based-pycs
     pub check_hash_pycs_mode: CheckHashPycsMode,
 
@@ -211,7 +211,7 @@ impl Default for Settings {
             allow_external_library: cfg!(feature = "importlib"),
             stdio_encoding: None,
             stdio_errors: None,
-            utf8_mode: 1,
+            utf8_mode: -1,
             int_max_str_digits: 4300,
             #[cfg(feature = "flame-it")]
             profile_output: None,

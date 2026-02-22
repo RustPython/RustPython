@@ -1584,7 +1584,11 @@ mod sys {
                 hash_randomization: settings.hash_seed.is_none() as u8,
                 isolated: settings.isolated as u8,
                 dev_mode: settings.dev_mode,
-                utf8_mode: settings.utf8_mode,
+                utf8_mode: if settings.utf8_mode < 0 {
+                    1
+                } else {
+                    settings.utf8_mode as u8
+                },
                 int_max_str_digits: settings.int_max_str_digits,
                 safe_path: settings.safe_path,
                 warn_default_encoding: settings.warn_default_encoding as u8,
