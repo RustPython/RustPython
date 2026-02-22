@@ -669,7 +669,6 @@ class OrderedDictTests:
         dict.update(od, [('spam', 1)])
         self.assertNotIn('NULL', repr(od))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'test.test_ordered_dict.OrderedDictTests.test_reference_loop.<locals>.A'> is not None
     def test_reference_loop(self):
         # Issue 25935
         OrderedDict = self.OrderedDict

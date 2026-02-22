@@ -403,8 +403,6 @@ class TestWeakSet(unittest.TestCase):
             s.clear()
         self.assertEqual(len(s), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len_cycles(self):
         N = 20
         items = [RefCycle() for i in range(N)]

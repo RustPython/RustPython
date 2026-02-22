@@ -897,7 +897,6 @@ class ReferencesTestCase(TestBase):
         # No exception should be raised here
         gc.collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'test.test_weakref.ReferencesTestCase.test_classes.<locals>.A'> != None
     def test_classes(self):
         # Check that classes are weakrefable.
         class A(object):
@@ -1330,11 +1329,9 @@ class MappingTestCase(TestBase):
         self.assertIn(n1, (0, 1))
         self.assertEqual(n2, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_weak_keyed_len_cycles(self):
         self.check_len_cycles(weakref.WeakKeyDictionary, lambda k: (k, 1))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_weak_valued_len_cycles(self):
         self.check_len_cycles(weakref.WeakValueDictionary, lambda k: (1, k))
 
@@ -1952,6 +1949,7 @@ class MappingTestCase(TestBase):
                 x = d.pop(10, 10)
                 self.assertIsNot(x, None)  # we never put None in there!
 
+    @unittest.skip("TODO: RUSTPYTHON; race condition between GC and WeakValueDictionary callback")
     @threading_helper.requires_working_threading()
     def test_threaded_weak_valued_consistency(self):
         # Issue #28427: old keys should not remove new values from

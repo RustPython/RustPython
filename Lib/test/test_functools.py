@@ -2105,7 +2105,6 @@ class TestLRU:
             return 1
         self.assertEqual(f.cache_parameters(), {'maxsize': 1000, "typed": True})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; GC behavior differs from CPython's refcounting
     def test_lru_cache_weakrefable(self):
         @self.module.lru_cache
         def test_function(x):

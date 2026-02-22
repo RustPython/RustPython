@@ -854,7 +854,6 @@ class ThreadTests(BaseTestCase):
     def test_main_thread_after_fork_from_dummy_thread(self, create_dummy=False):
         self.test_main_thread_after_fork_from_foreign_thread(create_dummy=True)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_main_thread_during_shutdown(self):
         # bpo-31516: current_thread() should still point to the main thread
         # at shutdown
@@ -1086,7 +1085,6 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(threading.getprofile(), old_profile)
         self.assertEqual(sys.getprofile(), old_profile)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_locals_at_exit(self):
         # bpo-19466: thread locals must not be deleted before destructors
         # are called

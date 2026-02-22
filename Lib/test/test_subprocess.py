@@ -3557,7 +3557,6 @@ class POSIXProcessTestCase(BaseTestCase):
             except subprocess.TimeoutExpired:
                 pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'preexec_fn not supported at interpreter shutdown' not found in b"Exception ignored in: <function AtFinalization.__del__ at 0xa92f93840>\nAttributeError: 'NoneType' object has no attribute 'Popen'\n"
     def test_preexec_at_exit(self):
         code = f"""if 1:
         import atexit

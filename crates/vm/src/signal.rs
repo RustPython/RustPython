@@ -51,6 +51,7 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
 
     trigger_signals(vm)
 }
+
 #[inline(never)]
 #[cold]
 fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {

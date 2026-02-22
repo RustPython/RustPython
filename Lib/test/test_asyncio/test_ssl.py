@@ -1649,7 +1649,6 @@ class TestSSL(test_utils.TestCase):
         # SSLProtocol should be DECREF to 0
         self.assertIsNone(ctx())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_shutdown_timeout_handler_leak(self):
         loop = self.loop
 
