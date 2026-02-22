@@ -102,7 +102,6 @@ jobs:
         with:
           header: lib-deps-check
           number: ${{ github.event.pull_request.number }}
-          recreate: true
           message: |
             ## 📦 Library Dependencies
 
