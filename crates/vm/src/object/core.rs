@@ -127,7 +127,9 @@ mod trashcan {
     #[inline]
     pub(super) unsafe fn end() {
         let depth = DEALLOC_DEPTH.with(|d| {
-            let depth = d.get() - 1;
+            let depth = d.get();
+            debug_assert!(depth > 0, "trashcan::end called without matching begin");
+            let depth = depth - 1;
             d.set(depth);
             depth
         });
@@ -433,6 +435,21 @@ impl WeakRefList {
 
         // Re-acquire lock for linked list insertion
         let _lock = weakref_lock::lock(obj as *const PyObject as usize);
+
+        // Re-check: another thread may have inserted a generic ref while we
+        // were allocating outside the lock. If so, reuse it and drop ours.
+        if is_generic {
+            let generic_ptr = self.generic.load(Ordering::Relaxed);
+            if !generic_ptr.is_null() {
+                let generic = unsafe { &*generic_ptr };
+                if generic.0.ref_count.safe_inc() {
+                    // Nullify wr_object so drop_inner won't unlink an
+                    // un-inserted node (which would corrupt the list head).
+                    weak.wr_object.store(ptr::null_mut(), Ordering::Relaxed);
+                    return unsafe { PyRef::from_raw(generic_ptr) };
+                }
+            }
+        }
 
         // Insert into linked list under stripe lock
         let node_ptr = NonNull::from(&*weak);

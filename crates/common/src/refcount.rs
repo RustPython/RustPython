@@ -99,7 +99,7 @@ impl RefCount {
     #[inline]
     pub fn inc(&self) {
         let val = State::from_raw(self.state.fetch_add(COUNT, Ordering::SeqCst));
-        if val.destructed() {
+        if val.destructed() || (val.strong() as usize) > STRONG - 1 {
             refcount_overflow();
         }
         if val.strong() == 0 {
@@ -211,8 +211,9 @@ impl Drop for DeferredDropGuard {
         IN_DEFERRED_CONTEXT.with(|in_ctx| {
             in_ctx.set(self.was_in_context);
         });
-        // Only flush if we're the outermost context
-        if !self.was_in_context {
+        // Only flush if we're the outermost context and not already panicking
+        // (flushing during unwinding risks double-panic → process abort).
+        if !self.was_in_context && !std::thread::panicking() {
             flush_deferred_drops();
         }
     }
