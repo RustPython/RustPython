@@ -1,4 +1,7 @@
-use super::{PyStr, PyTupleRef, PyType, PyTypeRef, genericalias::PyGenericAlias};
+use super::{
+    PyStr, PyTupleRef, PyType, PyTypeRef, genericalias::PyGenericAlias,
+    interpolation::PyInterpolation,
+};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
@@ -11,8 +14,7 @@ use crate::{
         SelfIter,
     },
 };
-
-use super::interpolation::PyInterpolation;
+use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
 /// Template object for t-strings (PEP 750).
 ///
@@ -58,8 +60,9 @@ impl Constructor for PyTemplate {
                     // Concatenate adjacent strings
                     if let Some(last) = strings.last_mut() {
                         let last_str = last.downcast_ref::<PyStr>().unwrap();
-                        let concatenated = format!("{}{}", last_str.as_str(), s.as_str());
-                        *last = vm.ctx.new_str(concatenated).into();
+                        let mut buf = last_str.as_wtf8().to_owned();
+                        buf.push_wtf8(s.as_wtf8());
+                        *last = vm.ctx.new_str(buf).into();
                     }
                 } else {
                     strings.push(s.into());
@@ -143,18 +146,22 @@ impl PyTemplate {
         }
 
         // Concatenate last string of self with first string of other
-        let last_self = self
+        let mut buf = Wtf8Buf::new();
+        if let Some(s) = self
             .strings
             .get(self_strings_len.saturating_sub(1))
-            .and_then(|s| s.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()))
-            .unwrap_or_default();
-        let first_other = other
+            .and_then(|s| s.downcast_ref::<PyStr>())
+        {
+            buf.push_wtf8(s.as_wtf8());
+        }
+        if let Some(s) = other
             .strings
             .first()
-            .and_then(|s| s.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()))
-            .unwrap_or_default();
-        let concatenated = format!("{}{}", last_self, first_other);
-        new_strings.push(vm.ctx.new_str(concatenated).into());
+            .and_then(|s| s.downcast_ref::<PyStr>())
+        {
+            buf.push_wtf8(s.as_wtf8());
+        }
+        new_strings.push(vm.ctx.new_str(buf).into());
 
         // Add remaining strings from other (skip first)
         for i in 1..other.strings.len() {
@@ -243,31 +250,16 @@ impl Iterable for PyTemplate {
 
 impl Representable for PyTemplate {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let mut parts = Vec::new();
-
-        let strings_len = zelf.strings.len();
-        let interps_len = zelf.interpolations.len();
-
-        for i in 0..strings_len.max(interps_len * 2 + 1) {
-            if i % 2 == 0 {
-                // String position
-                let idx = i / 2;
-                if idx < strings_len {
-                    let s = zelf.strings.get(idx).unwrap();
-                    parts.push(s.repr(vm)?.as_str().to_owned());
-                }
-            } else {
-                // Interpolation position
-                let idx = i / 2;
-                if idx < interps_len {
-                    let interp = zelf.interpolations.get(idx).unwrap();
-                    parts.push(interp.repr(vm)?.as_str().to_owned());
-                }
-            }
-        }
-
-        Ok(format!("Template({})", parts.join(", ")))
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let strings_repr = zelf.strings.as_object().repr(vm)?;
+        let interp_repr = zelf.interpolations.as_object().repr(vm)?;
+        Ok(wtf8_concat!(
+            "Template(strings=",
+            strings_repr.as_wtf8(),
+            ", interpolations=",
+            interp_repr.as_wtf8(),
+            ')',
+        ))
     }
 }
 
@@ -317,7 +309,7 @@ impl IterNext for PyTemplateIter {
 
                     // Skip empty strings
                     if let Some(s) = item.downcast_ref::<PyStr>()
-                        && s.as_str().is_empty()
+                        && s.as_wtf8().is_empty()
                     {
                         continue;
                     }

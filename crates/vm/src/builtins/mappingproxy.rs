@@ -1,10 +1,9 @@
 use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
-use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
     class::PyClassImpl,
-    common::hash,
+    common::{hash, lock::LazyLock},
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
     object::{Traverse, TraverseFn},
@@ -14,6 +13,7 @@ use crate::{
         PyComparisonOp, Representable,
     },
 };
+use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
 #[pyclass(module = false, name = "mappingproxy", traverse)]
 #[derive(Debug)]
@@ -287,9 +287,9 @@ impl Iterable for PyMappingProxy {
 
 impl Representable for PyMappingProxy {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let obj = zelf.to_object(vm)?;
-        Ok(format!("mappingproxy({})", obj.repr(vm)?))
+        Ok(wtf8_concat!("mappingproxy(", obj.repr(vm)?.as_wtf8(), ')'))
     }
 }
 

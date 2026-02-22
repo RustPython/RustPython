@@ -1,6 +1,8 @@
 use super::StgInfo;
 use super::base::{CDATA_BUFFER_METHODS, PyCData};
 use super::type_info;
+use crate::common::lock::LazyLock;
+use crate::sliceable::SaturatedSliceIter;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     atomic_func,
@@ -455,7 +457,6 @@ impl Initializer for PyCArray {
 
 impl AsSequence for PyCArray {
     fn as_sequence() -> &'static PySequenceMethods {
-        use crate::common::lock::LazyLock;
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| {
                 let zelf = PyCArray::sequence_downcast(seq);
@@ -480,7 +481,6 @@ impl AsSequence for PyCArray {
 
 impl AsMapping for PyCArray {
     fn as_mapping() -> &'static PyMappingMethods {
-        use crate::common::lock::LazyLock;
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             length: atomic_func!(|mapping, _vm| {
                 let zelf = PyCArray::mapping_downcast(mapping);
@@ -775,7 +775,12 @@ impl PyCArray {
             }
             Some("u") => {
                 if let Some(s) = value.downcast_ref::<PyStr>() {
-                    let code = s.as_str().chars().next().map(|c| c as u32).unwrap_or(0);
+                    let code = s
+                        .as_wtf8()
+                        .code_points()
+                        .next()
+                        .map(|c| c.to_u32())
+                        .unwrap_or(0);
                     if offset + WCHAR_SIZE <= buffer.len() {
                         wchar_to_bytes(code, &mut buffer[offset..]);
                     }
@@ -808,7 +813,7 @@ impl PyCArray {
                 let (ptr_val, converted) = if value.is(&vm.ctx.none) {
                     (0usize, None)
                 } else if let Some(s) = value.downcast_ref::<PyStr>() {
-                    let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+                    let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                     (ptr, Some(holder))
                 } else if let Ok(int_val) = value.try_index(vm) {
                     (int_val.as_bigint().to_usize().unwrap_or(0), None)
@@ -965,8 +970,6 @@ impl PyCArray {
 
     // Array_subscript slice handling
     fn getitem_by_slice(zelf: &Py<Self>, slice: &PySlice, vm: &VirtualMachine) -> PyResult {
-        use crate::sliceable::SaturatedSliceIter;
-
         let stg = zelf.class().stg_info_opt();
         let length = stg.as_ref().map_or(0, |i| i.length);
 
@@ -1089,8 +1092,6 @@ impl PyCArray {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        use crate::sliceable::SaturatedSliceIter;
-
         let length = zelf.class().stg_info_opt().map_or(0, |i| i.length);
 
         // PySlice_Unpack + PySlice_AdjustIndices
@@ -1249,15 +1250,15 @@ fn wchar_array_set_value(
         .ok_or_else(|| vm.new_type_error("unicode string expected"))?;
     let mut buffer = zelf.0.buffer.write();
     let wchar_count = buffer.len() / WCHAR_SIZE;
-    let char_count = s.as_str().chars().count();
+    let char_count = s.as_wtf8().code_points().count();
 
     if char_count > wchar_count {
         return Err(vm.new_value_error("string too long"));
     }
 
-    for (i, ch) in s.as_str().chars().enumerate() {
+    for (i, ch) in s.as_wtf8().code_points().enumerate() {
         let offset = i * WCHAR_SIZE;
-        wchar_to_bytes(ch as u32, &mut buffer.to_mut()[offset..]);
+        wchar_to_bytes(ch.to_u32(), &mut buffer.to_mut()[offset..]);
     }
 
     let terminator_offset = char_count * WCHAR_SIZE;

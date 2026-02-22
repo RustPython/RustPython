@@ -1,4 +1,4 @@
-use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef};
 use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
@@ -82,9 +82,12 @@ impl Constructor for PyBaseObject {
         if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__))
             && let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm)
         {
-            let methods: Vec<PyStrRef> = abs_methods.try_to_value(vm)?;
-            let methods: String =
-                Itertools::intersperse(methods.iter().map(|name| name.as_str()), "', '").collect();
+            let methods: Vec<PyUtf8StrRef> = abs_methods.try_to_value(vm)?;
+            let methods: String = Itertools::intersperse(
+                methods.iter().map(|name| name.as_str().to_owned()),
+                "', '".to_owned(),
+            )
+            .collect();
 
             let unimplemented_abstract_method_count = unimplemented_abstract_method_count?;
             let name = cls.name().to_string();
@@ -218,7 +221,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         let has_weakref = if let Some(ref ext) = obj.class().heaptype_ext {
             match &ext.slots {
                 None => true, // Heap type without __slots__ has automatic weakref
-                Some(slots) => slots.iter().any(|s| s.as_str() == "__weakref__"),
+                Some(slots) => slots.iter().any(|s| s.as_bytes() == b"__weakref__"),
             }
         } else {
             let weakref_name = vm.ctx.intern_str("__weakref__");
@@ -255,7 +258,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
                 let Ok(value) = obj.get_attr(name, vm) else {
                     continue;
                 };
-                slots.set_item(name.as_str(), value, vm).unwrap();
+                slots.set_item(name.as_wtf8(), value, vm).unwrap();
             }
 
             if !slots.is_empty() {
@@ -385,11 +388,11 @@ impl PyBaseObject {
             class
                 .__qualname__(vm)
                 .downcast_ref::<PyStr>()
-                .map(|n| n.as_str()),
+                .map(|n| n.as_wtf8()),
             class
                 .__module__(vm)
                 .downcast_ref::<PyStr>()
-                .map(|m| m.as_str()),
+                .map(|m| m.as_wtf8()),
         ) {
             (None, _) => Err(vm.new_type_error("Unknown qualified name")),
             (Some(qualname), Some(module)) if module != "builtins" => Ok(PyStr::from(format!(
@@ -473,7 +476,7 @@ impl PyBaseObject {
                             a.len() == b.len()
                                 && a.iter()
                                     .zip(b.iter())
-                                    .all(|(x, y)| x.as_str() == y.as_str())
+                                    .all(|(x, y)| x.as_wtf8() == y.as_wtf8())
                         }
                         (None, None) => true,
                         _ => false,

@@ -280,10 +280,10 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
 
     // 4. Python str -> wide string pointer (like PyUnicode_AsWideCharString)
     if let Some(s) = value.downcast_ref::<PyStr>() {
-        // Convert to null-terminated UTF-16 (wide string)
+        // Convert to null-terminated UTF-16, preserving lone surrogates
         let wide: Vec<u16> = s
-            .as_str()
-            .encode_utf16()
+            .as_wtf8()
+            .encode_wide()
             .chain(core::iter::once(0))
             .collect();
         let wide_bytes: Vec<u8> = wide.iter().flat_map(|&x| x.to_ne_bytes()).collect();
@@ -448,7 +448,7 @@ impl ReturnType for PyTypeRef {
         // Try to get _type_ attribute first (for ctypes types like c_void_p)
         if let Ok(type_attr) = self.as_object().get_attr(vm.ctx.intern_str("_type_"), vm)
             && let Some(s) = type_attr.downcast_ref::<PyStr>()
-            && let Some(ffi_type) = get_ffi_type(s.as_str())
+            && let Some(ffi_type) = s.to_str().and_then(get_ffi_type)
         {
             return Some(ffi_type);
         }
@@ -598,7 +598,7 @@ fn extract_ptr_from_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<usize> 
     }
     // PyStr: return internal buffer address
     if let Some(s) = arg.downcast_ref::<PyStr>() {
-        return Ok(s.as_str().as_ptr() as usize);
+        return Ok(s.as_bytes().as_ptr() as usize);
     }
     // PyBytes: return internal buffer address
     if let Some(bytes) = arg.downcast_ref::<PyBytes>() {
@@ -753,7 +753,9 @@ fn cast_check_pointertype(ctype: &PyObject, vm: &VirtualMachine) -> bool {
     if let Ok(type_attr) = ctype.get_attr("_type_", vm)
         && let Some(s) = type_attr.downcast_ref::<PyStr>()
     {
-        let c = s.as_str();
+        let c = s
+            .to_str()
+            .expect("_type_ is validated as ASCII at type creation");
         if c.len() == 1 && "sPzUZXO".contains(c) {
             return true;
         }
@@ -790,7 +792,7 @@ pub(super) fn cast_impl(
         bytes.as_bytes().as_ptr() as usize
     } else if let Some(s) = obj.downcast_ref::<PyStr>() {
         // unicode/str → buffer address (c_void_p_from_param: PyUnicode_Check)
-        s.as_str().as_ptr() as usize
+        s.as_bytes().as_ptr() as usize
     } else if let Some(ptr) = obj.downcast_ref::<PyCPointer>() {
         // Pointer instance → contained pointer value
         ptr.get_ptr_value()

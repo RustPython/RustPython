@@ -466,7 +466,8 @@ mod zlib {
     }
 
     fn new_zlib_error(message: impl Into<String>, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception_msg(vm.class("zlib", "error"), message.into())
+        let msg: String = message.into();
+        vm.new_exception_msg(vm.class("zlib", "error"), msg.into())
     }
 
     struct Level(Option<flate2::Compression>);

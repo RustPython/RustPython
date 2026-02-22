@@ -13,6 +13,7 @@ use crate::{
     scope::Scope,
     vm::VirtualMachine,
 };
+use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_compiler_core::SourceLocation;
 
 macro_rules! define_exception_fn {
@@ -24,7 +25,7 @@ macro_rules! define_exception_fn {
                     stringify!($python_repr),
                     " object.\nUseful for raising errors from python functions implemented in rust."
                 )]
-        pub fn $fn_name(&self, msg: impl Into<String>) -> PyBaseExceptionRef
+        pub fn $fn_name(&self, msg: impl Into<Wtf8Buf>) -> PyBaseExceptionRef
         {
             let err = self.ctx.exceptions.$attr.to_owned();
             self.new_exception_msg(err, msg.into())
@@ -150,7 +151,7 @@ impl VirtualMachine {
     /// type is passed in, it may not be fully initialized; try using
     /// [`vm.invoke_exception()`][Self::invoke_exception] or
     /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
-    pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: String) -> PyBaseExceptionRef {
+    pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: Wtf8Buf) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![self.ctx.new_str(msg).into()])
     }
 
@@ -162,7 +163,7 @@ impl VirtualMachine {
     pub fn new_exception_msg_dict(
         &self,
         exc_type: PyTypeRef,
-        msg: String,
+        msg: Wtf8Buf,
         dict: PyDictRef,
     ) -> PyBaseExceptionRef {
         PyRef::new_ref(
@@ -189,7 +190,7 @@ impl VirtualMachine {
         attribute_error
     }
 
-    pub fn new_name_error(&self, msg: impl Into<String>, name: PyStrRef) -> PyBaseExceptionRef {
+    pub fn new_name_error(&self, msg: impl Into<Wtf8Buf>, name: PyStrRef) -> PyBaseExceptionRef {
         let name_error_type = self.ctx.exceptions.name_error.to_owned();
         let name_error = self.new_exception_msg(name_error_type, msg.into());
         name_error.as_object().set_attr("name", name, self).unwrap();
@@ -619,7 +620,7 @@ impl VirtualMachine {
         if syntax_error_type.is(self.ctx.exceptions.tab_error) {
             msg = "inconsistent use of tabs and spaces in indentation".to_owned();
         }
-        let syntax_error = self.new_exception_msg(syntax_error_type, msg);
+        let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
         let (lineno, offset) = error.python_location();
         let lineno = self.ctx.new_int(lineno);
         let offset = self.ctx.new_int(offset);
@@ -689,10 +690,14 @@ impl VirtualMachine {
         self.new_syntax_error_maybe_incomplete(error, source, false)
     }
 
-    pub fn new_import_error(&self, msg: impl Into<String>, name: PyStrRef) -> PyBaseExceptionRef {
+    pub fn new_import_error(
+        &self,
+        msg: impl Into<Wtf8Buf>,
+        name: impl Into<PyStrRef>,
+    ) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.to_owned();
         let exc = self.new_exception_msg(import_error, msg.into());
-        exc.as_object().set_attr("name", name, self).unwrap();
+        exc.as_object().set_attr("name", name.into(), self).unwrap();
         exc
     }
 
@@ -733,7 +738,7 @@ impl VirtualMachine {
         } else {
             msg
         };
-        self.new_exception_msg(error_type.to_owned(), msg)
+        self.new_exception_msg(error_type.to_owned(), msg.into())
     }
 
     pub(crate) fn new_downcast_runtime_error(

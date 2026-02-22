@@ -89,7 +89,7 @@ pub fn offer_suggestions(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Opti
 
         // Look up the module in sys.modules
         let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
-        let module = sys_modules.get_item(mod_name_str.as_str(), vm).ok()?;
+        let module = sys_modules.get_item(mod_name_str, vm).ok()?;
 
         calculate_suggestions(vm.dir(Some(module)).ok()?.borrow_vec().iter(), &wrong_name)
     } else {

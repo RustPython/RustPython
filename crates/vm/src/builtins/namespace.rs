@@ -1,4 +1,4 @@
-use super::{PyTupleRef, PyType, tuple::IntoPyTuple};
+use super::{PyStr, PyTupleRef, PyType, tuple::IntoPyTuple};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyDict,
@@ -9,6 +9,7 @@ use crate::{
         Comparable, Constructor, DefaultConstructor, Initializer, PyComparisonOp, Representable,
     },
 };
+use rustpython_common::wtf8::Wtf8Buf;
 
 /// A simple attribute-based namespace.
 ///
@@ -138,7 +139,7 @@ impl Comparable for PyNamespace {
 
 impl Representable for PyNamespace {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let o = zelf.as_object();
         let name = if o.class().is(vm.ctx.types.namespace_type) {
             "namespace".to_owned()
@@ -148,16 +149,27 @@ impl Representable for PyNamespace {
 
         let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let dict = zelf.as_object().dict().unwrap();
-            let mut parts = Vec::with_capacity(dict.__len__());
+            let mut result = Wtf8Buf::from(format!("{name}("));
+            let mut first = true;
             for (key, value) in dict {
-                let k = key.repr(vm)?;
-                let key_str = k.as_wtf8();
-                let value_repr = value.repr(vm)?;
-                parts.push(format!("{}={}", &key_str[1..key_str.len() - 1], value_repr));
+                let Some(key_str) = key.downcast_ref::<PyStr>() else {
+                    continue;
+                };
+                if key_str.as_wtf8().is_empty() {
+                    continue;
+                }
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+                result.push_wtf8(key_str.as_wtf8());
+                result.push_char('=');
+                result.push_wtf8(value.repr(vm)?.as_wtf8());
             }
-            format!("{}({})", name, parts.join(", "))
+            result.push_char(')');
+            result
         } else {
-            format!("{name}(...)")
+            Wtf8Buf::from(format!("{name}(...)"))
         };
         Ok(repr)
     }

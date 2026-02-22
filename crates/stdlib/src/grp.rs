@@ -5,7 +5,7 @@ pub(crate) use grp::module_def;
 mod grp {
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyIntRef, PyListRef, PyStrRef},
+        builtins::{PyIntRef, PyListRef, PyUtf8StrRef},
         convert::{IntoPyException, ToPyObject},
         exceptions,
         types::PyStructSequence,
@@ -67,7 +67,7 @@ mod grp {
     }
 
     #[pyfunction]
-    fn getgrnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<GroupData> {
+    fn getgrnam(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<GroupData> {
         let gr_name = name.as_str();
         if gr_name.contains('\0') {
             return Err(exceptions::cstring_error(vm));

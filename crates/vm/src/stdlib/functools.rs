@@ -14,6 +14,7 @@ mod _functools {
         types::{Callable, Constructor, GetDescriptor, Representable},
     };
     use indexmap::IndexMap;
+    use rustpython_common::wtf8::Wtf8Buf;
 
     #[derive(FromArgs)]
     struct ReduceArgs {
@@ -44,7 +45,7 @@ mod _functools {
                 let exc_type = vm.ctx.exceptions.type_error.to_owned();
                 vm.new_exception_msg(
                     exc_type,
-                    "reduce() of empty sequence with no initial value".to_owned(),
+                    "reduce() of empty sequence with no initial value".into(),
                 )
             })?
         };
@@ -424,9 +425,9 @@ mod _functools {
             // Add keywords from self.keywords
             for (key, value) in &*keywords {
                 let key_str = key
-                    .downcast::<crate::builtins::PyStr>()
-                    .map_err(|_| vm.new_type_error("keywords must be strings"))?;
-                final_kwargs.insert(key_str.as_str().to_owned(), value);
+                    .downcast_ref::<crate::builtins::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+                final_kwargs.insert(key_str.expect_str().to_owned(), value);
             }
 
             // Add keywords from args.kwargs (these override self.keywords)
@@ -455,7 +456,7 @@ mod _functools {
 
     impl Representable for PyPartial {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             // Check for recursive repr
             let obj = zelf.as_object();
             if let Some(_guard) = ReprGuard::enter(vm, obj) {
@@ -469,52 +470,46 @@ mod _functools {
                     )
                 };
 
-                let func_repr = func.repr(vm)?;
-                let mut parts = vec![func_repr.as_str().to_owned()];
+                let qualname = zelf.class().__qualname__(vm);
+                let qualname_wtf8 = qualname
+                    .downcast_ref::<crate::builtins::PyStr>()
+                    .map(|s| s.as_wtf8().to_owned())
+                    .unwrap_or_else(|| Wtf8Buf::from(zelf.class().name().to_owned()));
+                let module = zelf.class().__module__(vm);
+
+                let mut result = Wtf8Buf::new();
+                if let Ok(module_str) = module.downcast::<crate::builtins::PyStr>() {
+                    let module_name = module_str.as_wtf8();
+                    if module_name != "builtins" && !module_name.is_empty() {
+                        result.push_wtf8(module_name);
+                        result.push_char('.');
+                    }
+                }
+                result.push_wtf8(&qualname_wtf8);
+                result.push_char('(');
+                result.push_wtf8(func.repr(vm)?.as_wtf8());
 
                 for arg in args.as_slice() {
-                    parts.push(arg.repr(vm)?.as_str().to_owned());
+                    result.push_str(", ");
+                    result.push_wtf8(arg.repr(vm)?.as_wtf8());
                 }
 
                 for (key, value) in &*keywords {
-                    // For string keys, use them directly without quotes
-                    let key_part = if let Ok(s) = key.clone().downcast::<crate::builtins::PyStr>() {
-                        s.as_str().to_owned()
+                    result.push_str(", ");
+                    let key_str = if let Ok(s) = key.clone().downcast::<crate::builtins::PyStr>() {
+                        s
                     } else {
-                        // For non-string keys, convert to string using __str__
-                        key.str(vm)?.as_str().to_owned()
+                        key.str(vm)?
                     };
-                    let value_str = value.repr(vm)?;
-                    parts.push(format!(
-                        "{key_part}={value_str}",
-                        value_str = value_str.as_str()
-                    ));
+                    result.push_wtf8(key_str.as_wtf8());
+                    result.push_char('=');
+                    result.push_wtf8(value.repr(vm)?.as_wtf8());
                 }
 
-                let qualname = zelf.class().__qualname__(vm);
-                let qualname_str = qualname
-                    .downcast::<crate::builtins::PyStr>()
-                    .map(|s| s.as_str().to_owned())
-                    .unwrap_or_else(|_| zelf.class().name().to_owned());
-                let module = zelf.class().__module__(vm);
-
-                let qualified_name = match module.downcast::<crate::builtins::PyStr>() {
-                    Ok(module_str) => {
-                        let module_name = module_str.as_str();
-                        match module_name {
-                            "builtins" | "" => qualname_str,
-                            _ => format!("{module_name}.{qualname_str}"),
-                        }
-                    }
-                    Err(_) => qualname_str,
-                };
-
-                Ok(format!(
-                    "{qualified_name}({parts})",
-                    parts = parts.join(", ")
-                ))
+                result.push_char(')');
+                Ok(result)
             } else {
-                Ok("...".to_owned())
+                Ok(Wtf8Buf::from("..."))
             }
         }
     }

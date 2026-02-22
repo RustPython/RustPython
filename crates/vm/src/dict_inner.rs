@@ -5,7 +5,7 @@
 
 use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
-    builtins::{PyBytes, PyInt, PyStr, PyStrInterned, PyStrRef},
+    builtins::{PyBytes, PyInt, PyStr, PyStrInterned, PyStrRef, PyUtf8Str, PyUtf8StrRef},
     convert::ToPyObject,
 };
 use crate::{
@@ -815,6 +815,33 @@ impl DictKey for Py<PyStr> {
     #[inline(always)]
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         self.as_object().key_as_isize(vm)
+    }
+}
+
+impl DictKey for Py<PyUtf8Str> {
+    type Owned = PyUtf8StrRef;
+    #[inline(always)]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        self.to_owned()
+    }
+
+    #[inline]
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        self.as_pystr().key_hash(vm)
+    }
+
+    #[inline(always)]
+    fn key_is(&self, other: &PyObject) -> bool {
+        self.as_pystr().key_is(other)
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
+        self.as_pystr().key_eq(vm, other_key)
+    }
+
+    #[inline(always)]
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        self.as_pystr().key_as_isize(vm)
     }
 }
 

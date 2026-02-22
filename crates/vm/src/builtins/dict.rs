@@ -27,6 +27,7 @@ use crate::{
 };
 use alloc::fmt;
 use rustpython_common::lock::PyMutex;
+use rustpython_common::wtf8::Wtf8Buf;
 
 pub type DictContentType = dict_inner::Dict;
 
@@ -543,14 +544,19 @@ impl Representable for PyDict {
     #[inline]
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let mut str_parts = Vec::with_capacity(zelf.__len__());
+            let mut result = Wtf8Buf::from("{");
+            let mut first = true;
             for (key, value) in zelf {
-                let key_repr = &key.repr(vm)?;
-                let value_repr = value.repr(vm)?;
-                str_parts.push(format!("{key_repr}: {value_repr}"));
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+                result.push_wtf8(key.repr(vm)?.as_wtf8());
+                result.push_str(": ");
+                result.push_wtf8(value.repr(vm)?.as_wtf8());
             }
-
-            vm.ctx.new_str(format!("{{{}}}", str_parts.join(", ")))
+            result.push_char('}');
+            vm.ctx.new_str(result)
         } else {
             vm.ctx.intern_str("{...}").to_owned()
         };
@@ -848,13 +854,17 @@ macro_rules! dict_view {
             #[inline]
             fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
                 let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                    let mut str_parts = Vec::with_capacity(zelf.__len__());
+                    let mut result = Wtf8Buf::from(format!("{}([", Self::NAME));
+                    let mut first = true;
                     for (key, value) in zelf.dict().clone() {
-                        let s = &Self::item(vm, key, value).repr(vm)?;
-                        str_parts.push(s.as_str().to_owned());
+                        if !first {
+                            result.push_str(", ");
+                        }
+                        first = false;
+                        result.push_wtf8(Self::item(vm, key, value).repr(vm)?.as_wtf8());
                     }
-                    vm.ctx
-                        .new_str(format!("{}([{}])", Self::NAME, str_parts.join(", ")))
+                    result.push_str("])");
+                    vm.ctx.new_str(result)
                 } else {
                     vm.ctx.intern_str("{...}").to_owned()
                 };

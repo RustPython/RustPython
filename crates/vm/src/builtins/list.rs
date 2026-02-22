@@ -9,6 +9,7 @@ use crate::common::lock::{
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    builtins::PyStr,
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
@@ -516,19 +517,25 @@ impl Comparable for PyList {
 
 impl Representable for PyList {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if zelf.__len__() == 0 {
-            "[]".to_owned()
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        if zelf.__len__() == 0 {
+            return Ok(vm.ctx.intern_str("[]").to_owned());
+        }
+        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             // Clone elements before calling repr to release the read lock.
             // Element repr may mutate the list (e.g., list.clear()), which
             // needs a write lock and would deadlock if read lock is held.
             let elements: Vec<PyObjectRef> = zelf.borrow_vec().to_vec();
-            collection_repr(None, "[", "]", elements.iter(), vm)?
+            Ok(vm
+                .ctx
+                .new_str(collection_repr(None, "[", "]", elements.iter(), vm)?))
         } else {
-            "[...]".to_owned()
-        };
-        Ok(s)
+            Ok(vm.ctx.intern_str("[...]").to_owned())
+        }
+    }
+
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("repr() is overridden directly")
     }
 }
 

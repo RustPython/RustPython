@@ -1,6 +1,6 @@
 use super::base::{CDATA_BUFFER_METHODS, StgInfoFlags};
 use super::{PyCData, PyCField, StgInfo};
-use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
+use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer};
@@ -217,9 +217,10 @@ impl PyCUnionType {
             let name = field_tuple
                 .first()
                 .expect("len checked")
-                .downcast_ref::<PyStr>()
+                .downcast_ref::<PyUtf8Str>()
                 .ok_or_else(|| vm.new_type_error("field name must be a string"))?
-                .to_string();
+                .as_str()
+                .to_owned();
 
             let field_type = field_tuple.get(1).expect("len checked").clone();
 
@@ -486,7 +487,7 @@ impl SetAttr for PyCUnionType {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let pytype: &Py<PyType> = zelf.to_base();
-        let attr_name_interned = vm.ctx.intern_str(attr_name.as_str());
+        let attr_name_interned = vm.ctx.intern_str(attr_name.as_wtf8());
 
         // 1. First, do PyType's setattro (PyType_Type.tp_setattro first)
         // Check for data descriptor first
@@ -495,7 +496,7 @@ impl SetAttr for PyCUnionType {
             if let Some(descriptor) = descr_set {
                 descriptor(&attr, pytype.to_owned().into(), value.clone(), vm)?;
                 // After successful setattro, check if _fields_ and call process_fields
-                if attr_name.as_str() == "_fields_"
+                if attr_name.as_bytes() == b"_fields_"
                     && let PySetterValue::Assign(fields_value) = value
                 {
                     PyCUnionType::process_fields(pytype, fields_value, vm)?;
@@ -506,7 +507,7 @@ impl SetAttr for PyCUnionType {
 
         // 2. If _fields_, call process_fields (which checks FINAL internally)
         // Check BEFORE writing to dict to avoid storing _fields_ when FINAL
-        if attr_name.as_str() == "_fields_"
+        if attr_name.as_bytes() == b"_fields_"
             && let PySetterValue::Assign(ref fields_value) = value
         {
             PyCUnionType::process_fields(pytype, fields_value.clone(), vm)?;
@@ -526,7 +527,7 @@ impl SetAttr for PyCUnionType {
                     return Err(vm.new_attribute_error(format!(
                         "type object '{}' has no attribute '{}'",
                         pytype.name(),
-                        attr_name.as_str(),
+                        attr_name.as_wtf8(),
                     )));
                 }
             }
@@ -618,7 +619,7 @@ impl PyCUnion {
                 }
                 if let Some(tuple) = field.downcast_ref::<PyTuple>()
                     && let Some(name) = tuple.first()
-                    && let Some(name_str) = name.downcast_ref::<PyStr>()
+                    && let Some(name_str) = name.downcast_ref::<PyUtf8Str>()
                 {
                     let field_name = name_str.as_str().to_owned();
                     // Check for duplicate in kwargs

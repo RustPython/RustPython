@@ -152,8 +152,23 @@ impl CachedPyStrRef {
     }
 }
 
+#[repr(transparent)]
 pub struct PyInterned<T> {
     inner: Py<T>,
+}
+
+impl PyInterned<PyStr> {
+    /// Returns `&str` for interned strings.
+    ///
+    /// # Panics
+    /// Panics if the interned string contains unpaired surrogates (WTF-8 content).
+    /// Most interned strings are valid UTF-8, so this is an ergonomic default.
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        self.inner
+            .to_str()
+            .unwrap_or_else(|| panic!("interned str is always valid UTF-8"))
+    }
 }
 
 impl<T: PyPayload> PyInterned<T> {

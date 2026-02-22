@@ -1,5 +1,5 @@
 use super::base::{CDATA_BUFFER_METHODS, PyCData, PyCField, StgInfo, StgInfoFlags};
-use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
+use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
 use crate::function::{FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
@@ -318,9 +318,10 @@ impl PyCStructType {
             let name = field_tuple
                 .first()
                 .expect("len checked")
-                .downcast_ref::<PyStr>()
+                .downcast_ref::<PyUtf8Str>()
                 .ok_or_else(|| vm.new_type_error("field name must be a string"))?
-                .to_string();
+                .as_str()
+                .to_owned();
 
             let field_type = field_tuple.get(1).expect("len checked").clone();
 
@@ -604,7 +605,7 @@ impl SetAttr for PyCStructType {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Check if _fields_ is being set
-        if attr_name.as_str() == "_fields_" {
+        if attr_name.as_bytes() == b"_fields_" {
             let pytype: &Py<PyType> = zelf.to_base();
 
             // Check finalization in separate scope to release read lock before process_fields
@@ -634,7 +635,7 @@ impl SetAttr for PyCStructType {
             return Ok(());
         }
         // Delegate to PyType's setattro logic for type attributes
-        let attr_name_interned = vm.ctx.intern_str(attr_name.as_str());
+        let attr_name_interned = vm.ctx.intern_str(attr_name.as_wtf8());
         let pytype: &Py<PyType> = zelf.to_base();
 
         // Check for data descriptor first
@@ -654,7 +655,7 @@ impl SetAttr for PyCStructType {
                 return Err(vm.new_attribute_error(format!(
                     "type object '{}' has no attribute '{}'",
                     pytype.name(),
-                    attr_name.as_str(),
+                    attr_name.as_wtf8(),
                 )));
             }
         }
@@ -747,7 +748,7 @@ impl PyCStructure {
                 }
                 if let Some(tuple) = field.downcast_ref::<PyTuple>()
                     && let Some(name) = tuple.first()
-                    && let Some(name_str) = name.downcast_ref::<PyStr>()
+                    && let Some(name_str) = name.downcast_ref::<PyUtf8Str>()
                 {
                     let field_name = name_str.as_str().to_owned();
                     // Check for duplicate in kwargs

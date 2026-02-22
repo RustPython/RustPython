@@ -4,7 +4,7 @@ use crate::{
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
-        pystr,
+        pystr, pystr::PyUtf8StrRef,
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
@@ -45,16 +45,16 @@ pub struct ByteInnerNewOptions {
     #[pyarg(any, optional)]
     pub source: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    pub encoding: OptionalArg<PyStrRef>,
+    pub encoding: OptionalArg<PyUtf8StrRef>,
     #[pyarg(any, optional)]
-    pub errors: OptionalArg<PyStrRef>,
+    pub errors: OptionalArg<PyUtf8StrRef>,
 }
 
 impl ByteInnerNewOptions {
     fn get_value_from_string(
         s: PyStrRef,
-        encoding: PyStrRef,
-        errors: OptionalArg<PyStrRef>,
+        encoding: PyUtf8StrRef,
+        errors: OptionalArg<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
         let bytes = pystr::encode_string(s, Some(encoding), errors.into_option(), vm)?;
@@ -1114,9 +1114,9 @@ impl AnyStr for [u8] {
 #[derive(FromArgs)]
 pub struct DecodeArgs {
     #[pyarg(any, default)]
-    encoding: Option<PyStrRef>,
+    encoding: Option<PyUtf8StrRef>,
     #[pyarg(any, default)]
-    errors: Option<PyStrRef>,
+    errors: Option<PyUtf8StrRef>,
 }
 
 pub fn bytes_decode(
@@ -1125,9 +1125,10 @@ pub fn bytes_decode(
     vm: &VirtualMachine,
 ) -> PyResult<PyStrRef> {
     let DecodeArgs { encoding, errors } = args;
-    let encoding = encoding
-        .as_ref()
-        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.as_str());
+    let encoding = match encoding.as_ref() {
+        None => crate::codecs::DEFAULT_ENCODING,
+        Some(e) => e.as_str(),
+    };
     vm.state
         .codec_registry
         .decode_text(zelf, encoding, errors, vm)
@@ -1205,7 +1206,7 @@ pub fn bytes_to_hex(
         let b_guard;
         let sep = match &sep {
             Either::A(s) => {
-                s_guard = s.as_str();
+                s_guard = s.as_wtf8();
                 s_guard.as_bytes()
             }
             Either::B(bytes) => {

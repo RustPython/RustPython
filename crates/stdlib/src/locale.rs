@@ -45,7 +45,7 @@ mod _locale {
     use core::{ffi::CStr, ptr};
     use rustpython_vm::{
         PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyIntRef, PyListRef, PyStrRef, PyTypeRef},
+        builtins::{PyDictRef, PyIntRef, PyListRef, PyTypeRef, PyUtf8StrRef},
         convert::ToPyException,
         function::OptionalArg,
     };
@@ -149,14 +149,14 @@ mod _locale {
     }
 
     #[pyfunction]
-    fn strcoll(string1: PyStrRef, string2: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn strcoll(string1: PyUtf8StrRef, string2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         let cstr1 = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
         let cstr2 = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
         Ok(vm.new_pyobj(unsafe { libc::strcoll(cstr1.as_ptr(), cstr2.as_ptr()) }))
     }
 
     #[pyfunction]
-    fn strxfrm(string: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn strxfrm(string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
         let n1 = string.byte_len() + 1;
         let mut buff = vec![0u8; n1];
@@ -227,7 +227,7 @@ mod _locale {
         #[pyarg(any)]
         category: i32,
         #[pyarg(any, optional)]
-        locale: OptionalArg<Option<PyStrRef>>,
+        locale: OptionalArg<Option<PyUtf8StrRef>>,
     }
 
     /// Maximum code page encoding name length on Windows
@@ -262,34 +262,34 @@ mod _locale {
     fn setlocale(args: LocaleArgs, vm: &VirtualMachine) -> PyResult {
         let error = error(vm);
         if cfg!(windows) && (args.category < LC_ALL || args.category > LC_TIME) {
-            return Err(vm.new_exception_msg(error, String::from("unsupported locale setting")));
+            return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
         }
         unsafe {
             let result = match args.locale.flatten() {
                 None => libc::setlocale(args.category, ptr::null()),
                 Some(locale) => {
+                    let locale_str = locale.as_str();
                     // On Windows, validate encoding name length
                     #[cfg(windows)]
                     {
                         let valid = if args.category == LC_ALL {
-                            check_locale_name_all(locale.as_str())
+                            check_locale_name_all(locale_str)
                         } else {
-                            check_locale_name(locale.as_str())
+                            check_locale_name(locale_str)
                         };
                         if !valid {
-                            return Err(vm.new_exception_msg(
-                                error,
-                                String::from("unsupported locale setting"),
-                            ));
+                            return Err(
+                                vm.new_exception_msg(error, "unsupported locale setting".into())
+                            );
                         }
                     }
                     let c_locale: CString =
-                        CString::new(locale.as_str()).map_err(|e| e.to_pyexception(vm))?;
+                        CString::new(locale_str).map_err(|e| e.to_pyexception(vm))?;
                     libc::setlocale(args.category, c_locale.as_ptr())
                 }
             };
             if result.is_null() {
-                return Err(vm.new_exception_msg(error, String::from("unsupported locale setting")));
+                return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
             }
             pystr_from_raw_cstr(vm, result)
         }

@@ -101,7 +101,7 @@ mod decl {
         let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.value_error)
                 && let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok())
-                && s.as_str() == "negative duration"
+                && s.as_bytes() == b"negative duration"
             {
                 return vm.new_value_error("sleep length must be non-negative");
             }
@@ -434,10 +434,11 @@ mod decl {
 
         #[cfg(unix)]
         {
+            use crate::builtins::PyUtf8StrRef;
             let zone = if t.tm_zone.is(&vm.ctx.none) {
                 None
             } else {
-                let zone: PyStrRef = t
+                let zone: PyUtf8StrRef = t
                     .tm_zone
                     .clone()
                     .try_into_value(vm)
@@ -1047,7 +1048,7 @@ mod platform {
     #[cfg_attr(target_os = "macos", allow(unused_imports))]
     use crate::{
         PyObject, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
-        builtins::{PyNamespace, PyStrRef},
+        builtins::{PyNamespace, PyUtf8StrRef},
         convert::IntoPyException,
     };
     use core::time::Duration;
@@ -1216,8 +1217,8 @@ mod platform {
         target_os = "linux",
     ))]
     #[pyfunction]
-    fn get_clock_info(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
-        let (adj, imp, mono, res) = match name.as_ref() {
+    fn get_clock_info(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
+        let (adj, imp, mono, res) = match name.as_str() {
             "monotonic" | "perf_counter" => (
                 false,
                 "time.clock_gettime(CLOCK_MONOTONIC)",
@@ -1263,7 +1264,7 @@ mod platform {
         target_os = "linux",
     )))]
     #[pyfunction]
-    fn get_clock_info(_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
+    fn get_clock_info(_name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
         Err(vm.new_not_implemented_error("get_clock_info unsupported on this system"))
     }
 
@@ -1330,7 +1331,7 @@ mod platform {
     use super::decl::{MS_TO_NS, SEC_TO_NS, StructTimeData, get_tz_info, time_muldiv};
     use crate::{
         PyRef, PyResult, VirtualMachine,
-        builtins::{PyNamespace, PyStrRef},
+        builtins::{PyNamespace, PyUtf8StrRef},
     };
     use core::time::Duration;
     use windows_sys::Win32::{
@@ -1500,8 +1501,8 @@ mod platform {
     }
 
     #[pyfunction]
-    fn get_clock_info(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
-        let (adj, imp, mono, res) = match name.as_ref() {
+    fn get_clock_info(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
+        let (adj, imp, mono, res) = match name.as_str() {
             "monotonic" => (
                 false,
                 "GetTickCount64()",

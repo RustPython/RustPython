@@ -9,7 +9,7 @@ mod _sre {
             PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyListRef, PyStr,
             PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
-        common::wtf8::{Wtf8, Wtf8Buf},
+        common::wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
         common::{ascii, hash::PyHash},
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg, PosArgs, PyComparisonValue},
@@ -552,7 +552,7 @@ mod _sre {
 
     impl Representable for Pattern {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let flag_names = [
                 ("re.IGNORECASE", SreFlag::IGNORECASE),
                 ("re.LOCALE", SreFlag::LOCALE),
@@ -580,19 +580,19 @@ mod _sre {
                 .join("|");
 
             let pattern = zelf.pattern.repr(vm)?;
-            let truncated: String;
-            let s = if pattern.char_len() > 200 {
-                truncated = pattern.as_str().chars().take(200).collect();
-                &truncated
+            let mut result = Wtf8Buf::from("re.compile(");
+            let pat = if pattern.char_len() > 200 {
+                pattern.as_wtf8().code_points().take(200).collect()
             } else {
-                pattern.as_str()
+                pattern.as_wtf8().to_owned()
             };
-
-            if flags.is_empty() {
-                Ok(format!("re.compile({s})"))
-            } else {
-                Ok(format!("re.compile({s}, {flags})"))
+            result.push_wtf8(&pat);
+            if !flags.is_empty() {
+                result.push_str(", ");
+                result.push_str(&flags);
             }
+            result.push_char(')');
+            Ok(result)
         }
     }
 
@@ -851,13 +851,17 @@ mod _sre {
 
     impl Representable for Match {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             with_sre_str!(zelf.pattern, &zelf.string, vm, |str_drive| {
-                Ok(format!(
-                    "<re.Match object; span=({}, {}), match={}>",
+                let match_repr = zelf.get_slice(0, str_drive, vm).unwrap().repr(vm)?;
+                Ok(wtf8_concat!(
+                    "<re.Match object; span=(",
                     zelf.regs[0].0,
+                    ", ",
                     zelf.regs[0].1,
-                    zelf.get_slice(0, str_drive, vm).unwrap().repr(vm)?
+                    "), match=",
+                    match_repr.as_wtf8(),
+                    '>',
                 ))
             })
         }

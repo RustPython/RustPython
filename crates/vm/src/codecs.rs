@@ -10,9 +10,12 @@ use rustpython_common::{
 
 use crate::common::lock::OnceCell;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
+    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    VirtualMachine,
+    builtins::{
+        PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyUtf8Str,
+        PyUtf8StrRef,
+    },
     common::{ascii, lock::PyRwLock},
     convert::ToPyObject,
     function::{ArgBytesLike, PyMethodDef},
@@ -71,11 +74,11 @@ impl PyCodec {
     pub fn encode(
         &self,
         obj: PyObjectRef,
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(errors) => vec![obj, errors.into()],
+            Some(errors) => vec![obj, errors.into_wtf8().into()],
             None => vec![obj],
         };
         let res = self.get_encode_func().call(args, vm)?;
@@ -91,11 +94,11 @@ impl PyCodec {
     pub fn decode(
         &self,
         obj: PyObjectRef,
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(errors) => vec![obj, errors.into()],
+            Some(errors) => vec![obj, errors.into_wtf8().into()],
             None => vec![obj],
         };
         let res = self.get_decode_func().call(args, vm)?;
@@ -263,7 +266,7 @@ impl CodecsRegistry {
             }
             inner.search_path.clone()
         };
-        let encoding = PyStr::from(encoding.into_owned()).into_ref(&vm.ctx);
+        let encoding: PyUtf8StrRef = vm.ctx.new_utf8_str(encoding.as_ref());
         for func in search_path {
             let res = func.call((encoding.clone(),), vm)?;
             let res: Option<PyCodec> = res.try_into_value(vm)?;
@@ -305,7 +308,7 @@ impl CodecsRegistry {
         &self,
         obj: PyObjectRef,
         encoding: &str,
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let codec = self.lookup(encoding, vm)?;
@@ -318,7 +321,7 @@ impl CodecsRegistry {
         &self,
         obj: PyObjectRef,
         encoding: &str,
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let codec = self.lookup(encoding, vm)?;
@@ -331,7 +334,7 @@ impl CodecsRegistry {
         &self,
         obj: PyStrRef,
         encoding: &str,
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
         let codec = self._lookup_text_encoding(encoding, "codecs.encode()", vm)?;
@@ -355,7 +358,7 @@ impl CodecsRegistry {
         &self,
         obj: PyObjectRef,
         encoding: &str,
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
         let codec = self._lookup_text_encoding(encoding, "codecs.decode()", vm)?;
@@ -868,7 +871,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for StandardError {
 }
 
 pub struct ErrorsHandler<'a> {
-    errors: &'a Py<PyStr>,
+    errors: &'a Py<PyUtf8Str>,
     resolved: OnceCell<ResolvedError>,
 }
 enum ResolvedError {
@@ -878,14 +881,14 @@ enum ResolvedError {
 
 impl<'a> ErrorsHandler<'a> {
     #[inline]
-    pub fn new(errors: Option<&'a Py<PyStr>>, vm: &VirtualMachine) -> Self {
+    pub fn new(errors: Option<&'a Py<PyUtf8Str>>, vm: &VirtualMachine) -> Self {
         match errors {
             Some(errors) => Self {
                 errors,
                 resolved: OnceCell::new(),
             },
             None => Self {
-                errors: identifier!(vm, strict).as_ref(),
+                errors: identifier_utf8!(vm, strict),
                 resolved: OnceCell::from(ResolvedError::Standard(StandardError::Strict)),
             },
         }
@@ -895,12 +898,13 @@ impl<'a> ErrorsHandler<'a> {
         if let Some(val) = self.resolved.get() {
             return Ok(val);
         }
-        let val = if let Ok(standard) = self.errors.as_str().parse() {
+        let errors_str = self.errors.as_str();
+        let val = if let Ok(standard) = errors_str.parse() {
             ResolvedError::Standard(standard)
         } else {
             vm.state
                 .codec_registry
-                .lookup_error(self.errors.as_str(), vm)
+                .lookup_error(errors_str, vm)
                 .map(ResolvedError::Handler)?
         };
         let _ = self.resolved.set(val);
@@ -1020,7 +1024,7 @@ where
     // let err = err.
     let range = extract_unicode_error_range(&err, vm)?;
     let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-    let s_encoding = PyStrRef::try_from_object(vm, err.get_attr("encoding", vm)?)?;
+    let s_encoding = PyUtf8StrRef::try_from_object(vm, err.get_attr("encoding", vm)?)?;
     let mut ctx = PyEncodeContext {
         vm,
         encoding: s_encoding.as_str(),
@@ -1059,7 +1063,7 @@ where
 {
     let range = extract_unicode_error_range(&err, vm)?;
     let s = ArgBytesLike::try_from_object(vm, err.get_attr("object", vm)?)?;
-    let s_encoding = PyStrRef::try_from_object(vm, err.get_attr("encoding", vm)?)?;
+    let s_encoding = PyUtf8StrRef::try_from_object(vm, err.get_attr("encoding", vm)?)?;
     let mut ctx = PyDecodeContext {
         vm,
         encoding: s_encoding.as_str(),

@@ -19,7 +19,7 @@ mod array {
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
                 PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType,
-                PyTypeRef, builtins_iter,
+                PyTypeRef, PyUtf8StrRef, builtins_iter,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -559,7 +559,7 @@ mod array {
 
     impl ArrayElement for WideChar {
         fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            PyStrRef::try_from_object(vm, obj)?
+            PyUtf8StrRef::try_from_object(vm, obj)?
                 .as_str()
                 .chars()
                 .exactly_one()
@@ -625,7 +625,7 @@ mod array {
     #[derive(FromArgs)]
     pub struct ArrayNewArgs {
         #[pyarg(positional)]
-        spec: PyStrRef,
+        spec: PyUtf8StrRef,
         #[pyarg(positional, optional)]
         init: OptionalArg<PyObjectRef>,
     }
@@ -884,7 +884,7 @@ mod array {
             if not_enough_bytes {
                 Err(vm.new_exception_msg(
                     vm.ctx.exceptions.eof_error.to_owned(),
-                    "read() didn't return enough bytes".to_owned(),
+                    "read() didn't return enough bytes".into(),
                 ))
             } else {
                 Ok(())
@@ -1425,7 +1425,7 @@ mod array {
         #[pyarg(positional)]
         arraytype: PyTypeRef,
         #[pyarg(positional)]
-        typecode: PyStrRef,
+        typecode: PyUtf8StrRef,
         #[pyarg(positional)]
         mformat_code: MachineFormatCode,
         #[pyarg(positional)]
@@ -1568,7 +1568,7 @@ mod array {
         Ok(typ)
     }
 
-    fn check_type_code(spec: PyStrRef, vm: &VirtualMachine) -> PyResult<ArrayContentType> {
+    fn check_type_code(spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<ArrayContentType> {
         let spec = spec.as_str().chars().exactly_one().map_err(|_| {
             vm.new_type_error(
                 "_array_reconstructor() argument 2 must be a unicode character, not str",

@@ -309,7 +309,7 @@ mod _overlapped {
                 let mut addr: SOCKADDR_IN = unsafe { core::mem::zeroed() };
                 addr.sin_family = AF_INET;
 
-                let host_wide: Vec<u16> = host.as_str().encode_utf16().chain([0]).collect();
+                let host_wide: Vec<u16> = host.as_wtf8().encode_wide().chain([0]).collect();
                 let mut addr_len = core::mem::size_of::<SOCKADDR_IN>() as i32;
 
                 let ret = unsafe {
@@ -348,7 +348,7 @@ mod _overlapped {
                 let mut addr: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
                 addr.sin6_family = AF_INET6;
 
-                let host_wide: Vec<u16> = host.as_str().encode_utf16().chain([0]).collect();
+                let host_wide: Vec<u16> = host.as_wtf8().encode_wide().chain([0]).collect();
                 let mut addr_len = core::mem::size_of::<SOCKADDR_IN6>() as i32;
 
                 let ret = unsafe {

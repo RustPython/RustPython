@@ -8,13 +8,15 @@ mod _posixshmem {
 
     use crate::{
         common::os::errno_io_error,
-        vm::{FromArgs, PyResult, VirtualMachine, builtins::PyStrRef, convert::IntoPyException},
+        vm::{
+            FromArgs, PyResult, VirtualMachine, builtins::PyUtf8StrRef, convert::IntoPyException,
+        },
     };
 
     #[derive(FromArgs)]
     struct ShmOpenArgs {
         #[pyarg(any)]
-        name: PyStrRef,
+        name: PyUtf8StrRef,
         #[pyarg(any)]
         flags: libc::c_int,
         #[pyarg(any, default = 0o600)]
@@ -37,7 +39,7 @@ mod _posixshmem {
     }
 
     #[pyfunction]
-    fn shm_unlink(name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn shm_unlink(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
         let name = CString::new(name.as_str()).map_err(|e| e.into_pyexception(vm))?;
         // SAFETY: `name` is a valid NUL-terminated string and `shm_unlink` only reads it.
         let ret = unsafe { libc::shm_unlink(name.as_ptr()) };

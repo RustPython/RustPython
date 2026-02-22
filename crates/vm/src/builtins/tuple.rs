@@ -5,6 +5,7 @@ use crate::common::lock::LazyLock;
 use crate::common::{
     hash::{PyHash, PyUHash},
     lock::PyMutex,
+    wtf8::wtf8_concat,
 };
 use crate::object::{Traverse, TraverseFn};
 use crate::{
@@ -481,7 +482,7 @@ impl Representable for PyTuple {
             vm.ctx.intern_str("()").to_owned()
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let s = if zelf.len() == 1 {
-                format!("({},)", zelf.elements[0].repr(vm)?)
+                wtf8_concat!("(", zelf.elements[0].repr(vm)?.as_wtf8(), ",)")
             } else {
                 collection_repr(None, "(", ")", zelf.elements.iter(), vm)?
             };

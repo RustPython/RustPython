@@ -1575,10 +1575,11 @@ mod _io {
                 args.bind(vm).map_err(|e| {
                     let str_repr = e
                         .__str__(vm)
-                        .map(|s| s.as_str().to_owned())
-                        .unwrap_or_else(|_| "<error getting exception str>".to_owned());
+                        .as_ref()
+                        .map_or("<error getting exception str>".as_ref(), |s| s.as_wtf8())
+                        .to_owned();
                     let msg = format!("{}() {}", Self::CLASS_NAME, str_repr);
-                    vm.new_exception_msg(e.class().to_owned(), msg)
+                    vm.new_exception_msg(e.class().to_owned(), msg.into())
                 })?;
             zelf.init(raw, BufferSize { buffer_size }, vm)
         }
@@ -2273,7 +2274,7 @@ mod _io {
         #[pyarg(any, default)]
         encoding: Option<PyUtf8StrRef>,
         #[pyarg(any, default)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         #[pyarg(any, default)]
         newline: OptionalOption<Newlines>,
         #[pyarg(any, default)]
@@ -2457,7 +2458,7 @@ mod _io {
         encoder: Option<(PyObjectRef, Option<EncodeFunc>)>,
         decoder: Option<PyObjectRef>,
         encoding: PyUtf8StrRef,
-        errors: PyStrRef,
+        errors: PyUtf8StrRef,
         newline: Newlines,
         line_buffering: bool,
         write_through: bool,
@@ -2727,17 +2728,14 @@ mod _io {
 
             let encoding = Self::resolve_encoding(args.encoding, vm)?;
 
-            let errors = args
-                .errors
-                .unwrap_or_else(|| identifier!(vm, strict).to_owned());
+            let errors = args.errors.unwrap_or_else(|| vm.ctx.new_utf8_str("strict"));
             Self::validate_errors(&errors, vm)?;
 
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
             let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
 
             let newline = match args.newline {
-                OptionalArg::Missing => Newlines::default(),
-                OptionalArg::Present(None) => Newlines::default(),
+                OptionalArg::Missing | OptionalArg::Present(None) => Newlines::default(),
                 OptionalArg::Present(Some(newline)) => newline,
             };
             let (encoder, decoder) =
@@ -2808,14 +2806,9 @@ mod _io {
                 .map_err(|_| vm.new_value_error("I/O operation on uninitialized object"))
         }
 
-        fn validate_errors(errors: &PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-            if errors.as_wtf8().as_bytes().contains(&0) {
+        fn validate_errors(errors: &PyRef<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<()> {
+            if errors.as_str().contains('\0') {
                 return Err(cstring_error(vm));
-            }
-            if !errors.as_wtf8().is_utf8() {
-                return Err(vm.new_unicode_encode_error(
-                    "'utf-8' codec can't encode character: surrogates not allowed".to_owned(),
-                ));
             }
             vm.state
                 .codec_registry
@@ -2910,7 +2903,7 @@ mod _io {
         fn find_coder(
             buffer: &PyObject,
             encoding: &str,
-            errors: &Py<PyStr>,
+            errors: &Py<PyUtf8Str>,
             newline: Newlines,
             vm: &VirtualMachine,
         ) -> PyResult<(
@@ -2923,10 +2916,11 @@ mod _io {
                     "'{encoding}' is not a text encoding; use codecs.open() to handle arbitrary codecs"
                 )));
             }
+            let errors = errors.to_owned().into_wtf8();
 
             let encoder = if vm.call_method(buffer, "writable", ())?.try_to_bool(vm)? {
                 let incremental_encoder =
-                    match codec.get_incremental_encoder(Some(errors.to_owned()), vm) {
+                    match codec.get_incremental_encoder(Some(errors.clone()), vm) {
                         Ok(encoder) => encoder,
                         Err(err)
                             if err.fast_isinstance(vm.ctx.exceptions.type_error)
@@ -2937,7 +2931,7 @@ mod _io {
                                 .and_then(|obj| obj.downcast::<PyStr>().ok());
                             StatelessIncrementalEncoder {
                                 encode: codec.get_encode_func().to_owned(),
-                                errors: Some(errors.to_owned()),
+                                errors: Some(errors.clone()),
                                 name,
                             }
                             .into_ref(&vm.ctx)
@@ -2948,7 +2942,7 @@ mod _io {
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
                 let encode_func = encoding_name.and_then(|name| {
                     let name = name.downcast_ref::<PyStr>()?;
-                    match name.as_str() {
+                    match name.to_str()? {
                         "utf-8" => Some(textio_encode_utf8 as EncodeFunc),
                         _ => None,
                     }
@@ -2959,7 +2953,7 @@ mod _io {
             };
 
             let decoder = if vm.call_method(buffer, "readable", ())?.try_to_bool(vm)? {
-                let decoder = match codec.get_incremental_decoder(Some(errors.to_owned()), vm) {
+                let decoder = match codec.get_incremental_decoder(Some(errors.clone()), vm) {
                     Ok(decoder) => decoder,
                     Err(err)
                         if err.fast_isinstance(vm.ctx.exceptions.type_error)
@@ -2967,7 +2961,7 @@ mod _io {
                     {
                         StatelessIncrementalDecoder {
                             decode: codec.get_decode_func().to_owned(),
-                            errors: Some(errors.to_owned()),
+                            errors: Some(errors),
                         }
                         .into_ref(&vm.ctx)
                         .into()
@@ -3040,7 +3034,7 @@ mod _io {
                 errors_changed = errs.as_str() != errors.as_str();
                 errors = errs;
             } else if encoding_changed {
-                errors = identifier!(vm, strict).to_owned();
+                errors = identifier_utf8!(vm, strict).to_owned();
                 errors_changed = true;
             }
 
@@ -3433,7 +3427,7 @@ mod _io {
         }
 
         #[pygetset]
-        fn errors(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn errors(&self, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
             Ok(self.lock(vm)?.errors.clone())
         }
 
@@ -3995,7 +3989,7 @@ mod _io {
 
     impl Representable for TextIOWrapper {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
             let type_name = zelf.class().slot_name();
             let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) else {
                 return Err(
@@ -4004,19 +3998,19 @@ mod _io {
             };
             let Some(data) = zelf.data.lock() else {
                 // Reentrant call
-                return Ok(format!("<{type_name}>"));
+                return Ok(vm.ctx.new_str(Wtf8Buf::from(format!("<{type_name}>"))));
             };
             let Some(data) = data.as_ref() else {
                 return Err(vm.new_value_error("I/O operation on uninitialized object".to_owned()));
             };
 
-            let mut result = format!("<{type_name}");
+            let mut result = Wtf8Buf::from(format!("<{type_name}"));
 
             // Add name if present
             if let Ok(Some(name)) = vm.get_attribute_opt(data.buffer.clone(), "name") {
                 let name_repr = name.repr(vm)?;
-                result.push_str(" name=");
-                result.push_str(name_repr.as_str());
+                result.push_wtf8(" name=".as_ref());
+                result.push_wtf8(name_repr.as_wtf8());
             }
 
             // Add mode if present (prefer the wrapper's attribute)
@@ -4029,17 +4023,20 @@ mod _io {
             };
             if let Some(mode) = mode_obj {
                 let mode_repr = mode.repr(vm)?;
-                result.push_str(" mode=");
-                result.push_str(mode_repr.as_str());
+                result.push_wtf8(" mode=".as_ref());
+                result.push_wtf8(mode_repr.as_wtf8());
             }
 
-            // Add encoding
-            result.push_str(" encoding='");
-            result.push_str(data.encoding.as_str());
-            result.push('\'');
+            // Add encoding (always valid UTF-8)
+            result.push_wtf8(" encoding='".as_ref());
+            result.push_wtf8(data.encoding.as_str().as_ref());
+            result.push_wtf8("'>".as_ref());
 
-            result.push('>');
-            Ok(result)
+            Ok(vm.ctx.new_str(result))
+        }
+
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            unreachable!("repr() is overridden directly")
         }
     }
 
@@ -4240,7 +4237,7 @@ mod _io {
                 output.to_mut().insert(0, '\r'.into());
                 self.pendingcr = false;
             }
-            if !final_ && let Some(s) = output.strip_suffix("\r".as_ref()) {
+            if !final_ && let Some(s) = output.strip_suffix("\r") {
                 output = Cow::Owned(s.to_owned());
                 self.pendingcr = true;
             }
@@ -4935,9 +4932,9 @@ mod _io {
         #[pyarg(any, default)]
         pub encoding: Option<PyUtf8StrRef>,
         #[pyarg(any, default)]
-        pub errors: Option<PyStrRef>,
+        pub errors: Option<PyUtf8StrRef>,
         #[pyarg(any, default)]
-        pub newline: Option<PyStrRef>,
+        pub newline: Option<PyUtf8StrRef>,
         #[pyarg(any, default = true)]
         pub closefd: bool,
         #[pyarg(any, default)]
@@ -5237,7 +5234,7 @@ mod fileio {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
-        common::crt_fd,
+        common::{crt_fd, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
         exceptions::OSErrorBuilder,
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
@@ -5864,8 +5861,8 @@ mod fileio {
             if zelf.fd.load() >= 0 && zelf.closefd.load() {
                 let repr = source
                     .repr(vm)
-                    .map(|s| s.as_str().to_owned())
-                    .unwrap_or_else(|_| "<file>".to_owned());
+                    .map(|s| s.as_wtf8().to_owned())
+                    .unwrap_or_else(|_| Wtf8Buf::from("<file>"));
                 if let Err(e) = crate::stdlib::warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed file {repr}"),
@@ -5902,7 +5899,7 @@ mod winconsoleio {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8StrRef},
-        common::lock::PyMutex,
+        common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
@@ -6187,8 +6184,8 @@ mod winconsoleio {
 
                 let name_str = nameobj.str(vm)?;
                 let wide: Vec<u16> = name_str
-                    .as_str()
-                    .encode_utf16()
+                    .as_wtf8()
+                    .encode_wide()
                     .chain(core::iter::once(0))
                     .collect();
 
@@ -6417,8 +6414,8 @@ mod winconsoleio {
             if zelf.fd.load() >= 0 && zelf.closefd.load() {
                 let repr = source
                     .repr(vm)
-                    .map(|s| s.as_str().to_owned())
-                    .unwrap_or_else(|_| "<file>".to_owned());
+                    .map(|s| s.as_wtf8().to_owned())
+                    .unwrap_or_else(|_| Wtf8Buf::from("<file>"));
                 if let Err(e) = crate::stdlib::warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed file {repr}"),

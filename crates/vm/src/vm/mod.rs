@@ -20,7 +20,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
         self, PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
-        PyStrRef, PyTypeRef, PyWeak,
+        PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned, PyWeak,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         pystr::AsPyStr,
@@ -34,7 +34,7 @@ use crate::{
     frozen::FrozenModule,
     function::{ArgMapping, FuncArgs, PySetterValue},
     import,
-    protocol::PyIterIter,
+    protocol::{PyIterIter, TraceEvent},
     scope::Scope,
     signal, stdlib,
     warn::WarningsState,
@@ -635,31 +635,28 @@ impl VirtualMachine {
             }
         };
 
-        // Format: "Exception ignored {msg} {object_repr}\n"
-        if let Some(msg) = msg {
-            write_to_stderr(&format!("Exception ignored {}", msg), &stderr, self);
+        let msg_str = if let Some(msg) = msg {
+            format!("{msg}: ")
         } else {
-            write_to_stderr("Exception ignored in: ", &stderr, self);
-        }
+            "Exception ignored in: ".to_owned()
+        };
+        write_to_stderr(&msg_str, &stderr, self);
 
-        if let Ok(repr) = object.repr(self) {
-            write_to_stderr(&format!("{}\n", repr.as_str()), &stderr, self);
-        } else {
-            write_to_stderr("<object repr failed>\n", &stderr, self);
-        }
+        let repr_result = object.repr(self);
+        let repr_wtf8 = repr_result
+            .as_ref()
+            .map_or("<object repr failed>".as_ref(), |s| s.as_wtf8());
+        write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
 
         // Write exception type and message
         let exc_type_name = e.class().name();
-        if let Ok(exc_str) = e.as_object().str(self) {
-            let exc_str = exc_str.as_str();
-            if exc_str.is_empty() {
-                write_to_stderr(&format!("{}\n", exc_type_name), &stderr, self);
-            } else {
-                write_to_stderr(&format!("{}: {}\n", exc_type_name, exc_str), &stderr, self);
+        let msg = match e.as_object().str(self) {
+            Ok(exc_str) if !exc_str.as_wtf8().is_empty() => {
+                format!("{}: {}\n", exc_type_name, exc_str.as_wtf8())
             }
-        } else {
-            write_to_stderr(&format!("{}\n", exc_type_name), &stderr, self);
-        }
+            _ => format!("{}\n", exc_type_name),
+        };
+        write_to_stderr(&msg, &stderr, self);
 
         // Flush stderr to ensure output is visible
         if let Some(ref stderr) = stderr {
@@ -810,7 +807,7 @@ impl VirtualMachine {
 
         for (key, value) in items {
             let name = key
-                .downcast_ref::<PyStr>()
+                .downcast_ref::<PyUtf8Str>()
                 .map(|s| s.as_str().to_owned())
                 .unwrap_or_default();
 
@@ -873,9 +870,9 @@ impl VirtualMachine {
                 continue;
             }
             if let Some(key_str) = key.downcast_ref::<PyStr>() {
-                let name = key_str.as_str();
-                if name.starts_with('_') && name != "__builtins__" {
-                    let _ = dict.set_item(name, none.clone(), vm);
+                let name = key_str.as_wtf8();
+                if name.starts_with("_") && name != "__builtins__" {
+                    let _ = dict.set_item(key_str, none.clone(), vm);
                 }
             }
         }
@@ -886,9 +883,9 @@ impl VirtualMachine {
                 continue;
             }
             if let Some(key_str) = key.downcast_ref::<PyStr>()
-                && key_str.as_str() != "__builtins__"
+                && key_str.as_bytes() != b"__builtins__"
             {
-                let _ = dict.set_item(key_str.as_str(), none.clone(), vm);
+                let _ = dict.set_item(key_str.as_wtf8(), none.clone(), vm);
             }
         }
     }
@@ -1078,7 +1075,6 @@ impl VirtualMachine {
                 crate::vm::thread::pop_thread_frame();
             }
 
-            use crate::protocol::TraceEvent;
             // Fire 'call' trace event after pushing frame
             // (current_frame() now returns the callee's frame)
             match self.trace_event(TraceEvent::Call, None) {
@@ -1624,11 +1620,11 @@ impl VirtualMachine {
         identifier!(self, utf_8)
     }
 
-    pub fn fs_encode_errors(&self) -> &'static PyStrInterned {
+    pub fn fs_encode_errors(&self) -> &'static PyUtf8StrInterned {
         if cfg!(windows) {
-            identifier!(self, surrogatepass)
+            identifier_utf8!(self, surrogatepass)
         } else {
-            identifier!(self, surrogateescape)
+            identifier_utf8!(self, surrogateescape)
         }
     }
 
@@ -1730,7 +1726,7 @@ fn frozen_origname_matches() {
                     .unwrap()
                     .try_into_value(vm)
                     .unwrap();
-                assert_eq!(origname.as_str(), expected);
+                assert_eq!(origname.as_wtf8(), expected);
             };
 
             check("_frozen_importlib", "importlib._bootstrap");

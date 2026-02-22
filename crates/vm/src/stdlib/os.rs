@@ -179,6 +179,7 @@ pub(super) mod _os {
     use core::time::Duration;
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
+    use rustpython_common::wtf8::Wtf8Buf;
     use std::{env, fs, fs::OpenOptions, io, path::PathBuf, time::SystemTime};
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -357,7 +358,8 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn mkdirs(path: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        fs::create_dir_all(path.as_str()).map_err(|err| err.into_pyexception(vm))
+        let os_path = vm.fsencode(&path)?;
+        fs::create_dir_all(&*os_path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -491,8 +493,8 @@ pub(super) mod _os {
     #[cfg(windows)]
     #[pyfunction]
     fn putenv(key: PyStrRef, value: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let key_str = key.as_str();
-        let value_str = value.as_str();
+        let key_str = key.expect_str();
+        let value_str = value.expect_str();
         // Search from index 1 because on Windows starting '=' is allowed for
         // defining hidden environment variables.
         if key_str.is_empty()
@@ -539,7 +541,7 @@ pub(super) mod _os {
     #[cfg(windows)]
     #[pyfunction]
     fn unsetenv(key: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let key_str = key.as_str();
+        let key_str = key.expect_str();
         // Search from index 1 because on Windows starting '=' is allowed for
         // defining hidden environment variables.
         if key_str.is_empty()
@@ -868,7 +870,7 @@ pub(super) mod _os {
 
     impl Representable for DirEntry {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let name = match zelf.as_object().get_attr("name", vm) {
                 Ok(name) => Some(name),
                 Err(e)
@@ -882,7 +884,10 @@ pub(super) mod _os {
             if let Some(name) = name {
                 if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                     let repr = name.repr(vm)?;
-                    Ok(format!("<{} {}>", zelf.class(), repr))
+                    let mut result = Wtf8Buf::from(format!("<{} ", zelf.class()));
+                    result.push_wtf8(repr.as_wtf8());
+                    result.push_char('>');
+                    Ok(result)
                 } else {
                     Err(vm.new_runtime_error(format!(
                         "reentrant call inside {}.__repr__",
@@ -890,7 +895,7 @@ pub(super) mod _os {
                     )))
                 }
             } else {
-                Ok(format!("<{}>", zelf.class()))
+                Ok(Wtf8Buf::from(format!("<{}>", zelf.class())))
             }
         }
     }

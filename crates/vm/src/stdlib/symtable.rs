@@ -4,7 +4,7 @@ pub(crate) use _symtable::module_def;
 mod _symtable {
     use crate::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStrRef},
+        builtins::{PyDictRef, PyUtf8StrRef},
         compiler,
         types::Representable,
     };
@@ -111,9 +111,9 @@ mod _symtable {
 
     #[pyfunction]
     fn symtable(
-        source: PyStrRef,
-        filename: PyStrRef,
-        mode: PyStrRef,
+        source: PyUtf8StrRef,
+        filename: PyUtf8StrRef,
+        mode: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PySymbolTable>> {
         let mode = mode

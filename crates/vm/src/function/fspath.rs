@@ -106,7 +106,7 @@ impl FsPath {
 
     pub fn to_path_buf(&self, vm: &VirtualMachine) -> PyResult<PathBuf> {
         let path = match self {
-            Self::Str(s) => PathBuf::from(s.as_str()),
+            Self::Str(s) => PathBuf::from(vm.fsencode(s)?.as_ref() as &OsStr),
             Self::Bytes(b) => PathBuf::from(Self::bytes_as_os_str(b, vm)?),
         };
         Ok(path)

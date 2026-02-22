@@ -20,14 +20,12 @@ enum NormalizeForm {
 impl<'a> TryFromBorrowedObject<'a> for NormalizeForm {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         obj.try_value_with(
-            |form: &PyStr| {
-                Ok(match form.as_str() {
-                    "NFC" => Self::Nfc,
-                    "NFKC" => Self::Nfkc,
-                    "NFD" => Self::Nfd,
-                    "NFKD" => Self::Nfkd,
-                    _ => return Err(vm.new_value_error("invalid normalization form")),
-                })
+            |form: &PyStr| match form.as_bytes() {
+                b"NFC" => Ok(Self::Nfc),
+                b"NFKC" => Ok(Self::Nfkc),
+                b"NFD" => Ok(Self::Nfd),
+                b"NFKD" => Ok(Self::Nfkd),
+                _ => Err(vm.new_value_error("invalid normalization form")),
             },
             vm,
         )
@@ -36,6 +34,7 @@ impl<'a> TryFromBorrowedObject<'a> for NormalizeForm {
 
 #[pymodule]
 mod unicodedata {
+    use super::NormalizeForm::*;
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyModule, PyStrRef},
@@ -126,7 +125,8 @@ mod unicodedata {
 
         #[pymethod]
         fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-            if let Some(character) = unicode_names2::character(name.as_str())
+            if let Some(name_str) = name.to_str()
+                && let Some(character) = unicode_names2::character(name_str)
                 && self.check_age(character.into())
             {
                 return Ok(character.to_string());
@@ -188,7 +188,6 @@ mod unicodedata {
 
         #[pymethod]
         fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<Wtf8Buf> {
-            use super::NormalizeForm::*;
             let text = unistr.as_wtf8();
             let normalized_text = match form {
                 Nfc => text.map_utf8(|s| s.nfc()).collect(),
@@ -201,7 +200,6 @@ mod unicodedata {
 
         #[pymethod]
         fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<bool> {
-            use super::NormalizeForm::*;
             let text = unistr.as_wtf8();
             let normalized: Wtf8Buf = match form {
                 Nfc => text.map_utf8(|s| s.nfc()).collect(),

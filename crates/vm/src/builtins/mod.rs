@@ -63,7 +63,7 @@ pub(crate) mod bool_;
 pub use bool_::PyBool;
 #[path = "str.rs"]
 pub(crate) mod pystr;
-pub use pystr::{PyStr, PyStrInterned, PyStrRef, PyUtf8Str, PyUtf8StrRef};
+pub use pystr::{PyStr, PyStrInterned, PyStrRef, PyUtf8Str, PyUtf8StrInterned, PyUtf8StrRef};
 #[path = "super.rs"]
 pub(crate) mod super_;
 pub use super_::PySuper;

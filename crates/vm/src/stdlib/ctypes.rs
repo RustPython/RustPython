@@ -78,7 +78,7 @@ impl PyType {
         {
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.system_error.to_owned(),
-                format!("class \"{}\" already initialized", self.name()),
+                format!("class \"{}\" already initialized", self.name()).into(),
             ));
         }
         Ok(())
@@ -627,7 +627,7 @@ pub(crate) mod _ctypes {
     #[pyfunction]
     fn dlsym(
         handle: usize,
-        name: crate::builtins::PyStrRef,
+        name: crate::builtins::PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let symbol_name = alloc::ffi::CString::new(name.as_str())
@@ -689,7 +689,7 @@ pub(crate) mod _ctypes {
         // PyUnicode_CheckExact(cls) - string creates incomplete pointer type
         if let Some(s) = cls.downcast_ref::<PyStr>() {
             // Incomplete pointer type: _type_ not set, cache key is id(result)
-            let name = format!("LP_{}", s.as_str());
+            let name = format!("LP_{}", s.as_wtf8());
 
             let new_type = metaclass
                 .as_object()
@@ -1117,7 +1117,7 @@ pub(crate) mod _ctypes {
                 arg_values.push(ptr);
                 arg_types.push(Type::pointer());
             } else if let Some(s) = arg.downcast_ref::<crate::builtins::PyStr>() {
-                let ptr = s.as_str().as_ptr() as isize;
+                let ptr = s.as_bytes().as_ptr() as isize;
                 arg_values.push(ptr);
                 arg_types.push(Type::pointer());
             } else {

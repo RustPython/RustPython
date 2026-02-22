@@ -71,7 +71,7 @@ impl FrozenError {
             Excluded => format!("Excluded frozen object named {mod_name}"),
             Invalid => format!("Frozen object named {mod_name} is invalid"),
         };
-        vm.new_import_error(msg, vm.ctx.new_str(mod_name))
+        vm.new_import_error(msg, vm.ctx.new_utf8_str(mod_name))
     }
 }
 
@@ -106,7 +106,7 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 mod _imp {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef},
+        builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
         convert::TryFromBorrowedObject,
         function::OptionalArg,
         import, version,
@@ -127,27 +127,27 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
+    fn is_builtin(name: PyUtf8StrRef, vm: &VirtualMachine) -> bool {
         vm.state.module_defs.contains_key(name.as_str())
     }
 
     #[pyfunction]
-    fn is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
+    fn is_frozen(name: PyUtf8StrRef, vm: &VirtualMachine) -> bool {
         super::find_frozen(name.as_str(), vm).is_ok()
     }
 
     #[pyfunction]
     fn create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let sys_modules = vm.sys_module.get_attr("modules", vm).unwrap();
-        let name: PyStrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
+        let name: PyUtf8StrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
 
         // Check sys.modules first
         if let Ok(module) = sys_modules.get_item(&*name, vm) {
             return Ok(module);
         }
 
-        // Try multi-phase init modules first (they need special handling)
-        if let Some(&def) = vm.state.module_defs.get(name.as_str()) {
+        let name_str = name.as_str();
+        if let Some(&def) = vm.state.module_defs.get(name_str) {
             // Phase 1: Create module (use create slot if provided, else default creation)
             let module = if let Some(create) = def.slots.create {
                 // Custom module creation
@@ -163,7 +163,7 @@ mod _imp {
             module.__init_methods(vm)?;
 
             // Add to sys.modules BEFORE exec (critical for circular import handling)
-            sys_modules.set_item(&*name, module.clone().into(), vm)?;
+            sys_modules.set_item(name.as_pystr(), module.clone().into(), vm)?;
 
             // Phase 2: Call exec slot (can safely import other modules now)
             if let Some(exec) = def.slots.exec {
@@ -184,7 +184,7 @@ mod _imp {
 
     #[pyfunction]
     fn get_frozen_object(
-        name: PyStrRef,
+        name: PyUtf8StrRef,
         data: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyCode>> {
@@ -198,7 +198,7 @@ mod _imp {
             let invalid_err = || {
                 vm.new_import_error(
                     format!("Frozen object named '{}' is invalid", name.as_str()),
-                    name.clone(),
+                    name.clone().into_wtf8(),
                 )
             };
             let bag = crate::builtins::code::PyObjBag(&vm.ctx);
@@ -211,15 +211,16 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn init_frozen(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn init_frozen(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         import::import_frozen(vm, name.as_str())
     }
 
     #[pyfunction]
-    fn is_frozen_package(name: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        super::find_frozen(name.as_str(), vm)
+    fn is_frozen_package(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let name_str = name.as_str();
+        super::find_frozen(name_str, vm)
             .map(|frozen| frozen.package)
-            .map_err(|e| e.to_pyexception(name.as_str(), vm))
+            .map_err(|e| e.to_pyexception(name_str, vm))
     }
 
     #[pyfunction]
@@ -230,7 +231,7 @@ mod _imp {
     #[pyfunction]
     fn _fix_co_filename(code: PyRef<PyCode>, path: PyStrRef, vm: &VirtualMachine) {
         let old_name = code.source_path();
-        let new_name = vm.ctx.intern_str(path.as_str());
+        let new_name = vm.ctx.intern_str(path.as_wtf8());
         super::update_code_filenames(&code, old_name, new_name);
     }
 
@@ -240,7 +241,7 @@ mod _imp {
             .state
             .frozen
             .keys()
-            .map(|&name| vm.ctx.new_str(name).into())
+            .map(|&name| vm.ctx.new_utf8_str(name).into())
             .collect();
         Ok(names)
     }
@@ -248,7 +249,7 @@ mod _imp {
     #[allow(clippy::type_complexity)]
     #[pyfunction]
     fn find_frozen(
-        name: PyStrRef,
+        name: PyUtf8StrRef,
         withdata: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
@@ -259,19 +260,20 @@ mod _imp {
             unimplemented!();
         }
 
-        let info = match super::find_frozen(name.as_str(), vm) {
+        let name_str = name.as_str();
+        let info = match super::find_frozen(name_str, vm) {
             Ok(info) => info,
             Err(NotFound | Disabled | BadName) => return Ok(None),
-            Err(e) => return Err(e.to_pyexception(name.as_str(), vm)),
+            Err(e) => return Err(e.to_pyexception(name_str, vm)),
         };
 
         // When origname is empty (e.g. __hello_only__), return None.
         // Otherwise return the resolved alias name.
-        let origname_str = super::resolve_frozen_alias(name.as_str());
+        let origname_str = super::resolve_frozen_alias(name_str);
         let origname = if origname_str.is_empty() {
             None
         } else {
-            Some(vm.ctx.new_str(origname_str))
+            Some(vm.ctx.new_utf8_str(origname_str).into())
         };
         Ok(Some((None, info.package, origname)))
     }

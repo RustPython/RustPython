@@ -1,11 +1,12 @@
 use super::{
-    PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType, PyTypeRef, try_bigint_to_f64,
+    PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyType, PyTypeRef, PyUtf8StrRef,
+    try_bigint_to_f64,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
     class::PyClassImpl,
-    common::{float_ops, format::FormatSpec, hash},
+    common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue::*,
@@ -214,18 +215,19 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
 )]
 impl PyFloat {
     #[pymethod]
-    fn __format__(zelf: &Py<Self>, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn __format__(zelf: &Py<Self>, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         // Empty format spec: equivalent to str(self)
         if spec.is_empty() {
-            return Ok(zelf.as_object().str(vm)?.as_str().to_owned());
+            return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_float(zelf.value))
+            .map(Wtf8Buf::from_string)
             .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pystaticmethod]
-    fn __getformat__(spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn __getformat__(spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
         if !matches!(spec.as_str(), "double" | "float") {
             return Err(
                 vm.new_value_error("__getformat__() argument 1 must be 'double' or 'float'")
@@ -340,7 +342,7 @@ impl PyFloat {
     }
 
     #[pyclassmethod]
-    fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn fromhex(cls: PyTypeRef, string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         let result = crate::literal::float::from_hex(string.as_str().trim())
             .ok_or_else(|| vm.new_value_error("invalid hexadecimal floating-point string"))?;
         PyType::call(&cls, vec![vm.ctx.new_float(result).into()].into(), vm)

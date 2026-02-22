@@ -10,6 +10,8 @@ use crate::{
     function::{OptionalArg, PyComparisonValue},
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use itertools::Itertools;
+use rustpython_common::wtf8::Wtf8Buf;
 
 /// Interpolation object for t-strings (PEP 750).
 ///
@@ -42,11 +44,11 @@ impl PyInterpolation {
         let is_valid = vm.is_none(&conversion)
             || conversion
                 .downcast_ref::<PyStr>()
-                .is_some_and(|s| matches!(s.as_str(), "s" | "r" | "a"));
+                .is_some_and(|s| matches!(s.to_str(), Some("s") | Some("r") | Some("a")));
         if !is_valid {
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.system_error.to_owned(),
-                "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'".to_owned(),
+                "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'".into(),
             ));
         }
         Ok(Self {
@@ -63,8 +65,13 @@ impl Constructor for PyInterpolation {
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let conversion: PyObjectRef = if let Some(s) = args.conversion {
-            let s_str = s.as_str();
-            if s_str.len() != 1 || !matches!(s_str.chars().next(), Some('s' | 'r' | 'a')) {
+            let has_flag = s
+                .as_bytes()
+                .iter()
+                .exactly_one()
+                .ok()
+                .is_some_and(|s| matches!(*s, b's' | b'r' | b'a'));
+            if !has_flag {
                 return Err(vm.new_value_error(
                     "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'",
                 ));
@@ -194,25 +201,26 @@ impl Hashable for PyInterpolation {
 
 impl Representable for PyInterpolation {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let value_repr = zelf.value.repr(vm)?;
         let expr_repr = zelf.expression.repr(vm)?;
-
-        let conv_str = if vm.is_none(&zelf.conversion) {
-            "None".to_owned()
-        } else {
-            zelf.conversion.repr(vm)?.as_str().to_owned()
-        };
-
         let spec_repr = zelf.format_spec.repr(vm)?;
 
-        Ok(format!(
-            "Interpolation({}, {}, {}, {})",
-            value_repr.as_str(),
-            expr_repr.as_str(),
-            conv_str,
-            spec_repr.as_str()
-        ))
+        let mut result = Wtf8Buf::from("Interpolation(");
+        result.push_wtf8(value_repr.as_wtf8());
+        result.push_str(", ");
+        result.push_str(&expr_repr);
+        result.push_str(", ");
+        if vm.is_none(&zelf.conversion) {
+            result.push_str("None");
+        } else {
+            result.push_wtf8(zelf.conversion.repr(vm)?.as_wtf8());
+        }
+        result.push_str(", ");
+        result.push_str(&spec_repr);
+        result.push_char(')');
+
+        Ok(result)
     }
 }
 

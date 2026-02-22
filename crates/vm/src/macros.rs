@@ -188,11 +188,11 @@ macro_rules! identifier(
 
 #[macro_export]
 macro_rules! identifier_utf8(
-    ($as_ctx:expr, $name:ident) => {
+    ($as_ctx:expr, $name:ident) => {{
         // Safety: All known identifiers are ascii strings.
-        #[allow(clippy::macro_metavars_in_unsafe, reason = "known identifiers are ASCII and downcast target is fixed")]
-        unsafe { $as_ctx.as_ref().names.$name.as_object().downcast_unchecked_ref::<$crate::builtins::PyUtf8Str>() }
-    };
+        let interned = $as_ctx.as_ref().names.$name;
+        unsafe { $crate::builtins::PyUtf8StrInterned::from_str_interned_unchecked(interned) }
+    }};
 );
 
 /// Super detailed logging. Might soon overflow your log buffers

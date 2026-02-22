@@ -6,7 +6,7 @@ mod _csv {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
         protocol::{PyIter, PyIterReturn},
         raise_if_stop,
@@ -16,7 +16,7 @@ mod _csv {
     use csv_core::Terminator;
     use itertools::{self, Itertools};
     use parking_lot::Mutex;
-    use rustpython_common::lock::LazyLock;
+    use rustpython_common::{lock::LazyLock, wtf8::Wtf8Buf};
     use rustpython_vm::{match_class, sliceable::SliceableSequenceOp};
     use std::collections::HashMap;
 
@@ -50,8 +50,8 @@ mod _csv {
     });
     static GLOBAL_FIELD_LIMIT: LazyLock<Mutex<isize>> = LazyLock::new(|| Mutex::new(131072));
 
-    fn new_csv_error(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
-        vm.new_exception_msg(super::_csv::error(vm), msg)
+    fn new_csv_error(vm: &VirtualMachine, msg: impl Into<Wtf8Buf>) -> PyBaseExceptionRef {
+        vm.new_exception_msg(super::_csv::error(vm), msg.into())
     }
 
     #[pyattr]
@@ -138,7 +138,7 @@ mod _csv {
         } else {
             match_class!(match obj.to_owned() {
                 s @ PyStr => {
-                    Ok(s.as_str().bytes().exactly_one().map_err(|_| {
+                    Ok(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
                         vm.new_type_error(format!(
                             r#""delimiter" must be a unicode character, not a string of length {}"#,
                             s.len()
@@ -159,19 +159,16 @@ mod _csv {
     fn parse_quotechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
         match_class!(match obj.get_attr("quotechar", vm)? {
             s @ PyStr => {
-                Ok(Some(s.as_str().bytes().exactly_one().map_err(|_| {
-                    vm.new_exception_msg(
-                        super::_csv::error(vm),
-                        format!(r#""quotechar" must be a unicode character or None, not a string of length {}"#, s.len()),
-                    )
+                Ok(Some(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
+                    new_csv_error(vm, format!(r#""quotechar" must be a unicode character or None, not a string of length {}"#, s.len()))
                 })?))
             }
             _n @ PyNone => {
                 Ok(None)
             }
             attr => {
-                Err(vm.new_exception_msg(
-                    super::_csv::error(vm),
+                Err(new_csv_error(
+                    vm,
                     format!(
                         r#""quotechar" must be a unicode character or None, not {}"#,
                         attr.class()
@@ -183,9 +180,9 @@ mod _csv {
     fn parse_escapechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
         match_class!(match obj.get_attr("escapechar", vm)? {
             s @ PyStr => {
-                Ok(Some(s.as_str().bytes().exactly_one().map_err(|_| {
-                    vm.new_exception_msg(
-                        super::_csv::error(vm),
+                Ok(Some(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
+                    new_csv_error(
+                        vm,
                         format!(r#""escapechar" must be a unicode character or None, not a string of length {}"#, s.len()),
                     )
                 })?))
@@ -213,10 +210,7 @@ mod _csv {
                     // only capture the first character
                     csv_core::Terminator::Any(*t)
                 } else {
-                    return Err(vm.new_exception_msg(
-                        super::_csv::error(vm),
-                        r#""lineterminator" must be a string"#.to_owned(),
-                    ));
+                    return Err(new_csv_error(vm, r#""lineterminator" must be a string"#));
                 })
             }
             attr => {
@@ -278,9 +272,10 @@ mod _csv {
         mut _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let Some(name) = name.downcast_ref::<PyStr>() else {
-            return Err(vm.new_type_error("argument 0 must be a string"));
-        };
+        let name = name
+            .downcast::<PyStr>()
+            .map_err(|_| vm.new_type_error("argument 0 must be a string"))?;
+        let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
         let dialect = match dialect {
             OptionalArg::Present(d) => PyDialect::try_from_object(vm, d)
                 .map_err(|_| vm.new_type_error("argument 1 must be a dialect object"))?,
@@ -299,17 +294,18 @@ mod _csv {
         mut _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyDialect> {
-        let Some(name) = name.downcast_ref::<PyStr>() else {
-            return Err(vm.new_exception_msg(
-                super::_csv::error(vm),
-                format!("argument 0 must be a string, not '{}'", name.class()),
-            ));
-        };
+        let name = name.downcast::<PyStr>().map_err(|obj| {
+            new_csv_error(
+                vm,
+                format!("argument 0 must be a string, not '{}'", obj.class()),
+            )
+        })?;
+        let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
         let g = GLOBAL_HASHMAP.lock();
         if let Some(dialect) = g.get(name.as_str()) {
             return Ok(*dialect);
         }
-        Err(vm.new_exception_msg(super::_csv::error(vm), "unknown dialect".to_string()))
+        Err(new_csv_error(vm, "unknown dialect"))
     }
 
     #[pyfunction]
@@ -318,17 +314,18 @@ mod _csv {
         mut _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let Some(name) = name.downcast_ref::<PyStr>() else {
-            return Err(vm.new_exception_msg(
-                super::_csv::error(vm),
-                format!("argument 0 must be a string, not '{}'", name.class()),
-            ));
-        };
+        let name = name.downcast::<PyStr>().map_err(|obj| {
+            new_csv_error(
+                vm,
+                format!("argument 0 must be a string, not '{}'", obj.class()),
+            )
+        })?;
+        let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
         let mut g = GLOBAL_HASHMAP.lock();
         if let Some(_removed) = g.remove(name.as_str()) {
             return Ok(());
         }
-        Err(vm.new_exception_msg(super::_csv::error(vm), "unknown dialect".to_string()))
+        Err(new_csv_error(vm, "unknown dialect"))
     }
 
     #[pyfunction]
@@ -537,7 +534,8 @@ mod _csv {
     ) -> Result<DialectItem, ArgumentError> {
         match_class!(match obj {
             s @ PyStr => {
-                Ok(DialectItem::Str(s.as_str().to_string()))
+                let s = s.try_into_utf8(vm).map_err(ArgumentError::Exception)?;
+                Ok(DialectItem::Str(s.as_str().to_owned()))
             }
             PyNone => {
                 Err(ArgumentError::InvalidKeywordArgument("dialect".to_string()))
@@ -581,10 +579,11 @@ mod _csv {
 
             if let Some(escapechar) = args.kwargs.swap_remove("escapechar") {
                 res.escapechar = match_class!(match escapechar {
-                    s @ PyStr => Some(s.as_str().bytes().exactly_one().map_err(|_| {
-                        let msg = r#""escapechar" must be a 1-character string"#;
-                        vm.new_type_error(msg.to_owned())
-                    })?),
+                    s @ PyStr =>
+                        Some(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
+                            let msg = r#""escapechar" must be a 1-character string"#;
+                            vm.new_type_error(msg.to_owned())
+                        })?),
                     _ => None,
                 })
             };
@@ -626,10 +625,12 @@ mod _csv {
             };
             if let Some(quotechar) = args.kwargs.swap_remove("quotechar") {
                 res.quotechar = match_class!(match quotechar {
-                    s @ PyStr => Some(Some(s.as_str().bytes().exactly_one().map_err(|_| {
-                        let msg = r#""quotechar" must be a 1-character string"#;
-                        vm.new_type_error(msg.to_owned())
-                    })?)),
+                    s @ PyStr => Some(Some(s.as_bytes().iter().copied().exactly_one().map_err(
+                        |_| {
+                            let msg = r#""quotechar" must be a 1-character string"#;
+                            vm.new_type_error(msg.to_owned())
+                        }
+                    )?)),
                     PyNone => {
                         if let Some(QuoteStyle::All) = res.quoting {
                             let msg = "quotechar must be set if quoting enabled";

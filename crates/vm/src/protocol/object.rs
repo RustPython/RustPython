@@ -362,8 +362,8 @@ impl PyObject {
     }
 
     pub fn ascii(&self, vm: &VirtualMachine) -> PyResult<ascii::AsciiString> {
-        let repr = self.repr_utf8(vm)?;
-        let ascii = to_ascii(repr.as_str());
+        let repr = self.repr(vm)?;
+        let ascii = to_ascii(repr.as_wtf8());
         Ok(ascii)
     }
 
@@ -658,7 +658,7 @@ impl PyObject {
 
         Err(vm.new_exception_msg(
             vm.ctx.exceptions.type_error.to_owned(),
-            format!("unhashable type: '{}'", self.class().name()),
+            format!("unhashable type: '{}'", self.class().name()).into(),
         ))
     }
 

@@ -118,7 +118,7 @@ mod winsound {
 
         // os.fspath(sound)
         let path = match sound.downcast_ref::<PyStr>() {
-            Some(s) => s.as_str().to_owned(),
+            Some(s) => s.as_wtf8().to_owned(),
             None => {
                 let fspath = vm.get_method_or_type_error(
                     sound.clone(),
@@ -151,12 +151,12 @@ mod winsound {
                     ))
                 })?;
 
-                s.as_str().to_owned()
+                s.as_wtf8().to_owned()
             }
         };
 
         // Check for embedded null characters
-        if path.contains('\0') {
+        if path.as_bytes().contains(&0) {
             return Err(vm.new_value_error("embedded null character".to_owned()));
         }
 

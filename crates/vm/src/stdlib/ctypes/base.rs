@@ -1,6 +1,9 @@
 use super::array::{WCHAR_SIZE, wchar_from_bytes, wchar_to_bytes};
-use crate::builtins::{PyBytes, PyDict, PyMemoryView, PyStr, PyTuple, PyType, PyTypeRef};
+use crate::builtins::{
+    PyBytes, PyDict, PyList, PyMemoryView, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str,
+};
 use crate::class::StaticType;
+use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, OptionalArg, PySetterValue};
 use crate::protocol::{BufferMethods, PyBuffer};
 use crate::types::{Constructor, GetDescriptor, Representable};
@@ -16,6 +19,7 @@ use core::mem;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
+use rustpython_common::wtf8::Wtf8;
 use widestring::WideChar;
 
 // StgInfo - Storage information for ctypes types
@@ -363,11 +367,10 @@ pub(super) fn get_field_format(
     if let Ok(type_attr) = field_type.get_attr("_type_", vm)
         && let Some(type_str) = type_attr.downcast_ref::<PyStr>()
     {
-        let s = type_str.as_str();
-        if !s.is_empty() {
-            return format!("{}{}", endian_prefix, s);
-        }
-        return s.to_string();
+        let s = type_str
+            .to_str()
+            .expect("_type_ is validated as ASCII at type creation");
+        return format!("{}{}", endian_prefix, s);
     }
 
     // Default: single byte
@@ -431,10 +434,10 @@ pub(super) fn ensure_z_null_terminated(
 }
 
 /// Convert str to null-terminated wchar_t buffer. Returns (PyBytes holder, pointer).
-pub(super) fn str_to_wchar_bytes(s: &str, vm: &VirtualMachine) -> (PyObjectRef, usize) {
+pub(super) fn str_to_wchar_bytes(s: &Wtf8, vm: &VirtualMachine) -> (PyObjectRef, usize) {
     let wchars: Vec<libc::wchar_t> = s
-        .chars()
-        .map(|c| c as libc::wchar_t)
+        .code_points()
+        .map(|cp| cp.to_u32() as libc::wchar_t)
         .chain(core::iter::once(0))
         .collect();
     let ptr = wchars.as_ptr() as usize;
@@ -964,9 +967,9 @@ impl PyCData {
             if let Some(str_val) = value.downcast_ref::<PyStr>() {
                 // Convert str to wchar_t bytes (platform-dependent size)
                 let mut wchar_bytes = Vec::with_capacity(size);
-                for ch in str_val.as_str().chars().take(size / WCHAR_SIZE) {
+                for cp in str_val.as_wtf8().code_points().take(size / WCHAR_SIZE) {
                     let mut bytes = [0u8; 4];
-                    wchar_to_bytes(ch as u32, &mut bytes);
+                    wchar_to_bytes(cp.to_u32(), &mut bytes);
                     wchar_bytes.extend_from_slice(&bytes[..WCHAR_SIZE]);
                 }
                 // Pad with nulls to fill the array
@@ -1299,13 +1302,13 @@ impl PyCData {
             .ok_or_else(|| vm.new_value_error("Library not found"))?;
         let inner_lib = library.lib.lock();
 
-        let symbol_name_with_nul = format!("{}\0", name.as_str());
+        let symbol_name_with_nul = format!("{}\0", name.as_wtf8());
         let ptr: *const u8 = if let Some(lib) = &*inner_lib {
             unsafe {
                 lib.get::<*const u8>(symbol_name_with_nul.as_bytes())
                     .map(|sym| *sym)
                     .map_err(|_| {
-                        vm.new_value_error(format!("symbol '{}' not found", name.as_str()))
+                        vm.new_value_error(format!("symbol '{}' not found", name.as_wtf8()))
                     })?
             }
         } else {
@@ -1315,7 +1318,7 @@ impl PyCData {
         // dlsym can return NULL for symbols that resolve to NULL (e.g., GNU IFUNC)
         // Treat NULL addresses as errors
         if ptr.is_null() {
-            return Err(vm.new_value_error(format!("symbol '{}' not found", name.as_str())));
+            return Err(vm.new_value_error(format!("symbol '{}' not found", name.as_wtf8())));
         }
 
         // PyCData_AtAddress
@@ -1706,7 +1709,7 @@ impl PyCField {
             "Z" => {
                 // c_wchar_p: store pointer to null-terminated wchar_t buffer
                 if let Some(s) = value.downcast_ref::<PyStr>() {
-                    let (holder, ptr) = str_to_wchar_bytes(s.as_str(), vm);
+                    let (holder, ptr) = str_to_wchar_bytes(s.as_wtf8(), vm);
                     let mut result = vec![0u8; size];
                     let addr_bytes = ptr.to_ne_bytes();
                     let len = core::cmp::min(addr_bytes.len(), size);
@@ -1759,7 +1762,7 @@ impl PyCField {
             if let Ok(type_code) = element_type.as_object().get_attr("_type_", vm)
                 && let Some(s) = type_code.downcast_ref::<PyStr>()
             {
-                return s.as_str() == "c";
+                return s.as_bytes() == b"c";
             }
         }
         false
@@ -1776,7 +1779,7 @@ impl PyCField {
             if let Ok(type_code) = element_type.as_object().get_attr("_type_", vm)
                 && let Some(s) = type_code.downcast_ref::<PyStr>()
             {
-                return s.as_str() == "u";
+                return s.as_bytes() == b"u";
             }
         }
         false
@@ -2508,9 +2511,6 @@ fn make_fields(
     offset: isize,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    use crate::builtins::{PyList, PyTuple};
-    use crate::convert::ToPyObject;
-
     let fields = descr.proto.as_object().get_attr("_fields_", vm)?;
     let fieldlist: Vec<PyObjectRef> = if let Some(list) = fields.downcast_ref::<PyList>() {
         list.borrow_vec().to_vec()
@@ -2532,7 +2532,7 @@ fn make_fields(
         let fname = field_tuple
             .first()
             .expect("len checked")
-            .downcast_ref::<PyStr>()
+            .downcast_ref::<PyUtf8Str>()
             .ok_or_else(|| vm.new_type_error("field name must be a string"))?;
 
         let fdescr_obj = descr
@@ -2555,7 +2555,10 @@ fn make_fields(
         }
 
         let new_descr = super::PyCField::new_from_field(fdescr, index, offset);
-        cls.set_attr(vm.ctx.intern_str(fname.as_str()), new_descr.to_pyobject(vm));
+        cls.set_attr(
+            vm.ctx.intern_str(fname.as_wtf8()),
+            new_descr.to_pyobject(vm),
+        );
     }
 
     Ok(())
@@ -2563,9 +2566,6 @@ fn make_fields(
 
 /// Process _anonymous_ attribute for struct/union
 pub(super) fn make_anon_fields(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResult<()> {
-    use crate::builtins::{PyList, PyTuple};
-    use crate::convert::ToPyObject;
-
     let anon = match cls.as_object().get_attr("_anonymous_", vm) {
         Ok(anon) => anon,
         Err(_) => return Ok(()),
@@ -2586,18 +2586,21 @@ pub(super) fn make_anon_fields(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResul
 
         let descr_obj = cls
             .as_object()
-            .get_attr(vm.ctx.intern_str(fname.as_str()), vm)?;
+            .get_attr(vm.ctx.intern_str(fname.as_wtf8()), vm)?;
 
         let descr = descr_obj.downcast_ref::<super::PyCField>().ok_or_else(|| {
             vm.new_attribute_error(format!(
                 "'{}' is specified in _anonymous_ but not in _fields_",
-                fname.as_str()
+                fname.as_wtf8()
             ))
         })?;
 
         let mut new_descr = super::PyCField::new_from_field(descr, 0, 0);
         new_descr.set_anonymous(true);
-        cls.set_attr(vm.ctx.intern_str(fname.as_str()), new_descr.to_pyobject(vm));
+        cls.set_attr(
+            vm.ctx.intern_str(fname.as_wtf8()),
+            new_descr.to_pyobject(vm),
+        );
 
         make_fields(cls, descr, descr.index, descr.offset, vm)?;
     }

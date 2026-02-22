@@ -323,7 +323,7 @@ pub(crate) mod _signal {
         if ret != 0 {
             let err = std::io::Error::last_os_error();
             let itimer_error = itimer_error(vm);
-            return Err(vm.new_exception_msg(itimer_error, err.to_string()));
+            return Err(vm.new_exception_msg(itimer_error, err.to_string().into()));
         }
         let old = unsafe { old.assume_init() };
         Ok(itimerval_to_tuple(&old))
@@ -340,7 +340,7 @@ pub(crate) mod _signal {
         if ret != 0 {
             let err = std::io::Error::last_os_error();
             let itimer_error = itimer_error(vm);
-            return Err(vm.new_exception_msg(itimer_error, err.to_string()));
+            return Err(vm.new_exception_msg(itimer_error, err.to_string().into()));
         }
         let old = unsafe { old.assume_init() };
         Ok(itimerval_to_tuple(&old))

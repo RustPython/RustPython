@@ -849,7 +849,7 @@ mod decl {
 struct Base64DecodeError(base64::DecodeError);
 
 fn new_binascii_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
-    vm.new_exception_msg(decl::error_type(vm), msg)
+    vm.new_exception_msg(decl::error_type(vm), msg.into())
 }
 
 impl ToPyException for Base64DecodeError {

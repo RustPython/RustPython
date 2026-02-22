@@ -4,8 +4,8 @@ pub(crate) use _operator::module_def;
 mod _operator {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
-        common::wtf8::Wtf8,
+        builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
+        common::wtf8::{Wtf8, Wtf8Buf},
         function::{ArgBytesLike, Either, FuncArgs, KwArgs, OptionalArg},
         protocol::PyIter,
         recursion::ReprGuard,
@@ -432,17 +432,22 @@ mod _operator {
 
     impl Representable for PyAttrGetter {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut parts = Vec::with_capacity(zelf.attrs.len());
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let mut result = Wtf8Buf::from("operator.attrgetter(");
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let mut first = true;
                 for part in &zelf.attrs {
-                    parts.push(part.as_object().repr(vm)?.as_str().to_owned());
+                    if !first {
+                        result.push_str(", ");
+                    }
+                    first = false;
+                    result.push_wtf8(part.as_object().repr(vm)?.as_wtf8());
                 }
-                parts.join(", ")
             } else {
-                "...".to_owned()
-            };
-            Ok(format!("operator.attrgetter({fmt})"))
+                result.push_str("...");
+            }
+            result.push_char(')');
+            Ok(result)
         }
     }
 
@@ -505,17 +510,22 @@ mod _operator {
 
     impl Representable for PyItemGetter {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut items = Vec::with_capacity(zelf.items.len());
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let mut result = Wtf8Buf::from("operator.itemgetter(");
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let mut first = true;
                 for item in &zelf.items {
-                    items.push(item.repr(vm)?.as_str().to_owned());
+                    if !first {
+                        result.push_str(", ");
+                    }
+                    first = false;
+                    result.push_wtf8(item.repr(vm)?.as_wtf8());
                 }
-                items.join(", ")
             } else {
-                "...".to_owned()
-            };
-            Ok(format!("operator.itemgetter({fmt})"))
+                result.push_str("...");
+            }
+            result.push_char(')');
+            Ok(result)
         }
     }
 
@@ -530,7 +540,7 @@ mod _operator {
     #[pyclass(name = "methodcaller")]
     #[derive(Debug, PyPayload)]
     struct PyMethodCaller {
-        name: PyStrRef,
+        name: PyUtf8StrRef,
         args: FuncArgs,
     }
 
@@ -570,11 +580,10 @@ mod _operator {
             (name, args): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            if let Ok(name) = name.try_into_value(vm) {
-                Ok(Self { name, args })
-            } else {
-                Err(vm.new_type_error("method name must be a string"))
-            }
+            let name = name
+                .try_into_value(vm)
+                .map_err(|_| vm.new_type_error("method name must be a string"))?;
+            Ok(Self { name, args })
         }
     }
 
@@ -589,32 +598,27 @@ mod _operator {
 
     impl Representable for PyMethodCaller {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let mut result = Wtf8Buf::from("operator.methodcaller(");
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let args = &zelf.args.args;
                 let kwargs = &zelf.args.kwargs;
-                let mut fmt = vec![zelf.name.as_object().repr(vm)?.as_str().to_owned()];
-                if !args.is_empty() {
-                    let mut parts = Vec::with_capacity(args.len());
-                    for v in args {
-                        parts.push(v.repr(vm)?.as_str().to_owned());
-                    }
-                    fmt.push(parts.join(", "));
+                result.push_wtf8(zelf.name.as_object().repr(vm)?.as_wtf8());
+                for v in args {
+                    result.push_str(", ");
+                    result.push_wtf8(v.repr(vm)?.as_wtf8());
                 }
-                // build name=value pairs from KwArgs.
-                if !kwargs.is_empty() {
-                    let mut parts = Vec::with_capacity(kwargs.len());
-                    for (key, value) in kwargs {
-                        let value_repr = value.repr(vm)?;
-                        parts.push(format!("{key}={value_repr}"));
-                    }
-                    fmt.push(parts.join(", "));
+                for (key, value) in kwargs {
+                    result.push_str(", ");
+                    result.push_str(key);
+                    result.push_char('=');
+                    result.push_wtf8(value.repr(vm)?.as_wtf8());
                 }
-                fmt.join(", ")
             } else {
-                "...".to_owned()
-            };
-            Ok(format!("operator.methodcaller({fmt})"))
+                result.push_str("...");
+            }
+            result.push_char(')');
+            Ok(result)
         }
     }
 }

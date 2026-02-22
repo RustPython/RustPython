@@ -1,5 +1,7 @@
 // sliceobject.{h,c} in CPython
 // spell-checker:ignore sliceobject
+use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
+
 use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -291,12 +293,20 @@ impl Comparable for PySlice {
 
 impl Representable for PySlice {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let start_repr = zelf.start_ref(vm).repr(vm)?;
         let stop_repr = zelf.stop.repr(vm)?;
         let step_repr = zelf.step_ref(vm).repr(vm)?;
 
-        Ok(format!("slice({start_repr}, {stop_repr}, {step_repr})"))
+        Ok(wtf8_concat!(
+            "slice(",
+            start_repr.as_wtf8(),
+            ", ",
+            stop_repr.as_wtf8(),
+            ", ",
+            step_repr.as_wtf8(),
+            ")"
+        ))
     }
 }
 

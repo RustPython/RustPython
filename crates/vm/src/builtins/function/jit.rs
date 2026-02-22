@@ -41,7 +41,7 @@ impl ToPyObject for AbiValue {
 
 pub fn new_jit_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
     let jit_error = vm.ctx.exceptions.jit_error.to_owned();
-    vm.new_exception_msg(jit_error, msg)
+    vm.new_exception_msg(jit_error, msg.into())
 }
 
 fn get_jit_arg_type(dict: &Py<PyDict>, name: &str, vm: &VirtualMachine) -> PyResult<JitType> {
