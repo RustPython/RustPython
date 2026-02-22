@@ -1012,8 +1012,6 @@ if 1:
         code_lines = self.get_code_lines(genexp_code)
         self.assertEqual(genexp_lines, code_lines)
 
-    # TODO: RUSTPYTHON; implicit return line number after async for
-    @unittest.expectedFailure
     def test_line_number_implicit_return_after_async_for(self):
 
         async def test(aseq):
