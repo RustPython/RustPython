@@ -6620,7 +6620,6 @@ class TestSocketSharing(SocketTCPTest):
         s2.close()
         s.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; multiprocessing.SemLock not implemented
     def testShare(self):
         # Transfer the listening server socket to another process
         # and service it from there.

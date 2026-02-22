@@ -11,17 +11,13 @@ mod _multiprocessing {
     };
     use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
     use windows_sys::Win32::Foundation::{
-        CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_EVENT, WAIT_OBJECT_0,
+        CloseHandle, ERROR_TOO_MANY_POSTS, HANDLE, INVALID_HANDLE_VALUE, WAIT_FAILED,
+        WAIT_OBJECT_0, WAIT_TIMEOUT,
     };
     use windows_sys::Win32::Networking::WinSock::{self, SOCKET};
     use windows_sys::Win32::System::Threading::{
-        CreateSemaphoreW, GetCurrentThreadId, ReleaseSemaphore, WaitForSingleObjectEx,
+        CreateSemaphoreW, GetCurrentThreadId, INFINITE, ReleaseSemaphore, WaitForSingleObjectEx,
     };
-
-    const INFINITE: u32 = 0xFFFFFFFF;
-    const WAIT_TIMEOUT: WAIT_EVENT = 258; // 0x102
-    const WAIT_FAILED: WAIT_EVENT = 0xFFFFFFFF;
-    const ERROR_TOO_MANY_POSTS: u32 = 298;
 
     // These match the values in Lib/multiprocessing/synchronize.py
     const RECURSIVE_MUTEX: i32 = 0;
@@ -171,11 +167,15 @@ mod _multiprocessing {
             }
 
             // Check whether we can acquire without blocking
-            if unsafe { WaitForSingleObjectEx(self.handle.as_raw(), 0, 0) } == WAIT_OBJECT_0 {
-                self.last_tid
-                    .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
-                self.count.fetch_add(1, Ordering::Release);
-                return Ok(true);
+            match unsafe { WaitForSingleObjectEx(self.handle.as_raw(), 0, 0) } {
+                WAIT_OBJECT_0 => {
+                    self.last_tid
+                        .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+                    self.count.fetch_add(1, Ordering::Release);
+                    return Ok(true);
+                }
+                WAIT_FAILED => return Err(vm.new_last_os_error()),
+                _ => {}
             }
 
             // Poll with signal checking (CPython uses WaitForMultipleObjectsEx
@@ -193,8 +193,7 @@ mod _multiprocessing {
                     remaining.min(poll_ms)
                 };
 
-                let res =
-                    unsafe { WaitForSingleObjectEx(self.handle.as_raw(), wait_ms, 0) };
+                let res = unsafe { WaitForSingleObjectEx(self.handle.as_raw(), wait_ms, 0) };
 
                 match res {
                     WAIT_OBJECT_0 => {
@@ -213,7 +212,7 @@ mod _multiprocessing {
                     _ => {
                         return Err(vm.new_runtime_error(format!(
                             "WaitForSingleObject() gave unrecognized value {res}"
-                        )))
+                        )));
                     }
                 }
             }

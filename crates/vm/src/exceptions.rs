@@ -2061,18 +2061,17 @@ pub(super) mod types {
                     if !vm.is_none(&filename) {
                         let mut args_reduced: Vec<PyObjectRef> = vec![errno, msg, filename];
 
-                        let filename2 =
-                            obj.get_attr("filename2", vm).ok().filter(|f| !vm.is_none(f));
+                        let filename2 = obj
+                            .get_attr("filename2", vm)
+                            .ok()
+                            .filter(|f| !vm.is_none(f));
                         #[cfg(windows)]
-                        let winerror =
-                            obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w));
+                        let winerror = obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w));
 
                         if let Some(filename2) = filename2 {
                             #[cfg(windows)]
                             {
-                                args_reduced.push(
-                                    winerror.unwrap_or_else(|| vm.ctx.none()),
-                                );
+                                args_reduced.push(winerror.unwrap_or_else(|| vm.ctx.none()));
                             }
                             #[cfg(not(windows))]
                             args_reduced.push(vm.ctx.none());
