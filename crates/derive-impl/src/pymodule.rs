@@ -235,6 +235,7 @@ pub fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<TokenStrea
                     {
                         let child_def = #mod_ident::module_def(ctx);
                         let child = child_def.create_module(vm).unwrap();
+                        ::rustpython_vm::builtins::PyModule::__init_dict_from_def(vm, &child);
                         child.__init_methods(vm).unwrap();
                         #mod_ident::module_exec(vm, &child).unwrap();
                         let child: ::rustpython_vm::PyObjectRef = child.into();
@@ -837,8 +838,9 @@ impl ModuleItem for StructSequenceItem {
                 "#[pystruct_sequence] requires name parameter",
             )
         })?;
-        let has_module = meta.module()?.is_some();
-        let module_name = meta.module()?.unwrap_or_else(|| args.context.name.clone());
+        let explicit_module = meta.module()?;
+        let has_module = explicit_module.is_some();
+        let module_name = explicit_module.unwrap_or_else(|| args.context.name.clone());
         if !has_module {
             let structseq_attr = &mut args.attrs[self.inner.index];
             structseq_attr.fill_nested_meta("module", || {

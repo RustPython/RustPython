@@ -2865,6 +2865,9 @@ impl Compiler {
         // Normal path jumps here to skip exception path blocks
         let end_block = self.new_block();
 
+        // Emit NOP at the try: line so LINE events fire for it
+        emit!(self, Instruction::Nop);
+
         // Setup a finally block if we have a finally statement.
         // Push fblock with handler info for exception table generation
         // IMPORTANT: handler goes to finally_except_block (exception path), not finally_block
@@ -3018,8 +3021,10 @@ impl Compiler {
                 type_,
                 name,
                 body,
+                range: handler_range,
                 ..
             }) = &handler;
+            self.set_source_range(*handler_range);
             let next_handler = self.new_block();
 
             // If we gave a typ,
@@ -3312,6 +3317,9 @@ impl Compiler {
             None
         };
         let exit_block = self.new_block();
+
+        // Emit NOP at the try: line so LINE events fire for it
+        emit!(self, Instruction::Nop);
 
         // Push fblock with handler info for exception table generation
         if !finalbody.is_empty() {
@@ -3743,6 +3751,9 @@ impl Compiler {
         is_async: bool,
         funcflags: bytecode::MakeFunctionFlags,
     ) -> CompileResult<()> {
+        // Save source range so MAKE_FUNCTION gets the `def` line, not the body's last line
+        let saved_range = self.current_source_range;
+
         // Always enter function scope
         self.enter_function(name, parameters)?;
         self.current_code_info()
@@ -3795,6 +3806,9 @@ impl Compiler {
         // Exit scope and create function object
         let code = self.exit_scope();
         self.ctx = prev_ctx;
+
+        // Restore source range so MAKE_FUNCTION is attributed to the `def` line
+        self.set_source_range(saved_range);
 
         // Create function object with closure
         self.make_closure(code, funcflags)?;
@@ -5169,14 +5183,21 @@ impl Compiler {
         if is_async {
             emit!(self, Instruction::EndAsyncFor);
         } else {
-            // END_FOR + POP_ITER pattern (CPython 3.14)
-            // FOR_ITER jumps to END_FOR, but VM skips it (+1) to reach POP_ITER
+            // END_FOR + POP_ITER are on the `for` line, not the body's last line
+            let saved_range = self.current_source_range;
+            self.set_source_range(iter.range());
             emit!(self, Instruction::EndFor);
             emit!(self, Instruction::PopIter);
+            self.set_source_range(saved_range);
         }
         self.compile_statements(orelse)?;
 
         self.switch_to_block(after_block);
+
+        // Restore source range to the `for` line so any implicit return
+        // (LOAD_CONST None, RETURN_VALUE) is attributed to the `for` line,
+        // not the loop body's last line.
+        self.set_source_range(iter.range());
 
         self.leave_conditional_block();
         Ok(())
