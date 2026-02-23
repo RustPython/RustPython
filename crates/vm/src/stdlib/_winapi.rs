@@ -1807,6 +1807,13 @@ mod _winapi {
     ) -> PyResult<WinHandle> {
         use windows_sys::Win32::System::Memory::CreateFileMappingW;
 
+        if let Some(ref n) = name
+            && n.as_str().contains('\0')
+        {
+            return Err(vm.new_value_error(
+                "CreateFileMapping: name must not contain null characters".to_owned(),
+            ));
+        }
         let name_wide = name.as_ref().map(|n| n.as_wtf8().to_wide_with_nul());
         let name_ptr = name_wide.as_ref().map_or(null(), |n| n.as_ptr());
 
@@ -1837,6 +1844,11 @@ mod _winapi {
     ) -> PyResult<WinHandle> {
         use windows_sys::Win32::System::Memory::OpenFileMappingW;
 
+        if name.as_str().contains('\0') {
+            return Err(vm.new_value_error(
+                "OpenFileMapping: name must not contain null characters".to_owned(),
+            ));
+        }
         let name_wide = name.as_wtf8().to_wide_with_nul();
         let handle = unsafe {
             OpenFileMappingW(
