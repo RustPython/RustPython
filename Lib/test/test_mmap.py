@@ -618,7 +618,6 @@ class MmapTests(unittest.TestCase):
             self.assertEqual(m.read_byte(), b)
             m.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(os.name == 'nt', 'requires Windows')
     def test_tagname(self):
         data1 = b"0123456789"

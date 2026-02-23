@@ -42,6 +42,10 @@ mod mmap {
             CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, INVALID_HANDLE_VALUE,
         },
         Storage::FileSystem::{FILE_BEGIN, GetFileSize, SetEndOfFile, SetFilePointerEx},
+        System::Memory::{
+            CreateFileMappingW, FILE_MAP_COPY, FILE_MAP_READ, FILE_MAP_WRITE, FlushViewOfFile,
+            MapViewOfFile, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY, UnmapViewOfFile,
+        },
         System::Threading::GetCurrentProcess,
     };
 
@@ -193,10 +197,57 @@ mod mmap {
         vm.ctx.exceptions.os_error.to_owned()
     }
 
+    /// Named file mapping on Windows using raw Win32 APIs.
+    /// Supports tagname parameter for inter-process shared memory.
+    #[cfg(windows)]
+    struct NamedMmap {
+        map_handle: HANDLE,
+        view_ptr: *mut u8,
+        len: usize,
+    }
+
+    #[cfg(windows)]
+    // SAFETY: The memory mapping is managed by the OS and is safe to share
+    // across threads. Access is synchronized by PyMutex in PyMmap.
+    unsafe impl Send for NamedMmap {}
+    #[cfg(windows)]
+    unsafe impl Sync for NamedMmap {}
+
+    #[cfg(windows)]
+    impl core::fmt::Debug for NamedMmap {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("NamedMmap")
+                .field("map_handle", &self.map_handle)
+                .field("view_ptr", &self.view_ptr)
+                .field("len", &self.len)
+                .finish()
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for NamedMmap {
+        fn drop(&mut self) {
+            unsafe {
+                if !self.view_ptr.is_null() {
+                    UnmapViewOfFile(
+                        windows_sys::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS {
+                            Value: self.view_ptr as *mut _,
+                        },
+                    );
+                }
+                if !self.map_handle.is_null() {
+                    CloseHandle(self.map_handle);
+                }
+            }
+        }
+    }
+
     #[derive(Debug)]
     enum MmapObj {
         Write(MmapMut),
         Read(Mmap),
+        #[cfg(windows)]
+        Named(NamedMmap),
     }
 
     impl MmapObj {
@@ -204,6 +255,10 @@ mod mmap {
             match self {
                 MmapObj::Read(mmap) => &mmap[..],
                 MmapObj::Write(mmap) => &mmap[..],
+                #[cfg(windows)]
+                MmapObj::Named(named) => unsafe {
+                    core::slice::from_raw_parts(named.view_ptr, named.len)
+                },
             }
         }
     }
@@ -276,7 +331,6 @@ mod mmap {
         #[pyarg(any)]
         length: isize,
         #[pyarg(any, default)]
-        #[allow(dead_code)]
         tagname: Option<PyObjectRef>,
         #[pyarg(any, default = AccessMode::Default)]
         access: AccessMode,
@@ -494,10 +548,21 @@ mod mmap {
             let mut map_size = args.validate_new_args(vm)?;
             let MmapNewArgs {
                 fileno,
+                tagname,
                 access,
                 offset,
                 ..
             } = args;
+
+            // Parse tagname: None or a string
+            let tag_str: Option<String> = match tagname {
+                Some(ref obj) if !vm.is_none(obj) => {
+                    Some(obj.try_to_value::<String>(vm).map_err(|_| {
+                        vm.new_type_error("tagname must be a string or None".to_owned())
+                    })?)
+                }
+                _ => None,
+            };
 
             // Get file handle from fileno
             // fileno -1 or 0 means anonymous mapping
@@ -593,6 +658,75 @@ mod mmap {
                         }
                     }
                 }
+            }
+
+            // When tagname is provided, use raw Win32 APIs for named shared memory
+            if let Some(ref tag) = tag_str {
+                let (fl_protect, desired_access) = match access {
+                    AccessMode::Default | AccessMode::Write => (PAGE_READWRITE, FILE_MAP_WRITE),
+                    AccessMode::Read => (PAGE_READONLY, FILE_MAP_READ),
+                    AccessMode::Copy => (PAGE_WRITECOPY, FILE_MAP_COPY),
+                };
+
+                let fh = if let Some(fh) = fh {
+                    // Close the duplicated handle - we'll use the original
+                    // file handle for CreateFileMappingW
+                    if duplicated_handle != INVALID_HANDLE_VALUE {
+                        unsafe { CloseHandle(duplicated_handle) };
+                    }
+                    fh
+                } else {
+                    INVALID_HANDLE_VALUE
+                };
+
+                let tag_wide: Vec<u16> = tag.encode_utf16().chain(core::iter::once(0)).collect();
+
+                let total_size = (offset as u64)
+                    .checked_add(map_size as u64)
+                    .ok_or_else(|| vm.new_overflow_error("mmap offset plus size would overflow"))?;
+                let size_hi = (total_size >> 32) as u32;
+                let size_lo = total_size as u32;
+
+                let map_handle = unsafe {
+                    CreateFileMappingW(
+                        fh,
+                        core::ptr::null(),
+                        fl_protect,
+                        size_hi,
+                        size_lo,
+                        tag_wide.as_ptr(),
+                    )
+                };
+                if map_handle.is_null() {
+                    return Err(io::Error::last_os_error().to_pyexception(vm));
+                }
+
+                let off_hi = (offset as u64 >> 32) as u32;
+                let off_lo = offset as u32;
+
+                let view =
+                    unsafe { MapViewOfFile(map_handle, desired_access, off_hi, off_lo, map_size) };
+                if view.Value.is_null() {
+                    unsafe { CloseHandle(map_handle) };
+                    return Err(io::Error::last_os_error().to_pyexception(vm));
+                }
+
+                let named = NamedMmap {
+                    map_handle,
+                    view_ptr: view.Value as *mut u8,
+                    len: map_size,
+                };
+
+                return Ok(Self {
+                    closed: AtomicCell::new(false),
+                    mmap: PyMutex::new(Some(MmapObj::Named(named))),
+                    handle: AtomicCell::new(INVALID_HANDLE_VALUE as isize),
+                    offset,
+                    size: AtomicCell::new(map_size),
+                    pos: AtomicCell::new(0),
+                    exports: AtomicCell::new(0),
+                    access,
+                });
             }
 
             let mut mmap_opt = MmapOptions::new();
@@ -719,6 +853,10 @@ mod mmap {
                 match m.as_mut().expect("mmap closed or invalid") {
                     MmapObj::Read(_) => panic!("mmap can't modify a readonly memory map."),
                     MmapObj::Write(mmap) => &mut mmap[..],
+                    #[cfg(windows)]
+                    MmapObj::Named(named) => unsafe {
+                        core::slice::from_raw_parts_mut(named.view_ptr, named.len)
+                    },
                 }
             })
             .into()
@@ -749,15 +887,19 @@ mod mmap {
         fn try_writable<R>(
             &self,
             vm: &VirtualMachine,
-            f: impl FnOnce(&mut MmapMut) -> R,
+            f: impl FnOnce(&mut [u8]) -> R,
         ) -> PyResult<R> {
             if matches!(self.access, AccessMode::Read) {
                 return Err(vm.new_type_error("mmap can't modify a readonly memory map."));
             }
 
             match self.check_valid(vm)?.deref_mut().as_mut().unwrap() {
-                MmapObj::Write(mmap) => Ok(f(mmap)),
-                _ => unreachable!("already check"),
+                MmapObj::Write(mmap) => Ok(f(&mut mmap[..])),
+                #[cfg(windows)]
+                MmapObj::Named(named) => Ok(f(unsafe {
+                    core::slice::from_raw_parts_mut(named.view_ptr, named.len)
+                })),
+                _ => unreachable!("already checked"),
             }
         }
 
@@ -872,6 +1014,14 @@ mod mmap {
                 MmapObj::Write(mmap) => {
                     mmap.flush_range(offset, size)
                         .map_err(|e| e.to_pyexception(vm))?;
+                }
+                #[cfg(windows)]
+                MmapObj::Named(named) => {
+                    let ptr = unsafe { named.view_ptr.add(offset) };
+                    let result = unsafe { FlushViewOfFile(ptr as *const _, size) };
+                    if result == 0 {
+                        return Err(io::Error::last_os_error().to_pyexception(vm));
+                    }
                 }
             }
 
@@ -1044,10 +1194,16 @@ mod mmap {
             }
 
             let handle = self.handle.load();
-            let is_anonymous = handle == INVALID_HANDLE_VALUE as isize;
 
             // Get the lock on mmap
             let mut mmap_guard = self.mmap.lock();
+
+            // Check if this is a Named mmap - these cannot be resized
+            if let Some(MmapObj::Named(_)) = mmap_guard.as_ref() {
+                return Err(vm.new_system_error("mmap: cannot resize a named memory mapping"));
+            }
+
+            let is_anonymous = handle == INVALID_HANDLE_VALUE as isize;
 
             if is_anonymous {
                 // For anonymous mmap, we need to:
@@ -1067,10 +1223,7 @@ mod mmap {
 
                 // Copy data from old mmap to new mmap
                 if let Some(old_mmap) = mmap_guard.as_ref() {
-                    let src = match old_mmap {
-                        MmapObj::Write(m) => &m[..copy_size],
-                        MmapObj::Read(m) => &m[..copy_size],
-                    };
+                    let src = &old_mmap.as_slice()[..copy_size];
                     new_mmap[..copy_size].copy_from_slice(src);
                 }
 

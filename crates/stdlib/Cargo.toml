@@ -160,6 +160,7 @@ features = [
   "Win32_System_Environment",
   "Win32_System_Console",
   "Win32_System_IO",
+  "Win32_System_Memory",
   "Win32_System_Threading"
 ]
 
