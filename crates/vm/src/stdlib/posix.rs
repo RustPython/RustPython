@@ -721,6 +721,7 @@ pub mod module {
             force_unlock_mutex_after_fork(&vm.state.after_forkers_parent);
             force_unlock_mutex_after_fork(&vm.state.global_trace_func);
             force_unlock_mutex_after_fork(&vm.state.global_profile_func);
+            crate::gc_state::gc_state().force_unlock_after_fork();
         }
 
         // Mark all other threads as done before running Python callbacks
