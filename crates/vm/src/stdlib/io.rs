@@ -1000,29 +1000,39 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
             let len = buf_range.len();
-            let res = if let Some(buf) = buf {
-                let mem_obj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?.to_pyobject(vm);
 
-                // TODO: loop if write() raises an interrupt
-                vm.call_method(self.raw.as_ref().unwrap(), "write", (mem_obj,))?
+            // Prepare the memoryview; if using the internal buffer, stash it
+            // in write_buf so we can restore it after the write.
+            let (mem_obj, write_buf) = if let Some(buf) = buf {
+                let mem_obj =
+                    PyMemoryView::from_buffer_range(buf, buf_range, vm)?.into_ref(&vm.ctx);
+                (mem_obj, None)
             } else {
                 let v = core::mem::take(&mut self.buffer);
-                let write_buf = VecBuffer::from(v).into_ref(&vm.ctx);
-                let mem_obj = PyMemoryView::from_buffer_range(
-                    write_buf.clone().into_pybuffer(true),
-                    buf_range,
-                    vm,
-                )?
-                .into_ref(&vm.ctx);
-
-                // TODO: loop if write() raises an interrupt
-                let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (mem_obj.clone(),));
-
-                mem_obj.release();
-                self.buffer = write_buf.take();
-
-                res?
+                let wb = VecBuffer::from(v).into_ref(&vm.ctx);
+                let mem_obj =
+                    PyMemoryView::from_buffer_range(wb.clone().into_pybuffer(true), buf_range, vm)?
+                        .into_ref(&vm.ctx);
+                (mem_obj, Some(wb))
             };
+
+            // Loop if write() raises EINTR (PEP 475)
+            let res = loop {
+                let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (mem_obj.clone(),));
+                match trap_eintr(res, vm) {
+                    Ok(Some(val)) => break Ok(val),
+                    Ok(None) => continue,
+                    Err(e) => break Err(e),
+                }
+            };
+
+            // Restore internal buffer if we borrowed it
+            if let Some(wb) = write_buf {
+                mem_obj.release();
+                self.buffer = wb.take();
+            }
+
+            let res = res?;
 
             if vm.is_none(&res) {
                 return Ok(None);
@@ -5737,11 +5747,18 @@ mod fileio {
 
             let mut handle = zelf.get_fd(vm)?;
 
-            let len = match obj.with_ref(|b| handle.write(b)) {
-                Ok(n) => n,
-                // Non-blocking mode: return None if EAGAIN
-                Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => return Ok(None),
-                Err(e) => return Err(Self::io_error(zelf, e, vm)),
+            // Loop on EINTR (PEP 475)
+            let len = loop {
+                match obj.with_ref(|b| handle.write(b)) {
+                    Ok(n) => break n,
+                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                        vm.check_signals()?;
+                        continue;
+                    }
+                    // Non-blocking mode: return None if EAGAIN
+                    Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => return Ok(None),
+                    Err(e) => return Err(Self::io_error(zelf, e, vm)),
+                }
             };
 
             //return number of bytes written
