@@ -180,22 +180,17 @@ fn parse_single_event(event: i32, vm: &VirtualMachine) -> PyResult<usize> {
 }
 
 fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyResult<u32> {
+    let kind = if local {
+        "local event set"
+    } else {
+        "event set"
+    };
     if event_set < 0 {
-        let kind = if local {
-            "local event set"
-        } else {
-            "event set"
-        };
         return Err(vm.new_value_error(format!("invalid {kind} 0x{event_set:x}")));
     }
 
     let mut event_set = event_set as u32;
     if event_set >= (1 << EVENTS_COUNT) {
-        let kind = if local {
-            "local event set"
-        } else {
-            "event set"
-        };
         return Err(vm.new_value_error(format!("invalid {kind} 0x{event_set:x}")));
     }
 
@@ -897,13 +892,17 @@ pub fn fire_reraise(
         return Ok(());
     }
     RERAISE_PENDING.with(|f| f.set(true));
-    fire(
+    let result = fire(
         vm,
         EVENT_RERAISE,
         code,
         offset,
         &[vm.ctx.new_int(offset).into(), exception.clone()],
-    )
+    );
+    if result.is_err() {
+        RERAISE_PENDING.with(|f| f.set(false));
+    }
+    result
 }
 
 pub fn fire_exception_handled(
@@ -953,7 +952,6 @@ pub fn fire_py_throw(
     )
 }
 
-#[allow(dead_code)]
 pub fn fire_stop_iteration(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,

@@ -257,14 +257,13 @@ impl CodeInfo {
             .filter(|b| b.next != BlockIdx::NULL || !b.instructions.is_empty())
         {
             // Collect lines that have non-NOP instructions in this block
-            let non_nop_lines: std::collections::HashSet<_> = block
+            let non_nop_lines: IndexSet<_> = block
                 .instructions
                 .iter()
                 .filter(|ins| !matches!(ins.instr.real(), Some(Instruction::Nop)))
                 .map(|ins| ins.location.line)
                 .collect();
-            let mut kept_nop_lines: std::collections::HashSet<OneIndexed> =
-                std::collections::HashSet::new();
+            let mut kept_nop_lines: IndexSet<OneIndexed> = IndexSet::default();
             block.instructions.retain(|ins| {
                 if matches!(ins.instr.real(), Some(Instruction::Nop)) {
                     let line = ins.location.line;
@@ -519,10 +518,8 @@ impl CodeInfo {
                 let tuple_const = ConstantData::Tuple { elements };
                 let (const_idx, _) = self.metadata.consts.insert_full(tuple_const);
 
-                // Replace preceding LOAD instructions with NOP, using the
-                // BUILD_TUPLE location so remove_nops() treats them as
-                // same-line and removes them (multi-line tuple literals
-                // would otherwise leave line-introducing NOPs behind).
+                // Replace preceding LOAD instructions with NOP at the
+                // BUILD_TUPLE location so remove_nops() can eliminate them.
                 let folded_loc = block.instructions[i].location;
                 for j in start_idx..i {
                     block.instructions[j].instr = Instruction::Nop.into();
@@ -705,10 +702,8 @@ impl CodeInfo {
                 if matches!(ins.instr.real(), Some(Instruction::Nop)) {
                     let line = ins.location.line;
                     if prev_line == Some(line) {
-                        // Same line as previous instruction — safe to remove
                         return false;
                     }
-                    // This NOP introduces a new line — keep it
                 }
                 prev_line = Some(ins.location.line);
                 true

@@ -1744,7 +1744,6 @@ class TestBranchAndJumpEvents(CheckEvents):
             ('branch right', 'func', 6, 8),
             ('branch right', 'func', 2, 10)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: attribute 'f_lineno' of 'frame' objects is not writable
     def test_callback_set_frame_lineno(self):
         def func(s: str) -> int:
             if s.startswith("t"):
@@ -1802,7 +1801,6 @@ class TestBranchConsistency(MonitoringTestBase, unittest.TestCase):
             for recorder in recorders:
                 sys.monitoring.register_callback(tool, recorder.event_type, None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'code' object has no attribute 'co_branches'
     def test_simple(self):
 
         def func():
@@ -1823,7 +1821,6 @@ class TestBranchConsistency(MonitoringTestBase, unittest.TestCase):
 
         self.check_branches(whilefunc)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'code' object has no attribute 'co_branches'
     def test_except_star(self):
 
         class Foo:
@@ -1842,7 +1839,6 @@ class TestBranchConsistency(MonitoringTestBase, unittest.TestCase):
 
         self.check_branches(func)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'code' object has no attribute 'co_branches'
     def test4(self):
 
         def foo(n=0):
@@ -1853,7 +1849,6 @@ class TestBranchConsistency(MonitoringTestBase, unittest.TestCase):
 
         self.check_branches(foo)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'code' object has no attribute 'co_branches'
     def test_async_for(self):
 
         async def gen():
@@ -1942,7 +1937,7 @@ class TestLoadSuperAttr(CheckEvents):
         ]
         return d["f"], expected
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False != True
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_method_call(self):
         nonopt_func, nonopt_expected = self._super_method_call(optimized=False)
         opt_func, opt_expected = self._super_method_call(optimized=True)
@@ -1994,7 +1989,7 @@ class TestLoadSuperAttr(CheckEvents):
         ]
         return d["f"], expected
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False != True
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_method_call_error(self):
         nonopt_func, nonopt_expected = self._super_method_call_error(optimized=False)
         opt_func, opt_expected = self._super_method_call_error(optimized=True)
@@ -2032,7 +2027,7 @@ class TestLoadSuperAttr(CheckEvents):
         ]
         return d["f"], expected
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False != True
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_attr(self):
         nonopt_func, nonopt_expected = self._super_attr(optimized=False)
         opt_func, opt_expected = self._super_attr(optimized=True)
@@ -2040,7 +2035,7 @@ class TestLoadSuperAttr(CheckEvents):
         self.check_events(nonopt_func, recorders=self.RECORDERS, expected=nonopt_expected)
         self.check_events(opt_func, recorders=self.RECORDERS, expected=opt_expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_vs_other_type_call(self):
         code_template = textwrap.dedent("""
             class C:

@@ -434,7 +434,7 @@ impl Instruction {
     /// Panics if called on an already-instrumented opcode.
     pub fn to_instrumented(self) -> Option<Self> {
         debug_assert!(
-            self.to_base().is_none(),
+            !self.is_instrumented(),
             "to_instrumented called on already-instrumented opcode {self:?}"
         );
         Some(match self {
@@ -462,13 +462,13 @@ impl Instruction {
     }
 
     /// Map an INSTRUMENTED_* opcode back to its base variant.
-    /// Returns `None` if this is not an instrumented opcode.
+    /// Returns `None` for non-instrumented opcodes, and also for
+    /// `InstrumentedLine` / `InstrumentedInstruction` which are event-layer
+    /// placeholders without a fixed base opcode (the real opcode is stored in
+    /// `CoMonitoringData`).
     ///
     /// The returned base opcode uses `Arg::marker()` for typed fields —
     /// only the opcode byte matters since `replace_op` preserves the arg byte.
-    ///
-    /// # Panics (debug)
-    /// Panics if called on a base opcode that has an instrumented counterpart.
     pub fn to_base(self) -> Option<Self> {
         Some(match self {
             Self::InstrumentedResume => Self::Resume { arg: Arg::marker() },

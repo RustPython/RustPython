@@ -5,7 +5,7 @@ use crate::common::lock::PyMutex;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyStrInterned,
-    bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
+    bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag, Instruction},
     class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
     frozen,
@@ -910,6 +910,79 @@ impl PyCode {
         }
 
         let list = vm.ctx.new_list(positions);
+        vm.call_method(list.as_object(), "__iter__", ())
+    }
+
+    #[pymethod]
+    pub fn co_branches(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let instructions = &self.code.instructions;
+        let mut branches = Vec::new();
+        let mut extended_arg: u32 = 0;
+
+        for (i, unit) in instructions.iter().enumerate() {
+            // De-instrument: use base opcode for instrumented variants
+            let op = unit.op.to_base().unwrap_or(unit.op);
+            let raw_arg = u32::from(u8::from(unit.arg));
+
+            if matches!(op, Instruction::ExtendedArg) {
+                extended_arg = (extended_arg | raw_arg) << 8;
+                continue;
+            }
+
+            let oparg = extended_arg | raw_arg;
+            extended_arg = 0;
+
+            let (src, left, right) = match op {
+                Instruction::ForIter { .. } => {
+                    // left = fall-through (continue iteration)
+                    // right = past END_FOR (iterator exhausted, skip cleanup)
+                    let target = oparg as usize;
+                    let right = if matches!(
+                        instructions.get(target).map(|u| u.op),
+                        Some(Instruction::EndFor) | Some(Instruction::InstrumentedEndFor)
+                    ) {
+                        (target + 1) * 2
+                    } else {
+                        target * 2
+                    };
+                    (i * 2, (i + 1) * 2, right)
+                }
+                Instruction::PopJumpIfFalse { .. }
+                | Instruction::PopJumpIfTrue { .. }
+                | Instruction::PopJumpIfNone { .. }
+                | Instruction::PopJumpIfNotNone { .. } => {
+                    // left = fall-through (skip NOT_TAKEN if present)
+                    // right = jump target (condition met)
+                    let next_op = instructions
+                        .get(i + 1)
+                        .map(|u| u.op.to_base().unwrap_or(u.op));
+                    let fallthrough = if matches!(next_op, Some(Instruction::NotTaken)) {
+                        (i + 2) * 2
+                    } else {
+                        (i + 1) * 2
+                    };
+                    (i * 2, fallthrough, oparg as usize * 2)
+                }
+                Instruction::EndAsyncFor => {
+                    // src = END_SEND position (next_i - oparg)
+                    let next_i = i + 1;
+                    let Some(src_i) = next_i.checked_sub(oparg as usize) else {
+                        continue;
+                    };
+                    (src_i * 2, (src_i + 2) * 2, next_i * 2)
+                }
+                _ => continue,
+            };
+
+            let tuple = vm.ctx.new_tuple(vec![
+                vm.ctx.new_int(src).into(),
+                vm.ctx.new_int(left).into(),
+                vm.ctx.new_int(right).into(),
+            ]);
+            branches.push(tuple.into());
+        }
+
+        let list = vm.ctx.new_list(branches);
         vm.call_method(list.as_object(), "__iter__", ())
     }
 

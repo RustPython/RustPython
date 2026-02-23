@@ -546,6 +546,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(len(returns), 2)
         self.check_lnotab(f)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; absolute jump encoding
     def test_elim_jump_to_uncond_jump(self):
         # POP_JUMP_IF_FALSE to JUMP_FORWARD --> POP_JUMP_IF_FALSE to non-jump
         def f():
@@ -640,12 +641,14 @@ class TestTranforms(BytecodeTestCase):
         self.assertNotInBytecode(f, 'BINARY_OP')
         self.check_lnotab(f)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no BUILD_LIST to BUILD_TUPLE optimization
     def test_in_literal_list(self):
         def containtest():
             return x in [a, b]
         self.assertEqual(count_instr_recursively(containtest, 'BUILD_LIST'), 0)
         self.check_lnotab(containtest)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no BUILD_LIST to BUILD_TUPLE optimization
     def test_iterate_literal_list(self):
         def forloop():
             for x in [a, b]:

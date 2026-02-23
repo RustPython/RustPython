@@ -7,6 +7,7 @@ use crate::{
         PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
         PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
+        frame::stack_analysis,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
     },
@@ -19,7 +20,7 @@ use crate::{
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
-    stdlib::{builtins, typing},
+    stdlib::{builtins, sys::monitoring, typing},
     types::PyTypeFlags,
     vm::{Context, PyMethod},
 };
@@ -28,9 +29,10 @@ use bstr::ByteSlice;
 use core::iter::zip;
 use core::sync::atomic;
 use core::sync::atomic::AtomicPtr;
+use core::sync::atomic::Ordering::Relaxed;
 use indexmap::IndexMap;
 use itertools::Itertools;
-
+use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     boxvec::BoxVec,
     lock::PyMutex,
@@ -60,9 +62,6 @@ struct FrameState {
     stack: BoxVec<Option<PyObjectRef>>,
     /// Cell and free variable references (cellvars + freevars).
     cells_frees: Box<[PyCellRef]>,
-    /// index of last instruction ran
-    #[cfg(feature = "threading")]
-    lasti: u32,
 }
 
 /// Tracks who owns a frame.
@@ -89,11 +88,6 @@ impl FrameOwner {
     }
 }
 
-#[cfg(feature = "threading")]
-type Lasti = atomic::AtomicU32;
-#[cfg(not(feature = "threading"))]
-type Lasti = core::cell::Cell<u32>;
-
 #[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct Frame {
     pub code: PyRef<PyCode>,
@@ -104,10 +98,8 @@ pub struct Frame {
     pub globals: PyDictRef,
     pub builtins: PyObjectRef,
 
-    // on feature=threading, this is a duplicate of FrameState.lasti, but it's faster to do an
-    // atomic store than it is to do a fetch_add, for every instruction executed
     /// index of last instruction ran
-    pub lasti: Lasti,
+    pub lasti: PyAtomic<u32>,
     /// tracer function for this frame (usually is None)
     pub trace: PyMutex<PyObjectRef>,
     state: PyMutex<FrameState>,
@@ -129,6 +121,14 @@ pub struct Frame {
     pub(crate) owner: atomic::AtomicI8,
     /// Set when f_locals is accessed. Cleared after locals_to_fast() sync.
     pub(crate) locals_dirty: atomic::AtomicBool,
+    /// Number of stack entries to pop after set_f_lineno returns to the
+    /// execution loop.  set_f_lineno cannot pop directly because the
+    /// execution loop holds the state mutex.
+    pub(crate) pending_stack_pops: PyAtomic<u32>,
+    /// The encoded stack state that set_f_lineno wants to unwind *from*.
+    /// Used together with `pending_stack_pops` to identify Except entries
+    /// that need special exception-state handling.
+    pub(crate) pending_unwind_from_stack: PyAtomic<i64>,
 }
 
 impl PyPayload for Frame {
@@ -200,8 +200,6 @@ impl Frame {
         let state = FrameState {
             stack: BoxVec::new(code.max_stackdepth as usize),
             cells_frees,
-            #[cfg(feature = "threading")]
-            lasti: 0,
         };
 
         Self {
@@ -211,7 +209,7 @@ impl Frame {
             builtins,
             code,
             func_obj,
-            lasti: Lasti::new(0),
+            lasti: Radium::new(0),
             state: PyMutex::new(state),
             trace: PyMutex::new(vm.ctx.none()),
             trace_lines: PyMutex::new(true),
@@ -221,6 +219,8 @@ impl Frame {
             previous: AtomicPtr::new(core::ptr::null_mut()),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
             locals_dirty: atomic::AtomicBool::new(false),
+            pending_stack_pops: Default::default(),
+            pending_unwind_from_stack: Default::default(),
         }
     }
 
@@ -283,14 +283,27 @@ impl Frame {
     }
 
     pub fn lasti(&self) -> u32 {
-        #[cfg(feature = "threading")]
-        {
-            self.lasti.load(atomic::Ordering::Relaxed)
-        }
-        #[cfg(not(feature = "threading"))]
-        {
-            self.lasti.get()
-        }
+        self.lasti.load(Relaxed)
+    }
+
+    pub fn set_lasti(&self, val: u32) {
+        self.lasti.store(val, Relaxed);
+    }
+
+    pub(crate) fn pending_stack_pops(&self) -> u32 {
+        self.pending_stack_pops.load(Relaxed)
+    }
+
+    pub(crate) fn set_pending_stack_pops(&self, val: u32) {
+        self.pending_stack_pops.store(val, Relaxed);
+    }
+
+    pub(crate) fn pending_unwind_from_stack(&self) -> i64 {
+        self.pending_unwind_from_stack.load(Relaxed)
+    }
+
+    pub(crate) fn set_pending_unwind_from_stack(&self, val: i64) {
+        self.pending_unwind_from_stack.store(val, Relaxed);
     }
 
     /// Sync locals dict back to fastlocals. Called before generator/coroutine resume
@@ -450,7 +463,7 @@ struct ExecutingFrame<'a> {
     globals: &'a PyDictRef,
     builtins: &'a PyObjectRef,
     object: &'a Py<Frame>,
-    lasti: &'a Lasti,
+    lasti: &'a PyAtomic<u32>,
     state: &'a mut FrameState,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
@@ -471,29 +484,37 @@ impl fmt::Debug for ExecutingFrame<'_> {
 impl ExecutingFrame<'_> {
     #[inline(always)]
     fn update_lasti(&mut self, f: impl FnOnce(&mut u32)) {
-        #[cfg(feature = "threading")]
-        {
-            f(&mut self.state.lasti);
-            self.lasti
-                .store(self.state.lasti, atomic::Ordering::Relaxed);
-        }
-        #[cfg(not(feature = "threading"))]
-        {
-            let mut lasti = self.lasti.get();
-            f(&mut lasti);
-            self.lasti.set(lasti);
-        }
+        let mut val = self.lasti.load(Relaxed);
+        f(&mut val);
+        self.lasti.store(val, Relaxed);
     }
 
     #[inline(always)]
-    const fn lasti(&self) -> u32 {
-        #[cfg(feature = "threading")]
-        {
-            self.state.lasti
-        }
-        #[cfg(not(feature = "threading"))]
-        {
-            self.lasti.get()
+    fn lasti(&self) -> u32 {
+        self.lasti.load(Relaxed)
+    }
+
+    /// Perform deferred stack unwinding after set_f_lineno.
+    ///
+    /// set_f_lineno cannot pop the value stack directly because the execution
+    /// loop holds the state mutex.  Instead it records the work in
+    /// `pending_stack_pops` / `pending_unwind_from_stack` and we execute it
+    /// here, inside the execution loop where we already own the state.
+    fn unwind_stack_for_lineno(&mut self, pop_count: usize, from_stack: i64, vm: &VirtualMachine) {
+        let mut cur_stack = from_stack;
+        for _ in 0..pop_count {
+            let val = self.pop_value_opt();
+            if stack_analysis::top_of_stack(cur_stack) == stack_analysis::Kind::Except as i64
+                && let Some(exc_obj) = val
+            {
+                if vm.is_none(&exc_obj) {
+                    vm.set_exception(None);
+                } else {
+                    let exc = exc_obj.downcast::<PyBaseException>().ok();
+                    vm.set_exception(exc);
+                }
+            }
+            cur_stack = stack_analysis::pop_value(cur_stack);
         }
     }
 
@@ -507,23 +528,46 @@ impl ExecutingFrame<'_> {
         let mut arg_state = bytecode::OpArgState::default();
         loop {
             let idx = self.lasti() as usize;
+            // Advance lasti past the current instruction BEFORE firing the
+            // line event.  This ensures that f_lineno (which reads
+            // locations[lasti - 1]) returns the line of the instruction
+            // being traced, not the previous one.
+            self.update_lasti(|i| *i += 1);
+
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
             // (frames entered before sys.settrace() have trace=None).
+            // Skip RESUME – it should not generate user-visible line events.
             if vm.use_tracing.get()
                 && !vm.is_none(&self.object.trace.lock())
+                && !matches!(
+                    instructions.get(idx).map(|u| u.op),
+                    Some(Instruction::Resume { .. } | Instruction::InstrumentedResume)
+                )
                 && let Some((loc, _)) = self.code.locations.get(idx)
                 && loc.line.get() as u32 != self.prev_line
             {
                 self.prev_line = loc.line.get() as u32;
                 vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
+                // Trace callback may have changed lasti via set_f_lineno.
+                // Re-read and restart the loop from the new position.
+                if self.lasti() != (idx as u32 + 1) {
+                    // set_f_lineno defers stack unwinding because we hold
+                    // the state mutex.  Perform it now.
+                    let pops = self.object.pending_stack_pops();
+                    if pops > 0 {
+                        let from_stack = self.object.pending_unwind_from_stack();
+                        self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
+                        self.object.set_pending_stack_pops(0);
+                    }
+                    arg_state.reset();
+                    continue;
+                }
             }
-            self.update_lasti(|i| *i += 1);
             let bytecode::CodeUnit { op, arg } = instructions[idx];
             let arg = arg_state.extend(arg);
             let mut do_extend_arg = false;
 
-            // Track current line for settrace LINE event and monitoring.
             if !matches!(
                 op,
                 Instruction::Resume { .. }
@@ -621,12 +665,8 @@ impl ExecutingFrame<'_> {
                     );
 
                     // Fire RAISE or RERAISE monitoring event.
-                    // fire_reraise internally deduplicates: only the first
-                    // re-raise after each EXCEPTION_HANDLED fires the event.
-                    // If the callback raises (e.g. ValueError for illegal DISABLE),
-                    // replace the original exception.
+                    // If the callback raises, replace the original exception.
                     let exception = {
-                        use crate::stdlib::sys::monitoring;
                         let mon_events = vm.state.monitoring_events.load();
                         if is_reraise {
                             if mon_events & monitoring::EVENT_RERAISE != 0 {
@@ -657,14 +697,12 @@ impl ExecutingFrame<'_> {
                         Err(exception) => {
                             // Fire PY_UNWIND: exception escapes this frame
                             let exception = if vm.state.monitoring_events.load()
-                                & crate::stdlib::sys::monitoring::EVENT_PY_UNWIND
+                                & monitoring::EVENT_PY_UNWIND
                                 != 0
                             {
                                 let offset = idx as u32 * 2;
                                 let exc_obj: PyObjectRef = exception.clone().into();
-                                match crate::stdlib::sys::monitoring::fire_py_unwind(
-                                    vm, self.code, offset, &exc_obj,
-                                ) {
+                                match monitoring::fire_py_unwind(vm, self.code, offset, &exc_obj) {
                                     Ok(()) => exception,
                                     Err(monitor_exc) => monitor_exc,
                                 }
@@ -849,11 +887,9 @@ impl ExecutingFrame<'_> {
             exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
         }
 
-        // Fire PY_THROW and RAISE events before raising the exception in the
-        // generator.  do_monitor_exc in CPython replaces the active exception
-        // when a callback fails, so we mirror that here.
+        // Fire PY_THROW and RAISE events before raising the exception.
+        // If a monitoring callback fails, its exception replaces the original.
         let exception = {
-            use crate::stdlib::sys::monitoring;
             let mon_events = vm.state.monitoring_events.load();
             let exception = if mon_events & monitoring::EVENT_PY_THROW != 0 {
                 let offset = idx as u32 * 2;
@@ -890,22 +926,17 @@ impl ExecutingFrame<'_> {
             Ok(Some(result)) => Ok(result),
             Err(exception) => {
                 // Fire PY_UNWIND: exception escapes the generator frame.
-                // do_monitor_exc replaces the exception on callback failure.
-                let exception = if vm.state.monitoring_events.load()
-                    & crate::stdlib::sys::monitoring::EVENT_PY_UNWIND
-                    != 0
-                {
-                    let offset = idx as u32 * 2;
-                    let exc_obj: PyObjectRef = exception.clone().into();
-                    match crate::stdlib::sys::monitoring::fire_py_unwind(
-                        vm, self.code, offset, &exc_obj,
-                    ) {
-                        Ok(()) => exception,
-                        Err(monitor_exc) => monitor_exc,
-                    }
-                } else {
-                    exception
-                };
+                let exception =
+                    if vm.state.monitoring_events.load() & monitoring::EVENT_PY_UNWIND != 0 {
+                        let offset = idx as u32 * 2;
+                        let exc_obj: PyObjectRef = exception.clone().into();
+                        match monitoring::fire_py_unwind(vm, self.code, offset, &exc_obj) {
+                            Ok(()) => exception,
+                            Err(monitor_exc) => monitor_exc,
+                        }
+                    } else {
+                        exception
+                    };
                 Err(exception)
             }
         }
@@ -2137,7 +2168,7 @@ impl ExecutingFrame<'_> {
                     .load(atomic::Ordering::Acquire);
                 if code_ver != global_ver {
                     let events = vm.state.monitoring_events.load();
-                    crate::stdlib::sys::monitoring::instrument_code(self.code, events);
+                    monitoring::instrument_code(self.code, events);
                     self.code
                         .instrumentation_version
                         .store(global_ver, atomic::Ordering::Release);
@@ -2186,10 +2217,8 @@ impl ExecutingFrame<'_> {
                     vm.set_exception(Some(exc_ref.to_owned()));
                 }
 
-                // Complete stack operations
                 self.push_value(prev_exc);
                 self.push_value(exc);
-
                 Ok(None)
             }
             Instruction::CheckExcMatch => {
@@ -2496,11 +2525,7 @@ impl ExecutingFrame<'_> {
             instruction.is_instrumented(),
             "execute_instrumented called with non-instrumented opcode {instruction:?}"
         );
-        // Refresh monitoring mask from global state on every instrumented opcode
-        // execution. This ensures frames already past RESUME pick up events that
-        // were enabled by a set_events() call while the frame was executing.
         self.monitoring_mask = vm.state.monitoring_events.load();
-        use crate::stdlib::sys::monitoring;
         match instruction {
             Instruction::InstrumentedResume => {
                 // Version check: re-instrument if stale
@@ -2594,34 +2619,30 @@ impl ExecutingFrame<'_> {
                     }
                     Err(exc) => {
                         // Fire C_RAISE on failure
-                        if let Some((global_super, arg0)) = call_args {
-                            let _ = monitoring::fire_c_raise(
+                        let exc = if let Some((global_super, arg0)) = call_args {
+                            match monitoring::fire_c_raise(
                                 vm,
                                 self.code,
                                 offset,
                                 &global_super,
                                 arg0,
-                            );
-                        }
+                            ) {
+                                Ok(()) => exc,
+                                Err(monitor_exc) => monitor_exc,
+                            }
+                        } else {
+                            exc
+                        };
                         Err(exc)
                     }
                 }
             }
-            Instruction::InstrumentedJumpForward => {
+            Instruction::InstrumentedJumpForward | Instruction::InstrumentedJumpBackward => {
                 let src_offset = (self.lasti() - 1) * 2;
                 let target = bytecode::Label::from(u32::from(arg));
                 self.jump(target);
                 if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
                     monitoring::fire_jump(vm, self.code, src_offset, target.0 * 2)?;
-                }
-                Ok(None)
-            }
-            Instruction::InstrumentedJumpBackward => {
-                let src_offset = (self.lasti() - 1) * 2;
-                let dest = bytecode::Label::from(u32::from(arg));
-                self.jump(dest);
-                if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
-                    monitoring::fire_jump(vm, self.code, src_offset, dest.0 * 2)?;
                 }
                 Ok(None)
             }
@@ -2672,55 +2693,50 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::InstrumentedPopJumpIfTrue => {
+                let src_offset = (self.lasti() - 1) * 2;
                 let target = bytecode::Label::from(u32::from(arg));
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 if value {
                     self.jump(target);
-                    // Branch taken → fire BRANCH_RIGHT
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                        let src_offset = (self.lasti() - 1) * 2;
                         monitoring::fire_branch_right(vm, self.code, src_offset, target.0 * 2)?;
                     }
                 }
-                // Branch not taken → InstrumentedNotTaken fires BRANCH_LEFT
                 Ok(None)
             }
             Instruction::InstrumentedPopJumpIfFalse => {
+                let src_offset = (self.lasti() - 1) * 2;
                 let target = bytecode::Label::from(u32::from(arg));
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 if !value {
                     self.jump(target);
-                    // Branch taken → fire BRANCH_RIGHT
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                        let src_offset = (self.lasti() - 1) * 2;
                         monitoring::fire_branch_right(vm, self.code, src_offset, target.0 * 2)?;
                     }
                 }
                 Ok(None)
             }
             Instruction::InstrumentedPopJumpIfNone => {
+                let src_offset = (self.lasti() - 1) * 2;
                 let value = self.pop_value();
                 let target = bytecode::Label::from(u32::from(arg));
                 if vm.is_none(&value) {
                     self.jump(target);
-                    // Branch taken → fire BRANCH_RIGHT
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                        let src_offset = (self.lasti() - 1) * 2;
                         monitoring::fire_branch_right(vm, self.code, src_offset, target.0 * 2)?;
                     }
                 }
                 Ok(None)
             }
             Instruction::InstrumentedPopJumpIfNotNone => {
+                let src_offset = (self.lasti() - 1) * 2;
                 let value = self.pop_value();
                 let target = bytecode::Label::from(u32::from(arg));
                 if !vm.is_none(&value) {
                     self.jump(target);
-                    // Branch taken → fire BRANCH_RIGHT
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                        let src_offset = (self.lasti() - 1) * 2;
                         monitoring::fire_branch_right(vm, self.code, src_offset, target.0 * 2)?;
                     }
                 }
@@ -3067,18 +3083,11 @@ impl ExecutingFrame<'_> {
                     // Fire EXCEPTION_HANDLED before setting up handler.
                     // If the callback raises, the handler is NOT set up and the
                     // new exception propagates instead.
-                    if vm.state.monitoring_events.load()
-                        & crate::stdlib::sys::monitoring::EVENT_EXCEPTION_HANDLED
-                        != 0
+                    if vm.state.monitoring_events.load() & monitoring::EVENT_EXCEPTION_HANDLED != 0
                     {
                         let byte_offset = offset * 2;
                         let exc_obj: PyObjectRef = exception.clone().into();
-                        crate::stdlib::sys::monitoring::fire_exception_handled(
-                            vm,
-                            self.code,
-                            byte_offset,
-                            &exc_obj,
-                        )?;
+                        monitoring::fire_exception_handled(vm, self.code, byte_offset, &exc_obj)?;
                     }
 
                     // 1. Pop stack to entry.depth
@@ -3288,9 +3297,7 @@ impl ExecutingFrame<'_> {
         let self_or_null = self.pop_value_opt(); // Option<PyObjectRef>
         let callable = self.pop_value();
 
-        // If self_or_null is Some (not NULL), prepend it to args
         let final_args = if let Some(self_val) = self_or_null {
-            // Method call: prepend self to args
             let mut all_args = vec![self_val];
             all_args.extend(args.args);
             FuncArgs {
@@ -3298,28 +3305,19 @@ impl ExecutingFrame<'_> {
                 kwargs: args.kwargs,
             }
         } else {
-            // Regular attribute call: self_or_null is NULL
             args
         };
 
-        match callable.call(final_args, vm) {
-            Ok(value) => {
-                self.push_value(value);
-                Ok(None)
-            }
-            Err(exc) => Err(exc),
-        }
+        let value = callable.call(final_args, vm)?;
+        self.push_value(value);
+        Ok(None)
     }
 
     /// Instrumented version of execute_call: fires CALL, C_RETURN, and C_RAISE events.
     fn execute_call_instrumented(&mut self, args: FuncArgs, vm: &VirtualMachine) -> FrameResult {
-        use crate::stdlib::sys::monitoring;
-
-        // Stack: [callable, self_or_null, ...]
-        let self_or_null = self.pop_value_opt(); // Option<PyObjectRef>
+        let self_or_null = self.pop_value_opt();
         let callable = self.pop_value();
 
-        // If self_or_null is Some (not NULL), prepend it to args
         let final_args = if let Some(self_val) = self_or_null {
             let mut all_args = vec![self_val];
             all_args.extend(args.args);
@@ -3532,8 +3530,7 @@ impl ExecutingFrame<'_> {
                 Ok(true)
             }
             Ok(PyIterReturn::StopIteration(_)) => {
-                // Skip END_FOR if followed by POP_ITER (both base and instrumented).
-                // PopIter may be further wrapped by InstrumentedInstruction / InstrumentedLine.
+                // Skip END_FOR (base or instrumented) and jump to POP_ITER.
                 let target_idx = target.0 as usize;
                 let jump_target = if let Some(unit) = self.code.instructions.get(target_idx) {
                     if matches!(
