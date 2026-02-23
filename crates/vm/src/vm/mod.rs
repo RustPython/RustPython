@@ -43,7 +43,7 @@ use alloc::{borrow::Cow, collections::BTreeMap};
 use core::{
     cell::{Cell, OnceCell, RefCell},
     ptr::NonNull,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
@@ -159,6 +159,9 @@ pub struct PyGlobalState {
     pub monitoring: PyMutex<stdlib::sys::monitoring::MonitoringState>,
     /// Fast-path mask: OR of all tools' events. 0 means no monitoring overhead.
     pub monitoring_events: stdlib::sys::monitoring::MonitoringEventsMask,
+    /// Incremented on every monitoring state change. Code objects compare their
+    /// local version against this to decide whether re-instrumentation is needed.
+    pub instrumentation_version: AtomicU64,
 }
 
 pub fn process_hash_secret_seed() -> u32 {

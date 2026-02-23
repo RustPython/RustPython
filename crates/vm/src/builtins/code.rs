@@ -1,6 +1,7 @@
 //! Infamous code object. The python class `code`
 
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType};
+use crate::common::lock::PyMutex;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyStrInterned,
@@ -15,7 +16,7 @@ use alloc::fmt;
 use core::{
     borrow::Borrow,
     ops::Deref,
-    sync::atomic::{AtomicPtr, Ordering},
+    sync::atomic::{AtomicPtr, AtomicU64, Ordering},
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;
@@ -324,10 +325,27 @@ impl<B: AsRef<[u8]>> IntoCodeObject for frozen::FrozenCodeObject<B> {
     }
 }
 
+/// Per-code-object monitoring data (_PyCoMonitoringData).
+/// Stores original opcodes displaced by INSTRUMENTED_LINE / INSTRUMENTED_INSTRUCTION.
+pub struct CoMonitoringData {
+    /// Original opcodes at positions with INSTRUMENTED_LINE.
+    /// Indexed by instruction index. 0 = not instrumented for LINE.
+    pub line_opcodes: Vec<u8>,
+
+    /// Original opcodes at positions with INSTRUMENTED_INSTRUCTION.
+    /// Indexed by instruction index. 0 = not instrumented for INSTRUCTION.
+    pub per_instruction_opcodes: Vec<u8>,
+}
+
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
     pub code: CodeObject,
     source_path: AtomicPtr<PyStrInterned>,
+    /// Version counter for lazy re-instrumentation.
+    /// Compared against `PyGlobalState::instrumentation_version` at RESUME.
+    pub instrumentation_version: AtomicU64,
+    /// Side-table for INSTRUMENTED_LINE / INSTRUMENTED_INSTRUCTION.
+    pub monitoring_data: PyMutex<Option<CoMonitoringData>>,
 }
 
 impl Deref for PyCode {
@@ -343,6 +361,8 @@ impl PyCode {
         Self {
             code,
             source_path: AtomicPtr::new(sp),
+            instrumentation_version: AtomicU64::new(0),
+            monitoring_data: PyMutex::new(None),
         }
     }
 

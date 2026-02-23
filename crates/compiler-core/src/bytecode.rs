@@ -99,6 +99,34 @@ pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTabl
     None
 }
 
+/// Decode all exception table entries.
+pub fn decode_exception_table(table: &[u8]) -> Vec<ExceptionTableEntry> {
+    let mut entries = Vec::new();
+    let mut pos = 0;
+    while pos < table.len() {
+        let Some(start) = read_varint_with_start(table, &mut pos) else {
+            break;
+        };
+        let Some(size) = read_varint(table, &mut pos) else {
+            break;
+        };
+        let Some(target) = read_varint(table, &mut pos) else {
+            break;
+        };
+        let Some(depth_lasti) = read_varint(table, &mut pos) else {
+            break;
+        };
+        entries.push(ExceptionTableEntry {
+            start,
+            end: start + size,
+            target,
+            depth: (depth_lasti >> 1) as u16,
+            push_lasti: (depth_lasti & 1) != 0,
+        });
+    }
+    entries
+}
+
 /// CPython 3.11+ linetable location info codes
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -367,6 +395,23 @@ impl Deref for CodeUnits {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl CodeUnits {
+    /// Replace the opcode at `index` in-place without changing the arg byte.
+    ///
+    /// # Safety
+    /// Caller must ensure `index` is in bounds and `new_op` has the same
+    /// arg semantics as the original opcode.
+    pub unsafe fn replace_op(&self, index: usize, new_op: Instruction) {
+        unsafe {
+            let ptr = self.0.as_ptr() as *mut CodeUnit;
+            let unit_ptr = ptr.add(index);
+            // Write only the opcode byte (first byte of CodeUnit due to #[repr(C)])
+            let op_ptr = unit_ptr as *mut u8;
+            core::ptr::write_volatile(op_ptr, new_op.into());
+        }
     }
 }
 

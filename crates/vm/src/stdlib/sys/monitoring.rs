@@ -1,8 +1,9 @@
 use crate::{
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyCode, PyDictRef, PyNamespace, PyUtf8StrRef},
+    builtins::{PyCode, PyDictRef, PyNamespace, PyUtf8StrRef, code::CoMonitoringData},
     function::FuncArgs,
 };
+use core::sync::atomic::Ordering;
 use crossbeam_utils::atomic::AtomicCell;
 use std::collections::{HashMap, HashSet};
 
@@ -53,7 +54,7 @@ pub const EVENT_EXCEPTION_HANDLED: u32 = MonitoringEvents::EXCEPTION_HANDLED.bit
 pub const EVENT_PY_UNWIND: u32 = MonitoringEvents::PY_UNWIND.bits();
 pub const EVENT_C_RETURN: u32 = MonitoringEvents::C_RETURN.bits();
 const EVENT_C_RAISE: u32 = MonitoringEvents::C_RAISE.bits();
-const EVENT_STOP_ITERATION: u32 = MonitoringEvents::STOP_ITERATION.bits();
+pub const EVENT_STOP_ITERATION: u32 = MonitoringEvents::STOP_ITERATION.bits();
 pub const EVENT_PY_THROW: u32 = MonitoringEvents::PY_THROW.bits();
 const EVENT_BRANCH: u32 = MonitoringEvents::BRANCH.bits();
 pub const EVENT_RERAISE: u32 = MonitoringEvents::RERAISE.bits();
@@ -216,9 +217,269 @@ fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyRe
     Ok(event_set)
 }
 
+/// Rewrite a code object's bytecode in-place with layered instrumentation.
+///
+/// Three layers (outermost first):
+/// 1. INSTRUMENTED_LINE — wraps line-start instructions (stores original in side-table)
+/// 2. INSTRUMENTED_INSTRUCTION — wraps all traceable instructions (stores original in side-table)
+/// 3. Regular INSTRUMENTED_* — direct 1:1 opcode swap (no side-table needed)
+///
+/// De-instrumentation peels layers in reverse order.
+pub fn instrument_code(code: &PyCode, events: u32) {
+    use rustpython_compiler_core::bytecode::{self, Instruction};
+
+    let len = code.code.instructions.len();
+    let mut monitoring_data = code.monitoring_data.lock();
+
+    // === Phase 1-3: De-instrument all layers (outermost first) ===
+
+    // Phase 1: Remove INSTRUMENTED_LINE → restore from side-table
+    if let Some(data) = monitoring_data.as_mut() {
+        for i in 0..len {
+            if data.line_opcodes[i] != 0 {
+                let original = Instruction::try_from(data.line_opcodes[i])
+                    .expect("invalid opcode in line side-table");
+                unsafe {
+                    code.code.instructions.replace_op(i, original);
+                }
+                data.line_opcodes[i] = 0;
+            }
+        }
+    }
+
+    // Phase 2: Remove INSTRUMENTED_INSTRUCTION → restore from side-table
+    if let Some(data) = monitoring_data.as_mut() {
+        for i in 0..len {
+            if data.per_instruction_opcodes[i] != 0 {
+                let original = Instruction::try_from(data.per_instruction_opcodes[i])
+                    .expect("invalid opcode in instruction side-table");
+                unsafe {
+                    code.code.instructions.replace_op(i, original);
+                }
+                data.per_instruction_opcodes[i] = 0;
+            }
+        }
+    }
+
+    // Phase 3: Remove regular INSTRUMENTED_* → restore base opcodes
+    for i in 0..len {
+        let op = code.code.instructions[i].op;
+        if let Some(base) = op.to_base() {
+            unsafe {
+                code.code.instructions.replace_op(i, base);
+            }
+        }
+    }
+
+    // All opcodes are now base opcodes.
+
+    if events == 0 {
+        *monitoring_data = None;
+        return;
+    }
+
+    // === Phase 4-6: Re-instrument (innermost first) ===
+
+    // Ensure monitoring data exists
+    if monitoring_data.is_none() {
+        *monitoring_data = Some(CoMonitoringData {
+            line_opcodes: vec![0u8; len],
+            per_instruction_opcodes: vec![0u8; len],
+        });
+    }
+    let data = monitoring_data.as_mut().unwrap();
+    // Resize if code length changed (shouldn't happen, but be safe)
+    data.line_opcodes.resize(len, 0);
+    data.per_instruction_opcodes.resize(len, 0);
+
+    // Find _co_firsttraceable: index of first RESUME instruction
+    let first_traceable = code
+        .code
+        .instructions
+        .iter()
+        .position(|u| matches!(u.op, Instruction::Resume { .. }))
+        .unwrap_or(0);
+
+    // Phase 4: Place regular INSTRUMENTED_* opcodes
+    for i in 0..len {
+        let op = code.code.instructions[i].op;
+        if let Some(instrumented) = op.to_instrumented() {
+            unsafe {
+                code.code.instructions.replace_op(i, instrumented);
+            }
+        }
+    }
+
+    // Phase 5: Place INSTRUMENTED_INSTRUCTION (if EVENT_INSTRUCTION is active)
+    if events & EVENT_INSTRUCTION != 0 {
+        for i in first_traceable..len {
+            let op = code.code.instructions[i].op;
+            // Skip ExtendedArg
+            if matches!(op, Instruction::ExtendedArg) {
+                continue;
+            }
+            // Excluded: RESUME and END_FOR (and their instrumented variants)
+            let base = op.to_base().map_or(op, |b| b);
+            if matches!(base, Instruction::Resume { .. } | Instruction::EndFor) {
+                continue;
+            }
+            // Store current opcode (may already be INSTRUMENTED_*) and replace
+            data.per_instruction_opcodes[i] = u8::from(op);
+            unsafe {
+                code.code
+                    .instructions
+                    .replace_op(i, Instruction::InstrumentedInstruction);
+            }
+        }
+    }
+
+    // Phase 6: Place INSTRUMENTED_LINE (if EVENT_LINE is active)
+    // Mirrors CPython's initialize_lines: first determine which positions
+    // are line starts, then mark branch/jump targets, then place opcodes.
+    if events & EVENT_LINE != 0 {
+        // is_line_start[i] = true if position i should have INSTRUMENTED_LINE
+        let mut is_line_start = vec![false; len];
+
+        // First pass: mark positions where the source line changes
+        let mut prev_line: Option<u32> = None;
+        for (i, unit) in code
+            .code
+            .instructions
+            .iter()
+            .enumerate()
+            .take(len)
+            .skip(first_traceable)
+        {
+            let op = unit.op;
+            let base = op.to_base().map_or(op, |b| b);
+            if matches!(base, Instruction::ExtendedArg) {
+                continue;
+            }
+            // Excluded opcodes
+            if matches!(
+                base,
+                Instruction::Resume { .. }
+                    | Instruction::EndFor
+                    | Instruction::EndSend
+                    | Instruction::PopIter
+                    | Instruction::EndAsyncFor
+            ) {
+                continue;
+            }
+            if let Some((loc, _)) = code.code.locations.get(i) {
+                let line = loc.line.get() as u32;
+                let is_new = prev_line != Some(line);
+                prev_line = Some(line);
+                if is_new && line > 0 {
+                    is_line_start[i] = true;
+                }
+            }
+        }
+
+        // Second pass: mark branch/jump targets as line starts.
+        // Every jump/branch target must be a line start, even if on the
+        // same source line as the preceding instruction. Critical for loops
+        // (JUMP_BACKWARD → FOR_ITER).
+        let mut arg_state = bytecode::OpArgState::default();
+        for unit in code.code.instructions[first_traceable..len].iter().copied() {
+            let (op, arg) = arg_state.get(unit);
+            let base = op.to_base().map_or(op, |b| b);
+
+            if matches!(base, Instruction::ExtendedArg) {
+                continue;
+            }
+
+            let target: Option<usize> = match base {
+                Instruction::PopJumpIfFalse { .. }
+                | Instruction::PopJumpIfTrue { .. }
+                | Instruction::PopJumpIfNone { .. }
+                | Instruction::PopJumpIfNotNone { .. }
+                | Instruction::JumpForward { .. }
+                | Instruction::JumpBackward { .. }
+                | Instruction::JumpBackwardNoInterrupt { .. } => Some(u32::from(arg) as usize),
+                Instruction::ForIter { .. } | Instruction::Send { .. } => {
+                    // Skip over END_FOR/END_SEND
+                    Some(u32::from(arg) as usize + 1)
+                }
+                _ => None,
+            };
+
+            if let Some(target_idx) = target
+                && target_idx < len
+                && !is_line_start[target_idx]
+            {
+                let target_op = code.code.instructions[target_idx].op;
+                let target_base = target_op.to_base().map_or(target_op, |b| b);
+                // Skip POP_ITER targets
+                if matches!(target_base, Instruction::PopIter) {
+                    continue;
+                }
+                if let Some((loc, _)) = code.code.locations.get(target_idx)
+                    && loc.line.get() > 0
+                {
+                    is_line_start[target_idx] = true;
+                }
+            }
+        }
+
+        // Third pass: mark exception handler targets as line starts.
+        for entry in bytecode::decode_exception_table(&code.code.exceptiontable) {
+            let target_idx = entry.target as usize;
+            if target_idx < len && !is_line_start[target_idx] {
+                let target_op = code.code.instructions[target_idx].op;
+                let target_base = target_op.to_base().map_or(target_op, |b| b);
+                if !matches!(target_base, Instruction::PopIter)
+                    && let Some((loc, _)) = code.code.locations.get(target_idx)
+                    && loc.line.get() > 0
+                {
+                    is_line_start[target_idx] = true;
+                }
+            }
+        }
+
+        // Fourth pass: actually place INSTRUMENTED_LINE at all marked positions
+        for (i, marked) in is_line_start
+            .iter()
+            .copied()
+            .enumerate()
+            .take(len)
+            .skip(first_traceable)
+        {
+            if marked {
+                let op = code.code.instructions[i].op;
+                data.line_opcodes[i] = u8::from(op);
+                unsafe {
+                    code.code
+                        .instructions
+                        .replace_op(i, Instruction::InstrumentedLine);
+                }
+            }
+        }
+    }
+}
+
 /// Update the global monitoring_events atomic mask from current state.
 fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
-    vm.state.monitoring_events.store(state.combined_events());
+    let events = state.combined_events();
+    vm.state.monitoring_events.store(events);
+    let new_ver = vm
+        .state
+        .instrumentation_version
+        .fetch_add(1, Ordering::Release)
+        + 1;
+    // Eagerly re-instrument all frames on the current thread's stack so that
+    // code objects already past their RESUME pick up the new event set.
+    for fp in vm.frames.borrow().iter() {
+        // SAFETY: frames in the Vec are alive while their FrameRef is on the call stack.
+        let frame = unsafe { fp.as_ref() };
+        let code = &frame.code;
+        let code_ver = code.instrumentation_version.load(Ordering::Acquire);
+        if code_ver != new_ver {
+            instrument_code(code, events);
+            code.instrumentation_version
+                .store(new_ver, Ordering::Release);
+        }
+    }
 }
 
 fn use_tool_id(tool_id: i32, name: &str, vm: &VirtualMachine) -> PyResult<()> {
@@ -472,8 +733,11 @@ fn fire(
                 // Non-local events (RAISE, EXCEPTION_HANDLED, PY_UNWIND, etc.)
                 // cannot be disabled per code object.
                 if event_id >= LOCAL_EVENTS_COUNT {
+                    // Remove the callback, matching CPython behavior.
+                    let mut state = vm.state.monitoring.lock();
+                    state.callbacks.remove(&(tool, event_id));
                     return Err(vm.new_value_error(format!(
-                        "cannot disable {} events",
+                        "Cannot disable {} events. Callback removed.",
                         EVENT_NAMES[event_id]
                     )));
                 }
