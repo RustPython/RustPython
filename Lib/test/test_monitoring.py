@@ -12,10 +12,16 @@ import types
 import unittest
 
 import test.support
-from test.support import import_helper, requires_specialization_ft, script_helper
+from test.support import requires_specialization_ft, script_helper
 
-_testcapi = import_helper.import_module("_testcapi")
-_testinternalcapi = import_helper.import_module("_testinternalcapi")
+try:
+    import _testcapi
+except ImportError:
+    _testcapi = None
+try:
+    import _testinternalcapi
+except ImportError:
+    _testinternalcapi = None
 
 PAIR = (0,1)
 
@@ -873,6 +879,7 @@ class ExceptionMonitoringTest(CheckEvents):
 
         self.check_events(func1, [("raise", KeyError)])
 
+    @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     def test_implicit_stop_iteration(self):
         """Generators are documented as raising a StopIteration
            when they terminate.
@@ -1047,6 +1054,7 @@ class ExceptionMonitoringTest(CheckEvents):
         )
         self.assertEqual(events[0], ("throw", IndexError))
 
+    @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     @requires_specialization_ft
     def test_no_unwind_for_shim_frame(self):
         class ValueErrorRaiser:
@@ -2147,6 +2155,7 @@ class TestRegressions(MonitoringTestBase, unittest.TestCase):
         finally:
             sys.monitoring.set_events(TEST_TOOL, 0)
 
+    @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     def test_108390(self):
 
         class Foo:
@@ -2223,6 +2232,7 @@ class TestOptimizer(MonitoringTestBase, unittest.TestCase):
 
 class TestTier2Optimizer(CheckEvents):
 
+    @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     def test_monitoring_already_opimized_loop(self):
         def test_func(recorder):
             set_events = sys.monitoring.set_events
@@ -2257,6 +2267,7 @@ class TestMonitoringAtShutdown(unittest.TestCase):
         script_helper.run_test_script(script)
 
 
+@unittest.skipUnless(_testcapi, "requires _testcapi")
 class TestCApiEventGeneration(MonitoringTestBase, unittest.TestCase):
 
     class Scope:
