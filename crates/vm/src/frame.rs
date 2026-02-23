@@ -2499,6 +2499,148 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(!value).into());
                 Ok(None)
             }
+            // --- Instrumented opcode handlers ---
+            // Each instrumented variant delegates to the same logic as its base opcode.
+            // Monitoring events are already fired from the base opcode implementations.
+            Instruction::InstrumentedResume => {
+                use crate::stdlib::sys::monitoring;
+                let resume_type = u32::from(arg);
+                self.monitoring_mask = vm.state.monitoring_events.load();
+                let offset = (self.lasti() - 1) * 2;
+                if resume_type == 0 {
+                    if self.monitoring_mask & monitoring::EVENT_PY_START != 0 {
+                        monitoring::fire_py_start(vm, self.code, offset)?;
+                    }
+                } else if self.monitoring_mask & monitoring::EVENT_PY_RESUME != 0 {
+                    monitoring::fire_py_resume(vm, self.code, offset)?;
+                }
+                Ok(None)
+            }
+            Instruction::InstrumentedReturnValue => {
+                let value = self.pop_value();
+                if self.monitoring_mask & crate::stdlib::sys::monitoring::EVENT_PY_RETURN != 0 {
+                    let offset = (self.lasti() - 1) * 2;
+                    crate::stdlib::sys::monitoring::fire_py_return(vm, self.code, offset, &value)?;
+                }
+                self.unwind_blocks(vm, UnwindReason::Returning { value })
+            }
+            Instruction::InstrumentedYieldValue => {
+                let value = self.pop_value();
+                if self.monitoring_mask & crate::stdlib::sys::monitoring::EVENT_PY_YIELD != 0 {
+                    let offset = (self.lasti() - 1) * 2;
+                    crate::stdlib::sys::monitoring::fire_py_yield(vm, self.code, offset, &value)?;
+                }
+                let oparg = u32::from(arg);
+                let wrap = oparg == 0;
+                let value = if wrap && self.code.flags.contains(bytecode::CodeFlags::COROUTINE) {
+                    PyAsyncGenWrappedValue(value).into_pyobject(vm)
+                } else {
+                    value
+                };
+                Ok(Some(ExecutionResult::Yield(value)))
+            }
+            Instruction::InstrumentedCall => {
+                let args = self.collect_positional_args(u32::from(arg));
+                self.execute_call(args, vm)
+            }
+            Instruction::InstrumentedCallKw => {
+                let args = self.collect_keyword_args(u32::from(arg));
+                self.execute_call(args, vm)
+            }
+            Instruction::InstrumentedCallFunctionEx => {
+                let args = self.collect_ex_args(vm)?;
+                self.execute_call(args, vm)
+            }
+            Instruction::InstrumentedLoadSuperAttr => {
+                let oparg = bytecode::LoadSuperAttr::try_from(u32::from(arg))
+                    .map_err(|_| vm.new_value_error("invalid oparg".to_owned()))?;
+                self.load_super_attr(vm, oparg)
+            }
+            Instruction::InstrumentedJumpForward => {
+                let target = bytecode::Label::from(u32::from(arg));
+                self.jump(target);
+                Ok(None)
+            }
+            Instruction::InstrumentedJumpBackward => {
+                let src_offset = (self.lasti() - 1) * 2;
+                let dest = bytecode::Label::from(u32::from(arg));
+                self.jump(dest);
+                if self.monitoring_mask & crate::stdlib::sys::monitoring::EVENT_JUMP != 0 {
+                    crate::stdlib::sys::monitoring::fire_jump(
+                        vm,
+                        self.code,
+                        src_offset,
+                        dest.0 * 2,
+                    )?;
+                }
+                Ok(None)
+            }
+            Instruction::InstrumentedForIter => {
+                let target = bytecode::Label::from(u32::from(arg));
+                self.execute_for_iter(vm, target)
+            }
+            Instruction::InstrumentedEndFor => {
+                self.pop_value();
+                Ok(None)
+            }
+            Instruction::InstrumentedEndSend => {
+                let value = self.pop_value();
+                self.pop_value(); // discard receiver
+                self.push_value(value);
+                Ok(None)
+            }
+            Instruction::InstrumentedPopJumpIfTrue => {
+                let target = bytecode::Label::from(u32::from(arg));
+                self.pop_jump_if(vm, target, true)
+            }
+            Instruction::InstrumentedPopJumpIfFalse => {
+                let target = bytecode::Label::from(u32::from(arg));
+                self.pop_jump_if(vm, target, false)
+            }
+            Instruction::InstrumentedPopJumpIfNone => {
+                let value = self.pop_value();
+                let branch_taken = vm.is_none(&value);
+                let target = bytecode::Label::from(u32::from(arg));
+                let src_offset = (self.lasti() - 1) * 2;
+                if branch_taken {
+                    self.jump(target);
+                }
+                self.fire_branch_event(vm, src_offset, branch_taken, target)?;
+                Ok(None)
+            }
+            Instruction::InstrumentedPopJumpIfNotNone => {
+                let value = self.pop_value();
+                let branch_taken = !vm.is_none(&value);
+                let target = bytecode::Label::from(u32::from(arg));
+                let src_offset = (self.lasti() - 1) * 2;
+                if branch_taken {
+                    self.jump(target);
+                }
+                self.fire_branch_event(vm, src_offset, branch_taken, target)?;
+                Ok(None)
+            }
+            // InstrumentedNotTaken is already handled above (line 2032)
+            Instruction::InstrumentedPopIter => {
+                self.pop_value();
+                Ok(None)
+            }
+            Instruction::InstrumentedEndAsyncFor => {
+                let exc = self.pop_value();
+                let _awaitable = self.pop_value();
+                let exc = exc
+                    .downcast::<PyBaseException>()
+                    .expect("EndAsyncFor expects exception on stack");
+                if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
+                    vm.set_exception(None);
+                    Ok(None)
+                } else {
+                    Err(exc)
+                }
+            }
+            // INSTRUMENTED_LINE and INSTRUMENTED_INSTRUCTION are handled in the
+            // execution loop (line/instruction monitoring), so they are NOPs here.
+            Instruction::InstrumentedLine => Ok(None),
+            Instruction::InstrumentedInstruction => Ok(None),
             _ => {
                 unreachable!("{instruction:?} instruction should not be executed")
             }
