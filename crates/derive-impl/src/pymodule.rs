@@ -194,6 +194,59 @@ pub fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<TokenStrea
         context.errors.ok_or_push(r);
     }
 
+    // Detect nested #[pymodule] items (non-sub) and generate submodule init code
+    let mut submodule_inits: Vec<TokenStream> = Vec::new();
+    for item in items.iter() {
+        if let Item::Mod(item_mod) = item {
+            let r = (|| -> Result<()> {
+                let attr = match item_mod
+                    .attrs
+                    .iter()
+                    .find(|a| a.path().is_ident("pymodule"))
+                {
+                    Some(attr) => attr,
+                    None => return Ok(()),
+                };
+                let args_tokens = match &attr.meta {
+                    syn::Meta::Path(_) => TokenStream::new(),
+                    syn::Meta::List(list) => list.tokens.clone(),
+                    _ => return Ok(()),
+                };
+                let mod_args: PyModuleArgs = syn::parse2(args_tokens)?;
+                let fake_ident = Ident::new("pymodule", attr.span());
+                let mod_meta = ModuleItemMeta::from_nested(
+                    item_mod.ident.clone(),
+                    fake_ident,
+                    mod_args.metas.into_iter(),
+                )?;
+                if mod_meta.sub()? {
+                    return Ok(());
+                }
+                let py_name = mod_meta.simple_name()?;
+                let mod_ident = &item_mod.ident;
+                let cfgs: Vec<_> = item_mod
+                    .attrs
+                    .iter()
+                    .filter(|a| a.path().is_ident("cfg"))
+                    .cloned()
+                    .collect();
+                submodule_inits.push(quote! {
+                    #(#cfgs)*
+                    {
+                        let child_def = #mod_ident::module_def(ctx);
+                        let child = child_def.create_module(vm).expect("submodule create_module failed");
+                        child.__init_methods(vm).expect("submodule __init_methods failed");
+                        #mod_ident::module_exec(vm, &child).expect("submodule module_exec failed");
+                        let child: ::rustpython_vm::PyObjectRef = child.into();
+                        vm.__module_set_attr(module, ctx.intern_str(#py_name), child).expect("module set_attr submodule failed");
+                    }
+                });
+                Ok(())
+            })();
+            context.errors.ok_or_push(r);
+        }
+    }
+
     // append additional items
     let module_name = context.name.as_str();
     let function_items = context.function_items.validate()?;
@@ -316,6 +369,7 @@ pub fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<TokenStrea
                 #(#init_with_calls)*
                 let ctx = &vm.ctx;
                 #attribute_items
+                #(#submodule_inits)*
             }
         },
         parse_quote! {
@@ -783,7 +837,15 @@ impl ModuleItem for StructSequenceItem {
                 "#[pystruct_sequence] requires name parameter",
             )
         })?;
-        let module_name = meta.module()?.unwrap_or_else(|| args.context.name.clone());
+        let module_opt = meta.module()?;
+        let has_module = module_opt.is_some();
+        let module_name = module_opt.unwrap_or_else(|| args.context.name.clone());
+        if !has_module {
+            let structseq_attr = &mut args.attrs[self.inner.index];
+            structseq_attr.fill_nested_meta("module", || {
+                parse_quote! {module = #module_name}
+            })?;
+        }
         let no_attr = meta.no_attr()?;
 
         // Generate the class creation code
