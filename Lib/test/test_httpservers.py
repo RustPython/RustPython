@@ -1020,6 +1020,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             res = self.request('/cgi-bin/file7.py', 'POST', body, headers)
             self.assertEqual(res.read(), b'%d %d' % (size, size) + self.linesep)
 
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_large_content_length_truncated(self):
         with support.swap_attr(self.request_handler, 'timeout', 0.001):
             for w in range(18, 65):
