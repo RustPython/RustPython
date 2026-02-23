@@ -4,13 +4,17 @@ expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pa
 ---
   1           0 RESUME               (0)
               1 LOAD_CONST           (True)
-              2 POP_JUMP_IF_FALSE    (5)
-              3 LOAD_CONST           (False)
-              4 POP_JUMP_IF_TRUE     (9)
-        >>    5 LOAD_CONST           (False)
-              6 POP_JUMP_IF_FALSE    (9)
-              7 LOAD_CONST           (True)
-              8 POP_JUMP_IF_FALSE    (9)
+              2 POP_JUMP_IF_FALSE    (7)
+              3 NOT_TAKEN
+              4 LOAD_CONST           (False)
+              5 POP_JUMP_IF_TRUE     (13)
+              6 NOT_TAKEN
+        >>    7 LOAD_CONST           (False)
+              8 POP_JUMP_IF_FALSE    (13)
+              9 NOT_TAKEN
+             10 LOAD_CONST           (True)
+             11 POP_JUMP_IF_FALSE    (13)
+             12 NOT_TAKEN
 
-  2     >>    9 LOAD_CONST           (None)
-             10 RETURN_VALUE
+  2     >>   13 LOAD_CONST           (None)
+             14 RETURN_VALUE

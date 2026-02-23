@@ -138,7 +138,8 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
             Instruction::Resume { .. }
             | Instruction::LoadFast(_)
             | Instruction::CompareOp { .. }
-            | Instruction::ExtendedArg => {
+            | Instruction::ExtendedArg
+            | Instruction::NotTaken => {
                 // Ignore these instructions for annotation extraction
             }
             Instruction::ReturnValue => {
@@ -184,8 +185,8 @@ impl StackMachine {
         names: &[String],
     ) -> ControlFlow<()> {
         match instruction {
-            Instruction::Resume { .. } => {
-                // No-op for JIT tests - just marks function entry point
+            Instruction::Resume { .. } | Instruction::NotTaken => {
+                // No-op for JIT tests
             }
             Instruction::LoadConst { idx } => {
                 let idx = idx.get(arg);
