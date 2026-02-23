@@ -2077,6 +2077,8 @@ pub(super) mod types {
                             args_reduced.push(vm.ctx.none());
                             args_reduced.push(filename2);
                         } else {
+                            // Diverges from CPython: include winerror even without
+                            // filename2 so it survives pickle round-trips.
                             #[cfg(windows)]
                             if let Some(winerror) = winerror {
                                 args_reduced.push(winerror);

@@ -340,6 +340,9 @@ mod _multiprocessing {
             if args.kind != RECURSIVE_MUTEX && args.kind != SEMAPHORE {
                 return Err(vm.new_value_error("unrecognized kind".to_owned()));
             }
+            if args.maxvalue <= 0 {
+                return Err(vm.new_value_error("maxvalue must be positive".to_owned()));
+            }
             if args.value < 0 || args.value > args.maxvalue {
                 return Err(vm.new_value_error("invalid value".to_owned()));
             }
