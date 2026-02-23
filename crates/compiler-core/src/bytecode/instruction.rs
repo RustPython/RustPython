@@ -879,6 +879,7 @@ impl InstructionMetadata for Instruction {
             Self::MatchMapping => w!(MATCH_MAPPING),
             Self::MatchSequence => w!(MATCH_SEQUENCE),
             Self::Nop => w!(NOP),
+            Self::NotTaken => w!(NOT_TAKEN),
             Self::PopExcept => w!(POP_EXCEPT),
             Self::PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
             Self::PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),

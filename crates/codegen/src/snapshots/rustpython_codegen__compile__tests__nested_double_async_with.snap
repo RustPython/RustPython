@@ -1,6 +1,5 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 9046
 expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
   1           0 RESUME               (0)
@@ -19,7 +18,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  10 CALL                 (1)
                  11 BUILD_TUPLE          (2)
                  12 GET_ITER
-            >>   13 FOR_ITER             (141)
+            >>   13 FOR_ITER             (49)
                  14 STORE_FAST           (0, stop_exc)
 
   3              15 LOAD_GLOBAL          (2, self)
@@ -49,116 +48,121 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  38 CALL                 (0)
                  39 GET_AWAITABLE        (1)
                  40 LOAD_CONST           (None)
-            >>   41 SEND                 (46)
+            >>   41 SEND                 (45)
                  42 YIELD_VALUE          (1)
                  43 RESUME               (3)
                  44 JUMP_BACKWARD_NO_INTERRUPT(41)
-                 45 CLEANUP_THROW
-            >>   46 END_SEND
-                 47 POP_TOP
+            >>   45 END_SEND
+                 46 POP_TOP
 
-  6              48 LOAD_FAST            (0, stop_exc)
-                 49 RAISE_VARARGS        (Raise)
+  6              47 LOAD_FAST            (0, stop_exc)
+                 48 RAISE_VARARGS        (Raise)
 
-  5              50 PUSH_NULL
+  3         >>   49 END_FOR
+                 50 POP_ITER
                  51 LOAD_CONST           (None)
-                 52 LOAD_CONST           (None)
-                 53 LOAD_CONST           (None)
-                 54 CALL                 (3)
-                 55 GET_AWAITABLE        (2)
+                 52 RETURN_VALUE
+
+  5              53 CLEANUP_THROW
+                 54 JUMP_BACKWARD_NO_INTERRUPT(45)
+                 55 PUSH_NULL
                  56 LOAD_CONST           (None)
-            >>   57 SEND                 (62)
-                 58 YIELD_VALUE          (1)
-                 59 RESUME               (3)
-                 60 JUMP_BACKWARD_NO_INTERRUPT(57)
-                 61 CLEANUP_THROW
-            >>   62 END_SEND
-                 63 POP_TOP
-                 64 JUMP_FORWARD         (86)
-                 65 PUSH_EXC_INFO
-                 66 WITH_EXCEPT_START
-                 67 GET_AWAITABLE        (2)
-                 68 LOAD_CONST           (None)
-            >>   69 SEND                 (74)
-                 70 YIELD_VALUE          (1)
-                 71 RESUME               (3)
-                 72 JUMP_BACKWARD_NO_INTERRUPT(69)
-                 73 CLEANUP_THROW
-            >>   74 END_SEND
-                 75 TO_BOOL
-                 76 POP_JUMP_IF_TRUE     (78)
-                 77 RERAISE              (2)
-            >>   78 POP_TOP
-                 79 POP_EXCEPT
-                 80 POP_TOP
-                 81 POP_TOP
-                 82 JUMP_FORWARD         (86)
-                 83 COPY                 (3)
-                 84 POP_EXCEPT
-                 85 RERAISE              (1)
-            >>   86 JUMP_FORWARD         (112)
-                 87 PUSH_EXC_INFO
+                 57 LOAD_CONST           (None)
+                 58 LOAD_CONST           (None)
+                 59 CALL                 (3)
+                 60 GET_AWAITABLE        (2)
+                 61 LOAD_CONST           (None)
+            >>   62 SEND                 (67)
+                 63 YIELD_VALUE          (1)
+                 64 RESUME               (3)
+                 65 JUMP_BACKWARD_NO_INTERRUPT(62)
+                 66 CLEANUP_THROW
+            >>   67 END_SEND
+                 68 POP_TOP
+                 69 JUMP_FORWARD         (92)
+                 70 PUSH_EXC_INFO
+                 71 WITH_EXCEPT_START
+                 72 GET_AWAITABLE        (2)
+                 73 LOAD_CONST           (None)
+            >>   74 SEND                 (79)
+                 75 YIELD_VALUE          (1)
+                 76 RESUME               (3)
+                 77 JUMP_BACKWARD_NO_INTERRUPT(74)
+                 78 CLEANUP_THROW
+            >>   79 END_SEND
+                 80 TO_BOOL
+                 81 POP_JUMP_IF_TRUE     (84)
+                 82 NOT_TAKEN
+                 83 RERAISE              (2)
+            >>   84 POP_TOP
+                 85 POP_EXCEPT
+                 86 POP_TOP
+                 87 POP_TOP
+                 88 JUMP_FORWARD         (92)
+                 89 COPY                 (3)
+                 90 POP_EXCEPT
+                 91 RERAISE              (1)
+            >>   92 JUMP_FORWARD         (119)
+                 93 PUSH_EXC_INFO
 
-  7              88 LOAD_GLOBAL          (6, Exception)
-                 89 CHECK_EXC_MATCH
-                 90 POP_JUMP_IF_FALSE    (108)
-                 91 STORE_FAST           (1, ex)
+  7              94 LOAD_GLOBAL          (6, Exception)
+                 95 CHECK_EXC_MATCH
+                 96 POP_JUMP_IF_FALSE    (115)
+                 97 NOT_TAKEN
+                 98 STORE_FAST           (1, ex)
 
-  8              92 LOAD_GLOBAL          (2, self)
-                 93 LOAD_ATTR            (15, assertIs, method=true)
-                 94 LOAD_FAST            (1, ex)
-                 95 LOAD_FAST            (0, stop_exc)
-                 96 CALL                 (2)
-                 97 POP_TOP
-                 98 JUMP_FORWARD         (103)
-                 99 LOAD_CONST           (None)
-                100 STORE_FAST           (1, ex)
-                101 DELETE_FAST          (1, ex)
-                102 RAISE_VARARGS        (ReraiseFromStack)
-            >>  103 POP_EXCEPT
-                104 LOAD_CONST           (None)
-                105 STORE_FAST           (1, ex)
-                106 DELETE_FAST          (1, ex)
-                107 JUMP_FORWARD         (120)
-            >>  108 RAISE_VARARGS        (ReraiseFromStack)
-                109 COPY                 (3)
-                110 POP_EXCEPT
-                111 RAISE_VARARGS        (ReraiseFromStack)
+  8              99 LOAD_GLOBAL          (2, self)
+                100 LOAD_ATTR            (15, assertIs, method=true)
+                101 LOAD_FAST            (1, ex)
+                102 LOAD_FAST            (0, stop_exc)
+                103 CALL                 (2)
+                104 POP_TOP
+                105 JUMP_BACKWARD_NO_INTERRUPT(110)
+                106 LOAD_CONST           (None)
+                107 STORE_FAST           (1, ex)
+                108 DELETE_FAST          (1, ex)
+                109 RAISE_VARARGS        (ReraiseFromStack)
+            >>  110 POP_EXCEPT
+                111 LOAD_CONST           (None)
+                112 STORE_FAST           (1, ex)
+                113 DELETE_FAST          (1, ex)
+                114 JUMP_BACKWARD_NO_INTERRUPT(127)
+            >>  115 RAISE_VARARGS        (ReraiseFromStack)
+                116 COPY                 (3)
+                117 POP_EXCEPT
+                118 RAISE_VARARGS        (ReraiseFromStack)
 
- 10         >>  112 LOAD_GLOBAL          (2, self)
-                113 LOAD_ATTR            (17, fail, method=true)
-                114 LOAD_FAST_BORROW     (0, stop_exc)
-                115 FORMAT_SIMPLE
-                116 LOAD_CONST           (" was suppressed")
-                117 BUILD_STRING         (2)
-                118 CALL                 (1)
-                119 POP_TOP
+ 10         >>  119 LOAD_GLOBAL          (2, self)
+                120 LOAD_ATTR            (17, fail, method=true)
+                121 LOAD_FAST_BORROW     (0, stop_exc)
+                122 FORMAT_SIMPLE
+                123 LOAD_CONST           (" was suppressed")
+                124 BUILD_STRING         (2)
+                125 CALL                 (1)
+                126 POP_TOP
 
-  3         >>  120 PUSH_NULL
-                121 LOAD_CONST           (None)
-                122 LOAD_CONST           (None)
-                123 LOAD_CONST           (None)
-                124 CALL                 (3)
-                125 POP_TOP
-                126 JUMP_FORWARD         (140)
-                127 PUSH_EXC_INFO
-                128 WITH_EXCEPT_START
-                129 TO_BOOL
-                130 POP_JUMP_IF_TRUE     (132)
-                131 RERAISE              (2)
-            >>  132 POP_TOP
-                133 POP_EXCEPT
-                134 POP_TOP
-                135 POP_TOP
-                136 JUMP_FORWARD         (140)
-                137 COPY                 (3)
-                138 POP_EXCEPT
-                139 RERAISE              (1)
-            >>  140 JUMP_BACKWARD        (13)
-            >>  141 END_FOR
-                142 POP_ITER
-                143 LOAD_CONST           (None)
-                144 RETURN_VALUE
+  3         >>  127 PUSH_NULL
+                128 LOAD_CONST           (None)
+                129 LOAD_CONST           (None)
+                130 LOAD_CONST           (None)
+                131 CALL                 (3)
+                132 POP_TOP
+                133 JUMP_FORWARD         (148)
+                134 PUSH_EXC_INFO
+                135 WITH_EXCEPT_START
+                136 TO_BOOL
+                137 POP_JUMP_IF_TRUE     (140)
+                138 NOT_TAKEN
+                139 RERAISE              (2)
+            >>  140 POP_TOP
+                141 POP_EXCEPT
+                142 POP_TOP
+                143 POP_TOP
+                144 JUMP_FORWARD         (148)
+                145 COPY                 (3)
+                146 POP_EXCEPT
+                147 RERAISE              (1)
+            >>  148 JUMP_BACKWARD        (13)
 
               2 MAKE_FUNCTION
               3 STORE_NAME           (0, test)

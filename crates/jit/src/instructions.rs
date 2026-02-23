@@ -614,7 +614,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     Ok(())
                 }
             }
-            Instruction::Nop => Ok(()),
+            Instruction::Nop | Instruction::NotTaken => Ok(()),
             Instruction::PopJumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;

@@ -1,3 +1,4 @@
+use alloc::collections::VecDeque;
 use core::ops;
 
 use crate::{IndexMap, IndexSet, error::InternalError};
@@ -132,6 +133,8 @@ pub struct Block {
     pub preserve_lasti: bool,
     /// Stack depth at block entry, set by stack depth analysis
     pub start_depth: Option<u32>,
+    /// Whether this block is only reachable via exception table (b_cold)
+    pub cold: bool,
 }
 
 impl Default for Block {
@@ -142,6 +145,7 @@ impl Default for Block {
             except_handler: false,
             preserve_lasti: false,
             start_depth: None,
+            cold: false,
         }
     }
 }
@@ -205,6 +209,8 @@ impl CodeInfo {
         // Post-codegen CFG analysis passes (flowgraph.c pipeline)
         mark_except_handlers(&mut self.blocks);
         label_exception_targets(&mut self.blocks);
+        push_cold_blocks_to_end(&mut self.blocks);
+        normalize_jumps(&mut self.blocks);
 
         let max_stackdepth = self.max_stackdepth()?;
         let cell2arg = self.cell2arg();
@@ -1151,6 +1157,220 @@ pub(crate) fn mark_except_handlers(blocks: &mut [Block]) {
         .collect();
     for idx in targets {
         blocks[idx].except_handler = true;
+    }
+}
+
+/// flowgraph.c mark_cold
+fn mark_cold(blocks: &mut [Block]) {
+    let n = blocks.len();
+    let mut warm = vec![false; n];
+    let mut queue = VecDeque::new();
+
+    warm[0] = true;
+    queue.push_back(BlockIdx(0));
+
+    while let Some(block_idx) = queue.pop_front() {
+        let block = &blocks[block_idx.idx()];
+
+        let has_fallthrough = block
+            .instructions
+            .last()
+            .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
+            .unwrap_or(true);
+        if has_fallthrough && block.next != BlockIdx::NULL {
+            let next_idx = block.next.idx();
+            if !blocks[next_idx].except_handler && !warm[next_idx] {
+                warm[next_idx] = true;
+                queue.push_back(block.next);
+            }
+        }
+
+        for instr in &block.instructions {
+            if instr.target != BlockIdx::NULL {
+                let target_idx = instr.target.idx();
+                if !blocks[target_idx].except_handler && !warm[target_idx] {
+                    warm[target_idx] = true;
+                    queue.push_back(instr.target);
+                }
+            }
+        }
+    }
+
+    for (i, block) in blocks.iter_mut().enumerate() {
+        block.cold = !warm[i];
+    }
+}
+
+/// flowgraph.c push_cold_blocks_to_end
+fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
+    if blocks.len() <= 1 {
+        return;
+    }
+
+    mark_cold(blocks);
+
+    // If a cold block falls through to a warm block, add an explicit jump
+    let fixups: Vec<(BlockIdx, BlockIdx)> = iter_blocks(blocks)
+        .filter(|(_, block)| {
+            block.cold
+                && block.next != BlockIdx::NULL
+                && !blocks[block.next.idx()].cold
+                && block
+                    .instructions
+                    .last()
+                    .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
+                    .unwrap_or(true)
+        })
+        .map(|(idx, block)| (idx, block.next))
+        .collect();
+
+    for (cold_idx, warm_next) in fixups {
+        let jump_block_idx = BlockIdx(blocks.len() as u32);
+        let loc = blocks[cold_idx.idx()]
+            .instructions
+            .last()
+            .map(|i| i.location)
+            .unwrap_or_default();
+        let end_loc = blocks[cold_idx.idx()]
+            .instructions
+            .last()
+            .map(|i| i.end_location)
+            .unwrap_or_default();
+        let mut jump_block = Block {
+            cold: true,
+            ..Block::default()
+        };
+        jump_block.instructions.push(InstructionInfo {
+            instr: PseudoInstruction::JumpNoInterrupt {
+                target: Arg::marker(),
+            }
+            .into(),
+            arg: OpArg::new(0),
+            target: warm_next,
+            location: loc,
+            end_location: end_loc,
+            except_handler: None,
+            lineno_override: None,
+        });
+        jump_block.next = blocks[cold_idx.idx()].next;
+        blocks[cold_idx.idx()].next = jump_block_idx;
+        blocks.push(jump_block);
+    }
+
+    // Extract cold block streaks and append at the end
+    let mut cold_head: BlockIdx = BlockIdx::NULL;
+    let mut cold_tail: BlockIdx = BlockIdx::NULL;
+    let mut current = BlockIdx(0);
+    assert!(!blocks[0].cold);
+
+    while current != BlockIdx::NULL {
+        let next = blocks[current.idx()].next;
+        if next == BlockIdx::NULL {
+            break;
+        }
+
+        if blocks[next.idx()].cold {
+            let cold_start = next;
+            let mut cold_end = next;
+            while blocks[cold_end.idx()].next != BlockIdx::NULL
+                && blocks[blocks[cold_end.idx()].next.idx()].cold
+            {
+                cold_end = blocks[cold_end.idx()].next;
+            }
+
+            let after_cold = blocks[cold_end.idx()].next;
+            blocks[current.idx()].next = after_cold;
+            blocks[cold_end.idx()].next = BlockIdx::NULL;
+
+            if cold_head == BlockIdx::NULL {
+                cold_head = cold_start;
+            } else {
+                blocks[cold_tail.idx()].next = cold_start;
+            }
+            cold_tail = cold_end;
+        } else {
+            current = next;
+        }
+    }
+
+    if cold_head != BlockIdx::NULL {
+        let mut last = current;
+        while blocks[last.idx()].next != BlockIdx::NULL {
+            last = blocks[last.idx()].next;
+        }
+        blocks[last.idx()].next = cold_head;
+    }
+}
+
+fn is_conditional_jump(instr: &AnyInstruction) -> bool {
+    matches!(
+        instr.real(),
+        Some(
+            Instruction::PopJumpIfFalse { .. }
+                | Instruction::PopJumpIfTrue { .. }
+                | Instruction::PopJumpIfNone { .. }
+                | Instruction::PopJumpIfNotNone { .. }
+        )
+    )
+}
+
+/// flowgraph.c normalize_jumps + remove_redundant_jumps
+fn normalize_jumps(blocks: &mut [Block]) {
+    let mut visit_order = Vec::new();
+    let mut visited = vec![false; blocks.len()];
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        visit_order.push(current);
+        visited[current.idx()] = true;
+        current = blocks[current.idx()].next;
+    }
+
+    visited.fill(false);
+
+    for block_idx in visit_order {
+        let idx = block_idx.idx();
+        visited[idx] = true;
+
+        // Remove redundant unconditional jump to next block
+        let next = blocks[idx].next;
+        if next != BlockIdx::NULL {
+            let last = blocks[idx].instructions.last();
+            let is_jump_to_next = last.is_some_and(|ins| {
+                ins.instr.is_unconditional_jump()
+                    && ins.target != BlockIdx::NULL
+                    && ins.target == next
+            });
+            if is_jump_to_next && let Some(last_instr) = blocks[idx].instructions.last_mut() {
+                last_instr.instr = Instruction::Nop.into();
+                last_instr.target = BlockIdx::NULL;
+            }
+        }
+
+        // Insert NOT_TAKEN after forward conditional jumps
+        let mut insert_positions: Vec<(usize, InstructionInfo)> = Vec::new();
+        for (i, ins) in blocks[idx].instructions.iter().enumerate() {
+            if is_conditional_jump(&ins.instr)
+                && ins.target != BlockIdx::NULL
+                && !visited[ins.target.idx()]
+            {
+                insert_positions.push((
+                    i + 1,
+                    InstructionInfo {
+                        instr: Instruction::NotTaken.into(),
+                        arg: OpArg::new(0),
+                        target: BlockIdx::NULL,
+                        location: ins.location,
+                        end_location: ins.end_location,
+                        except_handler: ins.except_handler,
+                        lineno_override: None,
+                    },
+                ));
+            }
+        }
+
+        for (pos, info) in insert_positions.into_iter().rev() {
+            blocks[idx].instructions.insert(pos, info);
+        }
     }
 }
 

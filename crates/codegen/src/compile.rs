@@ -3088,7 +3088,7 @@ impl Compiler {
             let handler_normal_exit = self.new_block();
             emit!(
                 self,
-                PseudoInstruction::Jump {
+                PseudoInstruction::JumpNoInterrupt {
                     target: handler_normal_exit,
                 }
             );
@@ -3144,7 +3144,7 @@ impl Compiler {
             // Jump to finally block
             emit!(
                 self,
-                PseudoInstruction::Jump {
+                PseudoInstruction::JumpNoInterrupt {
                     target: finally_block,
                 }
             );

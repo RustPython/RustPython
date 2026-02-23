@@ -1,6 +1,5 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 9071
 expression: "compile_exec(\"\\\nx = Test() and False or False\n\")"
 ---
   1           0 RESUME               (0)
@@ -8,13 +7,15 @@ expression: "compile_exec(\"\\\nx = Test() and False or False\n\")"
               2 PUSH_NULL
               3 CALL                 (0)
               4 COPY                 (1)
-              5 POP_JUMP_IF_FALSE    (10)
-              6 POP_TOP
-              7 LOAD_CONST           (False)
-              8 COPY                 (1)
-              9 POP_JUMP_IF_TRUE     (12)
-        >>   10 POP_TOP
-             11 LOAD_CONST           (False)
-        >>   12 STORE_NAME           (1, x)
-             13 LOAD_CONST           (None)
-             14 RETURN_VALUE
+              5 POP_JUMP_IF_FALSE    (12)
+              6 NOT_TAKEN
+              7 POP_TOP
+              8 LOAD_CONST           (False)
+              9 COPY                 (1)
+             10 POP_JUMP_IF_TRUE     (14)
+             11 NOT_TAKEN
+        >>   12 POP_TOP
+             13 LOAD_CONST           (False)
+        >>   14 STORE_NAME           (1, x)
+             15 LOAD_CONST           (None)
+             16 RETURN_VALUE
