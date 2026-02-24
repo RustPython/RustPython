@@ -1635,7 +1635,6 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(datetime.datetime.__dict__['utcnow']),
             "utcnow(type, /) unbound datetime.datetime method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_classmethod_noargs(self):
         self.assertEqual(self._get_summary_line(datetime.datetime.utcnow),
             "utcnow() class method of datetime.datetime")
