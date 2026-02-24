@@ -82,7 +82,6 @@ class TestTranforms(BytecodeTestCase):
         # aren't very many tests of lnotab), if peepholer wasn't scheduled
         # to be replaced anyway.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_unot(self):
         # UNARY_NOT POP_JUMP_IF_FALSE  -->  POP_JUMP_IF_TRUE'
         def unot(x):
@@ -283,7 +282,7 @@ class TestTranforms(BytecodeTestCase):
                     self.assertNotInBytecode(code, 'LOAD_SMALL_INT')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'UNARY_NEGATIVE' starts with 'UNARY_'
     def test_constant_folding_unaryop(self):
         intrinsic_positive = 5
         tests = [
@@ -890,7 +889,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_known_because_parameter(self):
         def f1(x):
             print(x)
@@ -927,7 +925,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertInBytecode(f, 'LOAD_FAST_BORROW')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_known_multiple_branches(self):
         def f():
             if condition():
