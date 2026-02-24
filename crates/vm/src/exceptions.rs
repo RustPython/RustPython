@@ -2061,17 +2061,37 @@ pub(super) mod types {
                     if !vm.is_none(&filename) {
                         let mut args_reduced: Vec<PyObjectRef> = vec![errno, msg, filename];
 
-                        if let Ok(filename2) = obj.get_attr("filename2", vm)
-                            && !vm.is_none(&filename2)
-                        {
+                        let filename2 = obj
+                            .get_attr("filename2", vm)
+                            .ok()
+                            .filter(|f| !vm.is_none(f));
+                        #[cfg(windows)]
+                        let winerror = obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w));
+
+                        if let Some(filename2) = filename2 {
+                            #[cfg(windows)]
+                            {
+                                args_reduced.push(winerror.unwrap_or_else(|| vm.ctx.none()));
+                            }
+                            #[cfg(not(windows))]
+                            args_reduced.push(vm.ctx.none());
                             args_reduced.push(filename2);
+                        } else {
+                            // Diverges from CPython: include winerror even without
+                            // filename2 so it survives pickle round-trips.
+                            #[cfg(windows)]
+                            if let Some(winerror) = winerror {
+                                args_reduced.push(winerror);
+                            }
                         }
                         result.push(args_reduced.into_pytuple(vm).into());
                     } else {
-                        result.push(vm.new_tuple((errno, msg)).into());
+                        // filename is None - use original args as-is
+                        // (may contain winerror at position 3)
+                        result.push(args.into());
                     }
                 } else {
-                    result.push(vm.new_tuple((errno, msg)).into());
+                    result.push(args.into());
                 }
             } else {
                 result.push(args.into());

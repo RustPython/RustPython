@@ -4119,8 +4119,6 @@ class ConfigDictTest(BaseTest):
         # Logger should be enabled, since explicitly mentioned
         self.assertFalse(logger.disabled)
 
-    # TODO: RUSTPYTHON - SemLock not implemented on Windows
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_111615(self):
         # See gh-111615
         import_helper.import_module('_multiprocessing')  # see gh-113692
