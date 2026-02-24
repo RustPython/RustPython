@@ -185,7 +185,7 @@ mod _lzma {
             state
                 .decompress(data, max_length, BUFSIZ, vm)
                 .map_err(|e| match e {
-                    DecompressError::Decompress(err) => vm.new_os_error(err.to_string()),
+                    DecompressError::Decompress(err) => new_lzma_error(err.to_string(), vm),
                     DecompressError::Eof(err) => err.to_pyexception(vm),
                 })
         }
