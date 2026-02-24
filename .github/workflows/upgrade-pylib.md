@@ -28,7 +28,7 @@ engine: copilot
 
 runtimes:
   python:
-    version: "3.12"
+    version: "3.14"
 
 tools:
   bash:
