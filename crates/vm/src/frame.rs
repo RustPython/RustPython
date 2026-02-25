@@ -223,6 +223,16 @@ impl Frame {
         self.state.lock().stack.clear();
     }
 
+    /// Clear locals and stack after generator/coroutine close.
+    /// Releases references held by the frame, matching _PyFrame_ClearLocals.
+    pub(crate) fn clear_locals_and_stack(&self) {
+        self.state.lock().stack.clear();
+        let mut fastlocals = self.fastlocals.lock();
+        for slot in fastlocals.iter_mut() {
+            *slot = None;
+        }
+    }
+
     /// Store a borrowed back-reference to the owning generator/coroutine.
     /// The caller must ensure the generator outlives the frame.
     pub fn set_generator(&self, generator: &PyObject) {
