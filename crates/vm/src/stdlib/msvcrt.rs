@@ -82,7 +82,7 @@ mod msvcrt {
     #[pyfunction]
     fn putwch(s: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let c = s
-            .as_str()
+            .expect_str()
             .chars()
             .exactly_one()
             .map_err(|_| vm.new_type_error("putch() argument must be a string of length 1"))?;
@@ -107,7 +107,7 @@ mod msvcrt {
     #[pyfunction]
     fn ungetwch(s: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let c =
-            s.as_str().chars().exactly_one().map_err(|_| {
+            s.expect_str().chars().exactly_one().map_err(|_| {
                 vm.new_type_error("ungetwch() argument must be a string of length 1")
             })?;
         let ret = unsafe { suppress_iph!(_ungetwch(c as u32)) };

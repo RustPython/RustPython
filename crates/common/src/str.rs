@@ -258,6 +258,7 @@ impl StrData {
         &self.data
     }
 
+    // TODO: rename to to_str
     #[inline]
     pub fn as_str(&self) -> Option<&str> {
         self.kind
@@ -429,13 +430,13 @@ pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
 
 /// Convert a string to ascii compatible, escaping unicode-s into escape
 /// sequences.
-pub fn to_ascii(value: &str) -> AsciiString {
+pub fn to_ascii(value: &Wtf8) -> AsciiString {
     let mut ascii = Vec::new();
-    for c in value.chars() {
-        if c.is_ascii() {
-            ascii.push(c as u8);
+    for cp in value.code_points() {
+        if cp.is_ascii() {
+            ascii.push(cp.to_u32() as u8);
         } else {
-            let c = c as i64;
+            let c = cp.to_u32();
             let hex = if c < 0x100 {
                 format!("\\x{c:02x}")
             } else if c < 0x10000 {

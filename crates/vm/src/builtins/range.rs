@@ -52,8 +52,9 @@ fn iter_search(
         SearchType::Index => Err(vm.new_value_error(format!(
             "{} not in range",
             item.repr(vm)
-                .map(|v| v.as_str().to_owned())
-                .unwrap_or_else(|_| "value".to_owned())
+                .as_ref()
+                .map_or("value".as_ref(), |s| s.as_wtf8())
+                .to_owned()
         ))),
     }
 }

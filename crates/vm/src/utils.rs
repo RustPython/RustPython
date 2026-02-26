@@ -1,4 +1,4 @@
-use rustpython_common::wtf8::Wtf8;
+use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 
 use crate::{
     PyObjectRef, PyResult, VirtualMachine,
@@ -43,33 +43,31 @@ pub(crate) fn collection_repr<'a, I>(
     suffix: &str,
     iter: I,
     vm: &VirtualMachine,
-) -> PyResult<String>
+) -> PyResult<Wtf8Buf>
 where
     I: core::iter::Iterator<Item = &'a PyObjectRef>,
 {
-    let mut repr = String::new();
+    let mut repr = Wtf8Buf::new();
     if let Some(name) = class_name {
         repr.push_str(name);
-        repr.push('(');
+        repr.push_char('(');
     }
     repr.push_str(prefix);
     {
         let mut parts_iter = iter.map(|o| o.repr(vm));
-        repr.push_str(
-            parts_iter
-                .next()
-                .transpose()?
-                .expect("this is not called for empty collection")
-                .as_str(),
-        );
+        let first = parts_iter
+            .next()
+            .transpose()?
+            .expect("this is not called for empty collection");
+        repr.push_wtf8(first.as_wtf8());
         for part in parts_iter {
             repr.push_str(", ");
-            repr.push_str(part?.as_str());
+            repr.push_wtf8(part?.as_wtf8());
         }
     }
     repr.push_str(suffix);
     if class_name.is_some() {
-        repr.push(')');
+        repr.push_char(')');
     }
 
     Ok(repr)

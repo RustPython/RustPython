@@ -459,7 +459,7 @@ impl Constructor for PyCode {
                 let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
                     vm.new_type_error("names must be tuple of strings".to_owned())
                 })?;
-                Ok(vm.ctx.intern_str(s.as_str()))
+                Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
             .into_boxed_slice();
@@ -471,7 +471,7 @@ impl Constructor for PyCode {
                 let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
                     vm.new_type_error("varnames must be tuple of strings".to_owned())
                 })?;
-                Ok(vm.ctx.intern_str(s.as_str()))
+                Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
             .into_boxed_slice();
@@ -483,7 +483,7 @@ impl Constructor for PyCode {
                 let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
                     vm.new_type_error("cellvars must be tuple of strings".to_owned())
                 })?;
-                Ok(vm.ctx.intern_str(s.as_str()))
+                Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
             .into_boxed_slice();
@@ -495,7 +495,7 @@ impl Constructor for PyCode {
                 let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
                     vm.new_type_error("freevars must be tuple of strings".to_owned())
                 })?;
-                Ok(vm.ctx.intern_str(s.as_str()))
+                Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
             .into_boxed_slice();
@@ -551,15 +551,15 @@ impl Constructor for PyCode {
             posonlyarg_count: args.posonlyargcount,
             arg_count: args.argcount,
             kwonlyarg_count: args.kwonlyargcount,
-            source_path: vm.ctx.intern_str(args.filename.as_str()),
+            source_path: vm.ctx.intern_str(args.filename.as_wtf8()),
             first_line_number: if args.firstlineno > 0 {
                 OneIndexed::new(args.firstlineno as usize)
             } else {
                 None
             },
             max_stackdepth: args.stacksize,
-            obj_name: vm.ctx.intern_str(args.name.as_str()),
-            qualname: vm.ctx.intern_str(args.qualname.as_str()),
+            obj_name: vm.ctx.intern_str(args.name.as_wtf8()),
+            qualname: vm.ctx.intern_str(args.qualname.as_wtf8()),
             cell2arg: None, // TODO: reuse `fn cell2arg`
             constants,
             names,

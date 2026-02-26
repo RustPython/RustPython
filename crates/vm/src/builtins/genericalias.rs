@@ -635,14 +635,14 @@ impl Hashable for PyGenericAlias {
 
 impl GetAttr for PyGenericAlias {
     fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        let attr_str = attr.as_str();
+        let attr_str = attr.as_wtf8();
         for exc in &ATTR_EXCEPTIONS {
-            if *exc == attr_str {
+            if attr_str == *exc {
                 return zelf.as_object().generic_getattr(attr, vm);
             }
         }
         for blocked in &ATTR_BLOCKED {
-            if *blocked == attr_str {
+            if attr_str == *blocked {
                 return zelf.as_object().generic_getattr(attr, vm);
             }
         }

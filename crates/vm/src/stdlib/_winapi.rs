@@ -15,6 +15,7 @@ mod _winapi {
         windows::{WinHandle, WindowsSysResult},
     };
     use core::ptr::{null, null_mut};
+    use rustpython_common::wtf8::Wtf8Buf;
     use windows_sys::Win32::Foundation::{HANDLE, MAX_PATH};
 
     #[pyattr]
@@ -296,19 +297,19 @@ mod _winapi {
             .map_or_else(null_mut, |l| l.attrlist.as_mut_ptr() as _);
 
         let wstr = |s: PyStrRef| {
-            let ws = widestring::WideCString::from_str(s.as_str())
+            let ws = widestring::WideCString::from_str(s.expect_str())
                 .map_err(|err| err.to_pyexception(vm))?;
             Ok(ws.into_vec_with_nul())
         };
 
         // Validate no embedded null bytes in command name and command line
         if let Some(ref name) = args.name
-            && name.as_str().contains('\0')
+            && name.as_bytes().contains(&0)
         {
             return Err(crate::exceptions::cstring_error(vm));
         }
         if let Some(ref cmd) = args.command_line
-            && cmd.as_str().contains('\0')
+            && cmd.as_bytes().contains(&0)
         {
             return Err(crate::exceptions::cstring_error(vm));
         }
@@ -396,8 +397,8 @@ mod _winapi {
         dest_path: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let src_path = std::path::Path::new(src_path.as_str());
-        let dest_path = std::path::Path::new(dest_path.as_str());
+        let src_path = std::path::Path::new(src_path.expect_str());
+        let dest_path = std::path::Path::new(dest_path.expect_str());
 
         junction::create(src_path, dest_path).map_err(|e| e.to_pyexception(vm))
     }
@@ -418,9 +419,9 @@ mod _winapi {
         let mut last_entry: HashMap<String, widestring::WideString> = HashMap::new();
         for (k, v) in keys.into_iter().zip(values.into_iter()) {
             let k = PyStrRef::try_from_object(vm, k)?;
-            let k = k.as_str();
+            let k = k.expect_str();
             let v = PyStrRef::try_from_object(vm, v)?;
-            let v = v.as_str();
+            let v = v.expect_str();
             if k.contains('\0') || v.contains('\0') {
                 return Err(crate::exceptions::cstring_error(vm));
             }
@@ -677,7 +678,6 @@ mod _winapi {
         src: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
-        use rustpython_common::wtf8::Wtf8Buf;
         use windows_sys::Win32::Globalization::{
             LCMAP_BYTEREV, LCMAP_HASH, LCMAP_SORTHANDLE, LCMAP_SORTKEY,
             LCMapStringEx as WinLCMapStringEx,
@@ -1032,8 +1032,6 @@ mod _winapi {
         api_fn: unsafe extern "system" fn(*const u16, *mut u16, u32) -> u32,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
-        use rustpython_common::wtf8::Wtf8Buf;
-
         let path_wide = path.as_wtf8().to_wide_with_nul();
 
         // First call to get required buffer size
@@ -1808,7 +1806,7 @@ mod _winapi {
         use windows_sys::Win32::System::Memory::CreateFileMappingW;
 
         if let Some(ref n) = name
-            && n.as_str().contains('\0')
+            && n.as_bytes().contains(&0)
         {
             return Err(vm.new_value_error(
                 "CreateFileMapping: name must not contain null characters".to_owned(),
@@ -1844,7 +1842,7 @@ mod _winapi {
     ) -> PyResult<WinHandle> {
         use windows_sys::Win32::System::Memory::OpenFileMappingW;
 
-        if name.as_str().contains('\0') {
+        if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error(
                 "OpenFileMapping: name must not contain null characters".to_owned(),
             ));

@@ -108,7 +108,7 @@ impl<'vm> ShellHelper<'vm> {
             .filter(|res| {
                 res.as_ref()
                     .ok()
-                    .is_none_or(|s| s.as_str().starts_with(word_start))
+                    .is_none_or(|s| s.as_bytes().starts_with(word_start.as_bytes()))
             })
             .collect::<Result<Vec<_>, _>>()
             .ok()?;
@@ -120,7 +120,7 @@ impl<'vm> ShellHelper<'vm> {
             // only the completions that don't start with a '_'
             let no_underscore = all_completions
                 .iter()
-                .filter(|&s| !s.as_str().starts_with('_'))
+                .filter(|&s| !s.as_bytes().starts_with(b"_"))
                 .cloned()
                 .collect::<Vec<_>>();
 
@@ -134,13 +134,13 @@ impl<'vm> ShellHelper<'vm> {
         };
 
         // sort the completions alphabetically
-        completions.sort_by(|a, b| std::cmp::Ord::cmp(a.as_str(), b.as_str()));
+        completions.sort_by(|a, b| a.as_wtf8().cmp(b.as_wtf8()));
 
         Some((
             startpos,
             completions
                 .into_iter()
-                .map(|s| s.as_str().to_owned())
+                .map(|s| s.expect_str().to_owned())
                 .collect(),
         ))
     }

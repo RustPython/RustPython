@@ -994,7 +994,7 @@ mod winreg {
                 let s = value
                     .downcast::<PyStr>()
                     .map_err(|_| vm.new_type_error("value must be a string".to_string()))?;
-                let wide = s.as_str().to_wide_with_nul();
+                let wide = s.as_wtf8().to_wide_with_nul();
                 // Convert Vec<u16> to Vec<u8>
                 let bytes: Vec<u8> = wide.iter().flat_map(|&c| c.to_le_bytes()).collect();
                 Ok(Some(bytes))
@@ -1013,7 +1013,7 @@ mod winreg {
                     let s = item.downcast_ref::<PyStr>().ok_or_else(|| {
                         vm.new_type_error("list items must be strings".to_string())
                     })?;
-                    let wide = s.as_str().to_wide_with_nul();
+                    let wide = s.as_wtf8().to_wide_with_nul();
                     bytes.extend(wide.iter().flat_map(|&c| c.to_le_bytes()));
                 }
                 // Add final null terminator (double null at end)

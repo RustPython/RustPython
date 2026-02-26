@@ -33,7 +33,7 @@
 //!     #[pyfunction]
 //!     fn other_thing(s: PyStrRef) -> (String, usize) {
 //!         let new_string = format!("hello from rust, {}!", s);
-//!         let prev_len = s.as_str().len();
+//!         let prev_len = s.byte_len();
 //!         (new_string, prev_len)
 //!     }
 //! }
@@ -135,7 +135,7 @@ __import__("io").TextIOWrapper(
         .downcast()
         .expect("TextIOWrapper.read() should return str");
     eprintln!("running get-pip.py...");
-    vm.run_string(scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
+    vm.run_string(scope, getpip_code.expect_str(), "get-pip.py".to_owned())?;
     Ok(())
 }
 
@@ -143,7 +143,7 @@ fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> 
     if !cfg!(feature = "ssl") {
         return Err(vm.new_exception_msg(
             vm.ctx.exceptions.system_error.to_owned(),
-            "install-pip requires rustpython be build with '--features=ssl'".to_owned(),
+            "install-pip requires rustpython be build with '--features=ssl'".into(),
         ));
     }
 

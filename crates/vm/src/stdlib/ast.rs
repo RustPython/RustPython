@@ -15,7 +15,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, VirtualMachine,
     builtins::PyIntRef,
-    builtins::{PyDict, PyModule, PyStrRef, PyType},
+    builtins::{PyDict, PyModule, PyType, PyUtf8StrRef},
     class::{PyClassImpl, StaticType},
     compiler::{CompileError, ParseError},
     convert::ToPyObject,

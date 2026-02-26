@@ -11,7 +11,7 @@ pub mod _hashlib {
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyStrRef, PyTypeRef, PyValueError,
+            PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyTypeRef, PyUtf8StrRef, PyValueError,
         },
         class::StaticType,
         convert::ToPyObject,
@@ -79,7 +79,7 @@ pub mod _hashlib {
     #[allow(unused)]
     struct NewHashArgs {
         #[pyarg(positional)]
-        name: PyStrRef,
+        name: PyUtf8StrRef,
         #[pyarg(any, optional)]
         data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
@@ -188,7 +188,7 @@ pub mod _hashlib {
     #[allow(unused)]
     struct Pbkdf2HmacArgs {
         #[pyarg(any)]
-        hash_name: PyStrRef,
+        hash_name: PyUtf8StrRef,
         #[pyarg(any)]
         password: ArgBytesLike,
         #[pyarg(any)]
@@ -218,18 +218,21 @@ pub mod _hashlib {
     }
 
     fn resolve_digestmod(digestmod: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if let Some(name) = digestmod.downcast_ref::<PyStr>() {
-            return Ok(name.as_str().to_lowercase());
+        if let Some(name) = digestmod.downcast_ref::<PyStr>()
+            && let Some(name_str) = name.to_str()
+        {
+            return Ok(name_str.to_lowercase());
         }
         if let Ok(name_obj) = digestmod.get_attr("__name__", vm)
             && let Some(name) = name_obj.downcast_ref::<PyStr>()
-            && let Some(algo) = name.as_str().strip_prefix("openssl_")
+            && let Some(name_str) = name.to_str()
+            && let Some(algo) = name_str.strip_prefix("openssl_")
         {
             return Ok(algo.to_owned());
         }
         Err(vm.new_exception_msg(
             UnsupportedDigestmodError::static_type().to_owned(),
-            "unsupported digestmod".to_owned(),
+            "unsupported digestmod".into(),
         ))
     }
 
@@ -254,7 +257,7 @@ pub mod _hashlib {
     fn unsupported_hash(name: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception_msg(
             UnsupportedDigestmodError::static_type().to_owned(),
-            format!("unsupported hash type {name}"),
+            format!("unsupported hash type {name}").into(),
         )
     }
 

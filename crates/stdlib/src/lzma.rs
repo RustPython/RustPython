@@ -82,7 +82,8 @@ mod _lzma {
     }
 
     fn new_lzma_error(message: impl Into<String>, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception_msg(vm.class("lzma", "LZMAError"), message.into())
+        let msg: String = message.into();
+        vm.new_exception_msg(vm.class("lzma", "LZMAError"), msg.into())
     }
 
     #[pyfunction]

@@ -142,7 +142,7 @@ impl IterNext for PyWeakProxy {
 fn new_reference_error(vm: &VirtualMachine) -> PyRef<super::PyBaseException> {
     vm.new_exception_msg(
         vm.ctx.exceptions.reference_error.to_owned(),
-        "weakly-referenced object no longer exists".to_owned(),
+        "weakly-referenced object no longer exists".into(),
     )
 }
 

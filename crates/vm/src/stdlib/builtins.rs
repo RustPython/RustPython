@@ -11,6 +11,7 @@ mod builtins {
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
             PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+            PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCellRef, PyFunction},
             int::PyIntRef,
@@ -30,7 +31,7 @@ mod builtins {
         types::PyComparisonOp,
     };
     use itertools::Itertools;
-    use num_traits::{Signed, ToPrimitive};
+    use num_traits::{Signed, ToPrimitive, Zero};
     use rustpython_common::wtf8::CodePoint;
 
     #[cfg(not(feature = "rustpython-compiler"))]
@@ -65,7 +66,7 @@ mod builtins {
     #[pyfunction]
     pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ascii::AsciiString> {
         let repr = obj.repr(vm)?;
-        let ascii = to_ascii(repr.as_str());
+        let ascii = to_ascii(repr.as_wtf8());
         Ok(ascii)
     }
 
@@ -99,7 +100,7 @@ mod builtins {
     struct CompileArgs {
         source: PyObjectRef,
         filename: FsPath,
-        mode: PyStrRef,
+        mode: PyUtf8StrRef,
         #[pyarg(any, optional)]
         flags: OptionalArg<PyIntRef>,
         #[pyarg(any, optional)]
@@ -139,7 +140,6 @@ mod builtins {
                 .source
                 .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
             {
-                use num_traits::Zero;
                 let flags: i32 = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
                 let is_ast_only = !(flags & ast::PY_CF_ONLY_AST).is_zero();
 
@@ -197,7 +197,7 @@ mod builtins {
             #[cfg(feature = "parser")]
             {
                 use crate::convert::ToPyException;
-                use num_traits::Zero;
+
                 use ruff_python_parser as parser;
 
                 let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
@@ -413,7 +413,7 @@ mod builtins {
                 if source.contains(&0) {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.syntax_error.to_owned(),
-                        "source code string cannot contain null bytes".to_owned(),
+                        "source code string cannot contain null bytes".into(),
                     ));
                 }
 
@@ -424,9 +424,9 @@ mod builtins {
                         err.valid_up_to()
                     );
 
-                    vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), msg)
+                    vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), msg.into())
                 })?;
-                Ok(Either::A(vm.ctx.new_str(source.trim_start())))
+                Ok(Either::A(vm.ctx.new_utf8_str(source.trim_start())))
             }
             Either::B(code) => Ok(Either::B(code)),
         }?;
@@ -435,7 +435,7 @@ mod builtins {
 
     #[pyfunction]
     fn exec(
-        source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
+        source: Either<PyUtf8StrRef, PyRef<crate::builtins::PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -445,7 +445,7 @@ mod builtins {
 
     fn run_code(
         vm: &VirtualMachine,
-        source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
+        source: Either<PyUtf8StrRef, PyRef<crate::builtins::PyCode>>,
         scope: crate::scope::Scope,
         #[allow(unused_variables)] mode: crate::compiler::Mode,
         func: &str,
@@ -453,9 +453,11 @@ mod builtins {
         // Determine code object:
         let code_obj = match source {
             #[cfg(feature = "rustpython-compiler")]
-            Either::A(string) => vm
-                .compile(string.as_str(), mode, "<string>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err, Some(string.as_str())))?,
+            Either::A(string) => {
+                let source = string.as_str();
+                vm.compile(source, mode, "<string>".to_owned())
+                    .map_err(|err| vm.new_syntax_error(&err, Some(source)))?
+            }
             #[cfg(not(feature = "rustpython-compiler"))]
             Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned())),
             Either::B(code_obj) => code_obj,
@@ -567,8 +569,15 @@ mod builtins {
             && std::io::stdin().is_terminal()
             && !is_pty_child();
 
+        // Disable rustyline if prompt contains surrogates (not valid UTF-8 for terminal)
+        let prompt_str = match &prompt {
+            OptionalArg::Present(s) => s.to_str(),
+            OptionalArg::Missing => Some(""),
+        };
+        let use_rustyline = use_rustyline && prompt_str.is_some();
+
         if use_rustyline {
-            let prompt = prompt.as_ref().map_or("", |s| s.as_str());
+            let prompt = prompt_str.unwrap();
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
                 ReadlineResult::Line(s) => Ok(vm.ctx.new_str(s).into()),

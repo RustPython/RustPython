@@ -20,6 +20,7 @@ mod decl {
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::BigInt;
     use num_traits::One;
+    use rustpython_common::wtf8::Wtf8Buf;
 
     use alloc::fmt;
     use num_traits::{Signed, ToPrimitive};
@@ -220,13 +221,17 @@ mod decl {
 
     impl Representable for PyItertoolsCount {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let cur = format!("{}", zelf.cur.read().clone().repr(vm)?);
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let cur_repr = zelf.cur.read().clone().repr(vm)?;
             let step = &zelf.step;
-            if vm.bool_eq(step, vm.ctx.new_int(1).as_object())? {
-                return Ok(format!("count({cur})"));
+            let mut result = Wtf8Buf::from("count(");
+            result.push_wtf8(cur_repr.as_wtf8());
+            if !vm.bool_eq(step, vm.ctx.new_int(1).as_object())? {
+                result.push_str(", ");
+                result.push_wtf8(step.repr(vm)?.as_wtf8());
             }
-            Ok(format!("count({}, {})", cur, step.repr(vm)?))
+            result.push_char(')');
+            Ok(result)
         }
     }
 
@@ -345,13 +350,15 @@ mod decl {
 
     impl Representable for PyItertoolsRepeat {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let mut fmt = format!("{}", &zelf.object.repr(vm)?);
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let mut result = Wtf8Buf::from("repeat(");
+            result.push_wtf8(zelf.object.repr(vm)?.as_wtf8());
             if let Some(ref times) = zelf.times {
-                fmt.push_str(", ");
-                fmt.push_str(&times.read().to_string());
+                result.push_str(", ");
+                result.push_str(&times.read().to_string());
             }
-            Ok(format!("repeat({fmt})"))
+            result.push_char(')');
+            Ok(result)
         }
     }
 

@@ -1,9 +1,9 @@
 use super::{PyStr, PyType, PyTypeRef, float};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::PyStrRef,
+    builtins::PyUtf8StrRef,
     class::PyClassImpl,
-    common::format::FormatSpec,
+    common::{format::FormatSpec, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
@@ -276,13 +276,14 @@ impl PyComplex {
     }
 
     #[pymethod]
-    fn __format__(zelf: &Py<Self>, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn __format__(zelf: &Py<Self>, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         // Empty format spec: equivalent to str(self)
         if spec.is_empty() {
-            return Ok(zelf.as_object().str(vm)?.as_str().to_owned());
+            return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_complex(&zelf.value))
+            .map(Wtf8Buf::from_string)
             .map_err(|err| err.into_pyexception(vm))
     }
 }

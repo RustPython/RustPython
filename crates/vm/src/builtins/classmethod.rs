@@ -211,11 +211,11 @@ impl Representable for PyClassMethod {
             class
                 .__qualname__(vm)
                 .downcast_ref::<PyStr>()
-                .map(|n| n.as_str()),
+                .map(|n| n.as_wtf8()),
             class
                 .__module__(vm)
                 .downcast_ref::<PyStr>()
-                .map(|m| m.as_str()),
+                .map(|m| m.as_wtf8()),
         ) {
             (None, _) => return Err(vm.new_type_error("Unknown qualified name")),
             (Some(qualname), Some(module)) if module != "builtins" => {

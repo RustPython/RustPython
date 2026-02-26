@@ -30,7 +30,7 @@ pub(crate) mod typevar {
         contravariant: bool,
     ) -> String {
         if infer_variance {
-            return name.to_string();
+            return name.to_owned();
         }
         let prefix = if covariant {
             '+'
@@ -62,23 +62,19 @@ pub(crate) mod typevar {
     fn set_module_from_caller(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         // Note: CPython gets module from frame->f_funcobj, but RustPython's Frame
         // architecture is different - we use globals['__name__'] instead
-        if let Some(module_name) = caller(vm) {
+        let module_value: PyObjectRef = if let Some(module_name) = caller(vm) {
             // Special handling for certain module names
-            if let Ok(name_str) = module_name.str(vm) {
-                let name = name_str.as_str();
-                // CPython sets __module__ to None for builtins and <...> modules
-                // Also set to None for exec contexts (no __name__ in globals means exec)
-                if name == "builtins" || name.starts_with('<') {
-                    // Don't set __module__ attribute at all (CPython behavior)
-                    // This allows the typing module to handle it
-                    return Ok(());
-                }
+            if let Ok(name_str) = module_name.str(vm)
+                && let Some(name) = name_str.to_str()
+                && (name == "builtins" || name.starts_with('<'))
+            {
+                return Ok(());
             }
-            obj.set_attr("__module__", module_name, vm)?;
+            module_name
         } else {
-            // If no module name is found (e.g., in exec context), set __module__ to None
-            obj.set_attr("__module__", vm.ctx.none(), vm)?;
-        }
+            vm.ctx.none()
+        };
+        obj.set_attr("__module__", module_value, vm)?;
         Ok(())
     }
 
@@ -288,7 +284,7 @@ pub(crate) mod typevar {
     impl Representable for TypeVar {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.name.str(vm)?;
+            let name = zelf.name.str_utf8(vm)?;
             Ok(variance_repr(
                 name.as_str(),
                 zelf.infer_variance,
@@ -684,7 +680,7 @@ pub(crate) mod typevar {
     impl Representable for ParamSpec {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.__name__().str(vm)?;
+            let name = zelf.__name__().str_utf8(vm)?;
             Ok(variance_repr(
                 name.as_str(),
                 zelf.infer_variance,

@@ -142,7 +142,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             .get_attr(prompt_name, vm)
             .and_then(|prompt| prompt.str(vm));
         let prompt = match prompt {
-            Ok(ref s) => s.as_str(),
+            Ok(ref s) => s.expect_str(),
             Err(_) => "",
         };
 
@@ -211,8 +211,10 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             }
             #[cfg(unix)]
             ReadlineResult::OsError(num) => {
-                let os_error =
-                    vm.new_exception_msg(vm.ctx.exceptions.os_error.to_owned(), format!("{num:?}"));
+                let os_error = vm.new_exception_msg(
+                    vm.ctx.exceptions.os_error.to_owned(),
+                    format!("{num:?}").into(),
+                );
                 vm.print_exception(os_error);
                 break;
             }

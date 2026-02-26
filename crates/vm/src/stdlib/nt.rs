@@ -7,7 +7,9 @@ pub use module::raw_set_handle_inheritable;
 pub(crate) mod module {
     use crate::{
         Py, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyTupleRef},
+        builtins::{
+            PyBaseExceptionRef, PyBytes, PyDictRef, PyListRef, PyStr, PyStrRef, PyTupleRef,
+        },
         common::{crt_fd, suppress_iph, windows::ToWideString},
         convert::ToPyException,
         exceptions::OSErrorBuilder,
@@ -15,9 +17,9 @@ pub(crate) mod module {
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
-
     use core::mem::MaybeUninit;
     use libc::intptr_t;
+    use rustpython_common::wtf8::Wtf8Buf;
     use std::os::windows::io::AsRawHandle;
     use std::{env, io, os::windows::ffi::OsStringExt};
     use windows_sys::Win32::{
@@ -1188,7 +1190,7 @@ pub(crate) mod module {
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
-            make_widestring(arg.as_str())
+            make_widestring(arg.expect_str())
         })?;
 
         let first = argv
@@ -1229,7 +1231,7 @@ pub(crate) mod module {
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
-            make_widestring(arg.as_str())
+            make_widestring(arg.expect_str())
         })?;
 
         let first = argv
@@ -1252,8 +1254,8 @@ pub(crate) mod module {
         for (key, value) in env.into_iter() {
             let key = PyStrRef::try_from_object(vm, key)?;
             let value = PyStrRef::try_from_object(vm, value)?;
-            let key_str = key.as_str();
-            let value_str = value.as_str();
+            let key_str = key.expect_str();
+            let value_str = value.expect_str();
 
             // Validate: no null characters in key or value
             if key_str.contains('\0') || value_str.contains('\0') {
@@ -1463,9 +1465,6 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _path_splitroot_ex(path: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        use crate::builtins::{PyBytes, PyStr};
-        use rustpython_common::wtf8::Wtf8Buf;
-
         // Handle path-like objects via os.fspath, but without null check (non_strict=True)
         let path = if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
             fspath?.call((), vm)?
@@ -1487,7 +1486,8 @@ pub(crate) mod module {
                         "'utf-8' codec can't decode byte {:#x} in position {}: invalid start byte",
                         b.as_bytes().get(e.valid_up_to()).copied().unwrap_or(0),
                         e.valid_up_to()
-                    ),
+                    )
+                    .into(),
                 )
             })?;
             let wide: Vec<u16> = s.encode_utf16().collect();
@@ -1535,15 +1535,7 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _path_splitroot(
-        path: OsPath,
-        _vm: &VirtualMachine,
-    ) -> (
-        rustpython_common::wtf8::Wtf8Buf,
-        rustpython_common::wtf8::Wtf8Buf,
-    ) {
-        use rustpython_common::wtf8::Wtf8Buf;
-
+    fn _path_splitroot(path: OsPath, _vm: &VirtualMachine) -> (Wtf8Buf, Wtf8Buf) {
         let orig: Vec<_> = path.path.to_wide();
         if orig.is_empty() {
             return (Wtf8Buf::new(), Wtf8Buf::new());
@@ -1706,9 +1698,6 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _path_normpath(path: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        use crate::builtins::{PyBytes, PyStr};
-        use rustpython_common::wtf8::Wtf8Buf;
-
         // Handle path-like objects via os.fspath
         let path = if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
             fspath?.call((), vm)?
@@ -1727,7 +1716,8 @@ pub(crate) mod module {
                         "'utf-8' codec can't decode byte {:#x} in position {}: invalid start byte",
                         b.as_bytes().get(e.valid_up_to()).copied().unwrap_or(0),
                         e.valid_up_to()
-                    ),
+                    )
+                    .into(),
                 )
             })?;
             let wide: Vec<u16> = s.encode_utf16().collect();

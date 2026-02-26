@@ -41,7 +41,7 @@ macro_rules! create_bool_property {
 mod _pyexpat {
     use crate::vm::{
         Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType},
+        builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
         function::{ArgBytesLike, Either, IntoFuncArgs, OptionalArg},
         types::Constructor,
@@ -390,7 +390,7 @@ mod _pyexpat {
         #[pyarg(any, optional)]
         encoding: Option<PyStrRef>,
         #[pyarg(any, optional)]
-        namespace_separator: Option<PyStrRef>,
+        namespace_separator: Option<PyUtf8StrRef>,
         #[pyarg(any, optional)]
         intern: Option<PyObjectRef>,
     }
@@ -403,11 +403,9 @@ mod _pyexpat {
         // Validate namespace_separator: must be at most one character
         let ns_sep = match args.namespace_separator {
             Some(ref s) => {
-                let chars: Vec<char> = s.as_str().chars().collect();
-                if chars.len() > 1 {
+                if s.as_str().chars().count() > 1 {
                     return Err(vm.new_value_error(
-                        "namespace_separator must be at most one character, omitted, or None"
-                            .to_owned(),
+                        "namespace_separator must be at most one character, omitted, or None",
                     ));
                 }
                 Some(s.as_str().to_owned())

@@ -117,8 +117,8 @@ fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResul
             }
         }
         "u" => {
-            if let Ok(b) = value.str(vm).map(|v| v.to_string().chars().count() == 1) {
-                if b {
+            if let Some(s) = value.downcast_ref::<PyStr>() {
+                if s.as_wtf8().code_points().count() == 1 {
                     Ok(value.to_owned())
                 } else {
                     Err(vm.new_type_error("one character unicode string expected"))
@@ -331,7 +331,7 @@ impl PyCSimpleType {
             // c_wchar: 1 unicode character
             Some("u") => {
                 if let Some(s) = value.downcast_ref::<PyStr>()
-                    && s.as_str().chars().count() == 1
+                    && s.as_wtf8().code_points().count() == 1
                 {
                     return create_simple_with_value("u", &value);
                 }
@@ -366,7 +366,7 @@ impl PyCSimpleType {
             Some("Z") => {
                 // 1. str → create CArgObject with null-terminated wchar buffer
                 if let Some(s) = value.downcast_ref::<PyStr>() {
-                    let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+                    let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                     return Ok(CArgObject {
                         tag: b'Z',
                         value: FfiArgValue::OwnedPointer(ptr, holder),
@@ -407,7 +407,7 @@ impl PyCSimpleType {
                 }
                 // 3. str → create CArgObject with null-terminated wchar buffer
                 if let Some(s) = value.downcast_ref::<PyStr>() {
-                    let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+                    let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                     return Ok(CArgObject {
                         tag: b'Z',
                         value: FfiArgValue::OwnedPointer(ptr, holder),
@@ -775,15 +775,16 @@ fn value_to_bytes_endian(
         }
         "u" => {
             // c_wchar - platform-dependent size (2 on Windows, 4 on Unix)
-            if let Ok(s) = value.str(vm)
-                && let Some(c) = s.as_str().chars().next()
-            {
-                let mut buffer = vec![0u8; WCHAR_SIZE];
-                wchar_to_bytes(c as u32, &mut buffer);
-                if swapped {
-                    buffer.reverse();
+            if let Some(s) = value.downcast_ref::<PyStr>() {
+                let mut cps = s.as_wtf8().code_points();
+                if let (Some(c), None) = (cps.next(), cps.next()) {
+                    let mut buffer = vec![0u8; WCHAR_SIZE];
+                    wchar_to_bytes(c.to_u32(), &mut buffer);
+                    if swapped {
+                        buffer.reverse();
+                    }
+                    return buffer;
                 }
-                return buffer;
             }
             vec![0; WCHAR_SIZE]
         }
@@ -1050,7 +1051,7 @@ impl Constructor for PyCSimple {
             } else if _type_ == "Z"
                 && let Some(s) = v.downcast_ref::<PyStr>()
             {
-                let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+                let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                 let buffer = ptr.to_ne_bytes().to_vec();
                 let cdata = PyCData::from_bytes(buffer, Some(holder));
                 return PyCSimple(cdata).into_ref_with_type(vm, cls).map(Into::into);
@@ -1282,7 +1283,7 @@ impl PyCSimple {
         } else if type_code == "Z"
             && let Some(s) = value.downcast_ref::<PyStr>()
         {
-            let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+            let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
             *zelf.0.buffer.write() = alloc::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
             *zelf.0.objects.write() = Some(holder);
             return Ok(());

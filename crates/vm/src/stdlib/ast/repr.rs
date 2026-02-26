@@ -4,14 +4,15 @@ use crate::{
     class::PyClassImpl,
     stdlib::ast::NodeAst,
 };
+use rustpython_common::wtf8::Wtf8Buf;
 
-fn repr_ast_list(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) -> PyResult<String> {
+fn repr_ast_list(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) -> PyResult<Wtf8Buf> {
     if items.is_empty() {
         let empty_list: PyObjectRef = vm.ctx.new_list(vec![]).into();
-        return Ok(empty_list.repr(vm)?.to_string());
+        return Ok(empty_list.repr(vm)?.as_wtf8().to_owned());
     }
 
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<Wtf8Buf> = Vec::new();
     let first = &items[0];
     let last = items.last().unwrap();
 
@@ -22,38 +23,38 @@ fn repr_ast_list(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) -> 
         let repr = if item.fast_isinstance(&NodeAst::make_class(&vm.ctx)) {
             repr_ast_node(vm, item, depth.saturating_sub(1))?
         } else {
-            item.repr(vm)?.to_string()
+            item.repr(vm)?.as_wtf8().to_owned()
         };
         parts.push(repr);
     }
 
-    let mut rendered = String::from("[");
+    let mut rendered = Wtf8Buf::from("[");
     if !parts.is_empty() {
-        rendered.push_str(&parts[0]);
+        rendered.push_wtf8(&parts[0]);
     }
     if items.len() > 2 {
         if !parts[0].is_empty() {
-            rendered.push_str(", ...");
+            rendered.push_wtf8(", ...".as_ref());
         }
         if parts.len() > 1 {
-            rendered.push_str(", ");
-            rendered.push_str(&parts[1]);
+            rendered.push_wtf8(", ".as_ref());
+            rendered.push_wtf8(&parts[1]);
         }
     } else if parts.len() > 1 {
-        rendered.push_str(", ");
-        rendered.push_str(&parts[1]);
+        rendered.push_wtf8(", ".as_ref());
+        rendered.push_wtf8(&parts[1]);
     }
-    rendered.push(']');
+    rendered.push_wtf8("]".as_ref());
     Ok(rendered)
 }
 
-fn repr_ast_tuple(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) -> PyResult<String> {
+fn repr_ast_tuple(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) -> PyResult<Wtf8Buf> {
     if items.is_empty() {
         let empty_tuple: PyObjectRef = vm.ctx.empty_tuple.clone().into();
-        return Ok(empty_tuple.repr(vm)?.to_string());
+        return Ok(empty_tuple.repr(vm)?.as_wtf8().to_owned());
     }
 
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<Wtf8Buf> = Vec::new();
     let first = &items[0];
     let last = items.last().unwrap();
 
@@ -64,31 +65,31 @@ fn repr_ast_tuple(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) ->
         let repr = if item.fast_isinstance(&NodeAst::make_class(&vm.ctx)) {
             repr_ast_node(vm, item, depth.saturating_sub(1))?
         } else {
-            item.repr(vm)?.to_string()
+            item.repr(vm)?.as_wtf8().to_owned()
         };
         parts.push(repr);
     }
 
-    let mut rendered = String::from("(");
+    let mut rendered = Wtf8Buf::from("(");
     if !parts.is_empty() {
-        rendered.push_str(&parts[0]);
+        rendered.push_wtf8(&parts[0]);
     }
     if items.len() > 2 {
         if !parts[0].is_empty() {
-            rendered.push_str(", ...");
+            rendered.push_wtf8(", ...".as_ref());
         }
         if parts.len() > 1 {
-            rendered.push_str(", ");
-            rendered.push_str(&parts[1]);
+            rendered.push_wtf8(", ".as_ref());
+            rendered.push_wtf8(&parts[1]);
         }
     } else if parts.len() > 1 {
-        rendered.push_str(", ");
-        rendered.push_str(&parts[1]);
+        rendered.push_wtf8(", ".as_ref());
+        rendered.push_wtf8(&parts[1]);
     }
     if items.len() == 1 {
-        rendered.push(',');
+        rendered.push_wtf8(",".as_ref());
     }
-    rendered.push(')');
+    rendered.push_wtf8(")".as_ref());
     Ok(rendered)
 }
 
@@ -96,25 +97,32 @@ pub(crate) fn repr_ast_node(
     vm: &VirtualMachine,
     obj: &PyObjectRef,
     depth: usize,
-) -> PyResult<String> {
+) -> PyResult<Wtf8Buf> {
     let cls = obj.class();
     if depth == 0 {
-        return Ok(format!("{}(...)", cls.name()));
+        let mut s = Wtf8Buf::from(&*cls.name());
+        s.push_wtf8("(...)".as_ref());
+        return Ok(s);
     }
 
     let fields = cls.get_attr(vm.ctx.intern_str("_fields"));
     let fields = match fields {
         Some(fields) => fields.try_to_value::<Vec<crate::builtins::PyStrRef>>(vm)?,
-        None => return Ok(format!("{}(...)", cls.name())),
+        None => {
+            let mut s = Wtf8Buf::from(&*cls.name());
+            s.push_wtf8("(...)".as_ref());
+            return Ok(s);
+        }
     };
 
     if fields.is_empty() {
-        return Ok(format!("{}()", cls.name()));
+        let mut s = Wtf8Buf::from(&*cls.name());
+        s.push_wtf8("()".as_ref());
+        return Ok(s);
     }
 
-    let mut rendered = String::new();
-    rendered.push_str(&cls.name());
-    rendered.push('(');
+    let mut rendered = Wtf8Buf::from(&*cls.name());
+    rendered.push_wtf8("(".as_ref());
 
     for (idx, field) in fields.iter().enumerate() {
         let value = obj.get_attr(field, vm)?;
@@ -131,17 +139,17 @@ pub(crate) fn repr_ast_node(
         } else if value.fast_isinstance(&NodeAst::make_class(&vm.ctx)) {
             repr_ast_node(vm, &value, depth.saturating_sub(1))?
         } else {
-            value.repr(vm)?.to_string()
+            value.repr(vm)?.as_wtf8().to_owned()
         };
 
         if idx > 0 {
-            rendered.push_str(", ");
+            rendered.push_wtf8(", ".as_ref());
         }
-        rendered.push_str(field.as_str());
-        rendered.push('=');
-        rendered.push_str(&value_repr);
+        rendered.push_wtf8(field.as_wtf8());
+        rendered.push_wtf8("=".as_ref());
+        rendered.push_wtf8(&value_repr);
     }
 
-    rendered.push(')');
+    rendered.push_wtf8(")".as_ref());
     Ok(rendered)
 }

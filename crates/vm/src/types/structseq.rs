@@ -234,7 +234,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             match typ.get_attr(identifier!(vm.ctx, __module__)) {
                 Some(module) if module.downcastable::<PyStr>() => {
                     let module_str = module.downcast_ref::<PyStr>().unwrap();
-                    alloc::borrow::Cow::Owned(format!("{}.{}", module_str.as_str(), Self::NAME))
+                    alloc::borrow::Cow::Owned(format!("{}.{}", module_str.as_wtf8(), Self::NAME))
                 }
                 _ => alloc::borrow::Cow::Borrowed(Self::TP_NAME),
             }

@@ -561,7 +561,7 @@ mod _wmi {
     /// by null characters.
     #[pyfunction]
     fn exec_query(query: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        let query_str = query.as_str();
+        let query_str = query.expect_str();
 
         if !query_str
             .get(..7)

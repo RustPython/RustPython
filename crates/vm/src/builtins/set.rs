@@ -10,7 +10,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
     class::PyClassImpl,
-    common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
+    common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc, wtf8::Wtf8Buf},
     convert::ToPyResult,
     dict_inner::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
@@ -318,7 +318,7 @@ impl PySetInner {
         }
     }
 
-    fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         collection_repr(class_name, "{", "}", self.elements().iter(), vm)
     }
 
@@ -942,23 +942,23 @@ impl AsNumber for PySet {
 
 impl Representable for PySet {
     #[inline]
-    fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let class = zelf.class();
         let borrowed_name = class.name();
         let class_name = borrowed_name.deref();
-        let s = if zelf.inner.len() == 0 {
-            format!("{class_name}()")
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+        if zelf.inner.len() == 0 {
+            return Ok(Wtf8Buf::from(format!("{class_name}()")));
+        }
+        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let name = if class_name != "set" {
                 Some(class_name)
             } else {
                 None
             };
-            zelf.inner.repr(name, vm)?
+            zelf.inner.repr(name, vm)
         } else {
-            format!("{class_name}(...)")
-        };
-        Ok(s)
+            Ok(Wtf8Buf::from(format!("{class_name}(...)")))
+        }
     }
 }
 
@@ -1289,18 +1289,18 @@ impl AsNumber for PyFrozenSet {
 
 impl Representable for PyFrozenSet {
     #[inline]
-    fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let inner = &zelf.inner;
         let class = zelf.class();
         let class_name = class.name();
-        let s = if inner.len() == 0 {
-            format!("{class_name}()")
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            inner.repr(Some(&class_name), vm)?
+        if inner.len() == 0 {
+            return Ok(Wtf8Buf::from(format!("{class_name}()")));
+        }
+        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            inner.repr(Some(&class_name), vm)
         } else {
-            format!("{class_name}(...)")
-        };
-        Ok(s)
+            Ok(Wtf8Buf::from(format!("{class_name}(...)")))
+        }
     }
 }
 

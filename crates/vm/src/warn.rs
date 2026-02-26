@@ -392,23 +392,24 @@ pub(crate) fn warn_explicit(
     let action_str = PyStrRef::try_from_object(vm, action)
         .map_err(|_| vm.new_type_error("action must be a string".to_owned()))?;
 
-    if action_str.as_str() == "error" {
+    if action_str.as_bytes() == b"error" {
         let exc = PyBaseExceptionRef::try_from_object(vm, message)?;
         return Err(exc);
     }
-    if action_str.as_str() == "ignore" {
+    if action_str.as_bytes() == b"ignore" {
         return Ok(());
     }
 
     // For everything except "always"/"all", record in registry then
     // check per-action registries.
-    let already = if action_str.as_str() != "always" && action_str.as_str() != "all" {
+    let already = if action_str.as_wtf8() != "always" && action_str.as_wtf8() != "all" {
         if !vm.is_none(&registry) {
             registry.set_item(&*key, vm.ctx.true_value.clone().into(), vm)?;
         }
 
-        match action_str.as_str() {
-            "once" => {
+        let action_s = action_str.to_str();
+        match action_s {
+            Some("once") => {
                 let reg = if vm.is_none(&registry) {
                     get_once_registry(vm)?
                 } else {
@@ -416,17 +417,17 @@ pub(crate) fn warn_explicit(
                 };
                 update_registry(&reg, text.as_ref(), category.as_object(), false, vm)?
             }
-            "module" => {
+            Some("module") => {
                 if !vm.is_none(&registry) {
                     update_registry(&registry, text.as_ref(), category.as_object(), false, vm)?
                 } else {
                     false
                 }
             }
-            "default" => false,
-            other => {
+            Some("default") => false,
+            _ => {
                 return Err(vm.new_runtime_error(format!(
-                    "Unrecognized action ({other}) in warnings.filters:\n {other}"
+                    "Unrecognized action ({action_str}) in warnings.filters:\n {action_str}"
                 )));
             }
         }
@@ -517,11 +518,11 @@ fn show_warning(
 /// Check if a frame's filename starts with any of the given prefixes.
 fn is_filename_to_skip(frame: &crate::frame::Frame, prefixes: &PyTupleRef) -> bool {
     let filename = frame.f_code().co_filename();
-    let filename_s = filename.as_str();
+    let filename_bytes = filename.as_bytes();
     prefixes.iter().any(|prefix| {
         prefix
             .downcast_ref::<PyStr>()
-            .is_some_and(|s| filename_s.starts_with(s.as_str()))
+            .is_some_and(|s| filename_bytes.starts_with(s.as_bytes()))
     })
 }
 

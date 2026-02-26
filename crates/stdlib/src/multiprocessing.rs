@@ -224,7 +224,7 @@ mod _multiprocessing {
                 if !ismine!(self) {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.assertion_error.to_owned(),
-                        "attempt to release recursive lock not owned by thread".to_owned(),
+                        "attempt to release recursive lock not owned by thread".into(),
                     ));
                 }
                 if self.count.load(Ordering::Acquire) > 1 {
@@ -796,7 +796,7 @@ mod _multiprocessing {
                 if !ismine!(self) {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.assertion_error.to_owned(),
-                        "attempt to release recursive lock not owned by thread".to_owned(),
+                        "attempt to release recursive lock not owned by thread".into(),
                     ));
                 }
                 // if (self->count > 1) { --self->count; Py_RETURN_NONE; }

@@ -330,6 +330,24 @@ impl Wtf8Buf {
         }
     }
 
+    pub fn join<I, S>(sep: impl AsRef<Wtf8>, iter: I) -> Wtf8Buf
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<Wtf8>,
+    {
+        let sep = sep.as_ref();
+        let mut iter = iter.into_iter();
+        let mut buf = match iter.next() {
+            Some(first) => first.as_ref().to_owned(),
+            None => return Wtf8Buf::new(),
+        };
+        for part in iter {
+            buf.push_wtf8(sep);
+            buf.push_wtf8(part.as_ref());
+        }
+        buf
+    }
+
     pub fn clear(&mut self) {
         self.bytes.clear();
     }
@@ -979,6 +997,28 @@ impl Wtf8 {
         }
     }
 
+    pub fn to_lowercase(&self) -> Wtf8Buf {
+        let mut buf = Wtf8Buf::with_capacity(self.len());
+        for chunk in self.chunks() {
+            match chunk {
+                Wtf8Chunk::Utf8(s) => buf.push_str(&s.to_lowercase()),
+                Wtf8Chunk::Surrogate(c) => buf.push(c),
+            }
+        }
+        buf
+    }
+
+    pub fn to_uppercase(&self) -> Wtf8Buf {
+        let mut buf = Wtf8Buf::with_capacity(self.len());
+        for chunk in self.chunks() {
+            match chunk {
+                Wtf8Chunk::Utf8(s) => buf.push_str(&s.to_uppercase()),
+                Wtf8Chunk::Surrogate(c) => buf.push(c),
+            }
+        }
+        buf
+    }
+
     #[inline]
     pub const fn is_ascii(&self) -> bool {
         self.bytes.is_ascii()
@@ -1114,23 +1154,23 @@ impl Wtf8 {
         }
     }
 
-    pub fn ends_with(&self, w: &Wtf8) -> bool {
-        self.bytes.ends_with_str(w)
+    pub fn ends_with(&self, w: impl AsRef<Wtf8>) -> bool {
+        self.bytes.ends_with_str(w.as_ref())
     }
 
-    pub fn starts_with(&self, w: &Wtf8) -> bool {
-        self.bytes.starts_with_str(w)
+    pub fn starts_with(&self, w: impl AsRef<Wtf8>) -> bool {
+        self.bytes.starts_with_str(w.as_ref())
     }
 
-    pub fn strip_prefix(&self, w: &Wtf8) -> Option<&Self> {
+    pub fn strip_prefix(&self, w: impl AsRef<Wtf8>) -> Option<&Self> {
         self.bytes
-            .strip_prefix(w.as_bytes())
+            .strip_prefix(w.as_ref().as_bytes())
             .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
     }
 
-    pub fn strip_suffix(&self, w: &Wtf8) -> Option<&Self> {
+    pub fn strip_suffix(&self, w: impl AsRef<Wtf8>) -> Option<&Self> {
         self.bytes
-            .strip_suffix(w.as_bytes())
+            .strip_suffix(w.as_ref().as_bytes())
             .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
     }
 
@@ -1520,6 +1560,14 @@ impl From<&Wtf8> for Box<Wtf8> {
     }
 }
 
+impl<'a> From<&'a str> for &'a Wtf8 {
+    #[inline]
+    fn from(s: &'a str) -> &'a Wtf8 {
+        // Valid UTF-8 is always valid WTF-8
+        unsafe { Wtf8::from_bytes_unchecked(s.as_bytes()) }
+    }
+}
+
 impl From<&str> for Box<Wtf8> {
     fn from(s: &str) -> Self {
         Box::<str>::from(s).into()
@@ -1561,3 +1609,6 @@ impl From<String> for Box<Wtf8> {
         s.into_boxed_str().into()
     }
 }
+
+mod concat;
+pub use concat::Wtf8Concat;

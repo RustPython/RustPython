@@ -639,7 +639,7 @@ impl PyCPointer {
             } else if type_code.as_deref() == Some("Z")
                 && let Some(s) = value.downcast_ref::<PyStr>()
             {
-                let (holder, ptr_val) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+                let (holder, ptr_val) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                 unsafe {
                     *(addr as *mut usize) = ptr_val;
                 }

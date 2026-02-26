@@ -64,22 +64,19 @@ mod _browser {
         } = args;
 
         let response_format = match response_format {
-            Some(s) => FetchResponseFormat::from_str(vm, s.as_str())?,
+            Some(s) => FetchResponseFormat::from_str(vm, s.expect_str())?,
             None => FetchResponseFormat::Text,
         };
 
         let opts = web_sys::RequestInit::new();
 
-        match method {
-            Some(s) => opts.set_method(s.as_str()),
-            None => opts.set_method("GET"),
-        };
+        opts.set_method(method.as_ref().map_or("GET", |s| s.expect_str()));
 
         if let Some(body) = body {
             opts.set_body(&convert::py_to_js(vm, body));
         }
 
-        let request = web_sys::Request::new_with_str_and_init(url.as_str(), &opts)
+        let request = web_sys::Request::new_with_str_and_init(url.expect_str(), &opts)
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
         if let Some(headers) = headers {
@@ -87,7 +84,7 @@ mod _browser {
             for (key, value) in headers {
                 let key = key.str(vm)?;
                 let value = value.str(vm)?;
-                h.set(key.as_str(), value.as_str())
+                h.set(key.expect_str(), value.expect_str())
                     .map_err(|err| convert::js_py_typeerror(vm, err))?;
             }
         }
@@ -95,7 +92,7 @@ mod _browser {
         if let Some(content_type) = content_type {
             request
                 .headers()
-                .set("Content-Type", content_type.as_str())
+                .set("Content-Type", content_type.expect_str())
                 .map_err(|err| convert::js_py_typeerror(vm, err))?;
         }
 
@@ -171,7 +168,7 @@ mod _browser {
         fn query(&self, query: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let elem = self
                 .doc
-                .query_selector(query.as_str())
+                .query_selector(query.expect_str())
                 .map_err(|err| convert::js_py_typeerror(vm, err))?
                 .map(|elem| Element { elem })
                 .to_pyobject(vm);
@@ -206,7 +203,7 @@ mod _browser {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyObjectRef {
-            match self.elem.get_attribute(attr.as_str()) {
+            match self.elem.get_attribute(attr.expect_str()) {
                 Some(s) => vm.ctx.new_str(s).into(),
                 None => default.unwrap_or_none(vm),
             }
@@ -215,7 +212,7 @@ mod _browser {
         #[pymethod]
         fn set_attr(&self, attr: PyStrRef, value: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
             self.elem
-                .set_attribute(attr.as_str(), value.as_str())
+                .set_attribute(attr.expect_str(), value.expect_str())
                 .map_err(|err| convert::js_py_typeerror(vm, err))
         }
     }
@@ -227,7 +224,7 @@ mod _browser {
         let opts = web_sys::RequestInit::new();
         opts.set_method("GET");
 
-        let request = web_sys::Request::new_with_str_and_init(path.as_str(), &opts)
+        let request = web_sys::Request::new_with_str_and_init(path.expect_str(), &opts)
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
         let window = window();
@@ -244,7 +241,7 @@ mod _browser {
                 .expect("that the vm is valid when the promise resolves");
             stored_vm.interp.enter(move |vm| {
                 let resp_text = text.as_string().unwrap();
-                let res = import_source(vm, module.as_str(), &resp_text);
+                let res = import_source(vm, module.expect_str(), &resp_text);
                 match res {
                     Ok(_) => Ok(JsValue::null()),
                     Err(err) => Err(convert::py_err_to_js_err(vm, &err)),

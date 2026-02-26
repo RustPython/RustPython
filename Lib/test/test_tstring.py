@@ -4,7 +4,6 @@ from test.test_string._support import TStringBaseCase, fstring
 
 
 class TestTString(unittest.TestCase, TStringBaseCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + Template(strings=('Hello',), interpolations=())
     def test_string_representation(self):
         # Test __repr__
         t = t"Hello"

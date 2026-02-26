@@ -211,8 +211,16 @@ impl VirtualMachine {
 
         if let Some(text) = maybe_text {
             // if text ends with \n or \r\n, remove it
-            let r_text = text.as_str().trim_end_matches(['\n', '\r']);
-            let l_text = r_text.trim_start_matches([' ', '\n', '\x0c']); // \x0c is \f
+            use rustpython_common::wtf8::CodePoint;
+            let text_wtf8 = text.as_wtf8();
+            let r_text = text_wtf8.trim_end_matches(|cp: CodePoint| {
+                cp == CodePoint::from_char('\n') || cp == CodePoint::from_char('\r')
+            });
+            let l_text = r_text.trim_start_matches(|cp: CodePoint| {
+                cp == CodePoint::from_char(' ')
+                    || cp == CodePoint::from_char('\n')
+                    || cp == CodePoint::from_char('\x0c') // \f
+            });
             let spaces = (r_text.len() - l_text.len()) as isize;
 
             writeln!(output, "    {l_text}")?;
@@ -249,9 +257,9 @@ impl VirtualMachine {
                     let end_colno = end_offset - 1 - spaces;
                     if colno >= 0 {
                         let caret_space = l_text
-                            .chars()
+                            .code_points()
                             .take(colno as usize)
-                            .map(|c| if c.is_whitespace() { c } else { ' ' })
+                            .map(|cp| cp.to_char().filter(|c| c.is_whitespace()).unwrap_or(' '))
                             .collect::<String>();
 
                         let mut error_width = end_colno - colno;
@@ -716,7 +724,7 @@ impl PyRef<PyBaseException> {
 
             for (key, value) in &dict {
                 let key_str = key.str(vm)?;
-                if key_str.as_str().starts_with("__") {
+                if key_str.as_bytes().starts_with(b"__") {
                     continue;
                 }
                 self.as_object().set_attr(&key_str, value.clone(), vm)?;
@@ -1459,7 +1467,10 @@ pub(super) mod types {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use rustpython_common::str::UnicodeEscapeCodepoint;
+    use rustpython_common::{
+        str::UnicodeEscapeCodepoint,
+        wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
+    };
 
     // Re-export exception group types from dedicated module
     pub use crate::exception_group::types::PyBaseExceptionGroup;
@@ -2317,19 +2328,25 @@ pub(super) mod types {
     impl PySyntaxError {
         #[pymethod]
         fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            fn basename(filename: &str) -> &str {
-                let splitted = if cfg!(windows) {
-                    filename.rsplit(&['/', '\\']).next()
+            fn basename(filename: &Wtf8) -> &Wtf8 {
+                let bytes = filename.as_bytes();
+                let pos = if cfg!(windows) {
+                    bytes.iter().rposition(|&b| b == b'/' || b == b'\\')
                 } else {
-                    filename.rsplit('/').next()
+                    bytes.iter().rposition(|&b| b == b'/')
                 };
-                splitted.unwrap_or(filename)
+                match pos {
+                    // SAFETY: splitting at ASCII byte boundary preserves WTF-8 validity
+                    Some(pos) => unsafe { Wtf8::from_bytes_unchecked(&bytes[pos + 1..]) },
+                    None => filename,
+                }
             }
 
-            let maybe_lineno = zelf.as_object().get_attr("lineno", vm).ok().map(|obj| {
-                obj.str(vm)
-                    .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
-            });
+            let maybe_lineno = zelf
+                .as_object()
+                .get_attr("lineno", vm)
+                .and_then(|obj| obj.str_utf8(vm))
+                .ok();
             let maybe_filename = zelf.as_object().get_attr("filename", vm).ok().map(|obj| {
                 obj.str(vm)
                     .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
@@ -2345,17 +2362,22 @@ pub(super) mod types {
                 }
             };
 
-            let msg_with_location_info: String = match (maybe_lineno, maybe_filename) {
-                (Some(lineno), Some(filename)) => {
-                    format!("{} ({}, line {})", msg, basename(filename.as_str()), lineno)
-                }
+            let msg_with_location_info: Wtf8Buf = match (maybe_lineno, maybe_filename) {
+                (Some(lineno), Some(filename)) => wtf8_concat!(
+                    msg.as_wtf8(),
+                    " (",
+                    basename(filename.as_wtf8()),
+                    ", line ",
+                    lineno.as_str(),
+                    ")"
+                ),
                 (Some(lineno), None) => {
-                    format!("{msg} (line {lineno})")
+                    wtf8_concat!(msg.as_wtf8(), " (line ", lineno.as_str(), ")")
                 }
                 (None, Some(filename)) => {
-                    format!("{} ({})", msg, basename(filename.as_str()))
+                    wtf8_concat!(msg.as_wtf8(), " (", basename(filename.as_wtf8()), ")")
                 }
-                (None, None) => msg.to_string(),
+                (None, None) => msg.as_wtf8().to_owned(),
             };
 
             Ok(vm.ctx.new_str(msg_with_location_info))

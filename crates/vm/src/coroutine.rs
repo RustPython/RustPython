@@ -257,7 +257,7 @@ impl Coro {
         format!(
             "<{} object {} at {:#x}>",
             gen_name(jen, vm),
-            qualname.as_str(),
+            qualname.as_wtf8(),
             id
         )
     }

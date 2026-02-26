@@ -32,6 +32,7 @@ pub(crate) mod decl {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_},
+        common::wtf8::Wtf8Buf,
         function::FuncArgs,
         protocol::{PyMappingMethods, PyNumberMethods},
         types::{AsMapping, AsNumber, Callable, Constructor, Iterable, Representable},
@@ -145,10 +146,14 @@ pub(crate) mod decl {
             && !vm.is_none(&module)
             && let Some(module_str) = module.downcast_ref::<crate::builtins::PyStr>()
         {
-            if module_str.as_str() == "builtins" {
-                return Ok(qualname.str(vm)?.to_string());
+            if module_str.as_bytes() == b"builtins" {
+                return Ok(qualname.str_utf8(vm)?.as_str().to_owned());
             }
-            return Ok(format!("{}.{}", module_str.as_str(), qualname.str(vm)?));
+            return Ok(format!(
+                "{}.{}",
+                module_str.as_wtf8(),
+                qualname.str_utf8(vm)?.as_str()
+            ));
         }
         // Fallback to repr
         Ok(obj.repr(vm)?.to_string())
@@ -426,8 +431,8 @@ pub(crate) mod decl {
     }
 
     impl Representable for TypeAliasType {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(zelf.name.as_str().to_owned())
+        fn repr_wtf8(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            Ok(zelf.name.as_wtf8().to_owned())
         }
     }
 

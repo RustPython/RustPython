@@ -20,6 +20,7 @@ use crate::{
 use core::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
+use rustpython_common::wtf8::Wtf8Buf;
 
 /// Type-erased storage for extension module data attached to heap types.
 pub struct TypeDataSlot {
@@ -1548,8 +1549,11 @@ pub trait Initializer: PyPayload {
                 #[cfg(debug_assertions)]
                 {
                     if let Ok(msg) = err.as_object().repr(vm) {
-                        let double_appearance =
-                            msg.as_str().matches(&class_name_for_debug as &str).count() == 2;
+                        let double_appearance = msg
+                            .to_string_lossy()
+                            .matches(&class_name_for_debug as &str)
+                            .count()
+                            == 2;
                         if double_appearance {
                             panic!(
                                 "This type `{}` doesn't seem to support `init`. Override `slot_init` instead: {}",
@@ -1596,12 +1600,14 @@ pub trait Callable: PyPayload {
     fn slot_call(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let zelf = zelf.downcast_ref().ok_or_else(|| {
             let repr = zelf.repr(vm);
-            let help = if let Ok(repr) = repr.as_ref() {
-                repr.as_str().to_owned()
+            let help: Wtf8Buf = if let Ok(repr) = repr.as_ref() {
+                repr.as_wtf8().to_owned()
             } else {
-                zelf.class().name().to_owned()
+                zelf.class().name().to_owned().into()
             };
-            vm.new_type_error(format!("unexpected payload for __call__ of {help}"))
+            let mut msg = Wtf8Buf::from("unexpected payload for __call__ of ");
+            msg.push_wtf8(&help);
+            vm.new_type_error(msg)
         })?;
         let args = args.bind(vm)?;
         Self::call(zelf, args, vm)
@@ -1706,11 +1712,16 @@ pub trait Representable: PyPayload {
 
     #[inline]
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        let repr = Self::repr_str(zelf, vm)?;
+        let repr = Self::repr_wtf8(zelf, vm)?;
         Ok(vm.ctx.new_str(repr))
     }
 
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String>;
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        Self::repr_str(zelf, vm).map(|utf8| utf8.into())
+    }
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("Representable requires overriding either repr_str or repr_wtf8")
+    }
 }
 
 #[pyclass]
@@ -2063,7 +2074,7 @@ where
     #[cold]
     fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let repr = zelf.repr(vm)?;
-        unreachable!("slot must be overridden for {}", repr.as_str());
+        unreachable!("slot must be overridden for {}", repr.as_wtf8());
     }
 
     #[cold]

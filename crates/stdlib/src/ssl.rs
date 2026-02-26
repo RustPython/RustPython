@@ -40,7 +40,10 @@ mod _ssl {
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef},
+            builtins::{
+                PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef,
+                PyUtf8StrRef,
+            },
             convert::IntoPyException,
             function::{
                 ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, PyComparisonValue,
@@ -57,10 +60,16 @@ mod _ssl {
     };
     use alloc::sync::Arc;
     use core::{
+        hash::{Hash, Hasher},
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
     };
-    use std::{collections::HashMap, time::SystemTime};
+    use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
+    use std::{
+        collections::{HashMap, hash_map::DefaultHasher},
+        io::BufRead,
+        time::SystemTime,
+    };
 
     // Rustls imports
     use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
@@ -597,8 +606,6 @@ mod _ssl {
     /// - "ALL" or "DEFAULT" → all available
     /// - "!MD5" → exclusion (ignored, rustls doesn't support weak ciphers anyway)
     fn parse_cipher_string(cipher_str: &str) -> Result<Vec<rustls::SupportedCipherSuite>, String> {
-        use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
-
         if cipher_str.is_empty() {
             return Err("No cipher can be selected".to_string());
         }
@@ -801,7 +808,7 @@ mod _ssl {
         sock: PyObjectRef,
         server_side: bool,
         #[pyarg(positional, optional)]
-        server_hostname: OptionalArg<Option<PyStrRef>>,
+        server_hostname: OptionalArg<Option<PyUtf8StrRef>>,
         #[pyarg(named, optional)]
         owner: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional)]
@@ -815,7 +822,7 @@ mod _ssl {
         #[pyarg(named, optional)]
         server_side: OptionalArg<bool>,
         #[pyarg(named, optional)]
-        server_hostname: OptionalArg<Option<PyStrRef>>,
+        server_hostname: OptionalArg<Option<PyUtf8StrRef>>,
         #[pyarg(named, optional)]
         owner: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional)]
@@ -1080,7 +1087,7 @@ mod _ssl {
 
                 // Convert callable result to string
                 let password_from_callable = if let Ok(pwd_str) =
-                    PyStrRef::try_from_object(vm, pwd_result.clone())
+                    PyUtf8StrRef::try_from_object(vm, pwd_result.clone())
                 {
                     pwd_str.as_str().to_owned()
                 } else if let Ok(pwd_bytes_like) = ArgBytesLike::try_from_object(vm, pwd_result) {
@@ -1501,7 +1508,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn set_ciphers(&self, ciphers: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_ciphers(&self, ciphers: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
             let cipher_str = ciphers.as_str();
 
             // Parse cipher string and store selected ciphers
@@ -1520,7 +1527,6 @@ mod _ssl {
         fn get_ciphers(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
             // Dynamically generate cipher list from rustls ALL_CIPHER_SUITES
             // This automatically includes all cipher suites supported by the current rustls version
-            use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
 
             let cipher_list = ALL_CIPHER_SUITES
                 .iter()
@@ -1741,7 +1747,7 @@ mod _ssl {
             }
 
             // Validate filepath is str or bytes
-            let path_str = if let Ok(s) = PyStrRef::try_from_object(vm, filepath.clone()) {
+            let path_str = if let Ok(s) = PyUtf8StrRef::try_from_object(vm, filepath.clone()) {
                 s.as_str().to_owned()
             } else if let Ok(b) = ArgBytesLike::try_from_object(vm, filepath) {
                 String::from_utf8(b.borrow_buf().to_vec())
@@ -1796,7 +1802,7 @@ mod _ssl {
             }
 
             // Validate name is str or bytes
-            let curve_name = if let Ok(s) = PyStrRef::try_from_object(vm, name.clone()) {
+            let curve_name = if let Ok(s) = PyUtf8StrRef::try_from_object(vm, name.clone()) {
                 s.as_str().to_owned()
             } else if let Ok(b) = ArgBytesLike::try_from_object(vm, name) {
                 String::from_utf8(b.borrow_buf().to_vec())
@@ -1995,7 +2001,7 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<String> {
             match arg {
-                Either::A(s) => Ok(s.as_str().to_owned()),
+                Either::A(s) => Ok(s.clone().try_into_utf8(vm)?.as_str().to_owned()),
                 Either::B(b) => String::from_utf8(b.borrow_buf().to_vec())
                     .map_err(|_| vm.new_value_error("path contains invalid UTF-8".to_owned())),
             }
@@ -2013,7 +2019,7 @@ mod _ssl {
             match password {
                 OptionalArg::Present(p) => {
                     // Try string first
-                    if let Ok(pwd_str) = PyStrRef::try_from_object(vm, p.clone()) {
+                    if let Ok(pwd_str) = PyUtf8StrRef::try_from_object(vm, p.clone()) {
                         Ok((Some(pwd_str.as_str().to_owned()), None))
                     }
                     // Try bytes-like
@@ -2171,10 +2177,10 @@ mod _ssl {
         fn parse_cadata_arg(
             &self,
             arg: &Either<PyStrRef, ArgBytesLike>,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Vec<u8>> {
             match arg {
-                Either::A(s) => Ok(s.as_str().as_bytes().to_vec()),
+                Either::A(s) => Ok(s.clone().try_into_utf8(vm)?.as_str().as_bytes().to_vec()),
                 Either::B(b) => Ok(b.borrow_buf().to_vec()),
             }
         }
@@ -3577,7 +3583,7 @@ mod _ssl {
                             Some(conn) => conn,
                             None => return Err(create_ssl_eof_error(vm).upcast()),
                         };
-                        use std::io::BufRead;
+
                         let mut reader = conn.reader();
                         reader.fill_buf().map(|buf| buf.len()).unwrap_or(0)
                     };
@@ -3606,7 +3612,7 @@ mod _ssl {
                             Some(conn) => conn,
                             None => return Err(create_ssl_zero_return_error(vm).upcast()),
                         };
-                        use std::io::BufRead;
+
                         let mut reader = conn.reader();
                         reader.fill_buf().map(|buf| buf.len()).unwrap_or(0)
                     };
@@ -3674,7 +3680,6 @@ mod _ssl {
             // Use rustls Reader's fill_buf() to check buffered plaintext
             // fill_buf() returns a reference to buffered data without consuming it
             // This matches OpenSSL's SSL_pending() behavior
-            use std::io::BufRead;
             let mut reader = conn.reader();
             match reader.fill_buf() {
                 Ok(buf) => Ok(buf.len()),
@@ -3894,7 +3899,7 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_server_hostname(
             &self,
-            value: Option<PyStrRef>,
+            value: Option<PyUtf8StrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             // Check if handshake is already done
@@ -3905,11 +3910,14 @@ mod _ssl {
             }
 
             // Validate hostname
-            if let Some(hostname_str) = &value {
-                validate_hostname(hostname_str.as_str(), vm)?;
-            }
+            let hostname_string = value
+                .map(|s| {
+                    validate_hostname(s.as_str(), vm)?;
+                    Ok::<String, _>(s.as_str().to_owned())
+                })
+                .transpose()?;
 
-            *self.server_hostname.write() = value.map(|s| s.as_str().to_string());
+            *self.server_hostname.write() = hostname_string;
             Ok(())
         }
 
@@ -4183,7 +4191,7 @@ mod _ssl {
                                         // Timeout reached - raise TimeoutError
                                         return Err(vm.new_exception_msg(
                                             vm.ctx.exceptions.timeout_error.to_owned(),
-                                            "The read operation timed out".to_owned(),
+                                            "The read operation timed out".into(),
                                         ));
                                     }
                                     Some(dl - now)
@@ -4203,7 +4211,7 @@ mod _ssl {
                                     // Raise TimeoutError
                                     return Err(vm.new_exception_msg(
                                         vm.ctx.exceptions.timeout_error.to_owned(),
-                                        "The read operation timed out".to_owned(),
+                                        "The read operation timed out".into(),
                                     ));
                                 }
 
@@ -4529,7 +4537,7 @@ mod _ssl {
         #[pymethod]
         fn get_channel_binding(
             &self,
-            cb_type: OptionalArg<PyStrRef>,
+            cb_type: OptionalArg<PyUtf8StrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyBytesRef>> {
             let cb_type_str = cb_type.as_ref().map_or("tls-unique", |s| s.as_str());
@@ -4628,7 +4636,7 @@ mod _ssl {
                 if !is_contiguous {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.buffer_error.to_owned(),
-                        "non-contiguous buffer is not supported".to_owned(),
+                        "non-contiguous buffer is not supported".into(),
                     ));
                 }
             }
@@ -4724,8 +4732,6 @@ mod _ssl {
         #[pygetset]
         fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
             // Return session ID (hash of session data for uniqueness)
-            use core::hash::{Hash, Hasher};
-            use std::collections::hash_map::DefaultHasher;
 
             let mut hasher = DefaultHasher::new();
             self.session_data.hash(&mut hasher);
@@ -4755,7 +4761,7 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct Txt2ObjArgs {
-        txt: PyStrRef,
+        txt: PyUtf8StrRef,
         #[pyarg(named, optional)]
         name: OptionalArg<bool>,
     }
@@ -4901,13 +4907,13 @@ mod _ssl {
     /// This is a simplified wrapper around cert_der_to_dict_helper that handles
     /// file reading and PEM/DER auto-detection. Used by test suite.
     #[pyfunction]
-    fn _test_decode_cert(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn _test_decode_cert(path: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // Read certificate file
-        let cert_data = std::fs::read(path.as_str()).map_err(|e| {
+        let path_str = path.as_str();
+        let cert_data = std::fs::read(path_str).map_err(|e| {
             vm.new_os_error(format!(
                 "Failed to read certificate file {}: {}",
-                path.as_str(),
-                e
+                path_str, e
             ))
         })?;
 
@@ -4944,11 +4950,9 @@ mod _ssl {
     }
 
     #[pyfunction]
-    fn PEM_cert_to_DER_cert(pem_cert: PyStrRef, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        let pem_str = pem_cert.as_str();
-
+    fn PEM_cert_to_DER_cert(pem_cert: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         // Parse PEM format
-        let mut cursor = std::io::Cursor::new(pem_str.as_bytes());
+        let mut cursor = std::io::Cursor::new(pem_cert.as_bytes());
         let mut certs = rustls_pemfile::certs(&mut cursor);
 
         if let Some(Ok(cert)) = certs.next() {
@@ -4961,22 +4965,27 @@ mod _ssl {
     // Windows-specific certificate store enumeration functions
     #[cfg(windows)]
     #[pyfunction]
-    fn enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn enum_certificates(
+        store_name: PyUtf8StrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         use schannel::{RawPointer, cert_context::ValidUses, cert_store::CertStore};
         use windows_sys::Win32::Security::Cryptography;
+
+        let store_name_str = store_name.as_str();
 
         // Try both Current User and Local Machine stores
         let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
         let stores = open_fns
             .iter()
-            .filter_map(|open| open(store_name.as_str()).ok())
+            .filter_map(|open| open(store_name_str).ok())
             .collect::<Vec<_>>();
 
         // If no stores could be opened, raise OSError
         if stores.is_empty() {
             return Err(vm.new_os_error(format!(
                 "failed to open certificate store {:?}",
-                store_name.as_str()
+                store_name_str
             )));
         }
 
@@ -5011,14 +5020,14 @@ mod _ssl {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn enum_crls(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn enum_crls(store_name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         use windows_sys::Win32::Security::Cryptography::{
             CRL_CONTEXT, CertCloseStore, CertEnumCRLsInStore, CertOpenSystemStoreW,
             X509_ASN_ENCODING,
         };
 
-        let store_name_wide: Vec<u16> = store_name
-            .as_str()
+        let store_name_str = store_name.as_str();
+        let store_name_wide: Vec<u16> = store_name_str
             .encode_utf16()
             .chain(core::iter::once(0))
             .collect();
@@ -5029,7 +5038,7 @@ mod _ssl {
         if store.is_null() {
             return Err(vm.new_os_error(format!(
                 "failed to open certificate store {:?}",
-                store_name.as_str()
+                store_name_str
             )));
         }
 
@@ -5135,9 +5144,6 @@ mod _ssl {
     // Implement Hashable trait for PySSLCertificate
     impl Hashable for PySSLCertificate {
         fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
-            use core::hash::{Hash, Hasher};
-            use std::collections::hash_map::DefaultHasher;
-
             let mut hasher = DefaultHasher::new();
             zelf.der_bytes.hash(&mut hasher);
             Ok(hasher.finish() as PyHash)

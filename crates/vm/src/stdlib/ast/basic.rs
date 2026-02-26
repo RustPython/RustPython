@@ -13,7 +13,7 @@ impl Node for ast::Identifier {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let py_str = PyStrRef::try_from_object(vm, object)?;
+        let py_str = PyUtf8StrRef::try_from_object(vm, object)?;
         Ok(Self::new(py_str.as_str(), TextRange::default()))
     }
 }

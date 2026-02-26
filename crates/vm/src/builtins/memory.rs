@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
-    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, iter::builtins_iter,
+    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
 };
 use crate::common::lock::LazyLock;
 use crate::{
@@ -805,8 +805,9 @@ impl PyMemoryView {
         Err(vm.new_value_error("memoryview.index(x): x not in memoryview"))
     }
 
-    fn cast_to_1d(&self, format: PyStrRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let format_spec = Self::parse_format(format.as_str(), vm)?;
+    fn cast_to_1d(&self, format: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Self> {
+        let format_str = format.as_str();
+        let format_spec = Self::parse_format(format_str, vm)?;
         let itemsize = format_spec.size();
         if !self.desc.len.is_multiple_of(itemsize) {
             return Err(vm.new_type_error("memoryview: length is not a multiple of itemsize"));
@@ -821,7 +822,7 @@ impl PyMemoryView {
                 len: self.desc.len,
                 readonly: self.desc.readonly,
                 itemsize,
-                format: format.to_string().into(),
+                format: format_str.to_owned().into(),
                 dim_desc: vec![(self.desc.len / itemsize, itemsize as isize, 0)],
             },
             hash: OnceCell::new(),
@@ -956,7 +957,7 @@ impl Py<PyMemoryView> {
 #[derive(FromArgs)]
 struct CastArgs {
     #[pyarg(any)]
-    format: PyStrRef,
+    format: PyUtf8StrRef,
     #[pyarg(any, optional)]
     shape: OptionalArg<Either<PyTupleRef, PyListRef>>,
 }

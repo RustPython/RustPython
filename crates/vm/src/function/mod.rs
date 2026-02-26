@@ -36,9 +36,9 @@ pub enum ArgByteOrder {
 impl<'a> TryFromBorrowedObject<'a> for ArgByteOrder {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         obj.try_value_with(
-            |s: &PyStr| match s.as_str() {
-                "big" => Ok(Self::Big),
-                "little" => Ok(Self::Little),
+            |s: &PyStr| match s.as_bytes() {
+                b"big" => Ok(Self::Big),
+                b"little" => Ok(Self::Little),
                 _ => Err(vm.new_value_error("byteorder must be either 'little' or 'big'")),
             },
             vm,

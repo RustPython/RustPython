@@ -28,7 +28,7 @@ pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()>
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyStr, PyTupleRef},
+        builtins::{PyDictRef, PyInt, PyListRef, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{ArgMapping, Either, KwArgs, OptionalArg},
@@ -44,18 +44,22 @@ pub mod module {
         target_os = "linux",
         target_os = "openbsd"
     ))]
-    use crate::{builtins::PyStrRef, utils::ToCString};
+    use crate::{builtins::PyUtf8StrRef, utils::ToCString};
     use alloc::ffi::CString;
     use bitflags::bitflags;
     use core::ffi::CStr;
     use nix::{
+        errno::Errno,
         fcntl,
+        sys::signal,
         unistd::{self, Gid, Pid, Uid},
     };
+    use rustpython_common::os::ffi::OsStringExt;
     use std::{
         env, fs, io,
         os::fd::{AsFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };
+    use strum::IntoEnumIterator;
     use strum_macros::{EnumIter, EnumString};
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
@@ -379,7 +383,7 @@ pub mod module {
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
         use core::ptr;
         use libc::{c_int, gid_t};
-        use nix::errno::Errno;
+
         let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
         let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
         let ret = unsafe {
@@ -449,8 +453,6 @@ pub mod module {
 
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
-        use rustpython_common::os::ffi::OsStringExt;
-
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {
             let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
@@ -463,8 +465,6 @@ pub mod module {
 
     #[pyfunction]
     fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
-        use rustpython_common::os::ffi::OsStringExt;
-
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {
             let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
@@ -909,7 +909,6 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn nice(increment: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        use nix::errno::Errno;
         Errno::clear();
         let res = unsafe { libc::nice(increment) };
         if res == -1 && Errno::last_raw() != 0 {
@@ -1428,7 +1427,7 @@ pub mod module {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn initgroups(user_name: PyStrRef, gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
+    fn initgroups(user_name: PyUtf8StrRef, gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         let user = user_name.to_cstring(vm)?;
         unistd::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
     }
@@ -1584,7 +1583,6 @@ pub mod module {
             let mut flags = nix::spawn::PosixSpawnFlags::empty();
 
             if let Some(sigs) = self.setsigdef {
-                use nix::sys::signal;
                 let mut set = signal::SigSet::empty();
                 for sig in sigs.iter(vm)? {
                     let sig = sig?;
@@ -1630,7 +1628,6 @@ pub mod module {
             }
 
             if let Some(sigs) = self.setsigmask {
-                use nix::sys::signal;
                 let mut set = signal::SigSet::empty();
                 for sig in sigs.iter(vm)? {
                     let sig = sig?;
@@ -1669,7 +1666,7 @@ pub mod module {
                 envp_from_dict(env_dict, vm)?
             } else {
                 // env=None means use the current environment
-                use rustpython_common::os::ffi::OsStringExt;
+
                 env::vars_os()
                     .map(|(k, v)| {
                         let mut entry = k.into_vec();
@@ -1920,8 +1917,12 @@ pub mod module {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn getgrouplist(user: PyStrRef, group: u32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let user = CString::new(user.as_str()).unwrap();
+    fn getgrouplist(
+        user: PyUtf8StrRef,
+        group: u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
+        let user = user.to_cstring(vm)?;
         let gid = Gid::from_raw(group);
         let group_ids = unistd::getgrouplist(&user, gid).map_err(|err| err.into_pyexception(vm))?;
         Ok(group_ids
@@ -1954,7 +1955,6 @@ pub mod module {
         who: PriorityWhoType,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use nix::errno::Errno;
         Errno::clear();
         let retval = unsafe { libc::getpriority(which, who) };
         if Errno::last_raw() != 0 {
@@ -1987,7 +1987,7 @@ pub mod module {
             let i = match obj.downcast::<PyInt>() {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
-                    let s = obj.downcast::<PyStr>().map_err(|_| {
+                    let s = obj.downcast::<PyUtf8Str>().map_err(|_| {
                         vm.new_type_error(
                             "configuration names must be strings or integers".to_owned(),
                         )
@@ -2176,8 +2176,6 @@ pub mod module {
         PathconfName(name): PathconfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
-        use nix::errno::Errno;
-
         Errno::clear();
         debug_assert_eq!(Errno::last_raw(), 0);
         let raw = match &path {
@@ -2214,7 +2212,6 @@ pub mod module {
 
     #[pyattr]
     fn pathconf_names(vm: &VirtualMachine) -> PyDictRef {
-        use strum::IntoEnumIterator;
         let pathname = vm.ctx.new_dict();
         for variant in PathconfVar::iter() {
             // get the name of variant as a string to use as the dictionary key
@@ -2385,18 +2382,21 @@ pub mod module {
             let i = match obj.downcast::<PyInt>() {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
-                    let s = obj.downcast::<PyStr>().map_err(|_| {
+                    let s = obj.downcast::<PyUtf8Str>().map_err(|_| {
                         vm.new_type_error(
                             "configuration names must be strings or integers".to_owned(),
                         )
                     })?;
-                    s.as_str().parse::<SysconfVar>().or_else(|_| {
-                        if s.as_str() == "SC_PAGESIZE" {
-                            Ok(SysconfVar::SC_PAGESIZE)
-                        } else {
-                            Err(vm.new_value_error("unrecognized configuration name"))
-                        }
-                    })? as i32
+                    {
+                        let name = s.as_str();
+                        name.parse::<SysconfVar>().or_else(|_| {
+                            if name == "SC_PAGESIZE" {
+                                Ok(SysconfVar::SC_PAGESIZE)
+                            } else {
+                                Err(vm.new_value_error("unrecognized configuration name"))
+                            }
+                        })? as i32
+                    }
                 }
             };
             Ok(Self(i))
@@ -2415,7 +2415,6 @@ pub mod module {
 
     #[pyattr]
     fn sysconf_names(vm: &VirtualMachine) -> PyDictRef {
-        use strum::IntoEnumIterator;
         let names = vm.ctx.new_dict();
         for variant in SysconfVar::iter() {
             // get the name of variant as a string to use as the dictionary key

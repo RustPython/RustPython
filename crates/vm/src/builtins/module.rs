@@ -160,9 +160,10 @@ impl Py<PyModule> {
             .get_item_opt(identifier!(vm, __name__), vm)
             .ok()
             .flatten();
-        let mod_name_str = mod_name_obj
-            .as_ref()
-            .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()));
+        let mod_name_str = mod_name_obj.as_ref().and_then(|n| {
+            n.downcast_ref::<PyStr>()
+                .map(|s| s.to_string_lossy().into_owned())
+        });
 
         // If __name__ is not set or not a string, use a simpler error message
         let mod_display = match mod_name_str.as_deref() {
@@ -424,7 +425,7 @@ impl Initializer for PyModule {
                 .flags
                 .has_feature(crate::types::PyTypeFlags::HAS_DICT)
         );
-        zelf.init_dict(vm.ctx.intern_str(args.name.as_str()), args.doc, vm);
+        zelf.init_dict(vm.ctx.intern_str(args.name.as_wtf8()), args.doc, vm);
         Ok(())
     }
 }

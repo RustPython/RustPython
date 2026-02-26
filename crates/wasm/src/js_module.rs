@@ -83,7 +83,7 @@ mod _js {
     impl JsProperty {
         fn into_js_value(self) -> JsValue {
             match self {
-                JsProperty::Str(s) => s.as_str().into(),
+                JsProperty::Str(s) => s.expect_str().into(),
                 JsProperty::Js(value) => value.value.clone(),
             }
         }
@@ -109,7 +109,7 @@ mod _js {
 
         #[pymethod]
         fn new_from_str(&self, s: PyStrRef) -> PyJsValue {
-            PyJsValue::new(s.as_str())
+            PyJsValue::new(s.expect_str())
         }
 
         #[pymethod]

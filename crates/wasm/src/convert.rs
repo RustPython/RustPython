@@ -56,7 +56,7 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &Py<PyBaseException>) -> Js
 }
 
 pub fn js_py_typeerror(vm: &VirtualMachine, js_err: JsValue) -> PyBaseExceptionRef {
-    let msg = js_err.unchecked_into::<js_sys::Error>().to_string();
+    let msg: String = js_err.unchecked_into::<js_sys::Error>().to_string().into();
     vm.new_type_error(msg)
 }
 
@@ -70,11 +70,11 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
                 _ => vm.ctx.exceptions.exception_type,
             }
             .to_owned();
-            vm.new_exception_msg(exc_type, err.message().into())
+            vm.new_exception_msg(exc_type, String::from(err.message()).into())
         }
         None => vm.new_exception_msg(
             vm.ctx.exceptions.exception_type.to_owned(),
-            format!("{js_err:?}"),
+            format!("{js_err:?}").into(),
         ),
     }
 }

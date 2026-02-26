@@ -7,7 +7,7 @@ mod _collections {
         atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
-            PositionIterInternal, PyGenericAlias, PyInt, PyType, PyTypeRef,
+            PositionIterInternal, PyGenericAlias, PyInt, PyStr, PyType, PyTypeRef,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{KwArgs, OptionalArg, PyComparisonValue},
@@ -559,7 +559,7 @@ mod _collections {
 
     impl Representable for PyDeque {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
             let deque = zelf.borrow_deque().clone();
             let class = zelf.class();
             let class_name = class.name();
@@ -568,15 +568,24 @@ mod _collections {
                 .map(|maxlen| format!("], maxlen={maxlen}"))
                 .unwrap_or_else(|| "]".to_owned());
 
-            let s = if zelf.__len__() == 0 {
-                format!("{class_name}([{closing_part})")
-            } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                collection_repr(Some(&class_name), "[", &closing_part, deque.iter(), vm)?
+            if zelf.__len__() == 0 {
+                return Ok(vm.ctx.new_str(format!("{class_name}([{closing_part})")));
+            }
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                Ok(vm.ctx.new_str(collection_repr(
+                    Some(&class_name),
+                    "[",
+                    &closing_part,
+                    deque.iter(),
+                    vm,
+                )?))
             } else {
-                "[...]".to_owned()
-            };
+                Ok(vm.ctx.intern_str("[...]").to_owned())
+            }
+        }
 
-            Ok(s)
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            unreachable!("repr() is overridden directly")
         }
     }
 

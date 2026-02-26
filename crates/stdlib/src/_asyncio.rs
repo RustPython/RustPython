@@ -6,6 +6,7 @@ pub(crate) use _asyncio::module_def;
 
 #[pymodule]
 pub(crate) mod _asyncio {
+    use crate::common::wtf8::{Wtf8Buf, wtf8_concat};
     use crate::{
         common::lock::PyRwLock,
         vm::{
@@ -859,7 +860,7 @@ pub(crate) mod _asyncio {
         }
     }
 
-    fn get_future_repr_info(future: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
+    fn get_future_repr_info(future: &PyObject, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         // Try to use asyncio.base_futures._future_repr_info
         // Import from sys.modules if available, otherwise try regular import
         let sys_modules = vm.sys_module.get_attr("modules", vm)?;
@@ -892,29 +893,34 @@ pub(crate) mod _asyncio {
             Err(_) => return get_future_repr_info_fallback(future, vm),
         };
 
-        let parts: Vec<String> = list
-            .borrow_vec()
-            .iter()
-            .filter_map(|x: &PyObjectRef| x.str(vm).ok().map(|s| s.as_str().to_string()))
-            .collect();
-        Ok(parts.join(" "))
+        let mut result = Wtf8Buf::new();
+        let parts = list.borrow_vec();
+        for (i, x) in parts.iter().enumerate() {
+            if i > 0 {
+                result.push_str(" ");
+            }
+            if let Ok(s) = x.str(vm) {
+                result.push_wtf8(s.as_wtf8());
+            }
+        }
+        Ok(result)
     }
 
-    fn get_future_repr_info_fallback(future: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
+    fn get_future_repr_info_fallback(future: &PyObject, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         // Fallback: build repr from properties directly
         if let Ok(Some(state)) =
             vm.get_attribute_opt(future.to_owned(), vm.ctx.intern_str("_state"))
         {
-            let state_str = state
+            let s = state
                 .str(vm)
-                .map(|s| s.as_str().to_lowercase())
-                .unwrap_or_else(|_| "unknown".to_string());
-            return Ok(state_str);
+                .map(|s| s.as_wtf8().to_lowercase())
+                .unwrap_or_else(|_| Wtf8Buf::from("unknown"));
+            return Ok(s);
         }
-        Ok("state=unknown".to_string())
+        Ok(Wtf8Buf::from("state=unknown"))
     }
 
-    fn get_task_repr_info(task: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
+    fn get_task_repr_info(task: &PyObject, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         // vm.import returns the top-level module, get base_tasks submodule
         match vm
             .import("asyncio.base_tasks", 0)
@@ -927,12 +933,15 @@ pub(crate) mod _asyncio {
                         let list: PyListRef = info.downcast().map_err(|_| {
                             vm.new_type_error("_task_repr_info should return a list")
                         })?;
-                        let parts: Vec<String> = list
-                            .borrow_vec()
-                            .iter()
-                            .map(|x: &PyObjectRef| x.str(vm).map(|s| s.as_str().to_string()))
-                            .collect::<PyResult<Vec<_>>>()?;
-                        Ok(parts.join(" "))
+                        let mut result = Wtf8Buf::new();
+                        let parts = list.borrow_vec();
+                        for (i, x) in parts.iter().enumerate() {
+                            if i > 0 {
+                                result.push_str(" ");
+                            }
+                            result.push_wtf8(x.str(vm)?.as_wtf8());
+                        }
+                        Ok(result)
                     }
                     _ => get_future_repr_info(task, vm),
                 }
@@ -1928,40 +1937,28 @@ pub(crate) mod _asyncio {
     }
 
     impl Representable for PyTask {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let class_name = zelf.class().name().to_string();
 
             if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 // Try to use _task_repr_info if available
                 if let Ok(info) = get_task_repr_info(zelf.as_object(), vm)
-                    && info != "state=unknown"
+                    && info.as_bytes() != b"state=unknown"
                 {
-                    return Ok(format!("<{} {}>", class_name, info));
+                    return Ok(wtf8_concat!("<", class_name, " ", info, ">"));
                 }
 
                 // Fallback: build repr from task properties directly
                 let state = zelf.base.fut_state.load().as_str().to_lowercase();
-                let name = zelf
-                    .task_name
-                    .read()
-                    .as_ref()
-                    .and_then(|n| n.str(vm).ok())
-                    .map(|s| s.as_str().to_string())
-                    .unwrap_or_else(|| "?".to_string());
-                let coro_repr = zelf
-                    .task_coro
-                    .read()
-                    .as_ref()
-                    .and_then(|c| c.repr(vm).ok())
-                    .map(|s| s.as_str().to_string())
-                    .unwrap_or_else(|| "?".to_string());
-
-                Ok(format!(
-                    "<{} {} name='{}' coro={}>",
-                    class_name, state, name, coro_repr
+                let name = zelf.task_name.read().as_ref().and_then(|n| n.str(vm).ok());
+                let coro_repr = zelf.task_coro.read().as_ref().and_then(|c| c.repr(vm).ok());
+                let name = name.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
+                let coro_repr = coro_repr.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
+                Ok(wtf8_concat!(
+                    "<", class_name, " ", state, " name='", name, "' coro=", coro_repr, ">"
                 ))
             } else {
-                Ok(format!("<{} ...>", class_name))
+                Ok(Wtf8Buf::from(format!("<{class_name} ...>")))
             }
         }
     }
@@ -2151,10 +2148,8 @@ pub(crate) mod _asyncio {
         // Check if task awaits on itself
         let task_obj: PyObjectRef = task.clone().into();
         if result.is(&task_obj) {
-            let msg = format!(
-                "Task cannot await on itself: {}",
-                task_obj.repr(vm)?.as_str()
-            );
+            let task_repr = task_obj.repr(vm)?;
+            let msg = format!("Task cannot await on itself: {}", task_repr.as_wtf8());
             task.base.fut_state.store(FutureState::Finished);
             *task.base.fut_exception.write() = Some(vm.new_runtime_error(msg).into());
             PyTask::schedule_callbacks(task, vm)?;
@@ -2254,7 +2249,8 @@ pub(crate) mod _asyncio {
                 vm.call_method(&loop_obj, "call_soon", (step_wrapper,))?;
             }
         } else {
-            let msg = format!("Task got bad yield: {}", result.repr(vm)?.as_str());
+            let result_repr = result.repr(vm)?;
+            let msg = format!("Task got bad yield: {}", result_repr.as_wtf8());
             task.base.fut_state.store(FutureState::Finished);
             *task.base.fut_exception.write() = Some(vm.new_runtime_error(msg).into());
             PyTask::schedule_callbacks(task, vm)?;

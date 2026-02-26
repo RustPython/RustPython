@@ -33,7 +33,7 @@ pub fn make_stdout_object(
         "write",
         cls,
         move |_self: PyObjectRef, data: PyStrRef, vm: &VirtualMachine| -> PyResult<()> {
-            write_f(data.as_str(), vm)
+            write_f(data.expect_str(), vm)
         },
     );
     let flush_method = vm.new_method("flush", cls, |_self: PyObjectRef| {});

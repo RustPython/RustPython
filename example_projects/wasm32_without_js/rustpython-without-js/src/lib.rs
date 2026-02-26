@@ -25,7 +25,7 @@ pub unsafe extern "C" fn eval(s: *const u8, l: usize) -> i32 {
             Err(_) => return Err(-1), // Python execution error
         };
         let repr_str = match res.repr(vm) {
-            Ok(repr) => repr.as_str().to_string(),
+            Ok(repr) => repr.to_string(),
             Err(_) => return Err(-1), // Failed to get string representation
         };
         Ok(repr_str)

@@ -12,7 +12,8 @@ pub(crate) use _thread::{
 pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
+        builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
+        common::wtf8::Wtf8Buf,
         frame::FrameRef,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, Representable, SetAttr},
@@ -318,7 +319,7 @@ pub(crate) mod _thread {
 
     /// Set the name of the current thread
     #[pyfunction]
-    fn set_name(name: PyStrRef) {
+    fn set_name(name: PyUtf8StrRef) {
         #[cfg(target_os = "linux")]
         {
             use alloc::ffi::CString;
@@ -710,11 +711,11 @@ pub(crate) mod _thread {
                 .get_attr("name", vm)
                 .ok()
                 .and_then(|n| n.str(vm).ok())
-                .map(|s| s.as_str().to_owned())
+                .map(|s| s.as_wtf8().to_owned())
         } else {
             None
         };
-        let name = thread_name.unwrap_or_else(|| format!("{}", get_ident()));
+        let name = thread_name.unwrap_or_else(|| Wtf8Buf::from(format!("{}", get_ident())));
 
         let _ = vm.call_method(
             &file,
@@ -836,7 +837,7 @@ pub(crate) mod _thread {
     impl GetAttr for Local {
         fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
             let l_dict = zelf.l_dict(vm);
-            if attr.as_str() == "__dict__" {
+            if attr.as_bytes() == b"__dict__" {
                 Ok(l_dict.into())
             } else {
                 zelf.as_object()
@@ -859,7 +860,7 @@ pub(crate) mod _thread {
             value: PySetterValue,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if attr.as_str() == "__dict__" {
+            if attr.as_bytes() == b"__dict__" {
                 Err(vm.new_attribute_error(format!(
                     "{} attribute '__dict__' is read-only",
                     zelf.class().name()

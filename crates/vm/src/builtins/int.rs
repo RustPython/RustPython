@@ -2,13 +2,14 @@ use super::{PyByteArray, PyBytes, PyStr, PyType, PyTypeRef, float};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
-    builtins::PyStrRef,
+    builtins::PyUtf8StrRef,
     bytes_inner::PyBytesInner,
     class::PyClassImpl,
     common::{
         format::FormatSpec,
         hash,
         int::{bigint_to_finite_float, bytes_to_int, true_div},
+        wtf8::Wtf8Buf,
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
@@ -197,7 +198,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if float.is_infinite() {
         Err(vm.new_exception_msg(
             vm.ctx.exceptions.overflow_error.to_owned(),
-            "integer division result too large for a float".to_owned(),
+            "integer division result too large for a float".into(),
         ))
     } else {
         Ok(vm.ctx.new_float(float).into())
@@ -444,13 +445,14 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __format__(zelf: &Py<Self>, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn __format__(zelf: &Py<Self>, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         // Empty format spec on a subclass: equivalent to str(self)
         if spec.is_empty() && !zelf.class().is(vm.ctx.types.int_type) {
-            return Ok(zelf.as_object().str(vm)?.as_str().to_owned());
+            return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_int(&zelf.value))
+            .map(Wtf8Buf::from_string)
             .map_err(|err| err.into_pyexception(vm))
     }
 

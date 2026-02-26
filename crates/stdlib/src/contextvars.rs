@@ -15,7 +15,7 @@ mod _contextvars {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyGenericAlias, PyList, PyStrRef, PyType, PyTypeRef},
         class::StaticType,
-        common::hash::PyHash,
+        common::{hash::PyHash, wtf8::Wtf8Buf},
         function::{ArgCallable, FuncArgs, OptionalArg},
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{AsMapping, AsSequence, Constructor, Hashable, Iterable, Representable},
@@ -333,7 +333,7 @@ mod _contextvars {
             if vars.swap_remove(zelf).is_none() {
                 // TODO:
                 // PyErr_SetObject(PyExc_LookupError, (PyObject *)var);
-                let msg = zelf.as_object().repr(vm)?.as_str().to_owned();
+                let msg = zelf.as_object().repr(vm)?.as_wtf8().to_owned();
                 return Err(vm.new_lookup_error(msg));
             }
 
@@ -409,7 +409,7 @@ mod _contextvars {
                 default.clone()
             } else {
                 let msg = zelf.as_object().repr(vm)?;
-                return Err(vm.new_lookup_error(msg.as_str().to_owned()));
+                return Err(vm.new_lookup_error(msg.as_wtf8().to_owned()));
             };
             Ok(Some(value))
         }
@@ -611,11 +611,14 @@ mod _contextvars {
 
     impl Representable for ContextToken {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let used = if zelf.used.get() { " used" } else { "" };
-            let var = Representable::repr_str(&zelf.var, vm)?;
+            let var = Representable::repr_wtf8(&zelf.var, vm)?;
             let ptr = zelf.as_object().get_id() as *const u8;
-            Ok(format!("<Token{used} var={var} at {ptr:p}>"))
+            let mut result = Wtf8Buf::from(format!("<Token{used} var="));
+            result.push_wtf8(&var);
+            result.push_str(&format!(" at {ptr:p}>"));
+            Ok(result)
         }
     }
 

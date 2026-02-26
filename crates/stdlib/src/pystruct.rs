@@ -19,6 +19,7 @@ pub(crate) mod _struct {
         types::{Constructor, IterNext, Iterable, Representable, SelfIter},
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
     #[derive(Traverse)]
     struct IntoStructFormatBytes(PyStrRef);
@@ -305,8 +306,8 @@ pub(crate) mod _struct {
 
     impl Representable for PyStruct {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!("Struct('{}')", zelf.format.as_str()))
+        fn repr_wtf8(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            Ok(wtf8_concat!("Struct('", zelf.format.as_wtf8(), "')"))
         }
     }
 

@@ -2,7 +2,7 @@
 
 use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult,
-    builtins::{PyCode, PyStr, PyStrRef, traceback::PyTraceback},
+    builtins::{PyCode, PyStr, PyUtf8Str, PyUtf8StrRef, traceback::PyTraceback},
     exceptions::types::PyBaseException,
     scope::Scope,
     vm::{VirtualMachine, resolve_frozen_alias, thread},
@@ -69,7 +69,7 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
     let frozen = vm.state.frozen.get(name).ok_or_else(|| {
         vm.new_import_error(
             format!("No such frozen object named {name}"),
-            vm.ctx.new_str(name),
+            vm.ctx.new_utf8_str(name),
         )
     })?;
     Ok(vm.ctx.new_code(frozen.code))
@@ -79,13 +79,13 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     let frozen = vm.state.frozen.get(module_name).ok_or_else(|| {
         vm.new_import_error(
             format!("No such frozen object named {module_name}"),
-            vm.ctx.new_str(module_name),
+            vm.ctx.new_utf8_str(module_name),
         )
     })?;
     let module = import_code_obj(vm, module_name, vm.ctx.new_code(frozen.code), false)?;
     debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
     let origname = resolve_frozen_alias(module_name);
-    module.set_attr("__origname__", vm.ctx.new_str(origname), vm)?;
+    module.set_attr("__origname__", vm.ctx.new_utf8_str(origname), vm)?;
     Ok(module)
 }
 
@@ -118,7 +118,7 @@ pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
     // Module not found in module_defs
     Err(vm.new_import_error(
         format!("Cannot import builtin module {module_name}"),
-        vm.ctx.new_str(module_name),
+        vm.ctx.new_utf8_str(module_name),
     ))
 }
 
@@ -169,7 +169,7 @@ fn import_ensure_initialized(
     };
     if initializing {
         let lock_unlock = vm.importlib.get_attr("_lock_unlock_module", vm)?;
-        lock_unlock.call((vm.ctx.new_str(name),), vm)?;
+        lock_unlock.call((vm.ctx.new_utf8_str(name),), vm)?;
     }
     Ok(())
 }
@@ -183,7 +183,7 @@ pub fn import_code_obj(
     let attrs = vm.ctx.new_dict();
     attrs.set_item(
         identifier!(vm, __name__),
-        vm.ctx.new_str(module_name).into(),
+        vm.ctx.new_utf8_str(module_name).into(),
         vm,
     )?;
     if set_file_attr {
@@ -312,7 +312,7 @@ pub(crate) fn is_possibly_shadowing_path(origin: &str, vm: &VirtualMachine) -> b
     let sys_path_0 = (|| -> Option<String> {
         let argv = vm.sys_module.get_attr("argv", vm).ok()?;
         let argv0 = argv.get_item(&0usize, vm).ok()?;
-        let argv0_str = argv0.downcast_ref::<PyStr>()?;
+        let argv0_str = argv0.downcast_ref::<PyUtf8Str>()?;
         let s = argv0_str.as_str();
 
         // For -c and REPL, original sys.path[0] is ""
@@ -412,7 +412,7 @@ pub(crate) fn import_module_level(
         if package.is_empty() {
             return Err(vm.new_import_error(
                 "attempted relative import with no known parent package".to_owned(),
-                vm.ctx.new_str(""),
+                vm.ctx.new_utf8_str(""),
             ));
         }
         resolve_name(name_str, &package, level as usize, vm)?
@@ -432,7 +432,7 @@ pub(crate) fn import_module_level(
         }
         _ => {
             let find_and_load = vm.importlib.get_attr("_find_and_load", vm)?;
-            let abs_name_obj = vm.ctx.new_str(&*abs_name);
+            let abs_name_obj = vm.ctx.new_utf8_str(&*abs_name);
             find_and_load.call((abs_name_obj, vm.import_func.clone()), vm)?
         }
     };
@@ -474,14 +474,14 @@ pub(crate) fn import_module_level(
                         // For absolute imports (level 0), try importing the
                         // parent. Matches _bootstrap.__import__ behavior.
                         let find_and_load = vm.importlib.get_attr("_find_and_load", vm)?;
-                        let to_return_obj = vm.ctx.new_str(&*to_return);
+                        let to_return_obj = vm.ctx.new_utf8_str(&*to_return);
                         find_and_load.call((to_return_obj, vm.import_func.clone()), vm)
                     }
                     Err(_) => {
                         // For relative imports (level > 0), raise KeyError
                         let to_return_obj: PyObjectRef = vm
                             .ctx
-                            .new_str(format!("'{to_return}' not in sys.modules as expected"))
+                            .new_utf8_str(format!("'{to_return}' not in sys.modules as expected"))
                             .into();
                         Err(vm.new_key_error(to_return_obj))
                     }
@@ -501,7 +501,7 @@ fn resolve_name(name: &str, package: &str, level: usize, vm: &VirtualMachine) ->
     if parts.len() < level {
         return Err(vm.new_import_error(
             "attempted relative import beyond top-level package".to_owned(),
-            vm.ctx.new_str(name),
+            vm.ctx.new_utf8_str(name),
         ));
     }
     // rsplitn returns parts right-to-left, so last() is the leftmost (base)
@@ -518,7 +518,7 @@ fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<
     let globals = globals.ok_or_else(|| {
         vm.new_import_error(
             "attempted relative import with no known parent package".to_owned(),
-            vm.ctx.new_str(""),
+            vm.ctx.new_utf8_str(""),
         )
     })?;
 
@@ -528,7 +528,7 @@ fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<
     if let Some(ref pkg) = package
         && !vm.is_none(pkg)
     {
-        let pkg_str: PyStrRef = pkg
+        let pkg_str: PyUtf8StrRef = pkg
             .clone()
             .downcast()
             .map_err(|_| vm.new_type_error("package must be a string".to_owned()))?;
@@ -543,7 +543,7 @@ fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<
                 .unwrap_or(false)
         {
             let parent_repr = parent
-                .repr(vm)
+                .repr_utf8(vm)
                 .map(|s| s.as_str().to_owned())
                 .unwrap_or_default();
             let msg = format!(
@@ -570,7 +570,7 @@ fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<
         && let Ok(parent) = spec.get_attr("parent", vm)
         && !vm.is_none(&parent)
     {
-        let parent_str: PyStrRef = parent
+        let parent_str: PyUtf8StrRef = parent
             .downcast()
             .map_err(|_| vm.new_type_error("package set to non-string".to_owned()))?;
         return Ok(parent_str.as_str().to_owned());
@@ -593,10 +593,10 @@ fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<
     let mod_name = globals.get_item("__name__", vm).map_err(|_| {
         vm.new_import_error(
             "attempted relative import with no known parent package".to_owned(),
-            vm.ctx.new_str(""),
+            vm.ctx.new_utf8_str(""),
         )
     })?;
-    let mod_name_str: PyStrRef = mod_name
+    let mod_name_str: PyUtf8StrRef = mod_name
         .downcast()
         .map_err(|_| vm.new_type_error("__name__ must be a string".to_owned()))?;
     let mut package = mod_name_str.as_str().to_owned();

@@ -172,7 +172,7 @@ impl TryFromObject for ArgAsciiBuffer {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match obj.downcast::<PyStr>() {
             Ok(string) => {
-                if string.as_str().is_ascii() {
+                if string.as_wtf8().is_ascii() {
                     Ok(Self::String(string))
                 } else {
                     Err(vm.new_value_error("string argument should contain only ASCII characters"))
@@ -186,7 +186,7 @@ impl TryFromObject for ArgAsciiBuffer {
 impl ArgAsciiBuffer {
     pub fn len(&self) -> usize {
         match self {
-            Self::String(s) => s.as_str().len(),
+            Self::String(s) => s.as_wtf8().len(),
             Self::Buffer(buffer) => buffer.len(),
         }
     }

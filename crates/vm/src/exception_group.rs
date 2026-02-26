@@ -8,6 +8,8 @@ use crate::types::{PyTypeFlags, PyTypeSlots};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
+use core::fmt::Write;
+use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 
 use crate::exceptions::types::PyBaseException;
 
@@ -183,12 +185,7 @@ pub(super) mod types {
 
         #[pymethod]
         fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let message = zelf
-                .get_arg(0)
-                .map(|m| m.str(vm))
-                .transpose()?
-                .map(|s| s.as_str().to_owned())
-                .unwrap_or_default();
+            let message = zelf.get_arg(0).map(|m| m.str(vm)).transpose()?;
 
             let num_excs = zelf
                 .get_arg(1)
@@ -196,10 +193,12 @@ pub(super) mod types {
                 .unwrap_or(0);
 
             let suffix = if num_excs == 1 { "" } else { "s" };
-            Ok(vm.ctx.new_str(format!(
-                "{} ({} sub-exception{})",
-                message, num_excs, suffix
-            )))
+            let mut result = match message {
+                Some(s) => s.as_wtf8().to_owned(),
+                None => Wtf8Buf::new(),
+            };
+            write!(result, " ({num_excs} sub-exception{suffix})").unwrap();
+            Ok(vm.ctx.new_str(result))
         }
 
         #[pyslot]
@@ -208,31 +207,28 @@ pub(super) mod types {
                 .downcast_ref::<PyBaseException>()
                 .expect("exception group must be BaseException");
             let class_name = zelf.class().name().to_owned();
-            let message = zelf
-                .get_arg(0)
-                .map(|m| m.repr(vm))
-                .transpose()?
-                .map(|s| s.as_str().to_owned())
-                .unwrap_or_else(|| "''".to_owned());
+            let message = zelf.get_arg(0).map(|m| m.repr(vm)).transpose()?;
 
-            // Format exceptions as list [exc1, exc2, ...] instead of tuple (exc1, exc2, ...)
-            // CPython displays exceptions in list format even though they're stored as tuple
-            let exceptions_str = if let Some(exceptions_obj) = zelf.get_arg(1) {
-                // Get exceptions using ArgIterable for robustness
+            let mut result = Wtf8Buf::new();
+            write!(result, "{class_name}(").unwrap();
+            let message_wtf8: &Wtf8 = message.as_ref().map_or("''".as_ref(), |s| s.as_wtf8());
+            result.push_wtf8(message_wtf8);
+            result.push_str(", [");
+            if let Some(exceptions_obj) = zelf.get_arg(1) {
                 let iter: ArgIterable<PyObjectRef> =
                     ArgIterable::try_from_object(vm, exceptions_obj.clone())?;
-                let mut exc_repr_list = Vec::new();
+                let mut first = true;
                 for exc in iter.iter(vm)? {
-                    exc_repr_list.push(exc?.repr(vm)?.as_str().to_owned());
+                    if !first {
+                        result.push_str(", ");
+                    }
+                    first = false;
+                    result.push_wtf8(exc?.repr(vm)?.as_wtf8());
                 }
-                format!("[{}]", exc_repr_list.join(", "))
-            } else {
-                "[]".to_owned()
-            };
+            }
+            result.push_str("])");
 
-            Ok(vm
-                .ctx
-                .new_str(format!("{}({}, {})", class_name, message, exceptions_str)))
+            Ok(vm.ctx.new_str(result))
         }
     }
 

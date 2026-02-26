@@ -42,40 +42,59 @@ mod _codecs {
     struct CodeArgs {
         obj: PyObjectRef,
         #[pyarg(any, optional)]
-        encoding: Option<PyStrRef>,
+        encoding: Option<PyUtf8StrRef>,
         #[pyarg(any, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
+    }
+
+    impl CodeArgs {
+        fn apply(
+            self,
+            vm: &VirtualMachine,
+            f: fn(
+                &codecs::CodecsRegistry,
+                PyObjectRef,
+                &str,
+                Option<PyUtf8StrRef>,
+                &VirtualMachine,
+            ) -> PyResult,
+        ) -> PyResult {
+            let encoding = self
+                .encoding
+                .as_deref()
+                .map(|s| s.as_str())
+                .unwrap_or(codecs::DEFAULT_ENCODING);
+            f(
+                &vm.state.codec_registry,
+                self.obj,
+                encoding,
+                self.errors,
+                vm,
+            )
+        }
     }
 
     #[pyfunction]
     fn encode(args: CodeArgs, vm: &VirtualMachine) -> PyResult {
-        let encoding = args
-            .encoding
-            .as_ref()
-            .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
-        vm.state
-            .codec_registry
-            .encode(args.obj, encoding, args.errors, vm)
+        args.apply(vm, codecs::CodecsRegistry::encode)
     }
 
     #[pyfunction]
     fn decode(args: CodeArgs, vm: &VirtualMachine) -> PyResult {
-        let encoding = args
-            .encoding
-            .as_ref()
-            .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
-        vm.state
-            .codec_registry
-            .decode(args.obj, encoding, args.errors, vm)
+        args.apply(vm, codecs::CodecsRegistry::decode)
     }
 
     #[pyfunction]
-    fn _forget_codec(encoding: PyStrRef, vm: &VirtualMachine) {
+    fn _forget_codec(encoding: PyUtf8StrRef, vm: &VirtualMachine) {
         vm.state.codec_registry.forget(encoding.as_str());
     }
 
     #[pyfunction]
-    fn register_error(name: PyStrRef, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn register_error(
+        name: PyUtf8StrRef,
+        handler: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if !handler.is_callable() {
             return Err(vm.new_type_error("handler must be callable".to_owned()));
         }
@@ -86,27 +105,17 @@ mod _codecs {
     }
 
     #[pyfunction]
-    fn lookup_error(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if name.as_wtf8().as_bytes().contains(&0) {
+    fn lookup_error(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+        if name.as_str().contains('\0') {
             return Err(cstring_error(vm));
-        }
-        if !name.as_wtf8().is_utf8() {
-            return Err(vm.new_unicode_encode_error(
-                "'utf-8' codec can't encode character: surrogates not allowed".to_owned(),
-            ));
         }
         vm.state.codec_registry.lookup_error(name.as_str(), vm)
     }
 
     #[pyfunction]
-    fn _unregister_error(errors: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if errors.as_wtf8().as_bytes().contains(&0) {
+    fn _unregister_error(errors: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<bool> {
+        if errors.as_str().contains('\0') {
             return Err(cstring_error(vm));
-        }
-        if !errors.as_wtf8().is_utf8() {
-            return Err(vm.new_unicode_encode_error(
-                "'utf-8' codec can't encode character: surrogates not allowed".to_owned(),
-            ));
         }
         vm.state
             .codec_registry
@@ -120,7 +129,7 @@ mod _codecs {
         #[pyarg(positional)]
         s: PyStrRef,
         #[pyarg(positional, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
     }
 
     impl EncodeArgs {
@@ -143,7 +152,7 @@ mod _codecs {
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default = false)]
         final_decode: bool,
     }
@@ -165,7 +174,7 @@ mod _codecs {
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
     }
 
     impl DecodeArgsNoFinal {
@@ -366,14 +375,14 @@ fn delegate_pycodecs(
 #[pymodule(sub)]
 mod _codecs_windows {
     use crate::{PyResult, VirtualMachine};
-    use crate::{builtins::PyStrRef, function::ArgBytesLike};
+    use crate::{builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike};
 
     #[derive(FromArgs)]
     struct MbcsEncodeArgs {
         #[pyarg(positional)]
         s: PyStrRef,
         #[pyarg(positional, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
     }
 
     #[pyfunction]
@@ -461,7 +470,7 @@ mod _codecs_windows {
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default = false)]
         #[allow(dead_code)]
         r#final: bool,
@@ -559,7 +568,7 @@ mod _codecs_windows {
         #[pyarg(positional)]
         s: PyStrRef,
         #[pyarg(positional, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
     }
 
     #[pyfunction]
@@ -647,7 +656,7 @@ mod _codecs_windows {
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default = false)]
         #[allow(dead_code)]
         r#final: bool,
@@ -747,7 +756,7 @@ mod _codecs_windows {
         #[pyarg(positional)]
         s: PyStrRef,
         #[pyarg(positional, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
     }
 
     fn code_page_encoding_name(code_page: u32) -> String {
@@ -1074,7 +1083,7 @@ mod _codecs_windows {
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
-        errors: Option<PyStrRef>,
+        errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default = false)]
         r#final: bool,
     }

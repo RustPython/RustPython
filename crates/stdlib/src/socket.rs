@@ -12,6 +12,7 @@ mod _socket {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
+            PyUtf8StrRef,
         },
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
@@ -1224,6 +1225,7 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
+                    let interface = interface.try_into_utf8(vm).map_err(IoOrPyException::from)?;
                     let ifname = interface.as_str();
 
                     // Get interface index
@@ -1291,6 +1293,8 @@ mod _socket {
                         ))
                     })?;
 
+                    let alg_type = alg_type.try_into_utf8(vm).map_err(IoOrPyException::from)?;
+                    let alg_name = alg_name.try_into_utf8(vm).map_err(IoOrPyException::from)?;
                     let type_str = alg_type.as_str();
                     let name_str = alg_name.as_str();
 
@@ -2134,7 +2138,7 @@ mod _socket {
                     && let Ok(addr) = sock.local_addr()
                     && let Ok(repr) = get_addr_tuple(&addr, vm).repr(vm)
                 {
-                    format!(", laddr={}", repr.as_str())
+                    format!(", laddr={}", repr.as_wtf8())
                 } else {
                     String::new()
                 };
@@ -2484,7 +2488,7 @@ mod _socket {
     }
 
     struct Address {
-        host: PyStrRef,
+        host: PyUtf8StrRef,
         port: u16,
     }
 
@@ -2509,6 +2513,7 @@ mod _socket {
     impl Address {
         fn from_tuple(tuple: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Self> {
             let host = PyStrRef::try_from_object(vm, tuple[0].clone())?;
+            let host = host.try_into_utf8(vm)?;
             let port = i32::try_from_borrowed_object(vm, &tuple[1])?;
             let port = port
                 .to_u16()
@@ -2625,12 +2630,12 @@ mod _socket {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction]
-    fn sethostname(hostname: PyStrRef) -> nix::Result<()> {
+    fn sethostname(hostname: PyUtf8StrRef) -> nix::Result<()> {
         nix::unistd::sethostname(hostname.as_str())
     }
 
     #[pyfunction]
-    fn inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn inet_aton(ip_string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         ip_string
             .as_str()
             .parse::<Ipv4Addr>()
@@ -2904,7 +2909,7 @@ mod _socket {
 
     #[pyfunction]
     fn gethostbyaddr(
-        addr: PyStrRef,
+        addr: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, addr, c::AF_UNSPEC)?;
@@ -2919,7 +2924,7 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> Result<String, IoOrPyException> {
+    fn gethostbyname(name: PyUtf8StrRef, vm: &VirtualMachine) -> Result<String, IoOrPyException> {
         let addr = get_addr(vm, name, c::AF_INET)?;
         match addr {
             SocketAddr::V4(ip) => Ok(ip.ip().to_string()),
@@ -2929,7 +2934,7 @@ mod _socket {
 
     #[pyfunction]
     fn gethostbyname_ex(
-        name: PyStrRef,
+        name: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, name, c::AF_INET)?;
@@ -2944,7 +2949,7 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn inet_pton(af_inet: i32, ip_string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         static ERROR_MSG: &str = "illegal IP address string passed to inet_pton";
         let ip_addr = match af_inet {
             c::AF_INET => ip_string
@@ -3015,10 +3020,10 @@ mod _socket {
             protocol: 0,
         };
         let service = addr.port.to_string();
-        let mut res =
-            dns_lookup::getaddrinfo(Some(addr.host.as_str()), Some(&service), Some(hints))
-                .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?
-                .filter_map(Result::ok);
+        let host_str = addr.host.as_str();
+        let mut res = dns_lookup::getaddrinfo(Some(host_str), Some(&service), Some(hints))
+            .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?
+            .filter_map(Result::ok);
         let mut ainfo = res.next().unwrap();
         if res.next().is_some() {
             return Err(vm
@@ -3183,7 +3188,7 @@ mod _socket {
 
     fn get_addr(
         vm: &VirtualMachine,
-        pyname: PyStrRef,
+        pyname: PyUtf8StrRef,
         af: i32,
     ) -> Result<SocketAddr, IoOrPyException> {
         let name = pyname.as_str();
@@ -3236,7 +3241,7 @@ mod _socket {
         let name = vm
             .state
             .codec_registry
-            .encode_text(pyname, "idna", None, vm)?;
+            .encode_text(pyname.into_wtf8(), "idna", None, vm)?;
         let name = core::str::from_utf8(name.as_bytes())
             .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
         let mut res = dns_lookup::getaddrinfo(Some(name), None, Some(hints))

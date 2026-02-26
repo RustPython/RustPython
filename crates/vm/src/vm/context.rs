@@ -3,7 +3,7 @@ use crate::{
     builtins::{
         PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
         PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned,
-        PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str,
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
@@ -444,6 +444,11 @@ impl Context {
 
     #[inline]
     pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
+        s.into().into_ref(self)
+    }
+
+    #[inline]
+    pub fn new_utf8_str(&self, s: impl Into<PyUtf8Str>) -> PyRef<PyUtf8Str> {
         s.into().into_ref(self)
     }
 

@@ -14,6 +14,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     bytecode,
     class::PyClassImpl,
+    common::wtf8::{Wtf8Buf, wtf8_concat},
     frame::Frame,
     function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
@@ -1074,28 +1075,6 @@ impl PyBoundMethod {
     fn __module__(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.function.get_attr("__module__", vm).ok()
     }
-
-    #[pygetset]
-    fn __qualname__(&self, vm: &VirtualMachine) -> PyResult {
-        if self
-            .function
-            .fast_isinstance(vm.ctx.types.builtin_function_or_method_type)
-        {
-            // Special case: we work with `__new__`, which is not really a method.
-            // It is a function, so its `__qualname__` is just `__new__`.
-            // We need to add object's part manually.
-            let obj_name = vm.get_attribute_opt(self.object.clone(), "__qualname__")?;
-            let obj_name: Option<PyStrRef> = obj_name.and_then(|o| o.downcast().ok());
-            return Ok(vm
-                .ctx
-                .new_str(format!(
-                    "{}.__new__",
-                    obj_name.as_ref().map_or("?", |s| s.as_str())
-                ))
-                .into());
-        }
-        self.function.get_attr("__qualname__", vm)
-    }
 }
 
 impl PyPayload for PyBoundMethod {
@@ -1107,21 +1086,23 @@ impl PyPayload for PyBoundMethod {
 
 impl Representable for PyBoundMethod {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let func_name =
-            if let Some(qname) = vm.get_attribute_opt(zelf.function.clone(), "__qualname__")? {
-                Some(qname)
-            } else {
-                vm.get_attribute_opt(zelf.function.clone(), "__name__")?
-            };
-        let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
-        let formatted_func_name = match func_name {
-            Some(name) => name.to_string(),
-            None => "?".to_string(),
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let func_name = if let Some(qname) =
+            vm.get_attribute_opt(zelf.function.clone(), identifier!(vm, __qualname__))?
+        {
+            Some(qname)
+        } else {
+            vm.get_attribute_opt(zelf.function.clone(), identifier!(vm, __name__))?
         };
+        let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
         let object_repr = zelf.object.repr(vm)?;
-        Ok(format!(
-            "<bound method {formatted_func_name} of {object_repr}>",
+        let name = func_name.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
+        Ok(wtf8_concat!(
+            "<bound method ",
+            name,
+            " of ",
+            object_repr.as_wtf8(),
+            ">"
         ))
     }
 }

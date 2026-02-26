@@ -8,8 +8,9 @@ use super::{
 pub(crate) mod _ast {
     use crate::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
+        builtins::{PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8Str, PyUtf8StrRef},
         class::{PyClassImpl, StaticType},
+        common::wtf8::Wtf8,
         function::{FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
         stdlib::ast::repr,
         types::{Constructor, Initializer},
@@ -99,7 +100,7 @@ pub(crate) mod _ast {
             let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
             let mut positional: Vec<PyObjectRef> = Vec::new();
             for field in fields {
-                if dict.get_item_opt::<str>(field.as_str(), vm)?.is_some() {
+                if dict.get_item_opt::<Wtf8>(field.as_wtf8(), vm)?.is_some() {
                     positional.push(vm.ctx.none());
                 } else {
                     break;
@@ -127,13 +128,13 @@ pub(crate) mod _ast {
 
         let mut expecting: std::collections::HashSet<String> = std::collections::HashSet::new();
         if let Some(fields) = fields.clone() {
-            let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
+            let fields: Vec<PyUtf8StrRef> = fields.try_to_value(vm)?;
             for field in fields {
                 expecting.insert(field.as_str().to_owned());
             }
         }
         if let Some(attributes) = attributes.clone() {
-            let attributes: Vec<PyStrRef> = attributes.try_to_value(vm)?;
+            let attributes: Vec<PyUtf8StrRef> = attributes.try_to_value(vm)?;
             for attr in attributes {
                 expecting.insert(attr.as_str().to_owned());
             }
@@ -151,12 +152,12 @@ pub(crate) mod _ast {
 
         if let Some(dict) = dict.as_ref() {
             for (key, _value) in dict.items_vec() {
-                if let Ok(key) = key.downcast::<PyStr>() {
+                if let Ok(key) = key.downcast::<PyUtf8Str>() {
                     expecting.remove(key.as_str());
                 }
             }
             if let Some(attributes) = attributes.clone() {
-                let attributes: Vec<PyStrRef> = attributes.try_to_value(vm)?;
+                let attributes: Vec<PyUtf8StrRef> = attributes.try_to_value(vm)?;
                 for attr in attributes {
                     expecting.remove(attr.as_str());
                 }
@@ -168,7 +169,7 @@ pub(crate) mod _ast {
             && let Ok(field_types) = field_types.downcast::<crate::builtins::PyDict>()
         {
             for (key, value) in field_types.items_vec() {
-                let Ok(key) = key.downcast::<PyStr>() else {
+                let Ok(key) = key.downcast::<PyUtf8Str>() else {
                     continue;
                 };
                 if value.fast_isinstance(vm.ctx.types.union_type) {
@@ -199,7 +200,7 @@ pub(crate) mod _ast {
             if let Some(fields) = fields.clone() {
                 let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
                 for field in fields {
-                    if let Some(value) = dict.get_item_opt::<str>(field.as_str(), vm)? {
+                    if let Some(value) = dict.get_item_opt::<Wtf8>(field.as_wtf8(), vm)? {
                         payload.set_item(field.as_object(), value, vm)?;
                     }
                 }
@@ -207,7 +208,7 @@ pub(crate) mod _ast {
             if let Some(attributes) = attributes.clone() {
                 let attributes: Vec<PyStrRef> = attributes.try_to_value(vm)?;
                 for attr in attributes {
-                    if let Some(value) = dict.get_item_opt::<str>(attr.as_str(), vm)? {
+                    if let Some(value) = dict.get_item_opt::<Wtf8>(attr.as_wtf8(), vm)? {
                         payload.set_item(attr.as_object(), value, vm)?;
                     }
                 }
@@ -223,7 +224,7 @@ pub(crate) mod _ast {
             .into_iter()
             .map(|(key, value)| {
                 let key = key
-                    .downcast::<PyStr>()
+                    .downcast::<PyUtf8Str>()
                     .map_err(|_| vm.new_type_error("keywords must be strings".to_owned()))?;
                 Ok((key.as_str().to_owned(), value))
             })
@@ -292,7 +293,7 @@ pub(crate) mod _ast {
                         zelf.class().name()
                     ))
                 })?;
-            let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
+            let fields: Vec<PyUtf8StrRef> = fields.try_to_value(vm)?;
             let n_args = args.args.len();
             if n_args > fields.len() {
                 return Err(vm.new_type_error(format!(
@@ -309,10 +310,10 @@ pub(crate) mod _ast {
 
             for (name, arg) in fields.iter().zip(args.args) {
                 zelf.set_attr(name, arg, vm)?;
-                set_fields.insert(name.as_str().to_string());
+                set_fields.insert(name.as_str().to_owned());
             }
             for (key, value) in args.kwargs {
-                if let Some(pos) = fields.iter().position(|f| f.as_str() == key)
+                if let Some(pos) = fields.iter().position(|f| f.as_bytes() == key.as_bytes())
                     && pos < n_args
                 {
                     return Err(vm.new_type_error(format!(
@@ -322,7 +323,10 @@ pub(crate) mod _ast {
                     )));
                 }
 
-                if fields.iter().all(|field| field.as_str() != key) {
+                if fields
+                    .iter()
+                    .all(|field| field.as_bytes() != key.as_bytes())
+                {
                     let attrs = if let Some(attrs) = &attributes {
                         attrs
                     } else {
@@ -334,7 +338,7 @@ pub(crate) mod _ast {
                         attributes = Some(attrs);
                         attributes.as_ref().unwrap()
                     };
-                    if attrs.iter().all(|attr| attr.as_str() != key) {
+                    if attrs.iter().all(|attr| attr.as_bytes() != key.as_bytes()) {
                         let message = vm.ctx.new_str(format!(
                             "{}.__init__ got an unexpected keyword argument '{}'. \
 Support for arbitrary keyword arguments is deprecated and will be removed in Python 3.15.",
@@ -368,13 +372,13 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                     if set_fields.contains(field.as_str()) {
                         continue;
                     }
-                    if let Some(ftype) = ft_dict.get_item_opt::<str>(field.as_str(), vm)? {
+                    if let Some(ftype) = ft_dict.get_item_opt::<Wtf8>(field.as_wtf8(), vm)? {
                         if ftype.fast_isinstance(vm.ctx.types.union_type) {
                             // Optional field (T | None) — no default
                         } else if ftype.fast_isinstance(vm.ctx.types.generic_alias_type) {
                             // List field (list[T]) — default to []
                             let empty_list: PyObjectRef = vm.ctx.new_list(vec![]).into();
-                            zelf.set_attr(vm.ctx.intern_str(field.as_str()), empty_list, vm)?;
+                            zelf.set_attr(vm.ctx.intern_str(field.as_wtf8()), empty_list, vm)?;
                         } else if ftype.is(&expr_ctx_type) {
                             // expr_context — default to Load()
                             let load_type =
@@ -384,13 +388,13 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                                 .unwrap_or_else(|| {
                                     vm.ctx.new_base_object(load_type, Some(vm.ctx.new_dict()))
                                 });
-                            zelf.set_attr(vm.ctx.intern_str(field.as_str()), load_instance, vm)?;
+                            zelf.set_attr(vm.ctx.intern_str(field.as_wtf8()), load_instance, vm)?;
                         } else {
-                            // Required field missing: emit DeprecationWarning (CPython behavior).
+                            // Required field missing: emit DeprecationWarning.
                             let message = vm.ctx.new_str(format!(
                                 "{}.__init__ missing 1 required positional argument: '{}'",
                                 zelf.class().name(),
-                                field.as_str()
+                                field.as_wtf8()
                             ));
                             warn::warn(
                                 message.into(),
