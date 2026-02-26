@@ -118,7 +118,7 @@ pub mod ffi {
 
         fn from_bytes(slice: &[u8]) -> &OsStr {
             // WASI strings are guaranteed to be UTF-8
-            OsStr::new(std::str::from_utf8(slice).expect("wasip2 strings are UTF-8"))
+            OsStr::new(core::str::from_utf8(slice).expect("wasip2 strings are UTF-8"))
         }
     }
 

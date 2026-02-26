@@ -2,10 +2,10 @@
 
 use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyDictRef, PyModule, PySet},
+    builtins::{PyModule, PySet},
     common::crt_fd,
     convert::{IntoPyException, ToPyException, ToPyObject},
-    function::{ArgMapping, ArgumentError, FromArgs, FuncArgs},
+    function::{ArgumentError, FromArgs, FuncArgs},
 };
 use std::{fs, io, path::Path};
 
@@ -186,6 +186,9 @@ pub(super) mod _os {
     const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    const RMDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyattr]
     use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
@@ -357,6 +360,30 @@ pub(super) mod _os {
         fs::create_dir_all(path.as_str()).map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(not(windows))]
+    #[pyfunction]
+    fn rmdir(
+        path: OsPath,
+        dir_fd: DirFd<'_, { RMDIR_DIR_FD as usize }>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        #[cfg(not(target_os = "redox"))]
+        if let Some(fd) = dir_fd.raw_opt() {
+            let c_path = path.clone().into_cstring(vm)?;
+            let res = unsafe { libc::unlinkat(fd, c_path.as_ptr(), libc::AT_REMOVEDIR) };
+            return if res < 0 {
+                let err = crate::common::os::errno_io_error();
+                Err(OSErrorBuilder::with_filename(&err, path, vm))
+            } else {
+                Ok(())
+            };
+        }
+        #[cfg(target_os = "redox")]
+        let [] = dir_fd.0;
+        fs::remove_dir(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+    }
+
+    #[cfg(windows)]
     #[pyfunction]
     fn rmdir(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
@@ -400,22 +427,36 @@ pub(super) mod _os {
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
                     use rustpython_common::os::ffi::OsStrExt;
+                    use std::os::unix::io::IntoRawFd;
                     let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
-                    let mut dir =
-                        nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
-                    dir.iter()
-                        .filter_map_ok(|entry| {
-                            let fname = entry.file_name().to_bytes();
-                            match fname {
-                                b"." | b".." => None,
-                                _ => Some(
-                                    OutputMode::String
-                                        .process_path(std::ffi::OsStr::from_bytes(fname), vm),
-                                ),
+                    let raw_fd = new_fd.into_raw_fd();
+                    let dir = OwnedDir::from_fd(raw_fd).map_err(|e| {
+                        unsafe { libc::close(raw_fd) };
+                        e.into_pyexception(vm)
+                    })?;
+                    // OwnedDir::drop calls rewinddir (reset to start) then closedir.
+                    let mut list = Vec::new();
+                    loop {
+                        nix::errno::Errno::clear();
+                        let entry = unsafe { libc::readdir(dir.as_ptr()) };
+                        if entry.is_null() {
+                            let err = nix::errno::Errno::last();
+                            if err != nix::errno::Errno::UnknownErrno {
+                                return Err(io::Error::from(err).into_pyexception(vm));
                             }
-                        })
-                        .collect::<Result<_, _>>()
-                        .map_err(|e| e.into_pyexception(vm))?
+                            break;
+                        }
+                        let fname = unsafe { core::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) }
+                            .to_bytes();
+                        match fname {
+                            b"." | b".." => continue,
+                            _ => list.push(
+                                OutputMode::String
+                                    .process_path(std::ffi::OsStr::from_bytes(fname), vm),
+                            ),
+                        }
+                    }
+                    list
                 }
             }
         };
@@ -563,6 +604,12 @@ pub(super) mod _os {
         file_name: std::ffi::OsString,
         pathval: PathBuf,
         file_type: io::Result<fs::FileType>,
+        /// dirent d_type value, used when file_type is unavailable (fd-based scandir)
+        #[cfg(unix)]
+        d_type: Option<u8>,
+        /// Parent directory fd for fd-based scandir, used for fstatat
+        #[cfg(not(any(windows, target_os = "redox")))]
+        dir_fd: Option<crt_fd::Raw>,
         mode: OutputMode,
         stat: OnceCell<PyObjectRef>,
         lstat: OnceCell<PyObjectRef>,
@@ -586,53 +633,116 @@ pub(super) mod _os {
             Ok(self.mode.process_path(&self.pathval, vm))
         }
 
+        /// Build the DirFd to use for stat calls.
+        /// If this entry was produced by fd-based scandir, use the stored dir_fd
+        /// so that fstatat(dir_fd, name, ...) is used instead of stat(full_path).
+        fn stat_dir_fd(&self) -> DirFd<'_, { STAT_DIR_FD as usize }> {
+            #[cfg(not(any(windows, target_os = "redox")))]
+            if let Some(raw_fd) = self.dir_fd {
+                // Safety: the fd came from os.open() and is borrowed for
+                // the lifetime of this DirEntry reference.
+                let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(raw_fd) };
+                return DirFd([borrowed; STAT_DIR_FD as usize]);
+            }
+            DirFd::default()
+        }
+
+        /// Stat-based mode test fallback. Uses fstatat when dir_fd is available.
+        #[cfg(unix)]
+        fn test_mode_via_stat(
+            &self,
+            follow_symlinks: bool,
+            mode_bits: u32,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            match self.stat(self.stat_dir_fd(), FollowSymlinks(follow_symlinks), vm) {
+                Ok(stat_obj) => {
+                    let st_mode: i32 = stat_obj.get_attr("st_mode", vm)?.try_into_value(vm)?;
+                    #[allow(clippy::unnecessary_cast)]
+                    Ok((st_mode as u32 & libc::S_IFMT as u32) == mode_bits)
+                }
+                Err(e) => {
+                    if e.fast_isinstance(vm.ctx.exceptions.file_not_found_error) {
+                        Ok(false)
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
+        }
+
         #[pymethod]
         fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
-            // Use cached file_type first to avoid stat() calls that may fail
             if let Ok(file_type) = &self.file_type
                 && (!follow_symlinks.0 || !file_type.is_symlink())
             {
                 return Ok(file_type.is_dir());
             }
+            #[cfg(unix)]
+            if let Some(dt) = self.d_type {
+                let is_symlink = dt == libc::DT_LNK;
+                let need_stat = dt == libc::DT_UNKNOWN || (follow_symlinks.0 && is_symlink);
+                if !need_stat {
+                    return Ok(dt == libc::DT_DIR);
+                }
+            }
+            #[cfg(unix)]
+            return self.test_mode_via_stat(follow_symlinks.0, libc::S_IFDIR as _, vm);
+            #[cfg(not(unix))]
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
                 Ok(meta) => Ok(meta.is_dir()),
-                Err(e) => {
-                    if e.kind() == io::ErrorKind::NotFound {
-                        Ok(false)
-                    } else {
-                        Err(e.into_pyexception(vm))
-                    }
-                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+                Err(e) => Err(e.into_pyexception(vm)),
             }
         }
 
         #[pymethod]
         fn is_file(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
-            // Use cached file_type first to avoid stat() calls that may fail
             if let Ok(file_type) = &self.file_type
                 && (!follow_symlinks.0 || !file_type.is_symlink())
             {
                 return Ok(file_type.is_file());
             }
+            #[cfg(unix)]
+            if let Some(dt) = self.d_type {
+                let is_symlink = dt == libc::DT_LNK;
+                let need_stat = dt == libc::DT_UNKNOWN || (follow_symlinks.0 && is_symlink);
+                if !need_stat {
+                    return Ok(dt == libc::DT_REG);
+                }
+            }
+            #[cfg(unix)]
+            return self.test_mode_via_stat(follow_symlinks.0, libc::S_IFREG as _, vm);
+            #[cfg(not(unix))]
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
                 Ok(meta) => Ok(meta.is_file()),
-                Err(e) => {
-                    if e.kind() == io::ErrorKind::NotFound {
-                        Ok(false)
-                    } else {
-                        Err(e.into_pyexception(vm))
-                    }
-                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+                Err(e) => Err(e.into_pyexception(vm)),
             }
         }
 
         #[pymethod]
         fn is_symlink(&self, vm: &VirtualMachine) -> PyResult<bool> {
-            Ok(self
-                .file_type
-                .as_ref()
-                .map_err(|err| err.into_pyexception(vm))?
-                .is_symlink())
+            if let Ok(file_type) = &self.file_type {
+                return Ok(file_type.is_symlink());
+            }
+            #[cfg(unix)]
+            if let Some(dt) = self.d_type
+                && dt != libc::DT_UNKNOWN
+            {
+                return Ok(dt == libc::DT_LNK);
+            }
+            #[cfg(unix)]
+            return self.test_mode_via_stat(false, libc::S_IFLNK as _, vm);
+            #[cfg(not(unix))]
+            match &self.file_type {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+                Err(e) => {
+                    use crate::convert::ToPyException;
+                    Err(e.to_pyexception(vm))
+                }
+                Ok(_) => Ok(false),
+            }
         }
 
         #[pymethod]
@@ -642,6 +752,12 @@ pub(super) mod _os {
             follow_symlinks: FollowSymlinks,
             vm: &VirtualMachine,
         ) -> PyResult {
+            // Use stored dir_fd if the caller didn't provide one
+            let effective_dir_fd = if dir_fd == DirFd::default() {
+                self.stat_dir_fd()
+            } else {
+                dir_fd
+            };
             let do_stat = |follow_symlinks| {
                 stat(
                     OsPath {
@@ -649,7 +765,7 @@ pub(super) mod _os {
                         origin: None,
                     }
                     .into(),
-                    dir_fd,
+                    effective_dir_fd,
                     FollowSymlinks(follow_symlinks),
                     vm,
                 )
@@ -663,7 +779,6 @@ pub(super) mod _os {
                 }
             };
             let stat = if follow_symlinks.0 {
-                // if follow_symlinks == true and we aren't a symlink, cache both stat and lstat
                 match self.stat.get() {
                     Some(val) => val,
                     None => {
@@ -873,6 +988,10 @@ pub(super) mod _os {
                                     file_name: entry.file_name(),
                                     pathval,
                                     file_type: entry.file_type(),
+                                    #[cfg(unix)]
+                                    d_type: None,
+                                    #[cfg(not(any(windows, target_os = "redox")))]
+                                    dir_fd: None,
                                     mode: zelf.mode,
                                     lstat,
                                     stat: OnceCell::new(),
@@ -893,17 +1012,202 @@ pub(super) mod _os {
         }
     }
 
-    #[pyfunction]
-    fn scandir(path: OptionalArg<OsPath>, vm: &VirtualMachine) -> PyResult {
-        let path = path.unwrap_or_else(|| OsPath::new_str("."));
-        let entries = fs::read_dir(&path.path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(ScandirIterator {
-            entries: PyRwLock::new(Some(entries)),
-            mode: path.mode(),
+    /// Wrapper around a raw `libc::DIR*` for fd-based scandir.
+    #[cfg(all(unix, not(target_os = "redox")))]
+    struct OwnedDir(core::ptr::NonNull<libc::DIR>);
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    impl OwnedDir {
+        fn from_fd(fd: crt_fd::Raw) -> io::Result<Self> {
+            let ptr = unsafe { libc::fdopendir(fd) };
+            core::ptr::NonNull::new(ptr)
+                .map(OwnedDir)
+                .ok_or_else(io::Error::last_os_error)
         }
-        .into_ref(&vm.ctx)
-        .into())
+
+        fn as_ptr(&self) -> *mut libc::DIR {
+            self.0.as_ptr()
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    impl Drop for OwnedDir {
+        fn drop(&mut self) {
+            unsafe {
+                libc::rewinddir(self.0.as_ptr());
+                libc::closedir(self.0.as_ptr());
+            }
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    impl core::fmt::Debug for OwnedDir {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_tuple("OwnedDir").field(&self.0).finish()
+        }
+    }
+
+    // Safety: OwnedDir wraps a *mut libc::DIR. All access is synchronized
+    // through the PyMutex in ScandirIteratorFd.
+    #[cfg(all(unix, not(target_os = "redox")))]
+    unsafe impl Send for OwnedDir {}
+    #[cfg(all(unix, not(target_os = "redox")))]
+    unsafe impl Sync for OwnedDir {}
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    #[pyattr]
+    #[pyclass(name = "ScandirIter")]
+    #[derive(Debug, PyPayload)]
+    struct ScandirIteratorFd {
+        dir: crate::common::lock::PyMutex<Option<OwnedDir>>,
+        /// The original fd passed to scandir(), stored in DirEntry for fstatat
+        orig_fd: crt_fd::Raw,
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Destructor, IterNext, Iterable))]
+    impl ScandirIteratorFd {
+        #[pymethod]
+        fn close(&self) {
+            let _dropped = self.dir.lock().take();
+        }
+
+        #[pymethod]
+        const fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
+            zelf
+        }
+
+        #[pymethod]
+        fn __exit__(zelf: PyRef<Self>, _args: FuncArgs) {
+            zelf.close()
+        }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    impl Destructor for ScandirIteratorFd {
+        fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            if zelf.dir.lock().is_some() {
+                let _ = crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.resource_warning,
+                    format!("unclosed scandir iterator {:?}", zelf.as_object()),
+                    1,
+                    vm,
+                );
+                zelf.close();
+            }
+            Ok(())
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    impl SelfIter for ScandirIteratorFd {}
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    impl IterNext for ScandirIteratorFd {
+        fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            use rustpython_common::os::ffi::OsStrExt;
+            let mut guard = zelf.dir.lock();
+            let dir = match guard.as_mut() {
+                None => return Ok(PyIterReturn::StopIteration(None)),
+                Some(dir) => dir,
+            };
+            loop {
+                nix::errno::Errno::clear();
+                let entry = unsafe {
+                    let ptr = libc::readdir(dir.as_ptr());
+                    if ptr.is_null() {
+                        let err = nix::errno::Errno::last();
+                        if err != nix::errno::Errno::UnknownErrno {
+                            return Err(io::Error::from(err).into_pyexception(vm));
+                        }
+                        drop(guard.take());
+                        return Ok(PyIterReturn::StopIteration(None));
+                    }
+                    &*ptr
+                };
+                let fname = unsafe { core::ffi::CStr::from_ptr(entry.d_name.as_ptr()) }.to_bytes();
+                if fname == b"." || fname == b".." {
+                    continue;
+                }
+                let file_name = std::ffi::OsString::from(std::ffi::OsStr::from_bytes(fname));
+                let pathval = PathBuf::from(&file_name);
+                #[cfg(target_os = "freebsd")]
+                let ino = entry.d_fileno;
+                #[cfg(not(target_os = "freebsd"))]
+                let ino = entry.d_ino;
+                let d_type = entry.d_type;
+                return Ok(PyIterReturn::Return(
+                    DirEntry {
+                        file_name,
+                        pathval,
+                        file_type: Err(io::Error::other(
+                            "file_type unavailable for fd-based scandir",
+                        )),
+                        d_type: if d_type == libc::DT_UNKNOWN {
+                            None
+                        } else {
+                            Some(d_type)
+                        },
+                        dir_fd: Some(zelf.orig_fd),
+                        mode: OutputMode::String,
+                        lstat: OnceCell::new(),
+                        stat: OnceCell::new(),
+                        ino: AtomicCell::new(ino as _),
+                    }
+                    .into_ref(&vm.ctx)
+                    .into(),
+                ));
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn scandir(path: OptionalArg<Option<OsPathOrFd<'_>>>, vm: &VirtualMachine) -> PyResult {
+        let path = path
+            .flatten()
+            .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
+        match path {
+            OsPathOrFd::Path(path) => {
+                let entries = fs::read_dir(&path.path)
+                    .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                Ok(ScandirIterator {
+                    entries: PyRwLock::new(Some(entries)),
+                    mode: path.mode(),
+                }
+                .into_ref(&vm.ctx)
+                .into())
+            }
+            OsPathOrFd::Fd(fno) => {
+                #[cfg(not(all(unix, not(target_os = "redox"))))]
+                {
+                    let _ = fno;
+                    Err(vm.new_not_implemented_error("can't pass fd to scandir on this platform"))
+                }
+                #[cfg(all(unix, not(target_os = "redox")))]
+                {
+                    use std::os::unix::io::IntoRawFd;
+                    // closedir() closes the fd, so duplicate it first
+                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
+                    let raw_fd = new_fd.into_raw_fd();
+                    let dir = OwnedDir::from_fd(raw_fd).map_err(|e| {
+                        // fdopendir failed, close the dup'd fd
+                        unsafe { libc::close(raw_fd) };
+                        e.into_pyexception(vm)
+                    })?;
+                    Ok(ScandirIteratorFd {
+                        dir: crate::common::lock::PyMutex::new(Some(dir)),
+                        orig_fd: fno.as_raw(),
+                    }
+                    .into_ref(&vm.ctx)
+                    .into())
+                }
+            }
+        }
     }
 
     #[derive(Debug, FromArgs)]
@@ -1960,12 +2264,12 @@ pub(super) mod _os {
             // mkfifo Some Some None
             // mknod Some Some None
             SupportFunc::new("readlink", Some(false), None, Some(false)),
-            SupportFunc::new("remove", Some(false), None, Some(false)),
-            SupportFunc::new("unlink", Some(false), None, Some(false)),
+            SupportFunc::new("remove", Some(false), Some(UNLINK_DIR_FD), Some(false)),
+            SupportFunc::new("unlink", Some(false), Some(UNLINK_DIR_FD), Some(false)),
             SupportFunc::new("rename", Some(false), None, Some(false)),
             SupportFunc::new("replace", Some(false), None, Some(false)), // TODO: Fix replace
-            SupportFunc::new("rmdir", Some(false), None, Some(false)),
-            SupportFunc::new("scandir", None, Some(false), Some(false)),
+            SupportFunc::new("rmdir", Some(false), Some(RMDIR_DIR_FD), Some(false)),
+            SupportFunc::new("scandir", Some(SCANDIR_FD), Some(false), Some(false)),
             SupportFunc::new("stat", Some(true), Some(STAT_DIR_FD), Some(true)),
             SupportFunc::new("fstat", Some(true), Some(STAT_DIR_FD), Some(true)),
             SupportFunc::new("symlink", Some(false), Some(SYMLINK_DIR_FD), Some(false)),
@@ -2043,7 +2347,11 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
 /// For `os._Environ`, accesses the internal `_data` dict directly at the Rust level.
 /// This avoids Python-level method calls that can deadlock after fork() when
 /// parking_lot locks are held by threads that no longer exist.
-pub(crate) fn envobj_to_dict(env: ArgMapping, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+#[cfg(any(unix, windows))]
+pub(crate) fn envobj_to_dict(
+    env: crate::function::ArgMapping,
+    vm: &VirtualMachine,
+) -> PyResult<crate::builtins::PyDictRef> {
     let obj = env.obj();
     if let Some(dict) = obj.downcast_ref_if_exact::<crate::builtins::PyDict>(vm) {
         return Ok(dict.to_owned());

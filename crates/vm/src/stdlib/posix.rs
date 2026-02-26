@@ -507,7 +507,23 @@ pub mod module {
 
     #[pyfunction]
     #[pyfunction(name = "unlink")]
-    fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
+    fn remove(
+        path: OsPath,
+        dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        #[cfg(not(target_os = "redox"))]
+        if let Some(fd) = dir_fd.raw_opt() {
+            let c_path = path.clone().into_cstring(vm)?;
+            let res = unsafe { libc::unlinkat(fd, c_path.as_ptr(), 0) };
+            return if res < 0 {
+                let err = crate::common::os::errno_io_error();
+                Err(OSErrorBuilder::with_filename(&err, path, vm))
+            } else {
+                Ok(())
+            };
+        }
+        #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
         fs::remove_file(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }

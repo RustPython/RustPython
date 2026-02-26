@@ -53,6 +53,8 @@ struct FrameState {
     // We need 1 stack per frame
     /// The main data frame of the stack machine
     stack: BoxVec<Option<PyObjectRef>>,
+    /// Cell and free variable references (cellvars + freevars).
+    cells_frees: Box<[PyCellRef]>,
     /// index of last instruction ran
     #[cfg(feature = "threading")]
     lasti: u32,
@@ -93,7 +95,6 @@ pub struct Frame {
     pub func_obj: Option<PyObjectRef>,
 
     pub fastlocals: PyMutex<Box<[Option<PyObjectRef>]>>,
-    pub(crate) cells_frees: Box<[PyCellRef]>,
     pub locals: ArgMapping,
     pub globals: PyDictRef,
     pub builtins: PyObjectRef,
@@ -135,6 +136,7 @@ impl PyPayload for Frame {
 unsafe impl Traverse for FrameState {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.stack.traverse(tracer_fn);
+        self.cells_frees.traverse(tracer_fn);
     }
 }
 
@@ -143,7 +145,6 @@ unsafe impl Traverse for Frame {
         self.code.traverse(tracer_fn);
         self.func_obj.traverse(tracer_fn);
         self.fastlocals.traverse(tracer_fn);
-        self.cells_frees.traverse(tracer_fn);
         self.locals.traverse(tracer_fn);
         self.globals.traverse(tracer_fn);
         self.builtins.traverse(tracer_fn);
@@ -193,13 +194,13 @@ impl Frame {
 
         let state = FrameState {
             stack: BoxVec::new(code.max_stackdepth as usize),
+            cells_frees,
             #[cfg(feature = "threading")]
             lasti: 0,
         };
 
         Self {
             fastlocals: PyMutex::new(fastlocals_vec.into_boxed_slice()),
-            cells_frees,
             locals: scope.locals,
             globals: scope.globals,
             builtins,
@@ -218,9 +219,38 @@ impl Frame {
         }
     }
 
-    /// Clear the evaluation stack. Used by frame.clear() to break reference cycles.
-    pub(crate) fn clear_value_stack(&self) {
-        self.state.lock().stack.clear();
+    /// Clear evaluation stack and state-owned cell/free references.
+    /// For full local/cell cleanup, call `clear_locals_and_stack()`.
+    pub(crate) fn clear_stack_and_cells(&self) {
+        let mut state = self.state.lock();
+        state.stack.clear();
+        let _old = core::mem::take(&mut state.cells_frees);
+    }
+
+    /// Clear locals and stack after generator/coroutine close.
+    /// Releases references held by the frame, matching _PyFrame_ClearLocals.
+    pub(crate) fn clear_locals_and_stack(&self) {
+        self.clear_stack_and_cells();
+        let mut fastlocals = self.fastlocals.lock();
+        for slot in fastlocals.iter_mut() {
+            *slot = None;
+        }
+    }
+
+    /// Get cell contents by cell index. Reads through fastlocals (no state lock needed).
+    pub(crate) fn get_cell_contents(&self, cell_idx: usize) -> Option<PyObjectRef> {
+        let nlocals = self.code.varnames.len();
+        let fastlocals = self.fastlocals.lock();
+        fastlocals
+            .get(nlocals + cell_idx)
+            .and_then(|slot| slot.as_ref())
+            .and_then(|obj| obj.downcast_ref::<PyCell>())
+            .and_then(|cell| cell.get())
+    }
+
+    /// Set cell contents by cell index. Only safe to call before frame execution starts.
+    pub(crate) fn set_cell_contents(&self, cell_idx: usize, value: Option<PyObjectRef>) {
+        self.state.lock().cells_frees[cell_idx].set(value);
     }
 
     /// Store a borrowed back-reference to the owning generator/coroutine.
@@ -296,23 +326,25 @@ impl Frame {
             }
         }
         if !code.cellvars.is_empty() || !code.freevars.is_empty() {
-            let map_to_dict = |keys: &[&PyStrInterned], values: &[PyCellRef]| {
-                for (&k, v) in zip(keys, values) {
-                    if let Some(value) = v.get() {
-                        locals.mapping().ass_subscript(k, Some(value), vm)?;
-                    } else {
-                        match locals.mapping().ass_subscript(k, None, vm) {
-                            Ok(()) => {}
-                            Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
-                            Err(e) => return Err(e),
-                        }
+            // Access cells through fastlocals to avoid locking state
+            // (state may be held by with_exec during frame execution).
+            for (i, &k) in code.cellvars.iter().enumerate() {
+                let cell_value = self.get_cell_contents(i);
+                match locals.mapping().ass_subscript(k, cell_value, vm) {
+                    Ok(()) => {}
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            if code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
+                for (i, &k) in code.freevars.iter().enumerate() {
+                    let cell_value = self.get_cell_contents(code.cellvars.len() + i);
+                    match locals.mapping().ass_subscript(k, cell_value, vm) {
+                        Ok(()) => {}
+                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
+                        Err(e) => return Err(e),
                     }
                 }
-                Ok(())
-            };
-            map_to_dict(&code.cellvars, &self.cells_frees)?;
-            if code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
-                map_to_dict(&code.freevars, &self.cells_frees[code.cellvars.len()..])?;
             }
         }
         Ok(locals.clone())
@@ -326,7 +358,6 @@ impl Py<Frame> {
         let exec = ExecutingFrame {
             code: &self.code,
             fastlocals: &self.fastlocals,
-            cells_frees: &self.cells_frees,
             locals: &self.locals,
             globals: &self.globals,
             builtins: &self.builtins,
@@ -372,7 +403,6 @@ impl Py<Frame> {
         let exec = ExecutingFrame {
             code: &self.code,
             fastlocals: &self.fastlocals,
-            cells_frees: &self.cells_frees,
             locals: &self.locals,
             globals: &self.globals,
             builtins: &self.builtins,
@@ -407,7 +437,6 @@ impl Py<Frame> {
 struct ExecutingFrame<'a> {
     code: &'a PyRef<PyCode>,
     fastlocals: &'a PyMutex<Box<[Option<PyObjectRef>]>>,
-    cells_frees: &'a [PyCellRef],
     locals: &'a ArgMapping,
     globals: &'a PyDictRef,
     builtins: &'a PyObjectRef,
@@ -1011,7 +1040,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
             Instruction::DeleteDeref(i) => {
-                self.cells_frees[i.get(arg) as usize].set(None);
+                self.state.cells_frees[i.get(arg) as usize].set(None);
                 Ok(None)
             }
             Instruction::DeleteFast(idx) => {
@@ -1436,7 +1465,7 @@ impl ExecutingFrame<'_> {
                 };
                 self.push_value(match value {
                     Some(v) => v,
-                    None => self.cells_frees[i]
+                    None => self.state.cells_frees[i]
                         .get()
                         .ok_or_else(|| self.unbound_cell_exception(i, vm))?,
                 });
@@ -1493,7 +1522,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadDeref(i) => {
                 let idx = i.get(arg) as usize;
-                let x = self.cells_frees[idx]
+                let x = self.state.cells_frees[idx]
                     .get()
                     .ok_or_else(|| self.unbound_cell_exception(idx, vm))?;
                 self.push_value(x);
@@ -2083,7 +2112,7 @@ impl ExecutingFrame<'_> {
             Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
             Instruction::StoreDeref(i) => {
                 let value = self.pop_value();
-                self.cells_frees[i.get(arg) as usize].set(Some(value));
+                self.state.cells_frees[i.get(arg) as usize].set(Some(value));
                 Ok(None)
             }
             Instruction::StoreFast(idx) => {

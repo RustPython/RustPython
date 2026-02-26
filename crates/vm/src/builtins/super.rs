@@ -85,15 +85,17 @@ impl Initializer for PySuper {
             if frame.code.arg_count == 0 {
                 return Err(vm.new_runtime_error("super(): no arguments"));
             }
-            let obj = frame.fastlocals.lock()[0]
-                .clone()
+            // Lock fastlocals briefly to get arg[0], then drop the guard
+            // before calling get_cell_contents (which also locks fastlocals).
+            let first_arg = frame.fastlocals.lock()[0].clone();
+            let obj = first_arg
                 .or_else(|| {
                     if let Some(cell2arg) = frame.code.cell2arg.as_deref() {
                         cell2arg[..frame.code.cellvars.len()]
                             .iter()
                             .enumerate()
                             .find(|(_, arg_idx)| **arg_idx == 0)
-                            .and_then(|(cell_idx, _)| frame.cells_frees[cell_idx].get())
+                            .and_then(|(cell_idx, _)| frame.get_cell_contents(cell_idx))
                     } else {
                         None
                     }
@@ -104,8 +106,8 @@ impl Initializer for PySuper {
             for (i, var) in frame.code.freevars.iter().enumerate() {
                 if var.as_bytes() == b"__class__" {
                     let i = frame.code.cellvars.len() + i;
-                    let class = frame.cells_frees[i]
-                        .get()
+                    let class = frame
+                        .get_cell_contents(i)
                         .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;
                     typ = Some(class.downcast().map_err(|o| {
                         vm.new_type_error(format!(

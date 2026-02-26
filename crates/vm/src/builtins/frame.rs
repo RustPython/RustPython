@@ -179,8 +179,8 @@ impl Py<Frame> {
             }
         }
 
-        // Clear the evaluation stack
-        self.clear_value_stack();
+        // Clear the evaluation stack and cell references
+        self.clear_stack_and_cells();
 
         // Clear temporary refs
         self.temporary_refs.lock().clear();

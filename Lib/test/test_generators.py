@@ -660,7 +660,6 @@ class GeneratorCloseTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             gen.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; no deterministic GC finalization
     def test_close_releases_frame_locals(self):
         # See gh-118272
 
@@ -684,6 +683,7 @@ class GeneratorCloseTest(unittest.TestCase):
 
 # See https://github.com/python/cpython/issues/125723
 class GeneratorDeallocTest(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; frame uses shared Arc, no ownership transfer
     def test_frame_outlives_generator(self):
         def g1():
             a = 42

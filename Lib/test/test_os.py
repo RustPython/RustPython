@@ -5312,7 +5312,6 @@ class TestScandir(unittest.TestCase):
             with self.assertRaises(TypeError):
                 os.scandir(path_bytes)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <builtin_function_or_method object at 0xba3106920> not found in {<builtin_function_or_method object at 0xba31078e0>, <builtin_function_or_method object at 0xba31079c0>, <builtin_function_or_method object at 0xba3107b10>, <builtin_function_or_method object at 0xba3159500>, <builtin_function_or_method object at 0xba3159570>, <builtin_function_or_method object at 0xba3107800>, <builtin_function_or_method object at 0xba3106760>, <builtin_function_or_method object at 0xba3106a00>, <builtin_function_or_method object at 0xba3106990>, <builtin_function_or_method object at 0xba3107330>, <builtin_function_or_method object at 0xba31072c0>, <builtin_function_or_method object at 0xba31064c0>}
     @unittest.skipUnless(os.listdir in os.supports_fd,
                          'fd support for listdir required for this test.')
     def test_fd(self):

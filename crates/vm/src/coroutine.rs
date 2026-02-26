@@ -207,6 +207,9 @@ impl Coro {
             )
         });
         self.closed.store(true);
+        // Release frame locals and stack to free references held by the
+        // closed generator, matching gen_send_ex2 with close_on_completion.
+        self.frame.clear_locals_and_stack();
         match result {
             Ok(ExecutionResult::Yield(_)) => {
                 Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
