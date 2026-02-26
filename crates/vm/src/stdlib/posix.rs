@@ -512,9 +512,9 @@ pub mod module {
         dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let c_path = path.clone().into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
         if let Some(fd) = dir_fd.raw_opt() {
+            let c_path = path.clone().into_cstring(vm)?;
             let res = unsafe { libc::unlinkat(fd, c_path.as_ptr(), 0) };
             return if res < 0 {
                 let err = crate::common::os::errno_io_error();

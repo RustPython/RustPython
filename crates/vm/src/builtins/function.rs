@@ -431,7 +431,7 @@ impl PyFunction {
         if let Some(cell2arg) = code.cell2arg.as_deref() {
             for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
                 let x = fastlocals[*arg_idx as usize].take();
-                frame.cells_frees[cell_idx].set(x);
+                frame.set_cell_contents(cell_idx, x);
             }
         }
 

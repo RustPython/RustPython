@@ -2,10 +2,10 @@
 
 use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyDictRef, PyModule, PySet},
+    builtins::{PyModule, PySet},
     common::crt_fd,
     convert::{IntoPyException, ToPyException, ToPyObject},
-    function::{ArgMapping, ArgumentError, FromArgs, FuncArgs},
+    function::{ArgumentError, FromArgs, FuncArgs},
 };
 use std::{fs, io, path::Path};
 
@@ -367,9 +367,9 @@ pub(super) mod _os {
         dir_fd: DirFd<'_, { RMDIR_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let c_path = path.clone().into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
         if let Some(fd) = dir_fd.raw_opt() {
+            let c_path = path.clone().into_cstring(vm)?;
             let res = unsafe { libc::unlinkat(fd, c_path.as_ptr(), libc::AT_REMOVEDIR) };
             return if res < 0 {
                 let err = crate::common::os::errno_io_error();
@@ -434,8 +434,7 @@ pub(super) mod _os {
                         unsafe { libc::close(raw_fd) };
                         e.into_pyexception(vm)
                     })?;
-                    // OwnedDir::drop calls rewinddir then closedir,
-                    // restoring the original fd's directory position.
+                    // OwnedDir::drop calls rewinddir (reset to start) then closedir.
                     let mut list = Vec::new();
                     loop {
                         nix::errno::Errno::clear();
@@ -736,7 +735,14 @@ pub(super) mod _os {
             #[cfg(unix)]
             return self.test_mode_via_stat(false, libc::S_IFLNK as _, vm);
             #[cfg(not(unix))]
-            Err(io::Error::other("file_type unavailable").into_pyexception(vm))
+            match &self.file_type {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+                Err(e) => {
+                    use crate::convert::ToPyException;
+                    Err(e.to_pyexception(vm))
+                }
+                Ok(_) => Ok(false),
+            }
         }
 
         #[pymethod]
@@ -2341,7 +2347,11 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
 /// For `os._Environ`, accesses the internal `_data` dict directly at the Rust level.
 /// This avoids Python-level method calls that can deadlock after fork() when
 /// parking_lot locks are held by threads that no longer exist.
-pub(crate) fn envobj_to_dict(env: ArgMapping, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+#[cfg(any(unix, windows))]
+pub(crate) fn envobj_to_dict(
+    env: crate::function::ArgMapping,
+    vm: &VirtualMachine,
+) -> PyResult<crate::builtins::PyDictRef> {
     let obj = env.obj();
     if let Some(dict) = obj.downcast_ref_if_exact::<crate::builtins::PyDict>(vm) {
         return Ok(dict.to_owned());
