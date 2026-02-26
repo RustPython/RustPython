@@ -145,11 +145,8 @@ def get_all_tests(cpython_prefix: str) -> list[str]:
 
     tests = set()
     for entry in test_dir.iterdir():
-        # Skip private/internal and special directories
-        if entry.name.startswith(("_", ".")):
-            continue
         # Skip non-test items
-        if not entry.name.startswith("test_"):
+        if not entry.name.startswith(("_test", "test_")):
             continue
 
         if entry.is_file() and entry.suffix == ".py":
@@ -426,14 +423,14 @@ def format_test_todo_list(
         done_mark = "[x]" if primary["up_to_date"] else "[ ]"
         suffix = _format_test_suffix(primary)
         meta = _format_meta_suffix(primary)
-        lines.append(f"- {done_mark} {primary['name']}{suffix}{meta}")
+        lines.append(f"- {done_mark} `{primary['name']}`{suffix}{meta}")
 
         # Rest are indented
         for item in tests[1:]:
             done_mark = "[x]" if item["up_to_date"] else "[ ]"
             suffix = _format_test_suffix(item)
             meta = _format_meta_suffix(item)
-            lines.append(f"  - {done_mark} {item['name']}{suffix}{meta}")
+            lines.append(f"  - {done_mark} `{item['name']}`{suffix}{meta}")
 
     return lines
 
@@ -501,7 +498,9 @@ def format_todo_list(
                 test_done_mark = "[x]" if test_info["up_to_date"] else "[ ]"
                 suffix = _format_test_suffix(test_info)
                 meta = _format_meta_suffix(test_info)
-                lines.append(f"  - {test_done_mark} {test_info['name']}{suffix}{meta}")
+                lines.append(
+                    f"  - {test_done_mark} `{test_info['name']}`{suffix}{meta}"
+                )
 
         # Verbose mode: show detailed dependency info
         if verbose:

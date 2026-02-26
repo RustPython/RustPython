@@ -654,6 +654,18 @@ DEPENDENCIES = {
             "test_crossinterp.py",
         ],
     },
+    "atexit": {
+        "test": [
+            "test_atexit.py",
+            "_test_atexit.py",
+        ],
+    },
+    "eintr": {
+        "test": [
+            "test_eintr.py",
+            "_test_eintr.py",
+        ]
+    },
 }
 
 
