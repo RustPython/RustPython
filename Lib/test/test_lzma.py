@@ -281,7 +281,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_1)
         self.assertRaises(LZMAError, lzd.decompress, COMPRESSED_XZ)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_decompressor_bug_28275(self):
         # Test coverage for Issue 28275
         lzd = LZMADecompressor()
@@ -441,7 +440,6 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
             lzma.decompress(
                     b"", format=lzma.FORMAT_ALONE, filters=FILTERS_RAW_1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: memory limit reached
     def test_decompress_memlimit(self):
         with self.assertRaises(LZMAError):
             lzma.decompress(COMPRESSED_XZ, memlimit=1024)
@@ -539,12 +537,10 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
 
     # Test robust handling of non-LZMA data following the compressed stream(s).
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_decompress_trailing_junk(self):
         ddata = lzma.decompress(COMPRESSED_XZ + COMPRESSED_BOGUS)
         self.assertEqual(ddata, INPUT)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_decompress_multistream_trailing_junk(self):
         ddata = lzma.decompress(COMPRESSED_XZ * 3 + COMPRESSED_BOGUS)
         self.assertEqual(ddata, INPUT * 3)
@@ -909,12 +905,10 @@ class FileTestCase(unittest.TestCase):
         finally:
             _streams.BUFFER_SIZE = saved_buffer_size
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_read_trailing_junk(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ + COMPRESSED_BOGUS)) as f:
             self.assertEqual(f.read(), INPUT)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_read_multistream_trailing_junk(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ * 5 + COMPRESSED_BOGUS)) as f:
             self.assertEqual(f.read(), INPUT * 5)
@@ -1020,7 +1014,6 @@ class FileTestCase(unittest.TestCase):
         with LZMAFile(BytesIO(COMPRESSED_XZ)) as f:
             self.assertRaises(TypeError, f.read, float())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_read_bad_data(self):
         with LZMAFile(BytesIO(COMPRESSED_BOGUS)) as f:
             self.assertRaises(LZMAError, f.read)
