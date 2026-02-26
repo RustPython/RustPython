@@ -11,7 +11,6 @@ import ast
 import difflib
 import functools
 import pathlib
-import re
 import shelve
 import subprocess
 
@@ -32,62 +31,98 @@ from update_lib.file_utils import (
 # === Import parsing utilities ===
 
 
-def _extract_top_level_code(content: str) -> str:
-    """Extract only top-level code from Python content for faster parsing."""
-    def_idx = content.find("\ndef ")
-    class_idx = content.find("\nclass ")
+class ImportVisitor(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.test_imports = set()
+        self.lib_imports = set()
 
-    indices = [i for i in (def_idx, class_idx) if i != -1]
-    if indices:
-        content = content[: min(indices)]
-    return content.rstrip("\n")
+    def add_import(self, name: str) -> None:
+        """
+        Add an `import` to its correct slot (`test_imports` or `lib_imports`).
 
+        Parameters
+        ----------
+        name : str
+            Module name.
+        """
+        if name.startswith("test.support"):
+            return
 
-_FROM_TEST_IMPORT_RE = re.compile(r"^from test import (.+)", re.MULTILINE)
-_FROM_TEST_DOT_RE = re.compile(r"^from test\.(\w+)", re.MULTILINE)
-_IMPORT_TEST_DOT_RE = re.compile(r"^import test\.(\w+)", re.MULTILINE)
+        real_name = name.split(".", 1)[-1]
+        if name.startswith("test."):
+            self.test_imports.add(real_name)
+        else:
+            self.lib_imports.add(real_name)
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            self.add_import(alias.name)
+
+    def visit_ImportFrom(self, node):
+        try:
+            module = node.module
+        except AttributeError:
+            # Ignore `from . import my_internal_module`
+            return
+
+        for name in node.names:
+            self.add_import(f"{module}.{name}")
+
+    def visit_Call(self, node) -> None:
+        """
+        In test files, there's sometimes use of:
+
+        ```python
+        import test.support
+        from test.support import script_helper
+
+        script = support.findfile("_test_atexit.py")
+        script_helper.run_test_script(script)
+        ```
+
+        This imports "_test_atexit.py" but does not show as an import node.
+        """
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            return
+
+        value = func.value
+        if not isinstance(value, ast.Name):
+            return
+
+        if (value.id != "support") or (func.attr != "findfile"):
+            return
+
+        arg = node.args[0]
+        if not isinstance(arg, ast.Constant):
+            return
+
+        target = arg.value
+        if not target.endswith(".py"):
+            return
+
+        target = target.removesuffix(".py")
+        self.add_import(f"test.{target}")
 
 
 def parse_test_imports(content: str) -> set[str]:
     """Parse test file content and extract test package dependencies."""
-    content = _extract_top_level_code(content)
-    imports = set()
+    if not (tree := safe_parse_ast(content)):
+        return set()
 
-    for match in _FROM_TEST_IMPORT_RE.finditer(content):
-        import_list = match.group(1)
-        for part in import_list.split(","):
-            name = part.split()[0].strip()
-            if name and name not in ("support", "__init__"):
-                imports.add(name)
-
-    for match in _FROM_TEST_DOT_RE.finditer(content):
-        dep = match.group(1)
-        if dep not in ("support", "__init__"):
-            imports.add(dep)
-
-    for match in _IMPORT_TEST_DOT_RE.finditer(content):
-        dep = match.group(1)
-        if dep not in ("support", "__init__"):
-            imports.add(dep)
-
-    return imports
-
-
-_IMPORT_RE = re.compile(r"^import\s+(\w[\w.]*)", re.MULTILINE)
-_FROM_IMPORT_RE = re.compile(r"^from\s+(\w[\w.]*)\s+import", re.MULTILINE)
+    visitor = ImportVisitor()
+    visitor.visit(tree)
+    return visitor.test_imports
 
 
 def parse_lib_imports(content: str) -> set[str]:
     """Parse library file and extract all imported module names."""
-    imports = set()
+    if not (tree := safe_parse_ast(content)):
+        return set()
 
-    for match in _IMPORT_RE.finditer(content):
-        imports.add(match.group(1))
-
-    for match in _FROM_IMPORT_RE.finditer(content):
-        imports.add(match.group(1))
-
-    return imports
+    visitor = ImportVisitor()
+    visitor.visit(tree)
+    return visitor.lib_imports
 
 
 # === TODO marker utilities ===
@@ -104,7 +139,7 @@ def filter_rustpython_todo(content: str) -> str:
 
 def count_rustpython_todo(content: str) -> int:
     """Count lines containing RustPython TODO markers."""
-    return sum(1 for line in content.splitlines() if TODO_MARKER in line)
+    return content.count(TODO_MARKER)
 
 
 def count_todo_in_path(path: pathlib.Path) -> int:
@@ -113,10 +148,7 @@ def count_todo_in_path(path: pathlib.Path) -> int:
         content = safe_read_text(path)
         return count_rustpython_todo(content) if content else 0
 
-    total = 0
-    for _, content in read_python_files(path):
-        total += count_rustpython_todo(content)
-    return total
+    return sum(count_rustpython_todo(content) for _, content in read_python_files(path))
 
 
 # === Test utilities ===
