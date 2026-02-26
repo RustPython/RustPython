@@ -334,7 +334,7 @@ def compute_test_todo_list(
             test_order = lib_test_order[lib_name].index(test_name)
         else:
             # Extract lib name from test name (test_foo -> foo)
-            lib_name = test_name.removeprefix("test_")
+            lib_name = test_name.removeprefix("test_").removeprefix("_test")
             test_order = 0  # Default order for tests not in DEPENDENCIES
 
         # Check if corresponding lib is up-to-date
