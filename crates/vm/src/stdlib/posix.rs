@@ -51,7 +51,6 @@ pub mod module {
     use nix::{
         errno::Errno,
         fcntl,
-        sys::signal,
         unistd::{self, Gid, Pid, Uid},
     };
     use rustpython_common::os::ffi::OsStringExt;
@@ -1530,6 +1529,8 @@ pub mod module {
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     impl PosixSpawnArgs {
         fn spawn(self, spawnp: bool, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+            use nix::sys::signal;
+
             use crate::TryFromBorrowedObject;
 
             let path = self
@@ -2566,11 +2567,8 @@ pub mod module {
 #[pymodule(sub)]
 mod posix_sched {
     use crate::{
-        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyInt, PyTupleRef},
-        convert::ToPyObject,
-        function::FuncArgs,
-        types::PyStructSequence,
+        AsObject, Py, PyObjectRef, PyResult, VirtualMachine, builtins::PyTupleRef,
+        convert::ToPyObject, function::FuncArgs, types::PyStructSequence,
     };
 
     #[derive(FromArgs)]
@@ -2629,7 +2627,10 @@ mod posix_sched {
 
     #[cfg(not(target_env = "musl"))]
     fn convert_sched_param(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
-        use crate::{builtins::PyTuple, class::StaticType};
+        use crate::{
+            builtins::{PyInt, PyTuple},
+            class::StaticType,
+        };
         if !obj.fast_isinstance(PySchedParam::static_type()) {
             return Err(vm.new_type_error("must have a sched_param object".to_owned()));
         }
@@ -2653,6 +2654,7 @@ mod posix_sched {
         }
     }
 
+    #[cfg(not(target_env = "musl"))]
     #[derive(FromArgs)]
     struct SchedSetschedulerArgs {
         #[pyarg(positional)]
@@ -2692,6 +2694,7 @@ mod posix_sched {
         ))
     }
 
+    #[cfg(not(target_env = "musl"))]
     #[derive(FromArgs)]
     struct SchedSetParamArgs {
         #[pyarg(positional)]

@@ -998,6 +998,7 @@ mod decl {
     }
 
     #[cfg(any(unix, windows))]
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     fn pyobj_to_time_t(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<libc::time_t> {
         match value {
             Either::A(float) => {
@@ -1005,14 +1006,17 @@ mod decl {
                     return Err(vm.new_value_error("Invalid value for timestamp"));
                 }
                 let secs = float.floor();
+                #[cfg_attr(target_env = "musl", allow(deprecated))]
                 if secs < libc::time_t::MIN as f64 || secs > libc::time_t::MAX as f64 {
                     return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
                 }
+                #[cfg_attr(target_env = "musl", allow(deprecated))]
                 Ok(secs as libc::time_t)
             }
             Either::B(int) => {
                 // try_into is needed on 32-bit platforms where time_t != i64
                 #[allow(clippy::useless_conversion)]
+                #[cfg_attr(target_env = "musl", allow(deprecated))]
                 let ts: libc::time_t = int.try_into().map_err(|_| {
                     vm.new_overflow_error("timestamp out of range for platform time_t")
                 })?;
@@ -1052,6 +1056,7 @@ mod platform {
         convert::IntoPyException,
     };
     use core::time::Duration;
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     use libc::time_t;
     use nix::{sys::time::TimeSpec, time::ClockId};
 
@@ -1116,10 +1121,12 @@ mod platform {
         }
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn current_time_t() -> time_t {
         unsafe { libc::time(core::ptr::null_mut()) }
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn gmtime_from_timestamp(
         when: time_t,
         vm: &VirtualMachine,
@@ -1132,6 +1139,7 @@ mod platform {
         Ok(struct_time_from_tm(vm, unsafe { out.assume_init() }))
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn localtime_from_timestamp(
         when: time_t,
         vm: &VirtualMachine,
@@ -1200,6 +1208,7 @@ mod platform {
 
     #[cfg(not(target_os = "redox"))]
     #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     #[pyfunction]
     fn clock_settime_ns(clk_id: ClockId, time: libc::time_t, vm: &VirtualMachine) -> PyResult<()> {
         let ts = Duration::from_nanos(time as _).into();
@@ -1369,10 +1378,12 @@ mod platform {
         }
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn current_time_t() -> libc::time_t {
         unsafe { libc::time(core::ptr::null_mut()) }
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn gmtime_from_timestamp(
         when: libc::time_t,
         vm: &VirtualMachine,
@@ -1390,6 +1401,7 @@ mod platform {
         ))
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn localtime_from_timestamp(
         when: libc::time_t,
         vm: &VirtualMachine,

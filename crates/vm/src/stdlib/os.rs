@@ -1226,12 +1226,15 @@ pub(super) mod _os {
         pub st_gid: PyIntRef,
         pub st_size: PyIntRef,
         // Indices 7-9: integer seconds
+        #[cfg_attr(target_env = "musl", allow(deprecated))]
         #[pyarg(positional, default)]
         #[pystruct_sequence(unnamed)]
         pub st_atime_int: libc::time_t,
+        #[cfg_attr(target_env = "musl", allow(deprecated))]
         #[pyarg(positional, default)]
         #[pystruct_sequence(unnamed)]
         pub st_mtime_int: libc::time_t,
+        #[cfg_attr(target_env = "musl", allow(deprecated))]
         #[pyarg(positional, default)]
         #[pystruct_sequence(unnamed)]
         pub st_ctime_int: libc::time_t,
