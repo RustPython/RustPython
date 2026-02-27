@@ -1955,9 +1955,16 @@ mod _sqlite3 {
         fn arraysize(&self) -> c_int {
             self.arraysize.load(Ordering::Relaxed)
         }
+
         #[pygetset(setter)]
-        fn set_arraysize(&self, val: c_int) {
+        fn set_arraysize(&self, val: c_int, vm: &VirtualMachine) -> PyResult<()> {
+            if val < 0 {
+                return Err(vm.new_value_error("arraysize may not be negative"));
+            }
+
             self.arraysize.store(val, Ordering::Relaxed);
+
+            Ok(())
         }
 
         fn build_row_cast_map(
