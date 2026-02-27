@@ -1088,7 +1088,6 @@ class CursorTests(unittest.TestCase):
 
         self.assertEqual(len(res), 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON arraysize validation not implemented
     def test_invalid_array_size(self):
         UINT32_MAX = (1 << 32) - 1
         setter = functools.partial(setattr, self.cu, 'arraysize')
