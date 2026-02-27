@@ -1,14 +1,18 @@
 # XXX TypeErrors on calling handlers, or on bad return values from a
 # handler, are obscure and unhelpful.
 
+import abc
+import functools
 import os
+import re
 import sys
 import sysconfig
+import textwrap
 import unittest
 import traceback
 from io import BytesIO
 from test import support
-from test.support import os_helper
+from test.support import import_helper, os_helper
 
 from xml.parsers import expat
 from xml.parsers.expat import errors
@@ -261,7 +265,7 @@ class ParseTest(unittest.TestCase):
         operations = out.out
         self._verify_parse_output(operations)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_again(self):
         parser = expat.ParserCreate()
         file = BytesIO(data)
@@ -282,7 +286,7 @@ class NamespaceSeparatorTest(unittest.TestCase):
         expat.ParserCreate(namespace_separator=None)
         expat.ParserCreate(namespace_separator=' ')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_illegal(self):
         with self.assertRaisesRegex(TypeError,
                 r"ParserCreate\(\) argument (2|'namespace_separator') "
@@ -309,7 +313,7 @@ class NamespaceSeparatorTest(unittest.TestCase):
 
 
 class InterningTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test(self):
         # Test the interning machinery.
         p = expat.ParserCreate()
@@ -325,7 +329,7 @@ class InterningTest(unittest.TestCase):
             # L should have the same string repeated over and over.
             self.assertTrue(tag is entry)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_issue9402(self):
         # create an ExternalEntityParserCreate with buffer text
         class ExternalOutputter:
@@ -383,7 +387,7 @@ class BufferTextTest(unittest.TestCase):
         parser = expat.ParserCreate()
         self.assertFalse(parser.buffer_text)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_buffering_enabled(self):
         # Make sure buffering is turned on
         self.assertTrue(self.parser.buffer_text)
@@ -391,7 +395,7 @@ class BufferTextTest(unittest.TestCase):
         self.assertEqual(self.stuff, ['123'],
                          "buffered text not properly collapsed")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test1(self):
         # XXX This test exposes more detail of Expat's text chunking than we
         # XXX like, but it tests what we need to concisely.
@@ -401,7 +405,7 @@ class BufferTextTest(unittest.TestCase):
                          ["<a>", "1", "<b>", "2", "\n", "3", "<c>", "4\n5"],
                          "buffering control not reacting as expected")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test2(self):
         self.parser.Parse(b"<a>1<b/>&lt;2&gt;<c/>&#32;\n&#x20;3</a>", True)
         self.assertEqual(self.stuff, ["1<2> \n 3"],
@@ -434,7 +438,7 @@ class BufferTextTest(unittest.TestCase):
             ["<a>", "1", "<b>", "</b>", "2", "<c>", "</c>", "345", "</a>"],
             "buffered text not properly split")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test7(self):
         self.setHandlers(["CommentHandler", "EndElementHandler",
                     "StartElementHandler"])
@@ -536,7 +540,7 @@ class PositionTest(unittest.TestCase):
 
 
 class sf1296433Test(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_parse_only_xml_data(self):
         # https://bugs.python.org/issue1296433
         #
@@ -560,15 +564,15 @@ class ChardataBufferTest(unittest.TestCase):
     test setting of chardata buffer size
     """
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_1025_bytes(self):
         self.assertEqual(self.small_buffer_test(1025), 2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_1000_bytes(self):
         self.assertEqual(self.small_buffer_test(1000), 1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_wrong_size(self):
         parser = expat.ParserCreate()
         parser.buffer_text = 1
@@ -581,7 +585,7 @@ class ChardataBufferTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             parser.buffer_size = 512.0
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unchanged_size(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><s>" + b'a' * 512
         xml2 = b'a'*512 + b'</s>'
@@ -605,7 +609,7 @@ class ChardataBufferTest(unittest.TestCase):
         self.assertEqual(self.n, 2)
 
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disabling_buffer(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a>" + b'a' * 512
         xml2 = b'b' * 1024
@@ -650,7 +654,7 @@ class ChardataBufferTest(unittest.TestCase):
         parser.Parse(xml)
         return self.n
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_change_size_1(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a><s>" + b'a' * 1024
         xml2 = b'aaa</s><s>' + b'a' * 1025 + b'</s></a>'
@@ -667,7 +671,7 @@ class ChardataBufferTest(unittest.TestCase):
         parser.Parse(xml2, True)
         self.assertEqual(self.n, 2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_change_size_2(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a>a<s>" + b'a' * 1023
         xml2 = b'aaa</s><s>' + b'a' * 1025 + b'</s></a>'
@@ -684,8 +688,26 @@ class ChardataBufferTest(unittest.TestCase):
         parser.Parse(xml2, True)
         self.assertEqual(self.n, 4)
 
+class ElementDeclHandlerTest(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by Parse
+    def test_trigger_leak(self):
+        # Unfixed, this test would leak the memory of the so-called
+        # "content model" in function ``my_ElementDeclHandler`` of pyexpat.
+        # See https://github.com/python/cpython/issues/140593.
+        data = textwrap.dedent('''\
+            <!DOCTYPE quotations SYSTEM "quotations.dtd" [
+                <!ELEMENT root ANY>
+            ]>
+            <root/>
+        ''').encode('UTF-8')
+
+        parser = expat.ParserCreate()
+        parser.NotStandaloneHandler = lambda: 1.234  # arbitrary float
+        parser.ElementDeclHandler = lambda _1, _2: None
+        self.assertRaises(TypeError, parser.Parse, data, True)
+
 class MalformedInputTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test1(self):
         xml = b"\0\r\n"
         parser = expat.ParserCreate()
@@ -695,7 +717,7 @@ class MalformedInputTest(unittest.TestCase):
         except expat.ExpatError as e:
             self.assertEqual(str(e), 'unclosed token: line 2, column 0')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test2(self):
         # \xc2\x85 is UTF-8 encoded U+0085 (NEXT LINE)
         xml = b"<?xml version\xc2\x85='1.0'?>\r\n"
@@ -705,13 +727,13 @@ class MalformedInputTest(unittest.TestCase):
             parser.Parse(xml, True)
 
 class ErrorMessageTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_codes(self):
         # verify mapping of errors.codes and errors.messages
         self.assertEqual(errors.XML_ERROR_SYNTAX,
                          errors.messages[errors.codes[errors.XML_ERROR_SYNTAX]])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expaterror(self):
         xml = b'<'
         parser = expat.ParserCreate()
@@ -727,7 +749,7 @@ class ForeignDTDTests(unittest.TestCase):
     """
     Tests for the UseForeignDTD method of expat parser objects.
     """
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_use_foreign_dtd(self):
         """
         If UseForeignDTD is passed True and a document without an external
@@ -756,7 +778,7 @@ class ForeignDTDTests(unittest.TestCase):
         parser.Parse(b"<?xml version='1.0'?><element/>")
         self.assertEqual(handler_call_args, [(None, None)])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ignore_use_foreign_dtd(self):
         """
         If UseForeignDTD is passed True and a document with an external
@@ -785,7 +807,7 @@ class ParentParserLifetimeTest(unittest.TestCase):
     See https://github.com/python/cpython/issues/139400.
     """
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
     def test_parent_parser_outlives_its_subparsers__single(self):
         parser = expat.ParserCreate()
         subparser = parser.ExternalEntityParserCreate(None)
@@ -794,7 +816,7 @@ class ParentParserLifetimeTest(unittest.TestCase):
         # while it's still being referenced by a related subparser.
         del parser
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
     def test_parent_parser_outlives_its_subparsers__multiple(self):
         parser = expat.ParserCreate()
         subparser_one = parser.ExternalEntityParserCreate(None)
@@ -804,7 +826,7 @@ class ParentParserLifetimeTest(unittest.TestCase):
         # while it's still being referenced by a related subparser.
         del parser
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
     def test_parent_parser_outlives_its_subparsers__chain(self):
         parser = expat.ParserCreate()
         subparser = parser.ExternalEntityParserCreate(None)
@@ -817,7 +839,7 @@ class ParentParserLifetimeTest(unittest.TestCase):
 
 
 class ReparseDeferralTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'GetReparseDeferralEnabled'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'GetReparseDeferralEnabled'
     def test_getter_setter_round_trip(self):
         parser = expat.ParserCreate()
         enabled = (expat.version_info >= (2, 6, 0))
@@ -828,7 +850,7 @@ class ReparseDeferralTest(unittest.TestCase):
         parser.SetReparseDeferralEnabled(True)
         self.assertIs(parser.GetReparseDeferralEnabled(), enabled)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'GetReparseDeferralEnabled'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'GetReparseDeferralEnabled'
     def test_reparse_deferral_enabled(self):
         if expat.version_info < (2, 6, 0):
             self.skipTest(f'Expat {expat.version_info} does not '
@@ -853,7 +875,7 @@ class ReparseDeferralTest(unittest.TestCase):
 
         self.assertEqual(started, ['doc'])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetReparseDeferralEnabled'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetReparseDeferralEnabled'
     def test_reparse_deferral_disabled(self):
         started = []
 
@@ -871,6 +893,200 @@ class ReparseDeferralTest(unittest.TestCase):
 
         # The key test: Have handlers already fired?  Expecting: yes.
         self.assertEqual(started, ['doc'])
+
+
+class AttackProtectionTestBase(abc.ABC):
+    """
+    Base class for testing protections against XML payloads with
+    disproportionate amplification.
+
+    The protections being tested should detect and prevent attacks
+    that leverage disproportionate amplification from small inputs.
+    """
+
+    @staticmethod
+    def exponential_expansion_payload(*, nrows, ncols, text='.'):
+        """Create a billion laughs attack payload.
+
+        Be careful: the number of total items is pow(n, k), thereby
+        requiring at least pow(ncols, nrows) * sizeof(text) memory!
+        """
+        template = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <!DOCTYPE doc [
+                <!ENTITY row0 "{text}">
+                <!ELEMENT doc (#PCDATA)>
+            {{body}}
+            ]>
+            <doc>&row{nrows};</doc>
+        """).rstrip()
+
+        body = '\n'.join(
+            f'<!ENTITY row{i + 1} "{f"&row{i};" * ncols}">'
+            for i in range(nrows)
+        )
+        body = textwrap.indent(body, ' ' * 4)
+        return template.format(body=body)
+
+    def test_payload_generation(self):
+        # self-test for exponential_expansion_payload()
+        payload = self.exponential_expansion_payload(nrows=2, ncols=3)
+        self.assertEqual(payload, textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <!DOCTYPE doc [
+                <!ENTITY row0 ".">
+                <!ELEMENT doc (#PCDATA)>
+                <!ENTITY row1 "&row0;&row0;&row0;">
+                <!ENTITY row2 "&row1;&row1;&row1;">
+            ]>
+            <doc>&row2;</doc>
+        """).rstrip())
+
+    def assert_root_parser_failure(self, func, /, *args, **kwargs):
+        """Check that func(*args, **kwargs) is invalid for a sub-parser."""
+        msg = "parser must be a root parser"
+        self.assertRaisesRegex(expat.ExpatError, msg, func, *args, **kwargs)
+
+    @abc.abstractmethod
+    def assert_rejected(self, func, /, *args, **kwargs):
+        """Assert that func(*args, **kwargs) triggers the attack protection.
+
+        Note: this method must ensure that the attack protection being tested
+        is the one that is actually triggered at runtime, e.g., by matching
+        the exact error message.
+        """
+
+    @abc.abstractmethod
+    def set_activation_threshold(self, parser, threshold):
+        """Set the activation threshold for the tested protection."""
+
+    @abc.abstractmethod
+    def set_maximum_amplification(self, parser, max_factor):
+        """Set the maximum amplification factor for the tested protection."""
+
+    @abc.abstractmethod
+    def test_set_activation_threshold__threshold_reached(self):
+        """Test when the activation threshold is exceeded."""
+
+    @abc.abstractmethod
+    def test_set_activation_threshold__threshold_not_reached(self):
+        """Test when the activation threshold is not exceeded."""
+
+    def test_set_activation_threshold__invalid_threshold_type(self):
+        parser = expat.ParserCreate()
+        setter = functools.partial(self.set_activation_threshold, parser)
+
+        self.assertRaises(TypeError, setter, 1.0)
+        self.assertRaises(TypeError, setter, -1.5)
+        self.assertRaises(ValueError, setter, -5)
+
+    def test_set_activation_threshold__invalid_threshold_range(self):
+        _testcapi = import_helper.import_module("_testcapi")
+        parser = expat.ParserCreate()
+        setter = functools.partial(self.set_activation_threshold, parser)
+
+        self.assertRaises(OverflowError, setter, _testcapi.ULLONG_MAX + 1)
+
+    def test_set_activation_threshold__fail_for_subparser(self):
+        parser = expat.ParserCreate()
+        subparser = parser.ExternalEntityParserCreate(None)
+        setter = functools.partial(self.set_activation_threshold, subparser)
+        self.assert_root_parser_failure(setter, 12345)
+
+    @abc.abstractmethod
+    def test_set_maximum_amplification__amplification_exceeded(self):
+        """Test when the amplification factor is exceeded."""
+
+    @abc.abstractmethod
+    def test_set_maximum_amplification__amplification_not_exceeded(self):
+        """Test when the amplification factor is not exceeded."""
+
+    def test_set_maximum_amplification__infinity(self):
+        inf = float('inf')  # an 'inf' threshold is allowed by Expat
+        parser = expat.ParserCreate()
+        self.assertIsNone(self.set_maximum_amplification(parser, inf))
+
+    def test_set_maximum_amplification__invalid_max_factor_type(self):
+        parser = expat.ParserCreate()
+        setter = functools.partial(self.set_maximum_amplification, parser)
+
+        self.assertRaises(TypeError, setter, None)
+        self.assertRaises(TypeError, setter, 'abc')
+
+    def test_set_maximum_amplification__invalid_max_factor_range(self):
+        parser = expat.ParserCreate()
+        setter = functools.partial(self.set_maximum_amplification, parser)
+
+        msg = re.escape("'max_factor' must be at least 1.0")
+        self.assertRaisesRegex(expat.ExpatError, msg, setter, float('nan'))
+        self.assertRaisesRegex(expat.ExpatError, msg, setter, 0.99)
+
+    def test_set_maximum_amplification__fail_for_subparser(self):
+        parser = expat.ParserCreate()
+        subparser = parser.ExternalEntityParserCreate(None)
+        setter = functools.partial(self.set_maximum_amplification, subparser)
+        self.assert_root_parser_failure(setter, 123.45)
+
+
+@unittest.skipIf(expat.version_info < (2, 7, 2), "requires Expat >= 2.7.2")
+class MemoryProtectionTest(AttackProtectionTestBase, unittest.TestCase):
+
+    # NOTE: with the default Expat configuration, the billion laughs protection
+    # may hit before the allocation limiter if exponential_expansion_payload()
+    # is not carefully parametrized. As such, the payloads should be chosen so
+    # that either the allocation limiter is hit before other protections are
+    # triggered or no protection at all is triggered.
+
+    def assert_rejected(self, func, /, *args, **kwargs):
+        """Check that func(*args, **kwargs) hits the allocation limit."""
+        msg = r"out of memory: line \d+, column \d+"
+        self.assertRaisesRegex(expat.ExpatError, msg, func, *args, **kwargs)
+
+    def set_activation_threshold(self, parser, threshold):
+        return parser.SetAllocTrackerActivationThreshold(threshold)
+
+    def set_maximum_amplification(self, parser, max_factor):
+        return parser.SetAllocTrackerMaximumAmplification(max_factor)
+
+    def test_set_activation_threshold__threshold_reached(self):
+        parser = expat.ParserCreate()
+        # Choose a threshold expected to be always reached.
+        self.set_activation_threshold(parser, 3)
+        # Check that the threshold is reached by choosing a small factor
+        # and a payload whose peak amplification factor exceeds it.
+        self.assertIsNone(self.set_maximum_amplification(parser, 1.0))
+        payload = self.exponential_expansion_payload(ncols=10, nrows=4)
+        self.assert_rejected(parser.Parse, payload, True)
+
+    def test_set_activation_threshold__threshold_not_reached(self):
+        parser = expat.ParserCreate()
+        # Choose a threshold expected to be never reached.
+        self.set_activation_threshold(parser, pow(10, 5))
+        # Check that the threshold is reached by choosing a small factor
+        # and a payload whose peak amplification factor exceeds it.
+        self.assertIsNone(self.set_maximum_amplification(parser, 1.0))
+        payload = self.exponential_expansion_payload(ncols=10, nrows=4)
+        self.assertIsNotNone(parser.Parse(payload, True))
+
+    def test_set_maximum_amplification__amplification_exceeded(self):
+        parser = expat.ParserCreate()
+        # Unconditionally enable maximum activation factor.
+        self.set_activation_threshold(parser, 0)
+        # Choose a max amplification factor expected to always be exceeded.
+        self.assertIsNone(self.set_maximum_amplification(parser, 1.0))
+        # Craft a payload for which the peak amplification factor is > 1.0.
+        payload = self.exponential_expansion_payload(ncols=1, nrows=2)
+        self.assert_rejected(parser.Parse, payload, True)
+
+    def test_set_maximum_amplification__amplification_not_exceeded(self):
+        parser = expat.ParserCreate()
+        # Unconditionally enable maximum activation factor.
+        self.set_activation_threshold(parser, 0)
+        # Choose a max amplification factor expected to never be exceeded.
+        self.assertIsNone(self.set_maximum_amplification(parser, 1e4))
+        # Craft a payload for which the peak amplification factor is < 1e4.
+        payload = self.exponential_expansion_payload(ncols=1, nrows=2)
+        self.assertIsNotNone(parser.Parse(payload, True))
 
 
 if __name__ == "__main__":

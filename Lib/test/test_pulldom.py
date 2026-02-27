@@ -23,8 +23,8 @@ SMALL_SAMPLE = """<?xml version="1.0"?>
 
 
 class PullDOMTestCase(unittest.TestCase):
-    # TODO: RUSTPYTHON FileNotFoundError: [Errno 2] No such file or directory (os error 2): 'xmltestdata/test.xml' -> 'None'
-    @unittest.expectedFailure
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; FileNotFoundError: [Errno 2] No such file or directory (os error 2): 'xmltestdata/test.xml' -> 'None'
     def test_parse(self):
         """Minimal test of DOMEventStream.parse()"""
 
@@ -41,15 +41,14 @@ class PullDOMTestCase(unittest.TestCase):
         with open(tstfile, "rb") as fin:
             list(pulldom.parse(fin))
 
-    # TODO: RUSTPYTHON implement DOM semantic
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; implement DOM semantic
     def test_parse_semantics(self):
         """Test DOMEventStream parsing semantics."""
 
         items = pulldom.parseString(SMALL_SAMPLE)
         evt, node = next(items)
         # Just check the node is a Document:
-        self.assertTrue(hasattr(node, "createElement"))
+        self.assertHasAttr(node, "createElement")
         self.assertEqual(pulldom.START_DOCUMENT, evt)
         evt, node = next(items)
         self.assertEqual(pulldom.START_ELEMENT, evt)
@@ -105,8 +104,7 @@ class PullDOMTestCase(unittest.TestCase):
         #evt, node = next(items)
         #self.assertEqual(pulldom.END_DOCUMENT, evt)
 
-    # TODO: RUSTPYTHON pulldom.parseString(SMALL_SAMPLE) return iterator with tuple with 2 elements
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; pulldom.parseString(SMALL_SAMPLE) return iterator with tuple with 2 elements
     def test_expandItem(self):
         """Ensure expandItem works as expected."""
         items = pulldom.parseString(SMALL_SAMPLE)
@@ -197,7 +195,7 @@ class ThoroughTestCase(unittest.TestCase):
         evt, node = next(pd)
         self.assertEqual(pulldom.START_DOCUMENT, evt)
         # Just check the node is a Document:
-        self.assertTrue(hasattr(node, "createElement"))
+        self.assertHasAttr(node, "createElement")
 
         if before_root:
             evt, node = next(pd)
@@ -303,8 +301,7 @@ class SAX2DOMTestCase(unittest.TestCase):
     def confirm(self, test, testname="Test"):
         self.assertTrue(test, testname)
 
-    # TODO: RUSTPYTHON read from stream io
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; read from stream io
     def test_basic(self):
         """Ensure SAX2DOM can parse from a stream."""
         with io.StringIO(SMALL_SAMPLE) as fin:
