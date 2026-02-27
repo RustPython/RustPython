@@ -1,5 +1,5 @@
 import os
-from io import BufferedReader, BytesIO, FileIO, StringIO
+from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO
 
 from testutils import assert_raises
 
@@ -40,3 +40,20 @@ with FileIO("README.md") as fio:
     assert len(nres) == 1
     nres = fio.read(2)
     assert len(nres) == 2
+
+# Test that IOBase.isatty() raises ValueError when called on a closed file.
+# Minimal subclass that inherits IOBase.isatty() without overriding it.
+class MinimalRaw(RawIOBase):
+    def readinto(self, b):
+        return 0
+
+
+f = MinimalRaw()
+assert not f.closed
+assert not f.isatty()  # open file: should return False
+
+f.close()
+assert f.closed
+
+with assert_raises(ValueError):
+    f.isatty()
