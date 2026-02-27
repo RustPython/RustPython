@@ -1,10 +1,12 @@
 import atexit
 import os
+import subprocess
 import textwrap
 import unittest
+from test.support import os_helper
 from test import support
-from test.support import script_helper
-
+from test.support import SuppressCrashReport, script_helper
+from test.support import threading_helper
 
 class GeneralTest(unittest.TestCase):
     def test_general(self):
@@ -45,6 +47,40 @@ class FunctionalTest(unittest.TestCase):
         res = script_helper.assert_python_ok("-c", code)
         self.assertEqual(res.out.decode().splitlines(), ["atexit2", "atexit1"])
         self.assertFalse(res.err)
+
+    @unittest.skip("TODO: RUSTPYTHON; Flakey on CI")
+    @threading_helper.requires_working_threading()
+    @support.requires_resource("cpu")
+    @unittest.skipUnless(support.Py_GIL_DISABLED, "only meaningful without the GIL")
+    def test_atexit_thread_safety(self):
+        # GH-126907: atexit was not thread safe on the free-threaded build
+        source = """
+        from threading import Thread
+
+        def dummy():
+            pass
+
+
+        def thready():
+            for _ in range(100):
+                atexit.register(dummy)
+                atexit._clear()
+                atexit.register(dummy)
+                atexit.unregister(dummy)
+                atexit._run_exitfuncs()
+
+
+        threads = [Thread(target=thready) for _ in range(10)]
+        for thread in threads:
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+        """
+
+        # atexit._clear() has some evil side effects, and we don't
+        # want them to affect the rest of the tests.
+        script_helper.assert_python_ok("-c", textwrap.dedent(source))
 
 
 @support.cpython_only
@@ -99,6 +135,37 @@ class SubinterpreterTest(unittest.TestCase):
         os.close(w)
         self.assertEqual(os.read(r, len(expected)), expected)
         os.close(r)
+
+    # Python built with Py_TRACE_REFS fail with a fatal error in
+    # _PyRefchain_Trace() on memory allocation error.
+    @unittest.skipIf(support.Py_TRACE_REFS, 'cannot test Py_TRACE_REFS build')
+    def test_atexit_with_low_memory(self):
+        # gh-140080: Test that setting low memory after registering an atexit
+        # callback doesn't cause an infinite loop during finalization.
+        code = textwrap.dedent("""
+            import atexit
+            import _testcapi
+
+            def callback():
+                print("hello")
+
+            atexit.register(callback)
+            # Simulate low memory condition
+            _testcapi.set_nomemory(0)
+        """)
+
+        with os_helper.temp_dir() as temp_dir:
+            script = script_helper.make_script(temp_dir, 'test_atexit_script', code)
+            with SuppressCrashReport():
+                with script_helper.spawn_python(script,
+                                                stderr=subprocess.PIPE) as proc:
+                    proc.wait()
+                    stdout = proc.stdout.read()
+                    stderr = proc.stderr.read()
+
+        self.assertIn(proc.returncode, (0, 1))
+        self.assertNotIn(b"hello", stdout)
+        self.assertIn(b"MemoryError", stderr)
 
 
 if __name__ == "__main__":
