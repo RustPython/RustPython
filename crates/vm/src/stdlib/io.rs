@@ -4757,6 +4757,15 @@ mod _io {
 
             Ok(())
         }
+
+        #[pymethod]
+        fn isatty(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            if self.closed() {
+                return Err(io_closed_error(vm));
+            }
+
+            Ok(false)
+        }
     }
 
     #[pyclass]
