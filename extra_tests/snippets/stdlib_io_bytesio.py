@@ -74,6 +74,30 @@ def test_06():
     assert f.readline() == b""
 
 
+def test_07():
+    """
+    Tests that flush() returns None when the file is open,
+    and raises ValueError when the file is closed.
+    CPython reference: Modules/_io/bytesio.c:325-335
+    """
+    f = BytesIO(b"Test String 7")
+
+    # flush() on an open BytesIO returns None
+    assert f.flush() is None
+
+    # flush() is defined directly on BytesIO (not just inherited)
+    assert "flush" in BytesIO.__dict__
+
+    f.close()
+
+    # flush() on a closed BytesIO raises ValueError
+    try:
+        f.flush()
+        assert False, "Expected ValueError not raised"
+    except ValueError:
+        pass
+
+
 if __name__ == "__main__":
     test_01()
     test_02()
@@ -81,3 +105,4 @@ if __name__ == "__main__":
     test_04()
     test_05()
     test_06()
+    test_07()

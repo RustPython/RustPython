@@ -4596,6 +4596,15 @@ mod _io {
         }
 
         #[pymethod]
+        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.closed.load() {
+                Err(io_closed_error(vm))
+            } else {
+                Ok(())
+            }
+        }
+
+        #[pymethod]
         fn write(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
             let mut buffer = self.try_resizable(vm)?;
             data.with_ref(|b| buffer.write(b))
