@@ -20,7 +20,7 @@ class MinimalRaw(io.RawIOBase):
 
 f = MinimalRaw()
 assert not f.closed
-assert f.isatty() == False  # open file: should return False
+assert not f.isatty() # open file: should return False
 
 f.close()
 assert f.closed
