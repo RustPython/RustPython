@@ -1173,6 +1173,7 @@ impl Compiler {
             end_location,
             except_handler,
             lineno_override,
+            cache_entries: 0,
         });
     }
 
@@ -8013,6 +8014,7 @@ impl Compiler {
             end_location,
             except_handler,
             lineno_override: None,
+            cache_entries: 0,
         });
     }
 

@@ -106,6 +106,8 @@ pub struct InstructionInfo {
     pub except_handler: Option<ExceptHandlerInfo>,
     /// Override line number for linetable (e.g., line 0 for module RESUME)
     pub lineno_override: Option<i32>,
+    /// Number of CACHE code units emitted after this instruction
+    pub cache_entries: u32,
 }
 
 /// Exception handler information for an instruction.
@@ -278,9 +280,18 @@ impl CodeInfo {
             });
         }
 
+        // Pre-compute cache_entries for real (non-pseudo) instructions
+        for block in blocks.iter_mut() {
+            for instr in &mut block.instructions {
+                if let AnyInstruction::Real(op) = instr.instr {
+                    instr.cache_entries = op.cache_entries() as u32;
+                }
+            }
+        }
+
         let mut block_to_offset = vec![Label(0); blocks.len()];
         // block_to_index: maps block idx to instruction index (for exception table)
-        // This is the index into the final instructions array, including EXTENDED_ARG
+        // This is the index into the final instructions array, including EXTENDED_ARG and CACHE
         let mut block_to_index = vec![0u32; blocks.len()];
         loop {
             let mut num_instructions = 0;
@@ -291,14 +302,14 @@ impl CodeInfo {
                 // and instructions array index == byte offset (each instruction is 1 CodeUnit)
                 block_to_index[idx.idx()] = num_instructions as u32;
                 for instr in &block.instructions {
-                    num_instructions += instr.arg.instr_size();
+                    num_instructions += instr.arg.instr_size() + instr.cache_entries as usize;
                 }
             }
 
             instructions.reserve_exact(num_instructions);
             locations.reserve_exact(num_instructions);
 
-            let mut recompile_extended_arg = false;
+            let mut recompile = false;
             let mut next_block = BlockIdx(0);
             while next_block != BlockIdx::NULL {
                 let block = &mut blocks[next_block];
@@ -308,7 +319,7 @@ impl CodeInfo {
                     let target = info.target;
                     if target != BlockIdx::NULL {
                         let new_arg = OpArg::new(block_to_offset[target.idx()].0);
-                        recompile_extended_arg |= new_arg.instr_size() != info.arg.instr_size();
+                        recompile |= new_arg.instr_size() != info.arg.instr_size();
                         info.arg = new_arg;
                     }
 
@@ -339,10 +350,18 @@ impl CodeInfo {
                         other => other.expect_real(),
                     };
 
+                    // Update cache_entries when pseudo resolves to real opcode
+                    let new_cache = op.cache_entries() as u32;
+                    if new_cache != info.cache_entries {
+                        recompile = true;
+                        info.cache_entries = new_cache;
+                    }
+
+                    let cache_count = info.cache_entries as usize;
                     let (extras, lo_arg) = info.arg.split();
                     locations.extend(core::iter::repeat_n(
                         (info.location, info.end_location),
-                        info.arg.instr_size(),
+                        info.arg.instr_size() + cache_count,
                     ));
                     // Collect linetable locations with lineno_override support
                     let lt_loc = LineTableLocation {
@@ -354,17 +373,33 @@ impl CodeInfo {
                         end_col: info.end_location.character_offset.to_zero_indexed() as i32,
                     };
                     linetable_locations.extend(core::iter::repeat_n(lt_loc, info.arg.instr_size()));
+                    // CACHE entries get NO_LOCATION in the linetable
+                    if cache_count > 0 {
+                        let cache_loc = LineTableLocation {
+                            line: -1,
+                            end_line: -1,
+                            col: -1,
+                            end_col: -1,
+                        };
+                        linetable_locations
+                            .extend(core::iter::repeat_n(cache_loc, cache_count));
+                    }
                     instructions.extend(
                         extras
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))
                             .chain([CodeUnit { op, arg: lo_arg }]),
                     );
-                    current_offset += info.arg.instr_size() as u32;
+                    // Emit CACHE code units after the instruction
+                    instructions.extend(core::iter::repeat_n(
+                        CodeUnit::new(Instruction::Cache, 0.into()),
+                        cache_count,
+                    ));
+                    current_offset += info.arg.instr_size() as u32 + info.cache_entries;
                 }
                 next_block = block.next;
             }
 
-            if !recompile_extended_arg {
+            if !recompile {
                 break;
             }
 
@@ -1005,6 +1040,19 @@ fn generate_linetable(
 
             // Get line information
             let line = loc.line;
+
+            // NO_LOCATION: emit PyCodeLocationInfoKind::None entries (CACHE, etc.)
+            if line == -1 {
+                linetable.push(
+                    0x80 | ((PyCodeLocationInfoKind::None as u8) << 3)
+                        | ((entry_length - 1) as u8),
+                );
+                // Do NOT update prev_line
+                length -= entry_length;
+                i += entry_length;
+                continue;
+            }
+
             let end_line = loc.end_line;
             let line_delta = line - prev_line;
             let end_line_delta = end_line - line;
@@ -1105,8 +1153,8 @@ fn generate_exception_table(blocks: &[Block], block_to_index: &[u32]) -> Box<[u8
     // This matches how frame.rs uses lasti
     for (_, block) in iter_blocks(blocks) {
         for instr in &block.instructions {
-            // instr_size includes EXTENDED_ARG instructions
-            let instr_size = instr.arg.instr_size() as u32;
+            // instr_size includes EXTENDED_ARG and CACHE entries
+            let instr_size = instr.arg.instr_size() as u32 + instr.cache_entries;
 
             match (&current_entry, instr.except_handler) {
                 // No current entry, no handler - nothing to do
@@ -1280,6 +1328,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
             end_location: end_loc,
             except_handler: None,
             lineno_override: None,
+            cache_entries: 0,
         });
         jump_block.next = blocks[cold_idx.idx()].next;
         blocks[cold_idx.idx()].next = jump_block_idx;
@@ -1392,6 +1441,7 @@ fn normalize_jumps(blocks: &mut [Block]) {
                         end_location: ins.end_location,
                         except_handler: ins.except_handler,
                         lineno_override: None,
+                        cache_entries: 0,
                     },
                 ));
             }

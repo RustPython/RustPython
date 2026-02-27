@@ -932,9 +932,10 @@ impl PyCode {
             let oparg = extended_arg | raw_arg;
             extended_arg = 0;
 
+            let caches = op.cache_entries();
             let (src, left, right) = match op {
                 Instruction::ForIter { .. } => {
-                    // left = fall-through (continue iteration)
+                    // left = fall-through past CACHE entries (continue iteration)
                     // right = past END_FOR (iterator exhausted, skip cleanup)
                     let target = oparg as usize;
                     let right = if matches!(
@@ -945,31 +946,32 @@ impl PyCode {
                     } else {
                         target * 2
                     };
-                    (i * 2, (i + 1) * 2, right)
+                    (i * 2, (i + 1 + caches) * 2, right)
                 }
                 Instruction::PopJumpIfFalse { .. }
                 | Instruction::PopJumpIfTrue { .. }
                 | Instruction::PopJumpIfNone { .. }
                 | Instruction::PopJumpIfNotNone { .. } => {
-                    // left = fall-through (skip NOT_TAKEN if present)
+                    // left = fall-through past CACHE entries (skip NOT_TAKEN if present)
                     // right = jump target (condition met)
+                    let after_cache = i + 1 + caches;
                     let next_op = instructions
-                        .get(i + 1)
+                        .get(after_cache)
                         .map(|u| u.op.to_base().unwrap_or(u.op));
                     let fallthrough = if matches!(next_op, Some(Instruction::NotTaken)) {
-                        (i + 2) * 2
+                        (after_cache + 1) * 2
                     } else {
-                        (i + 1) * 2
+                        after_cache * 2
                     };
                     (i * 2, fallthrough, oparg as usize * 2)
                 }
                 Instruction::EndAsyncFor => {
-                    // src = END_SEND position (next_i - oparg)
+                    // src = END_SEND position (i - oparg)
                     let next_i = i + 1;
                     let Some(src_i) = next_i.checked_sub(oparg as usize) else {
                         continue;
                     };
-                    (src_i * 2, (src_i + 2) * 2, next_i * 2)
+                    (src_i * 2, (src_i + 1) * 2, next_i * 2)
                 }
                 _ => continue,
             };

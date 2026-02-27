@@ -511,6 +511,126 @@ impl Instruction {
             _ => return None,
         })
     }
+
+    /// Number of CACHE code units that follow this instruction.
+    /// _PyOpcode_Caches
+    pub fn cache_entries(self) -> usize {
+        match self {
+            // LOAD_ATTR: 9 cache entries
+            Self::LoadAttr { .. }
+            | Self::LoadAttrClass
+            | Self::LoadAttrClassWithMetaclassCheck
+            | Self::LoadAttrGetattributeOverridden
+            | Self::LoadAttrInstanceValue
+            | Self::LoadAttrMethodLazyDict
+            | Self::LoadAttrMethodNoDict
+            | Self::LoadAttrMethodWithValues
+            | Self::LoadAttrModule
+            | Self::LoadAttrNondescriptorNoDict
+            | Self::LoadAttrNondescriptorWithValues
+            | Self::LoadAttrProperty
+            | Self::LoadAttrSlot
+            | Self::LoadAttrWithHint => 9,
+
+            // BINARY_OP: 5 cache entries
+            Self::BinaryOp { .. }
+            | Self::BinaryOpAddFloat
+            | Self::BinaryOpAddInt
+            | Self::BinaryOpAddUnicode
+            | Self::BinaryOpExtend
+            | Self::BinaryOpInplaceAddUnicode
+            | Self::BinaryOpMultiplyFloat
+            | Self::BinaryOpMultiplyInt
+            | Self::BinaryOpSubscrDict
+            | Self::BinaryOpSubscrGetitem
+            | Self::BinaryOpSubscrListInt
+            | Self::BinaryOpSubscrListSlice
+            | Self::BinaryOpSubscrStrInt
+            | Self::BinaryOpSubscrTupleInt
+            | Self::BinaryOpSubtractFloat
+            | Self::BinaryOpSubtractInt => 5,
+
+            // LOAD_GLOBAL / STORE_ATTR: 4 cache entries
+            Self::LoadGlobal(_)
+            | Self::LoadGlobalBuiltin
+            | Self::LoadGlobalModule
+            | Self::StoreAttr { .. }
+            | Self::StoreAttrInstanceValue
+            | Self::StoreAttrSlot
+            | Self::StoreAttrWithHint => 4,
+
+            // CALL / CALL_KW / TO_BOOL: 3 cache entries
+            Self::Call { .. }
+            | Self::CallAllocAndEnterInit
+            | Self::CallBoundMethodExactArgs
+            | Self::CallBoundMethodGeneral
+            | Self::CallBuiltinClass
+            | Self::CallBuiltinFast
+            | Self::CallBuiltinFastWithKeywords
+            | Self::CallBuiltinO
+            | Self::CallIsinstance
+            | Self::CallLen
+            | Self::CallListAppend
+            | Self::CallMethodDescriptorFast
+            | Self::CallMethodDescriptorFastWithKeywords
+            | Self::CallMethodDescriptorNoargs
+            | Self::CallMethodDescriptorO
+            | Self::CallNonPyGeneral
+            | Self::CallPyExactArgs
+            | Self::CallPyGeneral
+            | Self::CallStr1
+            | Self::CallTuple1
+            | Self::CallType1
+            | Self::CallKw { .. }
+            | Self::CallKwBoundMethod
+            | Self::CallKwNonPy
+            | Self::CallKwPy
+            | Self::ToBool
+            | Self::ToBoolAlwaysTrue
+            | Self::ToBoolBool
+            | Self::ToBoolInt
+            | Self::ToBoolList
+            | Self::ToBoolNone
+            | Self::ToBoolStr => 3,
+
+            // 1 cache entry
+            Self::CompareOp { .. }
+            | Self::CompareOpFloat
+            | Self::CompareOpInt
+            | Self::CompareOpStr
+            | Self::ContainsOp(_)
+            | Self::ContainsOpDict
+            | Self::ContainsOpSet
+            | Self::ForIter { .. }
+            | Self::ForIterGen
+            | Self::ForIterList
+            | Self::ForIterRange
+            | Self::ForIterTuple
+            | Self::JumpBackward { .. }
+            | Self::JumpBackwardJit
+            | Self::JumpBackwardNoJit
+            | Self::LoadSuperAttr { .. }
+            | Self::LoadSuperAttrAttr
+            | Self::LoadSuperAttrMethod
+            | Self::PopJumpIfTrue { .. }
+            | Self::PopJumpIfFalse { .. }
+            | Self::PopJumpIfNone { .. }
+            | Self::PopJumpIfNotNone { .. }
+            | Self::Send { .. }
+            | Self::SendGen
+            | Self::StoreSubscr
+            | Self::StoreSubscrDict
+            | Self::StoreSubscrListInt
+            | Self::UnpackSequence { .. }
+            | Self::UnpackSequenceList
+            | Self::UnpackSequenceTuple
+            | Self::UnpackSequenceTwoTuple
+            | Self::CallFunctionEx => 1,
+
+            // Everything else: 0 cache entries
+            _ => 0,
+        }
+    }
 }
 
 impl InstructionMetadata for Instruction {

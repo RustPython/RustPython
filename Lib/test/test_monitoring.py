@@ -1236,7 +1236,6 @@ class TestLineAndInstructionEvents(CheckEvents):
             ('instruction', 'func1', 16),
             ('line', 'get_events', 11)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - instruction offsets differ from CPython
     def test_c_call(self):
 
         def func2():

@@ -2236,7 +2236,6 @@ class InstructionTests(InstructionTestCase):
     def get_instructions(self, code):
         return dis._get_instructions_bytes(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; no inline caches
     def test_start_offset(self):
         # When no extended args are present,
         # start_offset should be equal to offset

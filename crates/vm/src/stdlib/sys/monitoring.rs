@@ -313,9 +313,12 @@ pub fn instrument_code(code: &PyCode, events: u32) {
             if matches!(op, Instruction::ExtendedArg) {
                 continue;
             }
-            // Excluded: RESUME and END_FOR (and their instrumented variants)
+            // Excluded: RESUME, END_FOR, CACHE (and their instrumented variants)
             let base = op.to_base().map_or(op, |b| b);
-            if matches!(base, Instruction::Resume { .. } | Instruction::EndFor) {
+            if matches!(
+                base,
+                Instruction::Resume { .. } | Instruction::EndFor | Instruction::Cache
+            ) {
                 continue;
             }
             // Store current opcode (may already be INSTRUMENTED_*) and replace
@@ -358,6 +361,7 @@ pub fn instrument_code(code: &PyCode, events: u32) {
                     | Instruction::EndSend
                     | Instruction::PopIter
                     | Instruction::EndAsyncFor
+                    | Instruction::Cache
             ) {
                 continue;
             }

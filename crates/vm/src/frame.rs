@@ -578,7 +578,18 @@ impl ExecutingFrame<'_> {
                 self.prev_line = loc.line.get() as u32;
             }
 
+            let lasti_before = self.lasti();
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
+            // Skip past CACHE code units, but only if the instruction did not
+            // modify lasti (i.e., it did not jump). Jump targets already point
+            // past CACHE entries since labels include them.
+            if self.lasti() == lasti_before {
+                let base_op = op.to_base().unwrap_or(op);
+                let caches = base_op.cache_entries();
+                if caches > 0 {
+                    self.update_lasti(|i| *i += caches as u32);
+                }
+            }
             match result {
                 Ok(None) => {}
                 Ok(Some(value)) => {
@@ -2652,7 +2663,9 @@ impl ExecutingFrame<'_> {
                 let continued = self.execute_for_iter(vm, target)?;
                 if continued {
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
-                        let dest_offset = self.lasti() * 2;
+                        let caches = Instruction::ForIter { target: bytecode::Arg::marker() }
+                            .cache_entries() as u32;
+                        let dest_offset = (self.lasti() + caches) * 2;
                         monitoring::fire_branch_left(vm, self.code, src_offset, dest_offset)?;
                     }
                 } else if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
@@ -2744,14 +2757,20 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedNotTaken => {
                 if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
-                    let offset = (self.lasti() - 1) * 2;
-                    let dest_offset = self.lasti() * 2;
-                    monitoring::fire_branch_left(
-                        vm,
-                        self.code,
-                        offset.saturating_sub(2),
-                        dest_offset,
-                    )?;
+                    let not_taken_idx = self.lasti() as usize - 1;
+                    // Scan backwards past CACHE entries to find the branch instruction
+                    let mut branch_idx = not_taken_idx.saturating_sub(1);
+                    while branch_idx > 0
+                        && matches!(
+                            self.code.instructions[branch_idx].op,
+                            Instruction::Cache
+                        )
+                    {
+                        branch_idx -= 1;
+                    }
+                    let src_offset = (branch_idx as u32) * 2;
+                    let dest_offset = self.lasti() as u32 * 2;
+                    monitoring::fire_branch_left(vm, self.code, src_offset, dest_offset)?;
                 }
                 Ok(None)
             }
@@ -2823,12 +2842,22 @@ impl ExecutingFrame<'_> {
                 // Re-dispatch to the real original opcode
                 let original_op = Instruction::try_from(real_op_byte)
                     .expect("invalid opcode in side-table chain");
-                if original_op.to_base().is_some() {
+                let lasti_before_dispatch = self.lasti();
+                let result = if original_op.to_base().is_some() {
                     self.execute_instrumented(original_op, arg, vm)
                 } else {
                     let mut do_extend_arg = false;
                     self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
+                };
+                // Skip CACHE entries for the real instruction (only if it didn't jump)
+                if self.lasti() == lasti_before_dispatch {
+                    let base = original_op.to_base().unwrap_or(original_op);
+                    let caches = base.cache_entries();
+                    if caches > 0 {
+                        self.update_lasti(|i| *i += caches as u32);
+                    }
                 }
+                result
             }
             Instruction::InstrumentedInstruction => {
                 let idx = self.lasti() as usize - 1;
@@ -2852,12 +2881,22 @@ impl ExecutingFrame<'_> {
                 // Re-dispatch to original opcode
                 let original_op = Instruction::try_from(original_op_byte)
                     .expect("invalid opcode in instruction side-table");
-                if original_op.to_base().is_some() {
+                let lasti_before_dispatch = self.lasti();
+                let result = if original_op.to_base().is_some() {
                     self.execute_instrumented(original_op, arg, vm)
                 } else {
                     let mut do_extend_arg = false;
                     self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
+                };
+                // Skip CACHE entries for the real instruction (only if it didn't jump)
+                if self.lasti() == lasti_before_dispatch {
+                    let base = original_op.to_base().unwrap_or(original_op);
+                    let caches = base.cache_entries();
+                    if caches > 0 {
+                        self.update_lasti(|i| *i += caches as u32);
+                    }
                 }
+                result
             }
             _ => {
                 unreachable!("{instruction:?} instruction should not be executed")
