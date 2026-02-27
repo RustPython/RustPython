@@ -1121,10 +1121,12 @@ mod platform {
         }
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn current_time_t() -> time_t {
         unsafe { libc::time(core::ptr::null_mut()) }
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn gmtime_from_timestamp(
         when: time_t,
         vm: &VirtualMachine,
@@ -1137,6 +1139,7 @@ mod platform {
         Ok(struct_time_from_tm(vm, unsafe { out.assume_init() }))
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn localtime_from_timestamp(
         when: time_t,
         vm: &VirtualMachine,
