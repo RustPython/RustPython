@@ -296,7 +296,8 @@ impl<D: Decompressor> DecompressState<D> {
         self.eof
     }
 
-    pub fn decompressor(&self) -> &D {
+    #[cfg_attr(target_os = "android", allow(dead_code))]
+    pub const fn decompressor(&self) -> &D {
         &self.decompress
     }
 
