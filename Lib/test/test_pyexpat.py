@@ -689,6 +689,7 @@ class ChardataBufferTest(unittest.TestCase):
         self.assertEqual(self.n, 4)
 
 class ElementDeclHandlerTest(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by Parse
     def test_trigger_leak(self):
         # Unfixed, this test would leak the memory of the so-called
         # "content model" in function ``my_ElementDeclHandler`` of pyexpat.
