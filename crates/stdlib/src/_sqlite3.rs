@@ -1883,9 +1883,16 @@ mod _sqlite3 {
             args: FetchManyArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            let max_rows = args
-                .size
-                .unwrap_or_else(|| zelf.arraysize.load(Ordering::Relaxed));
+            let max_rows = match args.size {
+                Some(size) => {
+                    if size < 0 {
+                        return Err(vm.new_value_error("fetchmany may not be negative"));
+                    }
+
+                    size
+                }
+                None => zelf.arraysize.load(Ordering::Relaxed),
+            };
 
             let mut list = vec![];
             while let PyIterReturn::Return(row) = Cursor::next(zelf, vm)? {

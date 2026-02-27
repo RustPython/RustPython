@@ -1125,7 +1125,6 @@ class CursorTests(unittest.TestCase):
         res = self.cu.fetchmany(100)
         self.assertEqual(res, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON fetchmany size validation not implemented
     def test_invalid_fetchmany(self):
         UINT32_MAX = (1 << 32) - 1
         fetchmany = self.cu.fetchmany
