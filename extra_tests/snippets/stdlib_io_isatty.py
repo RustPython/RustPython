@@ -8,12 +8,15 @@ The existing test_io.test_io_after_close does NOT cover this because it uses
 concrete classes (TextIOWrapper, BufferedWriter, etc.) that override isatty()
 with their own closed checks, never reaching IOBase.isatty() directly.
 """
+
 import io
+
 
 # Minimal subclass that inherits IOBase.isatty() without overriding it.
 class MinimalRaw(io.RawIOBase):
     def readinto(self, b):
         return 0
+
 
 f = MinimalRaw()
 assert not f.closed
