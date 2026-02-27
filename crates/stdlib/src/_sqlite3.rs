@@ -1886,7 +1886,7 @@ mod _sqlite3 {
             let max_rows = match args.size {
                 Some(size) => {
                     if size < 0 {
-                        return Err(vm.new_value_error("fetchmany many not be negative"));
+                        return Err(vm.new_value_error("fetchmany may not be negative"));
                     }
 
                     size
