@@ -2450,7 +2450,6 @@ class SyntaxTestCase(unittest.TestCase):
                           r"cannot have both 'except' and 'except\*' on the same 'try'",
                           lineno=3, end_lineno=3, offset=1, end_offset=7)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_empty_line_after_linecont(self):
         # See issue-40847
         s = r"""\

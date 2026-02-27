@@ -2848,7 +2848,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_ast"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d#a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d"
+source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
 dependencies = [
  "aho-corasick",
  "bitflags 2.11.0",
@@ -2866,7 +2866,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_parser"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d#a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d"
+source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
 dependencies = [
  "bitflags 2.11.0",
  "bstr",
@@ -2886,7 +2886,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_trivia"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d#a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d"
+source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
 dependencies = [
  "itertools 0.14.0",
  "ruff_source_file",
@@ -2897,7 +2897,7 @@ dependencies = [
 [[package]]
 name = "ruff_source_file"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d#a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d"
+source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
 dependencies = [
  "memchr",
  "ruff_text_size",
@@ -2906,7 +2906,7 @@ dependencies = [
 [[package]]
 name = "ruff_text_size"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d#a2f11d239f91cf8daedb0764ec15fcfe29c5ae6d"
+source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
 dependencies = [
  "get-size2",
 ]
