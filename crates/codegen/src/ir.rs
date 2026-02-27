@@ -250,15 +250,32 @@ impl CodeInfo {
         let mut locations = Vec::new();
         let mut linetable_locations: Vec<LineTableLocation> = Vec::new();
 
-        // Convert pseudo ops and remove resulting NOPs
+        // Convert pseudo ops and remove resulting NOPs (keep line-marker NOPs)
         convert_pseudo_ops(&mut blocks, varname_cache.len() as u32);
         for block in blocks
             .iter_mut()
             .filter(|b| b.next != BlockIdx::NULL || !b.instructions.is_empty())
         {
-            block
+            // Collect lines that have non-NOP instructions in this block
+            let non_nop_lines: IndexSet<_> = block
                 .instructions
-                .retain(|ins| !matches!(ins.instr.real(), Some(Instruction::Nop)));
+                .iter()
+                .filter(|ins| !matches!(ins.instr.real(), Some(Instruction::Nop)))
+                .map(|ins| ins.location.line)
+                .collect();
+            let mut kept_nop_lines: IndexSet<OneIndexed> = IndexSet::default();
+            block.instructions.retain(|ins| {
+                if matches!(ins.instr.real(), Some(Instruction::Nop)) {
+                    let line = ins.location.line;
+                    // Remove if another instruction covers this line,
+                    // or if we already kept a NOP for this line
+                    if non_nop_lines.contains(&line) || kept_nop_lines.contains(&line) {
+                        return false;
+                    }
+                    kept_nop_lines.insert(line);
+                }
+                true
+            });
         }
 
         let mut block_to_offset = vec![Label(0); blocks.len()];
@@ -501,9 +518,12 @@ impl CodeInfo {
                 let tuple_const = ConstantData::Tuple { elements };
                 let (const_idx, _) = self.metadata.consts.insert_full(tuple_const);
 
-                // Replace preceding LOAD instructions with NOP
+                // Replace preceding LOAD instructions with NOP at the
+                // BUILD_TUPLE location so remove_nops() can eliminate them.
+                let folded_loc = block.instructions[i].location;
                 for j in start_idx..i {
                     block.instructions[j].instr = Instruction::Nop.into();
+                    block.instructions[j].location = folded_loc;
                 }
 
                 // Replace BUILD_TUPLE with LOAD_CONST
@@ -673,12 +693,21 @@ impl CodeInfo {
         }
     }
 
-    /// Remove NOP instructions from all blocks
+    /// Remove NOP instructions from all blocks, but keep NOPs that introduce
+    /// a new source line (they serve as line markers for monitoring LINE events).
     fn remove_nops(&mut self) {
         for block in &mut self.blocks {
-            block
-                .instructions
-                .retain(|ins| !matches!(ins.instr.real(), Some(Instruction::Nop)));
+            let mut prev_line = None;
+            block.instructions.retain(|ins| {
+                if matches!(ins.instr.real(), Some(Instruction::Nop)) {
+                    let line = ins.location.line;
+                    if prev_line == Some(line) {
+                        return false;
+                    }
+                }
+                prev_line = Some(ins.location.line);
+                true
+            });
         }
     }
 

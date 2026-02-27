@@ -812,6 +812,8 @@ impl PyType {
                     }) {
                         self.slots.getattro.store(Some(func));
                     } else {
+                        // __getattribute__ is a Python method somewhere in MRO;
+                        // use the wrapper to dispatch through it.
                         self.slots.getattro.store(Some(getattro_wrapper));
                     }
                 } else {

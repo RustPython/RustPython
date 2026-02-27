@@ -419,6 +419,100 @@ impl TryFrom<u8> for Instruction {
     }
 }
 
+impl Instruction {
+    /// Returns `true` if this is any instrumented opcode
+    /// (regular INSTRUMENTED_*, INSTRUMENTED_LINE, or INSTRUMENTED_INSTRUCTION).
+    pub fn is_instrumented(self) -> bool {
+        self.to_base().is_some()
+            || matches!(self, Self::InstrumentedLine | Self::InstrumentedInstruction)
+    }
+
+    /// Map a base opcode to its INSTRUMENTED_* variant.
+    /// Returns `None` if this opcode has no instrumented counterpart.
+    ///
+    /// # Panics (debug)
+    /// Panics if called on an already-instrumented opcode.
+    pub fn to_instrumented(self) -> Option<Self> {
+        debug_assert!(
+            !self.is_instrumented(),
+            "to_instrumented called on already-instrumented opcode {self:?}"
+        );
+        Some(match self {
+            Self::Resume { .. } => Self::InstrumentedResume,
+            Self::ReturnValue => Self::InstrumentedReturnValue,
+            Self::YieldValue { .. } => Self::InstrumentedYieldValue,
+            Self::Call { .. } => Self::InstrumentedCall,
+            Self::CallKw { .. } => Self::InstrumentedCallKw,
+            Self::CallFunctionEx => Self::InstrumentedCallFunctionEx,
+            Self::LoadSuperAttr { .. } => Self::InstrumentedLoadSuperAttr,
+            Self::JumpForward { .. } => Self::InstrumentedJumpForward,
+            Self::JumpBackward { .. } => Self::InstrumentedJumpBackward,
+            Self::ForIter { .. } => Self::InstrumentedForIter,
+            Self::EndFor => Self::InstrumentedEndFor,
+            Self::EndSend => Self::InstrumentedEndSend,
+            Self::PopJumpIfTrue { .. } => Self::InstrumentedPopJumpIfTrue,
+            Self::PopJumpIfFalse { .. } => Self::InstrumentedPopJumpIfFalse,
+            Self::PopJumpIfNone { .. } => Self::InstrumentedPopJumpIfNone,
+            Self::PopJumpIfNotNone { .. } => Self::InstrumentedPopJumpIfNotNone,
+            Self::NotTaken => Self::InstrumentedNotTaken,
+            Self::PopIter => Self::InstrumentedPopIter,
+            Self::EndAsyncFor => Self::InstrumentedEndAsyncFor,
+            _ => return None,
+        })
+    }
+
+    /// Map an INSTRUMENTED_* opcode back to its base variant.
+    /// Returns `None` for non-instrumented opcodes, and also for
+    /// `InstrumentedLine` / `InstrumentedInstruction` which are event-layer
+    /// placeholders without a fixed base opcode (the real opcode is stored in
+    /// `CoMonitoringData`).
+    ///
+    /// The returned base opcode uses `Arg::marker()` for typed fields —
+    /// only the opcode byte matters since `replace_op` preserves the arg byte.
+    pub fn to_base(self) -> Option<Self> {
+        Some(match self {
+            Self::InstrumentedResume => Self::Resume { arg: Arg::marker() },
+            Self::InstrumentedReturnValue => Self::ReturnValue,
+            Self::InstrumentedYieldValue => Self::YieldValue { arg: Arg::marker() },
+            Self::InstrumentedCall => Self::Call {
+                nargs: Arg::marker(),
+            },
+            Self::InstrumentedCallKw => Self::CallKw {
+                nargs: Arg::marker(),
+            },
+            Self::InstrumentedCallFunctionEx => Self::CallFunctionEx,
+            Self::InstrumentedLoadSuperAttr => Self::LoadSuperAttr { arg: Arg::marker() },
+            Self::InstrumentedJumpForward => Self::JumpForward {
+                target: Arg::marker(),
+            },
+            Self::InstrumentedJumpBackward => Self::JumpBackward {
+                target: Arg::marker(),
+            },
+            Self::InstrumentedForIter => Self::ForIter {
+                target: Arg::marker(),
+            },
+            Self::InstrumentedEndFor => Self::EndFor,
+            Self::InstrumentedEndSend => Self::EndSend,
+            Self::InstrumentedPopJumpIfTrue => Self::PopJumpIfTrue {
+                target: Arg::marker(),
+            },
+            Self::InstrumentedPopJumpIfFalse => Self::PopJumpIfFalse {
+                target: Arg::marker(),
+            },
+            Self::InstrumentedPopJumpIfNone => Self::PopJumpIfNone {
+                target: Arg::marker(),
+            },
+            Self::InstrumentedPopJumpIfNotNone => Self::PopJumpIfNotNone {
+                target: Arg::marker(),
+            },
+            Self::InstrumentedNotTaken => Self::NotTaken,
+            Self::InstrumentedPopIter => Self::PopIter,
+            Self::InstrumentedEndAsyncFor => Self::EndAsyncFor,
+            _ => return None,
+        })
+    }
+}
+
 impl InstructionMetadata for Instruction {
     #[inline]
     fn label_arg(&self) -> Option<Arg<Label>> {

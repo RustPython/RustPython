@@ -1,10 +1,11 @@
 //! Infamous code object. The python class `code`
 
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType};
+use crate::common::lock::PyMutex;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyStrInterned,
-    bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
+    bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag, Instruction},
     class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
     frozen,
@@ -15,7 +16,7 @@ use alloc::fmt;
 use core::{
     borrow::Borrow,
     ops::Deref,
-    sync::atomic::{AtomicPtr, Ordering},
+    sync::atomic::{AtomicPtr, AtomicU64, Ordering},
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;
@@ -324,10 +325,27 @@ impl<B: AsRef<[u8]>> IntoCodeObject for frozen::FrozenCodeObject<B> {
     }
 }
 
+/// Per-code-object monitoring data (_PyCoMonitoringData).
+/// Stores original opcodes displaced by INSTRUMENTED_LINE / INSTRUMENTED_INSTRUCTION.
+pub struct CoMonitoringData {
+    /// Original opcodes at positions with INSTRUMENTED_LINE.
+    /// Indexed by instruction index. 0 = not instrumented for LINE.
+    pub line_opcodes: Vec<u8>,
+
+    /// Original opcodes at positions with INSTRUMENTED_INSTRUCTION.
+    /// Indexed by instruction index. 0 = not instrumented for INSTRUCTION.
+    pub per_instruction_opcodes: Vec<u8>,
+}
+
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
     pub code: CodeObject,
     source_path: AtomicPtr<PyStrInterned>,
+    /// Version counter for lazy re-instrumentation.
+    /// Compared against `PyGlobalState::instrumentation_version` at RESUME.
+    pub instrumentation_version: AtomicU64,
+    /// Side-table for INSTRUMENTED_LINE / INSTRUMENTED_INSTRUCTION.
+    pub monitoring_data: PyMutex<Option<CoMonitoringData>>,
 }
 
 impl Deref for PyCode {
@@ -343,6 +361,8 @@ impl PyCode {
         Self {
             code,
             source_path: AtomicPtr::new(sp),
+            instrumentation_version: AtomicU64::new(0),
+            monitoring_data: PyMutex::new(None),
         }
     }
 
@@ -890,6 +910,79 @@ impl PyCode {
         }
 
         let list = vm.ctx.new_list(positions);
+        vm.call_method(list.as_object(), "__iter__", ())
+    }
+
+    #[pymethod]
+    pub fn co_branches(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let instructions = &self.code.instructions;
+        let mut branches = Vec::new();
+        let mut extended_arg: u32 = 0;
+
+        for (i, unit) in instructions.iter().enumerate() {
+            // De-instrument: use base opcode for instrumented variants
+            let op = unit.op.to_base().unwrap_or(unit.op);
+            let raw_arg = u32::from(u8::from(unit.arg));
+
+            if matches!(op, Instruction::ExtendedArg) {
+                extended_arg = (extended_arg | raw_arg) << 8;
+                continue;
+            }
+
+            let oparg = extended_arg | raw_arg;
+            extended_arg = 0;
+
+            let (src, left, right) = match op {
+                Instruction::ForIter { .. } => {
+                    // left = fall-through (continue iteration)
+                    // right = past END_FOR (iterator exhausted, skip cleanup)
+                    let target = oparg as usize;
+                    let right = if matches!(
+                        instructions.get(target).map(|u| u.op),
+                        Some(Instruction::EndFor) | Some(Instruction::InstrumentedEndFor)
+                    ) {
+                        (target + 1) * 2
+                    } else {
+                        target * 2
+                    };
+                    (i * 2, (i + 1) * 2, right)
+                }
+                Instruction::PopJumpIfFalse { .. }
+                | Instruction::PopJumpIfTrue { .. }
+                | Instruction::PopJumpIfNone { .. }
+                | Instruction::PopJumpIfNotNone { .. } => {
+                    // left = fall-through (skip NOT_TAKEN if present)
+                    // right = jump target (condition met)
+                    let next_op = instructions
+                        .get(i + 1)
+                        .map(|u| u.op.to_base().unwrap_or(u.op));
+                    let fallthrough = if matches!(next_op, Some(Instruction::NotTaken)) {
+                        (i + 2) * 2
+                    } else {
+                        (i + 1) * 2
+                    };
+                    (i * 2, fallthrough, oparg as usize * 2)
+                }
+                Instruction::EndAsyncFor => {
+                    // src = END_SEND position (next_i - oparg)
+                    let next_i = i + 1;
+                    let Some(src_i) = next_i.checked_sub(oparg as usize) else {
+                        continue;
+                    };
+                    (src_i * 2, (src_i + 2) * 2, next_i * 2)
+                }
+                _ => continue,
+            };
+
+            let tuple = vm.ctx.new_tuple(vec![
+                vm.ctx.new_int(src).into(),
+                vm.ctx.new_int(left).into(),
+                vm.ctx.new_int(right).into(),
+            ]);
+            branches.push(tuple.into());
+        }
+
+        let list = vm.ctx.new_list(branches);
         vm.call_method(list.as_object(), "__iter__", ())
     }
 

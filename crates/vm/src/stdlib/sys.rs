@@ -1,3 +1,5 @@
+pub(crate) mod monitoring;
+
 use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
@@ -72,6 +74,9 @@ mod sys {
     pub(crate) fn multiarch() -> String {
         RUST_MULTIARCH.replace("-unknown", "")
     }
+
+    #[pymodule(name = "monitoring", with(super::monitoring::sys_monitoring))]
+    pub(super) mod monitoring {}
 
     #[pyclass(no_attr, name = "_BootstrapStderr")]
     #[derive(Debug, PyPayload)]

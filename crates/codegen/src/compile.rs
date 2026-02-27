@@ -2050,6 +2050,7 @@ impl Compiler {
 
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
         trace!("Compiling {statement:?}");
+        let prev_source_range = self.current_source_range;
         self.set_source_range(statement.range());
 
         match &statement {
@@ -2433,7 +2434,14 @@ impl Compiler {
                 value,
                 simple,
                 ..
-            }) => self.compile_annotated_assign(target, annotation, value.as_deref(), *simple)?,
+            }) => {
+                self.compile_annotated_assign(target, annotation, value.as_deref(), *simple)?;
+                // Bare annotations in function scope emit no code; restore
+                // source range so subsequent instructions keep the correct line.
+                if value.is_none() && self.ctx.in_func() {
+                    self.set_source_range(prev_source_range);
+                }
+            }
             ast::Stmt::Delete(ast::StmtDelete { targets, .. }) => {
                 for target in targets {
                     self.compile_delete(target)?;
@@ -2865,6 +2873,9 @@ impl Compiler {
         // Normal path jumps here to skip exception path blocks
         let end_block = self.new_block();
 
+        // Emit NOP at the try: line so LINE events fire for it
+        emit!(self, Instruction::Nop);
+
         // Setup a finally block if we have a finally statement.
         // Push fblock with handler info for exception table generation
         // IMPORTANT: handler goes to finally_except_block (exception path), not finally_block
@@ -3018,8 +3029,10 @@ impl Compiler {
                 type_,
                 name,
                 body,
+                range: handler_range,
                 ..
             }) = &handler;
+            self.set_source_range(*handler_range);
             let next_handler = self.new_block();
 
             // If we gave a typ,
@@ -3312,6 +3325,9 @@ impl Compiler {
             None
         };
         let exit_block = self.new_block();
+
+        // Emit NOP at the try: line so LINE events fire for it
+        emit!(self, Instruction::Nop);
 
         // Push fblock with handler info for exception table generation
         if !finalbody.is_empty() {
@@ -3743,6 +3759,9 @@ impl Compiler {
         is_async: bool,
         funcflags: bytecode::MakeFunctionFlags,
     ) -> CompileResult<()> {
+        // Save source range so MAKE_FUNCTION gets the `def` line, not the body's last line
+        let saved_range = self.current_source_range;
+
         // Always enter function scope
         self.enter_function(name, parameters)?;
         self.current_code_info()
@@ -3795,6 +3814,8 @@ impl Compiler {
         // Exit scope and create function object
         let code = self.exit_scope();
         self.ctx = prev_ctx;
+
+        self.set_source_range(saved_range);
 
         // Create function object with closure
         self.make_closure(code, funcflags)?;
@@ -5166,17 +5187,22 @@ impl Compiler {
         // No PopBlock here - for async, POP_BLOCK is already in for_block
         self.pop_fblock(FBlockType::ForLoop);
 
+        // End-of-loop instructions are on the `for` line, not the body's last line
+        let saved_range = self.current_source_range;
+        self.set_source_range(iter.range());
         if is_async {
             emit!(self, Instruction::EndAsyncFor);
         } else {
-            // END_FOR + POP_ITER pattern (CPython 3.14)
-            // FOR_ITER jumps to END_FOR, but VM skips it (+1) to reach POP_ITER
             emit!(self, Instruction::EndFor);
             emit!(self, Instruction::PopIter);
         }
+        self.set_source_range(saved_range);
         self.compile_statements(orelse)?;
 
         self.switch_to_block(after_block);
+
+        // Implicit return after for-loop should be attributed to the `for` line
+        self.set_source_range(iter.range());
 
         self.leave_conditional_block();
         Ok(())
@@ -6212,6 +6238,8 @@ impl Compiler {
         ops: &[ast::CmpOp],
         comparators: &[ast::Expr],
     ) -> CompileResult<()> {
+        // Save the full Compare expression range for COMPARE_OP positions
+        let compare_range = self.current_source_range;
         let (last_op, mid_ops) = ops.split_last().unwrap();
         let (last_comparator, mid_comparators) = comparators.split_last().unwrap();
 
@@ -6220,6 +6248,7 @@ impl Compiler {
 
         if mid_comparators.is_empty() {
             self.compile_expression(last_comparator)?;
+            self.set_source_range(compare_range);
             self.compile_addcompare(last_op);
 
             return Ok(());
@@ -6232,6 +6261,7 @@ impl Compiler {
             self.compile_expression(comparator)?;
 
             // store rhs for the next comparison in chain
+            self.set_source_range(compare_range);
             emit!(self, Instruction::Swap { index: 2 });
             emit!(self, Instruction::Copy { index: 2 });
 
@@ -6244,6 +6274,7 @@ impl Compiler {
         }
 
         self.compile_expression(last_comparator)?;
+        self.set_source_range(compare_range);
         self.compile_addcompare(last_op);
 
         let end = self.new_block();

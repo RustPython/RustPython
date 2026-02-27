@@ -8,7 +8,7 @@ use crate::{
 };
 use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeSet, fmt, string::String, vec::Vec};
 use bitflags::bitflags;
-use core::{hash, mem, ops::Deref};
+use core::{cell::UnsafeCell, hash, mem, ops::Deref};
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
@@ -97,6 +97,37 @@ pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTabl
         }
     }
     None
+}
+
+/// Decode all exception table entries.
+pub fn decode_exception_table(table: &[u8]) -> Vec<ExceptionTableEntry> {
+    let mut entries = Vec::new();
+    let mut pos = 0;
+    while pos < table.len() {
+        let Some(start) = read_varint_with_start(table, &mut pos) else {
+            break;
+        };
+        let Some(size) = read_varint(table, &mut pos) else {
+            break;
+        };
+        let Some(target) = read_varint(table, &mut pos) else {
+            break;
+        };
+        let Some(depth_lasti) = read_varint(table, &mut pos) else {
+            break;
+        };
+        let Some(end) = start.checked_add(size) else {
+            break;
+        };
+        entries.push(ExceptionTableEntry {
+            start,
+            end,
+            target,
+            depth: (depth_lasti >> 1) as u16,
+            push_lasti: (depth_lasti & 1) != 0,
+        });
+    }
+    entries
 }
 
 /// CPython 3.11+ linetable location info codes
@@ -329,8 +360,28 @@ impl TryFrom<&[u8]> for CodeUnit {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct CodeUnits(Box<[CodeUnit]>);
+pub struct CodeUnits(UnsafeCell<Box<[CodeUnit]>>);
+
+// SAFETY: All mutation of the inner buffer is serialized by `monitoring_data: PyMutex`
+// in `PyCode`. The `UnsafeCell` is required because `replace_op` mutates through `&self`.
+unsafe impl Sync for CodeUnits {}
+
+impl Clone for CodeUnits {
+    fn clone(&self) -> Self {
+        // SAFETY: No concurrent mutation during clone — cloning is only done
+        // during code object construction or marshaling, not while instrumented.
+        let inner = unsafe { &*self.0.get() };
+        Self(UnsafeCell::new(inner.clone()))
+    }
+}
+
+impl fmt::Debug for CodeUnits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // SAFETY: Debug formatting doesn't race with replace_op
+        let inner = unsafe { &*self.0.get() };
+        f.debug_tuple("CodeUnits").field(inner).finish()
+    }
+}
 
 impl TryFrom<&[u8]> for CodeUnits {
     type Error = MarshalError;
@@ -346,19 +397,19 @@ impl TryFrom<&[u8]> for CodeUnits {
 
 impl<const N: usize> From<[CodeUnit; N]> for CodeUnits {
     fn from(value: [CodeUnit; N]) -> Self {
-        Self(Box::from(value))
+        Self(UnsafeCell::new(Box::from(value)))
     }
 }
 
 impl From<Vec<CodeUnit>> for CodeUnits {
     fn from(value: Vec<CodeUnit>) -> Self {
-        Self(value.into_boxed_slice())
+        Self(UnsafeCell::new(value.into_boxed_slice()))
     }
 }
 
 impl FromIterator<CodeUnit> for CodeUnits {
     fn from_iter<T: IntoIterator<Item = CodeUnit>>(iter: T) -> Self {
-        Self(iter.into_iter().collect())
+        Self(UnsafeCell::new(iter.into_iter().collect()))
     }
 }
 
@@ -366,7 +417,29 @@ impl Deref for CodeUnits {
     type Target = [CodeUnit];
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        // SAFETY: Shared references to the slice are valid even while replace_op
+        // may update individual opcode bytes — readers tolerate stale opcodes
+        // (they will re-read on the next iteration).
+        unsafe { &*self.0.get() }
+    }
+}
+
+impl CodeUnits {
+    /// Replace the opcode at `index` in-place without changing the arg byte.
+    ///
+    /// # Safety
+    /// - `index` must be in bounds.
+    /// - `new_op` must have the same arg semantics as the original opcode.
+    /// - The caller must ensure exclusive access to the instruction buffer
+    ///   (no concurrent reads or writes to the same `CodeUnits`).
+    pub unsafe fn replace_op(&self, index: usize, new_op: Instruction) {
+        unsafe {
+            let units = &mut *self.0.get();
+            let unit_ptr = units.as_mut_ptr().add(index);
+            // Write only the opcode byte (first byte of CodeUnit due to #[repr(C)])
+            let op_ptr = unit_ptr as *mut u8;
+            core::ptr::write(op_ptr, new_op.into());
+        }
     }
 }
 

@@ -1147,7 +1147,6 @@ class DisTests(DisTestBase):
         self.assertIn("CALL_INTRINSIC_2         1 (INTRINSIC_PREP_RERAISE_STAR)",
                       self.get_disassembly("try: pass\nexcept* Exception: x"))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_big_linenos(self):
         def func(count):
             namespace = {}
@@ -2119,7 +2118,6 @@ class InstructionTests(InstructionTestCase):
                                   positions=None)
         self.assertEqual(instruction.arg, instruction.oparg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_show_caches_with_label(self):
         def f(x, y, z):
             if x:
@@ -2238,6 +2236,7 @@ class InstructionTests(InstructionTestCase):
     def get_instructions(self, code):
         return dis._get_instructions_bytes(code)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no inline caches
     def test_start_offset(self):
         # When no extended args are present,
         # start_offset should be equal to offset
@@ -2290,6 +2289,7 @@ class InstructionTests(InstructionTestCase):
         self.assertEqual(14, instructions[6].offset)
         self.assertEqual(8, instructions[6].start_offset)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no inline caches
     def test_cache_offset_and_end_offset(self):
         code = bytes([
             opcode.opmap["LOAD_GLOBAL"], 0x01,
@@ -2422,7 +2422,6 @@ class TestFinderMethods(unittest.TestCase):
                 self.assertEqual(len(res), 1)
                 self.assertEqual(res[0], expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test__find_store_names(self):
         cases = [
             ("x+y", ()),

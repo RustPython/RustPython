@@ -33,10 +33,10 @@ CLASSDEREF
 classdict
 cmpop
 codedepth
-constevaluator
 CODEUNIT
 CONIN
 CONOUT
+constevaluator
 CONVFUNC
 convparam
 copyslot
@@ -62,6 +62,7 @@ fieldlist
 fileutils
 finalbody
 finalizers
+firsttraceable
 flowgraph
 formatfloat
 freevar

@@ -46,7 +46,7 @@ where
     use crate::common::hash::HashSecret;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
-    use core::sync::atomic::AtomicBool;
+    use core::sync::atomic::{AtomicBool, AtomicU64};
     use crossbeam_utils::atomic::AtomicCell;
 
     let paths = getpath::init_path_config(&settings);
@@ -124,6 +124,9 @@ where
         thread_handles: parking_lot::Mutex::new(Vec::new()),
         #[cfg(feature = "threading")]
         shutdown_handles: parking_lot::Mutex::new(Vec::new()),
+        monitoring: PyMutex::default(),
+        monitoring_events: AtomicCell::new(0),
+        instrumentation_version: AtomicU64::new(0),
     });
 
     // Create VM with the global state

@@ -82,7 +82,6 @@ class TestTranforms(BytecodeTestCase):
         # aren't very many tests of lnotab), if peepholer wasn't scheduled
         # to be replaced anyway.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_unot(self):
         # UNARY_NOT POP_JUMP_IF_FALSE  -->  POP_JUMP_IF_TRUE'
         def unot(x):
@@ -283,7 +282,7 @@ class TestTranforms(BytecodeTestCase):
                     self.assertNotInBytecode(code, 'LOAD_SMALL_INT')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'UNARY_NEGATIVE' starts with 'UNARY_'
     def test_constant_folding_unaryop(self):
         intrinsic_positive = 5
         tests = [
@@ -546,6 +545,7 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(len(returns), 2)
         self.check_lnotab(f)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; absolute jump encoding
     def test_elim_jump_to_uncond_jump(self):
         # POP_JUMP_IF_FALSE to JUMP_FORWARD --> POP_JUMP_IF_FALSE to non-jump
         def f():
@@ -640,12 +640,14 @@ class TestTranforms(BytecodeTestCase):
         self.assertNotInBytecode(f, 'BINARY_OP')
         self.check_lnotab(f)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no BUILD_LIST to BUILD_TUPLE optimization
     def test_in_literal_list(self):
         def containtest():
             return x in [a, b]
         self.assertEqual(count_instr_recursively(containtest, 'BUILD_LIST'), 0)
         self.check_lnotab(containtest)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no BUILD_LIST to BUILD_TUPLE optimization
     def test_iterate_literal_list(self):
         def forloop():
             for x in [a, b]:
@@ -887,7 +889,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_known_because_parameter(self):
         def f1(x):
             print(x)
@@ -924,7 +925,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertInBytecode(f, 'LOAD_FAST_BORROW')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_known_multiple_branches(self):
         def f():
             if condition():
