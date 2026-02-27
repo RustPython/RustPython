@@ -603,9 +603,13 @@ impl<T: Clone> Dict<T> {
         let ret = 'outer: loop {
             let (entry_key, ret) = {
                 let inner = lock.take().unwrap_or_else(|| self.read());
-                let idxs = idxs.get_or_insert_with(|| {
-                    GenIndexes::new(hash_value, (inner.indices.len() - 1) as i64)
-                });
+                let mask = (inner.indices.len() - 1) as i64;
+                let idxs = idxs.get_or_insert_with(|| GenIndexes::new(hash_value, mask));
+                if idxs.mask != mask {
+                    // Dict was resized since last probe, restart
+                    *idxs = GenIndexes::new(hash_value, mask);
+                    free_slot = None;
+                }
                 loop {
                     let index_index = idxs.next();
                     let index_entry = *unsafe {
