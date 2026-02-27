@@ -7,7 +7,6 @@ import re
 from test import support
 from test.support import os_helper
 from test.support import warnings_helper
-from test.support.testcase import ExtraAssertions
 import time
 import unittest
 import urllib.request
@@ -222,11 +221,19 @@ class HeaderTests(unittest.TestCase):
         expected = [[("expires", "01 Jan 2040 22:23:32 GMT"), ("version", "0")]]
         self.assertEqual(parse_ns_headers([hdr]), expected)
 
-    def test_join_header_words(self):
-        joined = join_header_words([[("foo", None), ("bar", "baz")]])
-        self.assertEqual(joined, "foo; bar=baz")
-
-        self.assertEqual(join_header_words([[]]), "")
+    @support.subTests('src,expected', [
+            ([[("foo", None), ("bar", "baz")]], "foo; bar=baz"),
+            (([]), ""),
+            (([[]]), ""),
+            (([[("a", "_")]]), "a=_"),
+            (([[("a", ";")]]), 'a=";"'),
+            ([[("n", None), ("foo", "foo;_")], [("bar", "foo_bar")]],
+             'n; foo="foo;_", bar=foo_bar'),
+            ([[("n", "m"), ("foo", None)], [("bar", "foo_bar")]],
+             'n=m; foo, bar=foo_bar'),
+        ])
+    def test_join_header_words(self, src, expected):
+        self.assertEqual(join_header_words(src), expected)
 
     @support.subTests('arg,expect', [
             ("foo", [[("foo", None)]]),
@@ -1427,7 +1434,7 @@ class CookieTests(unittest.TestCase):
         self.assertIsNone(cookie.expires)
 
 
-class LWPCookieTests(unittest.TestCase, ExtraAssertions):
+class LWPCookieTests(unittest.TestCase):
     # Tests taken from libwww-perl, with a few modifications and additions.
 
     def test_netscape_example_1(self):
