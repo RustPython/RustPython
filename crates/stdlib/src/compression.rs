@@ -296,6 +296,10 @@ impl<D: Decompressor> DecompressState<D> {
         self.eof
     }
 
+    pub fn decompressor(&self) -> &D {
+        &self.decompress
+    }
+
     pub fn unused_data(&self) -> PyBytesRef {
         self.unused_data.clone()
     }
