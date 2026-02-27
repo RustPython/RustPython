@@ -41,6 +41,7 @@ with FileIO("README.md") as fio:
     nres = fio.read(2)
     assert len(nres) == 2
 
+
 # Test that IOBase.isatty() raises ValueError when called on a closed file.
 # Minimal subclass that inherits IOBase.isatty() without overriding it.
 class MinimalRaw(RawIOBase):
