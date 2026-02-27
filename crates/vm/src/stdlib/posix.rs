@@ -2654,6 +2654,7 @@ mod posix_sched {
         }
     }
 
+    #[cfg(not(target_env = "musl"))]
     #[derive(FromArgs)]
     struct SchedSetschedulerArgs {
         #[pyarg(positional)]
@@ -2693,6 +2694,7 @@ mod posix_sched {
         ))
     }
 
+    #[cfg(not(target_env = "musl"))]
     #[derive(FromArgs)]
     struct SchedSetParamArgs {
         #[pyarg(positional)]
