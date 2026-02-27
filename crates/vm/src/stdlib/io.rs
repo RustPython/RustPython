@@ -435,7 +435,7 @@ mod _io {
 
         #[pymethod]
         fn fileno(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            _unsupported(vm, &zelf, "truncate")
+            _unsupported(vm, &zelf, "fileno")
         }
 
         #[pyattr]
