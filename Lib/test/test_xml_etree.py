@@ -338,7 +338,6 @@ class ElementTreeTest(unittest.TestCase):
         element.attrib = {'A': 'B', 'C': 'D'}
         self.assertEqual(element.attrib, {'A': 'B', 'C': 'D'})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simpleops(self):
         # Basic method sanity checks.
 
@@ -1307,18 +1306,11 @@ class ElementTreeTest(unittest.TestCase):
         self.assertEqual(root[0].attrib,
                          {'{http://www.w3.org/XML/1998/namespace}lang': 'eng'})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_iterparse(self):
-        return super().test_iterparse()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_iterparse_close(self):
-        return super().test_iterparse_close()
-
 
 class IterparseTest(unittest.TestCase):
     # Test iterparse interface.
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_basic(self):
         iterparse = ET.iterparse
 
@@ -1344,6 +1336,7 @@ class IterparseTest(unittest.TestCase):
             ])
         it.close()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_external_file(self):
         with open(SIMPLE_XMLFILE, 'rb') as source:
             it = ET.iterparse(source)
@@ -1356,6 +1349,7 @@ class IterparseTest(unittest.TestCase):
                 ])
             self.assertEqual(it.root.tag, 'root')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_events(self):
         iterparse = ET.iterparse
 
@@ -1383,6 +1377,7 @@ class IterparseTest(unittest.TestCase):
             ])
         it.close()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_namespace_events(self):
         iterparse = ET.iterparse
 
@@ -1427,6 +1422,7 @@ class IterparseTest(unittest.TestCase):
             del cm
             gc_collect()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_non_utf8(self):
         source = io.BytesIO(
             b"<?xml version='1.0' encoding='iso-8859-1'?>\n"
@@ -1439,6 +1435,7 @@ class IterparseTest(unittest.TestCase):
                 ('start-ns', ('cl\xe9', 'http://effbot.org/ns')),
             ])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parsing_error(self):
         source = io.BytesIO(b"<document />junk")
         it = ET.iterparse(source)
@@ -1453,6 +1450,7 @@ class IterparseTest(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             ET.iterparse("nonexistent")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_resource_warnings_not_exhausted(self):
         # Not exhausting the iterator still closes the underlying file (bpo-43292)
         it = ET.iterparse(SIMPLE_XMLFILE)
@@ -1467,6 +1465,7 @@ class IterparseTest(unittest.TestCase):
             del it, elem
             gc_collect()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_resource_warnings_failed_iteration(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         with open(TESTFN, "wb") as f:
@@ -1490,6 +1489,7 @@ class IterparseTest(unittest.TestCase):
             del it
             gc_collect()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_close_not_exhausted(self):
         iterparse = ET.iterparse
 
