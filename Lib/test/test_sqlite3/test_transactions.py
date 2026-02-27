@@ -31,7 +31,6 @@ from .util import memory_database
 from .util import MemoryDatabaseMixin
 
 
-@unittest.skip("TODO: RUSTPYTHON timeout parameter does not accept int type")
 class TransactionTests(unittest.TestCase):
     def setUp(self):
         # We can disable the busy handlers, since we control
