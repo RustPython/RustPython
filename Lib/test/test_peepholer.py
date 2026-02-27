@@ -571,7 +571,6 @@ class TestTranforms(BytecodeTestCase):
         self.check_jump_targets(f)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; KeyError: 44
     def test_elim_jump_to_uncond_jump3(self):
         # Intentionally use two-line expressions to test issue37213.
         # POP_JUMP_IF_FALSE to POP_JUMP_IF_FALSE --> POP_JUMP_IF_FALSE to non-jump

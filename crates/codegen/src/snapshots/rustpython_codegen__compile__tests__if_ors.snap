@@ -1,17 +1,21 @@
 ---
 source: crates/codegen/src/compile.rs
+assertion_line: 9090
 expression: "compile_exec(\"\\\nif True or False or False:\n    pass\n\")"
 ---
   1           0 RESUME               (0)
-              1 LOAD_CONST           (True)
-              2 POP_JUMP_IF_TRUE     (10)
-              3 NOT_TAKEN
-              4 LOAD_CONST           (False)
-              5 POP_JUMP_IF_TRUE     (10)
-              6 NOT_TAKEN
-              7 LOAD_CONST           (False)
-              8 POP_JUMP_IF_FALSE    (10)
-              9 NOT_TAKEN
+        >>    1 LOAD_CONST           (True)
+              2 POP_JUMP_IF_TRUE     (9)
+              3 CACHE
+              4 NOT_TAKEN
+        >>    5 LOAD_CONST           (False)
+              6 POP_JUMP_IF_TRUE     (5)
+              7 CACHE
+              8 NOT_TAKEN
+        >>    9 LOAD_CONST           (False)
+             10 POP_JUMP_IF_FALSE    (1)
+             11 CACHE
+             12 NOT_TAKEN
 
-  2     >>   10 LOAD_CONST           (None)
-             11 RETURN_VALUE
+  2          13 LOAD_CONST           (None)
+             14 RETURN_VALUE

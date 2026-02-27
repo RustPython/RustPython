@@ -624,8 +624,7 @@ impl Instruction {
             | Self::UnpackSequence { .. }
             | Self::UnpackSequenceList
             | Self::UnpackSequenceTuple
-            | Self::UnpackSequenceTwoTuple
-            | Self::CallFunctionEx => 1,
+            | Self::UnpackSequenceTwoTuple => 1,
 
             // Everything else: 0 cache entries
             _ => 0,
@@ -992,6 +991,7 @@ impl InstructionMetadata for Instruction {
             Self::CallKw { nargs } => w!(CALL_KW, nargs),
             Self::CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
             Self::CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
+            Self::Cache => w!(CACHE),
             Self::CheckEgMatch => w!(CHECK_EG_MATCH),
             Self::CheckExcMatch => w!(CHECK_EXC_MATCH),
             Self::CleanupThrow => w!(CLEANUP_THROW),

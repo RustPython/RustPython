@@ -380,25 +380,34 @@ pub fn instrument_code(code: &PyCode, events: u32) {
         // same source line as the preceding instruction. Critical for loops
         // (JUMP_BACKWARD → FOR_ITER).
         let mut arg_state = bytecode::OpArgState::default();
+        let mut instr_idx = first_traceable;
         for unit in code.code.instructions[first_traceable..len].iter().copied() {
             let (op, arg) = arg_state.get(unit);
             let base = op.to_base().map_or(op, |b| b);
 
-            if matches!(base, Instruction::ExtendedArg) {
+            if matches!(base, Instruction::ExtendedArg) || matches!(base, Instruction::Cache) {
+                instr_idx += 1;
                 continue;
             }
 
+            let caches = base.cache_entries();
+            let after_caches = instr_idx + 1 + caches;
+            let delta = u32::from(arg) as usize;
+
             let target: Option<usize> = match base {
+                // Forward relative jumps
                 Instruction::PopJumpIfFalse { .. }
                 | Instruction::PopJumpIfTrue { .. }
                 | Instruction::PopJumpIfNone { .. }
                 | Instruction::PopJumpIfNotNone { .. }
-                | Instruction::JumpForward { .. }
-                | Instruction::JumpBackward { .. }
-                | Instruction::JumpBackwardNoInterrupt { .. } => Some(u32::from(arg) as usize),
+                | Instruction::JumpForward { .. } => Some(after_caches + delta),
+                // Backward relative jumps
+                Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. } => {
+                    Some(after_caches.wrapping_sub(delta))
+                }
                 Instruction::ForIter { .. } | Instruction::Send { .. } => {
                     // Skip over END_FOR/END_SEND
-                    Some(u32::from(arg) as usize + 1)
+                    Some(after_caches + delta + 1)
                 }
                 _ => None,
             };
@@ -411,6 +420,7 @@ pub fn instrument_code(code: &PyCode, events: u32) {
                 let target_base = target_op.to_base().map_or(target_op, |b| b);
                 // Skip POP_ITER targets
                 if matches!(target_base, Instruction::PopIter) {
+                    instr_idx += 1;
                     continue;
                 }
                 if let Some((loc, _)) = code.code.locations.get(target_idx)
@@ -419,6 +429,7 @@ pub fn instrument_code(code: &PyCode, events: u32) {
                     is_line_start[target_idx] = true;
                 }
             }
+            instr_idx += 1;
         }
 
         // Third pass: mark exception handler targets as line starts.

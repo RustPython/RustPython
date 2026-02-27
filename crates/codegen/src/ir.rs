@@ -254,30 +254,79 @@ impl CodeInfo {
 
         // Convert pseudo ops and remove resulting NOPs (keep line-marker NOPs)
         convert_pseudo_ops(&mut blocks, varname_cache.len() as u32);
-        for block in blocks
-            .iter_mut()
-            .filter(|b| b.next != BlockIdx::NULL || !b.instructions.is_empty())
-        {
-            // Collect lines that have non-NOP instructions in this block
-            let non_nop_lines: IndexSet<_> = block
-                .instructions
-                .iter()
-                .filter(|ins| !matches!(ins.instr.real(), Some(Instruction::Nop)))
-                .map(|ins| ins.location.line)
-                .collect();
-            let mut kept_nop_lines: IndexSet<OneIndexed> = IndexSet::default();
-            block.instructions.retain(|ins| {
-                if matches!(ins.instr.real(), Some(Instruction::Nop)) {
-                    let line = ins.location.line;
-                    // Remove if another instruction covers this line,
-                    // or if we already kept a NOP for this line
-                    if non_nop_lines.contains(&line) || kept_nop_lines.contains(&line) {
-                        return false;
+        // Remove redundant NOPs (CPython basicblock_remove_redundant_nops):
+        // keep line-marker NOPs only when they are needed to preserve tracing.
+        let mut block_order = Vec::new();
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            block_order.push(current);
+            current = blocks[current.idx()].next;
+        }
+        for block_idx in block_order {
+            let bi = block_idx.idx();
+            let mut src_instrs = core::mem::take(&mut blocks[bi].instructions);
+            let mut kept = Vec::with_capacity(src_instrs.len());
+            let mut prev_lineno = -1i32;
+
+            for src in 0..src_instrs.len() {
+                let instr = src_instrs[src];
+                let lineno = instr
+                    .lineno_override
+                    .unwrap_or_else(|| instr.location.line.get() as i32);
+                let mut remove = false;
+
+                if matches!(instr.instr.real(), Some(Instruction::Nop)) {
+                    // Remove location-less NOPs.
+                    if lineno < 0 || prev_lineno == lineno {
+                        remove = true;
                     }
-                    kept_nop_lines.insert(line);
+                    // Remove if the next instruction has same line or no line.
+                    else if src < src_instrs.len() - 1 {
+                        let next_lineno = src_instrs[src + 1]
+                            .lineno_override
+                            .unwrap_or_else(|| src_instrs[src + 1].location.line.get() as i32);
+                        if next_lineno == lineno {
+                            remove = true;
+                        } else if next_lineno < 0 {
+                            src_instrs[src + 1].lineno_override = Some(lineno);
+                            remove = true;
+                        }
+                    }
+                    // Last instruction in block: compare with first real location
+                    // in the next non-empty block.
+                    else {
+                        let mut next = blocks[bi].next;
+                        while next != BlockIdx::NULL && blocks[next.idx()].instructions.is_empty() {
+                            next = blocks[next.idx()].next;
+                        }
+                        if next != BlockIdx::NULL {
+                            let mut next_lineno = None;
+                            for next_instr in &blocks[next.idx()].instructions {
+                                let line = next_instr
+                                    .lineno_override
+                                    .unwrap_or_else(|| next_instr.location.line.get() as i32);
+                                if matches!(next_instr.instr.real(), Some(Instruction::Nop))
+                                    && line < 0
+                                {
+                                    continue;
+                                }
+                                next_lineno = Some(line);
+                                break;
+                            }
+                            if next_lineno.is_some_and(|line| line == lineno) {
+                                remove = true;
+                            }
+                        }
+                    }
                 }
-                true
-            });
+
+                if !remove {
+                    kept.push(instr);
+                    prev_lineno = lineno;
+                }
+            }
+
+            blocks[bi].instructions = kept;
         }
 
         // Pre-compute cache_entries for real (non-pseudo) instructions
@@ -293,6 +342,9 @@ impl CodeInfo {
         // block_to_index: maps block idx to instruction index (for exception table)
         // This is the index into the final instructions array, including EXTENDED_ARG and CACHE
         let mut block_to_index = vec![0u32; blocks.len()];
+        // The offset (in code units) of END_SEND from SEND in the yield-from sequence.
+        // Matches CPython's END_SEND_OFFSET in Python/assemble.c.
+        const END_SEND_OFFSET: u32 = 5;
         loop {
             let mut num_instructions = 0;
             for (idx, block) in iter_blocks(&blocks) {
@@ -317,44 +369,65 @@ impl CodeInfo {
                 let mut current_offset = block_to_offset[next_block.idx()].0;
                 for info in &mut block.instructions {
                     let target = info.target;
-                    if target != BlockIdx::NULL {
-                        let new_arg = OpArg::new(block_to_offset[target.idx()].0);
-                        recompile |= new_arg.instr_size() != info.arg.instr_size();
-                        info.arg = new_arg;
-                    }
+                    let mut op = info.instr.expect_real();
+                    let old_arg_size = info.arg.instr_size();
+                    let old_cache_entries = info.cache_entries;
+                    // Keep offsets fixed within this pass, like CPython's
+                    // resolve_jump_offsets(): changes in jump arg/cache sizes only
+                    // take effect in the next pass.
+                    let offset_after = current_offset + old_arg_size as u32 + old_cache_entries;
 
-                    // Convert JUMP pseudo to real instructions (direction depends on offset)
-                    let op = match info.instr {
-                        AnyInstruction::Pseudo(PseudoInstruction::Jump { .. })
-                            if target != BlockIdx::NULL =>
-                        {
-                            let target_offset = block_to_offset[target.idx()].0;
-                            if target_offset > current_offset {
-                                Instruction::JumpForward {
-                                    target: Arg::marker(),
-                                }
-                            } else {
+                    if target != BlockIdx::NULL {
+                        let target_offset = block_to_offset[target.idx()].0;
+                        // Direction must be based on concrete instruction offsets.
+                        // Empty blocks can share offsets, so block-order-based resolution
+                        // may classify some jumps incorrectly.
+                        op = match op {
+                            Instruction::JumpForward { .. } if target_offset <= current_offset => {
                                 Instruction::JumpBackward {
                                     target: Arg::marker(),
                                 }
                             }
-                        }
-                        AnyInstruction::Pseudo(PseudoInstruction::JumpNoInterrupt { .. })
-                            if target != BlockIdx::NULL =>
-                        {
-                            // JumpNoInterrupt is always backward (used in yield-from/await loops)
-                            Instruction::JumpBackwardNoInterrupt {
-                                target: Arg::marker(),
+                            Instruction::JumpBackward { .. } if target_offset > current_offset => {
+                                Instruction::JumpForward {
+                                    target: Arg::marker(),
+                                }
                             }
-                        }
-                        other => other.expect_real(),
-                    };
-
-                    // Update cache_entries when pseudo resolves to real opcode
-                    let new_cache = op.cache_entries() as u32;
-                    if new_cache != info.cache_entries {
-                        recompile = true;
-                        info.cache_entries = new_cache;
+                            Instruction::JumpBackwardNoInterrupt { .. }
+                                if target_offset > current_offset =>
+                            {
+                                Instruction::JumpForward {
+                                    target: Arg::marker(),
+                                }
+                            }
+                            _ => op,
+                        };
+                        info.instr = op.into();
+                        let updated_cache = op.cache_entries() as u32;
+                        recompile |= updated_cache != old_cache_entries;
+                        info.cache_entries = updated_cache;
+                        let new_arg = if matches!(op, Instruction::EndAsyncFor) {
+                            let arg = offset_after
+                                .checked_sub(target_offset + END_SEND_OFFSET)
+                                .expect("END_ASYNC_FOR target must be before instruction");
+                            OpArg::new(arg)
+                        } else if matches!(
+                            op,
+                            Instruction::JumpBackward { .. }
+                                | Instruction::JumpBackwardNoInterrupt { .. }
+                        ) {
+                            let arg = offset_after
+                                .checked_sub(target_offset)
+                                .expect("backward jump target must be before instruction");
+                            OpArg::new(arg)
+                        } else {
+                            let arg = target_offset
+                                .checked_sub(offset_after)
+                                .expect("forward jump target must be after instruction");
+                            OpArg::new(arg)
+                        };
+                        recompile |= new_arg.instr_size() != old_arg_size;
+                        info.arg = new_arg;
                     }
 
                     let cache_count = info.cache_entries as usize;
@@ -373,16 +446,10 @@ impl CodeInfo {
                         end_col: info.end_location.character_offset.to_zero_indexed() as i32,
                     };
                     linetable_locations.extend(core::iter::repeat_n(lt_loc, info.arg.instr_size()));
-                    // CACHE entries get NO_LOCATION in the linetable
+                    // CACHE entries inherit parent instruction's location
+                    // (matches CPython assemble_location_info: instr_size includes caches)
                     if cache_count > 0 {
-                        let cache_loc = LineTableLocation {
-                            line: -1,
-                            end_line: -1,
-                            col: -1,
-                            end_col: -1,
-                        };
-                        linetable_locations
-                            .extend(core::iter::repeat_n(cache_loc, cache_count));
+                        linetable_locations.extend(core::iter::repeat_n(lt_loc, cache_count));
                     }
                     instructions.extend(
                         extras
@@ -394,7 +461,7 @@ impl CodeInfo {
                         CodeUnit::new(Instruction::Cache, 0.into()),
                         cache_count,
                     ));
-                    current_offset += info.arg.instr_size() as u32 + info.cache_entries;
+                    current_offset = offset_after;
                 }
                 next_block = block.next;
             }
@@ -1044,8 +1111,7 @@ fn generate_linetable(
             // NO_LOCATION: emit PyCodeLocationInfoKind::None entries (CACHE, etc.)
             if line == -1 {
                 linetable.push(
-                    0x80 | ((PyCodeLocationInfoKind::None as u8) << 3)
-                        | ((entry_length - 1) as u8),
+                    0x80 | ((PyCodeLocationInfoKind::None as u8) << 3) | ((entry_length - 1) as u8),
                 );
                 // Do NOT update prev_line
                 length -= entry_length;
@@ -1405,7 +1471,7 @@ fn normalize_jumps(blocks: &mut [Block]) {
 
     visited.fill(false);
 
-    for block_idx in visit_order {
+    for &block_idx in &visit_order {
         let idx = block_idx.idx();
         visited[idx] = true;
 
@@ -1449,6 +1515,53 @@ fn normalize_jumps(blocks: &mut [Block]) {
 
         for (pos, info) in insert_positions.into_iter().rev() {
             blocks[idx].instructions.insert(pos, info);
+        }
+    }
+
+    // Resolve JUMP/JUMP_NO_INTERRUPT pseudo instructions before offset fixpoint,
+    // matching CPython's resolve_unconditional_jumps().
+    let mut block_order = vec![0u32; blocks.len()];
+    for (pos, &block_idx) in visit_order.iter().enumerate() {
+        block_order[block_idx.idx()] = pos as u32;
+    }
+
+    for &block_idx in &visit_order {
+        let source_pos = block_order[block_idx.idx()];
+        for info in &mut blocks[block_idx.idx()].instructions {
+            let target = info.target;
+            if target == BlockIdx::NULL {
+                continue;
+            }
+            let target_pos = block_order[target.idx()];
+            info.instr = match info.instr {
+                AnyInstruction::Pseudo(PseudoInstruction::Jump { .. }) => {
+                    if target_pos > source_pos {
+                        Instruction::JumpForward {
+                            target: Arg::marker(),
+                        }
+                        .into()
+                    } else {
+                        Instruction::JumpBackward {
+                            target: Arg::marker(),
+                        }
+                        .into()
+                    }
+                }
+                AnyInstruction::Pseudo(PseudoInstruction::JumpNoInterrupt { .. }) => {
+                    if target_pos > source_pos {
+                        Instruction::JumpForward {
+                            target: Arg::marker(),
+                        }
+                        .into()
+                    } else {
+                        Instruction::JumpBackwardNoInterrupt {
+                            target: Arg::marker(),
+                        }
+                        .into()
+                    }
+                }
+                other => other,
+            };
         }
     }
 }

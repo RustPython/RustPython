@@ -937,7 +937,9 @@ impl PyCode {
                 Instruction::ForIter { .. } => {
                     // left = fall-through past CACHE entries (continue iteration)
                     // right = past END_FOR (iterator exhausted, skip cleanup)
-                    let target = oparg as usize;
+                    // arg is relative forward from after instruction+caches
+                    let after_cache = i + 1 + caches;
+                    let target = after_cache + oparg as usize;
                     let right = if matches!(
                         instructions.get(target).map(|u| u.op),
                         Some(Instruction::EndFor) | Some(Instruction::InstrumentedEndFor)
@@ -946,14 +948,14 @@ impl PyCode {
                     } else {
                         target * 2
                     };
-                    (i * 2, (i + 1 + caches) * 2, right)
+                    (i * 2, after_cache * 2, right)
                 }
                 Instruction::PopJumpIfFalse { .. }
                 | Instruction::PopJumpIfTrue { .. }
                 | Instruction::PopJumpIfNone { .. }
                 | Instruction::PopJumpIfNotNone { .. } => {
                     // left = fall-through past CACHE entries (skip NOT_TAKEN if present)
-                    // right = jump target (condition met)
+                    // right = jump target (relative forward from after instruction+caches)
                     let after_cache = i + 1 + caches;
                     let next_op = instructions
                         .get(after_cache)
@@ -963,7 +965,8 @@ impl PyCode {
                     } else {
                         after_cache * 2
                     };
-                    (i * 2, fallthrough, oparg as usize * 2)
+                    let right_target = after_cache + oparg as usize;
+                    (i * 2, fallthrough, right_target * 2)
                 }
                 Instruction::EndAsyncFor => {
                     // src = END_SEND position (i - oparg)
@@ -971,7 +974,8 @@ impl PyCode {
                     let Some(src_i) = next_i.checked_sub(oparg as usize) else {
                         continue;
                     };
-                    (src_i * 2, (src_i + 1) * 2, next_i * 2)
+                    // left = fall-through past NOT_TAKEN
+                    (src_i * 2, (src_i + 2) * 2, next_i * 2)
                 }
                 _ => continue,
             };

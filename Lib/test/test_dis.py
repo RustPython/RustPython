@@ -2288,7 +2288,6 @@ class InstructionTests(InstructionTestCase):
         self.assertEqual(14, instructions[6].offset)
         self.assertEqual(8, instructions[6].start_offset)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; no inline caches
     def test_cache_offset_and_end_offset(self):
         code = bytes([
             opcode.opmap["LOAD_GLOBAL"], 0x01,
@@ -2587,7 +2586,6 @@ class TestDisCLI(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()):
                 _ = self.invoke_dis('--unknown')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_show_cache(self):
         # test 'python -m dis -C/--show-caches'
         source = 'print()'
