@@ -51,7 +51,6 @@ pub mod module {
     use nix::{
         errno::Errno,
         fcntl,
-        sys::signal,
         unistd::{self, Gid, Pid, Uid},
     };
     use rustpython_common::os::ffi::OsStringExt;
@@ -1530,6 +1529,8 @@ pub mod module {
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     impl PosixSpawnArgs {
         fn spawn(self, spawnp: bool, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+            use nix::sys::signal;
+
             use crate::TryFromBorrowedObject;
 
             let path = self
