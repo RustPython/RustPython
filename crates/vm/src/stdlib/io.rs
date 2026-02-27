@@ -477,8 +477,9 @@ mod _io {
         }
 
         #[pymethod]
-        fn isatty(_self: PyObjectRef) -> bool {
-            false
+        fn isatty(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            check_closed(&instance, vm)?;
+            Ok(false)
         }
 
         #[pygetset]
