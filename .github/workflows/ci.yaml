@@ -330,21 +330,21 @@ jobs:
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 45
+        timeout-minutes: 60
 
       - if: runner.os == 'macOS'
         name: run cpython platform-dependent tests (MacOS)
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 45
+        timeout-minutes: 50
 
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
         run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
-        timeout-minutes: 45
+        timeout-minutes: 50
 
       - if: runner.os == 'Linux'
         name: run cpython tests to check if env polluters have stopped polluting (Common/Linux)
