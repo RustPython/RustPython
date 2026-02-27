@@ -1883,9 +1883,16 @@ mod _sqlite3 {
             args: FetchManyArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            let max_rows = args
-                .size
-                .unwrap_or_else(|| zelf.arraysize.load(Ordering::Relaxed));
+            let max_rows = match args.size {
+                Some(size) => {
+                    if size < 0 {
+                        return Err(vm.new_value_error("fetchmany may not be negative"));
+                    }
+
+                    size
+                }
+                None => zelf.arraysize.load(Ordering::Relaxed),
+            };
 
             let mut list = vec![];
             while let PyIterReturn::Return(row) = Cursor::next(zelf, vm)? {
@@ -1955,9 +1962,16 @@ mod _sqlite3 {
         fn arraysize(&self) -> c_int {
             self.arraysize.load(Ordering::Relaxed)
         }
+
         #[pygetset(setter)]
-        fn set_arraysize(&self, val: c_int) {
+        fn set_arraysize(&self, val: c_int, vm: &VirtualMachine) -> PyResult<()> {
+            if val < 0 {
+                return Err(vm.new_value_error("arraysize may not be negative"));
+            }
+
             self.arraysize.store(val, Ordering::Relaxed);
+
+            Ok(())
         }
 
         fn build_row_cast_map(

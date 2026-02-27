@@ -80,7 +80,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd.decompress(COMPRESSED_XZ)
         self.assertRaises(EOFError, lzd.decompress, b"nyan")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument memlimit
     def test_decompressor_memlimit(self):
         lzd = LZMADecompressor(memlimit=1024)
         self.assertRaises(LZMAError, lzd.decompress, COMPRESSED_XZ)
@@ -101,7 +100,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, unused_data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_decompressor_auto(self):
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, COMPRESSED_XZ, lzma.CHECK_CRC64)
@@ -109,37 +107,30 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, COMPRESSED_ALONE, lzma.CHECK_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_decompressor_xz(self):
         lzd = LZMADecompressor(lzma.FORMAT_XZ)
         self._test_decompressor(lzd, COMPRESSED_XZ, lzma.CHECK_CRC64)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_decompressor_alone(self):
         lzd = LZMADecompressor(lzma.FORMAT_ALONE)
         self._test_decompressor(lzd, COMPRESSED_ALONE, lzma.CHECK_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_decompressor_raw_1(self):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_1)
         self._test_decompressor(lzd, COMPRESSED_RAW_1, lzma.CHECK_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_decompressor_raw_2(self):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_2)
         self._test_decompressor(lzd, COMPRESSED_RAW_2, lzma.CHECK_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_decompressor_raw_3(self):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_3)
         self._test_decompressor(lzd, COMPRESSED_RAW_3, lzma.CHECK_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_decompressor_raw_4(self):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         self._test_decompressor(lzd, COMPRESSED_RAW_4, lzma.CHECK_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_decompressor_chunks(self):
         lzd = LZMADecompressor()
         out = []
@@ -260,14 +251,12 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         out.append(lzd.decompress(COMPRESSED_XZ[300:]))
         self.assertEqual(b''.join(out), INPUT)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_decompressor_unused_data(self):
         lzd = LZMADecompressor()
         extra = b"fooblibar"
         self._test_decompressor(lzd, COMPRESSED_XZ + extra, lzma.CHECK_CRC64,
                                 unused_data=extra)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_decompressor_bad_input(self):
         lzd = LZMADecompressor()
         self.assertRaises(LZMAError, lzd.decompress, COMPRESSED_RAW_1)
@@ -281,7 +270,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_1)
         self.assertRaises(LZMAError, lzd.decompress, COMPRESSED_XZ)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_decompressor_bug_28275(self):
         # Test coverage for Issue 28275
         lzd = LZMADecompressor()
@@ -291,28 +279,24 @@ class CompressorDecompressorTestCase(unittest.TestCase):
 
     # Test that LZMACompressor->LZMADecompressor preserves the input data.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_roundtrip_xz(self):
         lzc = LZMACompressor()
         cdata = lzc.compress(INPUT) + lzc.flush()
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, cdata, lzma.CHECK_CRC64)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_roundtrip_alone(self):
         lzc = LZMACompressor(lzma.FORMAT_ALONE)
         cdata = lzc.compress(INPUT) + lzc.flush()
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, cdata, lzma.CHECK_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Invalid format
     def test_roundtrip_raw(self):
         lzc = LZMACompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         cdata = lzc.compress(INPUT) + lzc.flush()
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         self._test_decompressor(lzd, cdata, lzma.CHECK_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Invalid format
     def test_roundtrip_raw_empty(self):
         lzc = LZMACompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         cdata = lzc.compress(INPUT)
@@ -323,7 +307,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd = LZMADecompressor(lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         self._test_decompressor(lzd, cdata, lzma.CHECK_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_roundtrip_chunks(self):
         lzc = LZMACompressor()
         cdata = []
@@ -334,7 +317,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, cdata, lzma.CHECK_CRC64)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_roundtrip_empty_chunks(self):
         lzc = LZMACompressor()
         cdata = []
@@ -350,7 +332,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
 
     # LZMADecompressor intentionally does not handle concatenated streams.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_decompressor_multistream(self):
         lzd = LZMADecompressor()
         self._test_decompressor(lzd, COMPRESSED_XZ + COMPRESSED_ALONE,
@@ -441,7 +422,6 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
             lzma.decompress(
                     b"", format=lzma.FORMAT_ALONE, filters=FILTERS_RAW_1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: memory limit reached
     def test_decompress_memlimit(self):
         with self.assertRaises(LZMAError):
             lzma.decompress(COMPRESSED_XZ, memlimit=1024)
@@ -454,7 +434,6 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
 
     # Test LZMADecompressor on known-good input data.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_decompress_good_input(self):
         ddata = lzma.decompress(COMPRESSED_XZ)
         self.assertEqual(ddata, INPUT)
@@ -484,7 +463,6 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
                 COMPRESSED_RAW_4, lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
         self.assertEqual(ddata, INPUT)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_decompress_incomplete_input(self):
         self.assertRaises(LZMAError, lzma.decompress, COMPRESSED_XZ[:128])
         self.assertRaises(LZMAError, lzma.decompress, COMPRESSED_ALONE[:128])
@@ -497,7 +475,6 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
         self.assertRaises(LZMAError, lzma.decompress, COMPRESSED_RAW_4[:128],
                           format=lzma.FORMAT_RAW, filters=FILTERS_RAW_4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_decompress_bad_input(self):
         with self.assertRaises(LZMAError):
             lzma.decompress(COMPRESSED_BOGUS)
@@ -513,7 +490,6 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
 
     # Test that compress()->decompress() preserves the input data.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Invalid format
     def test_roundtrip(self):
         cdata = lzma.compress(INPUT)
         ddata = lzma.decompress(cdata)
@@ -539,12 +515,10 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
 
     # Test robust handling of non-LZMA data following the compressed stream(s).
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_decompress_trailing_junk(self):
         ddata = lzma.decompress(COMPRESSED_XZ + COMPRESSED_BOGUS)
         self.assertEqual(ddata, INPUT)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_decompress_multistream_trailing_junk(self):
         ddata = lzma.decompress(COMPRESSED_XZ * 3 + COMPRESSED_BOGUS)
         self.assertEqual(ddata, INPUT * 3)
@@ -840,7 +814,6 @@ class FileTestCase(unittest.TestCase):
             f.close()
         self.assertRaises(ValueError, f.writable)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_read(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ)) as f:
             self.assertEqual(f.read(), INPUT)
@@ -888,7 +861,6 @@ class FileTestCase(unittest.TestCase):
                 chunks.append(result)
             self.assertEqual(b"".join(chunks), INPUT)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_read_multistream(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ * 5)) as f:
             self.assertEqual(f.read(), INPUT * 5)
@@ -909,12 +881,10 @@ class FileTestCase(unittest.TestCase):
         finally:
             _streams.BUFFER_SIZE = saved_buffer_size
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_read_trailing_junk(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ + COMPRESSED_BOGUS)) as f:
             self.assertEqual(f.read(), INPUT)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_read_multistream_trailing_junk(self):
         with LZMAFile(BytesIO(COMPRESSED_XZ * 5 + COMPRESSED_BOGUS)) as f:
             self.assertEqual(f.read(), INPUT * 5)
@@ -1020,7 +990,6 @@ class FileTestCase(unittest.TestCase):
         with LZMAFile(BytesIO(COMPRESSED_XZ)) as f:
             self.assertRaises(TypeError, f.read, float())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: stream/file format not recognized
     def test_read_bad_data(self):
         with LZMAFile(BytesIO(COMPRESSED_BOGUS)) as f:
             self.assertRaises(LZMAError, f.read)
@@ -1078,7 +1047,6 @@ class FileTestCase(unittest.TestCase):
         with LZMAFile(BytesIO(), "w") as f:
             self.assertRaises(ValueError, f.peek)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_iterator(self):
         with BytesIO(INPUT) as f:
             lines = f.readlines()
@@ -1118,7 +1086,6 @@ class FileTestCase(unittest.TestCase):
         self.assertLessEqual(decomp._buffer.raw.tell(), max_decomp,
             "Excessive amount of data was decompressed")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Invalid format
     def test_write(self):
         with BytesIO() as dst:
             with LZMAFile(dst, "w") as f:
@@ -1498,7 +1465,6 @@ class OpenTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             lzma.open(TESTFN, "rb", newline="\n")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'list' found.
     def test_format_and_filters(self):
         # Test non-default format and filter chain.
         options = {"format": lzma.FORMAT_RAW, "filters": FILTERS_RAW_1}
@@ -1587,7 +1553,6 @@ class MiscellaneousTestCase(unittest.TestCase):
             })
         self.assertEqual(props, b"]\x00\x00\x80\x00")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: LZMAError not raised
     def test__decode_filter_properties(self):
         with self.assertRaises(TypeError):
             lzma._decode_filter_properties(lzma.FILTER_X86, {"should be": bytes})
@@ -1611,7 +1576,6 @@ class MiscellaneousTestCase(unittest.TestCase):
             filterspec = lzma._decode_filter_properties(f, b"")
             self.assertEqual(filterspec, {"id": f})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected at most 0 arguments, got 1
     def test_filter_properties_roundtrip(self):
         spec1 = lzma._decode_filter_properties(
                 lzma.FILTER_LZMA1, b"]\x00\x00\x80\x00")
