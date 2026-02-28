@@ -219,9 +219,13 @@ impl TimeoutSeconds {
 
 impl TryFromObject for TimeoutSeconds {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        super::Either::<f64, i64>::try_from_object(vm, obj).map(|e| match e {
-            super::Either::A(f) => Self { value: f },
-            super::Either::B(i) => Self { value: i as f64 },
-        })
+        let value = match super::Either::<f64, i64>::try_from_object(vm, obj)? {
+            super::Either::A(f) => f,
+            super::Either::B(i) => i as f64,
+        };
+        if value.is_nan() {
+            return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
+        }
+        Ok(Self { value })
     }
 }
