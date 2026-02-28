@@ -1597,7 +1597,7 @@ class StrTest(string_tests.StringLikeTest,
         self.assertRaisesRegex(TypeError, '%u format: a real number is required, not complex', operator.mod, '%u', 3j)
         self.assertRaisesRegex(TypeError, '%i format: a real number is required, not complex', operator.mod, '%i', 2j)
         self.assertRaisesRegex(TypeError, '%d format: a real number is required, not complex', operator.mod, '%d', 1j)
-        self.assertRaisesRegex(TypeError, '%c requires int or char', operator.mod, '%c', pi)
+        self.assertRaisesRegex(TypeError, r'%c requires an int or a unicode character, not .*\.PseudoFloat', operator.mod, '%c', pi)
 
         class RaisingNumber:
             def __int__(self):
@@ -2458,8 +2458,10 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual(repr(s1()), '\\n')
 
     def test_printable_repr(self):
-        self.assertEqual(repr('\U00010000'), "'%c'" % (0x10000,)) # printable
-        self.assertEqual(repr('\U00014000'), "'\\U00014000'")     # nonprintable
+        # printable
+        self.assertEqual(repr('\U00010000'), "'%c'" % (0x10000,))
+        # nonprintable (private use area)
+        self.assertEqual(repr('\U00100001'), "'\\U00100001'")
 
     # This test only affects 32-bit platforms because expandtabs can only take
     # an int as the max value, not a 64-bit C long.  If expandtabs is changed
@@ -2617,7 +2619,8 @@ class StrTest(string_tests.StringLikeTest,
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, str)
-        support.check_free_after_iterating(self, reversed, str)
+        if not support.Py_GIL_DISABLED:
+            support.check_free_after_iterating(self, reversed, str)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 22 != 10 : _PythonRunResult(rc=22, out=b'', err=b'')
     def test_check_encoding_errors(self):
