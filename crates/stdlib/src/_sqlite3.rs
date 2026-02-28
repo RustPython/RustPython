@@ -1043,8 +1043,10 @@ mod _sqlite3 {
                 )));
             }
 
-            if let Some(cursor_ref) = cursor.downcast_ref::<Cursor>() {
-                let _ = unsafe { cursor_ref.row_factory.swap(zelf.row_factory.to_owned()) };
+            if let Some(cursor_ref) = cursor.downcast_ref::<Cursor>()
+                && let Some(factory) = zelf.row_factory.to_owned()
+            {
+                let _ = unsafe { cursor_ref.row_factory.swap(Some(factory)) };
             }
 
             Ok(cursor)
@@ -1975,6 +1977,16 @@ mod _sqlite3 {
             self.arraysize.store(val, Ordering::Relaxed);
 
             Ok(())
+        }
+
+        #[pygetset]
+        fn row_factory(&self) -> Option<PyObjectRef> {
+            self.row_factory.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_row_factory(&self, val: Option<PyObjectRef>) {
+            let _ = unsafe { self.row_factory.swap(val) };
         }
 
         fn build_row_cast_map(
