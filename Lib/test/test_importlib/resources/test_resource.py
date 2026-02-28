@@ -153,7 +153,6 @@ class DeletingZipsTest(util.ZipSetup, unittest.TestCase):
     def test_as_file_does_not_keep_open(self):  # pragma: no cover
         resources.as_file(resources.files('data01') / 'binary.file')
 
-    @unittest.skipIf("RUSTPYTHON_SKIP_ENV_POLLUTERS" in os.environ, "TODO: RUSTPYTHON; environment pollution when running rustpython -m test --fail-env-changed due to tmpfile leak")
     def test_entered_path_does_not_keep_open(self):
         """
         Mimic what certifi does on import to make its bundle
