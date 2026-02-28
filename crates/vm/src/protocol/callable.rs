@@ -96,28 +96,46 @@ impl core::fmt::Display for TraceEvent {
 
 impl VirtualMachine {
     /// Call registered trace function.
+    ///
+    /// Returns the trace function's return value:
+    /// - `Some(obj)` if the trace function returned a non-None value
+    /// - `None` if it returned Python None or no trace function was active
+    ///
+    /// In CPython's trace protocol:
+    /// - For 'call' events: the return value determines the per-frame `f_trace`
+    /// - For 'line'/'return' events: the return value can update `f_trace`
     #[inline]
-    pub(crate) fn trace_event(&self, event: TraceEvent, arg: Option<PyObjectRef>) -> PyResult<()> {
+    pub(crate) fn trace_event(
+        &self,
+        event: TraceEvent,
+        arg: Option<PyObjectRef>,
+    ) -> PyResult<Option<PyObjectRef>> {
         if self.use_tracing.get() {
             self._trace_event_inner(event, arg)
         } else {
-            Ok(())
+            Ok(None)
         }
     }
-    fn _trace_event_inner(&self, event: TraceEvent, arg: Option<PyObjectRef>) -> PyResult<()> {
+    fn _trace_event_inner(
+        &self,
+        event: TraceEvent,
+        arg: Option<PyObjectRef>,
+    ) -> PyResult<Option<PyObjectRef>> {
         let trace_func = self.trace_func.borrow().to_owned();
         let profile_func = self.profile_func.borrow().to_owned();
         if self.is_none(&trace_func) && self.is_none(&profile_func) {
-            return Ok(());
+            return Ok(None);
         }
 
         let Some(frame_ref) = self.current_frame() else {
-            return Ok(());
+            return Ok(None);
         };
 
         let frame: PyObjectRef = frame_ref.into();
         let event = self.ctx.new_str(event.to_string()).into();
         let args = vec![frame, event, arg.unwrap_or_else(|| self.ctx.none())];
+
+        let mut trace_result = None;
 
         // temporarily disable tracing, during the call to the
         // tracing function itself.
@@ -125,8 +143,20 @@ impl VirtualMachine {
             self.use_tracing.set(false);
             let res = trace_func.call(args.clone(), self);
             self.use_tracing.set(true);
-            if res.is_err() {
-                *self.trace_func.borrow_mut() = self.ctx.none();
+            match res {
+                Ok(result) => {
+                    if !self.is_none(&result) {
+                        trace_result = Some(result);
+                    }
+                }
+                Err(e) => {
+                    // trace_trampoline behavior: clear per-frame f_trace
+                    // and propagate the error.
+                    if let Some(frame_ref) = self.current_frame() {
+                        *frame_ref.trace.lock() = self.ctx.none();
+                    }
+                    return Err(e);
+                }
             }
         }
 
@@ -138,6 +168,6 @@ impl VirtualMachine {
                 *self.profile_func.borrow_mut() = self.ctx.none();
             }
         }
-        Ok(())
+        Ok(trace_result)
     }
 }

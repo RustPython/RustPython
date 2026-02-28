@@ -762,7 +762,6 @@ class StateTestCase(BaseTestCase):
         bdb = Bdb(skip=['anything*'])
         self.assertIs(bdb.is_skipped_module(None), False)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_down(self):
         # Check that set_down() raises BdbError at the newest frame.
         self.expect_set = [
@@ -784,7 +783,6 @@ class StateTestCase(BaseTestCase):
 class BreakpointTestCase(BaseTestCase):
     """Test the breakpoint set method."""
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_bp_on_non_existent_module(self):
         self.expect_set = [
             ('line', 2, 'tfunc_import'), ('break', ('/non/existent/module.py', 1))
@@ -792,7 +790,6 @@ class BreakpointTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             self.assertRaises(BdbError, tracer.runcall, tfunc_import)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_bp_after_last_statement(self):
         code = """
             def main():
@@ -969,7 +966,6 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_clear_at_no_bp(self):
         self.expect_set = [
             ('line', 2, 'tfunc_import'), ('clear', (__file__, 1))
