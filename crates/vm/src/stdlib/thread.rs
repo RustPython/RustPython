@@ -15,7 +15,7 @@ pub(crate) mod _thread {
         builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         frame::FrameRef,
-        function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
+        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
     use alloc::{
@@ -65,17 +65,14 @@ pub(crate) mod _thread {
     struct AcquireArgs {
         #[pyarg(any, default = true)]
         blocking: bool,
-        #[pyarg(any, default = Either::A(-1.0))]
-        timeout: Either<f64, i64>,
+        #[pyarg(any, default = TimeoutSeconds::new(-1.0))]
+        timeout: TimeoutSeconds,
     }
 
     macro_rules! acquire_lock_impl {
         ($mu:expr, $args:expr, $vm:expr) => {{
             let (mu, args, vm) = ($mu, $args, $vm);
-            let timeout = match args.timeout {
-                Either::A(f) => f,
-                Either::B(i) => i as f64,
-            };
+            let timeout = args.timeout.to_secs_f64();
             match args.blocking {
                 true if timeout == -1.0 => {
                     mu.lock();
@@ -1092,13 +1089,15 @@ pub(crate) mod _thread {
         #[pymethod]
         fn join(
             &self,
-            timeout: OptionalArg<Option<Either<f64, i64>>>,
+            timeout: OptionalArg<Option<TimeoutSeconds>>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             // Convert timeout to Duration (None or negative = infinite wait)
             let timeout_duration = match timeout.flatten() {
-                Some(Either::A(t)) if t >= 0.0 => Some(Duration::from_secs_f64(t)),
-                Some(Either::B(t)) if t >= 0 => Some(Duration::from_secs(t as u64)),
+                Some(t) => {
+                    let secs = t.to_secs_f64();
+                    (secs >= 0.0).then(|| Duration::from_secs_f64(secs))
+                }
                 _ => None,
             };
 
