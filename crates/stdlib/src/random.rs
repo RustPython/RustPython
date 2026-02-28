@@ -67,9 +67,16 @@ mod _random {
         }
 
         #[pymethod]
-        fn getrandbits(&self, k: isize, vm: &VirtualMachine) -> PyResult<BigInt> {
+        fn getrandbits(&self, k: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+            let k_int = k.try_index(vm)?;
+            let k_bigint = k_int.as_bigint();
+            if k_bigint.is_negative() {
+                return Err(vm.new_value_error("number of bits must be non-negative"));
+            }
+            let k: isize = k_int
+                .try_to_primitive(vm)
+                .map_err(|_| vm.new_overflow_error("getrandbits: number of bits too large"))?;
             match k {
-                ..0 => Err(vm.new_value_error("number of bits must be non-negative")),
                 0 => Ok(BigInt::zero()),
                 mut k => {
                     let mut rng = self.rng.lock();
