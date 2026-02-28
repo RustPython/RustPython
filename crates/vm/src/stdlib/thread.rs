@@ -79,15 +79,12 @@ pub(crate) mod _thread {
                     Ok(true)
                 }
                 true if timeout < 0.0 => {
-                    Err(vm.new_value_error("timeout value must be positive".to_owned()))
+                    Err(vm.new_value_error("timeout value must be a non-negative number".to_owned()))
                 }
                 true => {
-                    // modified from std::time::Duration::from_secs_f64 to avoid a panic.
-                    // TODO: put this in the Duration::try_from_object impl, maybe?
-                    let nanos = timeout * 1_000_000_000.0;
-                    if timeout > TIMEOUT_MAX as f64 || nanos < 0.0 || !nanos.is_finite() {
+                    if timeout > TIMEOUT_MAX {
                         return Err(vm.new_overflow_error(
-                            "timestamp too large to convert to Rust Duration".to_owned(),
+                            "timeout value is too large".to_owned(),
                         ));
                     }
 
@@ -1096,7 +1093,16 @@ pub(crate) mod _thread {
             let timeout_duration = match timeout.flatten() {
                 Some(t) => {
                     let secs = t.to_secs_f64();
-                    (secs >= 0.0).then(|| Duration::from_secs_f64(secs))
+                    if secs >= 0.0 {
+                        if secs > TIMEOUT_MAX {
+                            return Err(vm.new_overflow_error(
+                                "timeout value is too large".to_owned(),
+                            ));
+                        }
+                        Some(Duration::from_secs_f64(secs))
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             };
