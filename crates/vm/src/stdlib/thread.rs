@@ -15,7 +15,7 @@ pub(crate) mod _thread {
         builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         frame::FrameRef,
-        function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
+        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
     use alloc::{
@@ -65,17 +65,14 @@ pub(crate) mod _thread {
     struct AcquireArgs {
         #[pyarg(any, default = true)]
         blocking: bool,
-        #[pyarg(any, default = Either::A(-1.0))]
-        timeout: Either<f64, i64>,
+        #[pyarg(any, default = TimeoutSeconds::new(-1.0))]
+        timeout: TimeoutSeconds,
     }
 
     macro_rules! acquire_lock_impl {
         ($mu:expr, $args:expr, $vm:expr) => {{
             let (mu, args, vm) = ($mu, $args, $vm);
-            let timeout = match args.timeout {
-                Either::A(f) => f,
-                Either::B(i) => i as f64,
-            };
+            let timeout = args.timeout.to_secs_f64();
             match args.blocking {
                 true if timeout == -1.0 => {
                     vm.allow_threads(|| mu.lock());
