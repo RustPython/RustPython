@@ -170,7 +170,7 @@ indexmap = { version = "2.13.0", features = ["std"] }
 insta = "1.46"
 itertools = "0.14.0"
 is-macro = "0.3.7"
-junction = "1.4.1"
+junction = "1.4.2"
 libc = "0.2.180"
 libffi = "5"
 log = "0.4.29"
