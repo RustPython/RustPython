@@ -6,9 +6,6 @@ updates:
     schedule:
       interval: weekly
     groups:
-      cranelift:
-        patterns:
-          - "cranelift*"
       criterion:
         patterns:
           - "criterion*"
@@ -68,6 +65,11 @@ updates:
       quote-use:
         patterns:
           - "quote-use*"
+      random:
+        patterns:
+          - "getrandom"
+          - "mt19937"
+          - "rand*"
       rayon:
         patterns:
           - "rayon*"
@@ -108,6 +110,7 @@ updates:
           - "wasm-bindgen*"
       wasmtime:
         patterns:
+          - "cranelift*"
           - "wasmtime*"
       webpki-root:
         patterns:
