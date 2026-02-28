@@ -69,6 +69,7 @@ sha3 = "0.10.1"
 blake2 = "0.10.4"
 hmac = "0.12"
 pbkdf2 = { version = "0.12", features = ["hmac"] }
+constant_time_eq = { workspace = true }
 
 ## unicode stuff
 unicode_names2 = { workspace = true }
