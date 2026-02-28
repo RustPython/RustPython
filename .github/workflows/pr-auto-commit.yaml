@@ -52,7 +52,7 @@ jobs:
       - name: Install ruff
         uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3.6.1
         with:
-          version: "0.14.11"
+          version: "0.15.4"
           args: "--version"
 
       - name: Run ruff format
