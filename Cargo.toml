@@ -158,7 +158,7 @@ bitflags = "2.11.0"
 bstr = "1"
 bytes = "1.11.1"
 cfg-if = "1.0"
-chrono = { version = "0.4.43", default-features = false, features = ["clock", "oldtime", "std"] }
+chrono = { version = "0.4.44", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
