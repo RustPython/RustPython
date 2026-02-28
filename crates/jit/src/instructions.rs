@@ -666,12 +666,16 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::LoadGlobal(idx) => {
-                let name = &bytecode.names[idx.get(arg) as usize];
+                let oparg = idx.get(arg);
+                let name = &bytecode.names[(oparg >> 1) as usize];
 
                 if name.as_ref() != bytecode.obj_name.as_ref() {
                     Err(JitCompileError::NotSupported)
                 } else {
                     self.stack.push(JitValue::FuncRef(func_ref));
+                    if (oparg & 1) != 0 {
+                        self.stack.push(JitValue::Null);
+                    }
                     Ok(())
                 }
             }

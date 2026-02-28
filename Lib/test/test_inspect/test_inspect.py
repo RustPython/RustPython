@@ -2020,7 +2020,6 @@ class TestIsDataDescriptor(unittest.TestCase):
 _global_ref = object()
 class TestGetClosureVars(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Closu[132 chars]={'print': <built-in function print>}, unbound=set()) != Closu[132 chars]={'print': <built-in function print>}, unbound={'unbound_ref'})
     def test_name_resolution(self):
         # Basic test of the 4 different resolution mechanisms
         def f(nonlocal_ref):
@@ -2036,7 +2035,6 @@ class TestGetClosureVars(unittest.TestCase):
                                        builtin_vars, unbound_names)
         self.assertEqual(inspect.getclosurevars(f(_arg)), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Closu[132 chars]={'print': <built-in function print>}, unbound=set()) != Closu[132 chars]={'print': <built-in function print>}, unbound={'unbound_ref'})
     def test_generator_closure(self):
         def f(nonlocal_ref):
             def g(local_ref):
@@ -2052,7 +2050,6 @@ class TestGetClosureVars(unittest.TestCase):
                                        builtin_vars, unbound_names)
         self.assertEqual(inspect.getclosurevars(f(_arg)), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Closu[132 chars]={'print': <built-in function print>}, unbound=set()) != Closu[132 chars]={'print': <built-in function print>}, unbound={'unbound_ref'})
     def test_method_closure(self):
         class C:
             def f(self, nonlocal_ref):
@@ -2068,7 +2065,6 @@ class TestGetClosureVars(unittest.TestCase):
                                        builtin_vars, unbound_names)
         self.assertEqual(inspect.getclosurevars(C().f(_arg)), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Closu[139 chars]als={}, builtins={'print': <built-in function [18 chars]et()) != Closu[139 chars]als={'_global_ref': <object object at 0xa4ffee[73 chars]ef'})
     def test_attribute_same_name_as_global_var(self):
         class C:
             _global_ref = object()
@@ -2138,21 +2134,18 @@ class TestGetClosureVars(unittest.TestCase):
         exec(code, ns)
         return ns["f"], ns
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Closu[34 chars]uiltins={'print': <built-in function print>}, unbound=set()) != Closu[34 chars]uiltins={'print': <built-in function print>}, unbound={'path'})
     def test_builtins_fallback(self):
         f, ns = self._private_globals()
         ns.pop("__builtins__", None)
         expected = inspect.ClosureVars({}, {}, {"print":print}, {"path"})
         self.assertEqual(inspect.getclosurevars(f), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ClosureVars(nonlocals={}, globals={}, builtins={}, unbound={'print'}) != ClosureVars(nonlocals={}, globals={}, builtins={'path': 1}, unbound={'print'})
     def test_builtins_as_dict(self):
         f, ns = self._private_globals()
         ns["__builtins__"] = {"path":1}
         expected = inspect.ClosureVars({}, {}, {"path":1}, {"print"})
         self.assertEqual(inspect.getclosurevars(f), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Closu[38 chars]ins={}, unbound={'print'}) != Closu[38 chars]ins={'path': <module 'posixpath' from '/Users/[79 chars]nt'})
     def test_builtins_as_module(self):
         f, ns = self._private_globals()
         ns["__builtins__"] = os

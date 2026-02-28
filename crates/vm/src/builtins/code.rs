@@ -969,7 +969,7 @@ impl PyCode {
                     (i * 2, fallthrough, right_target * 2)
                 }
                 Instruction::EndAsyncFor => {
-                    // src = END_SEND position (i - oparg)
+                    // src = END_SEND position (next_i - oparg)
                     let next_i = i + 1;
                     let Some(src_i) = next_i.checked_sub(oparg as usize) else {
                         continue;

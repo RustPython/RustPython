@@ -79,8 +79,11 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
             Instruction::LoadConst { idx } => {
                 stack.push((true, idx.get(arg) as usize));
             }
-            Instruction::LoadName(idx) | Instruction::LoadGlobal(idx) => {
+            Instruction::LoadName(idx) => {
                 stack.push((false, idx.get(arg) as usize));
+            }
+            Instruction::LoadGlobal(idx) => {
+                stack.push((false, (idx.get(arg) >> 1) as usize));
             }
             Instruction::BuildMap { size, .. } => {
                 let count = size.get(arg) as usize;

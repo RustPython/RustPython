@@ -213,6 +213,7 @@ impl CodeInfo {
         label_exception_targets(&mut self.blocks);
         push_cold_blocks_to_end(&mut self.blocks);
         normalize_jumps(&mut self.blocks);
+        self.optimize_load_global_push_null();
 
         let max_stackdepth = self.max_stackdepth()?;
         let cell2arg = self.cell2arg();
@@ -264,12 +265,12 @@ impl CodeInfo {
         }
         for block_idx in block_order {
             let bi = block_idx.idx();
-            let mut src_instrs = core::mem::take(&mut blocks[bi].instructions);
-            let mut kept = Vec::with_capacity(src_instrs.len());
+            let mut src_instructions = core::mem::take(&mut blocks[bi].instructions);
+            let mut kept = Vec::with_capacity(src_instructions.len());
             let mut prev_lineno = -1i32;
 
-            for src in 0..src_instrs.len() {
-                let instr = src_instrs[src];
+            for src in 0..src_instructions.len() {
+                let instr = src_instructions[src];
                 let lineno = instr
                     .lineno_override
                     .unwrap_or_else(|| instr.location.line.get() as i32);
@@ -281,14 +282,14 @@ impl CodeInfo {
                         remove = true;
                     }
                     // Remove if the next instruction has same line or no line.
-                    else if src < src_instrs.len() - 1 {
-                        let next_lineno = src_instrs[src + 1]
+                    else if src < src_instructions.len() - 1 {
+                        let next_lineno = src_instructions[src + 1]
                             .lineno_override
-                            .unwrap_or_else(|| src_instrs[src + 1].location.line.get() as i32);
+                            .unwrap_or_else(|| src_instructions[src + 1].location.line.get() as i32);
                         if next_lineno == lineno {
                             remove = true;
                         } else if next_lineno < 0 {
-                            src_instrs[src + 1].lineno_override = Some(lineno);
+                            src_instructions[src + 1].lineno_override = Some(lineno);
                             remove = true;
                         }
                     }
@@ -697,6 +698,34 @@ impl CodeInfo {
                 } else {
                     i += 1;
                 }
+            }
+        }
+    }
+
+    /// CPython flowgraph.c:
+    /// LOAD_GLOBAL <even> + PUSH_NULL -> LOAD_GLOBAL <odd>, NOP
+    fn optimize_load_global_push_null(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i + 1 < block.instructions.len() {
+                let curr = &block.instructions[i];
+                let next = &block.instructions[i + 1];
+
+                let (Some(Instruction::LoadGlobal(_)), Some(Instruction::PushNull)) =
+                    (curr.instr.real(), next.instr.real())
+                else {
+                    i += 1;
+                    continue;
+                };
+
+                let oparg = u32::from(block.instructions[i].arg);
+                if (oparg & 1) != 0 {
+                    i += 1;
+                    continue;
+                }
+
+                block.instructions[i].arg = OpArg::new(oparg | 1);
+                block.instructions.remove(i + 1);
             }
         }
     }

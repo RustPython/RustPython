@@ -1822,9 +1822,13 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadGlobal(idx) => {
-                let name = &self.code.names[idx.get(arg) as usize];
+                let oparg = idx.get(arg);
+                let name = &self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
+                if (oparg & 1) != 0 {
+                    self.push_value_opt(None);
+                }
                 Ok(None)
             }
             Instruction::LoadName(idx) => {

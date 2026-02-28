@@ -2010,7 +2010,10 @@ impl Compiler {
             NameOp::Global => {
                 let idx = self.get_global_name_index(&name);
                 let op = match usage {
-                    NameUsage::Load => Instruction::LoadGlobal,
+                    NameUsage::Load => {
+                        self.emit_load_global(idx, false);
+                        return Ok(());
+                    }
                     NameUsage::Store => Instruction::StoreGlobal,
                     NameUsage::Delete => Instruction::DeleteGlobal,
                 };
@@ -2973,24 +2976,14 @@ impl Compiler {
                 emit!(self, Instruction::PopExcept);
 
                 // RERAISE 0: re-raise the original exception to outer handler
-                emit!(
-                    self,
-                    Instruction::RaiseVarargs {
-                        kind: bytecode::RaiseKind::ReraiseFromStack
-                    }
-                );
+                emit!(self, Instruction::Reraise { depth: 0 });
             }
 
             if let Some(cleanup) = finally_cleanup_block {
                 self.switch_to_block(cleanup);
                 emit!(self, Instruction::Copy { index: 3_u32 });
                 emit!(self, Instruction::PopExcept);
-                emit!(
-                    self,
-                    Instruction::RaiseVarargs {
-                        kind: bytecode::RaiseKind::ReraiseFromStack
-                    }
-                );
+                emit!(self, Instruction::Reraise { depth: 1 });
             }
 
             self.switch_to_block(end_block);
@@ -3128,12 +3121,7 @@ impl Compiler {
                 // Stack at entry: [prev_exc (at handler_depth), lasti, exc]
                 // This RERAISE is within ExceptionHandler scope, so it routes to cleanup_block
                 // which does COPY 3; POP_EXCEPT; RERAISE
-                emit!(
-                    self,
-                    Instruction::RaiseVarargs {
-                        kind: bytecode::RaiseKind::ReraiseFromStack,
-                    }
-                );
+                emit!(self, Instruction::Reraise { depth: 1 });
             }
 
             // Switch to normal exit block - this is where handler body success continues
@@ -3181,12 +3169,7 @@ impl Compiler {
         // RERAISE 0
         // Stack: [prev_exc, exc] - exception is on stack from PUSH_EXC_INFO
         // NOTE: We emit RERAISE 0 BEFORE popping fblock so it is within cleanup handler scope
-        emit!(
-            self,
-            Instruction::RaiseVarargs {
-                kind: bytecode::RaiseKind::ReraiseFromStack,
-            }
-        );
+        emit!(self, Instruction::Reraise { depth: 0 });
 
         // Pop EXCEPTION_HANDLER fblock
         // Pop after RERAISE so the instruction has the correct exception handler
@@ -3200,12 +3183,7 @@ impl Compiler {
         self.switch_to_block(cleanup_block);
         emit!(self, Instruction::Copy { index: 3_u32 });
         emit!(self, Instruction::PopExcept);
-        emit!(
-            self,
-            Instruction::RaiseVarargs {
-                kind: bytecode::RaiseKind::ReraiseFromStack,
-            }
-        );
+        emit!(self, Instruction::Reraise { depth: 1 });
 
         // We successfully ran the try block:
         // else:
@@ -3277,12 +3255,7 @@ impl Compiler {
 
             // RERAISE 0: re-raise the original exception to outer handler
             // Stack: [lasti, prev_exc, exc] - exception is on top
-            emit!(
-                self,
-                Instruction::RaiseVarargs {
-                    kind: bytecode::RaiseKind::ReraiseFromStack,
-                }
-            );
+            emit!(self, Instruction::Reraise { depth: 0 });
         }
 
         // finally cleanup block
@@ -3295,12 +3268,7 @@ impl Compiler {
             // POP_EXCEPT: restore prev_exc as current exception
             emit!(self, Instruction::PopExcept);
             // RERAISE 1: reraise with lasti from stack
-            emit!(
-                self,
-                Instruction::RaiseVarargs {
-                    kind: bytecode::RaiseKind::ReraiseFromStack,
-                }
-            );
+            emit!(self, Instruction::Reraise { depth: 1 });
         }
 
         // End block - continuation point after try-finally
@@ -3673,23 +3641,13 @@ impl Compiler {
 
             emit!(self, Instruction::Copy { index: 2_u32 });
             emit!(self, Instruction::PopExcept);
-            emit!(
-                self,
-                Instruction::RaiseVarargs {
-                    kind: bytecode::RaiseKind::ReraiseFromStack
-                }
-            );
+            emit!(self, Instruction::Reraise { depth: 0 });
 
             if let Some(cleanup) = finally_cleanup_block {
                 self.switch_to_block(cleanup);
                 emit!(self, Instruction::Copy { index: 3_u32 });
                 emit!(self, Instruction::PopExcept);
-                emit!(
-                    self,
-                    Instruction::RaiseVarargs {
-                        kind: bytecode::RaiseKind::ReraiseFromStack
-                    }
-                );
+                emit!(self, Instruction::Reraise { depth: 1 });
             }
         }
 
@@ -4036,7 +3994,7 @@ impl Compiler {
                     emit!(self, Instruction::LoadDeref(idx));
                 } else {
                     let cond_annotations_name = self.name("__conditional_annotations__");
-                    emit!(self, Instruction::LoadGlobal(cond_annotations_name));
+                    self.emit_load_global(cond_annotations_name, false);
                 }
                 // CONTAINS_OP (in)
                 emit!(self, Instruction::ContainsOp(bytecode::Invert::No));
@@ -4528,7 +4486,7 @@ impl Compiler {
 
         // Load (global) __name__ and store as __module__
         let dunder_name = self.name("__name__");
-        emit!(self, Instruction::LoadGlobal(dunder_name));
+        self.emit_load_global(dunder_name, false);
         let dunder_module = self.name("__module__");
         emit!(self, Instruction::StoreName(dunder_module));
 
@@ -7994,12 +7952,7 @@ impl Compiler {
                 emit!(self, Instruction::StoreFast(idx));
             }
             // Re-raise the exception
-            emit!(
-                self,
-                Instruction::RaiseVarargs {
-                    kind: bytecode::RaiseKind::ReraiseFromStack
-                }
-            );
+            emit!(self, Instruction::Reraise { depth: 0 });
 
             // Normal end path
             self.switch_to_block(end_block);
@@ -8116,6 +8069,13 @@ impl Compiler {
             .is_method(true)
             .build();
         self.emit_arg(encoded, |arg| Instruction::LoadAttr { idx: arg })
+    }
+
+    /// Emit LOAD_GLOBAL.
+    /// Encodes: (name_idx << 1) | push_null_bit
+    fn emit_load_global(&mut self, name_idx: u32, push_null: bool) {
+        let encoded = (name_idx << 1) | u32::from(push_null);
+        self.emit_arg(encoded, Instruction::LoadGlobal);
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().attr access.

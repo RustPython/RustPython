@@ -296,9 +296,10 @@ pub(crate) mod stack_analysis {
                         }
                     }
                     Instruction::LoadGlobal(_) => {
-                        // RustPython's LOAD_GLOBAL doesn't encode push_null in oparg
-                        // (separate PUSH_NULL instructions are used instead)
                         next_stack = push_value(next_stack, Kind::Object as i64);
+                        if oparg & 1 != 0 {
+                            next_stack = push_value(next_stack, Kind::Null as i64);
+                        }
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }
