@@ -54,7 +54,7 @@ rustyline = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-pyo3 = { version = "0.28", features = ["auto-initialize"] }
+pyo3 = { version = "0.28.2", features = ["auto-initialize"] }
 rustpython-stdlib = { workspace = true }
 
 [[bench]]
