@@ -61,7 +61,7 @@ mod _sqlite3 {
         },
         convert::IntoObject,
         function::{
-            ArgCallable, ArgIterable, FsPath, FuncArgs, OptionalArg, PyComparisonValue,
+            ArgCallable, ArgIterable, Either, FsPath, FuncArgs, OptionalArg, PyComparisonValue,
             PySetterValue,
         },
         object::{Traverse, TraverseFn},
@@ -333,8 +333,8 @@ mod _sqlite3 {
     struct ConnectArgs {
         #[pyarg(any)]
         database: FsPath,
-        #[pyarg(any, default = 5.0)]
-        timeout: f64,
+        #[pyarg(any, default = Either::A(5.0))]
+        timeout: Either<f64, i64>,
         #[pyarg(any, default = 0)]
         detect_types: c_int,
         #[pyarg(any, default = Some(vm.ctx.empty_str.to_owned()))]
@@ -991,7 +991,10 @@ mod _sqlite3 {
         fn initialize_db(args: &ConnectArgs, vm: &VirtualMachine) -> PyResult<Sqlite> {
             let path = args.database.to_cstring(vm)?;
             let db = Sqlite::from(SqliteRaw::open(path.as_ptr(), args.uri, vm)?);
-            let timeout = (args.timeout * 1000.0) as c_int;
+            let timeout = (match args.timeout {
+                Either::A(float) => float,
+                Either::B(int) => int as f64,
+            } * 1000.0) as c_int;
             db.busy_timeout(timeout);
             if let Some(isolation_level) = &args.isolation_level {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;

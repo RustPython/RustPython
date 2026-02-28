@@ -1928,7 +1928,6 @@ class MultiprocessTests(unittest.TestCase):
     def tearDown(self):
         unlink(TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON multiprocess test fails
     def test_ctx_mgr_rollback_if_commit_failed(self):
         # bpo-27334: ctx manager does not rollback if commit fails
         SCRIPT = f"""if 1:
