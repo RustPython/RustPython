@@ -1218,8 +1218,6 @@ class RaisingTraceFuncTestCase(unittest.TestCase):
     def test_exception(self):
         self.run_test_for_event('exception')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_trash_stack(self):
         def f():
             for i in range(5):
@@ -1785,15 +1783,11 @@ class JumpTestCase(unittest.TestCase):
 
     # The second set of 'jump' tests are for things that are not allowed:
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(2, 3, [1], (ValueError, 'after'))
     def test_no_jump_too_far_forwards(output):
         output.append(1)
         output.append(2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(2, -2, [1], (ValueError, 'before'))
     def test_no_jump_too_far_backwards(output):
         output.append(1)
@@ -1840,8 +1834,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
             raise e
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(1, 3, [], (ValueError, 'into'))
     def test_no_jump_forwards_into_for_block(output):
         output.append(1)
@@ -1857,8 +1849,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(3)
         pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(3, 2, [2, 2], (ValueError, 'into'))
     def test_no_jump_backwards_into_for_block(output):
         for i in 1, 2:
@@ -2020,8 +2010,6 @@ class JumpTestCase(unittest.TestCase):
             raise
         output.append(8)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(3, 6, [2], (ValueError, "into an 'except'"))
     def test_no_jump_into_qualified_except_block_from_try_block(output):
         try:
@@ -2087,8 +2075,6 @@ class JumpTestCase(unittest.TestCase):
             return
         output.append(7)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(7, 4, [1, 6], (ValueError, 'into'))
     def test_no_jump_into_for_block_before_else(output):
         output.append(1)

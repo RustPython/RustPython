@@ -1084,19 +1084,25 @@ impl VirtualMachine {
 
             // Fire 'call' trace event after pushing frame
             // (current_frame() now returns the callee's frame)
+            //
+            // trace_dispatch protocol (matching CPython's trace_trampoline):
+            // - For 'call' events, the global trace function is called.
+            //   If it returns non-None, set f_trace to that value (trace this frame).
+            //   If it returns None, leave f_trace unset (skip tracing this frame).
+            // - For 'return' events, fire if this frame has f_trace set OR if
+            //   a profile function is active (profiling is independent of f_trace).
             match self.trace_event(TraceEvent::Call, None) {
-                Ok(()) => {
-                    // Set per-frame trace function so line events fire for this frame.
-                    // Frames entered before sys.settrace() keep trace=None and skip line events.
-                    if self.use_tracing.get() {
-                        let trace_func = self.trace_func.borrow().clone();
-                        if !self.is_none(&trace_func) {
-                            *frame.trace.lock() = trace_func;
-                        }
+                Ok(trace_result) => {
+                    if let Some(local_trace) = trace_result {
+                        *frame.trace.lock() = local_trace;
                     }
                     let result = f(frame.clone());
-                    // Fire 'return' trace event on success
-                    if result.is_ok() {
+                    // Fire 'return' event if frame is being traced or profiled
+                    if result.is_ok()
+                        && self.use_tracing.get()
+                        && (!self.is_none(&frame.trace.lock())
+                            || !self.is_none(&self.profile_func.borrow()))
+                    {
                         let _ = self.trace_event(TraceEvent::Return, None);
                     }
                     result
@@ -1155,9 +1161,18 @@ impl VirtualMachine {
 
         use crate::protocol::TraceEvent;
         match self.trace_event(TraceEvent::Call, None) {
-            Ok(()) => {
+            Ok(trace_result) => {
+                // Update per-frame trace if trace function returned a new local trace
+                if let Some(local_trace) = trace_result {
+                    *frame.trace.lock() = local_trace;
+                }
                 let result = f(frame);
-                if result.is_ok() {
+                // Fire 'return' event if frame is being traced or profiled
+                if result.is_ok()
+                    && self.use_tracing.get()
+                    && (!self.is_none(&frame.trace.lock())
+                        || !self.is_none(&self.profile_func.borrow()))
+                {
                     let _ = self.trace_event(TraceEvent::Return, None);
                 }
                 result

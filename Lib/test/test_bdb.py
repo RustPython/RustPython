@@ -614,7 +614,7 @@ class StateTestCase(BaseTestCase):
                 with TracerRun(self) as tracer:
                     tracer.runcall(tfunc_main)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',), ('quit',)]
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',), ('quit',)]
     def test_stepinstr(self):
         self.expect_set = [
             ('line',   2, 'tfunc_main'),  ('stepinstr', ),
@@ -762,7 +762,6 @@ class StateTestCase(BaseTestCase):
         bdb = Bdb(skip=['anything*'])
         self.assertIs(bdb.is_skipped_module(None), False)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_down(self):
         # Check that set_down() raises BdbError at the newest frame.
         self.expect_set = [
@@ -784,7 +783,6 @@ class StateTestCase(BaseTestCase):
 class BreakpointTestCase(BaseTestCase):
     """Test the breakpoint set method."""
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_bp_on_non_existent_module(self):
         self.expect_set = [
             ('line', 2, 'tfunc_import'), ('break', ('/non/existent/module.py', 1))
@@ -792,7 +790,6 @@ class BreakpointTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             self.assertRaises(BdbError, tracer.runcall, tfunc_import)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_bp_after_last_statement(self):
         code = """
             def main():
@@ -969,7 +966,6 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_clear_at_no_bp(self):
         self.expect_set = [
             ('line', 2, 'tfunc_import'), ('clear', (__file__, 1))
@@ -1051,8 +1047,9 @@ class RunTestCase(BaseTestCase):
                 ('return', 1, '<module>'), ('quit', ),
             ]
             import test_module_for_bdb
+            ns = {'test_module_for_bdb': test_module_for_bdb}
             with TracerRun(self) as tracer:
-                tracer.runeval('test_module_for_bdb.main()', globals(), locals())
+                tracer.runeval('test_module_for_bdb.main()', ns, ns)
 
 class IssuesTestCase(BaseTestCase):
     """Test fixed bdb issues."""
@@ -1087,7 +1084,7 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_next_until_return_in_generator(self):
         # Issue #16596.
         # Check that set_next(), set_until() and set_return() do not treat the
@@ -1129,7 +1126,7 @@ class IssuesTestCase(BaseTestCase):
                     with TracerRun(self) as tracer:
                         tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_next_command_in_generator_for_loop(self):
         # Issue #16596.
         code = """
@@ -1161,7 +1158,7 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_next_command_in_generator_with_subiterator(self):
         # Issue #16596.
         code = """
@@ -1193,7 +1190,7 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_return_command_in_generator_with_subiterator(self):
         # Issue #16596.
         code = """
