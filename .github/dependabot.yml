@@ -68,6 +68,11 @@ updates:
       quote-use:
         patterns:
           - "quote-use*"
+      random:
+        patterns:
+          - "getrandom"
+          - "mt19937"
+          - "rand*"
       rayon:
         patterns:
           - "rayon*"
