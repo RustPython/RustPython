@@ -6,9 +6,6 @@ updates:
     schedule:
       interval: weekly
     groups:
-      cranelift:
-        patterns:
-          - "cranelift*"
       criterion:
         patterns:
           - "criterion*"
@@ -113,6 +110,7 @@ updates:
           - "wasm-bindgen*"
       wasmtime:
         patterns:
+          - "cranelift*"
           - "wasmtime*"
       webpki-root:
         patterns:
