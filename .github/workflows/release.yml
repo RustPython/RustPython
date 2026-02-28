@@ -78,7 +78,7 @@ jobs:
         if: runner.os == 'Windows'
 
       - name: Upload Binary Artifacts
-        uses: actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
           path: target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}*
@@ -100,7 +100,7 @@ jobs:
         run: cp target/wasm32-wasip1/release/rustpython.wasm target/rustpython-release-wasm32-wasip1.wasm
 
       - name: Upload Binary Artifacts
-        uses: actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: rustpython-release-wasm32-wasip1
           path: target/rustpython-release-wasm32-wasip1.wasm
