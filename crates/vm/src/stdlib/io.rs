@@ -700,6 +700,16 @@ mod _io {
             }
             Ok(Some(ret))
         }
+
+        #[pymethod]
+        fn readinto(_instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_not_implemented_error(String::new()))
+        }
+
+        #[pymethod]
+        fn write(_instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_not_implemented_error(String::new()))
+        }
     }
 
     #[pyattr]
