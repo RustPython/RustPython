@@ -101,7 +101,7 @@ chrono.workspace = true
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
 mac_address = "1.1.3"
-uuid = { version = "1.19.0", features = ["v1"] }
+uuid = { version = "1.21.0", features = ["v1"] }
 
 [target.'cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))'.dependencies]
 termios = "0.3.3"
