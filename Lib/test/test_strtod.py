@@ -19,7 +19,7 @@ strtod_parser = re.compile(r"""    # A numeric string consists of:
     (?P<int>\d*)             # having a (possibly empty) integer part
     (?:\.(?P<frac>\d*))?     # followed by an optional fractional part
     (?:E(?P<exp>[-+]?\d+))?  # and an optional exponent
-    \Z
+    \z
 """, re.VERBOSE | re.IGNORECASE).match
 
 # Pure Python version of correctly rounded string->float conversion.
@@ -146,7 +146,7 @@ class StrtodTests(unittest.TestCase):
                     digits *= 5
                     exponent -= 1
 
-    @unittest.skip('TODO: RUSTPYTHON; fails on debug mode, flaky in release mode')
+    @unittest.skip("TODO: RUSTPYTHON; fails on debug mode, flaky in release mode")
     def test_halfway_cases(self):
         # test halfway cases for the round-half-to-even rule
         for i in range(100 * TEST_SIZE):
@@ -173,7 +173,7 @@ class StrtodTests(unittest.TestCase):
             s = '{}e{}'.format(digits, exponent)
             self.check_strtod(s)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_boundaries(self):
         # boundaries expressed as triples (n, e, u), where
         # n*10**e is an approximation to the boundary value and
@@ -194,7 +194,7 @@ class StrtodTests(unittest.TestCase):
                 u *= 10
                 e -= 1
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_underflow_boundary(self):
         # test values close to 2**-1075, the underflow boundary; similar
         # to boundary_tests, except that the random error doesn't scale
@@ -206,7 +206,7 @@ class StrtodTests(unittest.TestCase):
                 s = '{}e{}'.format(digits, exponent)
                 self.check_strtod(s)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bigcomp(self):
         for ndigs in 5, 10, 14, 15, 16, 17, 18, 19, 20, 40, 41, 50:
             dig10 = 10**ndigs
@@ -216,7 +216,7 @@ class StrtodTests(unittest.TestCase):
                 s = '{}e{}'.format(digits, exponent)
                 self.check_strtod(s)
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_parsing(self):
         # make '0' more likely to be chosen than other digits
         digits = '000000123456789'
@@ -284,7 +284,7 @@ class StrtodTests(unittest.TestCase):
         self.assertEqual(float(negative_exp(20000)), 1.0)
         self.assertEqual(float(negative_exp(30000)), 1.0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_particular(self):
         # inputs that produced crashes or incorrectly rounded results with
         # previous versions of dtoa.c, for various reasons
