@@ -146,7 +146,11 @@ def get_all_tests(cpython_prefix: str) -> list[str]:
     tests = set()
     for entry in test_dir.iterdir():
         # Skip non-test items
-        if not entry.name.startswith(("_test", "test_")):
+        if "test" not in entry.name:
+            continue
+
+        # Exclude special cases
+        if "regrtest" in entry.name:
             continue
 
         if entry.is_file() and entry.suffix == ".py":
@@ -333,8 +337,16 @@ def compute_test_todo_list(
             # Get order from DEPENDENCIES
             test_order = lib_test_order[lib_name].index(test_name)
         else:
-            # Extract lib name from test name (test_foo -> foo)
-            lib_name = test_name.removeprefix("test_").removeprefix("_test")
+            # Extract lib name from test name:
+            # - test_foo -> foo
+            # - datetimetester -> datetime
+            # - xmltests -> xml
+            lib_name = (
+                test_name.removeprefix("test_")
+                .removeprefix("_test")
+                .removesuffix("tester")
+                .removesuffix("tests")
+            )
             test_order = 0  # Default order for tests not in DEPENDENCIES
 
         # Check if corresponding lib is up-to-date
