@@ -3793,6 +3793,13 @@ mod _io {
             if file_closed(&buffer, vm)? {
                 return Ok(());
             }
+            // https://github.com/python/cpython/issues/142594
+            // The file_closed() check above may have triggered a reentrant
+            // call to detach() via a custom `closed` property.
+            // If so, the buffer is now detached and we should return early.
+            if vm.is_none(&zelf.lock(vm)?.buffer) {
+                return Ok(());
+            }
             if zelf.finalizing.load(Ordering::Relaxed) {
                 // _dealloc_warn: delegate to buffer._dealloc_warn(source)
                 let _ = vm.call_method(&buffer, "_dealloc_warn", (zelf.as_object().to_owned(),));

@@ -4211,7 +4211,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         self.assertEqual([b"abcdef", b"middle", b"g"*chunk_size],
                          buf._write_stack)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'closed'
     def test_issue142594(self):
         wrapper = None
         detached = False
