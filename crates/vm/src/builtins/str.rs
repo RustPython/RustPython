@@ -1584,6 +1584,20 @@ impl AsMapping for PyStr {
 impl AsNumber for PyStr {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            add: Some(|a, b, vm| {
+                let Some(a) = a.downcast_ref::<PyStr>() else {
+                    return Ok(vm.ctx.not_implemented());
+                };
+                let Some(b) = b.downcast_ref::<PyStr>() else {
+                    return Ok(vm.ctx.not_implemented());
+                };
+                let bytes = a.as_wtf8().py_add(b.as_wtf8());
+                Ok(unsafe {
+                    let kind = a.kind() | b.kind();
+                    PyStr::new_str_unchecked(bytes.into(), kind)
+                }
+                .to_pyobject(vm))
+            }),
             remainder: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyStr>() {
                     a.__mod__(b.to_owned(), vm).to_pyresult(vm)
