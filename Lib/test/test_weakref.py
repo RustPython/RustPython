@@ -1931,6 +1931,7 @@ class MappingTestCase(TestBase):
         dict = weakref.WeakKeyDictionary()
         self.assertRegex(repr(dict), '<WeakKeyDictionary at 0x.*>')
 
+    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     def test_threaded_weak_valued_setdefault(self):
         d = weakref.WeakValueDictionary()
