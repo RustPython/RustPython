@@ -15,10 +15,9 @@ pub(crate) mod _sysconfig {
             .unwrap();
         vars.set_item("SOABI", vm.ctx.none(), vm).unwrap();
 
-        vars.set_item("Py_GIL_DISABLED", true.to_pyobject(vm), vm)
+        vars.set_item("Py_GIL_DISABLED", (1).to_pyobject(vm), vm)
             .unwrap();
-        vars.set_item("Py_DEBUG", false.to_pyobject(vm), vm)
-            .unwrap();
+        vars.set_item("Py_DEBUG", (0).to_pyobject(vm), vm).unwrap();
 
         vars
     }
