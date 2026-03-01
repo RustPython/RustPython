@@ -79,13 +79,12 @@ pub(crate) mod _thread {
                     Ok(true)
                 }
                 true if timeout < 0.0 => {
-                    Err(vm.new_value_error("timeout value must be a non-negative number".to_owned()))
+                    Err(vm
+                        .new_value_error("timeout value must be a non-negative number".to_owned()))
                 }
                 true => {
                     if timeout > TIMEOUT_MAX {
-                        return Err(vm.new_overflow_error(
-                            "timeout value is too large".to_owned(),
-                        ));
+                        return Err(vm.new_overflow_error("timeout value is too large".to_owned()));
                     }
 
                     Ok(mu.try_lock_for(Duration::from_secs_f64(timeout)))
@@ -1095,9 +1094,9 @@ pub(crate) mod _thread {
                     let secs = t.to_secs_f64();
                     if secs >= 0.0 {
                         if secs > TIMEOUT_MAX {
-                            return Err(vm.new_overflow_error(
-                                "timeout value is too large".to_owned(),
-                            ));
+                            return Err(
+                                vm.new_overflow_error("timeout value is too large".to_owned())
+                            );
                         }
                         Some(Duration::from_secs_f64(secs))
                     } else {
