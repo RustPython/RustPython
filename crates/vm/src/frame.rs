@@ -26,6 +26,7 @@ use crate::{
 };
 use alloc::fmt;
 use bstr::ByteSlice;
+use core::cell::UnsafeCell;
 use core::iter::zip;
 use core::sync::atomic;
 use core::sync::atomic::AtomicPtr;
@@ -92,12 +93,60 @@ impl FrameOwner {
     }
 }
 
+/// Lock-free storage for local variables (localsplus).
+///
+/// # Safety
+/// Access is serialized by the frame's state mutex in `with_exec()`, which
+/// prevents concurrent frame execution. Trace callbacks that access `f_locals`
+/// run sequentially on the same thread as instruction execution.
+pub struct FastLocals {
+    inner: UnsafeCell<Box<[Option<PyObjectRef>]>>,
+}
+
+// SAFETY: Frame execution is serialized by the state mutex.
+#[cfg(feature = "threading")]
+unsafe impl Send for FastLocals {}
+#[cfg(feature = "threading")]
+unsafe impl Sync for FastLocals {}
+
+impl FastLocals {
+    fn new(data: Box<[Option<PyObjectRef>]>) -> Self {
+        Self {
+            inner: UnsafeCell::new(data),
+        }
+    }
+
+    /// # Safety
+    /// Caller must ensure exclusive access (frame state locked or frame
+    /// not executing).
+    #[inline(always)]
+    pub unsafe fn borrow(&self) -> &[Option<PyObjectRef>] {
+        unsafe { &*self.inner.get() }
+    }
+
+    /// # Safety
+    /// Caller must ensure exclusive mutable access.
+    #[inline(always)]
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn borrow_mut(&self) -> &mut [Option<PyObjectRef>] {
+        unsafe { &mut *self.inner.get() }
+    }
+}
+
+unsafe impl Traverse for FastLocals {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        // SAFETY: GC runs on the same thread; no concurrent mutation.
+        let data = unsafe { &*self.inner.get() };
+        data.traverse(traverse_fn);
+    }
+}
+
 #[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct Frame {
     pub code: PyRef<PyCode>,
     pub func_obj: Option<PyObjectRef>,
 
-    pub fastlocals: PyMutex<Box<[Option<PyObjectRef>]>>,
+    pub fastlocals: FastLocals,
     pub locals: ArgMapping,
     pub globals: PyDictRef,
     pub builtins: PyObjectRef,
@@ -208,7 +257,7 @@ impl Frame {
         };
 
         Self {
-            fastlocals: PyMutex::new(fastlocals_vec.into_boxed_slice()),
+            fastlocals: FastLocals::new(fastlocals_vec.into_boxed_slice()),
             locals: scope.locals,
             globals: scope.globals,
             builtins,
@@ -241,7 +290,8 @@ impl Frame {
     /// Releases references held by the frame, matching _PyFrame_ClearLocals.
     pub(crate) fn clear_locals_and_stack(&self) {
         self.clear_stack_and_cells();
-        let mut fastlocals = self.fastlocals.lock();
+        // SAFETY: Frame is not executing (generator closed).
+        let fastlocals = unsafe { self.fastlocals.borrow_mut() };
         for slot in fastlocals.iter_mut() {
             *slot = None;
         }
@@ -250,7 +300,8 @@ impl Frame {
     /// Get cell contents by cell index. Reads through fastlocals (no state lock needed).
     pub(crate) fn get_cell_contents(&self, cell_idx: usize) -> Option<PyObjectRef> {
         let nlocals = self.code.varnames.len();
-        let fastlocals = self.fastlocals.lock();
+        // SAFETY: Frame not executing; no concurrent mutation.
+        let fastlocals = unsafe { self.fastlocals.borrow() };
         fastlocals
             .get(nlocals + cell_idx)
             .and_then(|slot| slot.as_ref())
@@ -318,7 +369,8 @@ impl Frame {
             return Ok(());
         }
         let code = &**self.code;
-        let mut fastlocals = self.fastlocals.lock();
+        // SAFETY: Called before generator resume; no concurrent access.
+        let fastlocals = unsafe { self.fastlocals.borrow_mut() };
         for (i, &varname) in code.varnames.iter().enumerate() {
             if i >= fastlocals.len() {
                 break;
@@ -339,8 +391,9 @@ impl Frame {
         let map = &code.varnames;
         let j = core::cmp::min(map.len(), code.varnames.len());
         if !code.varnames.is_empty() {
-            let fastlocals = self.fastlocals.lock();
-            for (&k, v) in zip(&map[..j], &**fastlocals) {
+            // SAFETY: Trace callbacks run sequentially on the same thread.
+            let fastlocals = unsafe { self.fastlocals.borrow() };
+            for (&k, v) in zip(&map[..j], fastlocals) {
                 match locals.mapping().ass_subscript(k, v.clone(), vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
@@ -461,7 +514,7 @@ impl Py<Frame> {
 /// with the mutable data inside
 struct ExecutingFrame<'a> {
     code: &'a PyRef<PyCode>,
-    fastlocals: &'a PyMutex<Box<[Option<PyObjectRef>]>>,
+    fastlocals: &'a FastLocals,
     locals: &'a ArgMapping,
     globals: &'a PyDictRef,
     builtins: &'a PyObjectRef,
@@ -1247,7 +1300,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::DeleteFast(idx) => {
-                let mut fastlocals = self.fastlocals.lock();
+                let fastlocals = unsafe { self.fastlocals.borrow_mut() };
                 let idx = idx.get(arg) as usize;
                 if fastlocals[idx].is_none() {
                     return Err(vm.new_exception_msg(
@@ -1749,7 +1802,7 @@ impl ExecutingFrame<'_> {
                     )
                 }
                 let idx = idx.get(arg) as usize;
-                let x = self.fastlocals.lock()[idx]
+                let x = unsafe { self.fastlocals.borrow() }[idx]
                     .clone()
                     .ok_or_else(|| reference_error(self.code.varnames[idx], vm))?;
                 self.push_value(x);
@@ -1759,7 +1812,7 @@ impl ExecutingFrame<'_> {
                 // Load value and clear the slot (for inlined comprehensions)
                 // If slot is empty, push None (not an error - variable may not exist yet)
                 let idx = idx.get(arg) as usize;
-                let x = self.fastlocals.lock()[idx]
+                let x = unsafe { self.fastlocals.borrow_mut() }[idx]
                     .take()
                     .unwrap_or_else(|| vm.ctx.none());
                 self.push_value(x);
@@ -1769,16 +1822,18 @@ impl ExecutingFrame<'_> {
                 // Same as LoadFast but explicitly checks for unbound locals
                 // (LoadFast in RustPython already does this check)
                 let idx = idx.get(arg) as usize;
-                let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
+                let x = unsafe { self.fastlocals.borrow() }[idx]
+                    .clone()
+                    .ok_or_else(|| {
+                        vm.new_exception_msg(
+                            vm.ctx.exceptions.unbound_local_error.to_owned(),
+                            format!(
+                                "local variable '{}' referenced before assignment",
+                                self.code.varnames[idx]
+                            )
+                            .into(),
                         )
-                        .into(),
-                    )
-                })?;
+                    })?;
                 self.push_value(x);
                 Ok(None)
             }
@@ -1788,7 +1843,7 @@ impl ExecutingFrame<'_> {
                 let oparg = packed.get(arg);
                 let idx1 = (oparg >> 4) as usize;
                 let idx2 = (oparg & 15) as usize;
-                let fastlocals = self.fastlocals.lock();
+                let fastlocals = unsafe { self.fastlocals.borrow() };
                 let x1 = fastlocals[idx1].clone().ok_or_else(|| {
                     vm.new_exception_msg(
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
@@ -1809,40 +1864,34 @@ impl ExecutingFrame<'_> {
                         .into(),
                     )
                 })?;
-                drop(fastlocals);
                 self.push_value(x1);
                 self.push_value(x2);
                 Ok(None)
             }
             // TODO: Implement true borrow optimization (skip Arc::clone).
-            // CPython's LOAD_FAST_BORROW uses PyStackRef_Borrow to avoid refcount
-            // increment for values that are consumed within the same basic block.
-            // Possible approaches:
-            // - Store raw pointers with careful lifetime management
-            // - Add a "borrowed" variant to stack slots
-            // - Use arena allocation for short-lived stack values
             // Currently this just clones like LoadFast.
             Instruction::LoadFastBorrow(idx) => {
                 let idx = idx.get(arg) as usize;
-                let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
+                let x = unsafe { self.fastlocals.borrow() }[idx]
+                    .clone()
+                    .ok_or_else(|| {
+                        vm.new_exception_msg(
+                            vm.ctx.exceptions.unbound_local_error.to_owned(),
+                            format!(
+                                "local variable '{}' referenced before assignment",
+                                self.code.varnames[idx]
+                            )
+                            .into(),
                         )
-                        .into(),
-                    )
-                })?;
+                    })?;
                 self.push_value(x);
                 Ok(None)
             }
-            // TODO: Same as LoadFastBorrow - implement true borrow optimization.
             Instruction::LoadFastBorrowLoadFastBorrow { arg: packed } => {
                 let oparg = packed.get(arg);
                 let idx1 = (oparg >> 4) as usize;
                 let idx2 = (oparg & 15) as usize;
-                let fastlocals = self.fastlocals.lock();
+                let fastlocals = unsafe { self.fastlocals.borrow() };
                 let x1 = fastlocals[idx1].clone().ok_or_else(|| {
                     vm.new_exception_msg(
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
@@ -1863,7 +1912,6 @@ impl ExecutingFrame<'_> {
                         .into(),
                     )
                 })?;
-                drop(fastlocals);
                 self.push_value(x1);
                 self.push_value(x2);
                 Ok(None)
@@ -2347,33 +2395,28 @@ impl ExecutingFrame<'_> {
             }
             Instruction::StoreFast(idx) => {
                 let value = self.pop_value();
-                self.fastlocals.lock()[idx.get(arg) as usize] = Some(value);
+                let fastlocals = unsafe { self.fastlocals.borrow_mut() };
+                fastlocals[idx.get(arg) as usize] = Some(value);
                 Ok(None)
             }
             Instruction::StoreFastLoadFast { var_nums } => {
-                // Store to one slot and load from another (often the same) - for inlined comprehensions
                 let value = self.pop_value();
-                let mut locals = self.fastlocals.lock();
+                let locals = unsafe { self.fastlocals.borrow_mut() };
                 let oparg = var_nums.get(arg);
                 locals[oparg.store_idx() as usize] = Some(value);
                 let load_value = locals[oparg.load_idx() as usize]
                     .clone()
                     .expect("StoreFastLoadFast: load slot should have value after store");
-                drop(locals);
                 self.push_value(load_value);
                 Ok(None)
             }
             Instruction::StoreFastStoreFast { arg: packed } => {
-                // Store two values to two local variables at once
-                // STORE_FAST idx1 executes first: pops TOS -> locals[idx1]
-                // STORE_FAST idx2 executes second: pops new TOS -> locals[idx2]
-                // oparg encoding: (idx1 << 4) | idx2
                 let oparg = packed.get(arg);
                 let idx1 = (oparg >> 4) as usize;
                 let idx2 = (oparg & 15) as usize;
-                let value1 = self.pop_value(); // TOS -> idx1
-                let value2 = self.pop_value(); // second -> idx2
-                let mut fastlocals = self.fastlocals.lock();
+                let value1 = self.pop_value();
+                let value2 = self.pop_value();
+                let fastlocals = unsafe { self.fastlocals.borrow_mut() };
                 fastlocals[idx1] = Some(value1);
                 fastlocals[idx2] = Some(value2);
                 Ok(None)
@@ -3389,12 +3432,9 @@ impl ExecutingFrame<'_> {
         let callable = self.pop_value();
 
         let final_args = if let Some(self_val) = self_or_null {
-            let mut all_args = vec![self_val];
-            all_args.extend(args.args);
-            FuncArgs {
-                args: all_args,
-                kwargs: args.kwargs,
-            }
+            let mut args = args;
+            args.prepend_arg(self_val);
+            args
         } else {
             args
         };
@@ -3410,12 +3450,9 @@ impl ExecutingFrame<'_> {
         let callable = self.pop_value();
 
         let final_args = if let Some(self_val) = self_or_null {
-            let mut all_args = vec![self_val];
-            all_args.extend(args.args);
-            FuncArgs {
-                args: all_args,
-                kwargs: args.kwargs,
-            }
+            let mut args = args;
+            args.prepend_arg(self_val);
+            args
         } else {
             args
         };

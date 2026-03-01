@@ -85,10 +85,9 @@ impl Initializer for PySuper {
             if frame.code.arg_count == 0 {
                 return Err(vm.new_runtime_error("super(): no arguments"));
             }
-            // Lock fastlocals briefly to get arg[0], then drop the guard
-            // before calling get_cell_contents (which also locks fastlocals).
-            let first_arg = frame.fastlocals.lock()[0].clone();
-            let obj = first_arg
+            // SAFETY: Frame is current and not concurrently mutated.
+            let obj = unsafe { frame.fastlocals.borrow() }[0]
+                .clone()
                 .or_else(|| {
                     if let Some(cell2arg) = frame.code.cell2arg.as_deref() {
                         cell2arg[..frame.code.cellvars.len()]

@@ -92,26 +92,26 @@ impl RefCount {
     /// Get current strong count
     #[inline]
     pub fn get(&self) -> usize {
-        State::from_raw(self.state.load(Ordering::SeqCst)).strong() as usize
+        State::from_raw(self.state.load(Ordering::Relaxed)).strong() as usize
     }
 
     /// Increment strong count
     #[inline]
     pub fn inc(&self) {
-        let val = State::from_raw(self.state.fetch_add(COUNT, Ordering::SeqCst));
+        let val = State::from_raw(self.state.fetch_add(COUNT, Ordering::Relaxed));
         if val.destructed() || (val.strong() as usize) > STRONG - 1 {
             refcount_overflow();
         }
         if val.strong() == 0 {
             // The previous fetch_add created a permission to run decrement again
-            self.state.fetch_add(COUNT, Ordering::SeqCst);
+            self.state.fetch_add(COUNT, Ordering::Relaxed);
         }
     }
 
     #[inline]
     pub fn inc_by(&self, n: usize) {
         debug_assert!(n <= STRONG);
-        let val = State::from_raw(self.state.fetch_add(n * COUNT, Ordering::SeqCst));
+        let val = State::from_raw(self.state.fetch_add(n * COUNT, Ordering::Relaxed));
         if val.destructed() || (val.strong() as usize) > STRONG - n {
             refcount_overflow();
         }
@@ -121,7 +121,7 @@ impl RefCount {
     #[inline]
     #[must_use]
     pub fn safe_inc(&self) -> bool {
-        let mut old = State::from_raw(self.state.load(Ordering::SeqCst));
+        let mut old = State::from_raw(self.state.load(Ordering::Relaxed));
         loop {
             if old.destructed() {
                 return false;
@@ -130,11 +130,11 @@ impl RefCount {
                 refcount_overflow();
             }
             let new_state = old.add_strong(1);
-            match self.state.compare_exchange(
+            match self.state.compare_exchange_weak(
                 old.as_raw(),
                 new_state.as_raw(),
-                Ordering::SeqCst,
-                Ordering::SeqCst,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
             ) {
                 Ok(_) => return true,
                 Err(curr) => old = State::from_raw(curr),
@@ -146,27 +146,31 @@ impl RefCount {
     #[inline]
     #[must_use]
     pub fn dec(&self) -> bool {
-        let old = State::from_raw(self.state.fetch_sub(COUNT, Ordering::SeqCst));
+        let old = State::from_raw(self.state.fetch_sub(COUNT, Ordering::Release));
 
         // LEAKED objects never reach 0
         if old.leaked() {
             return false;
         }
 
-        old.strong() == 1
+        if old.strong() == 1 {
+            core::sync::atomic::fence(Ordering::Acquire);
+            return true;
+        }
+        false
     }
 
     /// Mark this object as leaked (interned). It will never be deallocated.
     pub fn leak(&self) {
         debug_assert!(!self.is_leaked());
-        let mut old = State::from_raw(self.state.load(Ordering::SeqCst));
+        let mut old = State::from_raw(self.state.load(Ordering::Relaxed));
         loop {
             let new_state = old.with_leaked(true);
-            match self.state.compare_exchange(
+            match self.state.compare_exchange_weak(
                 old.as_raw(),
                 new_state.as_raw(),
-                Ordering::SeqCst,
-                Ordering::SeqCst,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
             ) {
                 Ok(_) => return,
                 Err(curr) => old = State::from_raw(curr),

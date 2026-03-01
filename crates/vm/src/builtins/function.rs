@@ -224,7 +224,8 @@ impl PyFunction {
         // See also: PyEval_EvalCodeWithName in cpython:
         // https://github.com/python/cpython/blob/main/Python/ceval.c#L3681
 
-        let mut fastlocals = frame.fastlocals.lock();
+        // SAFETY: Frame was just created and not yet executing.
+        let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
 
         let mut args_iter = func_args.args.into_iter();
 
