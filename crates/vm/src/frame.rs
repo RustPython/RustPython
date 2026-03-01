@@ -3853,43 +3853,18 @@ impl ExecutingFrame<'_> {
         let value = self.pop_value();
         let size = size as usize;
 
-        // Fast path for exact tuple/list types (not subclasses) — check
-        // length directly without creating an iterator, matching
-        // UNPACK_SEQUENCE_TUPLE / UNPACK_SEQUENCE_LIST specializations.
+        // Fast path for exact tuple/list types (not subclasses) — push
+        // elements directly from the slice without intermediate Vec allocation,
+        // matching UNPACK_SEQUENCE_TUPLE / UNPACK_SEQUENCE_LIST specializations.
         let cls = value.class();
-        let fast_elements: Option<Vec<PyObjectRef>> = if cls.is(vm.ctx.types.tuple_type) {
-            Some(value.downcast_ref::<PyTuple>().unwrap().as_slice().to_vec())
-        } else if cls.is(vm.ctx.types.list_type) {
-            Some(
-                value
-                    .downcast_ref::<PyList>()
-                    .unwrap()
-                    .borrow_vec()
-                    .to_vec(),
-            )
-        } else {
-            None
-        };
-        if let Some(elements) = fast_elements {
-            return match elements.len().cmp(&size) {
-                core::cmp::Ordering::Equal => {
-                    self.state.stack.extend(
-                        elements
-                            .into_iter()
-                            .rev()
-                            .map(|e| Some(PyStackRef::new_owned(e))),
-                    );
-                    Ok(None)
-                }
-                core::cmp::Ordering::Greater => Err(vm.new_value_error(format!(
-                    "too many values to unpack (expected {size}, got {})",
-                    elements.len()
-                ))),
-                core::cmp::Ordering::Less => Err(vm.new_value_error(format!(
-                    "not enough values to unpack (expected {size}, got {})",
-                    elements.len()
-                ))),
-            };
+        if cls.is(vm.ctx.types.tuple_type) {
+            let tuple = value.downcast_ref::<PyTuple>().unwrap();
+            return self.unpack_fast(tuple.as_slice(), size, vm);
+        }
+        if cls.is(vm.ctx.types.list_type) {
+            let list = value.downcast_ref::<PyList>().unwrap();
+            let borrowed = list.borrow_vec();
+            return self.unpack_fast(&borrowed, size, vm);
         }
 
         // General path — iterate up to `size + 1` elements to avoid
@@ -3952,6 +3927,30 @@ impl ExecutingFrame<'_> {
                 );
                 Ok(None)
             }
+        }
+    }
+
+    fn unpack_fast(
+        &mut self,
+        elements: &[PyObjectRef],
+        size: usize,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
+        match elements.len().cmp(&size) {
+            core::cmp::Ordering::Equal => {
+                for elem in elements.iter().rev() {
+                    self.push_value(elem.clone());
+                }
+                Ok(None)
+            }
+            core::cmp::Ordering::Greater => Err(vm.new_value_error(format!(
+                "too many values to unpack (expected {size}, got {})",
+                elements.len()
+            ))),
+            core::cmp::Ordering::Less => Err(vm.new_value_error(format!(
+                "not enough values to unpack (expected {size}, got {})",
+                elements.len()
+            ))),
         }
     }
 
