@@ -344,9 +344,9 @@ pub struct CodeUnit {
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
 /// Adaptive specialization: number of executions before attempting specialization.
-pub const ADAPTIVE_WARMUP_VALUE: u16 = 50;
+pub const ADAPTIVE_WARMUP_VALUE: u8 = 50;
 /// Adaptive specialization: backoff counter after de-optimization.
-pub const ADAPTIVE_BACKOFF_VALUE: u16 = 250;
+pub const ADAPTIVE_BACKOFF_VALUE: u8 = 250;
 
 impl CodeUnit {
     pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
@@ -396,7 +396,12 @@ impl TryFrom<&[u8]> for CodeUnits {
             return Err(Self::Error::InvalidBytecode);
         }
 
-        value.chunks_exact(2).map(CodeUnit::try_from).collect()
+        let units: Self = value
+            .chunks_exact(2)
+            .map(CodeUnit::try_from)
+            .collect::<Result<_, _>>()?;
+        units.init_adaptive_counters();
+        Ok(units)
     }
 }
 
@@ -502,6 +507,47 @@ impl CodeUnits {
         let lo = self.read_cache_u32(index) as u64;
         let hi = self.read_cache_u32(index + 2) as u64;
         lo | (hi << 32)
+    }
+
+    /// Read the adaptive counter from the first CACHE entry's `arg` byte.
+    /// This preserves `op = Instruction::Cache`, unlike `read_cache_u16`.
+    pub fn read_adaptive_counter(&self, index: usize) -> u8 {
+        let units = unsafe { &*self.0.get() };
+        u8::from(units[index].arg)
+    }
+
+    /// Write the adaptive counter to the first CACHE entry's `arg` byte.
+    /// This preserves `op = Instruction::Cache`, unlike `write_cache_u16`.
+    ///
+    /// # Safety
+    /// - `index` must be in bounds and point to a CACHE entry.
+    pub unsafe fn write_adaptive_counter(&self, index: usize, value: u8) {
+        let units = unsafe { &mut *self.0.get() };
+        units[index].arg = OpArgByte::from(value);
+    }
+
+    /// Initialize adaptive warmup counters for all instructions that have caches.
+    /// The counter is stored in the `arg` byte of the first CACHE entry,
+    /// preserving `op = Instruction::Cache`.
+    pub fn init_adaptive_counters(&self) {
+        let units = unsafe { &*self.0.get() };
+        let len = units.len();
+        let mut i = 0;
+        while i < len {
+            let op = units[i].op;
+            let caches = op.cache_entries();
+            if caches > 0 {
+                let cache_base = i + 1;
+                if cache_base < len {
+                    unsafe {
+                        self.write_adaptive_counter(cache_base, ADAPTIVE_WARMUP_VALUE);
+                    }
+                }
+                i += 1 + caches;
+            } else {
+                i += 1;
+            }
+        }
     }
 }
 
