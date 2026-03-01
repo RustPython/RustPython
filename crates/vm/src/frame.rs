@@ -1864,8 +1864,9 @@ impl ExecutingFrame<'_> {
                 self.push_value(x2);
                 Ok(None)
             }
-            // TODO: Implement true borrow optimization (skip Arc::clone).
-            // Currently this just clones like LoadFast.
+            // Borrow optimization not yet active; falls back to clone.
+            // push_borrowed() is available but disabled until stack
+            // lifetime issues at yield/exception points are resolved.
             Instruction::LoadFastBorrow(idx) => {
                 let idx = idx.get(arg) as usize;
                 let x = unsafe { self.fastlocals.borrow() }[idx]
@@ -2685,6 +2686,14 @@ impl ExecutingFrame<'_> {
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             Instruction::InstrumentedYieldValue => {
+                debug_assert!(
+                    self.state
+                        .stack
+                        .iter()
+                        .flatten()
+                        .all(|sr| !sr.is_borrowed()),
+                    "borrowed refs on stack at yield point"
+                );
                 let value = self.pop_value();
                 if self.monitoring_mask & monitoring::EVENT_PY_YIELD != 0 {
                     let offset = (self.lasti() - 1) * 2;

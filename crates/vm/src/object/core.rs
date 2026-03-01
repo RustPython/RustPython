@@ -1401,10 +1401,6 @@ impl fmt::Debug for PyObjectRef {
     }
 }
 
-// ---------------------------------------------------------------------------
-// PyStackRef – tagged stack reference (owned or borrowed)
-// ---------------------------------------------------------------------------
-
 const STACKREF_BORROW_TAG: usize = 1;
 
 /// A tagged stack reference to a Python object.
