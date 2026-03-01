@@ -10,8 +10,9 @@ use crate::{
         asyncgenerator::PyAsyncGenWrappedValue,
         frame::stack_analysis,
         function::{PyCell, PyCellRef, PyFunction},
+        list::PyListIterator,
         range::PyRangeIterator,
-        tuple::{PyTuple, PyTupleRef},
+        tuple::{PyTuple, PyTupleIterator, PyTupleRef},
     },
     bytecode::{
         self, ADAPTIVE_BACKOFF_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
@@ -38,6 +39,7 @@ use core::sync::atomic::Ordering::{Acquire, Relaxed};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
+use num_traits::Zero;
 use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     boxvec::BoxVec,
@@ -1408,7 +1410,22 @@ impl ExecutingFrame<'_> {
                 self.push_value(matched);
                 Ok(None)
             }
-            Instruction::CompareOp { op } => self.execute_compare(vm, op.get(arg)),
+            Instruction::CompareOp { op } => {
+                let op_val = op.get(arg);
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_compare_op(vm, op_val, instr_idx, cache_base);
+                }
+                self.execute_compare(vm, op_val)
+            }
             Instruction::ContainsOp(invert) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
@@ -1593,6 +1610,18 @@ impl ExecutingFrame<'_> {
             Instruction::ForIter { .. } => {
                 // Relative forward jump: target = lasti + caches + delta
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_for_iter(vm, instr_idx, cache_base);
+                }
                 self.execute_for_iter(vm, target)?;
                 Ok(None)
             }
@@ -2618,6 +2647,18 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::ToBool => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_to_bool(vm, instr_idx, cache_base);
+                }
                 let obj = self.pop_value();
                 let bool_val = obj.try_to_bool(vm)?;
                 self.push_value(vm.ctx.new_bool(bool_val).into());
@@ -3065,6 +3106,189 @@ impl ExecutingFrame<'_> {
                     }
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
+                }
+            }
+            Instruction::CompareOpInt => {
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if let (Some(a_int), Some(b_int)) = (
+                    a.downcast_ref_if_exact::<PyInt>(vm),
+                    b.downcast_ref_if_exact::<PyInt>(vm),
+                ) {
+                    let op = self.compare_op_from_arg(arg);
+                    let result = op.eval_ord(a_int.as_bigint().cmp(b_int.as_bigint()));
+                    self.pop_value();
+                    self.pop_value();
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_compare_op();
+                    let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
+                        .unwrap_or(bytecode::ComparisonOperator::Equal);
+                    self.execute_compare(vm, op)
+                }
+            }
+            Instruction::CompareOpFloat => {
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if let (Some(a_f), Some(b_f)) = (
+                    a.downcast_ref_if_exact::<PyFloat>(vm),
+                    b.downcast_ref_if_exact::<PyFloat>(vm),
+                ) {
+                    let op = self.compare_op_from_arg(arg);
+                    let result = a_f
+                        .to_f64()
+                        .partial_cmp(&b_f.to_f64())
+                        .is_some_and(|ord| op.eval_ord(ord));
+                    self.pop_value();
+                    self.pop_value();
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_compare_op();
+                    let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
+                        .unwrap_or(bytecode::ComparisonOperator::Equal);
+                    self.execute_compare(vm, op)
+                }
+            }
+            Instruction::CompareOpStr => {
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if let (Some(a_str), Some(b_str)) = (
+                    a.downcast_ref_if_exact::<PyStr>(vm),
+                    b.downcast_ref_if_exact::<PyStr>(vm),
+                ) {
+                    let op = self.compare_op_from_arg(arg);
+                    let result = op.eval_ord(a_str.as_wtf8().cmp(b_str.as_wtf8()));
+                    self.pop_value();
+                    self.pop_value();
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_compare_op();
+                    let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
+                        .unwrap_or(bytecode::ComparisonOperator::Equal);
+                    self.execute_compare(vm, op)
+                }
+            }
+            Instruction::ToBoolBool => {
+                let obj = self.top_value();
+                if obj.class().is(vm.ctx.types.bool_type) {
+                    // Already a bool, no-op
+                    Ok(None)
+                } else {
+                    self.deoptimize_to_bool();
+                    let obj = self.pop_value();
+                    let result = obj.try_to_bool(vm)?;
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                }
+            }
+            Instruction::ToBoolInt => {
+                let obj = self.top_value();
+                if let Some(int_val) = obj.downcast_ref_if_exact::<PyInt>(vm) {
+                    let result = !int_val.as_bigint().is_zero();
+                    self.pop_value();
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_to_bool();
+                    let obj = self.pop_value();
+                    let result = obj.try_to_bool(vm)?;
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                }
+            }
+            Instruction::ToBoolNone => {
+                let obj = self.top_value();
+                if obj.class().is(vm.ctx.types.none_type) {
+                    self.pop_value();
+                    self.push_value(vm.ctx.new_bool(false).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_to_bool();
+                    let obj = self.pop_value();
+                    let result = obj.try_to_bool(vm)?;
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                }
+            }
+            Instruction::ToBoolList => {
+                let obj = self.top_value();
+                if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
+                    let result = !list.borrow_vec().is_empty();
+                    self.pop_value();
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_to_bool();
+                    let obj = self.pop_value();
+                    let result = obj.try_to_bool(vm)?;
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                }
+            }
+            Instruction::ToBoolStr => {
+                let obj = self.top_value();
+                if let Some(s) = obj.downcast_ref_if_exact::<PyStr>(vm) {
+                    let result = !s.is_empty();
+                    self.pop_value();
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_to_bool();
+                    let obj = self.pop_value();
+                    let result = obj.try_to_bool(vm)?;
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                }
+            }
+            Instruction::ForIterRange => {
+                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let iter = self.top_value();
+                if let Some(range_iter) = iter.downcast_ref_if_exact::<PyRangeIterator>(vm) {
+                    if let Some(value) = range_iter.fast_next() {
+                        self.push_value(vm.ctx.new_int(value).into());
+                    } else {
+                        self.for_iter_jump_on_exhausted(target);
+                    }
+                    Ok(None)
+                } else {
+                    self.deoptimize_for_iter();
+                    self.execute_for_iter(vm, target)?;
+                    Ok(None)
+                }
+            }
+            Instruction::ForIterList => {
+                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let iter = self.top_value();
+                if let Some(list_iter) = iter.downcast_ref_if_exact::<PyListIterator>(vm) {
+                    if let Some(value) = list_iter.fast_next() {
+                        self.push_value(value);
+                    } else {
+                        self.for_iter_jump_on_exhausted(target);
+                    }
+                    Ok(None)
+                } else {
+                    self.deoptimize_for_iter();
+                    self.execute_for_iter(vm, target)?;
+                    Ok(None)
+                }
+            }
+            Instruction::ForIterTuple => {
+                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let iter = self.top_value();
+                if let Some(tuple_iter) = iter.downcast_ref_if_exact::<PyTupleIterator>(vm) {
+                    if let Some(value) = tuple_iter.fast_next() {
+                        self.push_value(value);
+                    } else {
+                        self.for_iter_jump_on_exhausted(target);
+                    }
+                    Ok(None)
+                } else {
+                    self.deoptimize_for_iter();
+                    self.execute_for_iter(vm, target)?;
+                    Ok(None)
                 }
             }
             // All INSTRUMENTED_* opcodes delegate to a cold function to keep
@@ -4803,6 +5027,172 @@ impl ExecutingFrame<'_> {
                 .instructions
                 .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
         }
+    }
+
+    fn specialize_compare_op(
+        &mut self,
+        vm: &VirtualMachine,
+        _op: bytecode::ComparisonOperator,
+        instr_idx: usize,
+        cache_base: usize,
+    ) {
+        let b = self.top_value();
+        let a = self.nth_value(1);
+
+        let new_op = if a.downcast_ref_if_exact::<PyInt>(vm).is_some()
+            && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
+        {
+            Some(Instruction::CompareOpInt)
+        } else if a.downcast_ref_if_exact::<PyFloat>(vm).is_some()
+            && b.downcast_ref_if_exact::<PyFloat>(vm).is_some()
+        {
+            Some(Instruction::CompareOpFloat)
+        } else if a.downcast_ref_if_exact::<PyStr>(vm).is_some()
+            && b.downcast_ref_if_exact::<PyStr>(vm).is_some()
+        {
+            Some(Instruction::CompareOpStr)
+        } else {
+            None
+        };
+
+        if let Some(new_op) = new_op {
+            unsafe {
+                self.code.instructions.replace_op(instr_idx, new_op);
+            }
+        } else {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+        }
+    }
+
+    /// Recover the ComparisonOperator from the instruction arg byte.
+    /// `replace_op` preserves the arg byte, so the original op remains accessible.
+    fn compare_op_from_arg(&self, arg: bytecode::OpArg) -> PyComparisonOp {
+        bytecode::ComparisonOperator::try_from(u32::from(arg))
+            .unwrap_or(bytecode::ComparisonOperator::Equal)
+            .into()
+    }
+
+    fn deoptimize_compare_op(&mut self) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        unsafe {
+            self.code
+                .instructions
+                .replace_op(instr_idx, Instruction::CompareOp { op: Arg::marker() });
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
+    }
+
+    fn specialize_to_bool(&mut self, vm: &VirtualMachine, instr_idx: usize, _cache_base: usize) {
+        let obj = self.top_value();
+        let cls = obj.class();
+
+        let new_op = if cls.is(vm.ctx.types.bool_type) {
+            Some(Instruction::ToBoolBool)
+        } else if cls.is(PyInt::class(&vm.ctx)) {
+            Some(Instruction::ToBoolInt)
+        } else if cls.is(vm.ctx.types.none_type) {
+            Some(Instruction::ToBoolNone)
+        } else if cls.is(PyList::class(&vm.ctx)) {
+            Some(Instruction::ToBoolList)
+        } else if cls.is(PyStr::class(&vm.ctx)) {
+            Some(Instruction::ToBoolStr)
+        } else {
+            None
+        };
+
+        if let Some(new_op) = new_op {
+            unsafe {
+                self.code.instructions.replace_op(instr_idx, new_op);
+            }
+        } else {
+            let cache_base = instr_idx + 1;
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+        }
+    }
+
+    fn deoptimize_to_bool(&mut self) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        unsafe {
+            self.code
+                .instructions
+                .replace_op(instr_idx, Instruction::ToBool);
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
+    }
+
+    fn specialize_for_iter(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
+        let iter = self.top_value();
+
+        let new_op = if iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some() {
+            Some(Instruction::ForIterRange)
+        } else if iter.downcast_ref_if_exact::<PyListIterator>(vm).is_some() {
+            Some(Instruction::ForIterList)
+        } else if iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some() {
+            Some(Instruction::ForIterTuple)
+        } else {
+            None
+        };
+
+        if let Some(new_op) = new_op {
+            unsafe {
+                self.code.instructions.replace_op(instr_idx, new_op);
+            }
+        } else {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+        }
+    }
+
+    fn deoptimize_for_iter(&mut self) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        unsafe {
+            self.code.instructions.replace_op(
+                instr_idx,
+                Instruction::ForIter {
+                    target: Arg::marker(),
+                },
+            );
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
+    }
+
+    /// Handle iterator exhaustion in specialized FOR_ITER handlers.
+    /// Skips END_FOR if present at target and jumps.
+    fn for_iter_jump_on_exhausted(&mut self, target: bytecode::Label) {
+        let target_idx = target.0 as usize;
+        let jump_target = if let Some(unit) = self.code.instructions.get(target_idx) {
+            if matches!(
+                unit.op,
+                bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
+            ) {
+                bytecode::Label(target.0 + 1)
+            } else {
+                target
+            }
+        } else {
+            target
+        };
+        self.jump(jump_target);
     }
 
     fn load_super_attr(&mut self, vm: &VirtualMachine, oparg: LoadSuperAttr) -> FrameResult {

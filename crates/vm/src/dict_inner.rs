@@ -17,7 +17,9 @@ use crate::{
     object::{Traverse, TraverseFn},
 };
 use alloc::fmt;
-use core::{mem::size_of, ops::ControlFlow};
+use core::mem::size_of;
+use core::ops::ControlFlow;
+use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use num_traits::ToPrimitive;
 
 // HashIndex is intended to be same size with hash::PyHash
@@ -34,6 +36,7 @@ type EntryIndex = usize;
 
 pub struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
+    version: AtomicU64,
 }
 
 unsafe impl<T: Traverse> Traverse for Dict<T> {
@@ -98,6 +101,7 @@ impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
         Self {
             inner: PyRwLock::new(self.inner.read().clone()),
+            version: AtomicU64::new(0),
         }
     }
 }
@@ -111,6 +115,7 @@ impl<T> Default for Dict<T> {
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
             }),
+            version: AtomicU64::new(0),
         }
     }
 }
@@ -254,6 +259,16 @@ impl<T> DictInner<T> {
 type PopInnerResult<T> = ControlFlow<Option<DictEntry<T>>>;
 
 impl<T: Clone> Dict<T> {
+    /// Monotonically increasing version counter for mutation tracking.
+    pub fn version(&self) -> u64 {
+        self.version.load(Relaxed)
+    }
+
+    /// Bump the version counter after any mutation.
+    fn bump_version(&self) {
+        self.version.fetch_add(1, Relaxed);
+    }
+
     fn read(&self) -> PyRwLockReadGuard<'_, DictInner<T>> {
         self.inner.read()
     }

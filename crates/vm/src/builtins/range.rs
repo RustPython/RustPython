@@ -660,6 +660,19 @@ impl PyRangeIterator {
     }
 }
 
+impl PyRangeIterator {
+    /// Fast path for FOR_ITER specialization. Returns the next isize value
+    /// without allocating PyInt or PyIterReturn.
+    pub(crate) fn fast_next(&self) -> Option<isize> {
+        let index = self.index.fetch_add(1);
+        if index < self.length {
+            Some(self.start + (index as isize) * self.step)
+        } else {
+            None
+        }
+    }
+}
+
 impl SelfIter for PyRangeIterator {}
 impl IterNext for PyRangeIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
