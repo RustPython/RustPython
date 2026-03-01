@@ -49,6 +49,9 @@ impl<'a> PyCallable<'a> {
 
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let args = args.into_args(vm);
+        if !vm.use_tracing.get() {
+            return (self.call)(self.obj, args, vm);
+        }
         // Python functions get 'call'/'return' events from with_frame().
         // Bound methods delegate to the inner callable, which fires its own events.
         // All other callables (built-in functions, etc.) get 'c_call'/'c_return'/'c_exception'.
