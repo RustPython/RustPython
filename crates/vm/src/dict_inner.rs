@@ -316,6 +316,7 @@ impl<T: Clone> Dict<T> {
                 break None;
             }
         };
+        self.bump_version();
         Ok(())
     }
 
@@ -379,6 +380,7 @@ impl<T: Clone> Dict<T> {
             // defer dec rc
             core::mem::take(&mut inner.entries)
         };
+        self.bump_version();
     }
 
     /// Delete a key
@@ -435,6 +437,9 @@ impl<T: Clone> Dict<T> {
                 ControlFlow::Continue(()) => continue,
             }
         };
+        if removed.is_some() {
+            self.bump_version();
+        }
         Ok(removed.map(|entry| entry.value))
     }
 
@@ -457,6 +462,7 @@ impl<T: Clone> Dict<T> {
                 break None;
             }
         };
+        self.bump_version();
         Ok(())
     }
 
@@ -490,6 +496,7 @@ impl<T: Clone> Dict<T> {
                 value.clone(),
                 index_entry,
             );
+            self.bump_version();
             return Ok(value);
         }
     }
@@ -526,6 +533,7 @@ impl<T: Clone> Dict<T> {
             let key_obj = key.to_pyobject(vm);
             let ret = (key_obj.clone(), value.clone());
             inner.unchecked_push(index_index, hash, key_obj, value, index_entry);
+            self.bump_version();
             return Ok(ret);
         }
     }
@@ -726,6 +734,9 @@ impl<T: Clone> Dict<T> {
                 ControlFlow::Continue(()) => continue,
             }
         };
+        if removed.is_some() {
+            self.bump_version();
+        }
         Ok(removed)
     }
 
@@ -742,6 +753,7 @@ impl<T: Clone> Dict<T> {
             // entry.index always refers valid index
             inner.indices.get_unchecked_mut(entry.index)
         } = IndexEntry::DUMMY;
+        self.bump_version();
         Some((entry.key, entry.value))
     }
 

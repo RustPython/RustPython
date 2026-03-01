@@ -2091,6 +2091,18 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadGlobal(idx) => {
                 let oparg = idx.get(arg);
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_load_global(vm, oparg, instr_idx, cache_base);
+                }
                 let name = &self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
@@ -3288,6 +3300,79 @@ impl ExecutingFrame<'_> {
                 } else {
                     self.deoptimize_for_iter();
                     self.execute_for_iter(vm, target)?;
+                    Ok(None)
+                }
+            }
+            Instruction::LoadGlobalModule => {
+                let oparg = u32::from(arg);
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let current_version = self.globals.version() as u32;
+                if cached_version == current_version {
+                    // globals unchanged — name is in globals, look up only there
+                    let name = self.code.names[(oparg >> 1) as usize];
+                    if let Some(x) = self.globals.get_item_opt(name, vm)? {
+                        self.push_value(x);
+                        if (oparg & 1) != 0 {
+                            self.push_value_opt(None);
+                        }
+                        Ok(None)
+                    } else {
+                        // Name was removed from globals
+                        self.deoptimize_load_global();
+                        let x = self.load_global_or_builtin(name, vm)?;
+                        self.push_value(x);
+                        if (oparg & 1) != 0 {
+                            self.push_value_opt(None);
+                        }
+                        Ok(None)
+                    }
+                } else {
+                    self.deoptimize_load_global();
+                    let name = self.code.names[(oparg >> 1) as usize];
+                    let x = self.load_global_or_builtin(name, vm)?;
+                    self.push_value(x);
+                    if (oparg & 1) != 0 {
+                        self.push_value_opt(None);
+                    }
+                    Ok(None)
+                }
+            }
+            Instruction::LoadGlobalBuiltin => {
+                let oparg = u32::from(arg);
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let current_version = self.globals.version() as u32;
+                if cached_version == current_version {
+                    // globals unchanged — name is NOT in globals, look up in builtins
+                    let name = self.code.names[(oparg >> 1) as usize];
+                    if let Some(builtins_dict) = self.builtins.downcast_ref::<PyDict>()
+                        && let Some(x) = builtins_dict.get_item_opt(name, vm)?
+                    {
+                        self.push_value(x);
+                        if (oparg & 1) != 0 {
+                            self.push_value_opt(None);
+                        }
+                        return Ok(None);
+                    }
+                    // Fallback: name not found or builtins not a dict
+                    self.deoptimize_load_global();
+                    let x = self.load_global_or_builtin(name, vm)?;
+                    self.push_value(x);
+                    if (oparg & 1) != 0 {
+                        self.push_value_opt(None);
+                    }
+                    Ok(None)
+                } else {
+                    self.deoptimize_load_global();
+                    let name = self.code.names[(oparg >> 1) as usize];
+                    let x = self.load_global_or_builtin(name, vm)?;
+                    self.push_value(x);
+                    if (oparg & 1) != 0 {
+                        self.push_value_opt(None);
+                    }
                     Ok(None)
                 }
             }
@@ -5193,6 +5278,61 @@ impl ExecutingFrame<'_> {
             target
         };
         self.jump(jump_target);
+    }
+
+    fn specialize_load_global(
+        &mut self,
+        vm: &VirtualMachine,
+        oparg: u32,
+        instr_idx: usize,
+        cache_base: usize,
+    ) {
+        let name = self.code.names[(oparg >> 1) as usize];
+        // Check if name exists in globals
+        let in_globals = self.globals.get_item_opt(name, vm).ok().flatten().is_some();
+
+        let globals_version = self.globals.version() as u32;
+
+        let new_op = if in_globals {
+            Some(Instruction::LoadGlobalModule)
+        } else if self
+            .builtins
+            .downcast_ref::<PyDict>()
+            .and_then(|b| b.get_item_opt(name, vm).ok().flatten())
+            .is_some()
+        {
+            Some(Instruction::LoadGlobalBuiltin)
+        } else {
+            None
+        };
+
+        if let Some(new_op) = new_op {
+            unsafe {
+                self.code.instructions.replace_op(instr_idx, new_op);
+                self.code
+                    .instructions
+                    .write_cache_u32(cache_base + 1, globals_version);
+            }
+        } else {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+        }
+    }
+
+    fn deoptimize_load_global(&mut self) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        unsafe {
+            self.code
+                .instructions
+                .replace_op(instr_idx, Instruction::LoadGlobal(Arg::marker()));
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
     }
 
     fn load_super_attr(&mut self, vm: &VirtualMachine, oparg: LoadSuperAttr) -> FrameResult {
