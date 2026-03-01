@@ -346,6 +346,8 @@ pub struct PyCode {
     pub instrumentation_version: AtomicU64,
     /// Side-table for INSTRUMENTED_LINE / INSTRUMENTED_INSTRUCTION.
     pub monitoring_data: PyMutex<Option<CoMonitoringData>>,
+    /// Whether adaptive counters have been initialized (lazy quickening).
+    pub quickened: core::sync::atomic::AtomicBool,
 }
 
 impl Deref for PyCode {
@@ -363,6 +365,7 @@ impl PyCode {
             source_path: AtomicPtr::new(sp),
             instrumentation_version: AtomicU64::new(0),
             monitoring_data: PyMutex::new(None),
+            quickened: core::sync::atomic::AtomicBool::new(false),
         }
     }
 

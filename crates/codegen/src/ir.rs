@@ -499,11 +499,7 @@ impl CodeInfo {
             qualname: qualname.unwrap_or(obj_name),
 
             max_stackdepth,
-            instructions: {
-                let units = CodeUnits::from(instructions);
-                units.init_adaptive_counters();
-                units
-            },
+            instructions: CodeUnits::from(instructions),
             locations: locations.into_boxed_slice(),
             constants: constants.into_iter().collect(),
             names: name_cache.into_iter().collect(),

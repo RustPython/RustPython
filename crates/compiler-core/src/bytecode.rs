@@ -400,7 +400,6 @@ impl TryFrom<&[u8]> for CodeUnits {
             .chunks_exact(2)
             .map(CodeUnit::try_from)
             .collect::<Result<_, _>>()?;
-        units.init_adaptive_counters();
         Ok(units)
     }
 }
@@ -526,10 +525,10 @@ impl CodeUnits {
         units[index].arg = OpArgByte::from(value);
     }
 
-    /// Initialize adaptive warmup counters for all instructions that have caches.
-    /// The counter is stored in the `arg` byte of the first CACHE entry,
-    /// preserving `op = Instruction::Cache`.
-    pub fn init_adaptive_counters(&self) {
+    /// Initialize adaptive warmup counters for all cacheable instructions.
+    /// Called lazily at RESUME (first execution of a code object).
+    /// Uses the `arg` byte of the first CACHE entry, preserving `op = Instruction::Cache`.
+    pub fn quicken(&self) {
         let units = unsafe { &*self.0.get() };
         let len = units.len();
         let mut i = 0;

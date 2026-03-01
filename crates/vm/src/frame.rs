@@ -2314,6 +2314,14 @@ impl ExecutingFrame<'_> {
             }
             Instruction::RaiseVarargs { kind } => self.execute_raise(vm, kind.get(arg)),
             Instruction::Resume { .. } => {
+                // Lazy quickening: initialize adaptive counters on first execution
+                if !self
+                    .code
+                    .quickened
+                    .swap(true, atomic::Ordering::Relaxed)
+                {
+                    self.code.instructions.quicken();
+                }
                 // Check if bytecode needs re-instrumentation
                 let global_ver = vm
                     .state
@@ -4422,7 +4430,6 @@ impl ExecutingFrame<'_> {
         let instr_idx = self.lasti() as usize - 1;
         let cache_base = instr_idx + 1;
 
-        // Decrement adaptive counter
         let counter = self.code.instructions.read_adaptive_counter(cache_base);
         if counter > 0 {
             unsafe {
@@ -4431,11 +4438,9 @@ impl ExecutingFrame<'_> {
                     .write_adaptive_counter(cache_base, counter - 1);
             }
         } else {
-            // Counter reached 0: attempt specialization for future calls
             self.specialize_load_attr(vm, oparg, instr_idx, cache_base);
         }
 
-        // Execute slow path for this call
         self.load_attr_slow(vm, oparg)
     }
 
