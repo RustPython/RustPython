@@ -1,27 +1,27 @@
 import contextlib
 import difflib
-import inspect
-import logging
-import pickle
 import pprint
+import pickle
 import re
 import sys
-import types
-import unittest
+import logging
 import warnings
 import weakref
+import inspect
+import types
+
 from collections import UserString
 from copy import deepcopy
-
 from test import support
-from test.support import captured_stderr, gc_collect
+
+import unittest
+
 from test.test_unittest.support import (
-    LegacyLoggingResult,
-    LoggingResult,
-    ResultWithNoStartTestRunStopTestRun,
-    TestEquality,
-    TestHashing,
+    TestEquality, TestHashing, LoggingResult, LegacyLoggingResult,
+    ResultWithNoStartTestRunStopTestRun
 )
+from test.support import captured_stderr, gc_collect
+
 
 log_foo = logging.getLogger('foo')
 log_foobar = logging.getLogger('foo.bar')

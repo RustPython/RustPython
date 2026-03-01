@@ -1,10 +1,9 @@
 import datetime
-import unittest
 import warnings
 import weakref
-from itertools import product
-
+import unittest
 from test.support import gc_collect
+from itertools import product
 
 
 class Test_Assertions(unittest.TestCase):

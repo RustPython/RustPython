@@ -25,20 +25,20 @@ __all__ = (
 
 
 import asyncio
-import builtins
 import contextlib
-import inspect
 import io
-import pkgutil
+import inspect
 import pprint
 import sys
+import builtins
+import pkgutil
+from inspect import iscoroutinefunction
 import threading
 from dataclasses import fields, is_dataclass
-from functools import partial, wraps
-from inspect import iscoroutinefunction
-from threading import RLock
-from types import CodeType, MethodType, ModuleType
+from types import CodeType, ModuleType, MethodType
 from unittest.util import safe_repr
+from functools import wraps, partial
+from threading import RLock
 
 
 class InvalidSpecError(Exception):
@@ -1180,7 +1180,6 @@ class CallableMixin(Base):
 
     def _increment_mock_call(self, /, *args, **kwargs):
         self.called = True
-        self.call_count += 1
 
         # handle call_args
         # needs to be set here so assertions on call arguments pass before
@@ -1188,6 +1187,7 @@ class CallableMixin(Base):
         _call = _Call((args, kwargs), two=True)
         self.call_args = _call
         self.call_args_list.append(_call)
+        self.call_count = len(self.call_args_list)
 
         # initial stuff for method_calls:
         do_method_calls = self._mock_parent is not None

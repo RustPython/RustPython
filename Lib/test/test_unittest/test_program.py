@@ -1,10 +1,9 @@
 import os
-import subprocess
 import sys
-import unittest
-
-import test.test_unittest
+import subprocess
 from test import support
+import unittest
+import test.test_unittest
 from test.test_unittest.test_result import BufferedWriter
 
 
@@ -506,7 +505,8 @@ class TestCommandLineArgs(unittest.TestCase):
 
         self.assertEqual(program.testNamePatterns, ['*foo*', '*bar*', '*pat*'])
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSelectedTestNamesFunctionalTest(self):
         def run_unittest(args):
             # Use -E to ignore PYTHONSAFEPATH env var
