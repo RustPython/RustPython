@@ -277,6 +277,8 @@ mod _ssl {
     const HAS_TLSv1_3: bool = cfg!(ossl111);
     #[pyattr]
     const HAS_PSK: bool = true;
+    #[pyattr]
+    const HAS_PHA: bool = cfg!(ossl111);
 
     // Encoding constants for Certificate.public_bytes()
     #[pyattr]
