@@ -3258,6 +3258,34 @@ impl ExecutingFrame<'_> {
                 self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
+            Instruction::BinaryOpSubscrStrInt => {
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if let (Some(a_str), Some(b_int)) = (
+                    a.downcast_ref_if_exact::<PyStr>(vm),
+                    b.downcast_ref_if_exact::<PyInt>(vm),
+                ) && let Ok(i) = b_int.try_to_primitive::<isize>(vm)
+                {
+                    match a_str.getitem_by_index(vm, i) {
+                        Ok(ch) => {
+                            self.pop_value();
+                            self.pop_value();
+                            self.push_value(
+                                PyStr::from(ch).into_pyobject(vm),
+                            );
+                            return Ok(None);
+                        }
+                        Err(e) => {
+                            self.deoptimize_binary_op(
+                                bytecode::BinaryOperator::Subscr,
+                            );
+                            return Err(e);
+                        }
+                    }
+                }
+                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
+            }
             Instruction::CallPyExactArgs => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
@@ -3400,6 +3428,53 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                     // Guard failed — re-push and fallback
+                    self.push_value(callable);
+                    self.push_value_opt(_null);
+                    self.push_value(obj);
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallStr1 => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                if nargs == 1 {
+                    let obj = self.pop_value();
+                    let _null = self.pop_value_opt();
+                    let callable = self.pop_value();
+                    let callable_tag = &*callable as *const PyObject as u32;
+                    if cached_tag == callable_tag {
+                        let result = obj.str(vm)?;
+                        self.push_value(result.into());
+                        return Ok(None);
+                    }
+                    self.push_value(callable);
+                    self.push_value_opt(_null);
+                    self.push_value(obj);
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallTuple1 => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                if nargs == 1 {
+                    let obj = self.pop_value();
+                    let _null = self.pop_value_opt();
+                    let callable = self.pop_value();
+                    let callable_tag = &*callable as *const PyObject as u32;
+                    if cached_tag == callable_tag {
+                        let elements: Vec<PyObjectRef> =
+                            vm.extract_elements_with(&obj, Ok)?;
+                        self.push_value(vm.ctx.new_tuple(elements).into());
+                        return Ok(None);
+                    }
                     self.push_value(callable);
                     self.push_value_opt(_null);
                     self.push_value(obj);
@@ -5458,6 +5533,10 @@ impl ExecutingFrame<'_> {
                     Some(Instruction::BinaryOpSubscrTupleInt)
                 } else if a.downcast_ref_if_exact::<PyDict>(vm).is_some() {
                     Some(Instruction::BinaryOpSubscrDict)
+                } else if a.downcast_ref_if_exact::<PyStr>(vm).is_some()
+                    && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
+                {
+                    Some(Instruction::BinaryOpSubscrStrInt)
                 } else {
                     None
                 }
@@ -5561,21 +5640,27 @@ impl ExecutingFrame<'_> {
                     return;
                 }
             }
-            // type(x) specialization
-            if callable.class().is(vm.ctx.types.type_type)
-                && callable.is(&vm.ctx.types.type_type.as_object())
-                && nargs == 1
-            {
-                let callable_tag = callable as *const PyObject as u32;
-                unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::CallType1);
-                    self.code
-                        .instructions
-                        .write_cache_u32(cache_base + 1, callable_tag);
+            // type/str/tuple(x) specialization
+            if callable.class().is(vm.ctx.types.type_type) && nargs == 1 {
+                let new_op = if callable.is(&vm.ctx.types.type_type.as_object()) {
+                    Some(Instruction::CallType1)
+                } else if callable.is(&vm.ctx.types.str_type.as_object()) {
+                    Some(Instruction::CallStr1)
+                } else if callable.is(&vm.ctx.types.tuple_type.as_object()) {
+                    Some(Instruction::CallTuple1)
+                } else {
+                    None
+                };
+                if let Some(new_op) = new_op {
+                    let callable_tag = callable as *const PyObject as u32;
+                    unsafe {
+                        self.code.instructions.replace_op(instr_idx, new_op);
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, callable_tag);
+                    }
+                    return;
                 }
-                return;
             }
         }
 
