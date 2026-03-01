@@ -54,6 +54,8 @@ eofs
 evalloop
 excepthandler
 exceptiontable
+fastlocal
+fastlocals
 fblock
 fblocks
 fdescr
@@ -171,6 +173,7 @@ SMALLBUF
 SOABI
 SSLEOF
 stackdepth
+stackref
 staticbase
 stginfo
 storefast

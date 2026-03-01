@@ -40,6 +40,7 @@ use core::{
     cell::UnsafeCell,
     marker::PhantomData,
     mem::ManuallyDrop,
+    num::NonZeroUsize,
     ops::Deref,
     ptr::{self, NonNull},
 };
@@ -1414,9 +1415,12 @@ const STACKREF_BORROW_TAG: usize = 1;
 ///
 /// Same size as `PyObjectRef` (one pointer-width).  `PyObject` is at least
 /// 8-byte aligned, so the low bit is always available for tagging.
+///
+/// Uses `NonZeroUsize` so that `Option<PyStackRef>` has the same size as
+/// `PyStackRef` via niche optimization (matching `Option<PyObjectRef>`).
 #[repr(transparent)]
 pub struct PyStackRef {
-    bits: usize,
+    bits: NonZeroUsize,
 }
 
 impl PyStackRef {
@@ -1426,8 +1430,14 @@ impl PyStackRef {
     pub fn new_owned(obj: PyObjectRef) -> Self {
         let ptr = obj.into_raw();
         let bits = ptr.as_ptr() as usize;
-        debug_assert!(bits & STACKREF_BORROW_TAG == 0, "PyObject pointer must be aligned");
-        Self { bits }
+        debug_assert!(
+            bits & STACKREF_BORROW_TAG == 0,
+            "PyObject pointer must be aligned"
+        );
+        Self {
+            // SAFETY: valid PyObject pointers are never null
+            bits: unsafe { NonZeroUsize::new_unchecked(bits) },
+        }
     }
 
     /// Create a borrowed stack reference from a `&PyObject`.
@@ -1440,19 +1450,22 @@ impl PyStackRef {
     #[inline(always)]
     pub unsafe fn new_borrowed(obj: &PyObject) -> Self {
         let bits = (obj as *const PyObject as usize) | STACKREF_BORROW_TAG;
-        Self { bits }
+        Self {
+            // SAFETY: valid PyObject pointers are never null, and ORing with 1 keeps it non-zero
+            bits: unsafe { NonZeroUsize::new_unchecked(bits) },
+        }
     }
 
     /// Whether this is a borrowed (non-owning) reference.
     #[inline(always)]
     pub fn is_borrowed(&self) -> bool {
-        self.bits & STACKREF_BORROW_TAG != 0
+        self.bits.get() & STACKREF_BORROW_TAG != 0
     }
 
     /// Get a `&PyObject` reference.  Works for both owned and borrowed.
     #[inline(always)]
     pub fn as_object(&self) -> &PyObject {
-        unsafe { &*((self.bits & !STACKREF_BORROW_TAG) as *const PyObject) }
+        unsafe { &*((self.bits.get() & !STACKREF_BORROW_TAG) as *const PyObject) }
     }
 
     /// Convert to an owned `PyObjectRef`.
@@ -1464,7 +1477,7 @@ impl PyStackRef {
         let obj = if self.is_borrowed() {
             self.as_object().to_owned() // inc refcount
         } else {
-            let ptr = unsafe { NonNull::new_unchecked(self.bits as *mut PyObject) };
+            let ptr = unsafe { NonNull::new_unchecked(self.bits.get() as *mut PyObject) };
             unsafe { PyObjectRef::from_raw(ptr) }
         };
         core::mem::forget(self); // don't run Drop
@@ -1477,7 +1490,9 @@ impl PyStackRef {
     pub fn promote(&mut self) {
         if self.is_borrowed() {
             self.as_object().0.ref_count.inc();
-            self.bits &= !STACKREF_BORROW_TAG;
+            // SAFETY: clearing the low bit of a non-null pointer keeps it non-zero
+            self.bits =
+                unsafe { NonZeroUsize::new_unchecked(self.bits.get() & !STACKREF_BORROW_TAG) };
         }
     }
 }
@@ -1487,7 +1502,7 @@ impl Drop for PyStackRef {
     fn drop(&mut self) {
         if !self.is_borrowed() {
             // Owned: decrement refcount (potentially deallocate).
-            let ptr = unsafe { NonNull::new_unchecked(self.bits as *mut PyObject) };
+            let ptr = unsafe { NonNull::new_unchecked(self.bits.get() as *mut PyObject) };
             drop(unsafe { PyObjectRef::from_raw(ptr) });
         }
         // Borrowed: nothing to do.
@@ -1529,6 +1544,13 @@ cfg_if::cfg_if! {
         unsafe impl Sync for PyStackRef {}
     }
 }
+
+// Ensure Option<PyStackRef> uses niche optimization and matches Option<PyObjectRef> in size
+const _: () = assert!(
+    core::mem::size_of::<Option<PyStackRef>>() == core::mem::size_of::<Option<PyObjectRef>>()
+);
+const _: () =
+    assert!(core::mem::size_of::<Option<PyStackRef>>() == core::mem::size_of::<PyStackRef>());
 
 #[repr(transparent)]
 pub struct Py<T>(PyInner<T>);

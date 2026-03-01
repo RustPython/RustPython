@@ -3,8 +3,7 @@ use core::ptr::NonNull;
 use rustpython_common::lock::{PyMutex, PyRwLock};
 
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyRef, PyStackRef, function::Either,
-    object::PyObjectPayload,
+    AsObject, PyObject, PyObjectRef, PyRef, PyStackRef, function::Either, object::PyObjectPayload,
 };
 
 pub type TraverseFn<'a> = dyn FnMut(&PyObject) + 'a;

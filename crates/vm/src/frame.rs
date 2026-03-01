@@ -1262,8 +1262,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CompareOp { op } => self.execute_compare(vm, op.get(arg)),
             Instruction::ContainsOp(invert) => {
-                let b = self.pop_stackref();
-                let a = self.pop_stackref();
+                let b = self.pop_value();
+                let a = self.pop_value();
 
                 let value = match invert.get(arg) {
                     bytecode::Invert::No => self._in(vm, &a, &b)?,
@@ -1281,12 +1281,7 @@ impl ExecutingFrame<'_> {
                 // This is 1-indexed to match CPython
                 let idx = index.get(arg) as usize;
                 let stack_len = self.state.stack.len();
-                if stack_len < idx {
-                    eprintln!("CopyItem ERROR: stack_len={}, idx={}", stack_len, idx);
-                    eprintln!("  code: {}", self.code.obj_name);
-                    eprintln!("  lasti: {}", self.lasti());
-                    panic!("CopyItem: stack underflow");
-                }
+                debug_assert!(stack_len >= idx, "CopyItem: stack underflow");
                 let value = self.state.stack[stack_len - idx].clone();
                 self.push_stackref_opt(value);
                 Ok(None)
@@ -1913,7 +1908,6 @@ impl ExecutingFrame<'_> {
                         .into(),
                     )
                 })?;
-                drop(fastlocals);
                 self.push_value(x1);
                 self.push_value(x2);
                 Ok(None)
@@ -2505,7 +2499,11 @@ impl ExecutingFrame<'_> {
             }
             Instruction::YieldValue { arg: oparg } => {
                 debug_assert!(
-                    self.state.stack.iter().flatten().all(|sr| !sr.is_borrowed()),
+                    self.state
+                        .stack
+                        .iter()
+                        .flatten()
+                        .all(|sr| !sr.is_borrowed()),
                     "borrowed refs on stack at yield point"
                 );
                 let value = self.pop_value();
@@ -3779,37 +3777,37 @@ impl ExecutingFrame<'_> {
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_bin_op(&mut self, vm: &VirtualMachine, op: bytecode::BinaryOperator) -> FrameResult {
-        let b_ref = self.pop_stackref();
-        let a_ref = self.pop_stackref();
+        let b_ref = &self.pop_value();
+        let a_ref = &self.pop_value();
         let value = match op {
-            bytecode::BinaryOperator::Subtract => vm._sub(&a_ref, &b_ref),
-            bytecode::BinaryOperator::Add => vm._add(&a_ref, &b_ref),
-            bytecode::BinaryOperator::Multiply => vm._mul(&a_ref, &b_ref),
-            bytecode::BinaryOperator::MatrixMultiply => vm._matmul(&a_ref, &b_ref),
-            bytecode::BinaryOperator::Power => vm._pow(&a_ref, &b_ref, vm.ctx.none.as_object()),
-            bytecode::BinaryOperator::TrueDivide => vm._truediv(&a_ref, &b_ref),
-            bytecode::BinaryOperator::FloorDivide => vm._floordiv(&a_ref, &b_ref),
-            bytecode::BinaryOperator::Remainder => vm._mod(&a_ref, &b_ref),
-            bytecode::BinaryOperator::Lshift => vm._lshift(&a_ref, &b_ref),
-            bytecode::BinaryOperator::Rshift => vm._rshift(&a_ref, &b_ref),
-            bytecode::BinaryOperator::Xor => vm._xor(&a_ref, &b_ref),
-            bytecode::BinaryOperator::Or => vm._or(&a_ref, &b_ref),
-            bytecode::BinaryOperator::And => vm._and(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceSubtract => vm._isub(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceAdd => vm._iadd(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceMultiply => vm._imul(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(&a_ref, &b_ref),
+            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
+            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
+            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, vm.ctx.none.as_object()),
+            bytecode::BinaryOperator::TrueDivide => vm._truediv(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
+            bytecode::BinaryOperator::Remainder => vm._mod(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
+            bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
+            bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceSubtract => vm._isub(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceAdd => vm._iadd(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceMultiply => vm._imul(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(a_ref, b_ref),
             bytecode::BinaryOperator::InplacePower => {
-                vm._ipow(&a_ref, &b_ref, vm.ctx.none.as_object())
+                vm._ipow(a_ref, b_ref, vm.ctx.none.as_object())
             }
-            bytecode::BinaryOperator::InplaceTrueDivide => vm._itruediv(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceFloorDivide => vm._ifloordiv(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceRemainder => vm._imod(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceLshift => vm._ilshift(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceRshift => vm._irshift(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceXor => vm._ixor(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceOr => vm._ior(&a_ref, &b_ref),
-            bytecode::BinaryOperator::InplaceAnd => vm._iand(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceTrueDivide => vm._itruediv(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceFloorDivide => vm._ifloordiv(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceRemainder => vm._imod(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceLshift => vm._ilshift(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceRshift => vm._irshift(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceXor => vm._ixor(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceOr => vm._ior(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceAnd => vm._iand(a_ref, b_ref),
             bytecode::BinaryOperator::Subscr => a_ref.get_item(b_ref.as_object(), vm),
         }?;
 
@@ -4102,6 +4100,7 @@ impl ExecutingFrame<'_> {
     /// The compiler guarantees consumption within the same basic block.
     #[inline]
     #[track_caller]
+    #[allow(dead_code)]
     unsafe fn push_borrowed(&mut self, obj: &PyObject) {
         self.push_stackref_opt(Some(unsafe { PyStackRef::new_borrowed(obj) }));
     }
@@ -4311,8 +4310,7 @@ impl ExecutingFrame<'_> {
             );
         }
         self.state.stack.drain(stack_len - count..).map(|obj| {
-            expect_unchecked(obj, "pop_multiple but null found. This is a compiler bug.")
-                .to_pyobj()
+            expect_unchecked(obj, "pop_multiple but null found. This is a compiler bug.").to_pyobj()
         })
     }
 
