@@ -1133,7 +1133,13 @@ mod _ssl {
             self.ctx.read().options().bits() as _
         }
         #[pygetset(setter)]
-        fn set_options(&self, new_opts: libc::c_ulong) {
+        fn set_options(&self, new_opts: i64, vm: &VirtualMachine) -> PyResult<()> {
+            if new_opts < 0 {
+                return Err(vm.new_value_error(
+                    "invalid options value".to_owned(),
+                ));
+            }
+            let new_opts = new_opts as libc::c_ulong;
             let mut ctx = self.builder();
             // Get current options
             let current = ctx.options().bits() as libc::c_ulong;
@@ -1153,6 +1159,7 @@ mod _ssl {
             if set != 0 {
                 ctx.set_options(SslOptions::from_bits_truncate(set as _));
             }
+            Ok(())
         }
         #[pygetset]
         fn protocol(&self) -> i32 {
