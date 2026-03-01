@@ -289,6 +289,7 @@ DEPENDENCIES = {
             "test_dictcomps.py",
             "test_dictviews.py",
             "test_userdict.py",
+            "mapping_tests.py",
         ],
     },
     "list": {
@@ -326,6 +327,10 @@ DEPENDENCIES = {
     },
     "re": {
         "hard_deps": ["sre_compile.py", "sre_constants.py", "sre_parse.py"],
+        "test": [
+            "test_re.py",
+            "re_tests.py",
+        ],
     },
     "weakref": {
         "hard_deps": ["_weakrefset.py"],
@@ -496,6 +501,8 @@ DEPENDENCIES = {
             "test_syslog.py",
             "test_sys_setprofile.py",
             "test_sys_settrace.py",
+            "test_audit.py",
+            "audit-tests.py",
         ],
     },
     "str": {
@@ -707,6 +714,12 @@ DEPENDENCIES = {
             "test_eintr.py",
             "_test_eintr.py",
         ]
+    },
+    "curses": {
+        "test": [
+            "test_curses.py",
+            "curses_tests.py",
+        ],
     },
 }
 
