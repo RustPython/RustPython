@@ -688,6 +688,17 @@ impl Py<PyDict> {
             other.get_item_opt(key, vm)
         }
     }
+
+    /// Like `get_chain` but skips the exact_dict type checks. Use when both
+    /// dicts are known to be exact dict types (e.g. globals + builtins).
+    pub fn get_chain_exact<K: DictKey + ?Sized>(
+        &self,
+        other: &Self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        self.entries.get_chain(&other.entries, vm, key)
+    }
 }
 
 // Implement IntoIterator so that we can easily iterate dictionaries from rust code.

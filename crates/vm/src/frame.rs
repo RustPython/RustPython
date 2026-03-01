@@ -438,6 +438,7 @@ impl Py<Frame> {
             locals: &self.locals,
             globals: &self.globals,
             builtins: &self.builtins,
+            builtins_dict: self.builtins.downcast_ref::<PyDict>(),
             lasti: &self.lasti,
             object: self,
             state: &mut state,
@@ -484,6 +485,7 @@ impl Py<Frame> {
             locals: &self.locals,
             globals: &self.globals,
             builtins: &self.builtins,
+            builtins_dict: self.builtins.downcast_ref::<PyDict>(),
             lasti: &self.lasti,
             object: self,
             state: &mut state,
@@ -519,6 +521,9 @@ struct ExecutingFrame<'a> {
     locals: &'a ArgMapping,
     globals: &'a PyDictRef,
     builtins: &'a PyObjectRef,
+    /// Cached downcast of builtins to PyDict. builtins never changes during
+    /// frame execution, so we avoid repeating the downcast on every LOAD_GLOBAL.
+    builtins_dict: Option<&'a Py<PyDict>>,
     object: &'a Py<Frame>,
     lasti: &'a PyAtomic<u32>,
     state: &'a mut FrameState,
@@ -1670,7 +1675,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadSuperAttr { arg: idx } => self.load_super_attr(vm, idx.get(arg)),
             Instruction::LoadBuildClass => {
                 let build_class =
-                    if let Some(builtins_dict) = self.builtins.downcast_ref::<PyDict>() {
+                    if let Some(builtins_dict) = self.builtins_dict {
                         builtins_dict
                             .get_item_opt(identifier!(vm, __build_class__), vm)?
                             .ok_or_else(|| {
@@ -3014,10 +3019,10 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn load_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        if let Some(builtins_dict) = self.builtins.downcast_ref::<PyDict>() {
-            // Fast path: builtins is a dict
+        if let Some(builtins_dict) = self.builtins_dict {
+            // Fast path: both globals (PyDictRef) and builtins are exact dicts
             self.globals
-                .get_chain(builtins_dict, name, vm)?
+                .get_chain_exact(builtins_dict, name, vm)?
                 .ok_or_else(|| {
                     vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
                 })
