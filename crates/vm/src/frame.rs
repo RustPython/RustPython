@@ -1,3 +1,4 @@
+use crate::anystr::AnyStr as _;
 #[cfg(feature = "flame")]
 use crate::bytecode::InstructionMetadata;
 use crate::{
@@ -8,6 +9,7 @@ use crate::{
         PyFloat, PyGenerator, PyInt, PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned,
         PyTemplate, PyTraceback, PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
+        builtin_func::PyNativeFunction,
         frame::stack_analysis,
         function::{PyCell, PyCellRef, PyFunction},
         list::PyListIterator,
@@ -17,7 +19,7 @@ use crate::{
     bytecode::{
         self, ADAPTIVE_BACKOFF_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
     },
-    convert::ToPyResult,
+    convert::{IntoObject, ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{ArgMapping, Either, FuncArgs},
@@ -3028,6 +3030,42 @@ impl ExecutingFrame<'_> {
                 }
                 self.store_attr(vm, attr_idx)
             }
+            Instruction::StoreSubscrListInt => {
+                // Stack: [value, obj, idx] (TOS=idx, TOS1=obj, TOS2=value)
+                let idx = self.pop_value();
+                let obj = self.pop_value();
+                let value = self.pop_value();
+                if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm)
+                    && let Some(int_idx) = idx.downcast_ref_if_exact::<PyInt>(vm)
+                    && let Ok(i) = int_idx.try_to_primitive::<isize>(vm)
+                {
+                    let mut vec = list.borrow_vec_mut();
+                    if let Some(pos) = vec.wrap_index(i) {
+                        vec[pos] = value;
+                        return Ok(None);
+                    }
+                    drop(vec);
+                    self.deoptimize_store_subscr();
+                    return Err(vm.new_index_error("list assignment index out of range"));
+                }
+                self.deoptimize_store_subscr();
+                obj.set_item(&*idx, value, vm)?;
+                Ok(None)
+            }
+            Instruction::StoreSubscrDict => {
+                // Stack: [value, obj, idx] (TOS=idx, TOS1=obj, TOS2=value)
+                let idx = self.pop_value();
+                let obj = self.pop_value();
+                let value = self.pop_value();
+                if let Some(dict) = obj.downcast_ref_if_exact::<PyDict>(vm) {
+                    dict.set_item(&*idx, value, vm)?;
+                    Ok(None)
+                } else {
+                    self.deoptimize_store_subscr();
+                    obj.set_item(&*idx, value, vm)?;
+                    Ok(None)
+                }
+            }
             // Specialized BINARY_OP opcodes
             Instruction::BinaryOpAddInt => {
                 let b = self.top_value();
@@ -3129,6 +3167,23 @@ impl ExecutingFrame<'_> {
                 } else {
                     self.deoptimize_binary_op(bytecode::BinaryOperator::Multiply);
                     self.execute_bin_op(vm, bytecode::BinaryOperator::Multiply)
+                }
+            }
+            Instruction::BinaryOpAddUnicode => {
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if let (Some(a_str), Some(b_str)) = (
+                    a.downcast_ref_if_exact::<PyStr>(vm),
+                    b.downcast_ref_if_exact::<PyStr>(vm),
+                ) {
+                    let result = a_str.as_wtf8().py_add(b_str.as_wtf8());
+                    self.pop_value();
+                    self.pop_value();
+                    self.push_value(result.to_pyobject(vm));
+                    Ok(None)
+                } else {
+                    self.deoptimize_binary_op(bytecode::BinaryOperator::Add);
+                    self.execute_bin_op(vm, bytecode::BinaryOperator::Add)
                 }
             }
             Instruction::BinaryOpSubscrListInt => {
@@ -3276,6 +3331,83 @@ impl ExecutingFrame<'_> {
                     self.execute_call(args, vm)
                 }
             }
+            Instruction::CallLen => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                if nargs == 1 {
+                    // Stack: [callable, null, arg]
+                    let obj = self.pop_value(); // arg
+                    let _null = self.pop_value_opt();
+                    let callable = self.pop_value();
+                    let callable_tag = &*callable as *const PyObject as u32;
+                    if cached_tag == callable_tag {
+                        let len = obj.length(vm)?;
+                        self.push_value(vm.ctx.new_int(len).into());
+                        return Ok(None);
+                    }
+                    // Guard failed — re-push and fallback
+                    self.push_value(callable);
+                    self.push_value_opt(_null);
+                    self.push_value(obj);
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallIsinstance => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                if nargs == 2 {
+                    // Stack: [callable, null, obj, classinfo]
+                    let classinfo = self.pop_value();
+                    let obj = self.pop_value();
+                    let _null = self.pop_value_opt();
+                    let callable = self.pop_value();
+                    let callable_tag = &*callable as *const PyObject as u32;
+                    if cached_tag == callable_tag {
+                        let result = obj.is_instance(&classinfo, vm)?;
+                        self.push_value(vm.ctx.new_bool(result).into());
+                        return Ok(None);
+                    }
+                    // Guard failed — re-push and fallback
+                    self.push_value(callable);
+                    self.push_value_opt(_null);
+                    self.push_value(obj);
+                    self.push_value(classinfo);
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallType1 => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                if nargs == 1 {
+                    // Stack: [callable, null, arg]
+                    let obj = self.pop_value();
+                    let _null = self.pop_value_opt();
+                    let callable = self.pop_value();
+                    let callable_tag = &*callable as *const PyObject as u32;
+                    if cached_tag == callable_tag {
+                        let tp = obj.class().to_owned().into();
+                        self.push_value(tp);
+                        return Ok(None);
+                    }
+                    // Guard failed — re-push and fallback
+                    self.push_value(callable);
+                    self.push_value_opt(_null);
+                    self.push_value(obj);
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
             Instruction::CompareOpInt => {
                 let b = self.top_value();
                 let a = self.nth_value(1);
@@ -3402,6 +3534,26 @@ impl ExecutingFrame<'_> {
                     let result = !s.is_empty();
                     self.pop_value();
                     self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_to_bool();
+                    let obj = self.pop_value();
+                    let result = obj.try_to_bool(vm)?;
+                    self.push_value(vm.ctx.new_bool(result).into());
+                    Ok(None)
+                }
+            }
+            Instruction::ToBoolAlwaysTrue => {
+                // Objects without __bool__ or __len__ are always True.
+                // Guard: check the type hasn't gained these slots.
+                let obj = self.top_value();
+                let slots = &obj.class().slots;
+                if slots.as_number.boolean.load().is_none()
+                    && slots.as_mapping.length.load().is_none()
+                    && slots.as_sequence.length.load().is_none()
+                {
+                    self.pop_value();
+                    self.push_value(vm.ctx.new_bool(true).into());
                     Ok(None)
                 } else {
                     self.deoptimize_to_bool();
@@ -5261,6 +5413,10 @@ impl ExecutingFrame<'_> {
                     && b.downcast_ref_if_exact::<PyFloat>(vm).is_some()
                 {
                     Some(Instruction::BinaryOpAddFloat)
+                } else if a.downcast_ref_if_exact::<PyStr>(vm).is_some()
+                    && b.downcast_ref_if_exact::<PyStr>(vm).is_some()
+                {
+                    Some(Instruction::BinaryOpAddUnicode)
                 } else {
                     None
                 }
@@ -5337,7 +5493,7 @@ impl ExecutingFrame<'_> {
 
     fn specialize_call(
         &mut self,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         nargs: u32,
         instr_idx: usize,
         cache_base: usize,
@@ -5379,6 +5535,45 @@ impl ExecutingFrame<'_> {
                     self.code
                         .instructions
                         .write_cache_u32(cache_base + 1, version);
+                }
+                return;
+            }
+        }
+
+        // Try to specialize builtin calls
+        if !self_or_null_is_some {
+            if let Some(native) = callable.downcast_ref::<PyNativeFunction>()
+                && native.zelf.is_none()
+            {
+                let callable_tag = callable as *const PyObject as u32;
+                let new_op = match (native.value.name, nargs) {
+                    ("len", 1) => Some(Instruction::CallLen),
+                    ("isinstance", 2) => Some(Instruction::CallIsinstance),
+                    _ => None,
+                };
+                if let Some(new_op) = new_op {
+                    unsafe {
+                        self.code.instructions.replace_op(instr_idx, new_op);
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, callable_tag);
+                    }
+                    return;
+                }
+            }
+            // type(x) specialization
+            if callable.class().is(vm.ctx.types.type_type)
+                && callable.is(&vm.ctx.types.type_type.as_object())
+                && nargs == 1
+            {
+                let callable_tag = callable as *const PyObject as u32;
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::CallType1);
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 1, callable_tag);
                 }
                 return;
             }
@@ -5465,6 +5660,11 @@ impl ExecutingFrame<'_> {
             Some(Instruction::ToBoolList)
         } else if cls.is(PyStr::class(&vm.ctx)) {
             Some(Instruction::ToBoolStr)
+        } else if cls.slots.as_number.boolean.load().is_none()
+            && cls.slots.as_mapping.length.load().is_none()
+            && cls.slots.as_sequence.length.load().is_none()
+        {
+            Some(Instruction::ToBoolAlwaysTrue)
         } else {
             None
         };
@@ -5519,6 +5719,22 @@ impl ExecutingFrame<'_> {
                     .instructions
                     .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
             }
+        }
+    }
+
+    fn deoptimize_call(&mut self) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        unsafe {
+            self.code.instructions.replace_op(
+                instr_idx,
+                Instruction::Call {
+                    nargs: Arg::marker(),
+                },
+            );
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
         }
     }
 
@@ -5606,6 +5822,52 @@ impl ExecutingFrame<'_> {
             self.code
                 .instructions
                 .replace_op(instr_idx, Instruction::LoadGlobal(Arg::marker()));
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
+    }
+
+    fn specialize_store_subscr(
+        &mut self,
+        vm: &VirtualMachine,
+        instr_idx: usize,
+        cache_base: usize,
+    ) {
+        // Stack: [value, obj, idx] — obj is TOS-1
+        let obj = self.nth_value(1);
+        let idx = self.top_value();
+
+        let new_op = if obj.downcast_ref_if_exact::<PyList>(vm).is_some()
+            && idx.downcast_ref_if_exact::<PyInt>(vm).is_some()
+        {
+            Some(Instruction::StoreSubscrListInt)
+        } else if obj.downcast_ref_if_exact::<PyDict>(vm).is_some() {
+            Some(Instruction::StoreSubscrDict)
+        } else {
+            None
+        };
+
+        if let Some(new_op) = new_op {
+            unsafe {
+                self.code.instructions.replace_op(instr_idx, new_op);
+            }
+        } else {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+        }
+    }
+
+    fn deoptimize_store_subscr(&mut self) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        unsafe {
+            self.code
+                .instructions
+                .replace_op(instr_idx, Instruction::StoreSubscr);
             self.code
                 .instructions
                 .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
