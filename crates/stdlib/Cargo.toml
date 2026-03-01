@@ -134,7 +134,7 @@ x509-parser = { version = "0.18", optional = true }
 der = { version = "0.7", features = ["alloc", "oid"], optional = true }
 pem-rfc7468 = { version = "1.0", features = ["alloc"], optional = true }
 webpki-roots = { version = "1.0", optional = true }
-aws-lc-rs = { version = "1.15.2", optional = true }
+aws-lc-rs = { version = "1.16.0", optional = true }
 oid-registry = { version = "0.8", features = ["x509", "pkcs1", "nist_algs"], optional = true }
 pkcs8 = { version = "0.10", features = ["encryption", "pkcs5", "pem"], optional = true }
 
