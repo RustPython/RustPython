@@ -671,8 +671,7 @@ impl PySet {
 
     #[pymethod]
     pub fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.add(item, vm)?;
-        Ok(())
+        self.inner.add(item, vm)
     }
 
     #[pymethod]
@@ -682,8 +681,7 @@ impl PySet {
 
     #[pymethod]
     fn discard(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.discard(&item, vm)?;
-        Ok(())
+        self.inner.discard(&item, vm).map(|_| ())
     }
 
     #[pymethod]
@@ -729,8 +727,7 @@ impl PySet {
 
     #[pymethod]
     fn difference_update(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.difference_update(others.into_iter(), vm)?;
-        Ok(())
+        self.inner.difference_update(others.into_iter(), vm)
     }
 
     fn __isub__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -750,8 +747,7 @@ impl PySet {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         self.inner
-            .symmetric_difference_update(others.into_iter(), vm)?;
-        Ok(())
+            .symmetric_difference_update(others.into_iter(), vm)
     }
 
     fn __ixor__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -950,11 +946,7 @@ impl Representable for PySet {
             return Ok(Wtf8Buf::from(format!("{class_name}()")));
         }
         if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let name = if class_name != "set" {
-                Some(class_name)
-            } else {
-                None
-            };
+            let name = (class_name != "set").then_some(class_name);
             zelf.inner.repr(name, vm)
         } else {
             Ok(Wtf8Buf::from(format!("{class_name}(...)")))
