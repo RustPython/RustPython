@@ -525,6 +525,30 @@ impl CodeUnits {
         units[index].arg = OpArgByte::from(value);
     }
 
+    /// Produce a clean copy of the bytecode suitable for serialization
+    /// (marshal) and `co_code`. Specialized opcodes are mapped back to their
+    /// base variants via `deoptimize()` and all CACHE entries are zeroed.
+    pub fn original_bytes(&self) -> Vec<u8> {
+        let units = unsafe { &*self.0.get() };
+        let mut out = Vec::with_capacity(units.len() * 2);
+        let len = units.len();
+        let mut i = 0;
+        while i < len {
+            let op = units[i].op.deoptimize();
+            let caches = op.cache_entries();
+            out.push(u8::from(op));
+            out.push(u8::from(units[i].arg));
+            // Zero-fill all CACHE entries (counter + cached data)
+            for _ in 0..caches {
+                i += 1;
+                out.push(0); // op = Cache = 0
+                out.push(0); // arg = 0
+            }
+            i += 1;
+        }
+        out
+    }
+
     /// Initialize adaptive warmup counters for all cacheable instructions.
     /// Called lazily at RESUME (first execution of a code object).
     /// Uses the `arg` byte of the first CACHE entry, preserving `op = Instruction::Cache`.
