@@ -1927,6 +1927,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             attributes: PyRwLock::new(Default::default()),
             slots: PyType::make_slots(),
             heaptype_ext: None,
+            tp_version_tag: core::sync::atomic::AtomicU32::new(0),
         };
         let object_payload = PyType {
             base: None,
@@ -1936,6 +1937,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             attributes: PyRwLock::new(Default::default()),
             slots: object::PyBaseObject::make_slots(),
             heaptype_ext: None,
+            tp_version_tag: core::sync::atomic::AtomicU32::new(0),
         };
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
@@ -1997,6 +1999,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         attributes: PyRwLock::default(),
         slots: PyWeak::make_slots(),
         heaptype_ext: None,
+        tp_version_tag: core::sync::atomic::AtomicU32::new(0),
     };
     let weakref_type = PyRef::new_ref(weakref_type, type_type.clone(), None);
     // Static type: untrack from GC (was tracked by new_ref because PyType has HAS_TRAVERSE)

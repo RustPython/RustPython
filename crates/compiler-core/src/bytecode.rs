@@ -343,6 +343,11 @@ pub struct CodeUnit {
 
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
+/// Adaptive specialization: number of executions before attempting specialization.
+pub const ADAPTIVE_WARMUP_VALUE: u16 = 50;
+/// Adaptive specialization: backoff counter after de-optimization.
+pub const ADAPTIVE_BACKOFF_VALUE: u16 = 250;
+
 impl CodeUnit {
     pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
@@ -440,6 +445,63 @@ impl CodeUnits {
             let op_ptr = unit_ptr as *mut u8;
             core::ptr::write(op_ptr, new_op.into());
         }
+    }
+
+    /// Write a u16 value into a CACHE code unit at `index`.
+    /// Each CodeUnit is 2 bytes (#[repr(C)]: op u8 + arg u8), so one u16 fits exactly.
+    ///
+    /// # Safety
+    /// - `index` must be in bounds and point to a CACHE entry.
+    /// - The caller must ensure no concurrent reads/writes to the same slot.
+    pub unsafe fn write_cache_u16(&self, index: usize, value: u16) {
+        unsafe {
+            let units = &mut *self.0.get();
+            let ptr = units.as_mut_ptr().add(index) as *mut u8;
+            core::ptr::write_unaligned(ptr as *mut u16, value);
+        }
+    }
+
+    /// Read a u16 value from a CACHE code unit at `index`.
+    pub fn read_cache_u16(&self, index: usize) -> u16 {
+        let units = unsafe { &*self.0.get() };
+        let ptr = units.as_ptr().wrapping_add(index) as *const u8;
+        unsafe { core::ptr::read_unaligned(ptr as *const u16) }
+    }
+
+    /// Write a u32 value across two consecutive CACHE code units starting at `index`.
+    ///
+    /// # Safety
+    /// Same requirements as `write_cache_u16`.
+    pub unsafe fn write_cache_u32(&self, index: usize, value: u32) {
+        unsafe {
+            self.write_cache_u16(index, value as u16);
+            self.write_cache_u16(index + 1, (value >> 16) as u16);
+        }
+    }
+
+    /// Read a u32 value from two consecutive CACHE code units starting at `index`.
+    pub fn read_cache_u32(&self, index: usize) -> u32 {
+        let lo = self.read_cache_u16(index) as u32;
+        let hi = self.read_cache_u16(index + 1) as u32;
+        lo | (hi << 16)
+    }
+
+    /// Write a u64 value across four consecutive CACHE code units starting at `index`.
+    ///
+    /// # Safety
+    /// Same requirements as `write_cache_u16`.
+    pub unsafe fn write_cache_u64(&self, index: usize, value: u64) {
+        unsafe {
+            self.write_cache_u32(index, value as u32);
+            self.write_cache_u32(index + 2, (value >> 32) as u32);
+        }
+    }
+
+    /// Read a u64 value from four consecutive CACHE code units starting at `index`.
+    pub fn read_cache_u64(&self, index: usize) -> u64 {
+        let lo = self.read_cache_u32(index) as u64;
+        let hi = self.read_cache_u32(index + 2) as u64;
+        lo | (hi << 32)
     }
 }
 

@@ -4,9 +4,9 @@ use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef,
     TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
-        PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
-        PyType, PyUtf8Str,
+        PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine, PyDict, PyDictRef,
+        PyGenerator, PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyTemplate,
+        PyTraceback, PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
         float::PyFloat,
         frame::stack_analysis,
@@ -15,7 +15,9 @@ use crate::{
         range::PyRangeIterator,
         tuple::{PyTuple, PyTupleRef},
     },
-    bytecode::{self, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod},
+    bytecode::{
+        self, ADAPTIVE_BACKOFF_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
+    },
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
@@ -34,7 +36,7 @@ use core::cell::UnsafeCell;
 use core::iter::zip;
 use core::sync::atomic;
 use core::sync::atomic::AtomicPtr;
-use core::sync::atomic::Ordering::Relaxed;
+use core::sync::atomic::Ordering::{Acquire, Relaxed};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -2644,6 +2646,106 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(!value).into());
                 Ok(None)
             }
+            // Specialized LOAD_ATTR opcodes
+            Instruction::LoadAttrMethodNoDict => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if owner.class().tp_version_tag.load(Acquire) == type_version {
+                    // Cache hit: load the cached method descriptor
+                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
+                    let func = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                    let owner = self.pop_value();
+                    self.push_value(func);
+                    self.push_value(owner);
+                    Ok(None)
+                } else {
+                    // De-optimize
+                    unsafe {
+                        self.code
+                            .instructions
+                            .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    }
+                    self.load_attr_slow(vm, oparg)
+                }
+            }
+            Instruction::LoadAttrMethodWithValues => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let attr_name = self.code.names[oparg.name_idx() as usize];
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if owner.class().tp_version_tag.load(Acquire) == type_version {
+                    // Check instance dict doesn't shadow the method
+                    let shadowed = if let Some(dict) = owner.dict() {
+                        dict.get_item_opt(attr_name, vm).ok().flatten().is_some()
+                    } else {
+                        false
+                    };
+
+                    if !shadowed {
+                        // Cache hit: load the cached method descriptor
+                        let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
+                        let func = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                        let owner = self.pop_value();
+                        self.push_value(func);
+                        self.push_value(owner);
+                        return Ok(None);
+                    }
+                }
+                // De-optimize
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_cache_u16(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                self.load_attr_slow(vm, oparg)
+            }
+            Instruction::LoadAttrInstanceValue => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let attr_name = self.code.names[oparg.name_idx() as usize];
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if owner.class().tp_version_tag.load(Acquire) == type_version {
+                    // Type version matches — no data descriptor for this attr.
+                    // Try direct dict lookup, skipping full descriptor protocol.
+                    if let Some(dict) = owner.dict()
+                        && let Some(value) = dict.get_item_opt(attr_name, vm)?
+                    {
+                        self.pop_value();
+                        self.push_value(value);
+                        return Ok(None);
+                    }
+                    // Not in instance dict — fall through to class lookup via slow path
+                }
+                // De-optimize
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_cache_u16(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                self.load_attr_slow(vm, oparg)
+            }
             // All INSTRUMENTED_* opcodes delegate to a cold function to keep
             // the hot instruction loop free of monitoring overhead.
             _ => self.execute_instrumented(instruction, arg, vm),
@@ -4111,6 +4213,132 @@ impl ExecutingFrame<'_> {
     }
 
     fn load_attr(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+
+        // Decrement adaptive counter
+        let counter = self.code.instructions.read_cache_u16(cache_base);
+        if counter > 0 {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_cache_u16(cache_base, counter - 1);
+            }
+        } else {
+            // Counter reached 0: attempt specialization for future calls
+            self.specialize_load_attr(vm, oparg, instr_idx, cache_base);
+        }
+
+        // Execute slow path for this call
+        self.load_attr_slow(vm, oparg)
+    }
+
+    fn specialize_load_attr(
+        &mut self,
+        _vm: &VirtualMachine,
+        oparg: LoadAttr,
+        instr_idx: usize,
+        cache_base: usize,
+    ) {
+        let obj = self.top_value();
+        let cls = obj.class();
+
+        // Only specialize if getattro is the default (PyBaseObject::getattro)
+        let is_default_getattro = cls
+            .slots
+            .getattro
+            .load()
+            .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
+        if !is_default_getattro {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_cache_u16(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+            return;
+        }
+
+        // Get or assign type version
+        let mut type_version = cls.tp_version_tag.load(Acquire);
+        if type_version == 0 {
+            type_version = cls.assign_version_tag();
+        }
+        if type_version == 0 {
+            // Version counter overflow
+            return;
+        }
+
+        let attr_name = self.code.names[oparg.name_idx() as usize];
+
+        // Look up attr in class via MRO
+        let cls_attr = cls.get_attr(attr_name);
+        let has_dict = obj.dict().is_some();
+
+        if oparg.is_method() {
+            // Method specialization
+            if let Some(ref descr) = cls_attr
+                && descr
+                    .class()
+                    .slots
+                    .flags
+                    .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
+            {
+                let descr_ptr = &**descr as *const PyObject as u64;
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 1, type_version);
+                    self.code
+                        .instructions
+                        .write_cache_u64(cache_base + 5, descr_ptr);
+                }
+
+                let new_op = if !has_dict {
+                    Instruction::LoadAttrMethodNoDict
+                } else {
+                    Instruction::LoadAttrMethodWithValues
+                };
+                unsafe {
+                    self.code.instructions.replace_op(instr_idx, new_op);
+                }
+                return;
+            }
+            // Can't specialize this method call
+            unsafe {
+                self.code
+                    .instructions
+                    .write_cache_u16(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+        } else {
+            // Regular attribute access
+            let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
+                let descr_cls = descr.class();
+                descr_cls.slots.descr_get.load().is_some()
+                    && descr_cls.slots.descr_set.load().is_some()
+            });
+
+            if !has_data_descr && has_dict {
+                // Instance attribute access — skip class descriptor check
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 1, type_version);
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttrInstanceValue);
+                }
+            } else {
+                // Data descriptor or no dict — can't easily specialize
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_u16(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+            }
+        }
+    }
+
+    fn load_attr_slow(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
         let attr_name = self.code.names[oparg.name_idx() as usize];
         let parent = self.pop_value();
 
