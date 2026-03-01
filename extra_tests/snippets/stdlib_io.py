@@ -1,5 +1,5 @@
 import os
-from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO
+from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapper
 
 from testutils import assert_raises
 
@@ -58,3 +58,29 @@ assert f.closed
 
 with assert_raises(ValueError):
     f.isatty()
+
+
+class Gh6588:
+    def __init__(self):
+        self.textio = None
+        self.closed = False
+
+    def writable(self):
+        return True
+
+    def readable(self):
+        return False
+
+    def seekable(self):
+        return False
+
+    def write(self, data):
+        self.textio.reconfigure(encoding="utf-8")
+        return len(data)
+
+
+raw = Gh6588()
+textio = TextIOWrapper(raw, encoding="utf-8", write_through=True)
+raw.textio = textio
+with assert_raises(AttributeError):
+    textio.writelines(["x"])

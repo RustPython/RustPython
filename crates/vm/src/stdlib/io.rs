@@ -3029,7 +3029,6 @@ mod _io {
             let mut newline_changed = false;
             let mut line_buffering = None;
             let mut write_through = None;
-            let mut flush_on_reconfigure = false;
 
             if let Some(enc) = args.encoding {
                 if enc.as_str().contains('\0') && enc.as_str().starts_with("locale") {
@@ -3056,11 +3055,9 @@ mod _io {
             }
 
             if let OptionalArg::Present(Some(value)) = args.line_buffering {
-                flush_on_reconfigure = true;
                 line_buffering = Some(Self::bool_from_index(value, vm)?);
             }
             if let OptionalArg::Present(Some(value)) = args.write_through {
-                flush_on_reconfigure = true;
                 write_through = Some(Self::bool_from_index(value, vm)?);
             }
 
@@ -3077,12 +3074,10 @@ mod _io {
                 ));
             }
 
-            if flush_on_reconfigure {
-                if data.pending.num_bytes > 0 {
-                    data.write_pending(vm)?;
-                }
-                vm.call_method(&data.buffer, "flush", ())?;
+            if data.pending.num_bytes > 0 {
+                data.write_pending(vm)?;
             }
+            vm.call_method(&data.buffer, "flush", ())?;
 
             if encoding_changed || errors_changed || newline_changed {
                 if data.pending.num_bytes > 0 {
