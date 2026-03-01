@@ -1245,7 +1245,21 @@ impl ExecutingFrame<'_> {
             // TODO: In CPython, this does in-place unicode concatenation when
             // refcount is 1. Falls back to regular iadd for now.
             Instruction::BinaryOpInplaceAddUnicode => {
-                self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd)
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if let (Some(a_str), Some(b_str)) = (
+                    a.downcast_ref_if_exact::<PyStr>(vm),
+                    b.downcast_ref_if_exact::<PyStr>(vm),
+                ) {
+                    let result = a_str.as_wtf8().py_add(b_str.as_wtf8());
+                    self.pop_value();
+                    self.pop_value();
+                    self.push_value(result.to_pyobject(vm));
+                    Ok(None)
+                } else {
+                    self.deoptimize_binary_op(bytecode::BinaryOperator::InplaceAdd);
+                    self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd)
+                }
             }
             Instruction::BinarySlice => {
                 // Stack: [container, start, stop] -> [result]
@@ -3270,15 +3284,11 @@ impl ExecutingFrame<'_> {
                         Ok(ch) => {
                             self.pop_value();
                             self.pop_value();
-                            self.push_value(
-                                PyStr::from(ch).into_pyobject(vm),
-                            );
+                            self.push_value(PyStr::from(ch).into_pyobject(vm));
                             return Ok(None);
                         }
                         Err(e) => {
-                            self.deoptimize_binary_op(
-                                bytecode::BinaryOperator::Subscr,
-                            );
+                            self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
                             return Err(e);
                         }
                     }
@@ -3470,8 +3480,7 @@ impl ExecutingFrame<'_> {
                     let callable = self.pop_value();
                     let callable_tag = &*callable as *const PyObject as u32;
                     if cached_tag == callable_tag {
-                        let elements: Vec<PyObjectRef> =
-                            vm.extract_elements_with(&obj, Ok)?;
+                        let elements: Vec<PyObjectRef> = vm.extract_elements_with(&obj, Ok)?;
                         self.push_value(vm.ctx.new_tuple(elements).into());
                         return Ok(None);
                     }
@@ -3721,7 +3730,9 @@ impl ExecutingFrame<'_> {
                     if elements.len() == size {
                         let elems: Vec<_> = elements.to_vec();
                         self.pop_value();
-                        self.state.stack.extend(elems.into_iter().rev().map(Some));
+                        for elem in elems.into_iter().rev() {
+                            self.push_value(elem);
+                        }
                         return Ok(None);
                     }
                 }
@@ -3737,7 +3748,9 @@ impl ExecutingFrame<'_> {
                         let elems: Vec<_> = vec.to_vec();
                         drop(vec);
                         self.pop_value();
-                        self.state.stack.extend(elems.into_iter().rev().map(Some));
+                        for elem in elems.into_iter().rev() {
+                            self.push_value(elem);
+                        }
                         return Ok(None);
                     }
                 }
@@ -5537,6 +5550,15 @@ impl ExecutingFrame<'_> {
                     && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
                 {
                     Some(Instruction::BinaryOpSubscrStrInt)
+                } else {
+                    None
+                }
+            }
+            bytecode::BinaryOperator::InplaceAdd => {
+                if a.downcast_ref_if_exact::<PyStr>(vm).is_some()
+                    && b.downcast_ref_if_exact::<PyStr>(vm).is_some()
+                {
+                    Some(Instruction::BinaryOpInplaceAddUnicode)
                 } else {
                     None
                 }
