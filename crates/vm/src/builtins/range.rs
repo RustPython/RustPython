@@ -607,10 +607,10 @@ impl IterNext for PyLongRangeIterator {
 #[pyclass(module = false, name = "range_iterator")]
 #[derive(Debug)]
 pub struct PyRangeIterator {
-    index: AtomicCell<usize>,
-    start: isize,
-    step: isize,
-    length: usize,
+    pub(crate) index: AtomicCell<usize>,
+    pub(crate) start: isize,
+    pub(crate) step: isize,
+    pub(crate) length: usize,
 }
 
 impl PyPayload for PyRangeIterator {

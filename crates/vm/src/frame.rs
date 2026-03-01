@@ -8,8 +8,11 @@ use crate::{
         PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
         PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
+        float::PyFloat,
         frame::stack_analysis,
         function::{PyCell, PyCellRef, PyFunction},
+        int::PyInt,
+        range::PyRangeIterator,
         tuple::{PyTuple, PyTupleRef},
     },
     bytecode::{self, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod},
@@ -22,7 +25,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::{builtins, sys::monitoring, typing},
-    types::PyTypeFlags,
+    types::{PyComparisonOp, PyTypeFlags},
     vm::{Context, PyMethod},
 };
 use alloc::fmt;
@@ -34,6 +37,7 @@ use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering::Relaxed;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use malachite_bigint::BigInt;
 use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     boxvec::BoxVec,
@@ -1679,30 +1683,29 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
             Instruction::LoadSuperAttr { arg: idx } => self.load_super_attr(vm, idx.get(arg)),
             Instruction::LoadBuildClass => {
-                let build_class =
-                    if let Some(builtins_dict) = self.builtins_dict {
-                        builtins_dict
-                            .get_item_opt(identifier!(vm, __build_class__), vm)?
-                            .ok_or_else(|| {
+                let build_class = if let Some(builtins_dict) = self.builtins_dict {
+                    builtins_dict
+                        .get_item_opt(identifier!(vm, __build_class__), vm)?
+                        .ok_or_else(|| {
+                            vm.new_name_error(
+                                "__build_class__ not found".to_owned(),
+                                identifier!(vm, __build_class__).to_owned(),
+                            )
+                        })?
+                } else {
+                    self.builtins
+                        .get_item(identifier!(vm, __build_class__), vm)
+                        .map_err(|e| {
+                            if e.fast_isinstance(vm.ctx.exceptions.key_error) {
                                 vm.new_name_error(
                                     "__build_class__ not found".to_owned(),
                                     identifier!(vm, __build_class__).to_owned(),
                                 )
-                            })?
-                    } else {
-                        self.builtins
-                            .get_item(identifier!(vm, __build_class__), vm)
-                            .map_err(|e| {
-                                if e.fast_isinstance(vm.ctx.exceptions.key_error) {
-                                    vm.new_name_error(
-                                        "__build_class__ not found".to_owned(),
-                                        identifier!(vm, __build_class__).to_owned(),
-                                    )
-                                } else {
-                                    e
-                                }
-                            })?
-                    };
+                            } else {
+                                e
+                            }
+                        })?
+                };
                 self.push_value(build_class);
                 Ok(None)
             }
@@ -3713,7 +3716,26 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
         target: bytecode::Label,
     ) -> Result<bool, PyBaseExceptionRef> {
-        let top_of_stack = PyIter::new(self.top_value());
+        let top = self.top_value();
+
+        // FOR_ITER_RANGE: bypass generic iterator protocol for range iterators
+        if let Some(range_iter) = top.downcast_ref_if_exact::<PyRangeIterator>(vm) {
+            let index = range_iter.index.fetch_add(1);
+            if index < range_iter.length {
+                let value = range_iter.start + (index as isize) * range_iter.step;
+                self.push_value(vm.ctx.new_int(value).into());
+                return Ok(true);
+            }
+            // Exhausted
+            if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                let stop_exc = vm.new_stop_iteration(None);
+                self.fire_exception_trace(&stop_exc, vm)?;
+            }
+            self.jump(self.for_iter_jump_target(target));
+            return Ok(false);
+        }
+
+        let top_of_stack = PyIter::new(top);
         let next_obj = top_of_stack.next(vm);
 
         match next_obj {
@@ -3728,21 +3750,7 @@ impl ExecutingFrame<'_> {
                     let stop_exc = vm.new_stop_iteration(value);
                     self.fire_exception_trace(&stop_exc, vm)?;
                 }
-                // Skip END_FOR (base or instrumented) and jump to POP_ITER.
-                let target_idx = target.0 as usize;
-                let jump_target = if let Some(unit) = self.code.instructions.get(target_idx) {
-                    if matches!(
-                        unit.op,
-                        bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
-                    ) {
-                        bytecode::Label(target.0 + 1)
-                    } else {
-                        target
-                    }
-                } else {
-                    target
-                };
-                self.jump(jump_target);
+                self.jump(self.for_iter_jump_target(target));
                 Ok(false)
             }
             Err(next_error) => {
@@ -3750,6 +3758,20 @@ impl ExecutingFrame<'_> {
                 Err(next_error)
             }
         }
+    }
+
+    /// Compute the jump target for FOR_ITER exhaustion: skip END_FOR and jump to POP_ITER.
+    fn for_iter_jump_target(&self, target: bytecode::Label) -> bytecode::Label {
+        let target_idx = target.0 as usize;
+        if let Some(unit) = self.code.instructions.get(target_idx)
+            && matches!(
+                unit.op,
+                bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
+            )
+        {
+            return bytecode::Label(target.0 + 1);
+        }
+        target
     }
     fn execute_make_function(&mut self, vm: &VirtualMachine) -> FrameResult {
         // MakeFunction only takes code object, no flags
@@ -3799,8 +3821,33 @@ impl ExecutingFrame<'_> {
         let b_ref = &self.pop_value();
         let a_ref = &self.pop_value();
         let value = match op {
-            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            // BINARY_OP_ADD_INT / BINARY_OP_SUBTRACT_INT fast paths:
+            // bypass binary_op1 dispatch for exact int types, use i64 arithmetic
+            // when possible to avoid BigInt heap allocation.
+            bytecode::BinaryOperator::Add | bytecode::BinaryOperator::InplaceAdd => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) {
+                    Ok(self.int_add(a.as_bigint(), b.as_bigint(), vm))
+                } else if matches!(op, bytecode::BinaryOperator::Add) {
+                    vm._add(a_ref, b_ref)
+                } else {
+                    vm._iadd(a_ref, b_ref)
+                }
+            }
+            bytecode::BinaryOperator::Subtract | bytecode::BinaryOperator::InplaceSubtract => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) {
+                    Ok(self.int_sub(a.as_bigint(), b.as_bigint(), vm))
+                } else if matches!(op, bytecode::BinaryOperator::Subtract) {
+                    vm._sub(a_ref, b_ref)
+                } else {
+                    vm._isub(a_ref, b_ref)
+                }
+            }
             bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
             bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, vm.ctx.none.as_object()),
@@ -3812,8 +3859,6 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
             bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
             bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceSubtract => vm._isub(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceAdd => vm._iadd(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceMultiply => vm._imul(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(a_ref, b_ref),
             bytecode::BinaryOperator::InplacePower => {
@@ -3832,6 +3877,30 @@ impl ExecutingFrame<'_> {
 
         self.push_value(value);
         Ok(None)
+    }
+
+    /// Int addition with i64 fast path to avoid BigInt heap allocation.
+    #[inline]
+    fn int_add(&self, a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+        use num_traits::ToPrimitive;
+        if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
+            && let Some(result) = av.checked_add(bv)
+        {
+            return vm.ctx.new_int(result).into();
+        }
+        vm.ctx.new_int(a + b).into()
+    }
+
+    /// Int subtraction with i64 fast path to avoid BigInt heap allocation.
+    #[inline]
+    fn int_sub(&self, a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+        use num_traits::ToPrimitive;
+        if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
+            && let Some(result) = av.checked_sub(bv)
+        {
+            return vm.ctx.new_int(result).into();
+        }
+        vm.ctx.new_int(a - b).into()
     }
 
     #[cold]
@@ -4005,7 +4074,31 @@ impl ExecutingFrame<'_> {
     ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let value = a.rich_compare(b, op.into(), vm)?;
+        let cmp_op: PyComparisonOp = op.into();
+
+        // COMPARE_OP_INT: leaf type, cannot recurse — skip rich_compare dispatch
+        if let (Some(a_int), Some(b_int)) = (
+            a.downcast_ref_if_exact::<PyInt>(vm),
+            b.downcast_ref_if_exact::<PyInt>(vm),
+        ) {
+            let result = cmp_op.eval_ord(a_int.as_bigint().cmp(b_int.as_bigint()));
+            self.push_value(vm.ctx.new_bool(result).into());
+            return Ok(None);
+        }
+        // COMPARE_OP_FLOAT
+        if let (Some(a_f), Some(b_f)) = (
+            a.downcast_ref_if_exact::<PyFloat>(vm),
+            b.downcast_ref_if_exact::<PyFloat>(vm),
+        ) {
+            let result = a_f
+                .to_f64()
+                .partial_cmp(&b_f.to_f64())
+                .is_some_and(|ord| cmp_op.eval_ord(ord));
+            self.push_value(vm.ctx.new_bool(result).into());
+            return Ok(None);
+        }
+
+        let value = a.rich_compare(b, cmp_op, vm)?;
         self.push_value(value);
         Ok(None)
     }
