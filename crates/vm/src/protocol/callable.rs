@@ -74,10 +74,29 @@ impl<'a> PyCallable<'a> {
 pub(crate) enum TraceEvent {
     Call,
     Return,
+    Exception,
     Line,
+    Opcode,
     CCall,
     CReturn,
     CException,
+}
+
+impl TraceEvent {
+    /// Whether sys.setprofile receives this event.
+    /// In legacy_tracing.c, profile callbacks are only registered for
+    /// PY_RETURN, PY_UNWIND, C_CALL, C_RETURN, C_RAISE.
+    fn is_profile_event(&self) -> bool {
+        matches!(
+            self,
+            Self::Call | Self::Return | Self::CCall | Self::CReturn | Self::CException
+        )
+    }
+
+    /// Whether this event is dispatched only when f_trace_opcodes is set.
+    pub(crate) fn is_opcode_event(&self) -> bool {
+        matches!(self, Self::Opcode)
+    }
 }
 
 impl core::fmt::Display for TraceEvent {
@@ -86,7 +105,9 @@ impl core::fmt::Display for TraceEvent {
         match self {
             Call => write!(f, "call"),
             Return => write!(f, "return"),
+            Exception => write!(f, "exception"),
             Line => write!(f, "line"),
+            Opcode => write!(f, "opcode"),
             CCall => write!(f, "c_call"),
             CReturn => write!(f, "c_return"),
             CException => write!(f, "c_exception"),
@@ -127,9 +148,17 @@ impl VirtualMachine {
             return Ok(None);
         }
 
+        let is_profile_event = event.is_profile_event();
+        let is_opcode_event = event.is_opcode_event();
+
         let Some(frame_ref) = self.current_frame() else {
             return Ok(None);
         };
+
+        // Opcode events are only dispatched when f_trace_opcodes is set.
+        if is_opcode_event && !*frame_ref.trace_opcodes.lock() {
+            return Ok(None);
+        }
 
         let frame: PyObjectRef = frame_ref.into();
         let event = self.ctx.new_str(event.to_string()).into();
@@ -160,7 +189,7 @@ impl VirtualMachine {
             }
         }
 
-        if !self.is_none(&profile_func) {
+        if is_profile_event && !self.is_none(&profile_func) {
             self.use_tracing.set(false);
             let res = profile_func.call(args, self);
             self.use_tracing.set(true);

@@ -62,6 +62,10 @@ struct FrameState {
     stack: BoxVec<Option<PyObjectRef>>,
     /// Cell and free variable references (cellvars + freevars).
     cells_frees: Box<[PyCellRef]>,
+    /// Previous line number for LINE event suppression.
+    /// Stored here (not on ExecutingFrame) so it persists across
+    /// generator/coroutine suspend and resume.
+    prev_line: u32,
 }
 
 /// Tracks who owns a frame.
@@ -200,6 +204,7 @@ impl Frame {
         let state = FrameState {
             stack: BoxVec::new(code.max_stackdepth as usize),
             cells_frees,
+            prev_line: 0,
         };
 
         Self {
@@ -383,7 +388,6 @@ impl Py<Frame> {
             object: self,
             state: &mut state,
             monitoring_mask: 0,
-            prev_line: 0,
         };
         f(exec)
     }
@@ -430,7 +434,6 @@ impl Py<Frame> {
             object: self,
             state: &mut state,
             monitoring_mask: 0,
-            prev_line: 0,
         };
         exec.yield_from_target().map(PyObject::to_owned)
     }
@@ -467,8 +470,6 @@ struct ExecutingFrame<'a> {
     state: &'a mut FrameState,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
-    /// Previous line number for LINE event suppression.
-    prev_line: u32,
 }
 
 impl fmt::Debug for ExecutingFrame<'_> {
@@ -518,6 +519,23 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    /// Fire 'exception' trace event (sys.settrace) with (type, value, traceback) tuple.
+    /// Matches `_PyEval_MonitorRaise` → `PY_MONITORING_EVENT_RAISE` →
+    /// `sys_trace_exception_func` in legacy_tracing.c.
+    fn fire_exception_trace(&self, exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<()> {
+        if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+            let exc_type: PyObjectRef = exc.class().to_owned().into();
+            let exc_value: PyObjectRef = exc.clone().into();
+            let exc_tb: PyObjectRef = exc
+                .__traceback__()
+                .map(|tb| -> PyObjectRef { tb.into() })
+                .unwrap_or_else(|| vm.ctx.none());
+            let tuple = vm.ctx.new_tuple(vec![exc_type, exc_value, exc_tb]).into();
+            vm.trace_event(crate::protocol::TraceEvent::Exception, Some(tuple))?;
+        }
+        Ok(())
+    }
+
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!(
             "Frame::run({obj_name})",
@@ -545,9 +563,9 @@ impl ExecutingFrame<'_> {
                     Some(Instruction::Resume { .. } | Instruction::InstrumentedResume)
                 )
                 && let Some((loc, _)) = self.code.locations.get(idx)
-                && loc.line.get() as u32 != self.prev_line
+                && loc.line.get() as u32 != self.state.prev_line
             {
-                self.prev_line = loc.line.get() as u32;
+                self.state.prev_line = loc.line.get() as u32;
                 vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
                 // Trace callback may have changed lasti via set_f_lineno.
                 // Re-read and restart the loop from the new position.
@@ -575,7 +593,23 @@ impl ExecutingFrame<'_> {
                     | Instruction::InstrumentedLine
             ) && let Some((loc, _)) = self.code.locations.get(idx)
             {
-                self.prev_line = loc.line.get() as u32;
+                self.state.prev_line = loc.line.get() as u32;
+            }
+
+            // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
+            // is set. Skip RESUME and ExtendedArg (matching CPython's exclusion
+            // of these in _Py_call_instrumentation_instruction).
+            if vm.use_tracing.get()
+                && !vm.is_none(&self.object.trace.lock())
+                && *self.object.trace_opcodes.lock()
+                && !matches!(
+                    op,
+                    Instruction::Resume { .. }
+                        | Instruction::InstrumentedResume
+                        | Instruction::ExtendedArg
+                )
+            {
+                vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
             }
 
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
@@ -691,6 +725,13 @@ impl ExecutingFrame<'_> {
                         }
                     };
 
+                    // Fire 'exception' trace event for sys.settrace.
+                    // Only for new raises, not re-raises (matching the
+                    // `error` label that calls _PyEval_MonitorRaise).
+                    if !is_reraise {
+                        self.fire_exception_trace(&exception, vm)?;
+                    }
+
                     match handle_exception(self, exception, idx, is_reraise, is_new_raise, vm) {
                         Ok(None) => {}
                         Ok(Some(result)) => break Ok(result),
@@ -777,6 +818,12 @@ impl ExecutingFrame<'_> {
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
         self.monitoring_mask = vm.state.monitoring_events.load();
+        // Reset prev_line so that LINE monitoring events fire even if
+        // the exception handler is on the same line as the yield point.
+        // In CPython, _Py_call_instrumentation_line has a special case
+        // for RESUME: it fires LINE even when prev_line == current_line.
+        // Since gen_throw bypasses RESUME, we reset prev_line instead.
+        self.state.prev_line = 0;
         if let Some(jen) = self.yield_from_target() {
             // Check if the exception is GeneratorExit (type or instance).
             // For GeneratorExit, close the sub-iterator instead of throwing.
@@ -2167,7 +2214,10 @@ impl ExecutingFrame<'_> {
                     .instrumentation_version
                     .load(atomic::Ordering::Acquire);
                 if code_ver != global_ver {
-                    let events = vm.state.monitoring_events.load();
+                    let events = {
+                        let state = vm.state.monitoring.lock();
+                        state.events_for_code(self.code.get_id())
+                    };
                     monitoring::instrument_code(self.code, events);
                     self.code
                         .instrumentation_version
@@ -2424,6 +2474,12 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                     PyIterReturn::StopIteration(value) => {
+                        // Fire 'exception' trace event for StopIteration,
+                        // matching SEND's exception handling.
+                        if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                            let stop_exc = vm.new_stop_iteration(value.clone());
+                            self.fire_exception_trace(&stop_exc, vm)?;
+                        }
                         let value = vm.unwrap_or_none(value);
                         self.push_value(value);
                         self.jump(exit_label);
@@ -2538,7 +2594,10 @@ impl ExecutingFrame<'_> {
                     .instrumentation_version
                     .load(atomic::Ordering::Acquire);
                 if code_ver != global_ver {
-                    let events = vm.state.monitoring_events.load();
+                    let events = {
+                        let state = vm.state.monitoring.lock();
+                        state.events_for_code(self.code.get_id())
+                    };
                     monitoring::instrument_code(self.code, events);
                     self.code
                         .instrumentation_version
@@ -2809,8 +2868,8 @@ impl ExecutingFrame<'_> {
                 // Fire LINE event only if line changed
                 if let Some((loc, _)) = self.code.locations.get(idx) {
                     let line = loc.line.get() as u32;
-                    if line != self.prev_line && line > 0 {
-                        self.prev_line = line;
+                    if line != self.state.prev_line && line > 0 {
+                        self.state.prev_line = line;
                         monitoring::fire_line(vm, self.code, offset, line)?;
                     }
                 }
@@ -3529,7 +3588,13 @@ impl ExecutingFrame<'_> {
                 self.push_value(value);
                 Ok(true)
             }
-            Ok(PyIterReturn::StopIteration(_)) => {
+            Ok(PyIterReturn::StopIteration(value)) => {
+                // Fire 'exception' trace event for StopIteration, matching
+                // FOR_ITER's inline call to _PyEval_MonitorRaise.
+                if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                    let stop_exc = vm.new_stop_iteration(value);
+                    self.fire_exception_trace(&stop_exc, vm)?;
+                }
                 // Skip END_FOR (base or instrumented) and jump to POP_ITER.
                 let target_idx = target.0 as usize;
                 let jump_target = if let Some(unit) = self.code.instructions.get(target_idx) {

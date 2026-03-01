@@ -34,7 +34,7 @@ use crate::{
     frozen::FrozenModule,
     function::{ArgMapping, FuncArgs, PySetterValue},
     import,
-    protocol::{PyIterIter, TraceEvent},
+    protocol::PyIterIter,
     scope::Scope,
     signal, stdlib,
     warn::WarningsState,
@@ -1082,33 +1082,7 @@ impl VirtualMachine {
                 crate::vm::thread::pop_thread_frame();
             }
 
-            // Fire 'call' trace event after pushing frame
-            // (current_frame() now returns the callee's frame)
-            //
-            // trace_dispatch protocol (matching CPython's trace_trampoline):
-            // - For 'call' events, the global trace function is called.
-            //   If it returns non-None, set f_trace to that value (trace this frame).
-            //   If it returns None, leave f_trace unset (skip tracing this frame).
-            // - For 'return' events, fire if this frame has f_trace set OR if
-            //   a profile function is active (profiling is independent of f_trace).
-            match self.trace_event(TraceEvent::Call, None) {
-                Ok(trace_result) => {
-                    if let Some(local_trace) = trace_result {
-                        *frame.trace.lock() = local_trace;
-                    }
-                    let result = f(frame.clone());
-                    // Fire 'return' event if frame is being traced or profiled
-                    if result.is_ok()
-                        && self.use_tracing.get()
-                        && (!self.is_none(&frame.trace.lock())
-                            || !self.is_none(&self.profile_func.borrow()))
-                    {
-                        let _ = self.trace_event(TraceEvent::Return, None);
-                    }
-                    result
-                }
-                Err(e) => Err(e),
-            }
+            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
         })
     }
 
@@ -1159,26 +1133,46 @@ impl VirtualMachine {
             self.recursion_depth.update(|d| d - 1);
         }
 
+        self.dispatch_traced_frame(frame, |frame| f(frame))
+    }
+
+    /// Fire trace/profile 'call' and 'return' events around a frame body.
+    ///
+    /// Matches `call_trace_protected` / `trace_trampoline` protocol:
+    /// - Fire `TraceEvent::Call`; if the trace function returns non-None,
+    ///   install it as the per-frame `f_trace`.
+    /// - Execute the closure (the actual frame body).
+    /// - Fire `TraceEvent::Return` on both normal return **and** exception
+    ///   unwind (`PY_UNWIND` → `PyTrace_RETURN` with `arg = None`).
+    ///   Propagate any trace-function error, replacing the original exception.
+    fn dispatch_traced_frame<R, F: FnOnce(&Py<Frame>) -> PyResult<R>>(
+        &self,
+        frame: &Py<Frame>,
+        f: F,
+    ) -> PyResult<R> {
         use crate::protocol::TraceEvent;
-        match self.trace_event(TraceEvent::Call, None) {
-            Ok(trace_result) => {
-                // Update per-frame trace if trace function returned a new local trace
-                if let Some(local_trace) = trace_result {
-                    *frame.trace.lock() = local_trace;
-                }
-                let result = f(frame);
-                // Fire 'return' event if frame is being traced or profiled
-                if result.is_ok()
-                    && self.use_tracing.get()
-                    && (!self.is_none(&frame.trace.lock())
-                        || !self.is_none(&self.profile_func.borrow()))
-                {
-                    let _ = self.trace_event(TraceEvent::Return, None);
-                }
-                result
-            }
-            Err(e) => Err(e),
+
+        // Fire 'call' trace event. current_frame() now returns the callee.
+        let trace_result = self.trace_event(TraceEvent::Call, None)?;
+        if let Some(local_trace) = trace_result {
+            *frame.trace.lock() = local_trace;
         }
+
+        let result = f(frame);
+
+        // Fire 'return' event if frame is being traced or profiled.
+        // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
+        // both Ok and Err, matching `call_trace_protected` behavior.
+        if self.use_tracing.get()
+            && (!self.is_none(&frame.trace.lock()) || !self.is_none(&self.profile_func.borrow()))
+        {
+            let ret_result = self.trace_event(TraceEvent::Return, None);
+            // call_trace_protected: if trace function raises, its error
+            // replaces the original exception.
+            ret_result?;
+        }
+
+        result
     }
 
     /// Returns a basic CompileOpts instance with options accurate to the vm. Used

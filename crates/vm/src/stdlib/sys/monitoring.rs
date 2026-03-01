@@ -119,6 +119,20 @@ impl MonitoringState {
         let local = self.local_events.values().fold(0, |acc, &e| acc | e);
         global | local
     }
+
+    /// Compute the events that apply to a specific code object:
+    /// global events OR'd with local events registered for that code.
+    /// This prevents events like INSTRUCTION that are local to one code
+    /// from being applied to unrelated code objects.
+    pub fn events_for_code(&self, code_id: usize) -> u32 {
+        let global = self.global_events.iter().fold(0, |acc, &e| acc | e);
+        let local = self
+            .local_events
+            .iter()
+            .filter(|((_, cid), _)| *cid == code_id)
+            .fold(0, |acc, (_, &e)| acc | e);
+        global | local
+    }
 }
 
 /// Global atomic mask: OR of all tools' events. Checked in the hot path
@@ -464,13 +478,17 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
         + 1;
     // Eagerly re-instrument all frames on the current thread's stack so that
     // code objects already past their RESUME pick up the new event set.
+    // Each code object gets only the events that apply to it (global + its
+    // own local events), preventing e.g. INSTRUCTION from being applied to
+    // unrelated code objects.
     for fp in vm.frames.borrow().iter() {
         // SAFETY: frames in the Vec are alive while their FrameRef is on the call stack.
         let frame = unsafe { fp.as_ref() };
         let code = &frame.code;
         let code_ver = code.instrumentation_version.load(Ordering::Acquire);
         if code_ver != new_ver {
-            instrument_code(code, events);
+            let code_events = state.events_for_code(code.get_id());
+            instrument_code(code, code_events);
             code.instrumentation_version
                 .store(new_ver, Ordering::Release);
         }
