@@ -18,9 +18,11 @@ from datetime import date, datetime, time, timedelta, timezone
 from functools import cached_property
 
 from test.support import MISSING_C_DOCSTRINGS
+from test.support.os_helper import EnvironmentVarGuard, FakePath
 from test.test_zoneinfo import _support as test_support
-from test.test_zoneinfo._support import OS_ENV_LOCK, TZPATH_TEST_LOCK, ZoneInfoTestBase
+from test.test_zoneinfo._support import TZPATH_TEST_LOCK, ZoneInfoTestBase
 from test.support.import_helper import import_module, CleanImport
+from test.support.script_helper import assert_python_ok
 
 lzma = import_module('lzma')
 py_zoneinfo, c_zoneinfo = test_support.get_modules()
@@ -55,6 +57,10 @@ def setUpModule():
 
 def tearDownModule():
     shutil.rmtree(TEMP_DIR)
+
+
+class CustomError(Exception):
+    pass
 
 
 class TzPathUserMixin:
@@ -222,6 +228,7 @@ class ZoneInfoTest(TzPathUserMixin, ZoneInfoTestBase):
             "America.Los_Angeles",
             "🇨🇦",  # Non-ascii
             "America/New\ud800York",  # Contains surrogate character
+            "Europe",  # Is a directory, see issue gh-85702
         ]
 
         for bad_key in bad_keys:
@@ -245,6 +252,8 @@ class ZoneInfoTest(TzPathUserMixin, ZoneInfoTestBase):
         bad_zones = [
             b"",  # Empty file
             b"AAAA3" + b" " * 15,  # Bad magic
+            # Truncated V2 file (should not loop indefinitely)
+            b"TZif2" + (b"\x00" * 39) + b"TZif2" + (b"\x00" * 39) + b"\n" + b"Part",
         ]
 
         for bad_zone in bad_zones:
@@ -401,6 +410,25 @@ class ZoneInfoTest(TzPathUserMixin, ZoneInfoTestBase):
                 self.assertEqual(t.tzname(), offset.tzname)
                 self.assertEqual(t.utcoffset(), offset.utcoffset)
                 self.assertEqual(t.dst(), offset.dst)
+
+    def test_cache_exception(self):
+        class Incomparable(str):
+            eq_called = False
+            def __eq__(self, other):
+                self.eq_called = True
+                raise CustomError
+            __hash__ = str.__hash__
+
+        key = "America/Los_Angeles"
+        tz1 = self.klass(key)
+        key = Incomparable(key)
+        try:
+            tz2 = self.klass(key)
+        except CustomError:
+            self.assertTrue(key.eq_called)
+        else:
+            self.assertFalse(key.eq_called)
+            self.assertIs(tz2, tz1)
 
 
 class CZoneInfoTest(ZoneInfoTest):
@@ -1505,6 +1533,46 @@ class ZoneInfoCacheTest(TzPathUserMixin, ZoneInfoTestBase):
         self.assertIsNot(dub0, dub1)
         self.assertIs(tok0, tok1)
 
+    def test_clear_cache_refleak(self):
+        class Stringy(str):
+            allow_comparisons = True
+            def __eq__(self, other):
+                if not self.allow_comparisons:
+                    raise CustomError
+                return super().__eq__(other)
+            __hash__ = str.__hash__
+
+        key = Stringy("America/Los_Angeles")
+        self.klass(key)
+        key.allow_comparisons = False
+        try:
+            # Note: This is try/except rather than assertRaises because
+            # there is no guarantee that the key is even still in the cache,
+            # or that the key for the cache is the original `key` object.
+            self.klass.clear_cache(only_keys="America/Los_Angeles")
+        except CustomError:
+            pass
+
+    def test_weak_cache_descriptor_use_after_free(self):
+        class BombDescriptor:
+            def __get__(self, obj, owner):
+                return {}
+
+        class EvilZoneInfo(self.klass):
+            pass
+
+        # Must be set after the class creation.
+        EvilZoneInfo._weak_cache = BombDescriptor()
+
+        key = "America/Los_Angeles"
+        zone1 = EvilZoneInfo(key)
+        self.assertEqual(str(zone1), key)
+
+        EvilZoneInfo.clear_cache()
+        zone2 = EvilZoneInfo(key)
+        self.assertEqual(str(zone2), key)
+        self.assertIsNot(zone2, zone1)
+
 
 class CZoneInfoCacheTest(ZoneInfoCacheTest):
     module = c_zoneinfo
@@ -1657,24 +1725,9 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
     @staticmethod
     @contextlib.contextmanager
     def python_tzpath_context(value):
-        path_var = "PYTHONTZPATH"
-        unset_env_sentinel = object()
-        old_env = unset_env_sentinel
-        try:
-            with OS_ENV_LOCK:
-                old_env = os.environ.get(path_var, None)
-                os.environ[path_var] = value
-                yield
-        finally:
-            if old_env is unset_env_sentinel:
-                # In this case, `old_env` was never retrieved from the
-                # environment for whatever reason, so there's no need to
-                # reset the environment TZPATH.
-                pass
-            elif old_env is None:
-                del os.environ[path_var]
-            else:
-                os.environ[path_var] = old_env  # pragma: nocover
+        with EnvironmentVarGuard() as env:
+            env["PYTHONTZPATH"] = value
+            yield
 
     def test_env_variable(self):
         """Tests that the environment variable works with reset_tzpath."""
@@ -1728,8 +1781,7 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
                 with self.subTest("filtered", path_var=path_var):
                     self.assertSequenceEqual(tzpath, expected_paths)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; + /home/runner/work/RustPython/RustPython/crates/pylib/Lib/test/test_zoneinfo/test_zoneinfo.py
     def test_env_variable_relative_paths_warning_location(self):
         path_var = "path/to/somewhere"
 
@@ -1755,6 +1807,7 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
             ("/usr/share/zoneinfo", "../relative/path",),
             ("path/to/somewhere", "../relative/path",),
             ("/usr/share/zoneinfo", "path/to/somewhere", "../relative/path",),
+            (FakePath("path/to/somewhere"),)
         ]
         for input_paths in bad_values:
             with self.subTest(input_paths=input_paths):
@@ -1766,6 +1819,9 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
             "/etc/zoneinfo:/usr/share/zoneinfo",
             b"/etc/zoneinfo:/usr/share/zoneinfo",
             0,
+            (b"/bytes/path", "/valid/path"),
+            (FakePath(b"/bytes/path"),),
+            (0,),
         ]
 
         for bad_value in bad_values:
@@ -1776,6 +1832,7 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
     def test_tzpath_attribute(self):
         tzpath_0 = [f"{DRIVE}/one", f"{DRIVE}/two"]
         tzpath_1 = [f"{DRIVE}/three"]
+        tzpath_pathlike = (FakePath(f"{DRIVE}/usr/share/zoneinfo"),)
 
         with self.tzpath_context(tzpath_0):
             query_0 = self.module.TZPATH
@@ -1783,8 +1840,12 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
         with self.tzpath_context(tzpath_1):
             query_1 = self.module.TZPATH
 
+        with self.tzpath_context(tzpath_pathlike):
+            query_pathlike = self.module.TZPATH
+
         self.assertSequenceEqual(tzpath_0, query_0)
         self.assertSequenceEqual(tzpath_1, query_1)
+        self.assertSequenceEqual(tuple([os.fspath(p) for p in tzpath_pathlike]), query_pathlike)
 
 
 class CTzPathTest(TzPathTest):
@@ -1824,8 +1885,7 @@ class TestModule(ZoneInfoTestBase):
         with self.assertRaises(AttributeError):
             self.module.NOATTRIBUTE
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; dir(self.module) should at least contain everything in __all__.
     def test_dir_contains_all(self):
         """dir(self.module) should at least contain everything in __all__."""
         module_all_set = set(self.module.__all__)
@@ -1920,6 +1980,26 @@ class CTestModule(TestModule):
     module = c_zoneinfo
 
 
+class MiscTests(unittest.TestCase):
+    def test_pydatetime(self):
+        # Test that zoneinfo works if the C implementation of datetime
+        # is not available and the Python implementation of datetime is used.
+        # The Python implementation of zoneinfo should be used in thet case.
+        #
+        # Run the test in a subprocess, as importing _zoneinfo with
+        # _datettime disabled causes crash in the previously imported
+        # _zoneinfo.
+        assert_python_ok('-c', '''if 1:
+            import sys
+            sys.modules['_datetime'] = None
+            import datetime
+            import zoneinfo
+            tzinfo = zoneinfo.ZoneInfo('Europe/London')
+            datetime.datetime(2025, 10, 26, 2, 0, tzinfo=tzinfo)
+            ''',
+            PYTHONTZPATH=str(ZONEINFO_DATA.tzpath))
+
+
 class ExtensionBuiltTest(unittest.TestCase):
     """Smoke test to ensure that the C and Python extensions are both tested.
 
@@ -1929,13 +2009,12 @@ class ExtensionBuiltTest(unittest.TestCase):
     rely on these tests as an indication of stable properties of these classes.
     """
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: type object 'ZoneInfo' has unexpected attribute '_weak_cache'
     def test_cache_location(self):
         # The pure Python version stores caches on attributes, but the C
         # extension stores them in C globals (at least for now)
-        self.assertFalse(hasattr(c_zoneinfo.ZoneInfo, "_weak_cache"))
-        self.assertTrue(hasattr(py_zoneinfo.ZoneInfo, "_weak_cache"))
+        self.assertNotHasAttr(c_zoneinfo.ZoneInfo, "_weak_cache")
+        self.assertHasAttr(py_zoneinfo.ZoneInfo, "_weak_cache")
 
     def test_gc_tracked(self):
         import gc
