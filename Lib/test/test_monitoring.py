@@ -1236,7 +1236,6 @@ class TestLineAndInstructionEvents(CheckEvents):
             ('instruction', 'func1', 16),
             ('line', 'get_events', 11)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - instruction offsets differ from CPython
     def test_c_call(self):
 
         def func2():
@@ -1672,7 +1671,6 @@ class TestBranchAndJumpEvents(CheckEvents):
             ('return', 'func', None),
             ('line', 'get_events', 11)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_while_offset_consistency(self):
 
         def foo(n=0):
@@ -1690,7 +1688,6 @@ class TestBranchAndJumpEvents(CheckEvents):
             in_loop,
             exit_loop])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_async_for(self):
 
         def func():
@@ -2126,7 +2123,6 @@ class TestUninitialized(unittest.TestCase, MonitoringTestBase):
 
 class TestRegressions(MonitoringTestBase, unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + inner
     def test_105162(self):
         caught = None
 

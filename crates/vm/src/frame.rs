@@ -612,7 +612,9 @@ impl ExecutingFrame<'_> {
                 vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
             }
 
+            let lasti_before = self.lasti();
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
+            self.skip_caches_if_fallthrough(op, lasti_before);
             match result {
                 Ok(None) => {}
                 Ok(Some(value)) => {
@@ -788,12 +790,15 @@ impl ExecutingFrame<'_> {
         if let Some(unit) = self.code.instructions.get(lasti) {
             match &unit.op {
                 Instruction::Send { .. } => return Some(self.top_value()),
-                Instruction::Resume { .. } => {
+                Instruction::Resume { .. } | Instruction::InstrumentedResume => {
                     // Check if previous instruction was YIELD_VALUE with arg >= 1
                     // This indicates yield-from/await context
                     if lasti > 0
                         && let Some(prev_unit) = self.code.instructions.get(lasti - 1)
-                        && let Instruction::YieldValue { .. } = &prev_unit.op
+                        && matches!(
+                            &prev_unit.op,
+                            Instruction::YieldValue { .. } | Instruction::InstrumentedYieldValue
+                        )
                     {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
                         // OpArgByte.0 is the raw byte value
@@ -1388,8 +1393,10 @@ impl ExecutingFrame<'_> {
                 *extend_arg = true;
                 Ok(None)
             }
-            Instruction::ForIter { target } => {
-                self.execute_for_iter(vm, target.get(arg))?;
+            Instruction::ForIter { .. } => {
+                // Relative forward jump: target = lasti + caches + delta
+                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                self.execute_for_iter(vm, target)?;
                 Ok(None)
             }
             Instruction::FormatSimple => {
@@ -1562,16 +1569,16 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
             }
-            Instruction::JumpForward { target } => {
-                self.jump(target.get(arg));
+            Instruction::JumpForward { .. } => {
+                self.jump_relative_forward(u32::from(arg), 0);
                 Ok(None)
             }
-            Instruction::JumpBackward { target } => {
-                self.jump(target.get(arg));
+            Instruction::JumpBackward { .. } => {
+                self.jump_relative_backward(u32::from(arg), 1);
                 Ok(None)
             }
-            Instruction::JumpBackwardNoInterrupt { target } => {
-                self.jump(target.get(arg));
+            Instruction::JumpBackwardNoInterrupt { .. } => {
+                self.jump_relative_backward(u32::from(arg), 0);
                 Ok(None)
             }
             Instruction::ListAppend { i } => {
@@ -1862,9 +1869,13 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadGlobal(idx) => {
-                let name = &self.code.names[idx.get(arg) as usize];
+                let oparg = idx.get(arg);
+                let name = &self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
+                if (oparg & 1) != 0 {
+                    self.push_value_opt(None);
+                }
                 Ok(None)
             }
             Instruction::LoadName(idx) => {
@@ -2166,19 +2177,19 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            Instruction::PopJumpIfFalse { target } => self.pop_jump_if(vm, target.get(arg), false),
-            Instruction::PopJumpIfTrue { target } => self.pop_jump_if(vm, target.get(arg), true),
-            Instruction::PopJumpIfNone { target } => {
+            Instruction::PopJumpIfFalse { .. } => self.pop_jump_if_relative(vm, arg, 1, false),
+            Instruction::PopJumpIfTrue { .. } => self.pop_jump_if_relative(vm, arg, 1, true),
+            Instruction::PopJumpIfNone { .. } => {
                 let value = self.pop_value();
                 if vm.is_none(&value) {
-                    self.jump(target.get(arg));
+                    self.jump_relative_forward(u32::from(arg), 1);
                 }
                 Ok(None)
             }
-            Instruction::PopJumpIfNotNone { target } => {
+            Instruction::PopJumpIfNotNone { .. } => {
                 let value = self.pop_value();
                 if !vm.is_none(&value) {
-                    self.jump(target.get(arg));
+                    self.jump_relative_forward(u32::from(arg), 1);
                 }
                 Ok(None)
             }
@@ -2459,12 +2470,13 @@ impl ExecutingFrame<'_> {
                 };
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            Instruction::Send { target } => {
+            Instruction::Send { .. } => {
                 // (receiver, v -- receiver, retval)
                 // Pops v, sends it to receiver. On yield, pushes retval
                 // (so stack = [..., receiver, retval]). On return/StopIteration,
                 // also pushes retval and jumps to END_SEND which will pop receiver.
-                let exit_label = target.get(arg);
+                // Relative forward: target = lasti + caches(1) + delta
+                let exit_label = bytecode::Label(self.lasti() + 1 + u32::from(arg));
                 let val = self.pop_value();
                 let receiver = self.top_value();
 
@@ -2696,9 +2708,20 @@ impl ExecutingFrame<'_> {
                     }
                 }
             }
-            Instruction::InstrumentedJumpForward | Instruction::InstrumentedJumpBackward => {
+            Instruction::InstrumentedJumpForward => {
                 let src_offset = (self.lasti() - 1) * 2;
-                let target = bytecode::Label::from(u32::from(arg));
+                let target_idx = self.lasti() + u32::from(arg);
+                let target = bytecode::Label(target_idx);
+                self.jump(target);
+                if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
+                    monitoring::fire_jump(vm, self.code, src_offset, target.0 * 2)?;
+                }
+                Ok(None)
+            }
+            Instruction::InstrumentedJumpBackward => {
+                let src_offset = (self.lasti() - 1) * 2;
+                let target_idx = self.lasti() + 1 - u32::from(arg);
+                let target = bytecode::Label(target_idx);
                 self.jump(target);
                 if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
                     monitoring::fire_jump(vm, self.code, src_offset, target.0 * 2)?;
@@ -2707,11 +2730,11 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedForIter => {
                 let src_offset = (self.lasti() - 1) * 2;
-                let target = bytecode::Label::from(u32::from(arg));
+                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
                 let continued = self.execute_for_iter(vm, target)?;
                 if continued {
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
-                        let dest_offset = self.lasti() * 2;
+                        let dest_offset = (self.lasti() + 1) * 2; // after caches
                         monitoring::fire_branch_left(vm, self.code, src_offset, dest_offset)?;
                     }
                 } else if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
@@ -2753,64 +2776,67 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedPopJumpIfTrue => {
                 let src_offset = (self.lasti() - 1) * 2;
-                let target = bytecode::Label::from(u32::from(arg));
+                let target_idx = self.lasti() + 1 + u32::from(arg);
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 if value {
-                    self.jump(target);
+                    self.jump(bytecode::Label(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                        monitoring::fire_branch_right(vm, self.code, src_offset, target.0 * 2)?;
+                        monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
                 Ok(None)
             }
             Instruction::InstrumentedPopJumpIfFalse => {
                 let src_offset = (self.lasti() - 1) * 2;
-                let target = bytecode::Label::from(u32::from(arg));
+                let target_idx = self.lasti() + 1 + u32::from(arg);
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 if !value {
-                    self.jump(target);
+                    self.jump(bytecode::Label(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                        monitoring::fire_branch_right(vm, self.code, src_offset, target.0 * 2)?;
+                        monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
                 Ok(None)
             }
             Instruction::InstrumentedPopJumpIfNone => {
                 let src_offset = (self.lasti() - 1) * 2;
+                let target_idx = self.lasti() + 1 + u32::from(arg);
                 let value = self.pop_value();
-                let target = bytecode::Label::from(u32::from(arg));
                 if vm.is_none(&value) {
-                    self.jump(target);
+                    self.jump(bytecode::Label(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                        monitoring::fire_branch_right(vm, self.code, src_offset, target.0 * 2)?;
+                        monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
                 Ok(None)
             }
             Instruction::InstrumentedPopJumpIfNotNone => {
                 let src_offset = (self.lasti() - 1) * 2;
+                let target_idx = self.lasti() + 1 + u32::from(arg);
                 let value = self.pop_value();
-                let target = bytecode::Label::from(u32::from(arg));
                 if !vm.is_none(&value) {
-                    self.jump(target);
+                    self.jump(bytecode::Label(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                        monitoring::fire_branch_right(vm, self.code, src_offset, target.0 * 2)?;
+                        monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
                 Ok(None)
             }
             Instruction::InstrumentedNotTaken => {
                 if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
-                    let offset = (self.lasti() - 1) * 2;
+                    let not_taken_idx = self.lasti() as usize - 1;
+                    // Scan backwards past CACHE entries to find the branch instruction
+                    let mut branch_idx = not_taken_idx.saturating_sub(1);
+                    while branch_idx > 0
+                        && matches!(self.code.instructions[branch_idx].op, Instruction::Cache)
+                    {
+                        branch_idx -= 1;
+                    }
+                    let src_offset = (branch_idx as u32) * 2;
                     let dest_offset = self.lasti() * 2;
-                    monitoring::fire_branch_left(
-                        vm,
-                        self.code,
-                        offset.saturating_sub(2),
-                        dest_offset,
-                    )?;
+                    monitoring::fire_branch_left(vm, self.code, src_offset, dest_offset)?;
                 }
                 Ok(None)
             }
@@ -2882,12 +2908,15 @@ impl ExecutingFrame<'_> {
                 // Re-dispatch to the real original opcode
                 let original_op = Instruction::try_from(real_op_byte)
                     .expect("invalid opcode in side-table chain");
-                if original_op.to_base().is_some() {
+                let lasti_before_dispatch = self.lasti();
+                let result = if original_op.to_base().is_some() {
                     self.execute_instrumented(original_op, arg, vm)
                 } else {
                     let mut do_extend_arg = false;
                     self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
-                }
+                };
+                self.skip_caches_if_fallthrough(original_op, lasti_before_dispatch);
+                result
             }
             Instruction::InstrumentedInstruction => {
                 let idx = self.lasti() as usize - 1;
@@ -2911,12 +2940,15 @@ impl ExecutingFrame<'_> {
                 // Re-dispatch to original opcode
                 let original_op = Instruction::try_from(original_op_byte)
                     .expect("invalid opcode in instruction side-table");
-                if original_op.to_base().is_some() {
+                let lasti_before_dispatch = self.lasti();
+                let result = if original_op.to_base().is_some() {
                     self.execute_instrumented(original_op, arg, vm)
                 } else {
                     let mut do_extend_arg = false;
                     self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
-                }
+                };
+                self.skip_caches_if_fallthrough(original_op, lasti_before_dispatch);
+                result
             }
             _ => {
                 unreachable!("{instruction:?} instruction should not be executed")
@@ -3558,17 +3590,52 @@ impl ExecutingFrame<'_> {
         self.update_lasti(|i| *i = target_pc);
     }
 
+    /// Jump forward by `delta` code units from after instruction + caches.
+    /// lasti is already at instruction_index + 1, so after = lasti + caches.
+    ///
+    /// Unchecked arithmetic is intentional: the compiler guarantees valid
+    /// targets, and debug builds will catch overflow via Rust's default checks.
     #[inline]
-    fn pop_jump_if(
+    fn jump_relative_forward(&mut self, delta: u32, caches: u32) {
+        let target = self.lasti() + caches + delta;
+        self.update_lasti(|i| *i = target);
+    }
+
+    /// Jump backward by `delta` code units from after instruction + caches.
+    ///
+    /// Unchecked arithmetic is intentional: the compiler guarantees valid
+    /// targets, and debug builds will catch underflow via Rust's default checks.
+    #[inline]
+    fn jump_relative_backward(&mut self, delta: u32, caches: u32) {
+        let target = self.lasti() + caches - delta;
+        self.update_lasti(|i| *i = target);
+    }
+
+    /// Skip past CACHE code units after an instruction, but only if the
+    /// instruction did not modify lasti (i.e., it did not jump).
+    #[inline]
+    fn skip_caches_if_fallthrough(&mut self, op: Instruction, lasti_before: u32) {
+        if self.lasti() == lasti_before {
+            let base = op.to_base().unwrap_or(op);
+            let caches = base.cache_entries();
+            if caches > 0 {
+                self.update_lasti(|i| *i += caches as u32);
+            }
+        }
+    }
+
+    #[inline]
+    fn pop_jump_if_relative(
         &mut self,
         vm: &VirtualMachine,
-        target: bytecode::Label,
+        arg: bytecode::OpArg,
+        caches: u32,
         flag: bool,
     ) -> FrameResult {
         let obj = self.pop_value();
         let value = obj.try_to_bool(vm)?;
         if value == flag {
-            self.jump(target);
+            self.jump_relative_forward(u32::from(arg), caches);
         }
         Ok(None)
     }

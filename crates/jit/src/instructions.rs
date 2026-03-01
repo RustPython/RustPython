@@ -1,5 +1,6 @@
 // spell-checker: disable
 use super::{JitCompileError, JitSig, JitType};
+use alloc::collections::BTreeSet;
 use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
@@ -154,12 +155,69 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .or_insert_with(|| builder.create_block())
     }
 
+    fn jump_target_forward(offset: u32, caches: u32, arg: OpArg) -> Result<Label, JitCompileError> {
+        let after = offset
+            .checked_add(1)
+            .and_then(|i| i.checked_add(caches))
+            .ok_or(JitCompileError::BadBytecode)?;
+        let target = after
+            .checked_add(u32::from(arg))
+            .ok_or(JitCompileError::BadBytecode)?;
+        Ok(Label(target))
+    }
+
+    fn jump_target_backward(
+        offset: u32,
+        caches: u32,
+        arg: OpArg,
+    ) -> Result<Label, JitCompileError> {
+        let after = offset
+            .checked_add(1)
+            .and_then(|i| i.checked_add(caches))
+            .ok_or(JitCompileError::BadBytecode)?;
+        let target = after
+            .checked_sub(u32::from(arg))
+            .ok_or(JitCompileError::BadBytecode)?;
+        Ok(Label(target))
+    }
+
+    fn instruction_target(
+        offset: u32,
+        instruction: Instruction,
+        arg: OpArg,
+    ) -> Result<Option<Label>, JitCompileError> {
+        let caches = instruction.cache_entries() as u32;
+        let target = match instruction {
+            Instruction::JumpForward { .. } => {
+                Some(Self::jump_target_forward(offset, caches, arg)?)
+            }
+            Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. } => {
+                Some(Self::jump_target_backward(offset, caches, arg)?)
+            }
+            Instruction::PopJumpIfFalse { .. }
+            | Instruction::PopJumpIfTrue { .. }
+            | Instruction::PopJumpIfNone { .. }
+            | Instruction::PopJumpIfNotNone { .. }
+            | Instruction::ForIter { .. }
+            | Instruction::Send { .. } => Some(Self::jump_target_forward(offset, caches, arg)?),
+            _ => None,
+        };
+        Ok(target)
+    }
+
     pub fn compile<C: bytecode::Constant>(
         &mut self,
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
     ) -> Result<(), JitCompileError> {
-        let label_targets = bytecode.label_targets();
+        let mut label_targets = BTreeSet::new();
+        let mut target_arg_state = OpArgState::default();
+        for (offset, &raw_instr) in bytecode.instructions.iter().enumerate() {
+            let (instruction, arg) = target_arg_state.get(raw_instr);
+            if let Some(target) = Self::instruction_target(offset as u32, instruction, arg)? {
+                label_targets.insert(target);
+            }
+        }
         let mut arg_state = OpArgState::default();
 
         // Track whether we have "returned" in the current block
@@ -206,7 +264,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
 
             // Actually compile this instruction:
-            self.add_instruction(func_ref, bytecode, instruction, arg)?;
+            self.add_instruction(func_ref, bytecode, offset as u32, instruction, arg)?;
 
             // If that was an unconditional branch or return, mark future instructions unreachable
             match instruction {
@@ -288,6 +346,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         &mut self,
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
+        offset: u32,
         instruction: Instruction,
         arg: OpArg,
     ) -> Result<(), JitCompileError> {
@@ -557,12 +616,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::ExtendedArg => Ok(()),
+            Instruction::ExtendedArg | Instruction::Cache => Ok(()),
 
-            Instruction::JumpBackward { target }
-            | Instruction::JumpBackwardNoInterrupt { target }
-            | Instruction::JumpForward { target } => {
-                let target_block = self.get_or_create_block(target.get(arg));
+            Instruction::JumpBackward { .. }
+            | Instruction::JumpBackwardNoInterrupt { .. }
+            | Instruction::JumpForward { .. } => {
+                let target = Self::instruction_target(offset, instruction, arg)?
+                    .ok_or(JitCompileError::BadBytecode)?;
+                let target_block = self.get_or_create_block(target);
                 self.builder.ins().jump(target_block, &[]);
                 Ok(())
             }
@@ -605,20 +666,26 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::LoadGlobal(idx) => {
-                let name = &bytecode.names[idx.get(arg) as usize];
+                let oparg = idx.get(arg);
+                let name = &bytecode.names[(oparg >> 1) as usize];
 
                 if name.as_ref() != bytecode.obj_name.as_ref() {
                     Err(JitCompileError::NotSupported)
                 } else {
                     self.stack.push(JitValue::FuncRef(func_ref));
+                    if (oparg & 1) != 0 {
+                        self.stack.push(JitValue::Null);
+                    }
                     Ok(())
                 }
             }
             Instruction::Nop | Instruction::NotTaken => Ok(()),
-            Instruction::PopJumpIfFalse { target } => {
+            Instruction::PopJumpIfFalse { .. } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(target.get(arg));
+                let then_label = Self::instruction_target(offset, instruction, arg)?
+                    .ok_or(JitCompileError::BadBytecode)?;
+                let then_block = self.get_or_create_block(then_label);
                 let else_block = self.builder.create_block();
 
                 self.builder
@@ -628,10 +695,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::PopJumpIfTrue { target } => {
+            Instruction::PopJumpIfTrue { .. } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(target.get(arg));
+                let then_label = Self::instruction_target(offset, instruction, arg)?
+                    .ok_or(JitCompileError::BadBytecode)?;
+                let then_block = self.get_or_create_block(then_label);
                 let else_block = self.builder.create_block();
 
                 self.builder

@@ -511,6 +511,125 @@ impl Instruction {
             _ => return None,
         })
     }
+
+    /// Number of CACHE code units that follow this instruction.
+    /// _PyOpcode_Caches
+    pub fn cache_entries(self) -> usize {
+        match self {
+            // LOAD_ATTR: 9 cache entries
+            Self::LoadAttr { .. }
+            | Self::LoadAttrClass
+            | Self::LoadAttrClassWithMetaclassCheck
+            | Self::LoadAttrGetattributeOverridden
+            | Self::LoadAttrInstanceValue
+            | Self::LoadAttrMethodLazyDict
+            | Self::LoadAttrMethodNoDict
+            | Self::LoadAttrMethodWithValues
+            | Self::LoadAttrModule
+            | Self::LoadAttrNondescriptorNoDict
+            | Self::LoadAttrNondescriptorWithValues
+            | Self::LoadAttrProperty
+            | Self::LoadAttrSlot
+            | Self::LoadAttrWithHint => 9,
+
+            // BINARY_OP: 5 cache entries
+            Self::BinaryOp { .. }
+            | Self::BinaryOpAddFloat
+            | Self::BinaryOpAddInt
+            | Self::BinaryOpAddUnicode
+            | Self::BinaryOpExtend
+            | Self::BinaryOpInplaceAddUnicode
+            | Self::BinaryOpMultiplyFloat
+            | Self::BinaryOpMultiplyInt
+            | Self::BinaryOpSubscrDict
+            | Self::BinaryOpSubscrGetitem
+            | Self::BinaryOpSubscrListInt
+            | Self::BinaryOpSubscrListSlice
+            | Self::BinaryOpSubscrStrInt
+            | Self::BinaryOpSubscrTupleInt
+            | Self::BinaryOpSubtractFloat
+            | Self::BinaryOpSubtractInt => 5,
+
+            // LOAD_GLOBAL / STORE_ATTR: 4 cache entries
+            Self::LoadGlobal(_)
+            | Self::LoadGlobalBuiltin
+            | Self::LoadGlobalModule
+            | Self::StoreAttr { .. }
+            | Self::StoreAttrInstanceValue
+            | Self::StoreAttrSlot
+            | Self::StoreAttrWithHint => 4,
+
+            // CALL / CALL_KW / TO_BOOL: 3 cache entries
+            Self::Call { .. }
+            | Self::CallAllocAndEnterInit
+            | Self::CallBoundMethodExactArgs
+            | Self::CallBoundMethodGeneral
+            | Self::CallBuiltinClass
+            | Self::CallBuiltinFast
+            | Self::CallBuiltinFastWithKeywords
+            | Self::CallBuiltinO
+            | Self::CallIsinstance
+            | Self::CallLen
+            | Self::CallListAppend
+            | Self::CallMethodDescriptorFast
+            | Self::CallMethodDescriptorFastWithKeywords
+            | Self::CallMethodDescriptorNoargs
+            | Self::CallMethodDescriptorO
+            | Self::CallNonPyGeneral
+            | Self::CallPyExactArgs
+            | Self::CallPyGeneral
+            | Self::CallStr1
+            | Self::CallTuple1
+            | Self::CallType1
+            | Self::CallKw { .. }
+            | Self::CallKwBoundMethod
+            | Self::CallKwNonPy
+            | Self::CallKwPy
+            | Self::ToBool
+            | Self::ToBoolAlwaysTrue
+            | Self::ToBoolBool
+            | Self::ToBoolInt
+            | Self::ToBoolList
+            | Self::ToBoolNone
+            | Self::ToBoolStr => 3,
+
+            // 1 cache entry
+            Self::CompareOp { .. }
+            | Self::CompareOpFloat
+            | Self::CompareOpInt
+            | Self::CompareOpStr
+            | Self::ContainsOp(_)
+            | Self::ContainsOpDict
+            | Self::ContainsOpSet
+            | Self::ForIter { .. }
+            | Self::ForIterGen
+            | Self::ForIterList
+            | Self::ForIterRange
+            | Self::ForIterTuple
+            | Self::JumpBackward { .. }
+            | Self::JumpBackwardJit
+            | Self::JumpBackwardNoJit
+            | Self::LoadSuperAttr { .. }
+            | Self::LoadSuperAttrAttr
+            | Self::LoadSuperAttrMethod
+            | Self::PopJumpIfTrue { .. }
+            | Self::PopJumpIfFalse { .. }
+            | Self::PopJumpIfNone { .. }
+            | Self::PopJumpIfNotNone { .. }
+            | Self::Send { .. }
+            | Self::SendGen
+            | Self::StoreSubscr
+            | Self::StoreSubscrDict
+            | Self::StoreSubscrListInt
+            | Self::UnpackSequence { .. }
+            | Self::UnpackSequenceList
+            | Self::UnpackSequenceTuple
+            | Self::UnpackSequenceTwoTuple => 1,
+
+            // Everything else: 0 cache entries
+            _ => 0,
+        }
+    }
 }
 
 impl InstructionMetadata for Instruction {
@@ -708,10 +827,7 @@ impl InstructionMetadata for Instruction {
             Self::LoadFastLoadFast { .. } => (2, 0),
             Self::LoadFromDictOrDeref(_) => (1, 1),
             Self::LoadFromDictOrGlobals(_) => (1, 1),
-            Self::LoadGlobal(_) => (
-                1, // TODO: Differs from CPython `1 + (oparg & 1)`
-                0,
-            ),
+            Self::LoadGlobal(_) => (1 + (oparg & 1), 0),
             Self::LoadGlobalBuiltin => (1 + (oparg & 1), 0),
             Self::LoadGlobalModule => (1 + (oparg & 1), 0),
             Self::LoadLocals => (1, 0),
@@ -739,28 +855,13 @@ impl InstructionMetadata for Instruction {
             Self::PopTop => (0, 1),
             Self::PushExcInfo => (2, 1),
             Self::PushNull => (1, 0),
-            Self::RaiseVarargs { kind } => (
-                0,
-                // TODO: Differs from CPython: `oparg`
-                match kind.get((oparg as u32).into()) {
-                    RaiseKind::BareRaise => 0,
-                    RaiseKind::Raise => 1,
-                    RaiseKind::RaiseCause => 2,
-                    RaiseKind::ReraiseFromStack => 1,
-                },
-            ),
-            Self::Reraise { .. } => (
-                1 + oparg, // TODO: Differs from CPython: `oparg`
-                1 + oparg,
-            ),
+            Self::RaiseVarargs { .. } => (0, oparg),
+            Self::Reraise { .. } => (oparg, 1 + oparg),
             Self::Reserved => (0, 0),
             Self::Resume { .. } => (0, 0),
             Self::ResumeCheck => (0, 0),
             Self::ReturnGenerator => (1, 0),
-            Self::ReturnValue => (
-                0, // TODO: Differs from CPython: `1`
-                1,
-            ),
+            Self::ReturnValue => (1, 1),
             Self::Send { .. } => (2, 2),
             Self::SendGen => (1, 2),
             Self::SetAdd { .. } => (1 + (oparg - 1), 2 + (oparg - 1)),
@@ -860,7 +961,9 @@ impl InstructionMetadata for Instruction {
             };
 
         match self {
+            Self::BinarySlice => w!(BINARY_SLICE),
             Self::BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
+            Self::BinaryOpInplaceAddUnicode => w!(BINARY_OP_INPLACE_ADD_UNICODE),
             Self::BuildList { size } => w!(BUILD_LIST, size),
             Self::BuildMap { size } => w!(BUILD_MAP, size),
             Self::BuildSet { size } => w!(BUILD_SET, size),
@@ -872,6 +975,7 @@ impl InstructionMetadata for Instruction {
             Self::CallKw { nargs } => w!(CALL_KW, nargs),
             Self::CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
             Self::CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
+            Self::Cache => w!(CACHE),
             Self::CheckEgMatch => w!(CHECK_EG_MATCH),
             Self::CheckExcMatch => w!(CHECK_EXC_MATCH),
             Self::CleanupThrow => w!(CLEANUP_THROW),
@@ -879,6 +983,7 @@ impl InstructionMetadata for Instruction {
             Self::ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
             Self::ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
             Self::Copy { index } => w!(COPY, index),
+            Self::CopyFreeVars { count } => w!(COPY_FREE_VARS, count),
             Self::DeleteAttr { idx } => w!(DELETE_ATTR, name = idx),
             Self::DeleteDeref(idx) => w!(DELETE_DEREF, cell_name = idx),
             Self::DeleteFast(idx) => w!(DELETE_FAST, varname = idx),
@@ -890,6 +995,7 @@ impl InstructionMetadata for Instruction {
             Self::EndAsyncFor => w!(END_ASYNC_FOR),
             Self::EndSend => w!(END_SEND),
             Self::ExtendedArg => w!(EXTENDED_ARG, Arg::<u32>::marker()),
+            Self::ExitInitCheck => w!(EXIT_INIT_CHECK),
             Self::ForIter { target } => w!(FOR_ITER, target),
             Self::FormatSimple => w!(FORMAT_SIMPLE),
             Self::FormatWithSpec => w!(FORMAT_WITH_SPEC),
@@ -901,6 +1007,7 @@ impl InstructionMetadata for Instruction {
             Self::GetLen => w!(GET_LEN),
             Self::ImportFrom { idx } => w!(IMPORT_FROM, name = idx),
             Self::ImportName { idx } => w!(IMPORT_NAME, name = idx),
+            Self::InterpreterExit => w!(INTERPRETER_EXIT),
             Self::IsOp(inv) => w!(IS_OP, ?inv),
             Self::JumpBackward { target } => w!(JUMP_BACKWARD, target),
             Self::JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
@@ -922,6 +1029,7 @@ impl InstructionMetadata for Instruction {
                 }
             }
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
+            Self::LoadCommonConstant { idx } => w!(LOAD_COMMON_CONSTANT, ?idx),
             Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
             Self::LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
             Self::LoadSmallInt { idx } => w!(LOAD_SMALL_INT, idx),
@@ -951,7 +1059,64 @@ impl InstructionMetadata for Instruction {
                 )
             }
             Self::LoadFromDictOrGlobals(idx) => w!(LOAD_FROM_DICT_OR_GLOBALS, name = idx),
-            Self::LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
+            Self::LoadGlobal(idx) => {
+                let oparg = idx.get(arg);
+                let name_idx = oparg >> 1;
+                if (oparg & 1) != 0 {
+                    write!(
+                        f,
+                        "{:pad$}({}, NULL + {})",
+                        "LOAD_GLOBAL",
+                        oparg,
+                        name(name_idx)
+                    )
+                } else {
+                    write!(f, "{:pad$}({}, {})", "LOAD_GLOBAL", oparg, name(name_idx))
+                }
+            }
+            Self::LoadGlobalBuiltin => {
+                let oparg = u32::from(arg);
+                let name_idx = oparg >> 1;
+                if (oparg & 1) != 0 {
+                    write!(
+                        f,
+                        "{:pad$}({}, NULL + {})",
+                        "LOAD_GLOBAL_BUILTIN",
+                        oparg,
+                        name(name_idx)
+                    )
+                } else {
+                    write!(
+                        f,
+                        "{:pad$}({}, {})",
+                        "LOAD_GLOBAL_BUILTIN",
+                        oparg,
+                        name(name_idx)
+                    )
+                }
+            }
+            Self::LoadGlobalModule => {
+                let oparg = u32::from(arg);
+                let name_idx = oparg >> 1;
+                if (oparg & 1) != 0 {
+                    write!(
+                        f,
+                        "{:pad$}({}, NULL + {})",
+                        "LOAD_GLOBAL_MODULE",
+                        oparg,
+                        name(name_idx)
+                    )
+                } else {
+                    write!(
+                        f,
+                        "{:pad$}({}, {})",
+                        "LOAD_GLOBAL_MODULE",
+                        oparg,
+                        name(name_idx)
+                    )
+                }
+            }
+            Self::LoadLocals => w!(LOAD_LOCALS),
             Self::LoadName(idx) => w!(LOAD_NAME, name = idx),
             Self::LoadSpecial { method } => w!(LOAD_SPECIAL, method),
             Self::LoadSuperAttr { arg: idx } => {
@@ -966,6 +1131,7 @@ impl InstructionMetadata for Instruction {
                     oparg.has_class()
                 )
             }
+            Self::MakeCell(idx) => w!(MAKE_CELL, cell_name = idx),
             Self::MakeFunction => w!(MAKE_FUNCTION),
             Self::MapAdd { i } => w!(MAP_ADD, i),
             Self::MatchClass(arg) => w!(MATCH_CLASS, arg),
@@ -976,6 +1142,8 @@ impl InstructionMetadata for Instruction {
             Self::NotTaken => w!(NOT_TAKEN),
             Self::PopExcept => w!(POP_EXCEPT),
             Self::PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
+            Self::PopJumpIfNone { target } => w!(POP_JUMP_IF_NONE, target),
+            Self::PopJumpIfNotNone { target } => w!(POP_JUMP_IF_NOT_NONE, target),
             Self::PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
             Self::PopTop => w!(POP_TOP),
             Self::EndFor => w!(END_FOR),
@@ -1002,8 +1170,21 @@ impl InstructionMetadata for Instruction {
                 write!(f, "STORE_FAST_LOAD_FAST")?;
                 write!(f, " ({}, {})", store_idx, load_idx)
             }
+            Self::StoreFastStoreFast { arg: packed } => {
+                let oparg = packed.get(arg);
+                let idx1 = oparg >> 4;
+                let idx2 = oparg & 15;
+                write!(
+                    f,
+                    "{:pad$}({}, {})",
+                    "STORE_FAST_STORE_FAST",
+                    varname(idx1),
+                    varname(idx2)
+                )
+            }
             Self::StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
             Self::StoreName(idx) => w!(STORE_NAME, name = idx),
+            Self::StoreSlice => w!(STORE_SLICE),
             Self::StoreSubscr => w!(STORE_SUBSCR),
             Self::Swap { index } => w!(SWAP, index),
             Self::ToBool => w!(TO_BOOL),

@@ -185,7 +185,8 @@ pub(crate) mod stack_analysis {
                 // De-instrument: get the underlying real instruction
                 let opcode = opcode.to_base().unwrap_or(opcode);
 
-                let next_i = i + 1; // No inline caches in RustPython
+                let caches = opcode.cache_entries();
+                let next_i = i + 1 + caches;
 
                 if next_stack == UNINITIALIZED {
                     i = next_i;
@@ -197,8 +198,8 @@ pub(crate) mod stack_analysis {
                     | Instruction::PopJumpIfTrue { .. }
                     | Instruction::PopJumpIfNone { .. }
                     | Instruction::PopJumpIfNotNone { .. } => {
-                        // Jump target is absolute instruction index
-                        let j = oparg as usize;
+                        // Relative forward: target = after_caches + delta
+                        let j = next_i + oparg as usize;
                         next_stack = pop_value(next_stack);
                         let target_stack = next_stack;
                         if j < stacks.len() && stacks[j] == UNINITIALIZED {
@@ -209,8 +210,8 @@ pub(crate) mod stack_analysis {
                         }
                     }
                     Instruction::Send { .. } => {
-                        // target is absolute
-                        let j = oparg as usize;
+                        // Relative forward: target = after_caches + delta
+                        let j = next_i + oparg as usize;
                         if j < stacks.len() && stacks[j] == UNINITIALIZED {
                             stacks[j] = next_stack;
                         }
@@ -219,16 +220,16 @@ pub(crate) mod stack_analysis {
                         }
                     }
                     Instruction::JumpForward { .. } => {
-                        // target is absolute in RustPython
-                        let j = oparg as usize;
+                        // Relative forward: target = after_caches + delta
+                        let j = next_i + oparg as usize;
                         if j < stacks.len() && stacks[j] == UNINITIALIZED {
                             stacks[j] = next_stack;
                         }
                     }
                     Instruction::JumpBackward { .. }
                     | Instruction::JumpBackwardNoInterrupt { .. } => {
-                        // target is absolute in RustPython
-                        let j = oparg as usize;
+                        // Relative backward: target = after_caches - delta
+                        let j = next_i - oparg as usize;
                         if j < stacks.len() && stacks[j] == UNINITIALIZED {
                             stacks[j] = next_stack;
                             if j < i {
@@ -248,10 +249,8 @@ pub(crate) mod stack_analysis {
                         if next_i < stacks.len() {
                             stacks[next_i] = body_stack;
                         }
-                        // Exhaustion path: execute_for_iter skips END_FOR and
-                        // jumps directly to POP_ITER. The iterator stays on
-                        // the stack and POP_ITER removes it.
-                        let mut j = oparg as usize;
+                        // Exhaustion path: relative forward from after_caches
+                        let mut j = next_i + oparg as usize;
                         if j < instructions.len() {
                             let target_op =
                                 instructions[j].op.to_base().unwrap_or(instructions[j].op);
@@ -297,9 +296,10 @@ pub(crate) mod stack_analysis {
                         }
                     }
                     Instruction::LoadGlobal(_) => {
-                        // RustPython's LOAD_GLOBAL doesn't encode push_null in oparg
-                        // (separate PUSH_NULL instructions are used instead)
                         next_stack = push_value(next_stack, Kind::Object as i64);
+                        if oparg & 1 != 0 {
+                            next_stack = push_value(next_stack, Kind::Null as i64);
+                        }
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }

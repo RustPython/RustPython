@@ -1173,6 +1173,7 @@ impl Compiler {
             end_location,
             except_handler,
             lineno_override,
+            cache_entries: 0,
         });
     }
 
@@ -1432,7 +1433,7 @@ impl Compiler {
                 if matches!(info.fb_type, FBlockType::AsyncWith) {
                     emit!(self, Instruction::GetAwaitable { arg: 2 });
                     self.emit_load_const(ConstantData::None);
-                    self.compile_yield_from_sequence(true)?;
+                    let _ = self.compile_yield_from_sequence(true)?;
                 }
 
                 // Pop the __exit__ result
@@ -2009,7 +2010,10 @@ impl Compiler {
             NameOp::Global => {
                 let idx = self.get_global_name_index(&name);
                 let op = match usage {
-                    NameUsage::Load => Instruction::LoadGlobal,
+                    NameUsage::Load => {
+                        self.emit_load_global(idx, false);
+                        return Ok(());
+                    }
                     NameUsage::Store => Instruction::StoreGlobal,
                     NameUsage::Delete => Instruction::DeleteGlobal,
                 };
@@ -2370,12 +2374,14 @@ impl Compiler {
                 }
             }
             ast::Stmt::Break(_) => {
+                emit!(self, Instruction::Nop); // NOP for line tracing
                 // Unwind fblock stack until we find a loop, emitting cleanup for each fblock
                 self.compile_break_continue(statement.range(), true)?;
                 let dead = self.new_block();
                 self.switch_to_block(dead);
             }
             ast::Stmt::Continue(_) => {
+                emit!(self, Instruction::Nop); // NOP for line tracing
                 // Unwind fblock stack until we find a loop, emitting cleanup for each fblock
                 self.compile_break_continue(statement.range(), false)?;
                 let dead = self.new_block();
@@ -2448,7 +2454,7 @@ impl Compiler {
                 }
             }
             ast::Stmt::Pass(_) => {
-                // No need to emit any code here :)
+                emit!(self, Instruction::Nop); // NOP for line tracing
             }
             ast::Stmt::TypeAlias(ast::StmtTypeAlias {
                 name,
@@ -2967,24 +2973,14 @@ impl Compiler {
                 emit!(self, Instruction::PopExcept);
 
                 // RERAISE 0: re-raise the original exception to outer handler
-                emit!(
-                    self,
-                    Instruction::RaiseVarargs {
-                        kind: bytecode::RaiseKind::ReraiseFromStack
-                    }
-                );
+                emit!(self, Instruction::Reraise { depth: 0 });
             }
 
             if let Some(cleanup) = finally_cleanup_block {
                 self.switch_to_block(cleanup);
                 emit!(self, Instruction::Copy { index: 3_u32 });
                 emit!(self, Instruction::PopExcept);
-                emit!(
-                    self,
-                    Instruction::RaiseVarargs {
-                        kind: bytecode::RaiseKind::ReraiseFromStack
-                    }
-                );
+                emit!(self, Instruction::Reraise { depth: 1 });
             }
 
             self.switch_to_block(end_block);
@@ -3122,12 +3118,7 @@ impl Compiler {
                 // Stack at entry: [prev_exc (at handler_depth), lasti, exc]
                 // This RERAISE is within ExceptionHandler scope, so it routes to cleanup_block
                 // which does COPY 3; POP_EXCEPT; RERAISE
-                emit!(
-                    self,
-                    Instruction::RaiseVarargs {
-                        kind: bytecode::RaiseKind::ReraiseFromStack,
-                    }
-                );
+                emit!(self, Instruction::Reraise { depth: 1 });
             }
 
             // Switch to normal exit block - this is where handler body success continues
@@ -3175,12 +3166,7 @@ impl Compiler {
         // RERAISE 0
         // Stack: [prev_exc, exc] - exception is on stack from PUSH_EXC_INFO
         // NOTE: We emit RERAISE 0 BEFORE popping fblock so it is within cleanup handler scope
-        emit!(
-            self,
-            Instruction::RaiseVarargs {
-                kind: bytecode::RaiseKind::ReraiseFromStack,
-            }
-        );
+        emit!(self, Instruction::Reraise { depth: 0 });
 
         // Pop EXCEPTION_HANDLER fblock
         // Pop after RERAISE so the instruction has the correct exception handler
@@ -3194,12 +3180,7 @@ impl Compiler {
         self.switch_to_block(cleanup_block);
         emit!(self, Instruction::Copy { index: 3_u32 });
         emit!(self, Instruction::PopExcept);
-        emit!(
-            self,
-            Instruction::RaiseVarargs {
-                kind: bytecode::RaiseKind::ReraiseFromStack,
-            }
-        );
+        emit!(self, Instruction::Reraise { depth: 1 });
 
         // We successfully ran the try block:
         // else:
@@ -3271,12 +3252,7 @@ impl Compiler {
 
             // RERAISE 0: re-raise the original exception to outer handler
             // Stack: [lasti, prev_exc, exc] - exception is on top
-            emit!(
-                self,
-                Instruction::RaiseVarargs {
-                    kind: bytecode::RaiseKind::ReraiseFromStack,
-                }
-            );
+            emit!(self, Instruction::Reraise { depth: 0 });
         }
 
         // finally cleanup block
@@ -3289,12 +3265,7 @@ impl Compiler {
             // POP_EXCEPT: restore prev_exc as current exception
             emit!(self, Instruction::PopExcept);
             // RERAISE 1: reraise with lasti from stack
-            emit!(
-                self,
-                Instruction::RaiseVarargs {
-                    kind: bytecode::RaiseKind::ReraiseFromStack,
-                }
-            );
+            emit!(self, Instruction::Reraise { depth: 1 });
         }
 
         // End block - continuation point after try-finally
@@ -3667,23 +3638,13 @@ impl Compiler {
 
             emit!(self, Instruction::Copy { index: 2_u32 });
             emit!(self, Instruction::PopExcept);
-            emit!(
-                self,
-                Instruction::RaiseVarargs {
-                    kind: bytecode::RaiseKind::ReraiseFromStack
-                }
-            );
+            emit!(self, Instruction::Reraise { depth: 0 });
 
             if let Some(cleanup) = finally_cleanup_block {
                 self.switch_to_block(cleanup);
                 emit!(self, Instruction::Copy { index: 3_u32 });
                 emit!(self, Instruction::PopExcept);
-                emit!(
-                    self,
-                    Instruction::RaiseVarargs {
-                        kind: bytecode::RaiseKind::ReraiseFromStack
-                    }
-                );
+                emit!(self, Instruction::Reraise { depth: 1 });
             }
         }
 
@@ -4030,7 +3991,7 @@ impl Compiler {
                     emit!(self, Instruction::LoadDeref(idx));
                 } else {
                     let cond_annotations_name = self.name("__conditional_annotations__");
-                    emit!(self, Instruction::LoadGlobal(cond_annotations_name));
+                    self.emit_load_global(cond_annotations_name, false);
                 }
                 // CONTAINS_OP (in)
                 emit!(self, Instruction::ContainsOp(bytecode::Invert::No));
@@ -4522,7 +4483,7 @@ impl Compiler {
 
         // Load (global) __name__ and store as __module__
         let dunder_name = self.name("__name__");
-        emit!(self, Instruction::LoadGlobal(dunder_name));
+        self.emit_load_global(dunder_name, false);
         let dunder_module = self.name("__module__");
         emit!(self, Instruction::StoreName(dunder_module));
 
@@ -4941,7 +4902,7 @@ impl Compiler {
             emit!(self, Instruction::Call { nargs: 0 }); // [bound_aexit, awaitable]
             emit!(self, Instruction::GetAwaitable { arg: 1 });
             self.emit_load_const(ConstantData::None);
-            self.compile_yield_from_sequence(true)?;
+            let _ = self.compile_yield_from_sequence(true)?;
         } else {
             // Load __exit__ and __enter__, then call __enter__
             emit!(
@@ -5024,7 +4985,7 @@ impl Compiler {
         if is_async {
             emit!(self, Instruction::GetAwaitable { arg: 2 });
             self.emit_load_const(ConstantData::None);
-            self.compile_yield_from_sequence(true)?;
+            let _ = self.compile_yield_from_sequence(true)?;
         }
         emit!(self, Instruction::PopTop); // Pop __exit__ result
         emit!(
@@ -5062,7 +5023,7 @@ impl Compiler {
         if is_async {
             emit!(self, Instruction::GetAwaitable { arg: 2 });
             self.emit_load_const(ConstantData::None);
-            self.compile_yield_from_sequence(true)?;
+            let _ = self.compile_yield_from_sequence(true)?;
         }
 
         // TO_BOOL + POP_JUMP_IF_TRUE: check if exception is suppressed
@@ -5136,6 +5097,7 @@ impl Compiler {
         let for_block = self.new_block();
         let else_block = self.new_block();
         let after_block = self.new_block();
+        let mut end_async_for_target = BlockIdx::NULL;
 
         // The thing iterated:
         self.compile_expression(iter)?;
@@ -5155,9 +5117,10 @@ impl Compiler {
             emit!(self, PseudoInstruction::SetupFinally { target: else_block });
             emit!(self, Instruction::GetANext);
             self.emit_load_const(ConstantData::None);
-            self.compile_yield_from_sequence(true)?;
+            end_async_for_target = self.compile_yield_from_sequence(true)?;
             // POP_BLOCK for SETUP_FINALLY - only GetANext/yield_from are protected
             emit!(self, PseudoInstruction::PopBlock);
+            emit!(self, Instruction::NotTaken);
 
             // Success block for __anext__
             self.compile_store(target)?;
@@ -5191,7 +5154,7 @@ impl Compiler {
         let saved_range = self.current_source_range;
         self.set_source_range(iter.range());
         if is_async {
-            emit!(self, Instruction::EndAsyncFor);
+            self.emit_end_async_for(end_async_for_target);
         } else {
             emit!(self, Instruction::EndFor);
             emit!(self, Instruction::PopIter);
@@ -6785,7 +6748,7 @@ impl Compiler {
     ///     CLEANUP_THROW
     ///   exit:
     ///     END_SEND
-    fn compile_yield_from_sequence(&mut self, is_await: bool) -> CompileResult<()> {
+    fn compile_yield_from_sequence(&mut self, is_await: bool) -> CompileResult<BlockIdx> {
         let send_block = self.new_block();
         let fail_block = self.new_block();
         let exit_block = self.new_block();
@@ -6841,7 +6804,7 @@ impl Compiler {
         self.switch_to_block(exit_block);
         emit!(self, Instruction::EndSend);
 
-        Ok(())
+        Ok(send_block)
     }
 
     fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
@@ -6896,7 +6859,11 @@ impl Compiler {
                 if let Some(super_type) = self.can_optimize_super_call(value, attr.as_str()) {
                     // super().attr or super(cls, self).attr optimization
                     // Stack: [global_super, class, self] → LOAD_SUPER_ATTR → [attr]
+                    // Set source range to super() call for arg-loading instructions
+                    let super_range = value.range();
+                    self.set_source_range(super_range);
                     self.load_args_for_super(&super_type)?;
+                    self.set_source_range(super_range);
                     let idx = self.name(attr.as_str());
                     match super_type {
                         SuperCallType::TwoArg { .. } => {
@@ -6982,7 +6949,7 @@ impl Compiler {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::GetAwaitable { arg: 0 });
                 self.emit_load_const(ConstantData::None);
-                self.compile_yield_from_sequence(true)?;
+                let _ = self.compile_yield_from_sequence(true)?;
             }
             ast::Expr::YieldFrom(ast::ExprYieldFrom { value, .. }) => {
                 match self.ctx.func {
@@ -6998,7 +6965,7 @@ impl Compiler {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::GetYieldFromIter);
                 self.emit_load_const(ConstantData::None);
-                self.compile_yield_from_sequence(false)?;
+                let _ = self.compile_yield_from_sequence(false)?;
             }
             ast::Expr::Name(ast::ExprName { id, .. }) => self.load_name(id.as_str())?,
             ast::Expr::Lambda(ast::ExprLambda {
@@ -7353,7 +7320,11 @@ impl Compiler {
             if let Some(super_type) = self.can_optimize_super_call(value, attr.as_str()) {
                 // super().method() or super(cls, self).method() optimization
                 // Stack: [global_super, class, self] → LOAD_SUPER_METHOD → [method, self]
+                // Set source range to the super() call for LOAD_GLOBAL/LOAD_DEREF/etc.
+                let super_range = value.range();
+                self.set_source_range(super_range);
                 self.load_args_for_super(&super_type)?;
+                self.set_source_range(super_range);
                 let idx = self.name(attr.as_str());
                 match super_type {
                     SuperCallType::TwoArg { .. } => {
@@ -7363,7 +7334,11 @@ impl Compiler {
                         self.emit_load_zero_super_method(idx);
                     }
                 }
-                self.codegen_call_helper(0, args, call_range)?;
+                // NOP for line tracking at .method( line
+                self.set_source_range(attr.range());
+                emit!(self, Instruction::Nop);
+                // CALL at .method( line (not the full expression line)
+                self.codegen_call_helper(0, args, attr.range())?;
             } else {
                 // Normal method call: compile object, then LOAD_ATTR with method flag
                 // LOAD_ATTR(method=1) pushes [method, self_or_null] on stack
@@ -7653,6 +7628,7 @@ impl Compiler {
         let mut loop_labels = vec![];
         for generator in generators {
             let loop_block = self.new_block();
+            let if_cleanup_block = self.new_block();
             let after_block = self.new_block();
 
             if loop_labels.is_empty() {
@@ -7670,8 +7646,8 @@ impl Compiler {
                 }
             }
 
-            loop_labels.push((loop_block, after_block, generator.is_async));
             self.switch_to_block(loop_block);
+            let mut end_async_for_target = BlockIdx::NULL;
             if generator.is_async {
                 emit!(
                     self,
@@ -7686,7 +7662,7 @@ impl Compiler {
                     after_block,
                 )?;
                 self.emit_load_const(ConstantData::None);
-                self.compile_yield_from_sequence(true)?;
+                end_async_for_target = self.compile_yield_from_sequence(true)?;
                 // POP_BLOCK before store: only __anext__/yield_from are
                 // protected by SetupFinally targeting END_ASYNC_FOR.
                 emit!(self, PseudoInstruction::PopBlock);
@@ -7701,23 +7677,35 @@ impl Compiler {
                 );
                 self.compile_store(&generator.target)?;
             }
+            loop_labels.push((
+                loop_block,
+                if_cleanup_block,
+                after_block,
+                generator.is_async,
+                end_async_for_target,
+            ));
 
             // Now evaluate the ifs:
             for if_condition in &generator.ifs {
-                self.compile_jump_if(if_condition, false, loop_block)?
+                self.compile_jump_if(if_condition, false, if_cleanup_block)?
             }
         }
 
         compile_element(self)?;
 
-        for (loop_block, after_block, is_async) in loop_labels.iter().rev().copied() {
+        for (loop_block, if_cleanup_block, after_block, is_async, end_async_for_target) in
+            loop_labels.iter().rev().copied()
+        {
+            emit!(self, PseudoInstruction::Jump { target: loop_block });
+
+            self.switch_to_block(if_cleanup_block);
             emit!(self, PseudoInstruction::Jump { target: loop_block });
 
             self.switch_to_block(after_block);
             if is_async {
                 // EndAsyncFor pops both the exception and the aiter
                 // (handler depth is before GetANext, so aiter is at handler depth)
-                emit!(self, Instruction::EndAsyncFor);
+                self.emit_end_async_for(end_async_for_target);
             } else {
                 // END_FOR + POP_ITER pattern (CPython 3.14)
                 emit!(self, Instruction::EndFor);
@@ -7755,7 +7743,7 @@ impl Compiler {
         if is_async_list_set_dict_comprehension {
             emit!(self, Instruction::GetAwaitable { arg: 0 });
             self.emit_load_const(ConstantData::None);
-            self.compile_yield_from_sequence(true)?;
+            let _ = self.compile_yield_from_sequence(true)?;
         }
 
         Ok(())
@@ -7866,6 +7854,7 @@ impl Compiler {
         let mut loop_labels = vec![];
         for (i, generator) in generators.iter().enumerate() {
             let loop_block = self.new_block();
+            let if_cleanup_block = self.new_block();
             let after_block = self.new_block();
 
             if i > 0 {
@@ -7878,13 +7867,13 @@ impl Compiler {
                 }
             }
 
-            loop_labels.push((loop_block, after_block, generator.is_async));
             self.switch_to_block(loop_block);
+            let mut end_async_for_target = BlockIdx::NULL;
 
             if generator.is_async {
                 emit!(self, Instruction::GetANext);
                 self.emit_load_const(ConstantData::None);
-                self.compile_yield_from_sequence(true)?;
+                end_async_for_target = self.compile_yield_from_sequence(true)?;
                 self.compile_store(&generator.target)?;
             } else {
                 emit!(
@@ -7895,10 +7884,17 @@ impl Compiler {
                 );
                 self.compile_store(&generator.target)?;
             }
+            loop_labels.push((
+                loop_block,
+                if_cleanup_block,
+                after_block,
+                generator.is_async,
+                end_async_for_target,
+            ));
 
             // Evaluate the if conditions
             for if_condition in &generator.ifs {
-                self.compile_jump_if(if_condition, false, loop_block)?;
+                self.compile_jump_if(if_condition, false, if_cleanup_block)?;
             }
         }
 
@@ -7906,11 +7902,17 @@ impl Compiler {
         compile_element(self)?;
 
         // Step 7: Close all loops
-        for (loop_block, after_block, is_async) in loop_labels.iter().rev().copied() {
+        for (loop_block, if_cleanup_block, after_block, is_async, end_async_for_target) in
+            loop_labels.iter().rev().copied()
+        {
             emit!(self, PseudoInstruction::Jump { target: loop_block });
+
+            self.switch_to_block(if_cleanup_block);
+            emit!(self, PseudoInstruction::Jump { target: loop_block });
+
             self.switch_to_block(after_block);
             if is_async {
-                emit!(self, Instruction::EndAsyncFor);
+                self.emit_end_async_for(end_async_for_target);
                 // Pop the iterator
                 emit!(self, Instruction::PopTop);
             } else {
@@ -7947,12 +7949,7 @@ impl Compiler {
                 emit!(self, Instruction::StoreFast(idx));
             }
             // Re-raise the exception
-            emit!(
-                self,
-                Instruction::RaiseVarargs {
-                    kind: bytecode::RaiseKind::ReraiseFromStack
-                }
-            );
+            emit!(self, Instruction::Reraise { depth: 0 });
 
             // Normal end path
             self.switch_to_block(end_block);
@@ -8013,6 +8010,7 @@ impl Compiler {
             end_location,
             except_handler,
             lineno_override: None,
+            cache_entries: 0,
         });
     }
 
@@ -8046,6 +8044,10 @@ impl Compiler {
         emit!(self, Instruction::ReturnValue)
     }
 
+    fn emit_end_async_for(&mut self, send_target: BlockIdx) {
+        self._emit(Instruction::EndAsyncFor, OpArg::NULL, send_target);
+    }
+
     /// Emit LOAD_ATTR for attribute access (method=false).
     /// Encodes: (name_idx << 1) | 0
     fn emit_load_attr(&mut self, name_idx: u32) {
@@ -8064,6 +8066,13 @@ impl Compiler {
             .is_method(true)
             .build();
         self.emit_arg(encoded, |arg| Instruction::LoadAttr { idx: arg })
+    }
+
+    /// Emit LOAD_GLOBAL.
+    /// Encodes: (name_idx << 1) | push_null_bit
+    fn emit_load_global(&mut self, name_idx: u32, push_null: bool) {
+        let encoded = (name_idx << 1) | u32::from(push_null);
+        self.emit_arg(encoded, Instruction::LoadGlobal);
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().attr access.
@@ -8258,7 +8267,7 @@ impl Compiler {
                     if is_async {
                         emit!(self, Instruction::GetAwaitable { arg: 2 });
                         self.emit_load_const(ConstantData::None);
-                        self.compile_yield_from_sequence(true)?;
+                        let _ = self.compile_yield_from_sequence(true)?;
                     }
 
                     emit!(self, Instruction::PopTop);
