@@ -327,6 +327,8 @@ mod _ssl {
     const HAS_TLSv1_2: bool = true; // rustls supports TLS 1.2
     #[pyattr]
     const HAS_TLSv1_3: bool = true;
+    #[pyattr]
+    const HAS_PHA: bool = false; // Post-Handshake Auth not supported in rustls
 
     // Encoding constants (matching OpenSSL)
     #[pyattr]
@@ -957,7 +959,7 @@ mod _ssl {
         fn set_options(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             // Validate that the value is non-negative
             if value < 0 {
-                return Err(vm.new_overflow_error("options must be non-negative".to_owned()));
+                return Err(vm.new_value_error("options must be non-negative".to_owned()));
             }
 
             // Deprecated SSL/TLS protocol version options
