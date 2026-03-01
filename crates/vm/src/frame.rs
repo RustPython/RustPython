@@ -435,7 +435,7 @@ impl Frame {
 
 impl Py<Frame> {
     #[inline(always)]
-    fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame<'_>) -> R) -> R {
+    fn with_exec<R>(&self, vm: &VirtualMachine, f: impl FnOnce(ExecutingFrame<'_>) -> R) -> R {
         let mut state = self.state.lock();
         let exec = ExecutingFrame {
             code: &self.code,
@@ -443,7 +443,7 @@ impl Py<Frame> {
             locals: &self.locals,
             globals: &self.globals,
             builtins: &self.builtins,
-            builtins_dict: self.builtins.downcast_ref::<PyDict>(),
+            builtins_dict: self.builtins.downcast_ref_if_exact::<PyDict>(vm),
             lasti: &self.lasti,
             object: self,
             state: &mut state,
@@ -454,7 +454,7 @@ impl Py<Frame> {
 
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]
     pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
-        self.with_exec(|mut exec| exec.run(vm))
+        self.with_exec(vm, |mut exec| exec.run(vm))
     }
 
     pub(crate) fn resume(
@@ -462,7 +462,7 @@ impl Py<Frame> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<ExecutionResult> {
-        self.with_exec(|mut exec| {
+        self.with_exec(vm, |mut exec| {
             if let Some(value) = value {
                 exec.push_value(value)
             }
@@ -477,7 +477,7 @@ impl Py<Frame> {
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
-        self.with_exec(|mut exec| exec.gen_throw(vm, exc_type, exc_val, exc_tb))
+        self.with_exec(vm, |mut exec| exec.gen_throw(vm, exc_type, exc_val, exc_tb))
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
@@ -490,7 +490,7 @@ impl Py<Frame> {
             locals: &self.locals,
             globals: &self.globals,
             builtins: &self.builtins,
-            builtins_dict: self.builtins.downcast_ref::<PyDict>(),
+            builtins_dict: None,
             lasti: &self.lasti,
             object: self,
             state: &mut state,
