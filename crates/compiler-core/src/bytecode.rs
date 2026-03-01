@@ -560,10 +560,14 @@ impl CodeUnits {
             let op = units[i].op;
             let caches = op.cache_entries();
             if caches > 0 {
-                let cache_base = i + 1;
-                if cache_base < len {
-                    unsafe {
-                        self.write_adaptive_counter(cache_base, ADAPTIVE_WARMUP_VALUE);
+                // Don't write adaptive counter for instrumented opcodes;
+                // specialization is skipped while monitoring is active.
+                if !op.is_instrumented() {
+                    let cache_base = i + 1;
+                    if cache_base < len {
+                        unsafe {
+                            self.write_adaptive_counter(cache_base, ADAPTIVE_WARMUP_VALUE);
+                        }
                     }
                 }
                 i += 1 + caches;

@@ -44,6 +44,7 @@ copyslot
 cpucount
 defaultdict
 denom
+deopt
 dictbytype
 DICTFLAG
 dictoffset

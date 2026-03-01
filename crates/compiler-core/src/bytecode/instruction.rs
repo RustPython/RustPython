@@ -620,8 +620,11 @@ impl Instruction {
             }
             // RESUME specializations
             Self::ResumeCheck => Self::Resume { arg: Arg::marker() },
-            // Everything else maps to itself
-            _ => self,
+            // Instrumented opcodes map back to their base
+            _ => match self.to_base() {
+                Some(base) => base,
+                None => self,
+            },
         }
     }
 
@@ -739,8 +742,11 @@ impl Instruction {
             | Self::UnpackSequenceTuple
             | Self::UnpackSequenceTwoTuple => 1,
 
-            // Everything else: 0 cache entries
-            _ => 0,
+            // Instrumented opcodes have the same cache entries as their base
+            _ => match self.to_base() {
+                Some(base) => base.cache_entries(),
+                None => 0,
+            },
         }
     }
 }
