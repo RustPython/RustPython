@@ -297,7 +297,7 @@ mod decl {
     struct PyRepeatNewArgs {
         object: PyObjectRef,
         #[pyarg(any, optional)]
-        times: OptionalArg<PyIntRef>,
+        times: OptionalArg<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsRepeat {
@@ -309,7 +309,8 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let times = match times.into_option() {
-                Some(int) => {
+                Some(obj) => {
+                    let int = obj.try_index(vm)?;
                     let val: isize = int.try_to_primitive(vm)?;
                     // times always >= 0.
                     Some(PyRwLock::new(val.to_usize().unwrap_or(0)))
