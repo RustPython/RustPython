@@ -112,7 +112,6 @@ class CursorFactoryTests(MemoryDatabaseMixin, unittest.TestCase):
 
 class RowFactoryTestsBackwardsCompat(MemoryDatabaseMixin, unittest.TestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_is_produced_by_factory(self):
         cur = self.con.cursor(factory=MyCursor)
         cur.execute("select 4+5 as foo")
