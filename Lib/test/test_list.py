@@ -120,7 +120,6 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaises((MemoryError, OverflowError)):
             lst *= size
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_repr_mutate(self):
         class Obj:
             @staticmethod

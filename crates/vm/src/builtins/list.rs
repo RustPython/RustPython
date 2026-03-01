@@ -22,9 +22,10 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter,
     },
-    utils::collection_repr,
     vm::VirtualMachine,
 };
+use rustpython_common::wtf8::Wtf8Buf;
+
 use alloc::fmt;
 use core::ops::DerefMut;
 
@@ -521,14 +522,40 @@ impl Representable for PyList {
         if zelf.__len__() == 0 {
             return Ok(vm.ctx.intern_str("[]").to_owned());
         }
+
         if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             // Clone elements before calling repr to release the read lock.
             // Element repr may mutate the list (e.g., list.clear()), which
             // needs a write lock and would deadlock if read lock is held.
-            let elements: Vec<PyObjectRef> = zelf.borrow_vec().to_vec();
-            Ok(vm
-                .ctx
-                .new_str(collection_repr(None, "[", "]", elements.iter(), vm)?))
+            let mut writer = Wtf8Buf::new();
+            writer.push_char('[');
+
+            let mut elements = zelf.borrow_vec().to_vec();
+            let mut size = zelf.__len__();
+            let mut first = true;
+            let mut i = 0;
+            while i < size {
+                if elements.len() != size {
+                    // `repr` mutated the list. refetch it.
+                    elements = zelf.borrow_vec().to_vec();
+                }
+
+                let item = &elements[i];
+
+                if first {
+                    first = false;
+                } else {
+                    writer.push_str(", ");
+                }
+
+                writer.push_wtf8(item.repr(vm)?.as_wtf8());
+
+                size = zelf.__len__(); // Refetch list size as `repr` may mutate the list.
+                i += 1;
+            }
+
+            writer.push_char(']');
+            Ok(vm.ctx.new_str(writer))
         } else {
             Ok(vm.ctx.intern_str("[...]").to_owned())
         }
