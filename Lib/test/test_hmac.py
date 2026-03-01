@@ -1484,18 +1484,10 @@ class HMACCompareDigestTestCase(CompareDigestMixin, unittest.TestCase):
         else:
             self.assertIs(self.compare_digest, operator_compare_digest)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by compare_digest
-    def test_exceptions(self):
-        return super().test_exceptions()
-
 
 @hashlib_helper.requires_hashlib()
 class OpenSSLCompareDigestTestCase(CompareDigestMixin, unittest.TestCase):
     compare_digest = openssl_compare_digest
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by compare_digest
-    def test_exceptions(self):
-        return super().test_exceptions()
 
 
 class OperatorCompareDigestTestCase(CompareDigestMixin, unittest.TestCase):

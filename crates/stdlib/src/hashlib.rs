@@ -14,7 +14,6 @@ pub mod _hashlib {
             PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyTypeRef, PyUtf8StrRef, PyValueError,
         },
         class::StaticType,
-        convert::ToPyObject,
         function::{ArgBytesLike, ArgStrOrBytesLike, FuncArgs, OptionalArg},
         types::{Constructor, Representable},
     };
@@ -724,22 +723,26 @@ pub mod _hashlib {
         a: ArgStrOrBytesLike,
         b: ArgStrOrBytesLike,
         vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        const fn is_str(arg: &ArgStrOrBytesLike) -> bool {
-            matches!(arg, ArgStrOrBytesLike::Str(_))
-        }
+    ) -> PyResult<bool> {
+        use constant_time_eq::constant_time_eq;
 
-        if is_str(&a) != is_str(&b) {
-            return Err(vm.new_type_error(format!(
+        match (&a, &b) {
+            (ArgStrOrBytesLike::Str(a), ArgStrOrBytesLike::Str(b)) => {
+                if !a.isascii() || !b.isascii() {
+                    return Err(vm.new_type_error(
+                        "comparing strings with non-ASCII characters is not supported",
+                    ));
+                }
+                Ok(constant_time_eq(a.as_bytes(), b.as_bytes()))
+            }
+            (ArgStrOrBytesLike::Buf(a), ArgStrOrBytesLike::Buf(b)) => {
+                Ok(a.with_ref(|a| b.with_ref(|b| constant_time_eq(a, b))))
+            }
+            _ => Err(vm.new_type_error(format!(
                 "a bytes-like object is required, not '{}'",
                 b.as_object().class().name()
-            )));
+            ))),
         }
-
-        let a_hash = a.borrow_bytes().to_vec();
-        let b_hash = b.borrow_bytes().to_vec();
-
-        Ok((a_hash == b_hash).to_pyobject(vm))
     }
 
     #[derive(FromArgs, Debug)]

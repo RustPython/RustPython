@@ -3238,6 +3238,7 @@ dependencies = [
  "bzip2",
  "cfg-if",
  "chrono",
+ "constant_time_eq",
  "crc32fast",
  "crossbeam-utils",
  "csv-core",
