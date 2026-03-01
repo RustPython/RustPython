@@ -2651,7 +2651,6 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedJumpForward => {
                 let src_offset = (self.lasti() - 1) * 2;
-                // JumpForward: 0 caches, forward
                 let target_idx = self.lasti() + u32::from(arg);
                 let target = bytecode::Label(target_idx);
                 self.jump(target);
@@ -2662,7 +2661,6 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedJumpBackward => {
                 let src_offset = (self.lasti() - 1) * 2;
-                // JumpBackward: 1 cache, backward
                 let target_idx = self.lasti() + 1 - u32::from(arg);
                 let target = bytecode::Label(target_idx);
                 self.jump(target);
@@ -2673,7 +2671,6 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedForIter => {
                 let src_offset = (self.lasti() - 1) * 2;
-                // ForIter: 1 cache, forward relative
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
                 let continued = self.execute_for_iter(vm, target)?;
                 if continued {
@@ -2720,7 +2717,6 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedPopJumpIfTrue => {
                 let src_offset = (self.lasti() - 1) * 2;
-                // PopJumpIfTrue: 1 cache, forward
                 let target_idx = self.lasti() + 1 + u32::from(arg);
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;

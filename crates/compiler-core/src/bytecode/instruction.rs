@@ -1198,7 +1198,7 @@ impl InstructionMetadata for Instruction {
             Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
             Self::BuildTemplate => w!(BUILD_TEMPLATE),
             Self::BuildInterpolation { oparg } => w!(BUILD_INTERPOLATION, oparg),
-            _ => write!(f, "{self:?}"),
+            _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
     }
 }

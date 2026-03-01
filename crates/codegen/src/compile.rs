@@ -2374,16 +2374,14 @@ impl Compiler {
                 }
             }
             ast::Stmt::Break(_) => {
-                // Match CPython line-tracing behavior (codegen_break emits NOP).
-                emit!(self, Instruction::Nop);
+                emit!(self, Instruction::Nop); // NOP for line tracing
                 // Unwind fblock stack until we find a loop, emitting cleanup for each fblock
                 self.compile_break_continue(statement.range(), true)?;
                 let dead = self.new_block();
                 self.switch_to_block(dead);
             }
             ast::Stmt::Continue(_) => {
-                // Match CPython line-tracing behavior (codegen_continue emits NOP).
-                emit!(self, Instruction::Nop);
+                emit!(self, Instruction::Nop); // NOP for line tracing
                 // Unwind fblock stack until we find a loop, emitting cleanup for each fblock
                 self.compile_break_continue(statement.range(), false)?;
                 let dead = self.new_block();
@@ -2456,8 +2454,7 @@ impl Compiler {
                 }
             }
             ast::Stmt::Pass(_) => {
-                // Match CPython line-tracing behavior (Pass_kind emits NOP).
-                emit!(self, Instruction::Nop);
+                emit!(self, Instruction::Nop); // NOP for line tracing
             }
             ast::Stmt::TypeAlias(ast::StmtTypeAlias {
                 name,

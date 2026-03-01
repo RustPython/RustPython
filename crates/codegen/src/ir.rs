@@ -255,8 +255,8 @@ impl CodeInfo {
 
         // Convert pseudo ops and remove resulting NOPs (keep line-marker NOPs)
         convert_pseudo_ops(&mut blocks, varname_cache.len() as u32);
-        // Remove redundant NOPs (CPython basicblock_remove_redundant_nops):
-        // keep line-marker NOPs only when they are needed to preserve tracing.
+        // Remove redundant NOPs, keeping line-marker NOPs only when
+        // they are needed to preserve tracing.
         let mut block_order = Vec::new();
         let mut current = BlockIdx(0);
         while current != BlockIdx::NULL {
@@ -283,9 +283,12 @@ impl CodeInfo {
                     }
                     // Remove if the next instruction has same line or no line.
                     else if src < src_instructions.len() - 1 {
-                        let next_lineno = src_instructions[src + 1]
-                            .lineno_override
-                            .unwrap_or_else(|| src_instructions[src + 1].location.line.get() as i32);
+                        let next_lineno =
+                            src_instructions[src + 1]
+                                .lineno_override
+                                .unwrap_or_else(|| {
+                                    src_instructions[src + 1].location.line.get() as i32
+                                });
                         if next_lineno == lineno {
                             remove = true;
                         } else if next_lineno < 0 {
@@ -344,7 +347,6 @@ impl CodeInfo {
         // This is the index into the final instructions array, including EXTENDED_ARG and CACHE
         let mut block_to_index = vec![0u32; blocks.len()];
         // The offset (in code units) of END_SEND from SEND in the yield-from sequence.
-        // Matches CPython's END_SEND_OFFSET in Python/assemble.c.
         const END_SEND_OFFSET: u32 = 5;
         loop {
             let mut num_instructions = 0;
@@ -373,9 +375,8 @@ impl CodeInfo {
                     let mut op = info.instr.expect_real();
                     let old_arg_size = info.arg.instr_size();
                     let old_cache_entries = info.cache_entries;
-                    // Keep offsets fixed within this pass, like CPython's
-                    // resolve_jump_offsets(): changes in jump arg/cache sizes only
-                    // take effect in the next pass.
+                    // Keep offsets fixed within this pass: changes in jump
+                    // arg/cache sizes only take effect in the next iteration.
                     let offset_after = current_offset + old_arg_size as u32 + old_cache_entries;
 
                     if target != BlockIdx::NULL {
@@ -448,7 +449,6 @@ impl CodeInfo {
                     };
                     linetable_locations.extend(core::iter::repeat_n(lt_loc, info.arg.instr_size()));
                     // CACHE entries inherit parent instruction's location
-                    // (matches CPython assemble_location_info: instr_size includes caches)
                     if cache_count > 0 {
                         linetable_locations.extend(core::iter::repeat_n(lt_loc, cache_count));
                     }
@@ -702,7 +702,6 @@ impl CodeInfo {
         }
     }
 
-    /// CPython flowgraph.c:
     /// LOAD_GLOBAL <even> + PUSH_NULL -> LOAD_GLOBAL <odd>, NOP
     fn optimize_load_global_push_null(&mut self) {
         for block in &mut self.blocks {
@@ -1547,8 +1546,7 @@ fn normalize_jumps(blocks: &mut [Block]) {
         }
     }
 
-    // Resolve JUMP/JUMP_NO_INTERRUPT pseudo instructions before offset fixpoint,
-    // matching CPython's resolve_unconditional_jumps().
+    // Resolve JUMP/JUMP_NO_INTERRUPT pseudo instructions before offset fixpoint.
     let mut block_order = vec![0u32; blocks.len()];
     for (pos, &block_idx) in visit_order.iter().enumerate() {
         block_order[block_idx.idx()] = pos as u32;
