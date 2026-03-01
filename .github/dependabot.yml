@@ -9,6 +9,16 @@ updates:
       criterion:
         patterns:
           - "criterion*"
+      crypto:
+        patterns:
+          - "digest"
+          - "md-5"
+          - "sha-1"
+          - "sha2"
+          - "sha3"
+          - "blake2"
+          - "hmac"
+          - "pbkdf2"
       futures:
         patterns:
           - "futures*"
