@@ -97,9 +97,11 @@ impl FrameOwner {
 /// Lock-free storage for local variables (localsplus).
 ///
 /// # Safety
-/// Access is serialized by the frame's state mutex in `with_exec()`, which
-/// prevents concurrent frame execution. Trace callbacks that access `f_locals`
-/// run sequentially on the same thread as instruction execution.
+/// Mutable access is serialized by the frame's state mutex in `with_exec()`.
+/// External readers (e.g. `f_locals`) must use `try_lock` on the state mutex:
+/// if acquired, the frame is not executing and access is exclusive; if not,
+/// the caller is on the same thread as `with_exec()` (trace callback) and
+/// access is safe because frame execution is single-threaded.
 pub struct FastLocals {
     inner: UnsafeCell<Box<[Option<PyObjectRef>]>>,
 }
@@ -387,12 +389,17 @@ impl Frame {
     }
 
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
+        // Acquire the state mutex to synchronize with frame execution.
+        // If try_lock fails, the frame is executing on this thread (e.g.
+        // trace callback accessing f_locals), so fastlocals access is safe.
+        let _guard = self.state.try_lock();
         let locals = &self.locals;
         let code = &**self.code;
         let map = &code.varnames;
         let j = core::cmp::min(map.len(), code.varnames.len());
         if !code.varnames.is_empty() {
-            // SAFETY: Trace callbacks run sequentially on the same thread.
+            // SAFETY: Either _guard holds the state mutex (frame not executing),
+            // or we're in a trace callback on the same thread that holds it.
             let fastlocals = unsafe { self.fastlocals.borrow() };
             for (&k, v) in zip(&map[..j], fastlocals) {
                 match locals.mapping().ass_subscript(k, v.clone(), vm) {
@@ -403,8 +410,6 @@ impl Frame {
             }
         }
         if !code.cellvars.is_empty() || !code.freevars.is_empty() {
-            // Access cells through fastlocals to avoid locking state
-            // (state may be held by with_exec during frame execution).
             for (i, &k) in code.cellvars.iter().enumerate() {
                 let cell_value = self.get_cell_contents(i);
                 match locals.mapping().ass_subscript(k, cell_value, vm) {
