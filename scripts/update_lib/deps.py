@@ -36,7 +36,7 @@ class ImportVisitor(ast.NodeVisitor):
         self.__imports = set()
 
     @property
-    def test_imports(self) -> frozenset[str]:
+    def test_imports(self) -> set[str]:
         imports = set()
         for module in self.__imports:
             if not module.startswith("test."):
@@ -48,13 +48,11 @@ class ImportVisitor(ast.NodeVisitor):
 
             imports.add(name)
 
-        return frozenset(imports)
+        return imports
 
     @property
-    def lib_imports(self) -> frozenset[str]:
-        return frozenset(
-            module for module in self.__imports if not module.startswith("test.")
-        )
+    def lib_imports(self) -> set[str]:
+        return {module for module in self.__imports if not module.startswith("test.")}
 
     def visit_Import(self, node):
         for alias in node.names:
