@@ -603,7 +603,10 @@ impl Comparable for PyInt {
 impl Representable for PyInt {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(zelf.value.to_string())
+        Ok(match zelf.value.to_i64() {
+            Some(i) => i.to_string(),
+            None => zelf.value.to_string(),
+        })
     }
 }
 

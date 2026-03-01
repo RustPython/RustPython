@@ -15,6 +15,7 @@ use crate::{
     protocol::PyIter,
     types::{Constructor, PyComparisonOp},
 };
+use num_traits::ToPrimitive;
 
 // RustPython doesn't need these items
 // PyObject *Py_NotImplemented
@@ -373,6 +374,17 @@ impl PyObject {
     pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let obj = match self.to_owned().downcast_exact::<PyStr>(vm) {
             Ok(s) => return Ok(s.into_pyref()),
+            Err(obj) => obj,
+        };
+        // Fast path for exact int: skip __str__ method resolution
+        let obj = match obj.downcast_exact::<PyInt>(vm) {
+            Ok(int) => {
+                let s = match int.as_bigint().to_i64() {
+                    Some(i) => i.to_string(),
+                    None => int.as_bigint().to_string(),
+                };
+                return Ok(vm.ctx.new_str(s));
+            }
             Err(obj) => obj,
         };
         // TODO: replace to obj.class().slots.str
