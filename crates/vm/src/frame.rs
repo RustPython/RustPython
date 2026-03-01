@@ -25,6 +25,7 @@ use crate::{
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
+    sliceable::SliceableSequenceOp,
     stdlib::{builtins, sys::monitoring, typing},
     types::{PyComparisonOp, PyTypeFlags},
     vm::{Context, PyMethod},
@@ -1427,6 +1428,19 @@ impl ExecutingFrame<'_> {
                 self.execute_compare(vm, op_val)
             }
             Instruction::ContainsOp(invert) => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_contains_op(vm, instr_idx, cache_base);
+                }
+
                 let b = self.pop_value();
                 let a = self.pop_value();
 
@@ -2576,7 +2590,21 @@ impl ExecutingFrame<'_> {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
             Instruction::SetupAnnotations => self.setup_annotations(vm),
-            Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
+            Instruction::StoreAttr { idx } => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_store_attr(vm, idx.get(arg), instr_idx, cache_base);
+                }
+                self.store_attr(vm, idx.get(arg))
+            }
             Instruction::StoreDeref(i) => {
                 let value = self.pop_value();
                 self.state.cells_frees[i.get(arg) as usize].set(Some(value));
@@ -2640,7 +2668,21 @@ impl ExecutingFrame<'_> {
                 container.set_item(&*slice, value, vm)?;
                 Ok(None)
             }
-            Instruction::StoreSubscr => self.execute_store_subscript(vm),
+            Instruction::StoreSubscr => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_store_subscr(vm, instr_idx, cache_base);
+                }
+                self.execute_store_subscript(vm)
+            }
             Instruction::Swap { index } => {
                 let len = self.state.stack.len();
                 debug_assert!(len > 0, "stack underflow in SWAP");
@@ -2680,7 +2722,21 @@ impl ExecutingFrame<'_> {
                 let args = args.get(arg);
                 self.execute_unpack_ex(vm, args.before, args.after)
             }
-            Instruction::UnpackSequence { size } => self.unpack_sequence(size.get(arg), vm),
+            Instruction::UnpackSequence { size } => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_unpack_sequence(vm, instr_idx, cache_base);
+                }
+                self.unpack_sequence(size.get(arg), vm)
+            }
             Instruction::WithExceptStart => {
                 // Stack: [..., __exit__, lasti, prev_exc, exc]
                 // Call __exit__(type, value, tb) and push result
@@ -2944,6 +3000,34 @@ impl ExecutingFrame<'_> {
                 }
                 self.load_attr_slow(vm, oparg)
             }
+            Instruction::StoreAttrInstanceValue => {
+                let attr_idx = u32::from(arg);
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let attr_name = self.code.names[attr_idx as usize];
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if type_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && let Some(dict) = owner.dict()
+                {
+                    self.pop_value(); // owner
+                    let value = self.pop_value();
+                    dict.set_item(attr_name, value, vm)?;
+                    return Ok(None);
+                }
+                // Deoptimize
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::StoreAttr { idx: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                self.store_attr(vm, attr_idx)
+            }
             // Specialized BINARY_OP opcodes
             Instruction::BinaryOpAddInt => {
                 let b = self.top_value();
@@ -3046,6 +3130,78 @@ impl ExecutingFrame<'_> {
                     self.deoptimize_binary_op(bytecode::BinaryOperator::Multiply);
                     self.execute_bin_op(vm, bytecode::BinaryOperator::Multiply)
                 }
+            }
+            Instruction::BinaryOpSubscrListInt => {
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if let (Some(list), Some(idx)) = (
+                    a.downcast_ref_if_exact::<PyList>(vm),
+                    b.downcast_ref_if_exact::<PyInt>(vm),
+                ) && let Ok(i) = idx.try_to_primitive::<isize>(vm)
+                {
+                    let vec = list.borrow_vec();
+                    if let Some(pos) = vec.wrap_index(i) {
+                        let value = vec.do_get(pos);
+                        drop(vec);
+                        self.pop_value();
+                        self.pop_value();
+                        self.push_value(value);
+                        return Ok(None);
+                    }
+                    drop(vec);
+                    self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                    return Err(vm.new_index_error("list index out of range"));
+                }
+                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
+            }
+            Instruction::BinaryOpSubscrTupleInt => {
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if let (Some(tuple), Some(idx)) = (
+                    a.downcast_ref_if_exact::<PyTuple>(vm),
+                    b.downcast_ref_if_exact::<PyInt>(vm),
+                ) && let Ok(i) = idx.try_to_primitive::<isize>(vm)
+                {
+                    let elements = tuple.as_slice();
+                    if let Some(pos) = elements.wrap_index(i) {
+                        let value = elements[pos].clone();
+                        self.pop_value();
+                        self.pop_value();
+                        self.push_value(value);
+                        return Ok(None);
+                    }
+                    self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                    return Err(vm.new_index_error("tuple index out of range"));
+                }
+                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
+            }
+            Instruction::BinaryOpSubscrDict => {
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if let Some(dict) = a.downcast_ref_if_exact::<PyDict>(vm) {
+                    match dict.get_item_opt(b, vm) {
+                        Ok(Some(value)) => {
+                            self.pop_value();
+                            self.pop_value();
+                            self.push_value(value);
+                            return Ok(None);
+                        }
+                        Ok(None) => {
+                            self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                            let key = self.pop_value();
+                            self.pop_value();
+                            return Err(vm.new_key_error(key));
+                        }
+                        Err(e) => {
+                            self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                            return Err(e);
+                        }
+                    }
+                }
+                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::CallPyExactArgs => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -3254,6 +3410,112 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 }
+            }
+            Instruction::ContainsOpDict => {
+                let b = self.top_value(); // haystack
+                if let Some(dict) = b.downcast_ref_if_exact::<PyDict>(vm) {
+                    let a = self.nth_value(1); // needle
+                    let found = dict.get_item_opt(a, vm)?.is_some();
+                    self.pop_value();
+                    self.pop_value();
+                    let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
+                        .unwrap_or(bytecode::Invert::No);
+                    let value = match invert {
+                        bytecode::Invert::No => found,
+                        bytecode::Invert::Yes => !found,
+                    };
+                    self.push_value(vm.ctx.new_bool(value).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_contains_op();
+                    let b = self.pop_value();
+                    let a = self.pop_value();
+                    let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
+                        .unwrap_or(bytecode::Invert::No);
+                    let value = match invert {
+                        bytecode::Invert::No => self._in(vm, &a, &b)?,
+                        bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
+                    };
+                    self.push_value(vm.ctx.new_bool(value).into());
+                    Ok(None)
+                }
+            }
+            Instruction::ContainsOpSet => {
+                let b = self.top_value(); // haystack
+                if b.downcast_ref_if_exact::<PySet>(vm).is_some() {
+                    let a = self.nth_value(1); // needle
+                    let found = vm._contains(b, a)?;
+                    self.pop_value();
+                    self.pop_value();
+                    let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
+                        .unwrap_or(bytecode::Invert::No);
+                    let value = match invert {
+                        bytecode::Invert::No => found,
+                        bytecode::Invert::Yes => !found,
+                    };
+                    self.push_value(vm.ctx.new_bool(value).into());
+                    Ok(None)
+                } else {
+                    self.deoptimize_contains_op();
+                    let b = self.pop_value();
+                    let a = self.pop_value();
+                    let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
+                        .unwrap_or(bytecode::Invert::No);
+                    let value = match invert {
+                        bytecode::Invert::No => self._in(vm, &a, &b)?,
+                        bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
+                    };
+                    self.push_value(vm.ctx.new_bool(value).into());
+                    Ok(None)
+                }
+            }
+            Instruction::UnpackSequenceTwoTuple => {
+                let obj = self.top_value();
+                if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
+                    let elements = tuple.as_slice();
+                    if elements.len() == 2 {
+                        let e0 = elements[0].clone();
+                        let e1 = elements[1].clone();
+                        self.pop_value();
+                        self.push_value(e1);
+                        self.push_value(e0);
+                        return Ok(None);
+                    }
+                }
+                self.deoptimize_unpack_sequence();
+                let size = u32::from(arg);
+                self.unpack_sequence(size, vm)
+            }
+            Instruction::UnpackSequenceTuple => {
+                let size = u32::from(arg) as usize;
+                let obj = self.top_value();
+                if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
+                    let elements = tuple.as_slice();
+                    if elements.len() == size {
+                        let elems: Vec<_> = elements.to_vec();
+                        self.pop_value();
+                        self.state.stack.extend(elems.into_iter().rev().map(Some));
+                        return Ok(None);
+                    }
+                }
+                self.deoptimize_unpack_sequence();
+                self.unpack_sequence(size as u32, vm)
+            }
+            Instruction::UnpackSequenceList => {
+                let size = u32::from(arg) as usize;
+                let obj = self.top_value();
+                if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
+                    let vec = list.borrow_vec();
+                    if vec.len() == size {
+                        let elems: Vec<_> = vec.to_vec();
+                        drop(vec);
+                        self.pop_value();
+                        self.state.stack.extend(elems.into_iter().rev().map(Some));
+                        return Ok(None);
+                    }
+                }
+                self.deoptimize_unpack_sequence();
+                self.unpack_sequence(size as u32, vm)
             }
             Instruction::ForIterRange => {
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
@@ -5029,6 +5291,21 @@ impl ExecutingFrame<'_> {
                     None
                 }
             }
+            bytecode::BinaryOperator::Subscr => {
+                if a.downcast_ref_if_exact::<PyList>(vm).is_some()
+                    && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
+                {
+                    Some(Instruction::BinaryOpSubscrListInt)
+                } else if a.downcast_ref_if_exact::<PyTuple>(vm).is_some()
+                    && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
+                {
+                    Some(Instruction::BinaryOpSubscrTupleInt)
+                } else if a.downcast_ref_if_exact::<PyDict>(vm).is_some() {
+                    Some(Instruction::BinaryOpSubscrDict)
+                } else {
+                    None
+                }
+            }
             _ => None,
         };
 
@@ -5332,6 +5609,155 @@ impl ExecutingFrame<'_> {
             self.code
                 .instructions
                 .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
+    }
+
+    fn specialize_contains_op(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
+        let haystack = self.top_value(); // b = TOS = haystack
+        let new_op = if haystack.downcast_ref_if_exact::<PyDict>(vm).is_some() {
+            Some(Instruction::ContainsOpDict)
+        } else if haystack.downcast_ref_if_exact::<PySet>(vm).is_some() {
+            Some(Instruction::ContainsOpSet)
+        } else {
+            None
+        };
+
+        if let Some(new_op) = new_op {
+            unsafe {
+                self.code.instructions.replace_op(instr_idx, new_op);
+            }
+        } else {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+        }
+    }
+
+    fn deoptimize_contains_op(&mut self) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        unsafe {
+            self.code
+                .instructions
+                .replace_op(instr_idx, Instruction::ContainsOp(Arg::marker()));
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
+    }
+
+    fn specialize_unpack_sequence(
+        &mut self,
+        vm: &VirtualMachine,
+        instr_idx: usize,
+        cache_base: usize,
+    ) {
+        let obj = self.top_value();
+        let new_op = if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
+            if tuple.len() == 2 {
+                Some(Instruction::UnpackSequenceTwoTuple)
+            } else {
+                Some(Instruction::UnpackSequenceTuple)
+            }
+        } else if obj.downcast_ref_if_exact::<PyList>(vm).is_some() {
+            Some(Instruction::UnpackSequenceList)
+        } else {
+            None
+        };
+
+        if let Some(new_op) = new_op {
+            unsafe {
+                self.code.instructions.replace_op(instr_idx, new_op);
+            }
+        } else {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+        }
+    }
+
+    fn deoptimize_unpack_sequence(&mut self) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        unsafe {
+            self.code.instructions.replace_op(
+                instr_idx,
+                Instruction::UnpackSequence {
+                    size: Arg::marker(),
+                },
+            );
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
+    }
+
+    fn specialize_store_attr(
+        &mut self,
+        _vm: &VirtualMachine,
+        attr_idx: bytecode::NameIdx,
+        instr_idx: usize,
+        cache_base: usize,
+    ) {
+        // TOS = owner (the object being assigned to)
+        let owner = self.top_value();
+        let cls = owner.class();
+
+        // Only specialize if setattr is the default (generic_setattr)
+        let is_default_setattr = cls
+            .slots
+            .setattro
+            .load()
+            .is_some_and(|f| f as usize == PyBaseObject::slot_setattro as *const () as usize);
+        if !is_default_setattr {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+            return;
+        }
+
+        // Get or assign type version
+        let mut type_version = cls.tp_version_tag.load(Acquire);
+        if type_version == 0 {
+            type_version = cls.assign_version_tag();
+        }
+        if type_version == 0 {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+            return;
+        }
+
+        // Check no data descriptor for this attr
+        let attr_name = self.code.names[attr_idx as usize];
+        let has_data_descr = cls.get_attr(attr_name).is_some_and(|descr| {
+            let descr_cls = descr.class();
+            descr_cls.slots.descr_get.load().is_some() && descr_cls.slots.descr_set.load().is_some()
+        });
+
+        if !has_data_descr && owner.dict().is_some() {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_cache_u32(cache_base + 1, type_version);
+                self.code
+                    .instructions
+                    .replace_op(instr_idx, Instruction::StoreAttrInstanceValue);
+            }
+        } else {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
         }
     }
 
