@@ -1,7 +1,8 @@
 #[cfg(feature = "flame")]
 use crate::bytecode::InstructionMetadata;
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef, TryFromObject,
+    VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
         PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
@@ -60,7 +61,7 @@ enum UnwindReason {
 struct FrameState {
     // We need 1 stack per frame
     /// The main data frame of the stack machine
-    stack: BoxVec<Option<PyObjectRef>>,
+    stack: BoxVec<Option<PyStackRef>>,
     /// Cell and free variable references (cellvars + freevars).
     cells_frees: Box<[PyCellRef]>,
     /// Previous line number for LINE event suppression.
@@ -1261,8 +1262,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CompareOp { op } => self.execute_compare(vm, op.get(arg)),
             Instruction::ContainsOp(invert) => {
-                let b = self.pop_value();
-                let a = self.pop_value();
+                let b = self.pop_stackref();
+                let a = self.pop_stackref();
 
                 let value = match invert.get(arg) {
                     bytecode::Invert::No => self._in(vm, &a, &b)?,
@@ -1287,7 +1288,7 @@ impl ExecutingFrame<'_> {
                     panic!("CopyItem: stack underflow");
                 }
                 let value = self.state.stack[stack_len - idx].clone();
-                self.push_value_opt(value);
+                self.push_stackref_opt(value);
                 Ok(None)
             }
             Instruction::CopyFreeVars { .. } => {
@@ -1912,6 +1913,7 @@ impl ExecutingFrame<'_> {
                         .into(),
                     )
                 })?;
+                drop(fastlocals);
                 self.push_value(x1);
                 self.push_value(x2);
                 Ok(None)
@@ -2502,6 +2504,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::YieldValue { arg: oparg } => {
+                debug_assert!(
+                    self.state.stack.iter().flatten().all(|sr| !sr.is_borrowed()),
+                    "borrowed refs on stack at yield point"
+                );
                 let value = self.pop_value();
                 // arg=0: direct yield (wrapped for async generators)
                 // arg=1: yield from await/yield-from (NOT wrapped)
@@ -3604,18 +3610,24 @@ impl ExecutingFrame<'_> {
 
         let mut elements = elements;
         // Elements on stack from right-to-left:
-        self.state
-            .stack
-            .extend(elements.drain(before + middle..).rev().map(Some));
+        self.state.stack.extend(
+            elements
+                .drain(before + middle..)
+                .rev()
+                .map(|e| Some(PyStackRef::new_owned(e))),
+        );
 
         let middle_elements = elements.drain(before..).collect();
         let t = vm.ctx.new_list(middle_elements);
         self.push_value(t.into());
 
         // Lastly the first reversed values:
-        self.state
-            .stack
-            .extend(elements.into_iter().rev().map(Some));
+        self.state.stack.extend(
+            elements
+                .into_iter()
+                .rev()
+                .map(|e| Some(PyStackRef::new_owned(e))),
+        );
 
         Ok(None)
     }
@@ -3767,37 +3779,37 @@ impl ExecutingFrame<'_> {
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_bin_op(&mut self, vm: &VirtualMachine, op: bytecode::BinaryOperator) -> FrameResult {
-        let b_ref = &self.pop_value();
-        let a_ref = &self.pop_value();
+        let b_ref = self.pop_stackref();
+        let a_ref = self.pop_stackref();
         let value = match op {
-            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
-            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-            bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
-            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, vm.ctx.none.as_object()),
-            bytecode::BinaryOperator::TrueDivide => vm._truediv(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::Remainder => vm._mod(a_ref, b_ref),
-            bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
-            bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
-            bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceSubtract => vm._isub(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceAdd => vm._iadd(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceMultiply => vm._imul(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(a_ref, b_ref),
+            bytecode::BinaryOperator::Subtract => vm._sub(&a_ref, &b_ref),
+            bytecode::BinaryOperator::Add => vm._add(&a_ref, &b_ref),
+            bytecode::BinaryOperator::Multiply => vm._mul(&a_ref, &b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => vm._matmul(&a_ref, &b_ref),
+            bytecode::BinaryOperator::Power => vm._pow(&a_ref, &b_ref, vm.ctx.none.as_object()),
+            bytecode::BinaryOperator::TrueDivide => vm._truediv(&a_ref, &b_ref),
+            bytecode::BinaryOperator::FloorDivide => vm._floordiv(&a_ref, &b_ref),
+            bytecode::BinaryOperator::Remainder => vm._mod(&a_ref, &b_ref),
+            bytecode::BinaryOperator::Lshift => vm._lshift(&a_ref, &b_ref),
+            bytecode::BinaryOperator::Rshift => vm._rshift(&a_ref, &b_ref),
+            bytecode::BinaryOperator::Xor => vm._xor(&a_ref, &b_ref),
+            bytecode::BinaryOperator::Or => vm._or(&a_ref, &b_ref),
+            bytecode::BinaryOperator::And => vm._and(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceSubtract => vm._isub(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceAdd => vm._iadd(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceMultiply => vm._imul(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(&a_ref, &b_ref),
             bytecode::BinaryOperator::InplacePower => {
-                vm._ipow(a_ref, b_ref, vm.ctx.none.as_object())
+                vm._ipow(&a_ref, &b_ref, vm.ctx.none.as_object())
             }
-            bytecode::BinaryOperator::InplaceTrueDivide => vm._itruediv(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceFloorDivide => vm._ifloordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceRemainder => vm._imod(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceLshift => vm._ilshift(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceRshift => vm._irshift(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceXor => vm._ixor(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceOr => vm._ior(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceAnd => vm._iand(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceTrueDivide => vm._itruediv(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceFloorDivide => vm._ifloordiv(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceRemainder => vm._imod(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceLshift => vm._ilshift(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceRshift => vm._irshift(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceXor => vm._ixor(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceOr => vm._ior(&a_ref, &b_ref),
+            bytecode::BinaryOperator::InplaceAnd => vm._iand(&a_ref, &b_ref),
             bytecode::BinaryOperator::Subscr => a_ref.get_item(b_ref.as_object(), vm),
         }?;
 
@@ -3854,9 +3866,12 @@ impl ExecutingFrame<'_> {
         if let Some(elements) = fast_elements {
             return match elements.len().cmp(&size) {
                 core::cmp::Ordering::Equal => {
-                    self.state
-                        .stack
-                        .extend(elements.into_iter().rev().map(Some));
+                    self.state.stack.extend(
+                        elements
+                            .into_iter()
+                            .rev()
+                            .map(|e| Some(PyStackRef::new_owned(e))),
+                    );
                     Ok(None)
                 }
                 core::cmp::Ordering::Greater => Err(vm.new_value_error(format!(
@@ -3922,9 +3937,12 @@ impl ExecutingFrame<'_> {
                 Err(vm.new_value_error(msg))
             }
             PyIterReturn::StopIteration(_) => {
-                self.state
-                    .stack
-                    .extend(elements.into_iter().rev().map(Some));
+                self.state.stack.extend(
+                    elements
+                        .into_iter()
+                        .rev()
+                        .map(|e| Some(PyStackRef::new_owned(e))),
+                );
                 Ok(None)
             }
         }
@@ -4057,8 +4075,8 @@ impl ExecutingFrame<'_> {
     // Block stack functions removed - exception table handles all exception/cleanup
 
     #[inline]
-    #[track_caller] // not a real track_caller but push_value is less useful for debugging
-    fn push_value_opt(&mut self, obj: Option<PyObjectRef>) {
+    #[track_caller]
+    fn push_stackref_opt(&mut self, obj: Option<PyStackRef>) {
         match self.state.stack.try_push(obj) {
             Ok(()) => {}
             Err(_e) => self.fatal("tried to push value onto stack but overflowed max_stackdepth"),
@@ -4066,32 +4084,63 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
+    #[track_caller] // not a real track_caller but push_value is less useful for debugging
+    fn push_value_opt(&mut self, obj: Option<PyObjectRef>) {
+        self.push_stackref_opt(obj.map(PyStackRef::new_owned));
+    }
+
+    #[inline]
     #[track_caller]
     fn push_value(&mut self, obj: PyObjectRef) {
-        self.push_value_opt(Some(obj));
+        self.push_stackref_opt(Some(PyStackRef::new_owned(obj)));
+    }
+
+    /// Push a borrowed reference onto the stack (no refcount increment).
+    ///
+    /// # Safety
+    /// The object must remain alive until the borrowed ref is consumed.
+    /// The compiler guarantees consumption within the same basic block.
+    #[inline]
+    #[track_caller]
+    unsafe fn push_borrowed(&mut self, obj: &PyObject) {
+        self.push_stackref_opt(Some(unsafe { PyStackRef::new_borrowed(obj) }));
     }
 
     #[inline]
     fn push_null(&mut self) {
-        self.push_value_opt(None);
+        self.push_stackref_opt(None);
     }
 
-    /// Pop a value from the stack, returning None if the stack slot is NULL
+    /// Pop a raw stackref from the stack, returning None if the stack slot is NULL.
     #[inline]
-    fn pop_value_opt(&mut self) -> Option<PyObjectRef> {
+    fn pop_stackref_opt(&mut self) -> Option<PyStackRef> {
         match self.state.stack.pop() {
-            Some(slot) => slot, // slot is Option<PyObjectRef>
+            Some(slot) => slot,
             None => self.fatal("tried to pop from empty stack"),
         }
+    }
+
+    /// Pop a raw stackref from the stack. Panics if NULL.
+    #[inline]
+    #[track_caller]
+    fn pop_stackref(&mut self) -> PyStackRef {
+        expect_unchecked(
+            self.pop_stackref_opt(),
+            "pop stackref but null found. This is a compiler bug.",
+        )
+    }
+
+    /// Pop a value from the stack, returning None if the stack slot is NULL.
+    /// Automatically promotes borrowed refs to owned.
+    #[inline]
+    fn pop_value_opt(&mut self) -> Option<PyObjectRef> {
+        self.pop_stackref_opt().map(|sr| sr.to_pyobj())
     }
 
     #[inline]
     #[track_caller]
     fn pop_value(&mut self) -> PyObjectRef {
-        expect_unchecked(
-            self.pop_value_opt(),
-            "pop value but null found. This is a compiler bug.",
-        )
+        self.pop_stackref().to_pyobj()
     }
 
     fn call_intrinsic_1(
@@ -4263,21 +4312,23 @@ impl ExecutingFrame<'_> {
         }
         self.state.stack.drain(stack_len - count..).map(|obj| {
             expect_unchecked(obj, "pop_multiple but null found. This is a compiler bug.")
+                .to_pyobj()
         })
     }
 
     #[inline]
-    fn replace_top(&mut self, mut top: Option<PyObjectRef>) -> Option<PyObjectRef> {
+    fn replace_top(&mut self, top: Option<PyObjectRef>) -> Option<PyObjectRef> {
+        let mut slot = top.map(PyStackRef::new_owned);
         let last = self.state.stack.last_mut().unwrap();
-        core::mem::swap(last, &mut top);
-        top
+        core::mem::swap(last, &mut slot);
+        slot.map(|sr| sr.to_pyobj())
     }
 
     #[inline]
     #[track_caller]
     fn top_value(&self) -> &PyObject {
         match &*self.state.stack {
-            [.., Some(last)] => last,
+            [.., Some(last)] => last.as_object(),
             [.., None] => self.fatal("tried to get top of stack but got NULL"),
             [] => self.fatal("tried to get top of stack but stack is empty"),
         }
@@ -4288,7 +4339,7 @@ impl ExecutingFrame<'_> {
     fn nth_value(&self, depth: u32) -> &PyObject {
         let stack = &self.state.stack;
         match &stack[stack.len() - depth as usize - 1] {
-            Some(obj) => obj,
+            Some(obj) => obj.as_object(),
             None => unsafe { core::hint::unreachable_unchecked() },
         }
     }
@@ -4415,7 +4466,7 @@ fn is_module_initializing(module: &PyObject, vm: &VirtualMachine) -> bool {
     initializing_attr.try_to_bool(vm).unwrap_or(false)
 }
 
-fn expect_unchecked(optional: Option<PyObjectRef>, err_msg: &'static str) -> PyObjectRef {
+fn expect_unchecked<T: fmt::Debug>(optional: Option<T>, err_msg: &'static str) -> T {
     if cfg!(debug_assertions) {
         optional.expect(err_msg)
     } else {

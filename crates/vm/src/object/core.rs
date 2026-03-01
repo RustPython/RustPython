@@ -1400,6 +1400,136 @@ impl fmt::Debug for PyObjectRef {
     }
 }
 
+// ---------------------------------------------------------------------------
+// PyStackRef – tagged stack reference (owned or borrowed)
+// ---------------------------------------------------------------------------
+
+const STACKREF_BORROW_TAG: usize = 1;
+
+/// A tagged stack reference to a Python object.
+///
+/// Uses the lowest bit of the pointer to distinguish owned vs borrowed:
+/// - bit 0 = 0 → **owned**: refcount was incremented; Drop will decrement.
+/// - bit 0 = 1 → **borrowed**: no refcount change; Drop is a no-op.
+///
+/// Same size as `PyObjectRef` (one pointer-width).  `PyObject` is at least
+/// 8-byte aligned, so the low bit is always available for tagging.
+#[repr(transparent)]
+pub struct PyStackRef {
+    bits: usize,
+}
+
+impl PyStackRef {
+    /// Create an owned stack reference, consuming the `PyObjectRef`.
+    /// Refcount is NOT incremented — ownership is transferred.
+    #[inline(always)]
+    pub fn new_owned(obj: PyObjectRef) -> Self {
+        let ptr = obj.into_raw();
+        let bits = ptr.as_ptr() as usize;
+        debug_assert!(bits & STACKREF_BORROW_TAG == 0, "PyObject pointer must be aligned");
+        Self { bits }
+    }
+
+    /// Create a borrowed stack reference from a `&PyObject`.
+    ///
+    /// # Safety
+    /// The caller must guarantee that the pointed-to object lives at least as
+    /// long as this `PyStackRef`.  In practice the compiler guarantees that
+    /// borrowed refs are consumed within the same basic block, before any
+    /// `STORE_FAST`/`DELETE_FAST` could overwrite the source slot.
+    #[inline(always)]
+    pub unsafe fn new_borrowed(obj: &PyObject) -> Self {
+        let bits = (obj as *const PyObject as usize) | STACKREF_BORROW_TAG;
+        Self { bits }
+    }
+
+    /// Whether this is a borrowed (non-owning) reference.
+    #[inline(always)]
+    pub fn is_borrowed(&self) -> bool {
+        self.bits & STACKREF_BORROW_TAG != 0
+    }
+
+    /// Get a `&PyObject` reference.  Works for both owned and borrowed.
+    #[inline(always)]
+    pub fn as_object(&self) -> &PyObject {
+        unsafe { &*((self.bits & !STACKREF_BORROW_TAG) as *const PyObject) }
+    }
+
+    /// Convert to an owned `PyObjectRef`.
+    ///
+    /// * If **borrowed** → increments refcount, forgets self.
+    /// * If **owned** → reconstructs `PyObjectRef` from the raw pointer, forgets self.
+    #[inline(always)]
+    pub fn to_pyobj(self) -> PyObjectRef {
+        let obj = if self.is_borrowed() {
+            self.as_object().to_owned() // inc refcount
+        } else {
+            let ptr = unsafe { NonNull::new_unchecked(self.bits as *mut PyObject) };
+            unsafe { PyObjectRef::from_raw(ptr) }
+        };
+        core::mem::forget(self); // don't run Drop
+        obj
+    }
+
+    /// Promote a borrowed ref to owned **in place** (increments refcount,
+    /// clears the borrow tag).  No-op if already owned.
+    #[inline(always)]
+    pub fn promote(&mut self) {
+        if self.is_borrowed() {
+            self.as_object().0.ref_count.inc();
+            self.bits &= !STACKREF_BORROW_TAG;
+        }
+    }
+}
+
+impl Drop for PyStackRef {
+    #[inline]
+    fn drop(&mut self) {
+        if !self.is_borrowed() {
+            // Owned: decrement refcount (potentially deallocate).
+            let ptr = unsafe { NonNull::new_unchecked(self.bits as *mut PyObject) };
+            drop(unsafe { PyObjectRef::from_raw(ptr) });
+        }
+        // Borrowed: nothing to do.
+    }
+}
+
+impl core::ops::Deref for PyStackRef {
+    type Target = PyObject;
+
+    #[inline(always)]
+    fn deref(&self) -> &PyObject {
+        self.as_object()
+    }
+}
+
+impl Clone for PyStackRef {
+    /// Cloning always produces an **owned** reference (increments refcount).
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        Self::new_owned(self.as_object().to_owned())
+    }
+}
+
+impl fmt::Debug for PyStackRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_borrowed() {
+            write!(f, "PyStackRef(borrowed, ")?;
+        } else {
+            write!(f, "PyStackRef(owned, ")?;
+        }
+        self.as_object().fmt(f)?;
+        write!(f, ")")
+    }
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "threading")] {
+        unsafe impl Send for PyStackRef {}
+        unsafe impl Sync for PyStackRef {}
+    }
+}
+
 #[repr(transparent)]
 pub struct Py<T>(PyInner<T>);
 
