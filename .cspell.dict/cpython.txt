@@ -28,6 +28,7 @@ carg
 cellarg
 cellvar
 cellvars
+ceval
 cfield
 CLASSDEREF
 classdict

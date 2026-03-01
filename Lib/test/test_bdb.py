@@ -614,7 +614,6 @@ class StateTestCase(BaseTestCase):
                 with TracerRun(self) as tracer:
                     tracer.runcall(tfunc_main)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',), ('quit',)]
     def test_stepinstr(self):
         self.expect_set = [
             ('line',   2, 'tfunc_main'),  ('stepinstr', ),
@@ -1084,7 +1083,6 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_next_until_return_in_generator(self):
         # Issue #16596.
         # Check that set_next(), set_until() and set_return() do not treat the
@@ -1126,7 +1124,6 @@ class IssuesTestCase(BaseTestCase):
                     with TracerRun(self) as tracer:
                         tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_next_command_in_generator_for_loop(self):
         # Issue #16596.
         code = """
@@ -1158,7 +1155,6 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_next_command_in_generator_with_subiterator(self):
         # Issue #16596.
         code = """
@@ -1190,7 +1186,6 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Error in atexit._run_exitfuncs
     def test_return_command_in_generator_with_subiterator(self):
         # Issue #16596.
         code = """
