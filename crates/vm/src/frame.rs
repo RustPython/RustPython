@@ -3389,12 +3389,9 @@ impl ExecutingFrame<'_> {
         let callable = self.pop_value();
 
         let final_args = if let Some(self_val) = self_or_null {
-            let mut all_args = vec![self_val];
-            all_args.extend(args.args);
-            FuncArgs {
-                args: all_args,
-                kwargs: args.kwargs,
-            }
+            let mut args = args;
+            args.prepend_arg(self_val);
+            args
         } else {
             args
         };
@@ -3410,12 +3407,9 @@ impl ExecutingFrame<'_> {
         let callable = self.pop_value();
 
         let final_args = if let Some(self_val) = self_or_null {
-            let mut all_args = vec![self_val];
-            all_args.extend(args.args);
-            FuncArgs {
-                args: all_args,
-                kwargs: args.kwargs,
-            }
+            let mut args = args;
+            args.prepend_arg(self_val);
+            args
         } else {
             args
         };
