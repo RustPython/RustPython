@@ -277,7 +277,7 @@ impl PyObject {
 
     // Perform a comparison, raising TypeError when the requested comparison
     // operator is not supported.
-    // see: CPython PyObject_RichCompare / do_richcompare
+    // see: PyObject_RichCompare / do_richcompare
     #[inline] // called by ExecutingFrame::execute_compare with const op
     fn _cmp(
         &self,
@@ -285,8 +285,8 @@ impl PyObject {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, bool>> {
-        // Single recursion guard for the entire comparison (matching CPython's
-        // Py_EnterRecursiveCallTstate placement in do_richcompare).
+        // Single recursion guard for the entire comparison
+        // (do_richcompare in Objects/object.c).
         vm.with_recursion("in comparison", || self._cmp_inner(other, op, vm))
     }
 

@@ -1,8 +1,8 @@
 #[cfg(feature = "flame")]
 use crate::bytecode::InstructionMetadata;
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef, TryFromObject,
-    VirtualMachine,
+    AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef,
+    TryFromObject, VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
         PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
@@ -447,7 +447,14 @@ impl Py<Frame> {
             locals: &self.locals,
             globals: &self.globals,
             builtins: &self.builtins,
-            builtins_dict: self.builtins.downcast_ref_if_exact::<PyDict>(vm),
+            builtins_dict: if self.globals.class().is(vm.ctx.types.dict_type) {
+                self.builtins
+                    .downcast_ref_if_exact::<PyDict>(vm)
+                    // SAFETY: downcast_ref_if_exact already verified exact type
+                    .map(|d| unsafe { PyExact::ref_unchecked(d) })
+            } else {
+                None
+            },
             lasti: &self.lasti,
             object: self,
             state: &mut state,
@@ -530,9 +537,11 @@ struct ExecutingFrame<'a> {
     locals: &'a ArgMapping,
     globals: &'a PyDictRef,
     builtins: &'a PyObjectRef,
-    /// Cached downcast of builtins to PyDict. builtins never changes during
-    /// frame execution, so we avoid repeating the downcast on every LOAD_GLOBAL.
-    builtins_dict: Option<&'a Py<PyDict>>,
+    /// Cached downcast of builtins to PyDict for fast LOAD_GLOBAL.
+    /// Only set when both globals and builtins are exact dict types (not
+    /// subclasses), so that `__missing__` / `__getitem__` overrides are
+    /// not bypassed.
+    builtins_dict: Option<&'a PyExact<PyDict>>,
     object: &'a Py<Frame>,
     lasti: &'a PyAtomic<u32>,
     state: &'a mut FrameState,
@@ -3028,8 +3037,10 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn load_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         if let Some(builtins_dict) = self.builtins_dict {
-            // Fast path: both globals (PyDictRef) and builtins are exact dicts
-            self.globals
+            // Fast path: both globals and builtins are exact dicts
+            // SAFETY: builtins_dict is only set when globals is also exact dict
+            let globals_exact = unsafe { PyExact::ref_unchecked(self.globals.as_ref()) };
+            globals_exact
                 .get_chain_exact(builtins_dict, name, vm)?
                 .ok_or_else(|| {
                     vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
@@ -3720,13 +3731,10 @@ impl ExecutingFrame<'_> {
 
         // FOR_ITER_RANGE: bypass generic iterator protocol for range iterators
         if let Some(range_iter) = top.downcast_ref_if_exact::<PyRangeIterator>(vm) {
-            let index = range_iter.index.fetch_add(1);
-            if index < range_iter.length {
-                let value = range_iter.start + (index as isize) * range_iter.step;
+            if let Some(value) = range_iter.next_fast() {
                 self.push_value(vm.ctx.new_int(value).into());
                 return Ok(true);
             }
-            // Exhausted
             if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
                 let stop_exc = vm.new_stop_iteration(None);
                 self.fire_exception_trace(&stop_exc, vm)?;
@@ -4085,15 +4093,14 @@ impl ExecutingFrame<'_> {
             self.push_value(vm.ctx.new_bool(result).into());
             return Ok(None);
         }
-        // COMPARE_OP_FLOAT
+        // COMPARE_OP_FLOAT: leaf type, cannot recurse — skip rich_compare dispatch.
+        // Falls through on NaN (partial_cmp returns None) for correct != semantics.
         if let (Some(a_f), Some(b_f)) = (
             a.downcast_ref_if_exact::<PyFloat>(vm),
             b.downcast_ref_if_exact::<PyFloat>(vm),
-        ) {
-            let result = a_f
-                .to_f64()
-                .partial_cmp(&b_f.to_f64())
-                .is_some_and(|ord| cmp_op.eval_ord(ord));
+        ) && let Some(ord) = a_f.to_f64().partial_cmp(&b_f.to_f64())
+        {
+            let result = cmp_op.eval_ord(ord);
             self.push_value(vm.ctx.new_bool(result).into());
             return Ok(None);
         }
