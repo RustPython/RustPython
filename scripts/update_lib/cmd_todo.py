@@ -597,17 +597,16 @@ def format_all_todo(
             else get_module_diff_stat(item["name"], cpython_prefix, lib_prefix)
         )
 
-    # Add last_updated to displayed test items (verbose only - slow)
-    if verbose:
-        for tests in test_by_lib.values():
-            for test in tests:
-                test["last_updated"] = get_test_last_updated(
-                    test["name"], cpython_prefix, lib_prefix
-                )
-        for test in no_lib_tests:
+    # Add last_updated to displayed test items
+    for tests in test_by_lib.values():
+        for test in tests:
             test["last_updated"] = get_test_last_updated(
                 test["name"], cpython_prefix, lib_prefix
             )
+    for test in no_lib_tests:
+        test["last_updated"] = get_test_last_updated(
+            test["name"], cpython_prefix, lib_prefix
+        )
 
     # Format lib todo with embedded tests
     lines.extend(format_todo_list(lib_todo, test_by_lib, limit, verbose))
