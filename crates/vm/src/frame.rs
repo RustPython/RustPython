@@ -26,13 +26,13 @@ use crate::{
 };
 use alloc::fmt;
 use bstr::ByteSlice;
+use core::cell::UnsafeCell;
 use core::iter::zip;
 use core::sync::atomic;
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering::Relaxed;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use core::cell::UnsafeCell;
 use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     boxvec::BoxVec,
@@ -1822,16 +1822,18 @@ impl ExecutingFrame<'_> {
                 // Same as LoadFast but explicitly checks for unbound locals
                 // (LoadFast in RustPython already does this check)
                 let idx = idx.get(arg) as usize;
-                let x = unsafe { self.fastlocals.borrow() }[idx].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
+                let x = unsafe { self.fastlocals.borrow() }[idx]
+                    .clone()
+                    .ok_or_else(|| {
+                        vm.new_exception_msg(
+                            vm.ctx.exceptions.unbound_local_error.to_owned(),
+                            format!(
+                                "local variable '{}' referenced before assignment",
+                                self.code.varnames[idx]
+                            )
+                            .into(),
                         )
-                        .into(),
-                    )
-                })?;
+                    })?;
                 self.push_value(x);
                 Ok(None)
             }
@@ -1870,16 +1872,18 @@ impl ExecutingFrame<'_> {
             // Currently this just clones like LoadFast.
             Instruction::LoadFastBorrow(idx) => {
                 let idx = idx.get(arg) as usize;
-                let x = unsafe { self.fastlocals.borrow() }[idx].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
+                let x = unsafe { self.fastlocals.borrow() }[idx]
+                    .clone()
+                    .ok_or_else(|| {
+                        vm.new_exception_msg(
+                            vm.ctx.exceptions.unbound_local_error.to_owned(),
+                            format!(
+                                "local variable '{}' referenced before assignment",
+                                self.code.varnames[idx]
+                            )
+                            .into(),
                         )
-                        .into(),
-                    )
-                })?;
+                    })?;
                 self.push_value(x);
                 Ok(None)
             }
