@@ -1135,9 +1135,7 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_options(&self, new_opts: i64, vm: &VirtualMachine) -> PyResult<()> {
             if new_opts < 0 {
-                return Err(vm.new_value_error(
-                    "invalid options value".to_owned(),
-                ));
+                return Err(vm.new_value_error("invalid options value".to_owned()));
             }
             let new_opts = new_opts as libc::c_ulong;
             let mut ctx = self.builder();
