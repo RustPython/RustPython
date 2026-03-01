@@ -690,8 +690,9 @@ impl Py<Frame> {
         }
 
         // Clear fastlocals
+        // SAFETY: Frame is not executing (detached or stopped).
         {
-            let mut fastlocals = self.fastlocals.lock();
+            let fastlocals = unsafe { self.fastlocals.borrow_mut() };
             for slot in fastlocals.iter_mut() {
                 *slot = None;
             }
