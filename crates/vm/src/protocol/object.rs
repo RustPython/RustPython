@@ -4,8 +4,8 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseObject, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple,
-        PyTupleRef, PyType, PyTypeRef, PyUtf8Str, pystr::AsPyStr,
+        PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyTupleRef,
+        PyType, PyTypeRef, PyUtf8Str, pystr::AsPyStr,
     },
     common::{hash::PyHash, str::to_ascii},
     convert::{ToPyObject, ToPyResult},
@@ -581,12 +581,8 @@ impl PyObject {
             // PyType_Check(cls) - cls is a type object
             let mut retval = self.class().is_subtype(cls);
             if !retval {
-                // __class__ is a data descriptor on object that always returns
-                // obj.class() under standard __getattribute__. Only do the
-                // expensive attribute lookup when getattro is overridden.
-                if !self.has_standard_getattro()
-                    && let Some(i_cls) =
-                        vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
+                if let Some(i_cls) =
+                    vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
                     && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
                     && !i_cls_type.is(self.class())
                 {
@@ -603,15 +599,13 @@ impl PyObject {
                 )
             })?;
 
-            let i_cls: PyObjectRef = if self.has_standard_getattro() {
-                self.class().to_owned().into()
+            if let Some(i_cls) =
+                vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
+            {
+                i_cls.abstract_issubclass(cls, vm)
             } else {
-                match vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))? {
-                    Some(cls) => cls,
-                    None => return Ok(false),
-                }
-            };
-            i_cls.abstract_issubclass(cls, vm)
+                Ok(false)
+            }
         }
     }
 
@@ -787,15 +781,6 @@ impl PyObject {
         }
 
         Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
-    }
-
-    /// Returns true if the object uses the standard `__getattribute__`
-    /// (i.e. `object.__getattribute__`), meaning attribute access follows
-    /// the normal descriptor protocol without custom interception.
-    #[inline]
-    fn has_standard_getattro(&self) -> bool {
-        let getattro = self.class().slots.getattro.load().unwrap();
-        getattro as usize == PyBaseObject::getattro as *const () as usize
     }
 
     /// Equivalent to CPython's _PyObject_LookupSpecial
