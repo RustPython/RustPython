@@ -1135,8 +1135,7 @@ def _bulk_last_updated() -> dict[str, str]:
     file_map: dict[str, str] = {}
     try:
         result = subprocess.run(
-            ["git", "log", "--format=%cd", "--date=short", "--name-only", "--",
-             "Lib/"],
+            ["git", "log", "--format=%cd", "--date=short", "--name-only", "--", "Lib/"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -1191,7 +1190,7 @@ def _lookup_last_updated(paths: list[str], lib_prefix: str) -> str | None:
         # e.g. "Lib/test/test_os.py" -> "test/test_os.py"
         #      "../Lib/re" -> "re"
         if p_norm.startswith(prefix):
-            key = p_norm[len(prefix):]
+            key = p_norm[len(prefix) :]
         else:
             key = p_norm
         date = cache.get(key)
