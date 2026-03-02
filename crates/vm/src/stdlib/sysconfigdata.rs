@@ -14,6 +14,14 @@ mod _sysconfigdata {
     fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         // Set build_time_vars attribute
         let build_time_vars = build_time_vars(vm);
+
+        // Add runtime-dependent values needed by sysconfig
+        let paths = &vm.state.config.paths;
+        build_time_vars.set_item("prefix", paths.prefix.clone().to_pyobject(vm), vm)?;
+        build_time_vars.set_item("exec_prefix", paths.exec_prefix.clone().to_pyobject(vm), vm)?;
+        let bindir = format!("{}/bin", &paths.exec_prefix);
+        build_time_vars.set_item("BINDIR", bindir.to_pyobject(vm), vm)?;
+
         module.set_attr("build_time_vars", build_time_vars, vm)?;
 
         // Ensure the module is registered under the platform-specific name
@@ -43,6 +51,8 @@ mod _sysconfigdata {
             "HAVE_GETRANDOM" => 1,
             // RustPython has no GIL (like free-threaded Python)
             "Py_GIL_DISABLED" => 1,
+            "Py_DEBUG" => 0,
+            "ABIFLAGS" => "t",
             // Compiler configuration for native extension builds
             "CC" => "cc",
             "CXX" => "c++",
