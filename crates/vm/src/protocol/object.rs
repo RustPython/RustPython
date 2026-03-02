@@ -375,6 +375,13 @@ impl PyObject {
             Ok(s) => return Ok(s.into_pyref()),
             Err(obj) => obj,
         };
+        // Fast path for exact int: skip __str__ method resolution
+        let obj = match obj.downcast_exact::<PyInt>(vm) {
+            Ok(int) => {
+                return Ok(vm.ctx.new_str(int.to_str_radix_10()));
+            }
+            Err(obj) => obj,
+        };
         // TODO: replace to obj.class().slots.str
         let str_method = match vm.get_special_method(&obj, identifier!(vm, __str__))? {
             Some(str_method) => str_method,

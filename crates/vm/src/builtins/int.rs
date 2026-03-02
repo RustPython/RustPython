@@ -267,6 +267,15 @@ impl PyInt {
         &self.value
     }
 
+    /// Fast decimal string conversion, using i64 path when possible.
+    #[inline]
+    pub fn to_str_radix_10(&self) -> String {
+        match self.value.to_i64() {
+            Some(i) => i.to_string(),
+            None => self.value.to_string(),
+        }
+    }
+
     // _PyLong_AsUnsignedLongMask
     pub fn as_u32_mask(&self) -> u32 {
         let v = self.as_bigint();
@@ -603,7 +612,7 @@ impl Comparable for PyInt {
 impl Representable for PyInt {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(zelf.value.to_string())
+        Ok(zelf.to_str_radix_10())
     }
 }
 
