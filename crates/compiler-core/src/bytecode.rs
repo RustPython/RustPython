@@ -343,6 +343,11 @@ pub struct CodeUnit {
 
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
+/// Adaptive specialization: number of executions before attempting specialization.
+pub const ADAPTIVE_WARMUP_VALUE: u8 = 50;
+/// Adaptive specialization: backoff counter after de-optimization.
+pub const ADAPTIVE_BACKOFF_VALUE: u8 = 250;
+
 impl CodeUnit {
     pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
@@ -391,7 +396,11 @@ impl TryFrom<&[u8]> for CodeUnits {
             return Err(Self::Error::InvalidBytecode);
         }
 
-        value.chunks_exact(2).map(CodeUnit::try_from).collect()
+        let units: Self = value
+            .chunks_exact(2)
+            .map(CodeUnit::try_from)
+            .collect::<Result<_, _>>()?;
+        Ok(units)
     }
 }
 
@@ -439,6 +448,140 @@ impl CodeUnits {
             // Write only the opcode byte (first byte of CodeUnit due to #[repr(C)])
             let op_ptr = unit_ptr as *mut u8;
             core::ptr::write(op_ptr, new_op.into());
+        }
+    }
+
+    /// Write a u16 value into a CACHE code unit at `index`.
+    /// Each CodeUnit is 2 bytes (#[repr(C)]: op u8 + arg u8), so one u16 fits exactly.
+    ///
+    /// # Safety
+    /// - `index` must be in bounds and point to a CACHE entry.
+    /// - The caller must ensure no concurrent reads/writes to the same slot.
+    pub unsafe fn write_cache_u16(&self, index: usize, value: u16) {
+        unsafe {
+            let units = &mut *self.0.get();
+            let ptr = units.as_mut_ptr().add(index) as *mut u8;
+            core::ptr::write_unaligned(ptr as *mut u16, value);
+        }
+    }
+
+    /// Read a u16 value from a CACHE code unit at `index`.
+    ///
+    /// # Panics
+    /// Panics if `index` is out of bounds.
+    pub fn read_cache_u16(&self, index: usize) -> u16 {
+        let units = unsafe { &*self.0.get() };
+        assert!(index < units.len(), "read_cache_u16: index out of bounds");
+        let ptr = units.as_ptr().wrapping_add(index) as *const u8;
+        unsafe { core::ptr::read_unaligned(ptr as *const u16) }
+    }
+
+    /// Write a u32 value across two consecutive CACHE code units starting at `index`.
+    ///
+    /// # Safety
+    /// Same requirements as `write_cache_u16`.
+    pub unsafe fn write_cache_u32(&self, index: usize, value: u32) {
+        unsafe {
+            self.write_cache_u16(index, value as u16);
+            self.write_cache_u16(index + 1, (value >> 16) as u16);
+        }
+    }
+
+    /// Read a u32 value from two consecutive CACHE code units starting at `index`.
+    ///
+    /// # Panics
+    /// Panics if `index + 1` is out of bounds.
+    pub fn read_cache_u32(&self, index: usize) -> u32 {
+        let lo = self.read_cache_u16(index) as u32;
+        let hi = self.read_cache_u16(index + 1) as u32;
+        lo | (hi << 16)
+    }
+
+    /// Write a u64 value across four consecutive CACHE code units starting at `index`.
+    ///
+    /// # Safety
+    /// Same requirements as `write_cache_u16`.
+    pub unsafe fn write_cache_u64(&self, index: usize, value: u64) {
+        unsafe {
+            self.write_cache_u32(index, value as u32);
+            self.write_cache_u32(index + 2, (value >> 32) as u32);
+        }
+    }
+
+    /// Read a u64 value from four consecutive CACHE code units starting at `index`.
+    ///
+    /// # Panics
+    /// Panics if `index + 3` is out of bounds.
+    pub fn read_cache_u64(&self, index: usize) -> u64 {
+        let lo = self.read_cache_u32(index) as u64;
+        let hi = self.read_cache_u32(index + 2) as u64;
+        lo | (hi << 32)
+    }
+
+    /// Read the adaptive counter from the first CACHE entry's `arg` byte.
+    /// This preserves `op = Instruction::Cache`, unlike `read_cache_u16`.
+    pub fn read_adaptive_counter(&self, index: usize) -> u8 {
+        let units = unsafe { &*self.0.get() };
+        u8::from(units[index].arg)
+    }
+
+    /// Write the adaptive counter to the first CACHE entry's `arg` byte.
+    /// This preserves `op = Instruction::Cache`, unlike `write_cache_u16`.
+    ///
+    /// # Safety
+    /// - `index` must be in bounds and point to a CACHE entry.
+    pub unsafe fn write_adaptive_counter(&self, index: usize, value: u8) {
+        let units = unsafe { &mut *self.0.get() };
+        units[index].arg = OpArgByte::from(value);
+    }
+
+    /// Produce a clean copy of the bytecode suitable for serialization
+    /// (marshal) and `co_code`. Specialized opcodes are mapped back to their
+    /// base variants via `deoptimize()` and all CACHE entries are zeroed.
+    pub fn original_bytes(&self) -> Vec<u8> {
+        let units = unsafe { &*self.0.get() };
+        let mut out = Vec::with_capacity(units.len() * 2);
+        let len = units.len();
+        let mut i = 0;
+        while i < len {
+            let op = units[i].op.deoptimize();
+            let caches = op.cache_entries();
+            out.push(u8::from(op));
+            out.push(u8::from(units[i].arg));
+            // Zero-fill all CACHE entries (counter + cached data)
+            for _ in 0..caches {
+                i += 1;
+                out.push(0); // op = Cache = 0
+                out.push(0); // arg = 0
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// Initialize adaptive warmup counters for all cacheable instructions.
+    /// Called lazily at RESUME (first execution of a code object).
+    /// Uses the `arg` byte of the first CACHE entry, preserving `op = Instruction::Cache`.
+    pub fn quicken(&self) {
+        let units = unsafe { &mut *self.0.get() };
+        let len = units.len();
+        let mut i = 0;
+        while i < len {
+            let op = units[i].op;
+            let caches = op.cache_entries();
+            if caches > 0 {
+                // Don't write adaptive counter for instrumented opcodes;
+                // specialization is skipped while monitoring is active.
+                if !op.is_instrumented() {
+                    let cache_base = i + 1;
+                    if cache_base < len {
+                        units[cache_base].arg = OpArgByte::from(ADAPTIVE_WARMUP_VALUE);
+                    }
+                }
+                i += 1 + caches;
+            } else {
+                i += 1;
+            }
         }
     }
 }

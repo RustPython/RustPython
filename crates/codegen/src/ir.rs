@@ -457,11 +457,13 @@ impl CodeInfo {
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))
                             .chain([CodeUnit { op, arg: lo_arg }]),
                     );
-                    // Emit CACHE code units after the instruction
-                    instructions.extend(core::iter::repeat_n(
-                        CodeUnit::new(Instruction::Cache, 0.into()),
-                        cache_count,
-                    ));
+                    // Emit CACHE code units after the instruction (all zeroed)
+                    if cache_count > 0 {
+                        instructions.extend(core::iter::repeat_n(
+                            CodeUnit::new(Instruction::Cache, 0.into()),
+                            cache_count,
+                        ));
+                    }
                     current_offset = offset_after;
                 }
                 next_block = block.next;

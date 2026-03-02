@@ -22,6 +22,7 @@ use crate::{
         Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp, Representable,
     },
 };
+use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
@@ -72,9 +73,12 @@ pub struct PyFunction {
     annotate: PyMutex<Option<PyObjectRef>>,
     module: PyMutex<PyObjectRef>,
     doc: PyMutex<PyObjectRef>,
+    func_version: AtomicU32,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
 }
+
+static FUNC_VERSION_COUNTER: AtomicU32 = AtomicU32::new(1);
 
 unsafe impl Traverse for PyFunction {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
@@ -200,6 +204,7 @@ impl PyFunction {
             annotate: PyMutex::new(None),
             module: PyMutex::new(module),
             doc: PyMutex::new(doc),
+            func_version: AtomicU32::new(FUNC_VERSION_COUNTER.fetch_add(1, Relaxed)),
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
         };
@@ -593,6 +598,68 @@ impl Py<PyFunction> {
     pub fn invoke(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         self.invoke_with_locals(func_args, None, vm)
     }
+
+    /// Returns the function version, or 0 if invalidated.
+    #[inline]
+    pub fn func_version(&self) -> u32 {
+        self.func_version.load(Relaxed)
+    }
+
+    /// Check if this function is eligible for exact-args call specialization.
+    /// Returns true if: no VARARGS, no VARKEYWORDS, no kwonly args, not generator/coroutine,
+    /// and effective_nargs matches co_argcount.
+    pub(crate) fn can_specialize_call(&self, effective_nargs: u32) -> bool {
+        let code = self.code.lock();
+        let flags = code.flags;
+        flags.contains(bytecode::CodeFlags::NEWLOCALS)
+            && !flags.intersects(
+                bytecode::CodeFlags::VARARGS
+                    | bytecode::CodeFlags::VARKEYWORDS
+                    | bytecode::CodeFlags::GENERATOR
+                    | bytecode::CodeFlags::COROUTINE,
+            )
+            && code.kwonlyarg_count == 0
+            && code.arg_count == effective_nargs
+    }
+
+    /// Fast path for calling a simple function with exact positional args.
+    /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
+    /// Only valid when: no VARARGS, no VARKEYWORDS, no kwonlyargs, not generator/coroutine,
+    /// and nargs == co_argcount.
+    pub fn invoke_exact_args(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult {
+        let code = self.code.lock().clone();
+
+        let locals = ArgMapping::from_dict_exact(vm.ctx.new_dict());
+
+        let frame = Frame::new(
+            code.clone(),
+            Scope::new(Some(locals), self.globals.clone()),
+            self.builtins.clone(),
+            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            Some(self.to_owned().into()),
+            vm,
+        )
+        .into_ref(&vm.ctx);
+
+        // Copy args directly into fastlocals
+        {
+            let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
+            for (i, arg) in args.iter().enumerate() {
+                fastlocals[i] = Some(arg.clone());
+            }
+        }
+
+        // Handle cell2arg
+        if let Some(cell2arg) = code.cell2arg.as_deref() {
+            let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
+            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
+                let x = fastlocals[*arg_idx as usize].take();
+                frame.set_cell_contents(cell_idx, x);
+            }
+        }
+
+        vm.run_frame(frame)
+    }
 }
 
 impl PyPayload for PyFunction {
@@ -615,12 +682,7 @@ impl PyFunction {
     #[pygetset(setter)]
     fn set___code__(&self, code: PyRef<PyCode>) {
         *self.code.lock() = code;
-        // TODO: jit support
-        // #[cfg(feature = "jit")]
-        // {
-        //     // If available, clear cached compiled code.
-        //     let _ = self.jitted_code.take();
-        // }
+        self.func_version.store(0, Relaxed);
     }
 
     #[pygetset]
@@ -629,7 +691,8 @@ impl PyFunction {
     }
     #[pygetset(setter)]
     fn set___defaults__(&self, defaults: Option<PyTupleRef>) {
-        self.defaults_and_kwdefaults.lock().0 = defaults
+        self.defaults_and_kwdefaults.lock().0 = defaults;
+        self.func_version.store(0, Relaxed);
     }
 
     #[pygetset]
@@ -638,7 +701,8 @@ impl PyFunction {
     }
     #[pygetset(setter)]
     fn set___kwdefaults__(&self, kwdefaults: Option<PyDictRef>) {
-        self.defaults_and_kwdefaults.lock().1 = kwdefaults
+        self.defaults_and_kwdefaults.lock().1 = kwdefaults;
+        self.func_version.store(0, Relaxed);
     }
 
     // {"__closure__",   T_OBJECT,     OFF(func_closure), READONLY},

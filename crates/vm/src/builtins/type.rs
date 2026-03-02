@@ -28,7 +28,14 @@ use crate::{
         Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
     },
 };
-use core::{any::Any, borrow::Borrow, ops::Deref, pin::Pin, ptr::NonNull};
+use core::{
+    any::Any,
+    borrow::Borrow,
+    ops::Deref,
+    pin::Pin,
+    ptr::NonNull,
+    sync::atomic::{AtomicU32, Ordering},
+};
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -44,7 +51,11 @@ pub struct PyType {
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
+    /// Type version tag for inline caching. 0 means unassigned/invalidated.
+    pub tp_version_tag: AtomicU32,
 }
+
+static NEXT_TYPE_VERSION: AtomicU32 = AtomicU32::new(1);
 
 unsafe impl crate::object::Traverse for PyType {
     fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
@@ -188,6 +199,34 @@ fn is_subtype_with_mro(a_mro: &[PyTypeRef], a: &Py<PyType>, b: &Py<PyType>) -> b
 }
 
 impl PyType {
+    /// Assign a fresh version tag. Returns 0 on overflow (all caches invalidated).
+    pub fn assign_version_tag(&self) -> u32 {
+        loop {
+            let current = NEXT_TYPE_VERSION.load(Ordering::Relaxed);
+            let Some(next) = current.checked_add(1) else {
+                return 0; // Overflow: version space exhausted
+            };
+            if NEXT_TYPE_VERSION
+                .compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                self.tp_version_tag.store(current, Ordering::Release);
+                return current;
+            }
+        }
+    }
+
+    /// Invalidate this type's version tag and cascade to all subclasses.
+    pub fn modified(&self) {
+        self.tp_version_tag.store(0, Ordering::Release);
+        let subclasses = self.subclasses.read();
+        for weak_ref in subclasses.iter() {
+            if let Some(sub) = weak_ref.upgrade() {
+                sub.downcast_ref::<PyType>().unwrap().modified();
+            }
+        }
+    }
+
     pub fn new_simple_heap(
         name: &str,
         base: &Py<PyType>,
@@ -365,6 +404,7 @@ impl PyType {
                 attributes: PyRwLock::new(attrs),
                 slots,
                 heaptype_ext: Some(Pin::new(Box::new(heaptype_ext))),
+                tp_version_tag: AtomicU32::new(0),
             },
             metaclass,
             None,
@@ -418,6 +458,7 @@ impl PyType {
                 attributes: PyRwLock::new(attrs),
                 slots,
                 heaptype_ext: None,
+                tp_version_tag: AtomicU32::new(0),
             },
             metaclass,
             None,
@@ -798,6 +839,9 @@ impl PyType {
             Ok(())
         }
         update_mro_recursively(zelf, vm)?;
+
+        // Invalidate inline caches
+        zelf.modified();
 
         // TODO: do any old slots need to be cleaned up first?
         zelf.init_slots(&vm.ctx);
@@ -1903,6 +1947,9 @@ impl SetAttr for PyType {
                 )));
             }
         }
+        // Invalidate inline caches that depend on this type's attributes
+        zelf.modified();
+
         if attr_name.as_wtf8().starts_with("__") && attr_name.as_wtf8().ends_with("__") {
             if assign {
                 zelf.update_slot::<true>(attr_name, &vm.ctx);

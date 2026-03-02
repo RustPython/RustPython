@@ -346,6 +346,8 @@ pub struct PyCode {
     pub instrumentation_version: AtomicU64,
     /// Side-table for INSTRUMENTED_LINE / INSTRUMENTED_INSTRUCTION.
     pub monitoring_data: PyMutex<Option<CoMonitoringData>>,
+    /// Whether adaptive counters have been initialized (lazy quickening).
+    pub quickened: core::sync::atomic::AtomicBool,
 }
 
 impl Deref for PyCode {
@@ -363,6 +365,7 @@ impl PyCode {
             source_path: AtomicPtr::new(sp),
             instrumentation_version: AtomicU64::new(0),
             monitoring_data: PyMutex::new(None),
+            quickened: core::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -681,7 +684,12 @@ impl PyCode {
 
     #[pygetset]
     pub fn co_code(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
-        // SAFETY: CodeUnit is #[repr(C)] with size 2, so we can safely transmute to bytes
+        vm.ctx.new_bytes(self.code.instructions.original_bytes())
+    }
+
+    #[pygetset]
+    pub fn _co_code_adaptive(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
+        // Return current (possibly quickened/specialized) bytecode
         let bytes = unsafe {
             core::slice::from_raw_parts(
                 self.code.instructions.as_ptr() as *const u8,
@@ -689,12 +697,6 @@ impl PyCode {
             )
         };
         vm.ctx.new_bytes(bytes.to_vec())
-    }
-
-    #[pygetset]
-    pub fn _co_code_adaptive(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
-        // RustPython doesn't have adaptive/specialized bytecode, so return regular co_code
-        self.co_code(vm)
     }
 
     #[pygetset]
