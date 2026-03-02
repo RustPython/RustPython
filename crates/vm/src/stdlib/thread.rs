@@ -152,15 +152,9 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            if self.mu.is_locked() {
-                unsafe {
-                    self.mu.unlock();
-                };
-            }
-            // Casting to AtomicCell is as unsafe as CPython code.
-            // Using AtomicCell will prevent compiler optimizer move it to somewhere later unsafe place.
-            // It will be not under the cell anymore after init call.
-
+            // Reset the mutex to unlocked by directly writing the INIT value.
+            // Do NOT call unlock() here — after fork(), unlock_slow() would
+            // try to unpark stale waiters from dead parent threads.
             let new_mut = RawMutex::INIT;
             unsafe {
                 let old_mutex: &AtomicCell<RawMutex> = core::mem::transmute(&self.mu);
@@ -252,11 +246,9 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            if self.mu.is_locked() {
-                unsafe {
-                    self.mu.unlock();
-                };
-            }
+            // Reset the reentrant mutex to unlocked by directly writing INIT.
+            // Do NOT call unlock() — after fork(), the slow path would try
+            // to unpark stale waiters from dead parent threads.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
             let new_mut = RawRMutex::INIT;
             unsafe {
