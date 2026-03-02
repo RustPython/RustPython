@@ -38,6 +38,7 @@ CODEUNIT
 CONIN
 CONOUT
 constevaluator
+consti
 CONVFUNC
 convparam
 copyslot
