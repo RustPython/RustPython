@@ -10,7 +10,7 @@ use crate::{
         PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
         builtin_func::PyNativeFunction,
-        descriptor::PyMethodDescriptor,
+        descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
         function::{PyCell, PyCellRef, PyFunction},
         list::PyListIterator,
@@ -3221,6 +3221,40 @@ impl ExecutingFrame<'_> {
                 }
                 self.load_attr_slow(vm, oparg)
             }
+            Instruction::LoadAttrSlot => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version
+                {
+                    let slot_offset =
+                        self.code.instructions.read_cache_u32(cache_base + 3) as usize;
+                    if let Some(value) = owner.get_slot(slot_offset) {
+                        self.pop_value();
+                        if oparg.is_method() {
+                            self.push_value(value);
+                            self.push_value_opt(None);
+                        } else {
+                            self.push_value(value);
+                        }
+                        return Ok(None);
+                    }
+                    // Slot is None → AttributeError (fall through to slow path)
+                }
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                self.load_attr_slow(vm, oparg)
+            }
             Instruction::StoreAttrInstanceValue => {
                 let attr_idx = u32::from(arg);
                 let instr_idx = self.lasti() as usize - 1;
@@ -3239,6 +3273,35 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
                 // Deoptimize
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::StoreAttr { idx: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                self.store_attr(vm, attr_idx)
+            }
+            Instruction::StoreAttrSlot => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let version_match = type_version != 0 && {
+                    let owner = self.top_value();
+                    owner.class().tp_version_tag.load(Acquire) == type_version
+                };
+
+                if version_match {
+                    let slot_offset =
+                        self.code.instructions.read_cache_u32(cache_base + 3) as usize;
+                    let owner = self.pop_value();
+                    let value = self.pop_value();
+                    owner.set_slot(slot_offset, Some(value));
+                    return Ok(None);
+                }
+                // Deoptimize
+                let attr_idx = u32::from(arg);
                 unsafe {
                     self.code
                         .instructions
@@ -5936,8 +5999,32 @@ impl ExecutingFrame<'_> {
                 descr.class().slots.descr_get.load().is_some()
             });
 
-            if has_data_descr || has_descr_get {
-                // Data descriptor or non-data descriptor with __get__ — can't specialize
+            if has_data_descr {
+                // Check for member descriptor (slot access)
+                if let Some(ref descr) = cls_attr
+                    && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
+                    && let MemberGetter::Offset(offset) = member_descr.member.getter
+                {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, type_version);
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 3, offset as u32);
+                        self.code
+                            .instructions
+                            .replace_op(instr_idx, Instruction::LoadAttrSlot);
+                    }
+                } else {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    }
+                }
+            } else if has_descr_get {
+                // Non-data descriptor with __get__ — can't specialize
                 unsafe {
                     self.code
                         .instructions
@@ -6693,14 +6780,40 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // Check no data descriptor for this attr
+        // Check for data descriptor
         let attr_name = self.code.names[attr_idx as usize];
-        let has_data_descr = cls.get_attr(attr_name).is_some_and(|descr| {
+        let cls_attr = cls.get_attr(attr_name);
+        let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
             let descr_cls = descr.class();
-            descr_cls.slots.descr_get.load().is_some() && descr_cls.slots.descr_set.load().is_some()
+            descr_cls.slots.descr_get.load().is_some()
+                && descr_cls.slots.descr_set.load().is_some()
         });
 
-        if !has_data_descr && owner.dict().is_some() {
+        if has_data_descr {
+            // Check for member descriptor (slot access)
+            if let Some(ref descr) = cls_attr
+                && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
+                && let MemberGetter::Offset(offset) = member_descr.member.getter
+            {
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 1, type_version);
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 3, offset as u32);
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::StoreAttrSlot);
+                }
+            } else {
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+            }
+        } else if owner.dict().is_some() {
             unsafe {
                 self.code
                     .instructions
