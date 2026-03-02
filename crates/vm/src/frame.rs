@@ -6,8 +6,8 @@ use crate::{
     TryFromObject, VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine, PyDict, PyDictRef,
-        PyFloat, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty, PySet, PySlice, PyStr,
-        PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
+        PyFloat, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty, PySet, PySlice,
+        PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
         builtin_func::PyNativeFunction,
         descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
@@ -1388,8 +1388,21 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallKw { nargs } => {
+                let nargs = nargs.get(arg);
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_call_kw(vm, nargs, instr_idx, cache_base);
+                }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
-                let args = self.collect_keyword_args(nargs.get(arg));
+                let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
             Instruction::CallFunctionEx => {
@@ -2877,9 +2890,12 @@ impl ExecutingFrame<'_> {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::Send { target: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::Send {
+                            target: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3243,8 +3259,7 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version
-                {
+                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
                     let slot_offset =
                         self.code.instructions.read_cache_u32(cache_base + 3) as usize;
                     if let Some(value) = owner.get_slot(slot_offset) {
@@ -3277,12 +3292,10 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version
-                {
+                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
                     let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
                     if descr_ptr != 0 {
-                        let descr =
-                            unsafe { &*(descr_ptr as *const PyObject) };
+                        let descr = unsafe { &*(descr_ptr as *const PyObject) };
                         if let Some(prop) = descr.downcast_ref::<PyProperty>() {
                             let owner = self.pop_value();
                             if let Some(getter) = prop.get_fget() {
@@ -3731,14 +3744,14 @@ impl ExecutingFrame<'_> {
                 let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 2 {
-                    // Stack: [callable, null, obj, classinfo]
-                    let classinfo = self.pop_value();
+                    // Stack: [callable, null, obj, class_info]
+                    let class_info = self.pop_value();
                     let obj = self.pop_value();
                     let _null = self.pop_value_opt();
                     let callable = self.pop_value();
                     let callable_tag = &*callable as *const PyObject as u32;
                     if cached_tag == callable_tag {
-                        let result = obj.is_instance(&classinfo, vm)?;
+                        let result = obj.is_instance(&class_info, vm)?;
                         self.push_value(vm.ctx.new_bool(result).into());
                         return Ok(None);
                     }
@@ -3746,7 +3759,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(callable);
                     self.push_value_opt(_null);
                     self.push_value(obj);
-                    self.push_value(classinfo);
+                    self.push_value(class_info);
                 }
                 self.deoptimize_call();
                 let args = self.collect_positional_args(nargs);
@@ -4075,9 +4088,7 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag
-                    && callable.downcast_ref::<PyType>().is_some()
-                {
+                if cached_tag == callable_tag && callable.downcast_ref::<PyType>().is_some() {
                     let args = self.collect_positional_args(nargs);
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
@@ -4183,6 +4194,77 @@ impl ExecutingFrame<'_> {
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
+            Instruction::CallKwPy => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
+                // callable is at position nargs + 2 from top (nargs args + kwarg_names + self_or_null)
+                let callable = self.nth_value(nargs + 2);
+                if let Some(func) = callable.downcast_ref::<PyFunction>()
+                    && func.func_version() == cached_version
+                    && cached_version != 0
+                {
+                    let args = self.collect_keyword_args(nargs);
+                    let self_or_null = self.pop_value_opt();
+                    let callable = self.pop_value();
+                    let func = callable.downcast_ref::<PyFunction>().unwrap();
+                    let final_args = if let Some(self_val) = self_or_null {
+                        let mut args = args;
+                        args.prepend_arg(self_val);
+                        args
+                    } else {
+                        args
+                    };
+                    let result = func.invoke(final_args, vm)?;
+                    self.push_value(result);
+                    return Ok(None);
+                }
+                self.deoptimize_call_kw();
+                let args = self.collect_keyword_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallKwBoundMethod => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                // Stack: [callable, self_or_null(=self), arg1, ..., argN, kwarg_names]
+                let callable = self.nth_value(nargs + 2);
+                if let Some(func) = callable.downcast_ref::<PyFunction>()
+                    && func.func_version() == cached_version
+                    && cached_version != 0
+                {
+                    let args = self.collect_keyword_args(nargs);
+                    let self_val = self.pop_value(); // self_or_null is always Some here
+                    let callable = self.pop_value();
+                    let func = callable.downcast_ref::<PyFunction>().unwrap();
+                    let mut final_args = args;
+                    final_args.prepend_arg(self_val);
+                    let result = func.invoke(final_args, vm)?;
+                    self.push_value(result);
+                    return Ok(None);
+                }
+                self.deoptimize_call_kw();
+                let args = self.collect_keyword_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallKwNonPy => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                let callable = self.nth_value(nargs + 2);
+                let callable_tag = callable as *const PyObject as u32;
+                if cached_tag == callable_tag {
+                    let args = self.collect_keyword_args(nargs);
+                    return self.execute_call(args, vm);
+                }
+                self.deoptimize_call_kw();
+                let args = self.collect_keyword_args(nargs);
+                self.execute_call(args, vm)
+            }
             Instruction::LoadSuperAttrAttr => {
                 let oparg = u32::from(arg);
                 let attr_name = self.code.names[(oparg >> 2) as usize];
@@ -4209,7 +4291,8 @@ impl ExecutingFrame<'_> {
                         }
                         if let Some(descr) = cls.get_direct_attr(attr_name) {
                             // Call descriptor __get__ if available
-                            let obj_arg = if self_obj.class().is(class) {
+                            // Pass None for obj when self IS its own type (classmethod)
+                            let obj_arg = if self_obj.is(start_type.as_object()) {
                                 None
                             } else {
                                 Some(self_obj.to_owned())
@@ -4237,9 +4320,7 @@ impl ExecutingFrame<'_> {
                 unsafe {
                     self.code.instructions.replace_op(
                         self.lasti() as usize - 1,
-                        Instruction::LoadSuperAttr {
-                            arg: Arg::marker(),
-                        },
+                        Instruction::LoadSuperAttr { arg: Arg::marker() },
                     );
                     let cache_base = self.lasti() as usize;
                     self.code
@@ -4275,20 +4356,27 @@ impl ExecutingFrame<'_> {
                             continue;
                         }
                         if let Some(descr) = cls.get_direct_attr(attr_name) {
-                            // Check if it's a method (has __get__)
-                            let method = vm.call_get_descriptor_specific(
-                                &descr,
-                                Some(self_val.clone()),
-                                Some(start_type.as_object().to_owned()),
-                            );
-                            match method {
-                                Some(Ok(bound)) => {
-                                    found = Some((bound, true));
-                                }
-                                Some(Err(e)) => return Err(e),
-                                None => {
-                                    found = Some((descr, false));
-                                }
+                            let descr_cls = descr.class();
+                            if descr_cls
+                                .slots
+                                .flags
+                                .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
+                            {
+                                // Method descriptor: push unbound func + self
+                                // CALL will prepend self as first positional arg
+                                found = Some((descr, true));
+                            } else if let Some(descr_get) = descr_cls.slots.descr_get.load() {
+                                // Has __get__ but not METHOD_DESCRIPTOR: bind it
+                                let bound = descr_get(
+                                    descr,
+                                    Some(self_val.clone()),
+                                    Some(start_type.as_object().to_owned()),
+                                    vm,
+                                )?;
+                                found = Some((bound, false));
+                            } else {
+                                // Plain attribute
+                                found = Some((descr, false));
                             }
                             break;
                         }
@@ -4310,9 +4398,7 @@ impl ExecutingFrame<'_> {
                 unsafe {
                     self.code.instructions.replace_op(
                         self.lasti() as usize - 1,
-                        Instruction::LoadSuperAttr {
-                            arg: Arg::marker(),
-                        },
+                        Instruction::LoadSuperAttr { arg: Arg::marker() },
                     );
                     let cache_base = self.lasti() as usize;
                     self.code
@@ -6303,9 +6389,9 @@ impl ExecutingFrame<'_> {
                 descr_cls.slots.descr_get.load().is_some()
                     && descr_cls.slots.descr_set.load().is_some()
             });
-            let has_descr_get = cls_attr.as_ref().is_some_and(|descr| {
-                descr.class().slots.descr_get.load().is_some()
-            });
+            let has_descr_get = cls_attr
+                .as_ref()
+                .is_some_and(|descr| descr.class().slots.descr_get.load().is_some());
 
             if has_data_descr {
                 // Check for member descriptor (slot access)
@@ -6365,10 +6451,9 @@ impl ExecutingFrame<'_> {
                         self.code
                             .instructions
                             .write_cache_u64(cache_base + 5, descr_ptr);
-                        self.code.instructions.replace_op(
-                            instr_idx,
-                            Instruction::LoadAttrNondescriptorWithValues,
-                        );
+                        self.code
+                            .instructions
+                            .replace_op(instr_idx, Instruction::LoadAttrNondescriptorWithValues);
                     }
                 } else {
                     // No class attr, must be in instance dict
@@ -6672,9 +6757,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Try to specialize method descriptor calls
-        if self_or_null_is_some
-            && callable.downcast_ref::<PyMethodDescriptor>().is_some()
-        {
+        if self_or_null_is_some && callable.downcast_ref::<PyMethodDescriptor>().is_some() {
             let callable_tag = callable as *const PyObject as u32;
             let new_op = match nargs {
                 0 => Instruction::CallMethodDescriptorNoargs,
@@ -6756,6 +6839,57 @@ impl ExecutingFrame<'_> {
             self.code
                 .instructions
                 .replace_op(instr_idx, Instruction::CallNonPyGeneral);
+            self.code
+                .instructions
+                .write_cache_u32(cache_base + 1, callable_tag);
+        }
+    }
+
+    fn specialize_call_kw(
+        &mut self,
+        _vm: &VirtualMachine,
+        nargs: u32,
+        instr_idx: usize,
+        cache_base: usize,
+    ) {
+        // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
+        // callable is at position nargs + 2 from top
+        let stack = &self.state.stack;
+        let stack_len = stack.len();
+        let self_or_null_is_some = stack[stack_len - nargs as usize - 2].is_some();
+        let callable = self.nth_value(nargs + 2);
+
+        if let Some(func) = callable.downcast_ref::<PyFunction>() {
+            let version = func.func_version();
+            if version == 0 {
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                return;
+            }
+
+            let new_op = if self_or_null_is_some {
+                Instruction::CallKwBoundMethod
+            } else {
+                Instruction::CallKwPy
+            };
+            unsafe {
+                self.code.instructions.replace_op(instr_idx, new_op);
+                self.code
+                    .instructions
+                    .write_cache_u32(cache_base + 1, version);
+            }
+            return;
+        }
+
+        // General fallback
+        let callable_tag = callable as *const PyObject as u32;
+        unsafe {
+            self.code
+                .instructions
+                .replace_op(instr_idx, Instruction::CallKwNonPy);
             self.code
                 .instructions
                 .write_cache_u32(cache_base + 1, callable_tag);
@@ -6957,6 +7091,22 @@ impl ExecutingFrame<'_> {
             self.code.instructions.replace_op(
                 instr_idx,
                 Instruction::Call {
+                    nargs: Arg::marker(),
+                },
+            );
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
+    }
+
+    fn deoptimize_call_kw(&mut self) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        unsafe {
+            self.code.instructions.replace_op(
+                instr_idx,
+                Instruction::CallKw {
                     nargs: Arg::marker(),
                 },
             );
@@ -7231,8 +7381,7 @@ impl ExecutingFrame<'_> {
         let cls_attr = cls.get_attr(attr_name);
         let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
             let descr_cls = descr.class();
-            descr_cls.slots.descr_get.load().is_some()
-                && descr_cls.slots.descr_set.load().is_some()
+            descr_cls.slots.descr_get.load().is_some() && descr_cls.slots.descr_set.load().is_some()
         });
 
         if has_data_descr {
