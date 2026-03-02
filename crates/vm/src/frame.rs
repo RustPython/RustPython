@@ -2799,10 +2799,18 @@ impl ExecutingFrame<'_> {
             }
             Instruction::Send { .. } => {
                 // (receiver, v -- receiver, retval)
-                // Pops v, sends it to receiver. On yield, pushes retval
-                // (so stack = [..., receiver, retval]). On return/StopIteration,
-                // also pushes retval and jumps to END_SEND which will pop receiver.
-                // Relative forward: target = lasti + caches(1) + delta
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_send(instr_idx, cache_base);
+                }
                 let exit_label = bytecode::Label(self.lasti() + 1 + u32::from(arg));
                 let val = self.pop_value();
                 let receiver = self.top_value();
@@ -2813,8 +2821,61 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                     PyIterReturn::StopIteration(value) => {
-                        // Fire 'exception' trace event for StopIteration,
-                        // matching SEND's exception handling.
+                        if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                            let stop_exc = vm.new_stop_iteration(value.clone());
+                            self.fire_exception_trace(&stop_exc, vm)?;
+                        }
+                        let value = vm.unwrap_or_none(value);
+                        self.push_value(value);
+                        self.jump(exit_label);
+                        Ok(None)
+                    }
+                }
+            }
+            Instruction::SendGen => {
+                let exit_label = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                // Stack: [receiver, val] — peek receiver before popping
+                let receiver = self.nth_value(1);
+                let is_coro = self.builtin_coro(receiver).is_some();
+                let val = self.pop_value();
+                let receiver = self.top_value();
+
+                if is_coro {
+                    let coro = self.builtin_coro(receiver).unwrap();
+                    match coro.send(receiver, val, vm)? {
+                        PyIterReturn::Return(value) => {
+                            self.push_value(value);
+                            return Ok(None);
+                        }
+                        PyIterReturn::StopIteration(value) => {
+                            if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                                let stop_exc = vm.new_stop_iteration(value.clone());
+                                self.fire_exception_trace(&stop_exc, vm)?;
+                            }
+                            let value = vm.unwrap_or_none(value);
+                            self.push_value(value);
+                            self.jump(exit_label);
+                            return Ok(None);
+                        }
+                    }
+                }
+                // Deoptimize
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::Send { target: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                match self._send(receiver, val, vm)? {
+                    PyIterReturn::Return(value) => {
+                        self.push_value(value);
+                        Ok(None)
+                    }
+                    PyIterReturn::StopIteration(value) => {
                         if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
                             let stop_exc = vm.new_stop_iteration(value.clone());
                             self.fire_exception_trace(&stop_exc, vm)?;
@@ -6197,6 +6258,24 @@ impl ExecutingFrame<'_> {
             self.code
                 .instructions
                 .write_cache_u32(cache_base + 1, callable_tag);
+        }
+    }
+
+    fn specialize_send(&mut self, instr_idx: usize, cache_base: usize) {
+        // Stack: [receiver, val] — receiver is at position 1
+        let receiver = self.nth_value(1);
+        if self.builtin_coro(receiver).is_some() {
+            unsafe {
+                self.code
+                    .instructions
+                    .replace_op(instr_idx, Instruction::SendGen);
+            }
+        } else {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
         }
     }
 
