@@ -6191,6 +6191,12 @@ impl ExecutingFrame<'_> {
         let obj = self.top_value();
         let cls = obj.class();
 
+        // Check if this is a type object (class attribute access)
+        if obj.downcast_ref::<PyType>().is_some() {
+            self.specialize_class_load_attr(_vm, oparg, instr_idx, cache_base);
+            return;
+        }
+
         // Only specialize if getattro is the default (PyBaseObject::getattro)
         let is_default_getattro = cls
             .slots
@@ -6382,6 +6388,79 @@ impl ExecutingFrame<'_> {
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
                 }
             }
+        }
+    }
+
+    fn specialize_class_load_attr(
+        &mut self,
+        _vm: &VirtualMachine,
+        oparg: LoadAttr,
+        instr_idx: usize,
+        cache_base: usize,
+    ) {
+        let obj = self.top_value();
+        let owner_type = obj.downcast_ref::<PyType>().unwrap();
+
+        // Get or assign type version for the type object itself
+        let mut type_version = owner_type.tp_version_tag.load(Acquire);
+        if type_version == 0 {
+            type_version = owner_type.assign_version_tag();
+        }
+        if type_version == 0 {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+            return;
+        }
+
+        let attr_name = self.code.names[oparg.name_idx() as usize];
+
+        // Check metaclass: ensure no data descriptor on metaclass for this name
+        let mcl = obj.class();
+        let mcl_attr = mcl.get_attr(attr_name);
+        if let Some(ref attr) = mcl_attr {
+            let attr_class = attr.class();
+            if attr_class.slots.descr_set.load().is_some() {
+                // Data descriptor on metaclass — can't specialize
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                return;
+            }
+        }
+
+        // Look up attr in the type's own MRO
+        let cls_attr = owner_type.get_attr(attr_name);
+        if let Some(ref descr) = cls_attr {
+            let descr_class = descr.class();
+            let has_descr_get = descr_class.slots.descr_get.load().is_some();
+            if !has_descr_get {
+                // METHOD or NON_DESCRIPTOR — can cache directly
+                let descr_ptr = &**descr as *const PyObject as u64;
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 1, type_version);
+                    self.code
+                        .instructions
+                        .write_cache_u64(cache_base + 5, descr_ptr);
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttrClass);
+                }
+                return;
+            }
+        }
+
+        // Can't specialize
+        unsafe {
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
         }
     }
 
