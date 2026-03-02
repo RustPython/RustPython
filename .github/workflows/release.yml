@@ -161,8 +161,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref_name }}
           run: ${{ github.run_number }}
+          PRE_RELEASE_INPUT: ${{ github.event.inputs.pre-release }}
         run: |
-          if [[ "${{ github.event.inputs.pre-release }}" == "false" ]]; then
+          if [[ "${PRE_RELEASE_INPUT}" == "false" ]]; then
             RELEASE_TYPE_NAME=Release
             PRERELEASE_ARG=
           else
