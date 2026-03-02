@@ -45,6 +45,12 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
         return Ok(());
     }
 
+    // Read-only check first: avoids cache-line invalidation on every
+    // instruction when no signal is pending (the common case).
+    if !ANY_TRIGGERED.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+    // Atomic RMW only when a signal is actually pending.
     if !ANY_TRIGGERED.swap(false, Ordering::Acquire) {
         return Ok(());
     }

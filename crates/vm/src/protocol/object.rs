@@ -277,9 +277,20 @@ impl PyObject {
 
     // Perform a comparison, raising TypeError when the requested comparison
     // operator is not supported.
-    // see: CPython PyObject_RichCompare
+    // see: PyObject_RichCompare / do_richcompare
     #[inline] // called by ExecutingFrame::execute_compare with const op
     fn _cmp(
+        &self,
+        other: &Self,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, bool>> {
+        // Single recursion guard for the entire comparison
+        // (do_richcompare in Objects/object.c).
+        vm.with_recursion("in comparison", || self._cmp_inner(other, op, vm))
+    }
+
+    fn _cmp_inner(
         &self,
         other: &Self,
         op: PyComparisonOp,
@@ -302,19 +313,17 @@ impl PyObject {
             !self_class.is(other_class) && other_class.fast_issubclass(self_class)
         };
         if is_strict_subclass {
-            let res = vm.with_recursion("in comparison", || call_cmp(other, self, swapped))?;
+            let res = call_cmp(other, self, swapped)?;
             checked_reverse_op = true;
             if let PyArithmeticValue::Implemented(x) = res {
                 return Ok(x);
             }
         }
-        if let PyArithmeticValue::Implemented(x) =
-            vm.with_recursion("in comparison", || call_cmp(self, other, op))?
-        {
+        if let PyArithmeticValue::Implemented(x) = call_cmp(self, other, op)? {
             return Ok(x);
         }
         if !checked_reverse_op {
-            let res = vm.with_recursion("in comparison", || call_cmp(other, self, swapped))?;
+            let res = call_cmp(other, self, swapped)?;
             if let PyArithmeticValue::Implemented(x) = res {
                 return Ok(x);
             }

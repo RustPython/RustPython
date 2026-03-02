@@ -1,15 +1,18 @@
 #[cfg(feature = "flame")]
 use crate::bytecode::InstructionMetadata;
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef, TryFromObject,
-    VirtualMachine,
+    AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef,
+    TryFromObject, VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
         PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
         PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
+        float::PyFloat,
         frame::stack_analysis,
         function::{PyCell, PyCellRef, PyFunction},
+        int::PyInt,
+        range::PyRangeIterator,
         tuple::{PyTuple, PyTupleRef},
     },
     bytecode::{self, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod},
@@ -22,7 +25,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::{builtins, sys::monitoring, typing},
-    types::PyTypeFlags,
+    types::{PyComparisonOp, PyTypeFlags},
     vm::{Context, PyMethod},
 };
 use alloc::fmt;
@@ -34,6 +37,7 @@ use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering::Relaxed;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use malachite_bigint::BigInt;
 use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     boxvec::BoxVec,
@@ -97,9 +101,11 @@ impl FrameOwner {
 /// Lock-free storage for local variables (localsplus).
 ///
 /// # Safety
-/// Access is serialized by the frame's state mutex in `with_exec()`, which
-/// prevents concurrent frame execution. Trace callbacks that access `f_locals`
-/// run sequentially on the same thread as instruction execution.
+/// Mutable access is serialized by the frame's state mutex in `with_exec()`.
+/// External readers (e.g. `f_locals`) must use `try_lock` on the state mutex:
+/// if acquired, the frame is not executing and access is exclusive; if not,
+/// the caller is on the same thread as `with_exec()` (trace callback) and
+/// access is safe because frame execution is single-threaded.
 pub struct FastLocals {
     inner: UnsafeCell<Box<[Option<PyObjectRef>]>>,
 }
@@ -387,12 +393,17 @@ impl Frame {
     }
 
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
+        // Acquire the state mutex to synchronize with frame execution.
+        // If try_lock fails, the frame is executing on this thread (e.g.
+        // trace callback accessing f_locals), so fastlocals access is safe.
+        let _guard = self.state.try_lock();
         let locals = &self.locals;
         let code = &**self.code;
         let map = &code.varnames;
         let j = core::cmp::min(map.len(), code.varnames.len());
         if !code.varnames.is_empty() {
-            // SAFETY: Trace callbacks run sequentially on the same thread.
+            // SAFETY: Either _guard holds the state mutex (frame not executing),
+            // or we're in a trace callback on the same thread that holds it.
             let fastlocals = unsafe { self.fastlocals.borrow() };
             for (&k, v) in zip(&map[..j], fastlocals) {
                 match locals.mapping().ass_subscript(k, v.clone(), vm) {
@@ -403,8 +414,6 @@ impl Frame {
             }
         }
         if !code.cellvars.is_empty() || !code.freevars.is_empty() {
-            // Access cells through fastlocals to avoid locking state
-            // (state may be held by with_exec during frame execution).
             for (i, &k) in code.cellvars.iter().enumerate() {
                 let cell_value = self.get_cell_contents(i);
                 match locals.mapping().ass_subscript(k, cell_value, vm) {
@@ -430,7 +439,7 @@ impl Frame {
 
 impl Py<Frame> {
     #[inline(always)]
-    fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame<'_>) -> R) -> R {
+    fn with_exec<R>(&self, vm: &VirtualMachine, f: impl FnOnce(ExecutingFrame<'_>) -> R) -> R {
         let mut state = self.state.lock();
         let exec = ExecutingFrame {
             code: &self.code,
@@ -438,6 +447,14 @@ impl Py<Frame> {
             locals: &self.locals,
             globals: &self.globals,
             builtins: &self.builtins,
+            builtins_dict: if self.globals.class().is(vm.ctx.types.dict_type) {
+                self.builtins
+                    .downcast_ref_if_exact::<PyDict>(vm)
+                    // SAFETY: downcast_ref_if_exact already verified exact type
+                    .map(|d| unsafe { PyExact::ref_unchecked(d) })
+            } else {
+                None
+            },
             lasti: &self.lasti,
             object: self,
             state: &mut state,
@@ -448,7 +465,7 @@ impl Py<Frame> {
 
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]
     pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
-        self.with_exec(|mut exec| exec.run(vm))
+        self.with_exec(vm, |mut exec| exec.run(vm))
     }
 
     pub(crate) fn resume(
@@ -456,7 +473,7 @@ impl Py<Frame> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<ExecutionResult> {
-        self.with_exec(|mut exec| {
+        self.with_exec(vm, |mut exec| {
             if let Some(value) = value {
                 exec.push_value(value)
             }
@@ -471,7 +488,7 @@ impl Py<Frame> {
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
-        self.with_exec(|mut exec| exec.gen_throw(vm, exc_type, exc_val, exc_tb))
+        self.with_exec(vm, |mut exec| exec.gen_throw(vm, exc_type, exc_val, exc_tb))
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
@@ -484,6 +501,7 @@ impl Py<Frame> {
             locals: &self.locals,
             globals: &self.globals,
             builtins: &self.builtins,
+            builtins_dict: None,
             lasti: &self.lasti,
             object: self,
             state: &mut state,
@@ -519,6 +537,11 @@ struct ExecutingFrame<'a> {
     locals: &'a ArgMapping,
     globals: &'a PyDictRef,
     builtins: &'a PyObjectRef,
+    /// Cached downcast of builtins to PyDict for fast LOAD_GLOBAL.
+    /// Only set when both globals and builtins are exact dict types (not
+    /// subclasses), so that `__missing__` / `__getitem__` overrides are
+    /// not bypassed.
+    builtins_dict: Option<&'a PyExact<PyDict>>,
     object: &'a Py<Frame>,
     lasti: &'a PyAtomic<u32>,
     state: &'a mut FrameState,
@@ -1669,30 +1692,29 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
             Instruction::LoadSuperAttr { arg: idx } => self.load_super_attr(vm, idx.get(arg)),
             Instruction::LoadBuildClass => {
-                let build_class =
-                    if let Some(builtins_dict) = self.builtins.downcast_ref::<PyDict>() {
-                        builtins_dict
-                            .get_item_opt(identifier!(vm, __build_class__), vm)?
-                            .ok_or_else(|| {
+                let build_class = if let Some(builtins_dict) = self.builtins_dict {
+                    builtins_dict
+                        .get_item_opt(identifier!(vm, __build_class__), vm)?
+                        .ok_or_else(|| {
+                            vm.new_name_error(
+                                "__build_class__ not found".to_owned(),
+                                identifier!(vm, __build_class__).to_owned(),
+                            )
+                        })?
+                } else {
+                    self.builtins
+                        .get_item(identifier!(vm, __build_class__), vm)
+                        .map_err(|e| {
+                            if e.fast_isinstance(vm.ctx.exceptions.key_error) {
                                 vm.new_name_error(
                                     "__build_class__ not found".to_owned(),
                                     identifier!(vm, __build_class__).to_owned(),
                                 )
-                            })?
-                    } else {
-                        self.builtins
-                            .get_item(identifier!(vm, __build_class__), vm)
-                            .map_err(|e| {
-                                if e.fast_isinstance(vm.ctx.exceptions.key_error) {
-                                    vm.new_name_error(
-                                        "__build_class__ not found".to_owned(),
-                                        identifier!(vm, __build_class__).to_owned(),
-                                    )
-                                } else {
-                                    e
-                                }
-                            })?
-                    };
+                            } else {
+                                e
+                            }
+                        })?
+                };
                 self.push_value(build_class);
                 Ok(None)
             }
@@ -3014,10 +3036,12 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn load_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        if let Some(builtins_dict) = self.builtins.downcast_ref::<PyDict>() {
-            // Fast path: builtins is a dict
-            self.globals
-                .get_chain(builtins_dict, name, vm)?
+        if let Some(builtins_dict) = self.builtins_dict {
+            // Fast path: both globals and builtins are exact dicts
+            // SAFETY: builtins_dict is only set when globals is also exact dict
+            let globals_exact = unsafe { PyExact::ref_unchecked(self.globals.as_ref()) };
+            globals_exact
+                .get_chain_exact(builtins_dict, name, vm)?
                 .ok_or_else(|| {
                     vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
                 })
@@ -3703,7 +3727,23 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
         target: bytecode::Label,
     ) -> Result<bool, PyBaseExceptionRef> {
-        let top_of_stack = PyIter::new(self.top_value());
+        let top = self.top_value();
+
+        // FOR_ITER_RANGE: bypass generic iterator protocol for range iterators
+        if let Some(range_iter) = top.downcast_ref_if_exact::<PyRangeIterator>(vm) {
+            if let Some(value) = range_iter.next_fast() {
+                self.push_value(vm.ctx.new_int(value).into());
+                return Ok(true);
+            }
+            if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                let stop_exc = vm.new_stop_iteration(None);
+                self.fire_exception_trace(&stop_exc, vm)?;
+            }
+            self.jump(self.for_iter_jump_target(target));
+            return Ok(false);
+        }
+
+        let top_of_stack = PyIter::new(top);
         let next_obj = top_of_stack.next(vm);
 
         match next_obj {
@@ -3718,21 +3758,7 @@ impl ExecutingFrame<'_> {
                     let stop_exc = vm.new_stop_iteration(value);
                     self.fire_exception_trace(&stop_exc, vm)?;
                 }
-                // Skip END_FOR (base or instrumented) and jump to POP_ITER.
-                let target_idx = target.0 as usize;
-                let jump_target = if let Some(unit) = self.code.instructions.get(target_idx) {
-                    if matches!(
-                        unit.op,
-                        bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
-                    ) {
-                        bytecode::Label(target.0 + 1)
-                    } else {
-                        target
-                    }
-                } else {
-                    target
-                };
-                self.jump(jump_target);
+                self.jump(self.for_iter_jump_target(target));
                 Ok(false)
             }
             Err(next_error) => {
@@ -3740,6 +3766,20 @@ impl ExecutingFrame<'_> {
                 Err(next_error)
             }
         }
+    }
+
+    /// Compute the jump target for FOR_ITER exhaustion: skip END_FOR and jump to POP_ITER.
+    fn for_iter_jump_target(&self, target: bytecode::Label) -> bytecode::Label {
+        let target_idx = target.0 as usize;
+        if let Some(unit) = self.code.instructions.get(target_idx)
+            && matches!(
+                unit.op,
+                bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
+            )
+        {
+            return bytecode::Label(target.0 + 1);
+        }
+        target
     }
     fn execute_make_function(&mut self, vm: &VirtualMachine) -> FrameResult {
         // MakeFunction only takes code object, no flags
@@ -3789,8 +3829,33 @@ impl ExecutingFrame<'_> {
         let b_ref = &self.pop_value();
         let a_ref = &self.pop_value();
         let value = match op {
-            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            // BINARY_OP_ADD_INT / BINARY_OP_SUBTRACT_INT fast paths:
+            // bypass binary_op1 dispatch for exact int types, use i64 arithmetic
+            // when possible to avoid BigInt heap allocation.
+            bytecode::BinaryOperator::Add | bytecode::BinaryOperator::InplaceAdd => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) {
+                    Ok(self.int_add(a.as_bigint(), b.as_bigint(), vm))
+                } else if matches!(op, bytecode::BinaryOperator::Add) {
+                    vm._add(a_ref, b_ref)
+                } else {
+                    vm._iadd(a_ref, b_ref)
+                }
+            }
+            bytecode::BinaryOperator::Subtract | bytecode::BinaryOperator::InplaceSubtract => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) {
+                    Ok(self.int_sub(a.as_bigint(), b.as_bigint(), vm))
+                } else if matches!(op, bytecode::BinaryOperator::Subtract) {
+                    vm._sub(a_ref, b_ref)
+                } else {
+                    vm._isub(a_ref, b_ref)
+                }
+            }
             bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
             bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, vm.ctx.none.as_object()),
@@ -3802,8 +3867,6 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
             bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
             bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceSubtract => vm._isub(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceAdd => vm._iadd(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceMultiply => vm._imul(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(a_ref, b_ref),
             bytecode::BinaryOperator::InplacePower => {
@@ -3822,6 +3885,30 @@ impl ExecutingFrame<'_> {
 
         self.push_value(value);
         Ok(None)
+    }
+
+    /// Int addition with i64 fast path to avoid BigInt heap allocation.
+    #[inline]
+    fn int_add(&self, a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+        use num_traits::ToPrimitive;
+        if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
+            && let Some(result) = av.checked_add(bv)
+        {
+            return vm.ctx.new_int(result).into();
+        }
+        vm.ctx.new_int(a + b).into()
+    }
+
+    /// Int subtraction with i64 fast path to avoid BigInt heap allocation.
+    #[inline]
+    fn int_sub(&self, a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+        use num_traits::ToPrimitive;
+        if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
+            && let Some(result) = av.checked_sub(bv)
+        {
+            return vm.ctx.new_int(result).into();
+        }
+        vm.ctx.new_int(a - b).into()
     }
 
     #[cold]
@@ -3853,43 +3940,18 @@ impl ExecutingFrame<'_> {
         let value = self.pop_value();
         let size = size as usize;
 
-        // Fast path for exact tuple/list types (not subclasses) — check
-        // length directly without creating an iterator, matching
-        // UNPACK_SEQUENCE_TUPLE / UNPACK_SEQUENCE_LIST specializations.
+        // Fast path for exact tuple/list types (not subclasses) — push
+        // elements directly from the slice without intermediate Vec allocation,
+        // matching UNPACK_SEQUENCE_TUPLE / UNPACK_SEQUENCE_LIST specializations.
         let cls = value.class();
-        let fast_elements: Option<Vec<PyObjectRef>> = if cls.is(vm.ctx.types.tuple_type) {
-            Some(value.downcast_ref::<PyTuple>().unwrap().as_slice().to_vec())
-        } else if cls.is(vm.ctx.types.list_type) {
-            Some(
-                value
-                    .downcast_ref::<PyList>()
-                    .unwrap()
-                    .borrow_vec()
-                    .to_vec(),
-            )
-        } else {
-            None
-        };
-        if let Some(elements) = fast_elements {
-            return match elements.len().cmp(&size) {
-                core::cmp::Ordering::Equal => {
-                    self.state.stack.extend(
-                        elements
-                            .into_iter()
-                            .rev()
-                            .map(|e| Some(PyStackRef::new_owned(e))),
-                    );
-                    Ok(None)
-                }
-                core::cmp::Ordering::Greater => Err(vm.new_value_error(format!(
-                    "too many values to unpack (expected {size}, got {})",
-                    elements.len()
-                ))),
-                core::cmp::Ordering::Less => Err(vm.new_value_error(format!(
-                    "not enough values to unpack (expected {size}, got {})",
-                    elements.len()
-                ))),
-            };
+        if cls.is(vm.ctx.types.tuple_type) {
+            let tuple = value.downcast_ref::<PyTuple>().unwrap();
+            return self.unpack_fast(tuple.as_slice(), size, vm);
+        }
+        if cls.is(vm.ctx.types.list_type) {
+            let list = value.downcast_ref::<PyList>().unwrap();
+            let borrowed = list.borrow_vec();
+            return self.unpack_fast(&borrowed, size, vm);
         }
 
         // General path — iterate up to `size + 1` elements to avoid
@@ -3955,6 +4017,30 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    fn unpack_fast(
+        &mut self,
+        elements: &[PyObjectRef],
+        size: usize,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
+        match elements.len().cmp(&size) {
+            core::cmp::Ordering::Equal => {
+                for elem in elements.iter().rev() {
+                    self.push_value(elem.clone());
+                }
+                Ok(None)
+            }
+            core::cmp::Ordering::Greater => Err(vm.new_value_error(format!(
+                "too many values to unpack (expected {size}, got {})",
+                elements.len()
+            ))),
+            core::cmp::Ordering::Less => Err(vm.new_value_error(format!(
+                "not enough values to unpack (expected {size}, got {})",
+                elements.len()
+            ))),
+        }
+    }
+
     fn convert_value(
         &mut self,
         conversion: bytecode::ConvertValueOparg,
@@ -3996,7 +4082,30 @@ impl ExecutingFrame<'_> {
     ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let value = a.rich_compare(b, op.into(), vm)?;
+        let cmp_op: PyComparisonOp = op.into();
+
+        // COMPARE_OP_INT: leaf type, cannot recurse — skip rich_compare dispatch
+        if let (Some(a_int), Some(b_int)) = (
+            a.downcast_ref_if_exact::<PyInt>(vm),
+            b.downcast_ref_if_exact::<PyInt>(vm),
+        ) {
+            let result = cmp_op.eval_ord(a_int.as_bigint().cmp(b_int.as_bigint()));
+            self.push_value(vm.ctx.new_bool(result).into());
+            return Ok(None);
+        }
+        // COMPARE_OP_FLOAT: leaf type, cannot recurse — skip rich_compare dispatch.
+        // Falls through on NaN (partial_cmp returns None) for correct != semantics.
+        if let (Some(a_f), Some(b_f)) = (
+            a.downcast_ref_if_exact::<PyFloat>(vm),
+            b.downcast_ref_if_exact::<PyFloat>(vm),
+        ) && let Some(ord) = a_f.to_f64().partial_cmp(&b_f.to_f64())
+        {
+            let result = cmp_op.eval_ord(ord);
+            self.push_value(vm.ctx.new_bool(result).into());
+            return Ok(None);
+        }
+
+        let value = a.rich_compare(b, cmp_op, vm)?;
         self.push_value(value);
         Ok(None)
     }

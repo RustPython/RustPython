@@ -5,7 +5,7 @@ use super::{
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+    AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, atomic_func,
     builtins::{
         PyTuple,
@@ -681,12 +681,30 @@ impl Py<PyDict> {
         let self_exact = self.exact_dict(vm);
         let other_exact = other.exact_dict(vm);
         if self_exact && other_exact {
-            self.entries.get_chain(&other.entries, vm, key)
+            // SAFETY: exact_dict checks passed
+            let self_exact = unsafe { PyExact::ref_unchecked(self) };
+            let other_exact = unsafe { PyExact::ref_unchecked(other) };
+            self_exact.get_chain_exact(other_exact, key, vm)
         } else if let Some(value) = self.get_item_opt(key, vm)? {
             Ok(Some(value))
         } else {
             other.get_item_opt(key, vm)
         }
+    }
+}
+
+impl PyExact<PyDict> {
+    /// Look up `key` in `self`, falling back to `other`.
+    /// Both dicts must be exact `dict` types (enforced by `PyExact`).
+    pub(crate) fn get_chain_exact<K: DictKey + ?Sized>(
+        &self,
+        other: &Self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        debug_assert!(self.class().is(vm.ctx.types.dict_type));
+        debug_assert!(other.class().is(vm.ctx.types.dict_type));
+        self.entries.get_chain(&other.entries, vm, key)
     }
 }
 
