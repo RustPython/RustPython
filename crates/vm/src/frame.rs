@@ -4172,6 +4172,65 @@ impl ExecutingFrame<'_> {
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
+            Instruction::CallAllocAndEnterInit => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                let callable = self.nth_value(nargs + 1);
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
+                if !self_or_null_is_some
+                    && cached_version != 0
+                    && let Some(cls) = callable.downcast_ref::<PyType>()
+                    && cls.tp_version_tag.load(Acquire) == cached_version
+                {
+                    // Look up __init__ (guarded by type_version)
+                    if let Some(init) = cls.get_attr(identifier!(vm, __init__))
+                        && let Some(init_func) = init.downcast_ref::<PyFunction>()
+                    {
+                        // Allocate object directly (tp_new == object.__new__)
+                        let dict = if cls
+                            .slots
+                            .flags
+                            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+                        {
+                            Some(vm.ctx.new_dict())
+                        } else {
+                            None
+                        };
+                        let cls_ref = cls.to_owned();
+                        let new_obj: PyObjectRef =
+                            PyRef::new_ref(PyBaseObject, cls_ref, dict).into();
+
+                        // Build args: [new_obj, arg1, ..., argN]
+                        let pos_args: Vec<PyObjectRef> =
+                            self.pop_multiple(nargs as usize).collect();
+                        let _null = self.pop_value_opt(); // self_or_null (None)
+                        let _callable = self.pop_value(); // callable (type)
+
+                        let mut all_args = Vec::with_capacity(pos_args.len() + 1);
+                        all_args.push(new_obj.clone());
+                        all_args.extend(pos_args);
+
+                        let init_result = init_func.invoke_exact_args(&all_args, vm)?;
+
+                        // EXIT_INIT_CHECK: __init__ must return None
+                        if !vm.is_none(&init_result) {
+                            return Err(
+                                vm.new_type_error("__init__() should return None".to_owned())
+                            );
+                        }
+
+                        self.push_value(new_obj);
+                        return Ok(None);
+                    }
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
             Instruction::CallMethodDescriptorFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
                 let instr_idx = self.lasti() as usize - 1;
@@ -7032,6 +7091,32 @@ impl ExecutingFrame<'_> {
                                 .write_cache_u32(cache_base + 1, callable_tag);
                         }
                         return;
+                    }
+                }
+                // CallAllocAndEnterInit: heap type with default __new__
+                if let Some(cls) = callable.downcast_ref::<PyType>()
+                    && cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                {
+                    let object_new = vm.ctx.types.object_type.slots.new.load();
+                    let cls_new = cls.slots.new.load();
+                    if let (Some(cls_new_fn), Some(obj_new_fn)) = (cls_new, object_new)
+                        && cls_new_fn as usize == obj_new_fn as usize
+                        && let Some(init) = cls.get_attr(identifier!(vm, __init__))
+                        && let Some(init_func) = init.downcast_ref::<PyFunction>()
+                        && init_func.can_specialize_call(nargs + 1)
+                    {
+                        let version = cls.tp_version_tag.load(Acquire);
+                        if version != 0 {
+                            unsafe {
+                                self.code
+                                    .instructions
+                                    .replace_op(instr_idx, Instruction::CallAllocAndEnterInit);
+                                self.code
+                                    .instructions
+                                    .write_cache_u32(cache_base + 1, version);
+                            }
+                            return;
+                        }
                     }
                 }
                 // General builtin class call (any type with Callable)
