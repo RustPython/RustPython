@@ -620,6 +620,10 @@ impl Instruction {
             }
             // RESUME specializations
             Self::ResumeCheck => Self::Resume { arg: Arg::marker() },
+            // JUMP_BACKWARD specializations
+            Self::JumpBackwardJit | Self::JumpBackwardNoJit => Self::JumpBackward {
+                target: Arg::marker(),
+            },
             // Instrumented opcodes map back to their base
             _ => match self.to_base() {
                 Some(base) => base,

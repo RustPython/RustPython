@@ -201,12 +201,19 @@ fn is_subtype_with_mro(a_mro: &[PyTypeRef], a: &Py<PyType>, b: &Py<PyType>) -> b
 impl PyType {
     /// Assign a fresh version tag. Returns 0 on overflow (all caches invalidated).
     pub fn assign_version_tag(&self) -> u32 {
-        let v = NEXT_TYPE_VERSION.fetch_add(1, Ordering::Relaxed);
-        if v == 0 {
-            return 0;
+        loop {
+            let current = NEXT_TYPE_VERSION.load(Ordering::Relaxed);
+            let Some(next) = current.checked_add(1) else {
+                return 0; // Overflow: version space exhausted
+            };
+            if NEXT_TYPE_VERSION
+                .compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                self.tp_version_tag.store(current, Ordering::Release);
+                return current;
+            }
         }
-        self.tp_version_tag.store(v, Ordering::Release);
-        v
     }
 
     /// Invalidate this type's version tag and cascade to all subclasses.

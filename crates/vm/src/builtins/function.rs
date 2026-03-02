@@ -611,12 +611,14 @@ impl Py<PyFunction> {
     pub(crate) fn can_specialize_call(&self, effective_nargs: u32) -> bool {
         let code = self.code.lock();
         let flags = code.flags;
-        !flags.intersects(
-            bytecode::CodeFlags::VARARGS
-                | bytecode::CodeFlags::VARKEYWORDS
-                | bytecode::CodeFlags::GENERATOR
-                | bytecode::CodeFlags::COROUTINE,
-        ) && code.kwonlyarg_count == 0
+        flags.contains(bytecode::CodeFlags::NEWLOCALS)
+            && !flags.intersects(
+                bytecode::CodeFlags::VARARGS
+                    | bytecode::CodeFlags::VARKEYWORDS
+                    | bytecode::CodeFlags::GENERATOR
+                    | bytecode::CodeFlags::COROUTINE,
+            )
+            && code.kwonlyarg_count == 0
             && code.arg_count == effective_nargs
     }
 

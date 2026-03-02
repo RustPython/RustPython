@@ -8,10 +8,8 @@ use crate::{
         PyFloat, PyGenerator, PyInt, PyInterpolation, PyList, PySet, PySlice, PyStr, PyStrInterned,
         PyTemplate, PyTraceback, PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
-        float::PyFloat,
         frame::stack_analysis,
         function::{PyCell, PyCellRef, PyFunction},
-        int::PyInt,
         range::PyRangeIterator,
         tuple::{PyTuple, PyTupleRef},
     },
@@ -2722,7 +2720,23 @@ impl ExecutingFrame<'_> {
                 if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
                     // Check instance dict doesn't shadow the method
                     let shadowed = if let Some(dict) = owner.dict() {
-                        dict.get_item_opt(attr_name, vm).ok().flatten().is_some()
+                        match dict.get_item_opt(attr_name, vm) {
+                            Ok(Some(_)) => true,
+                            Ok(None) => false,
+                            Err(_) => {
+                                // Dict lookup error → deoptimize to safe path
+                                unsafe {
+                                    self.code.instructions.replace_op(
+                                        instr_idx,
+                                        Instruction::LoadAttr { idx: Arg::marker() },
+                                    );
+                                    self.code
+                                        .instructions
+                                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                                }
+                                return self.load_attr_slow(vm, oparg);
+                            }
+                        }
                     } else {
                         false
                     };
@@ -4471,7 +4485,12 @@ impl ExecutingFrame<'_> {
             type_version = cls.assign_version_tag();
         }
         if type_version == 0 {
-            // Version counter overflow
+            // Version counter overflow — backoff to avoid re-attempting every execution
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
             return;
         }
 

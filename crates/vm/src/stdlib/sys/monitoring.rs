@@ -276,13 +276,13 @@ pub fn instrument_code(code: &PyCode, events: u32) {
         let mut i = 0;
         while i < len {
             let op = code.code.instructions[i].op;
-            let de_opt = op.deoptimize();
-            if u8::from(de_opt) != u8::from(op) {
+            let base_op = op.deoptimize();
+            if u8::from(base_op) != u8::from(op) {
                 unsafe {
-                    code.code.instructions.replace_op(i, de_opt);
+                    code.code.instructions.replace_op(i, base_op);
                 }
             }
-            let caches = de_opt.cache_entries();
+            let caches = base_op.cache_entries();
             // Zero all CACHE entries (the op+arg bytes may have been overwritten
             // by specialization with arbitrary data like pointers).
             for c in 1..=caches {

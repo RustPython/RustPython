@@ -466,8 +466,12 @@ impl CodeUnits {
     }
 
     /// Read a u16 value from a CACHE code unit at `index`.
+    ///
+    /// # Panics
+    /// Panics if `index` is out of bounds.
     pub fn read_cache_u16(&self, index: usize) -> u16 {
         let units = unsafe { &*self.0.get() };
+        assert!(index < units.len(), "read_cache_u16: index out of bounds");
         let ptr = units.as_ptr().wrapping_add(index) as *const u8;
         unsafe { core::ptr::read_unaligned(ptr as *const u16) }
     }
@@ -484,6 +488,9 @@ impl CodeUnits {
     }
 
     /// Read a u32 value from two consecutive CACHE code units starting at `index`.
+    ///
+    /// # Panics
+    /// Panics if `index + 1` is out of bounds.
     pub fn read_cache_u32(&self, index: usize) -> u32 {
         let lo = self.read_cache_u16(index) as u32;
         let hi = self.read_cache_u16(index + 1) as u32;
@@ -502,6 +509,9 @@ impl CodeUnits {
     }
 
     /// Read a u64 value from four consecutive CACHE code units starting at `index`.
+    ///
+    /// # Panics
+    /// Panics if `index + 3` is out of bounds.
     pub fn read_cache_u64(&self, index: usize) -> u64 {
         let lo = self.read_cache_u32(index) as u64;
         let hi = self.read_cache_u32(index + 2) as u64;
@@ -553,7 +563,7 @@ impl CodeUnits {
     /// Called lazily at RESUME (first execution of a code object).
     /// Uses the `arg` byte of the first CACHE entry, preserving `op = Instruction::Cache`.
     pub fn quicken(&self) {
-        let units = unsafe { &*self.0.get() };
+        let units = unsafe { &mut *self.0.get() };
         let len = units.len();
         let mut i = 0;
         while i < len {
@@ -565,9 +575,7 @@ impl CodeUnits {
                 if !op.is_instrumented() {
                     let cache_base = i + 1;
                     if cache_base < len {
-                        unsafe {
-                            self.write_adaptive_counter(cache_base, ADAPTIVE_WARMUP_VALUE);
-                        }
+                        units[cache_base].arg = OpArgByte::from(ADAPTIVE_WARMUP_VALUE);
                     }
                 }
                 i += 1 + caches;
