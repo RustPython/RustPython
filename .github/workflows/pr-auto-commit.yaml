@@ -93,8 +93,10 @@ jobs:
 
       - name: Push formatting changes
         if: steps.check-changes.outputs.has_changes == 'true'
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin "HEAD:${HEAD_REF}"
 
       - name: Read committed commands
         id: committed-commands
