@@ -18,6 +18,7 @@ fn bench_cpython_code(b: &mut Bencher, source: &str) {
     })
 }
 
+
 fn bench_rustpython_code(b: &mut Bencher, name: &str, source: &str) {
     // NOTE: Take long time.
     let mut settings = Settings::default();
