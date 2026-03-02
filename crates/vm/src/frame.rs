@@ -4765,7 +4765,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 1);
 
         if let Some(func) = callable.downcast_ref::<PyFunction>() {
-            let version = func.func_version();
+            let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
                     self.code
