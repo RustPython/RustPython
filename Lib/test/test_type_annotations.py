@@ -776,7 +776,6 @@ class ConditionalAnnotationTests(unittest.TestCase):
 
 class RegressionTests(unittest.TestCase):
     # gh-132479
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: the symbol 'unique_name_6' must be present in the symbol table
     def test_complex_comprehension_inlining(self):
         # Test that the various repro cases from the issue don't crash
         cases = [
