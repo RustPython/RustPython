@@ -20,7 +20,7 @@ use crate::{
     bytecode::{
         self, ADAPTIVE_BACKOFF_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
     },
-    convert::{IntoObject, ToPyObject, ToPyResult},
+    convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{ArgMapping, Either, FuncArgs},
@@ -787,7 +787,33 @@ impl ExecutingFrame<'_> {
                 }
             }
 
-            vm.check_signals()?;
+            if let Err(exception) = vm.check_signals() {
+                #[cold]
+                fn handle_signal_exception(
+                    frame: &mut ExecutingFrame<'_>,
+                    exception: PyBaseExceptionRef,
+                    idx: usize,
+                    vm: &VirtualMachine,
+                ) -> FrameResult {
+                    let (loc, _end_loc) = frame.code.locations[idx];
+                    let next = exception.__traceback__();
+                    let new_traceback =
+                        PyTraceback::new(next, frame.object.to_owned(), idx as u32 * 2, loc.line);
+                    exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                    vm.contextualize_exception(&exception);
+                    frame.unwind_blocks(vm, UnwindReason::Raising { exception })
+                }
+                match handle_signal_exception(self, exception, idx, vm) {
+                    Ok(None) => {}
+                    Ok(Some(value)) => {
+                        break Ok(value);
+                    }
+                    Err(exception) => {
+                        break Err(exception);
+                    }
+                }
+                continue;
+            }
             let lasti_before = self.lasti();
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
             // Skip inline cache entries if instruction fell through (no jump).
