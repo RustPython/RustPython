@@ -3612,6 +3612,21 @@ impl ExecutingFrame<'_> {
                 self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
+            Instruction::BinaryOpSubscrListSlice => {
+                let b = self.top_value();
+                let a = self.nth_value(1);
+                if a.downcast_ref_if_exact::<PyList>(vm).is_some()
+                    && b.downcast_ref::<PySlice>().is_some()
+                {
+                    let b_owned = self.pop_value();
+                    let a_owned = self.pop_value();
+                    let result = a_owned.get_item(b_owned.as_object(), vm)?;
+                    self.push_value(result);
+                    return Ok(None);
+                }
+                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
+            }
             Instruction::CallPyExactArgs => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
@@ -6558,6 +6573,10 @@ impl ExecutingFrame<'_> {
                     && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
                 {
                     Some(Instruction::BinaryOpSubscrStrInt)
+                } else if a.downcast_ref_if_exact::<PyList>(vm).is_some()
+                    && b.downcast_ref::<PySlice>().is_some()
+                {
+                    Some(Instruction::BinaryOpSubscrListSlice)
                 } else {
                     None
                 }
