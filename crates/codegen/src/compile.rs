@@ -312,7 +312,7 @@ macro_rules! emit {
 
     // Tuple variant (e.g., Foo::B(42)). Should never be reached, here for validation.
     ($c:expr, $enum:ident :: $op:ident($arg_val:expr $(,)? ) $(,)?) => {
-        panic!("No inatruction should be defined as `Instruction::Foo(value)` use `Instruction::Foo { x: value }` instead")
+        panic!("No instruction should be defined as `Instruction::Foo(value)` use `Instruction::Foo { x: value }` instead")
     };
 
     // No-arg variant (e.g., Foo::C)
