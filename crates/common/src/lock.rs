@@ -79,3 +79,20 @@ pub unsafe fn reinit_mutex_after_fork<T: ?Sized>(mutex: &PyMutex<T>) {
         core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawMutex>());
     }
 }
+
+/// Reset a `PyRwLock` to its initial (unlocked) state after `fork()`.
+///
+/// Same rationale as [`reinit_mutex_after_fork`] — dead threads' read or
+/// write locks would cause permanent deadlock in the child.
+///
+/// # Safety
+///
+/// Must only be called from the single-threaded child process immediately
+/// after `fork()`, before any other thread is created.
+#[cfg(unix)]
+pub unsafe fn reinit_rwlock_after_fork<T: ?Sized>(rwlock: &PyRwLock<T>) {
+    unsafe {
+        let raw = rwlock.raw() as *const RawRwLock as *mut u8;
+        core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawRwLock>());
+    }
+}
