@@ -12,3 +12,4 @@ for BENCH in "int" "nbody" "fannkuch" "scimark"; do
   sleep 1 
  done
 done
+
