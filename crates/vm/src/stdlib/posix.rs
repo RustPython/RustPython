@@ -1029,12 +1029,11 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     fn _fchmod(fd: BorrowedFd<'_>, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        let stat_mode = match nix::sys::stat::Mode::from_bits(mode as libc::mode_t) {
-            Some(v) => v,
-            None => return Ok(()), // Silent ignore errors like CPython
-        };
-
-        nix::sys::stat::fchmod(fd, stat_mode).map_err(|err| err.into_pyexception(vm))
+        nix::sys::stat::fchmod(
+            fd,
+            nix::sys::stat::Mode::from_bits_truncate(mode as libc::mode_t),
+        )
+        .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]

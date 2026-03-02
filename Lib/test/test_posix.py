@@ -1030,7 +1030,6 @@ class PosixTester(unittest.TestCase):
         target = self.tempdir()
         self.check_chmod(posix.chmod, target)
 
-    @unittest.expectedFailureIf(sys.platform in ("darwin", "linux", "android"), "TODO: RUSTPYTHON")
     @os_helper.skip_unless_working_chmod
     def test_fchmod_file(self):
         with open(os_helper.TESTFN, 'wb+') as f:
