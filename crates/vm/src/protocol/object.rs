@@ -580,14 +580,13 @@ impl PyObject {
         if let Ok(cls) = cls.try_to_ref::<PyType>(vm) {
             // PyType_Check(cls) - cls is a type object
             let mut retval = self.class().is_subtype(cls);
-            if !retval {
-                if let Some(i_cls) =
+            if !retval
+                && let Some(i_cls) =
                     vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
-                    && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
-                    && !i_cls_type.is(self.class())
-                {
-                    retval = i_cls_type.is_subtype(cls);
-                }
+                && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
+                && !i_cls_type.is(self.class())
+            {
+                retval = i_cls_type.is_subtype(cls);
             }
             Ok(retval)
         } else {
