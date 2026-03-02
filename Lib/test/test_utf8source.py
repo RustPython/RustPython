@@ -12,7 +12,6 @@ class PEP3120Test(unittest.TestCase):
             b'\\\xd0\x9f'
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnicodeDecodeError
     def test_badsyntax(self):
         try:
             import test.tokenizedata.badsyntax_pep3120  # noqa: F401
@@ -26,7 +25,6 @@ class PEP3120Test(unittest.TestCase):
 class BuiltinCompileTests(unittest.TestCase):
 
     # Issue 3574.
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnicodeDecodeError
     def test_latin1(self):
         # Allow compile() to read Latin-1 source.
         source_code = '# coding: Latin-1\nu = "Ç"\n'.encode("Latin-1")
