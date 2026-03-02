@@ -1029,11 +1029,12 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     fn _fchmod(fd: BorrowedFd<'_>, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        nix::sys::stat::fchmod(
-            fd,
-            nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
-        )
-        .map_err(|err| err.into_pyexception(vm))
+        let stat_mode = match nix::sys::stat::Mode::from_bits(mode as libc::mode_t) {
+            Some(v) => v,
+            None => return Ok(()), // Silent ignore errors like CPython
+        };
+
+        nix::sys::stat::fchmod(fd, stat_mode).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1400,12 +1401,7 @@ pub mod module {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn setresgid(rgid: Gid, egid: Gid, sgid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         unistd::setresgid(rgid, egid, sgid).map_err(|err| err.into_pyexception(vm))
@@ -1419,12 +1415,7 @@ pub mod module {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn initgroups(user_name: PyUtf8StrRef, gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         let user = user_name.to_cstring(vm)?;
