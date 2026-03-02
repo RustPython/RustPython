@@ -1479,8 +1479,9 @@ impl SymbolTableBuilder {
                     // (yield, await, named) even for non-simple targets.
                     let was_in_annotation = self.in_annotation;
                     self.in_annotation = true;
-                    self.scan_expression(annotation, ExpressionContext::Load)?;
+                    let result = self.scan_expression(annotation, ExpressionContext::Load);
                     self.in_annotation = was_in_annotation;
+                    result?;
                 }
                 if let Some(value) = value {
                     self.scan_expression(value, ExpressionContext::Load)?;
