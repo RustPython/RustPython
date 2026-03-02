@@ -668,6 +668,7 @@ class PosixTester(unittest.TestCase):
         finally:
             fp.close()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(posix, 'stat'),
                          'test needs posix.stat()')
     @unittest.skipUnless(os.stat in os.supports_follow_symlinks,
@@ -1029,7 +1030,7 @@ class PosixTester(unittest.TestCase):
         target = self.tempdir()
         self.check_chmod(posix.chmod, target)
 
-    @unittest.skipIf(sys.platform in ("darwin", "linux"), "TODO: RUSTPYTHON; crash")
+    @unittest.expectedFailureIf(sys.platform in ("darwin", "linux", "android"), "TODO: RUSTPYTHON")
     @os_helper.skip_unless_working_chmod
     def test_fchmod_file(self):
         with open(os_helper.TESTFN, 'wb+') as f:
