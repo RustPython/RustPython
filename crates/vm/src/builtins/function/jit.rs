@@ -1,7 +1,7 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyDict, PyDictRef, PyFunction, PyStrInterned, bool_, float, int,
+        PyBaseExceptionRef, PyCode, PyDict, PyDictRef, PyFunction, PyStrInterned, bool_, float, int,
     },
     bytecode::CodeFlags,
     convert::ToPyObject,
@@ -67,7 +67,7 @@ fn get_jit_arg_type(dict: &Py<PyDict>, name: &str, vm: &VirtualMachine) -> PyRes
 }
 
 pub fn get_jit_arg_types(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<Vec<JitType>> {
-    let code = func.code.lock();
+    let code: &Py<PyCode> = &func.code;
     let arg_names = code.arg_names();
 
     if code
@@ -160,7 +160,7 @@ pub(crate) fn get_jit_args<'a>(
     let mut jit_args = jitted_code.args_builder();
     let nargs = func_args.args.len();
 
-    let code = func.code.lock();
+    let code: &Py<PyCode> = &func.code;
     let arg_names = code.arg_names();
     let arg_count = code.arg_count;
     let posonlyarg_count = code.posonlyarg_count;
@@ -219,8 +219,6 @@ pub(crate) fn get_jit_args<'a>(
             }
         }
     }
-
-    drop(code);
 
     jit_args.into_args().ok_or(ArgsError::NotAllArgsPassed)
 }
