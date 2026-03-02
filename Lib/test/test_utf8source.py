@@ -1,5 +1,3 @@
-# This file is marked as binary in the CVS, to prevent MacCVS from recoding it.
-
 import unittest
 
 class PEP3120Test(unittest.TestCase):
@@ -14,11 +12,10 @@ class PEP3120Test(unittest.TestCase):
             b'\\\xd0\x9f'
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnicodeDecodeError
     def test_badsyntax(self):
         try:
-            import test.badsyntax_pep3120
+            import test.tokenizedata.badsyntax_pep3120  # noqa: F401
         except SyntaxError as msg:
             msg = str(msg).lower()
             self.assertTrue('utf-8' in msg)
@@ -28,9 +25,8 @@ class PEP3120Test(unittest.TestCase):
 
 class BuiltinCompileTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Issue 3574.
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnicodeDecodeError
     def test_latin1(self):
         # Allow compile() to read Latin-1 source.
         source_code = '# coding: Latin-1\nu = "Ç"\n'.encode("Latin-1")
