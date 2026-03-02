@@ -93,16 +93,21 @@ jobs:
 
       - name: Push formatting changes
         if: steps.check-changes.outputs.has_changes == 'true'
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin HEAD:"$HEAD_REF"
 
       - name: Read committed commands
         id: committed-commands
         if: steps.check-changes.outputs.has_changes == 'true'
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           echo "list<<EOF" >> $GITHUB_OUTPUT
           cat /tmp/committed_commands.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+          echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
 
       - name: Comment on PR
         if: steps.check-changes.outputs.has_changes == 'true'
@@ -116,5 +121,5 @@ jobs:
             ${{ steps.committed-commands.outputs.list }}
             Please pull the latest changes before pushing again:
             ```bash
-            git pull origin ${{ github.event.pull_request.head.ref }}
+            git pull origin ${{ steps.committed-commands.outputs.head_ref }}
             ```
