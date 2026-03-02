@@ -188,7 +188,11 @@ pub trait PyClassImpl: PyClassDef {
                 && object_new.is_some_and(|obj_new| slot_new as usize == obj_new as usize);
 
             if !is_inherited_from_object {
-                let bound_new = Context::genesis().slot_new_wrapper.build_bound_method(
+                // SAFETY: ctx is the genesis context, heap-allocated via PyRc
+                // and stored in a static cell, so it lives for 'static.
+                let wrapper: &'static PyMethodDef =
+                    unsafe { &*core::ptr::addr_of!(ctx.slot_new_wrapper) };
+                let bound_new = wrapper.build_bound_method(
                     ctx,
                     class.to_owned().into(),
                     class,

@@ -285,7 +285,12 @@ impl Context {
         rustpython_common::static_cell! {
             static CONTEXT: PyRc<Context>;
         }
-        CONTEXT.get_or_init(|| PyRc::new(Self::init_genesis()))
+        CONTEXT.get_or_init(|| {
+            let ctx = PyRc::new(Self::init_genesis());
+            crate::types::TypeZoo::extend(&ctx);
+            crate::exceptions::ExceptionZoo::extend(&ctx);
+            ctx
+        })
     }
 
     fn init_genesis() -> Self {
