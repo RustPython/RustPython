@@ -772,8 +772,8 @@ impl ExecutingFrame<'_> {
                 }
 
                 // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
-                // is set. Skip RESUME and ExtendedArg (matching CPython's exclusion
-                // of these in _Py_call_instrumentation_instruction).
+                // is set. Skip RESUME and ExtendedArg
+                // (_Py_call_instrumentation_instruction).
                 if !vm.is_none(&self.object.trace.lock())
                     && *self.object.trace_opcodes.lock()
                     && !matches!(
@@ -787,6 +787,7 @@ impl ExecutingFrame<'_> {
                 }
             }
 
+            vm.check_signals()?;
             let lasti_before = self.lasti();
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
             // Skip inline cache entries if instruction fell through (no jump).
@@ -1196,8 +1197,6 @@ impl ExecutingFrame<'_> {
         extend_arg: &mut bool,
         vm: &VirtualMachine,
     ) -> FrameResult {
-        vm.check_signals()?;
-
         flame_guard!(format!(
             "Frame::execute_instruction({})",
             instruction.display(arg, &self.code.code).to_string()
@@ -3824,8 +3823,13 @@ impl ExecutingFrame<'_> {
                     let callable = self.pop_value();
                     let callable_tag = &*callable as *const PyObject as u32;
                     if cached_tag == callable_tag {
-                        let elements: Vec<PyObjectRef> = vm.extract_elements_with(&obj, Ok)?;
-                        self.push_value(vm.ctx.new_tuple(elements).into());
+                        // tuple(x) returns x as-is when x is already an exact tuple
+                        if let Ok(tuple) = obj.clone().downcast_exact::<PyTuple>(vm) {
+                            self.push_value(tuple.into_pyref().into());
+                        } else {
+                            let elements: Vec<PyObjectRef> = vm.extract_elements_with(&obj, Ok)?;
+                            self.push_value(vm.ctx.new_tuple(elements).into());
+                        }
                         return Ok(None);
                     }
                     self.push_value(callable);
@@ -4108,8 +4112,7 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallMethodDescriptorFastWithKeywords => {
-                // Same as CallMethodDescriptorFast — RustPython's native function
-                // interface is uniform regardless of keyword support
+                // Native function interface is uniform regardless of keyword support
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
                 let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -4147,8 +4150,7 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallBuiltinFastWithKeywords => {
-                // Same as CallBuiltinFast — RustPython's native function
-                // interface is uniform regardless of keyword support
+                // Native function interface is uniform regardless of keyword support
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
                 let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -5416,8 +5418,8 @@ impl ExecutingFrame<'_> {
                 // Look up handler in exception table
                 // lasti points to NEXT instruction (already incremented in run loop)
                 // The exception occurred at the previous instruction
-                // Python uses signed int where INSTR_OFFSET() - 1 = -1 before first instruction
-                // We use u32, so check for 0 explicitly (equivalent to CPython's -1)
+                // Python uses signed int where INSTR_OFFSET() - 1 = -1 before first instruction.
+                // We use u32, so check for 0 explicitly.
                 if self.lasti() == 0 {
                     // No instruction executed yet, no handler can match
                     return Err(exception);
@@ -5449,7 +5451,7 @@ impl ExecutingFrame<'_> {
 
                     // 3. Push exception onto stack
                     // always push exception, PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc]
-                    // Note: Do NOT call vm.set_exception here! PUSH_EXC_INFO will do it.
+                    // Do NOT call vm.set_exception here! PUSH_EXC_INFO will do it.
                     // PUSH_EXC_INFO needs to get prev_exc from vm.current_exception() BEFORE setting the new one.
                     self.push_value(exception.into());
 
@@ -5778,7 +5780,7 @@ impl ExecutingFrame<'_> {
     ) -> PyResult<PyIterReturn> {
         match self.builtin_coro(jen) {
             Some(coro) => coro.send(jen, val, vm),
-            // FIXME: turn return type to PyResult<PyIterReturn> then ExecutionResult will be simplified
+            // TODO: turn return type to PyResult<PyIterReturn> then ExecutionResult will be simplified
             None if vm.is_none(&val) => PyIter::new(jen).next(vm),
             None => {
                 let meth = jen.get_attr("send", vm)?;
@@ -5893,7 +5895,7 @@ impl ExecutingFrame<'_> {
 
         // FOR_ITER_RANGE: bypass generic iterator protocol for range iterators
         if let Some(range_iter) = top.downcast_ref_if_exact::<PyRangeIterator>(vm) {
-            if let Some(value) = range_iter.next_fast() {
+            if let Some(value) = range_iter.fast_next() {
                 self.push_value(vm.ctx.new_int(value).into());
                 return Ok(true);
             }

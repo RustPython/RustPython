@@ -80,6 +80,14 @@ pub struct PyFunction {
 
 static FUNC_VERSION_COUNTER: AtomicU32 = AtomicU32::new(1);
 
+/// Atomically allocate the next function version, returning 0 if exhausted.
+/// Once the counter wraps to 0, it stays at 0 permanently.
+fn next_func_version() -> u32 {
+    FUNC_VERSION_COUNTER
+        .fetch_update(Relaxed, Relaxed, |v| (v != 0).then(|| v.wrapping_add(1)))
+        .unwrap_or(0)
+}
+
 unsafe impl Traverse for PyFunction {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.globals.traverse(tracer_fn);
@@ -204,7 +212,7 @@ impl PyFunction {
             annotate: PyMutex::new(None),
             module: PyMutex::new(module),
             doc: PyMutex::new(doc),
-            func_version: AtomicU32::new(FUNC_VERSION_COUNTER.fetch_add(1, Relaxed)),
+            func_version: AtomicU32::new(next_func_version()),
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
         };
@@ -603,17 +611,17 @@ impl Py<PyFunction> {
         self.func_version.load(Relaxed)
     }
 
-    /// _PyFunction_GetVersionForCurrentState
     /// Returns the current version, assigning a fresh one if previously invalidated.
     /// Returns 0 if the version counter has overflowed.
+    /// `_PyFunction_GetVersionForCurrentState`
     pub fn get_version_for_current_state(&self) -> u32 {
         let v = self.func_version.load(Relaxed);
         if v != 0 {
             return v;
         }
-        let new_v = FUNC_VERSION_COUNTER.fetch_add(1, Relaxed);
+        let new_v = next_func_version();
         if new_v == 0 {
-            return 0; // Counter overflow
+            return 0;
         }
         self.func_version.store(new_v, Relaxed);
         new_v

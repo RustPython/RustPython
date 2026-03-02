@@ -613,19 +613,6 @@ pub struct PyRangeIterator {
     length: usize,
 }
 
-impl PyRangeIterator {
-    /// Advance and return next value without going through the iterator protocol.
-    #[inline]
-    pub(crate) fn next_fast(&self) -> Option<isize> {
-        let index = self.index.fetch_add(1);
-        if index < self.length {
-            Some(self.start + (index as isize) * self.step)
-        } else {
-            None
-        }
-    }
-}
-
 impl PyPayload for PyRangeIterator {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
@@ -676,15 +663,9 @@ impl PyRangeIterator {
 impl SelfIter for PyRangeIterator {}
 impl IterNext for PyRangeIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        // TODO: In pathological case (index == usize::MAX) this can wrap around
-        // (since fetch_add wraps). This would result in the iterator spinning again
-        // from the beginning.
-        let index = zelf.index.fetch_add(1);
-        let r = if index < zelf.length {
-            let value = zelf.start + (index as isize) * zelf.step;
-            PyIterReturn::Return(vm.ctx.new_int(value).into())
-        } else {
-            PyIterReturn::StopIteration(None)
+        let r = match zelf.fast_next() {
+            Some(value) => PyIterReturn::Return(vm.ctx.new_int(value).into()),
+            None => PyIterReturn::StopIteration(None),
         };
         Ok(r)
     }

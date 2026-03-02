@@ -298,6 +298,7 @@ impl<T: Clone> Dict<T> {
                     };
                     if entry.index == index_index {
                         let removed = core::mem::replace(&mut entry.value, value);
+                        self.bump_version();
                         // defer dec RC
                         break Some(removed);
                     } else {
@@ -313,10 +314,10 @@ impl<T: Clone> Dict<T> {
                     continue;
                 }
                 inner.unchecked_push(index_index, hash, key.to_pyobject(vm), value, entry_index);
+                self.bump_version();
                 break None;
             }
         };
-        self.bump_version();
         Ok(())
     }
 
@@ -377,10 +378,10 @@ impl<T: Clone> Dict<T> {
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
             inner.filled = 0;
+            self.bump_version();
             // defer dec rc
             core::mem::take(&mut inner.entries)
         };
-        self.bump_version();
     }
 
     /// Delete a key
@@ -437,9 +438,6 @@ impl<T: Clone> Dict<T> {
                 ControlFlow::Continue(()) => continue,
             }
         };
-        if removed.is_some() {
-            self.bump_version();
-        }
         Ok(removed.map(|entry| entry.value))
     }
 
@@ -459,10 +457,10 @@ impl<T: Clone> Dict<T> {
                     continue;
                 }
                 inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
+                self.bump_version();
                 break None;
             }
         };
-        self.bump_version();
         Ok(())
     }
 
@@ -721,6 +719,7 @@ impl<T: Clone> Dict<T> {
         } = IndexEntry::DUMMY;
         inner.used -= 1;
         let removed = slot.take();
+        self.bump_version();
         Ok(ControlFlow::Break(removed))
     }
 
@@ -734,9 +733,6 @@ impl<T: Clone> Dict<T> {
                 ControlFlow::Continue(()) => continue,
             }
         };
-        if removed.is_some() {
-            self.bump_version();
-        }
         Ok(removed)
     }
 
