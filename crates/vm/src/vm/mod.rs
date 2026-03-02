@@ -1271,7 +1271,10 @@ impl VirtualMachine {
             .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
 
         let (locals, globals) = if let Some(frame) = self.current_frame() {
-            (Some(frame.locals.clone()), Some(frame.globals.clone()))
+            (
+                Some(frame.locals.clone_mapping(self)),
+                Some(frame.globals.clone()),
+            )
         } else {
             (None, None)
         };

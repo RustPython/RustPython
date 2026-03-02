@@ -548,17 +548,20 @@ impl Py<PyFunction> {
         let code = self.code.lock().clone();
 
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
-            ArgMapping::from_dict_exact(vm.ctx.new_dict())
+            None
         } else if let Some(locals) = locals {
-            locals
+            Some(locals)
         } else {
-            ArgMapping::from_dict_exact(self.globals.clone())
+            Some(ArgMapping::from_dict_exact(self.globals.clone()))
         };
+
+        let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
+        let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
 
         // Construct frame:
         let frame = Frame::new(
-            code.clone(),
-            Scope::new(Some(locals), self.globals.clone()),
+            code,
+            Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
@@ -567,10 +570,6 @@ impl Py<PyFunction> {
         .into_ref(&vm.ctx);
 
         self.fill_locals_from_args(&frame, func_args, vm)?;
-
-        // If we have a generator, create a new generator
-        let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
-        let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
         match (is_gen, is_coro) {
             (true, false) => {
                 let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
@@ -629,11 +628,9 @@ impl Py<PyFunction> {
     pub fn invoke_exact_args(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult {
         let code = self.code.lock().clone();
 
-        let locals = ArgMapping::from_dict_exact(vm.ctx.new_dict());
-
         let frame = Frame::new(
             code.clone(),
-            Scope::new(Some(locals), self.globals.clone()),
+            Scope::new(None, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
