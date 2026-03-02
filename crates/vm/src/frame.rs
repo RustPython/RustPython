@@ -10,6 +10,7 @@ use crate::{
         PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
         builtin_func::PyNativeFunction,
+        descriptor::PyMethodDescriptor,
         frame::stack_analysis,
         function::{PyCell, PyCellRef, PyFunction},
         list::PyListIterator,
@@ -3050,6 +3051,115 @@ impl ExecutingFrame<'_> {
                 }
                 self.load_attr_slow(vm, oparg)
             }
+            Instruction::LoadAttrNondescriptorNoDict => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                    // Load cached class attribute directly (no dict, no data descriptor)
+                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
+                    let attr = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                    self.pop_value();
+                    if oparg.is_method() {
+                        self.push_value(attr);
+                        self.push_value_opt(None);
+                    } else {
+                        self.push_value(attr);
+                    }
+                    return Ok(None);
+                }
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                self.load_attr_slow(vm, oparg)
+            }
+            Instruction::LoadAttrNondescriptorWithValues => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let attr_name = self.code.names[oparg.name_idx() as usize];
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                    // Instance dict has priority — check if attr is shadowed
+                    if let Some(dict) = owner.dict()
+                        && let Some(value) = dict.get_item_opt(attr_name, vm)?
+                    {
+                        self.pop_value();
+                        if oparg.is_method() {
+                            self.push_value(value);
+                            self.push_value_opt(None);
+                        } else {
+                            self.push_value(value);
+                        }
+                        return Ok(None);
+                    }
+                    // Not in instance dict — use cached class attr
+                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
+                    let attr = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                    self.pop_value();
+                    if oparg.is_method() {
+                        self.push_value(attr);
+                        self.push_value_opt(None);
+                    } else {
+                        self.push_value(attr);
+                    }
+                    return Ok(None);
+                }
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                self.load_attr_slow(vm, oparg)
+            }
+            Instruction::LoadAttrClass => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if type_version != 0
+                    && let Some(owner_type) = owner.downcast_ref::<PyType>()
+                    && owner_type.tp_version_tag.load(Acquire) == type_version
+                {
+                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
+                    let attr = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                    self.pop_value();
+                    if oparg.is_method() {
+                        self.push_value(attr);
+                        self.push_value_opt(None);
+                    } else {
+                        self.push_value(attr);
+                    }
+                    return Ok(None);
+                }
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                self.load_attr_slow(vm, oparg)
+            }
             Instruction::StoreAttrInstanceValue => {
                 let attr_idx = u32::from(arg);
                 let instr_idx = self.lasti() as usize - 1;
@@ -3627,6 +3737,114 @@ impl ExecutingFrame<'_> {
                     self.push_value(callable);
                     self.push_value_opt(self_or_null);
                     self.push_value(item);
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallMethodDescriptorNoargs => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                if nargs == 0 {
+                    // Stack: [callable, self_or_null] — peek to get func ptr
+                    let stack = &self.state.stack;
+                    let stack_len = stack.len();
+                    let self_or_null_is_some = stack[stack_len - 1].is_some();
+                    let callable = self.nth_value(1);
+                    let callable_tag = callable as *const PyObject as u32;
+                    let func = if cached_tag == callable_tag && self_or_null_is_some {
+                        callable
+                            .downcast_ref::<PyMethodDescriptor>()
+                            .map(|d| d.method.func)
+                    } else {
+                        None
+                    };
+                    if let Some(func) = func {
+                        let self_val = self.pop_value_opt().unwrap();
+                        self.pop_value(); // callable
+                        let args = FuncArgs {
+                            args: vec![self_val],
+                            kwargs: Default::default(),
+                        };
+                        let result = func(vm, args)?;
+                        self.push_value(result);
+                        return Ok(None);
+                    }
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallMethodDescriptorO => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                if nargs == 1 {
+                    // Stack: [callable, self_or_null, arg1]
+                    let stack = &self.state.stack;
+                    let stack_len = stack.len();
+                    let self_or_null_is_some = stack[stack_len - 2].is_some();
+                    let callable = self.nth_value(2);
+                    let callable_tag = callable as *const PyObject as u32;
+                    let func = if cached_tag == callable_tag && self_or_null_is_some {
+                        callable
+                            .downcast_ref::<PyMethodDescriptor>()
+                            .map(|d| d.method.func)
+                    } else {
+                        None
+                    };
+                    if let Some(func) = func {
+                        let obj = self.pop_value();
+                        let self_val = self.pop_value_opt().unwrap();
+                        self.pop_value(); // callable
+                        let args = FuncArgs {
+                            args: vec![self_val, obj],
+                            kwargs: Default::default(),
+                        };
+                        let result = func(vm, args)?;
+                        self.push_value(result);
+                        return Ok(None);
+                    }
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallMethodDescriptorFast => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                let callable = self.nth_value(nargs + 1);
+                let callable_tag = callable as *const PyObject as u32;
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
+                let func = if cached_tag == callable_tag && self_or_null_is_some {
+                    callable
+                        .downcast_ref::<PyMethodDescriptor>()
+                        .map(|d| d.method.func)
+                } else {
+                    None
+                };
+                if let Some(func) = func {
+                    let positional_args: Vec<PyObjectRef> =
+                        self.pop_multiple(nargs as usize).collect();
+                    let self_val = self.pop_value_opt().unwrap();
+                    self.pop_value(); // callable
+                    let mut all_args = Vec::with_capacity(nargs as usize + 1);
+                    all_args.push(self_val);
+                    all_args.extend(positional_args);
+                    let args = FuncArgs {
+                        args: all_args,
+                        kwargs: Default::default(),
+                    };
+                    let result = func(vm, args)?;
+                    self.push_value(result);
+                    return Ok(None);
                 }
                 self.deoptimize_call();
                 let args = self.collect_positional_args(nargs);
@@ -5563,7 +5781,7 @@ impl ExecutingFrame<'_> {
 
         // Look up attr in class via MRO
         let cls_attr = cls.get_attr(attr_name);
-        let has_dict = obj.dict().is_some();
+        let class_has_dict = cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
 
         if oparg.is_method() {
             // Method specialization
@@ -5584,7 +5802,7 @@ impl ExecutingFrame<'_> {
                         .write_cache_u64(cache_base + 5, descr_ptr);
                 }
 
-                let new_op = if !has_dict {
+                let new_op = if !class_has_dict {
                     Instruction::LoadAttrMethodNoDict
                 } else {
                     Instruction::LoadAttrMethodWithValues
@@ -5607,19 +5825,60 @@ impl ExecutingFrame<'_> {
                 descr_cls.slots.descr_get.load().is_some()
                     && descr_cls.slots.descr_set.load().is_some()
             });
+            let has_descr_get = cls_attr.as_ref().is_some_and(|descr| {
+                descr.class().slots.descr_get.load().is_some()
+            });
 
-            if !has_data_descr && has_dict {
-                // Instance attribute access — skip class descriptor check
+            if has_data_descr || has_descr_get {
+                // Data descriptor or non-data descriptor with __get__ — can't specialize
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+            } else if class_has_dict {
+                if let Some(ref descr) = cls_attr {
+                    // Plain class attr + class supports dict — check dict first, fallback
+                    let descr_ptr = &**descr as *const PyObject as u64;
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, type_version);
+                        self.code
+                            .instructions
+                            .write_cache_u64(cache_base + 5, descr_ptr);
+                        self.code.instructions.replace_op(
+                            instr_idx,
+                            Instruction::LoadAttrNondescriptorWithValues,
+                        );
+                    }
+                } else {
+                    // No class attr, must be in instance dict
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, type_version);
+                        self.code
+                            .instructions
+                            .replace_op(instr_idx, Instruction::LoadAttrInstanceValue);
+                    }
+                }
+            } else if let Some(ref descr) = cls_attr {
+                // No dict support, plain class attr — cache directly
+                let descr_ptr = &**descr as *const PyObject as u64;
                 unsafe {
                     self.code
                         .instructions
                         .write_cache_u32(cache_base + 1, type_version);
                     self.code
                         .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttrInstanceValue);
+                        .write_cache_u64(cache_base + 5, descr_ptr);
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttrNondescriptorNoDict);
                 }
             } else {
-                // Data descriptor or no dict — can't easily specialize
+                // No dict, no class attr — can't specialize
                 unsafe {
                     self.code
                         .instructions
@@ -5813,6 +6072,25 @@ impl ExecutingFrame<'_> {
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, version);
+            }
+            return;
+        }
+
+        // Try to specialize method descriptor calls
+        if self_or_null_is_some
+            && callable.downcast_ref::<PyMethodDescriptor>().is_some()
+        {
+            let callable_tag = callable as *const PyObject as u32;
+            let new_op = match nargs {
+                0 => Instruction::CallMethodDescriptorNoargs,
+                1 => Instruction::CallMethodDescriptorO,
+                _ => Instruction::CallMethodDescriptorFast,
+            };
+            unsafe {
+                self.code.instructions.replace_op(instr_idx, new_op);
+                self.code
+                    .instructions
+                    .write_cache_u32(cache_base + 1, callable_tag);
             }
             return;
         }
