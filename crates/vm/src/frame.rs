@@ -3665,6 +3665,37 @@ impl ExecutingFrame<'_> {
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
+            Instruction::CallBuiltinFast => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                let callable = self.nth_value(nargs + 1);
+                let callable_tag = callable as *const PyObject as u32;
+                let func = if cached_tag == callable_tag {
+                    callable
+                        .downcast_ref::<PyNativeFunction>()
+                        .map(|n| n.value.func)
+                } else {
+                    None
+                };
+                if let Some(func) = func {
+                    let positional_args: Vec<PyObjectRef> =
+                        self.pop_multiple(nargs as usize).collect();
+                    self.pop_value_opt(); // null (self_or_null)
+                    self.pop_value(); // callable
+                    let args = FuncArgs {
+                        args: positional_args,
+                        kwargs: Default::default(),
+                    };
+                    let result = func(vm, args)?;
+                    self.push_value(result);
+                    return Ok(None);
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
             Instruction::CallPyGeneral => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
@@ -3845,6 +3876,21 @@ impl ExecutingFrame<'_> {
                     let result = func(vm, args)?;
                     self.push_value(result);
                     return Ok(None);
+                }
+                self.deoptimize_call();
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallNonPyGeneral => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                let callable = self.nth_value(nargs + 1);
+                let callable_tag = callable as *const PyObject as u32;
+                if cached_tag == callable_tag {
+                    let args = self.collect_positional_args(nargs);
+                    return self.execute_call(args, vm);
                 }
                 self.deoptimize_call();
                 let args = self.collect_positional_args(nargs);
@@ -6102,11 +6148,12 @@ impl ExecutingFrame<'_> {
             {
                 let callable_tag = callable as *const PyObject as u32;
                 let new_op = match (native.value.name, nargs) {
-                    ("len", 1) => Some(Instruction::CallLen),
-                    ("isinstance", 2) => Some(Instruction::CallIsinstance),
-                    (_, 1) => Some(Instruction::CallBuiltinO),
-                    _ => None,
+                    ("len", 1) => Instruction::CallLen,
+                    ("isinstance", 2) => Instruction::CallIsinstance,
+                    (_, 1) => Instruction::CallBuiltinO,
+                    _ => Instruction::CallBuiltinFast,
                 };
+                let new_op = Some(new_op);
                 if let Some(new_op) = new_op {
                     unsafe {
                         self.code.instructions.replace_op(instr_idx, new_op);
@@ -6141,10 +6188,15 @@ impl ExecutingFrame<'_> {
             }
         }
 
+        // General fallback: cache callable identity to skip re-specialization
+        let callable_tag = callable as *const PyObject as u32;
         unsafe {
             self.code
                 .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                .replace_op(instr_idx, Instruction::CallNonPyGeneral);
+            self.code
+                .instructions
+                .write_cache_u32(cache_base + 1, callable_tag);
         }
     }
 
