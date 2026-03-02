@@ -6,7 +6,7 @@ use crate::{
     TryFromObject, VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine, PyDict, PyDictRef,
-        PyFloat, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PySet, PySlice, PyStr,
+        PyFloat, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty, PySet, PySlice, PyStr,
         PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
         builtin_func::PyNativeFunction,
@@ -3269,6 +3269,40 @@ impl ExecutingFrame<'_> {
                 }
                 self.load_attr_slow(vm, oparg)
             }
+            Instruction::LoadAttrProperty => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version
+                {
+                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
+                    if descr_ptr != 0 {
+                        let descr =
+                            unsafe { &*(descr_ptr as *const PyObject) };
+                        if let Some(prop) = descr.downcast_ref::<PyProperty>() {
+                            let owner = self.pop_value();
+                            if let Some(getter) = prop.get_fget() {
+                                let result = getter.call((owner,), vm)?;
+                                self.push_value(result);
+                                return Ok(None);
+                            }
+                        }
+                    }
+                }
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                self.load_attr_slow(vm, oparg)
+            }
             Instruction::StoreAttrInstanceValue => {
                 let attr_idx = u32::from(arg);
                 let instr_idx = self.lasti() as usize - 1;
@@ -6268,6 +6302,22 @@ impl ExecutingFrame<'_> {
                         self.code
                             .instructions
                             .replace_op(instr_idx, Instruction::LoadAttrSlot);
+                    }
+                } else if let Some(ref descr) = cls_attr
+                    && descr.downcast_ref::<PyProperty>().is_some()
+                {
+                    // Property descriptor — cache the property object pointer
+                    let descr_ptr = &**descr as *const PyObject as u64;
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, type_version);
+                        self.code
+                            .instructions
+                            .write_cache_u64(cache_base + 5, descr_ptr);
+                        self.code
+                            .instructions
+                            .replace_op(instr_idx, Instruction::LoadAttrProperty);
                     }
                 } else {
                     unsafe {

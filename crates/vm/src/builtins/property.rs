@@ -133,6 +133,10 @@ impl PyProperty {
         self.getter.read().clone()
     }
 
+    pub(crate) fn get_fget(&self) -> Option<PyObjectRef> {
+        self.getter.read().clone()
+    }
+
     #[pygetset]
     fn fset(&self) -> Option<PyObjectRef> {
         self.setter.read().clone()
