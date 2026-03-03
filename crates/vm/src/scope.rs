@@ -3,7 +3,7 @@ use alloc::fmt;
 
 #[derive(Clone)]
 pub struct Scope {
-    pub locals: ArgMapping,
+    pub locals: Option<ArgMapping>,
     pub globals: PyDictRef,
 }
 
@@ -17,7 +17,6 @@ impl fmt::Debug for Scope {
 impl Scope {
     #[inline]
     pub fn new(locals: Option<ArgMapping>, globals: PyDictRef) -> Self {
-        let locals = locals.unwrap_or_else(|| ArgMapping::from_dict_exact(globals.clone()));
         Self { locals, globals }
     }
 
@@ -31,6 +30,8 @@ impl Scope {
                 .set_item("__builtins__", vm.builtins.clone().into(), vm)
                 .unwrap();
         }
+        // For module-level code, locals defaults to globals
+        let locals = locals.or_else(|| Some(ArgMapping::from_dict_exact(globals.clone())));
         Self::new(locals, globals)
     }
 

@@ -8,7 +8,7 @@ use core::cell::RefCell;
 use js_sys::{Object, TypeError};
 use rustpython_vm::{
     Interpreter, PyObjectRef, PyRef, PyResult, Settings, VirtualMachine, builtins::PyWeak,
-    compiler::Mode, scope::Scope,
+    compiler::Mode, function::ArgMapping, scope::Scope,
 };
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -275,8 +275,14 @@ impl WASMVirtualMachine {
                 }
             }
 
-            vm.run_code_obj(code, Scope::new(None, attrs.clone()))
-                .into_js(vm)?;
+            vm.run_code_obj(
+                code,
+                Scope::new(
+                    Some(ArgMapping::from_dict_exact(attrs.clone())),
+                    attrs.clone(),
+                ),
+            )
+            .into_js(vm)?;
 
             let module = vm.new_module(&name, attrs, None);
 
