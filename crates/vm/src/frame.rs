@@ -12,7 +12,7 @@ use crate::{
         builtin_func::PyNativeFunction,
         descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
-        function::{PyCell, PyCellRef, PyFunction},
+        function::{PyCell, PyCellRef, PyFunction, vectorcall_function},
         list::PyListIterator,
         range::PyRangeIterator,
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
@@ -1409,8 +1409,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     self.specialize_call(vm, nargs_val, instr_idx, cache_base);
                 }
-                let args = self.collect_positional_args(nargs_val);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs_val, vm)
             }
             Instruction::CallKw { nargs } => {
                 let nargs = nargs.get(arg);
@@ -1427,8 +1426,7 @@ impl ExecutingFrame<'_> {
                     self.specialize_call_kw(vm, nargs, instr_idx, cache_base);
                 }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
-                let args = self.collect_keyword_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_kw_vectorcall(nargs, vm)
             }
             Instruction::CallFunctionEx => {
                 // Stack: [callable, self_or_null, args_tuple, kwargs_or_null]
@@ -3680,7 +3678,7 @@ impl ExecutingFrame<'_> {
                     let _null = self.pop_value_opt(); // self_or_null (NULL)
                     let callable = self.pop_value();
                     let func = callable.downcast_ref::<PyFunction>().unwrap();
-                    let result = func.invoke_exact_args(&args, vm)?;
+                    let result = func.invoke_exact_args(args, vm)?;
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -3718,7 +3716,7 @@ impl ExecutingFrame<'_> {
                     let mut all_args = Vec::with_capacity(pos_args.len() + 1);
                     all_args.push(self_val);
                     all_args.extend(pos_args);
-                    let result = func.invoke_exact_args(&all_args, vm)?;
+                    let result = func.invoke_exact_args(all_args, vm)?;
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -3936,18 +3934,20 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    let args = self.collect_positional_args(nargs);
+                    let nargs_usize = nargs as usize;
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    let func = callable.downcast_ref::<PyFunction>().unwrap();
-                    let final_args = if let Some(self_val) = self_or_null {
-                        let mut args = args;
-                        args.prepend_arg(self_val);
-                        args
+                    let (args_vec, effective_nargs) = if let Some(self_val) = self_or_null {
+                        let mut v = Vec::with_capacity(nargs_usize + 1);
+                        v.push(self_val);
+                        v.extend(pos_args);
+                        (v, nargs_usize + 1)
                     } else {
-                        args
+                        (pos_args, nargs_usize)
                     };
-                    let result = func.invoke(final_args, vm)?;
+                    let result =
+                        vectorcall_function(&callable, args_vec, effective_nargs, None, vm)?;
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -3966,13 +3966,15 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    let args = self.collect_positional_args(nargs);
+                    let nargs_usize = nargs as usize;
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_val = self.pop_value();
                     let callable = self.pop_value();
-                    let func = callable.downcast_ref::<PyFunction>().unwrap();
-                    let mut final_args = args;
-                    final_args.prepend_arg(self_val);
-                    let result = func.invoke(final_args, vm)?;
+                    let mut args_vec = Vec::with_capacity(nargs_usize + 1);
+                    args_vec.push(self_val);
+                    args_vec.extend(pos_args);
+                    let result =
+                        vectorcall_function(&callable, args_vec, nargs_usize + 1, None, vm)?;
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -4228,24 +4230,37 @@ impl ExecutingFrame<'_> {
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
-                // callable is at position nargs + 2 from top (nargs args + kwarg_names + self_or_null)
                 let callable = self.nth_value(nargs + 2);
                 if let Some(func) = callable.downcast_ref::<PyFunction>()
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    let args = self.collect_keyword_args(nargs);
+                    let nargs_usize = nargs as usize;
+                    let kwarg_names_obj = self.pop_value();
+                    let kwarg_names_tuple = kwarg_names_obj
+                        .downcast_ref::<PyTuple>()
+                        .expect("kwarg names should be tuple");
+                    let kw_count = kwarg_names_tuple.len();
+                    let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    let func = callable.downcast_ref::<PyFunction>().unwrap();
-                    let final_args = if let Some(self_val) = self_or_null {
-                        let mut args = args;
-                        args.prepend_arg(self_val);
-                        args
+                    let pos_count = nargs_usize - kw_count;
+                    let (args_vec, effective_nargs) = if let Some(self_val) = self_or_null {
+                        let mut v = Vec::with_capacity(nargs_usize + 1);
+                        v.push(self_val);
+                        v.extend(all_args);
+                        (v, pos_count + 1)
                     } else {
-                        args
+                        (all_args, pos_count)
                     };
-                    let result = func.invoke(final_args, vm)?;
+                    let kwnames = kwarg_names_tuple.as_slice();
+                    let result = vectorcall_function(
+                        &callable,
+                        args_vec,
+                        effective_nargs,
+                        Some(kwnames),
+                        vm,
+                    )?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4264,13 +4279,22 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    let args = self.collect_keyword_args(nargs);
-                    let self_val = self.pop_value(); // self_or_null is always Some here
+                    let nargs_usize = nargs as usize;
+                    let kwarg_names_obj = self.pop_value();
+                    let kwarg_names_tuple = kwarg_names_obj
+                        .downcast_ref::<PyTuple>()
+                        .expect("kwarg names should be tuple");
+                    let kw_count = kwarg_names_tuple.len();
+                    let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                    let self_val = self.pop_value();
                     let callable = self.pop_value();
-                    let func = callable.downcast_ref::<PyFunction>().unwrap();
-                    let mut final_args = args;
-                    final_args.prepend_arg(self_val);
-                    let result = func.invoke(final_args, vm)?;
+                    let pos_count = nargs_usize - kw_count;
+                    let mut args_vec = Vec::with_capacity(nargs_usize + 1);
+                    args_vec.push(self_val);
+                    args_vec.extend(all_args);
+                    let kwnames = kwarg_names_tuple.as_slice();
+                    let result =
+                        vectorcall_function(&callable, args_vec, pos_count + 1, Some(kwnames), vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -5663,6 +5687,132 @@ impl ExecutingFrame<'_> {
             key_handler(key)?;
         }
         Ok(())
+    }
+
+    /// Vectorcall dispatch for Instruction::Call (positional args only).
+    /// Uses vectorcall slot if available, otherwise falls back to FuncArgs.
+    #[inline]
+    fn execute_call_vectorcall(&mut self, nargs: u32, vm: &VirtualMachine) -> FrameResult {
+        let nargs_usize = nargs as usize;
+        let stack_len = self.state.stack.len();
+        let callable_idx = stack_len - nargs_usize - 2;
+        let self_or_null_idx = stack_len - nargs_usize - 1;
+        let args_start = stack_len - nargs_usize;
+
+        // Check if callable has vectorcall slot
+        let has_vectorcall = self.state.stack[callable_idx]
+            .as_ref()
+            .is_some_and(|sr| sr.as_object().class().slots.vectorcall.load().is_some());
+
+        if !has_vectorcall {
+            // Fallback to existing FuncArgs path
+            let args = self.collect_positional_args(nargs);
+            return self.execute_call(args, vm);
+        }
+
+        // Build args slice: [self_or_null?, arg1, ..., argN]
+        let self_or_null = self.state.stack[self_or_null_idx]
+            .take()
+            .map(|sr| sr.to_pyobj());
+        let has_self = self_or_null.is_some();
+
+        let effective_nargs = if has_self {
+            nargs_usize + 1
+        } else {
+            nargs_usize
+        };
+        let mut args_vec = Vec::with_capacity(effective_nargs);
+        if let Some(self_val) = self_or_null {
+            args_vec.push(self_val);
+        }
+        for stack_idx in args_start..stack_len {
+            let val = self.state.stack[stack_idx].take().unwrap().to_pyobj();
+            args_vec.push(val);
+        }
+
+        let callable_obj = self.state.stack[callable_idx].take().unwrap().to_pyobj();
+        self.state.stack.truncate(callable_idx);
+
+        let result = callable_obj.vectorcall(args_vec, effective_nargs, None, vm)?;
+        self.push_value(result);
+        Ok(None)
+    }
+
+    /// Vectorcall dispatch for Instruction::CallKw (positional + keyword args).
+    #[inline]
+    fn execute_call_kw_vectorcall(&mut self, nargs: u32, vm: &VirtualMachine) -> FrameResult {
+        let nargs_usize = nargs as usize;
+
+        // Pop kwarg_names tuple from top of stack
+        let kwarg_names_obj = self.pop_value();
+        let kwarg_names_tuple = kwarg_names_obj
+            .downcast_ref::<PyTuple>()
+            .expect("kwarg names should be tuple");
+        let kw_count = kwarg_names_tuple.len();
+
+        let stack_len = self.state.stack.len();
+        let callable_idx = stack_len - nargs_usize - 2;
+        let self_or_null_idx = stack_len - nargs_usize - 1;
+        let args_start = stack_len - nargs_usize;
+
+        // Check if callable has vectorcall slot
+        let has_vectorcall = self.state.stack[callable_idx]
+            .as_ref()
+            .is_some_and(|sr| sr.as_object().class().slots.vectorcall.load().is_some());
+
+        if !has_vectorcall {
+            // Fallback: reconstruct kwarg_names iterator and use existing path
+            let kwarg_names_iter = kwarg_names_tuple.as_slice().iter().map(|pyobj| {
+                pyobj
+                    .downcast_ref::<PyUtf8Str>()
+                    .unwrap()
+                    .as_str()
+                    .to_owned()
+            });
+            let args = self.pop_multiple(nargs_usize);
+            let func_args = FuncArgs::with_kwargs_names(args, kwarg_names_iter);
+            // pop self_or_null and callable
+            let self_or_null = self.pop_value_opt();
+            let callable = self.pop_value();
+            let final_args = if let Some(self_val) = self_or_null {
+                let mut args = func_args;
+                args.prepend_arg(self_val);
+                args
+            } else {
+                func_args
+            };
+            let value = callable.call(final_args, vm)?;
+            self.push_value(value);
+            return Ok(None);
+        }
+
+        // Build args: [self?, pos_arg1, ..., pos_argM, kw_val1, ..., kw_valK]
+        let self_or_null = self.state.stack[self_or_null_idx]
+            .take()
+            .map(|sr| sr.to_pyobj());
+        let has_self = self_or_null.is_some();
+
+        let pos_count = nargs_usize - kw_count;
+        let effective_nargs = if has_self { pos_count + 1 } else { pos_count };
+
+        // Build the full args slice: positional (including self) + kwarg values
+        let total_args = effective_nargs + kw_count;
+        let mut args_vec = Vec::with_capacity(total_args);
+        if let Some(self_val) = self_or_null {
+            args_vec.push(self_val);
+        }
+        for stack_idx in args_start..stack_len {
+            let val = self.state.stack[stack_idx].take().unwrap().to_pyobj();
+            args_vec.push(val);
+        }
+
+        let callable_obj = self.state.stack[callable_idx].take().unwrap().to_pyobj();
+        self.state.stack.truncate(callable_idx);
+
+        let kwnames = kwarg_names_tuple.as_slice();
+        let result = callable_obj.vectorcall(args_vec, effective_nargs, Some(kwnames), vm)?;
+        self.push_value(result);
+        Ok(None)
     }
 
     #[inline]
