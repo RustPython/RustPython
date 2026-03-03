@@ -1309,26 +1309,33 @@ pub(crate) fn vectorcall_function(
             zelf.builtins.clone(),
             zelf.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(zelf.to_owned().into()),
+            true, // Always use datastack (is_simple excludes gen/coro)
             vm,
         )
         .into_ref(&vm.ctx);
 
         {
-            let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
+            let fastlocals = unsafe { frame.fastlocals_mut() };
             for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..nargs)) {
                 *slot = Some(arg);
             }
         }
 
         if let Some(cell2arg) = code.cell2arg.as_deref() {
-            let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
+            let fastlocals = unsafe { frame.fastlocals_mut() };
             for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
                 let x = fastlocals[*arg_idx as usize].take();
                 frame.set_cell_contents(cell_idx, x);
             }
         }
 
-        return vm.run_frame(frame);
+        let result = vm.run_frame(frame.clone());
+        unsafe {
+            if let Some(base) = frame.materialize_localsplus() {
+                vm.datastack_pop(base);
+            }
+        }
+        return result;
     }
 
     // SLOW PATH: construct FuncArgs from owned Vec and delegate to invoke()
