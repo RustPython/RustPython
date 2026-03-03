@@ -713,7 +713,6 @@ impl ExecutingFrame<'_> {
             obj_name = self.code.obj_name
         ));
         // Execute until return or exception:
-        let instructions = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
         loop {
             let idx = self.lasti() as usize;
@@ -730,8 +729,8 @@ impl ExecutingFrame<'_> {
             if vm.use_tracing.get()
                 && !vm.is_none(&self.object.trace.lock())
                 && !matches!(
-                    instructions.get(idx).map(|u| u.op),
-                    Some(Instruction::Resume { .. } | Instruction::InstrumentedResume)
+                    self.code.instructions.read_op(idx),
+                    Instruction::Resume { .. } | Instruction::InstrumentedResume
                 )
                 && let Some((loc, _)) = self.code.locations.get(idx)
                 && loc.line.get() as u32 != self.state.prev_line
@@ -753,8 +752,8 @@ impl ExecutingFrame<'_> {
                     continue;
                 }
             }
-            let bytecode::CodeUnit { op, arg } = instructions[idx];
-            let arg = arg_state.extend(arg);
+            let op = self.code.instructions.read_op(idx);
+            let arg = arg_state.extend(self.code.instructions.read_arg(idx));
             let mut do_extend_arg = false;
             let caches = op.cache_entries();
 
@@ -1415,12 +1414,12 @@ impl ExecutingFrame<'_> {
                 let nargs = argc.get(arg);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_call_kw(vm, nargs, instr_idx, cache_base);
@@ -1468,12 +1467,12 @@ impl ExecutingFrame<'_> {
                 let op_val = opname.get(arg);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_compare_op(vm, op_val, instr_idx, cache_base);
@@ -1483,12 +1482,12 @@ impl ExecutingFrame<'_> {
             Instruction::ContainsOp { invert } => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_contains_op(vm, instr_idx, cache_base);
@@ -1677,12 +1676,12 @@ impl ExecutingFrame<'_> {
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_for_iter(vm, instr_idx, cache_base);
@@ -1912,12 +1911,12 @@ impl ExecutingFrame<'_> {
             Instruction::LoadSuperAttr { namei } => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_load_super_attr(vm, namei.get(arg), instr_idx, cache_base);
@@ -2172,12 +2171,12 @@ impl ExecutingFrame<'_> {
                 let oparg = namei.get(arg);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_load_global(vm, oparg, instr_idx, cache_base);
@@ -2530,6 +2529,7 @@ impl ExecutingFrame<'_> {
                 // Lazy quickening: initialize adaptive counters on first execution
                 if !self.code.quickened.swap(true, atomic::Ordering::Relaxed) {
                     self.code.instructions.quicken();
+                    atomic::fence(atomic::Ordering::Release);
                 }
                 // Check if bytecode needs re-instrumentation
                 let global_ver = vm
@@ -2658,12 +2658,12 @@ impl ExecutingFrame<'_> {
             Instruction::StoreAttr { namei } => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_store_attr(vm, namei.get(arg), instr_idx, cache_base);
@@ -2736,12 +2736,12 @@ impl ExecutingFrame<'_> {
             Instruction::StoreSubscr => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_store_subscr(vm, instr_idx, cache_base);
@@ -2768,12 +2768,12 @@ impl ExecutingFrame<'_> {
             Instruction::ToBool => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_to_bool(vm, instr_idx, cache_base);
@@ -2790,12 +2790,12 @@ impl ExecutingFrame<'_> {
             Instruction::UnpackSequence { count } => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_unpack_sequence(vm, instr_idx, cache_base);
@@ -2849,12 +2849,12 @@ impl ExecutingFrame<'_> {
                 // (receiver, v -- receiver, retval)
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
+                let counter = self.code.instructions.read_adaptive_counter(cache_base);
                 if counter > 0 {
                     unsafe {
                         self.code
                             .instructions
-                            .write_cache_u16(cache_base, counter - 1);
+                            .write_adaptive_counter(cache_base, counter - 1);
                     }
                 } else {
                     self.specialize_send(instr_idx, cache_base);
@@ -5226,7 +5226,10 @@ impl ExecutingFrame<'_> {
                     // Scan backwards past CACHE entries to find the branch instruction
                     let mut branch_idx = not_taken_idx.saturating_sub(1);
                     while branch_idx > 0
-                        && matches!(self.code.instructions[branch_idx].op, Instruction::Cache)
+                        && matches!(
+                            self.code.instructions.read_op(branch_idx),
+                            Instruction::Cache
+                        )
                     {
                         branch_idx -= 1;
                     }
@@ -6563,6 +6566,13 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        // Pre-check: bail if already specialized by another thread
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::LoadAttr { .. }
+        ) {
+            return;
+        }
         let obj = self.top_value();
         let cls = obj.class();
 
@@ -6870,6 +6880,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::BinaryOp { .. }
+        ) {
+            return;
+        }
         let b = self.top_value();
         let a = self.nth_value(1);
 
@@ -6985,6 +7001,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::Call { .. }
+        ) {
+            return;
+        }
         // Stack: [callable, self_or_null, arg1, ..., argN]
         // callable is at position nargs + 1 from top
         // self_or_null is at position nargs from top
@@ -7152,6 +7174,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::CallKw { .. }
+        ) {
+            return;
+        }
         // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
         // callable is at position nargs + 2 from top
         let stack = &self.state.stack;
@@ -7197,6 +7225,12 @@ impl ExecutingFrame<'_> {
     }
 
     fn specialize_send(&mut self, instr_idx: usize, cache_base: usize) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::Send { .. }
+        ) {
+            return;
+        }
         // Stack: [receiver, val] — receiver is at position 1
         let receiver = self.nth_value(1);
         if self.builtin_coro(receiver).is_some() {
@@ -7221,6 +7255,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::LoadSuperAttr { .. }
+        ) {
+            return;
+        }
         // Stack: [global_super, class, self]
         let global_super = self.nth_value(2);
         let class = self.nth_value(1);
@@ -7253,6 +7293,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::CompareOp { .. }
+        ) {
+            return;
+        }
         let b = self.top_value();
         let a = self.nth_value(1);
 
@@ -7310,6 +7356,12 @@ impl ExecutingFrame<'_> {
     }
 
     fn specialize_to_bool(&mut self, vm: &VirtualMachine, instr_idx: usize, _cache_base: usize) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::ToBool
+        ) {
+            return;
+        }
         let obj = self.top_value();
         let cls = obj.class();
 
@@ -7360,6 +7412,12 @@ impl ExecutingFrame<'_> {
     }
 
     fn specialize_for_iter(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::ForIter { .. }
+        ) {
+            return;
+        }
         let iter = self.top_value();
 
         let new_op = if iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some() {
@@ -7461,6 +7519,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::LoadGlobal(..)
+        ) {
+            return;
+        }
         let name = self.code.names[(oparg >> 1) as usize];
         // Check if name exists in globals
         let in_globals = self.globals.get_item_opt(name, vm).ok().flatten().is_some();
@@ -7518,6 +7582,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::StoreSubscr
+        ) {
+            return;
+        }
         // Stack: [value, obj, idx] — obj is TOS-1
         let obj = self.nth_value(1);
         let idx = self.top_value();
@@ -7559,6 +7629,12 @@ impl ExecutingFrame<'_> {
     }
 
     fn specialize_contains_op(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::ContainsOp(..)
+        ) {
+            return;
+        }
         let haystack = self.top_value(); // b = TOS = haystack
         let new_op = if haystack.downcast_ref_if_exact::<PyDict>(vm).is_some() {
             Some(Instruction::ContainsOpDict)
@@ -7603,6 +7679,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::UnpackSequence { .. }
+        ) {
+            return;
+        }
         let obj = self.top_value();
         let new_op = if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
             if tuple.len() == 2 {
@@ -7652,6 +7734,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::StoreAttr { .. }
+        ) {
+            return;
+        }
         // TOS = owner (the object being assigned to)
         let owner = self.top_value();
         let cls = owner.class();

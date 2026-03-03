@@ -8,7 +8,12 @@ use crate::{
 };
 use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeSet, fmt, string::String, vec::Vec};
 use bitflags::bitflags;
-use core::{cell::UnsafeCell, hash, mem, ops::Deref};
+use core::{
+    cell::UnsafeCell,
+    hash, mem,
+    ops::Deref,
+    sync::atomic::{AtomicU8, AtomicU16, Ordering},
+};
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
@@ -367,8 +372,13 @@ impl TryFrom<&[u8]> for CodeUnit {
 
 pub struct CodeUnits(UnsafeCell<Box<[CodeUnit]>>);
 
-// SAFETY: All mutation of the inner buffer is serialized by `monitoring_data: PyMutex`
-// in `PyCode`. The `UnsafeCell` is required because `replace_op` mutates through `&self`.
+// SAFETY: All cache operations use atomic read/write instructions.
+// - replace_op / compare_exchange_op: AtomicU8 store/CAS (Release)
+// - cache read/write: AtomicU16 load/store (Relaxed)
+// - adaptive counter: AtomicU8 load/store (Relaxed)
+// Ordering is established by:
+// - replace_op (Release) ↔ dispatch loop read_op (Acquire) for cache data visibility
+// - tp_version_tag (Acquire) for descriptor pointer validity
 unsafe impl Sync for CodeUnits {}
 
 impl Clone for CodeUnits {
@@ -435,45 +445,81 @@ impl Deref for CodeUnits {
 
 impl CodeUnits {
     /// Replace the opcode at `index` in-place without changing the arg byte.
+    /// Uses atomic Release store to ensure prior cache writes are visible
+    /// to threads that subsequently read the new opcode with Acquire.
     ///
     /// # Safety
     /// - `index` must be in bounds.
     /// - `new_op` must have the same arg semantics as the original opcode.
-    /// - The caller must ensure exclusive access to the instruction buffer
-    ///   (no concurrent reads or writes to the same `CodeUnits`).
     pub unsafe fn replace_op(&self, index: usize, new_op: Instruction) {
-        unsafe {
-            let units = &mut *self.0.get();
-            let unit_ptr = units.as_mut_ptr().add(index);
-            // Write only the opcode byte (first byte of CodeUnit due to #[repr(C)])
-            let op_ptr = unit_ptr as *mut u8;
-            core::ptr::write(op_ptr, new_op.into());
-        }
+        let units = unsafe { &*self.0.get() };
+        let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU8;
+        unsafe { &*ptr }.store(new_op.into(), Ordering::Release);
+    }
+
+    /// Atomically replace opcode only if it still matches `expected`.
+    /// Returns true on success. Uses Release ordering on success.
+    ///
+    /// # Safety
+    /// - `index` must be in bounds.
+    pub unsafe fn compare_exchange_op(
+        &self,
+        index: usize,
+        expected: Instruction,
+        new_op: Instruction,
+    ) -> bool {
+        let units = unsafe { &*self.0.get() };
+        let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU8;
+        unsafe { &*ptr }
+            .compare_exchange(
+                expected.into(),
+                new_op.into(),
+                Ordering::Release,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+    }
+
+    /// Atomically read the opcode at `index` with Acquire ordering.
+    /// Pairs with `replace_op` (Release) to ensure cache data visibility.
+    pub fn read_op(&self, index: usize) -> Instruction {
+        let units = unsafe { &*self.0.get() };
+        let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU8;
+        let byte = unsafe { &*ptr }.load(Ordering::Acquire);
+        // SAFETY: Only valid Instruction values are stored via replace_op/compare_exchange_op.
+        unsafe { mem::transmute::<u8, Instruction>(byte) }
+    }
+
+    /// Atomically read the arg byte at `index` with Relaxed ordering.
+    pub fn read_arg(&self, index: usize) -> OpArgByte {
+        let units = unsafe { &*self.0.get() };
+        let ptr = units.as_ptr().wrapping_add(index) as *const u8;
+        let arg_ptr = unsafe { ptr.add(1) } as *const AtomicU8;
+        OpArgByte::from(unsafe { &*arg_ptr }.load(Ordering::Relaxed))
     }
 
     /// Write a u16 value into a CACHE code unit at `index`.
     /// Each CodeUnit is 2 bytes (#[repr(C)]: op u8 + arg u8), so one u16 fits exactly.
+    /// Uses Relaxed atomic store; ordering is provided by replace_op (Release).
     ///
     /// # Safety
     /// - `index` must be in bounds and point to a CACHE entry.
-    /// - The caller must ensure no concurrent reads/writes to the same slot.
     pub unsafe fn write_cache_u16(&self, index: usize, value: u16) {
-        unsafe {
-            let units = &mut *self.0.get();
-            let ptr = units.as_mut_ptr().add(index) as *mut u8;
-            core::ptr::write_unaligned(ptr as *mut u16, value);
-        }
+        let units = unsafe { &*self.0.get() };
+        let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU16;
+        unsafe { &*ptr }.store(value, Ordering::Relaxed);
     }
 
     /// Read a u16 value from a CACHE code unit at `index`.
+    /// Uses Relaxed atomic load; ordering is provided by read_op (Acquire).
     ///
     /// # Panics
     /// Panics if `index` is out of bounds.
     pub fn read_cache_u16(&self, index: usize) -> u16 {
         let units = unsafe { &*self.0.get() };
         assert!(index < units.len(), "read_cache_u16: index out of bounds");
-        let ptr = units.as_ptr().wrapping_add(index) as *const u8;
-        unsafe { core::ptr::read_unaligned(ptr as *const u16) }
+        let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU16;
+        unsafe { &*ptr }.load(Ordering::Relaxed)
     }
 
     /// Write a u32 value across two consecutive CACHE code units starting at `index`.
@@ -518,36 +564,40 @@ impl CodeUnits {
         lo | (hi << 32)
     }
 
-    /// Read the adaptive counter from the first CACHE entry's `arg` byte.
-    /// This preserves `op = Instruction::Cache`, unlike `read_cache_u16`.
+    /// Read the adaptive counter from the CACHE entry's `arg` byte at `index`.
+    /// Uses Relaxed atomic load.
     pub fn read_adaptive_counter(&self, index: usize) -> u8 {
         let units = unsafe { &*self.0.get() };
-        u8::from(units[index].arg)
+        let ptr = units.as_ptr().wrapping_add(index) as *const u8;
+        let arg_ptr = unsafe { ptr.add(1) } as *const AtomicU8;
+        unsafe { &*arg_ptr }.load(Ordering::Relaxed)
     }
 
-    /// Write the adaptive counter to the first CACHE entry's `arg` byte.
-    /// This preserves `op = Instruction::Cache`, unlike `write_cache_u16`.
+    /// Write the adaptive counter to the CACHE entry's `arg` byte at `index`.
+    /// Uses Relaxed atomic store.
     ///
     /// # Safety
     /// - `index` must be in bounds and point to a CACHE entry.
     pub unsafe fn write_adaptive_counter(&self, index: usize, value: u8) {
-        let units = unsafe { &mut *self.0.get() };
-        units[index].arg = OpArgByte::from(value);
+        let units = unsafe { &*self.0.get() };
+        let ptr = units.as_ptr().wrapping_add(index) as *const u8;
+        let arg_ptr = unsafe { ptr.add(1) } as *const AtomicU8;
+        unsafe { &*arg_ptr }.store(value, Ordering::Relaxed);
     }
 
     /// Produce a clean copy of the bytecode suitable for serialization
     /// (marshal) and `co_code`. Specialized opcodes are mapped back to their
     /// base variants via `deoptimize()` and all CACHE entries are zeroed.
     pub fn original_bytes(&self) -> Vec<u8> {
-        let units = unsafe { &*self.0.get() };
-        let mut out = Vec::with_capacity(units.len() * 2);
-        let len = units.len();
+        let len = self.len();
+        let mut out = Vec::with_capacity(len * 2);
         let mut i = 0;
         while i < len {
-            let op = units[i].op.deoptimize();
+            let op = self.read_op(i).deoptimize();
+            let arg = self.read_arg(i);
             let caches = op.cache_entries();
             out.push(u8::from(op));
-            out.push(u8::from(units[i].arg));
+            out.push(u8::from(arg));
             // Zero-fill all CACHE entries (counter + cached data)
             for _ in 0..caches {
                 i += 1;
@@ -562,12 +612,12 @@ impl CodeUnits {
     /// Initialize adaptive warmup counters for all cacheable instructions.
     /// Called lazily at RESUME (first execution of a code object).
     /// Uses the `arg` byte of the first CACHE entry, preserving `op = Instruction::Cache`.
+    /// All writes are atomic (Relaxed) to avoid data races with concurrent readers.
     pub fn quicken(&self) {
-        let units = unsafe { &mut *self.0.get() };
-        let len = units.len();
+        let len = self.len();
         let mut i = 0;
         while i < len {
-            let op = units[i].op;
+            let op = self.read_op(i);
             let caches = op.cache_entries();
             if caches > 0 {
                 // Don't write adaptive counter for instrumented opcodes;
@@ -575,7 +625,9 @@ impl CodeUnits {
                 if !op.is_instrumented() {
                     let cache_base = i + 1;
                     if cache_base < len {
-                        units[cache_base].arg = OpArgByte::from(ADAPTIVE_WARMUP_VALUE);
+                        unsafe {
+                            self.write_adaptive_counter(cache_base, ADAPTIVE_WARMUP_VALUE);
+                        }
                     }
                 }
                 i += 1 + caches;
