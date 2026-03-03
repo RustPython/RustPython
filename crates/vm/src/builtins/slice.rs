@@ -1,5 +1,7 @@
 // sliceobject.{h,c} in CPython
 // spell-checker:ignore sliceobject
+use core::cell::Cell;
+use core::ptr::NonNull;
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
 use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
@@ -23,10 +25,42 @@ pub struct PySlice {
     pub step: Option<PyObjectRef>,
 }
 
+thread_local! {
+    static SLICE_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
+}
+
 impl PyPayload for PySlice {
+    const MAX_FREELIST: usize = 1;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.slice_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        SLICE_FREELIST.with(|fl| {
+            let mut list = fl.take();
+            let stored = if list.len() < Self::MAX_FREELIST {
+                list.push(obj);
+                true
+            } else {
+                false
+            };
+            fl.set(list);
+            stored
+        })
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        SLICE_FREELIST.with(|fl| {
+            let mut list = fl.take();
+            let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+            fl.set(list);
+            result
+        })
     }
 }
 

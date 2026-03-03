@@ -74,13 +74,12 @@ unsafe impl Traverse for PyList {
     }
 }
 
-const PYLIST_MAXFREELIST: usize = 80;
-
 thread_local! {
     static LIST_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
 }
 
 impl PyPayload for PyList {
+    const MAX_FREELIST: usize = 80;
     const HAS_FREELIST: bool = true;
 
     #[inline]
@@ -92,7 +91,7 @@ impl PyPayload for PyList {
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
         LIST_FREELIST.with(|fl| {
             let mut list = fl.take();
-            let stored = if list.len() < PYLIST_MAXFREELIST {
+            let stored = if list.len() < Self::MAX_FREELIST {
                 list.push(obj);
                 true
             } else {

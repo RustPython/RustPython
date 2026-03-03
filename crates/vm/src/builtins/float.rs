@@ -34,13 +34,12 @@ impl PyFloat {
     }
 }
 
-const PYFLOAT_MAXFREELIST: usize = 100;
-
 thread_local! {
     static FLOAT_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
 }
 
 impl PyPayload for PyFloat {
+    const MAX_FREELIST: usize = 100;
     const HAS_FREELIST: bool = true;
 
     #[inline]
@@ -52,7 +51,7 @@ impl PyPayload for PyFloat {
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
         FLOAT_FREELIST.with(|fl| {
             let mut list = fl.take();
-            let stored = if list.len() < PYFLOAT_MAXFREELIST {
+            let stored = if list.len() < Self::MAX_FREELIST {
                 list.push(obj);
                 true
             } else {

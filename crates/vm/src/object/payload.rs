@@ -52,6 +52,9 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// race conditions when the object is reused.
     const HAS_FREELIST: bool = false;
 
+    /// Maximum number of objects to keep in the freelist.
+    const MAX_FREELIST: usize = 0;
+
     /// Try to push a dead object onto this type's freelist for reuse.
     /// Returns true if the object was stored (caller must NOT free the memory).
     ///

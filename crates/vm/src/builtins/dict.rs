@@ -62,13 +62,12 @@ impl fmt::Debug for PyDict {
     }
 }
 
-const PYDICT_MAXFREELIST: usize = 80;
-
 thread_local! {
     static DICT_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
 }
 
 impl PyPayload for PyDict {
+    const MAX_FREELIST: usize = 80;
     const HAS_FREELIST: bool = true;
 
     #[inline]
@@ -80,7 +79,7 @@ impl PyPayload for PyDict {
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
         DICT_FREELIST.with(|fl| {
             let mut list = fl.take();
-            let stored = if list.len() < PYDICT_MAXFREELIST {
+            let stored = if list.len() < Self::MAX_FREELIST {
                 list.push(obj);
                 true
             } else {
