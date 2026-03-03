@@ -77,8 +77,19 @@ opt-level = 3
 # https://github.com/rust-lang/rust/issues/92869
 # lto = "thin"
 
-# Doesn't change often
+# Some crates don't change as much but benefit more from
+# more expensive optimization passes, so we selectively
+# decrease codegen-units in some cases.
 [profile.release.package.rustpython-doc]
+codegen-units = 1
+
+[profile.release.package.rustpython-literal]
+codegen-units = 1
+
+[profile.release.package.rustpython-common]
+codegen-units = 1
+
+[profile.release.package.rustpython-wtf8]
 codegen-units = 1
 
 [profile.bench]
