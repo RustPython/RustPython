@@ -79,6 +79,11 @@ impl PyDict {
         &self.entries
     }
 
+    /// Monotonically increasing version for mutation tracking.
+    pub(crate) fn version(&self) -> u64 {
+        self.entries.version()
+    }
+
     /// Returns all keys as a Vec, atomically under a single read lock.
     /// Thread-safe: prevents "dictionary changed size during iteration" errors.
     pub fn keys_vec(&self) -> Vec<PyObjectRef> {

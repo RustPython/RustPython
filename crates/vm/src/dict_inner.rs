@@ -17,7 +17,9 @@ use crate::{
     object::{Traverse, TraverseFn},
 };
 use alloc::fmt;
-use core::{mem::size_of, ops::ControlFlow};
+use core::mem::size_of;
+use core::ops::ControlFlow;
+use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use num_traits::ToPrimitive;
 
 // HashIndex is intended to be same size with hash::PyHash
@@ -34,6 +36,7 @@ type EntryIndex = usize;
 
 pub struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
+    version: AtomicU64,
 }
 
 unsafe impl<T: Traverse> Traverse for Dict<T> {
@@ -98,6 +101,7 @@ impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
         Self {
             inner: PyRwLock::new(self.inner.read().clone()),
+            version: AtomicU64::new(0),
         }
     }
 }
@@ -111,6 +115,7 @@ impl<T> Default for Dict<T> {
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
             }),
+            version: AtomicU64::new(0),
         }
     }
 }
@@ -254,6 +259,16 @@ impl<T> DictInner<T> {
 type PopInnerResult<T> = ControlFlow<Option<DictEntry<T>>>;
 
 impl<T: Clone> Dict<T> {
+    /// Monotonically increasing version counter for mutation tracking.
+    pub fn version(&self) -> u64 {
+        self.version.load(Relaxed)
+    }
+
+    /// Bump the version counter after any mutation.
+    fn bump_version(&self) {
+        self.version.fetch_add(1, Relaxed);
+    }
+
     fn read(&self) -> PyRwLockReadGuard<'_, DictInner<T>> {
         self.inner.read()
     }
@@ -283,6 +298,7 @@ impl<T: Clone> Dict<T> {
                     };
                     if entry.index == index_index {
                         let removed = core::mem::replace(&mut entry.value, value);
+                        self.bump_version();
                         // defer dec RC
                         break Some(removed);
                     } else {
@@ -298,6 +314,7 @@ impl<T: Clone> Dict<T> {
                     continue;
                 }
                 inner.unchecked_push(index_index, hash, key.to_pyobject(vm), value, entry_index);
+                self.bump_version();
                 break None;
             }
         };
@@ -361,6 +378,7 @@ impl<T: Clone> Dict<T> {
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
             inner.filled = 0;
+            self.bump_version();
             // defer dec rc
             core::mem::take(&mut inner.entries)
         };
@@ -439,6 +457,7 @@ impl<T: Clone> Dict<T> {
                     continue;
                 }
                 inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
+                self.bump_version();
                 break None;
             }
         };
@@ -475,6 +494,7 @@ impl<T: Clone> Dict<T> {
                 value.clone(),
                 index_entry,
             );
+            self.bump_version();
             return Ok(value);
         }
     }
@@ -511,6 +531,7 @@ impl<T: Clone> Dict<T> {
             let key_obj = key.to_pyobject(vm);
             let ret = (key_obj.clone(), value.clone());
             inner.unchecked_push(index_index, hash, key_obj, value, index_entry);
+            self.bump_version();
             return Ok(ret);
         }
     }
@@ -698,6 +719,7 @@ impl<T: Clone> Dict<T> {
         } = IndexEntry::DUMMY;
         inner.used -= 1;
         let removed = slot.take();
+        self.bump_version();
         Ok(ControlFlow::Break(removed))
     }
 
@@ -727,6 +749,7 @@ impl<T: Clone> Dict<T> {
             // entry.index always refers valid index
             inner.indices.get_unchecked_mut(entry.index)
         } = IndexEntry::DUMMY;
+        self.bump_version();
         Some((entry.key, entry.value))
     }
 

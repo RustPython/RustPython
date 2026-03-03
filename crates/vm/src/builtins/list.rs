@@ -637,6 +637,23 @@ impl PyListIterator {
     }
 }
 
+impl PyListIterator {
+    /// Fast path for FOR_ITER specialization.
+    pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
+        self.internal
+            .lock()
+            .next(|list, pos| {
+                let vec = list.borrow_vec();
+                Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
+            })
+            .ok()
+            .and_then(|r| match r {
+                PyIterReturn::Return(v) => Some(v),
+                PyIterReturn::StopIteration(_) => None,
+            })
+    }
+}
+
 impl SelfIter for PyListIterator {}
 impl IterNext for PyListIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {

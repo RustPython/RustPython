@@ -55,6 +55,10 @@ pub struct PyType {
     pub tp_version_tag: AtomicU32,
 }
 
+/// Monotonic counter for type version tags. Once it reaches `u32::MAX`,
+/// `assign_version_tag()` returns 0 permanently, disabling new inline-cache
+/// entries but not invalidating correctness (cache misses fall back to the
+/// generic path).
 static NEXT_TYPE_VERSION: AtomicU32 = AtomicU32::new(1);
 
 unsafe impl crate::object::Traverse for PyType {
@@ -199,7 +203,8 @@ fn is_subtype_with_mro(a_mro: &[PyTypeRef], a: &Py<PyType>, b: &Py<PyType>) -> b
 }
 
 impl PyType {
-    /// Assign a fresh version tag. Returns 0 on overflow (all caches invalidated).
+    /// Assign a fresh version tag. Returns 0 if the version counter has been
+    /// exhausted, in which case no new cache entries can be created.
     pub fn assign_version_tag(&self) -> u32 {
         loop {
             let current = NEXT_TYPE_VERSION.load(Ordering::Relaxed);

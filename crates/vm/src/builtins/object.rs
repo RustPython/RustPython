@@ -365,7 +365,7 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn slot_setattro(
+    pub(crate) fn slot_setattro(
         obj: &PyObject,
         attr_name: &Py<PyStr>,
         value: PySetterValue,
