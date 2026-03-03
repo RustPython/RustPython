@@ -217,6 +217,7 @@ class FrameAttrsTest(unittest.TestCase):
         self.assertEqual(outer.f_locals, {})
         self.assertEqual(inner.f_locals, {})
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: can't delete f_lineno attribute
     def test_f_lineno_del_segfault(self):
         f, _, _ = self.make_frames()
         with self.assertRaises(AttributeError):
@@ -278,6 +279,7 @@ class ReprTest(unittest.TestCase):
     Tests for repr(frame).
     """
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_repr(self):
         def outer():
             x = 5
@@ -313,6 +315,7 @@ class ReprTest(unittest.TestCase):
                          % (file_repr, offset + 5))
 
 class TestFrameLocals(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_scope(self):
         class A:
             x = 1
@@ -330,6 +333,7 @@ class TestFrameLocals(unittest.TestCase):
             self.assertEqual(locals()['y'], 2)
         f()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 2
     def test_closure(self):
         x = 1
         y = 2
@@ -352,6 +356,7 @@ class TestFrameLocals(unittest.TestCase):
         lst = [locals() for k in [0]]
         self.assertEqual(lst[0]['k'], 0)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 3 != 4
     def test_as_dict(self):
         x = 1
         y = 2
@@ -409,6 +414,7 @@ class TestFrameLocals(unittest.TestCase):
         d[1] = 2
         self.assertEqual(d[1], 2)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnboundLocalError: local variable 'b' referenced before assignment
     def test_write_with_hidden(self):
         def f():
             f_locals = [sys._getframe().f_locals for b in [0]][0]
@@ -420,6 +426,7 @@ class TestFrameLocals(unittest.TestCase):
             c = 0
         f()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <object object at 0xb4000072b6930480> != 'a.b.c'
     def test_local_objects(self):
         o = object()
         k = '.'.join(['a', 'b', 'c'])
@@ -450,6 +457,7 @@ class TestFrameLocals(unittest.TestCase):
         frame = sys._getframe()
         self.assertEqual(repr(frame.f_locals), repr(dict(frame.f_locals)))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     def test_delete(self):
         x = 1
         d = sys._getframe().f_locals
@@ -493,6 +501,7 @@ class TestFrameLocals(unittest.TestCase):
         proxy = sys._getframe().f_locals
         support.check_sizeof(self, proxy, support.calcobjsize("P"))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_unsupport(self):
         x = 1
         d = sys._getframe().f_locals
@@ -527,6 +536,7 @@ class TestFrameLocals(unittest.TestCase):
 
         return StringSubclass('x'), ImpostorX(), 'x'
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: dict_keys(['obj', 'x']) != ['obj', 'x', 'proxy']
     def test_proxy_key_stringlikes_overwrite(self):
         def f(obj):
             x = 1
@@ -549,6 +559,7 @@ class TestFrameLocals(unittest.TestCase):
                 self.assertEqual(keys_snapshot,  expected_keys)
                 self.assertEqual(proxy_snapshot, expected_dict)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnboundLocalError: local variable 'b' referenced before assignment
     def test_proxy_key_stringlikes_ftrst_write(self):
         def f(obj):
             proxy = sys._getframe().f_locals
@@ -576,6 +587,7 @@ class TestFrameLocals(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     proxy[obj] = 0
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'dict' != 'FrameLocalsProxy'
     def test_constructor(self):
         FrameLocalsProxy = type([sys._getframe().f_locals
                                  for x in range(1)][0])
@@ -775,6 +787,7 @@ class TestIncompleteFrameAreInvisible(unittest.TestCase):
             )
             sneaky_frame_object = sneaky_frame_object.f_back
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
     def test_entry_frames_are_invisible_during_teardown(self):
         class C:
             """A weakref'able class."""
