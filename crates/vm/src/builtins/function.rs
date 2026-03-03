@@ -236,7 +236,7 @@ impl PyFunction {
         // https://github.com/python/cpython/blob/main/Python/ceval.c#L3681
 
         // SAFETY: Frame was just created and not yet executing.
-        let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
+        let fastlocals = unsafe { frame.fastlocals_mut() };
 
         let mut args_iter = func_args.args.into_iter();
 
@@ -671,7 +671,7 @@ impl Py<PyFunction> {
 
         // Move args directly into fastlocals (no clone/refcount needed)
         {
-            let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
+            let fastlocals = unsafe { frame.fastlocals_mut() };
             for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..)) {
                 *slot = Some(arg);
             }
@@ -679,7 +679,7 @@ impl Py<PyFunction> {
 
         // Handle cell2arg
         if let Some(cell2arg) = code.cell2arg.as_deref() {
-            let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
+            let fastlocals = unsafe { frame.fastlocals_mut() };
             for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
                 let x = fastlocals[*arg_idx as usize].take();
                 frame.set_cell_contents(cell_idx, x);

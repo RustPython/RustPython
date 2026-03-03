@@ -86,7 +86,7 @@ impl Initializer for PySuper {
                 return Err(vm.new_runtime_error("super(): no arguments"));
             }
             // SAFETY: Frame is current and not concurrently mutated.
-            let obj = unsafe { frame.fastlocals.borrow() }[0]
+            let obj = unsafe { frame.fastlocals() }[0]
                 .clone()
                 .or_else(|| {
                     if let Some(cell2arg) = frame.code.cell2arg.as_deref() {
