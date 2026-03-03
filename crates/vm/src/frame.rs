@@ -4584,10 +4584,12 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyFloat>(vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
-                    let result = a_f
-                        .to_f64()
-                        .partial_cmp(&b_f.to_f64())
-                        .is_some_and(|ord| op.eval_ord(ord));
+                    let (a, b) = (a_f.to_f64(), b_f.to_f64());
+                    // Use Rust's IEEE 754 float comparison which handles NaN correctly
+                    let result = match a.partial_cmp(&b) {
+                        Some(ord) => op.eval_ord(ord),
+                        None => op == PyComparisonOp::Ne, // NaN != anything is true
+                    };
                     self.pop_value();
                     self.pop_value();
                     self.push_value(vm.ctx.new_bool(result).into());
