@@ -53,6 +53,9 @@ unsafe impl Traverse for PyTuple {
     }
 }
 
+// No freelist for PyTuple: structseq types (stat_result, struct_time, etc.)
+// are static subtypes sharing the same Rust payload, making type-safe reuse
+// impractical without a type-pointer comparison at push time.
 impl PyPayload for PyTuple {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {

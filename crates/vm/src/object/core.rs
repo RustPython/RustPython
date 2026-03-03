@@ -193,7 +193,14 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     }
 
     // Try to store in freelist for reuse; otherwise deallocate.
-    if !unsafe { T::freelist_push(obj) } {
+    // Only exact types (not heaptype subclasses) go into the freelist,
+    // because the pop site assumes the cached typ matches the base type.
+    let pushed = if T::HAS_FREELIST && obj_ref.class().heaptype_ext.is_none() {
+        unsafe { T::freelist_push(obj) }
+    } else {
+        false
+    };
+    if !pushed {
         drop(unsafe { Box::from_raw(obj as *mut PyInner<T>) });
     }
 
