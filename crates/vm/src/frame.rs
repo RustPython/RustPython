@@ -16,7 +16,7 @@ use crate::{
     bytecode::{
         self, ADAPTIVE_BACKOFF_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
     },
-    convert::{IntoObject, ToPyResult},
+    convert::ToPyResult,
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{ArgMapping, Either, FuncArgs},
@@ -41,7 +41,7 @@ use malachite_bigint::BigInt;
 use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     boxvec::BoxVec,
-    lock::PyMutex,
+    lock::{OnceCell, PyMutex},
     wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
 };
 use rustpython_compiler_core::SourceLocation;
@@ -148,13 +148,93 @@ unsafe impl Traverse for FastLocals {
     }
 }
 
+/// Lazy locals dict for frames. For NEWLOCALS frames, the dict is
+/// only allocated on first access (most function frames never need it).
+pub struct FrameLocals {
+    inner: OnceCell<ArgMapping>,
+}
+
+impl FrameLocals {
+    /// Create with an already-initialized locals mapping (non-NEWLOCALS frames).
+    fn with_locals(locals: ArgMapping) -> Self {
+        let cell = OnceCell::new();
+        let _ = cell.set(locals);
+        Self { inner: cell }
+    }
+
+    /// Create an empty lazy locals (for NEWLOCALS frames).
+    /// The dict will be created on first access.
+    fn lazy() -> Self {
+        Self {
+            inner: OnceCell::new(),
+        }
+    }
+
+    /// Get the locals mapping, creating it lazily if needed.
+    #[inline]
+    pub fn get_or_create(&self, vm: &VirtualMachine) -> &ArgMapping {
+        self.inner
+            .get_or_init(|| ArgMapping::from_dict_exact(vm.ctx.new_dict()))
+    }
+
+    /// Get the locals mapping if already created.
+    #[inline]
+    pub fn get(&self) -> Option<&ArgMapping> {
+        self.inner.get()
+    }
+
+    #[inline]
+    pub fn mapping(&self, vm: &VirtualMachine) -> crate::protocol::PyMapping<'_> {
+        self.get_or_create(vm).mapping()
+    }
+
+    #[inline]
+    pub fn clone_mapping(&self, vm: &VirtualMachine) -> ArgMapping {
+        self.get_or_create(vm).clone()
+    }
+
+    pub fn into_object(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.clone_mapping(vm).into()
+    }
+
+    pub fn as_object(&self, vm: &VirtualMachine) -> &PyObject {
+        self.get_or_create(vm).obj()
+    }
+}
+
+impl fmt::Debug for FrameLocals {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FrameLocals")
+            .field("initialized", &self.inner.get().is_some())
+            .finish()
+    }
+}
+
+impl Clone for FrameLocals {
+    fn clone(&self) -> Self {
+        let cell = OnceCell::new();
+        if let Some(locals) = self.inner.get() {
+            let _ = cell.set(locals.clone());
+        }
+        Self { inner: cell }
+    }
+}
+
+unsafe impl Traverse for FrameLocals {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        if let Some(locals) = self.inner.get() {
+            locals.traverse(tracer_fn);
+        }
+    }
+}
+
 #[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct Frame {
     pub code: PyRef<PyCode>,
     pub func_obj: Option<PyObjectRef>,
 
     pub fastlocals: FastLocals,
-    pub locals: ArgMapping,
+    pub locals: FrameLocals,
     pub globals: PyDictRef,
     pub builtins: PyObjectRef,
 
@@ -265,7 +345,13 @@ impl Frame {
 
         Self {
             fastlocals: FastLocals::new(fastlocals_vec.into_boxed_slice()),
-            locals: scope.locals,
+            locals: match scope.locals {
+                Some(locals) => FrameLocals::with_locals(locals),
+                None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => FrameLocals::lazy(),
+                None => {
+                    FrameLocals::with_locals(ArgMapping::from_dict_exact(scope.globals.clone()))
+                }
+            },
             globals: scope.globals,
             builtins,
             code,
@@ -378,11 +464,12 @@ impl Frame {
         let code = &**self.code;
         // SAFETY: Called before generator resume; no concurrent access.
         let fastlocals = unsafe { self.fastlocals.borrow_mut() };
+        let locals_map = self.locals.mapping(vm);
         for (i, &varname) in code.varnames.iter().enumerate() {
             if i >= fastlocals.len() {
                 break;
             }
-            match self.locals.mapping().subscript(varname, vm) {
+            match locals_map.subscript(varname, vm) {
                 Ok(value) => fastlocals[i] = Some(value),
                 Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                 Err(e) => return Err(e),
@@ -401,12 +488,13 @@ impl Frame {
         let code = &**self.code;
         let map = &code.varnames;
         let j = core::cmp::min(map.len(), code.varnames.len());
+        let locals_map = locals.mapping(vm);
         if !code.varnames.is_empty() {
             // SAFETY: Either _guard holds the state mutex (frame not executing),
             // or we're in a trace callback on the same thread that holds it.
             let fastlocals = unsafe { self.fastlocals.borrow() };
             for (&k, v) in zip(&map[..j], fastlocals) {
-                match locals.mapping().ass_subscript(k, v.clone(), vm) {
+                match locals_map.ass_subscript(k, v.clone(), vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                     Err(e) => return Err(e),
@@ -416,7 +504,7 @@ impl Frame {
         if !code.cellvars.is_empty() || !code.freevars.is_empty() {
             for (i, &k) in code.cellvars.iter().enumerate() {
                 let cell_value = self.get_cell_contents(i);
-                match locals.mapping().ass_subscript(k, cell_value, vm) {
+                match locals_map.ass_subscript(k, cell_value, vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                     Err(e) => return Err(e),
@@ -425,7 +513,7 @@ impl Frame {
             if code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
                 for (i, &k) in code.freevars.iter().enumerate() {
                     let cell_value = self.get_cell_contents(code.cellvars.len() + i);
-                    match locals.mapping().ass_subscript(k, cell_value, vm) {
+                    match locals_map.ass_subscript(k, cell_value, vm) {
                         Ok(()) => {}
                         Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                         Err(e) => return Err(e),
@@ -433,7 +521,7 @@ impl Frame {
                 }
             }
         }
-        Ok(locals.clone())
+        Ok(locals.clone_mapping(vm))
     }
 }
 
@@ -534,7 +622,7 @@ impl Py<Frame> {
 struct ExecutingFrame<'a> {
     code: &'a PyRef<PyCode>,
     fastlocals: &'a FastLocals,
-    locals: &'a ArgMapping,
+    locals: &'a FrameLocals,
     globals: &'a PyDictRef,
     builtins: &'a PyObjectRef,
     /// Cached downcast of builtins to PyDict for fast LOAD_GLOBAL.
@@ -1375,7 +1463,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::DeleteName { namei } => {
                 let name = self.code.names[namei.get(arg) as usize];
-                let res = self.locals.mapping().ass_subscript(name, None, vm);
+                let res = self.locals.mapping(vm).ass_subscript(name, None, vm);
 
                 match res {
                     Ok(()) => {}
@@ -1748,7 +1836,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadLocals => {
                 // Push the locals dict onto the stack
-                let locals = self.locals.clone().into_object();
+                let locals = self.locals.into_object(vm);
                 self.push_value(locals);
                 Ok(None)
             }
@@ -1975,7 +2063,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadName { namei } => {
                 let name = self.code.names[namei.get(arg) as usize];
-                let result = self.locals.mapping().subscript(name, vm);
+                let result = self.locals.mapping(vm).subscript(name, vm);
                 match result {
                     Ok(x) => self.push_value(x),
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
@@ -2481,7 +2569,9 @@ impl ExecutingFrame<'_> {
             Instruction::StoreName { namei } => {
                 let name = self.code.names[namei.get(arg) as usize];
                 let value = self.pop_value();
-                self.locals.mapping().ass_subscript(name, Some(value), vm)?;
+                self.locals
+                    .mapping(vm)
+                    .ass_subscript(name, Some(value), vm)?;
                 Ok(None)
             }
             Instruction::StoreSlice => {
@@ -3544,20 +3634,19 @@ impl ExecutingFrame<'_> {
             })
         };
 
+        let locals_map = self.locals.mapping(vm);
         if let Ok(all) = dict.get_item(identifier!(vm, __all__), vm) {
             let items: Vec<PyObjectRef> = all.try_to_value(vm)?;
             for item in items {
                 let name = require_str(item, "__all__")?;
                 let value = module.get_attr(&*name, vm)?;
-                self.locals
-                    .mapping()
-                    .ass_subscript(&name, Some(value), vm)?;
+                locals_map.ass_subscript(&name, Some(value), vm)?;
             }
         } else {
             for (k, v) in dict {
                 let k = require_str(k, "__dict__")?;
                 if !k.as_bytes().starts_with(b"_") {
-                    self.locals.mapping().ass_subscript(&k, Some(v), vm)?;
+                    locals_map.ass_subscript(&k, Some(v), vm)?;
                 }
             }
         }
@@ -4249,23 +4338,15 @@ impl ExecutingFrame<'_> {
     #[cold]
     fn setup_annotations(&mut self, vm: &VirtualMachine) -> FrameResult {
         let __annotations__ = identifier!(vm, __annotations__);
+        let locals_obj = self.locals.as_object(vm);
         // Try using locals as dict first, if not, fallback to generic method.
-        let has_annotations = match self
-            .locals
-            .clone()
-            .into_object()
-            .downcast_exact::<PyDict>(vm)
-        {
-            Ok(d) => d.contains_key(__annotations__, vm),
-            Err(o) => {
-                let needle = __annotations__.as_object();
-                self._in(vm, needle, &o)?
-            }
+        let has_annotations = if let Some(d) = locals_obj.downcast_ref_if_exact::<PyDict>(vm) {
+            d.contains_key(__annotations__, vm)
+        } else {
+            self._in(vm, __annotations__.as_object(), locals_obj)?
         };
         if !has_annotations {
-            self.locals
-                .as_object()
-                .set_item(__annotations__, vm.ctx.new_dict().into(), vm)?;
+            locals_obj.set_item(__annotations__, vm.ctx.new_dict().into(), vm)?;
         }
         Ok(None)
     }
@@ -5085,12 +5166,11 @@ impl fmt::Debug for Frame {
             s
         });
         // TODO: fix this up
-        let locals = self.locals.clone();
         write!(
             f,
-            "Frame Object {{ \n Stack:{}\n Locals:{:?}\n}}",
+            "Frame Object {{ \n Stack:{}\n Locals initialized:{}\n}}",
             stack_str,
-            locals.into_object()
+            self.locals.get().is_some()
         )
     }
 }

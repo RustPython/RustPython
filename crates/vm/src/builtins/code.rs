@@ -1275,6 +1275,6 @@ impl<'a> LineTableReader<'a> {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
 }

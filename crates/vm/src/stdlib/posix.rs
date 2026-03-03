@@ -713,8 +713,13 @@ pub mod module {
     }
 
     fn py_os_after_fork_child(vm: &VirtualMachine) {
-        // Reset low-level state before any Python code runs in the child.
-        // Signal triggers from the parent must not fire in the child.
+        // Phase 1: Reset all internal locks FIRST.
+        // After fork(), locks held by dead parent threads would deadlock
+        // if we try to acquire them. This must happen before anything else.
+        #[cfg(feature = "threading")]
+        reinit_locks_after_fork(vm);
+
+        // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
         crate::stdlib::signal::_signal::clear_wakeup_fd_after_fork();
 
@@ -722,24 +727,8 @@ pub mod module {
         #[cfg(feature = "threading")]
         crate::object::reset_weakref_locks_after_fork();
 
-        // Force-unlock all global VM locks that may have been held by
-        // threads that no longer exist in the child process after fork.
-        // SAFETY: After fork, only the forking thread survives. Any lock
-        // held by another thread is permanently stuck. The forking thread
-        // does not hold these locks during fork() (a high-level Python op).
-        unsafe {
-            vm.ctx.string_pool.force_unlock_after_fork();
-            vm.state.codec_registry.force_unlock_after_fork();
-            force_unlock_mutex_after_fork(&vm.state.atexit_funcs);
-            force_unlock_mutex_after_fork(&vm.state.before_forkers);
-            force_unlock_mutex_after_fork(&vm.state.after_forkers_child);
-            force_unlock_mutex_after_fork(&vm.state.after_forkers_parent);
-            force_unlock_mutex_after_fork(&vm.state.global_trace_func);
-            force_unlock_mutex_after_fork(&vm.state.global_profile_func);
-            crate::gc_state::gc_state().force_unlock_after_fork();
-        }
-
-        // Mark all other threads as done before running Python callbacks
+        // Phase 3: Clean up thread state. Locks are now reinit'd so we can
+        // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
         crate::stdlib::thread::after_fork_child(vm);
 
@@ -748,18 +737,45 @@ pub mod module {
         vm.signal_handlers
             .get_or_init(crate::signal::new_signal_handlers);
 
+        // Phase 4: Run Python-level at-fork callbacks.
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
         run_at_forkers(after_forkers_child, false, vm);
     }
 
-    /// Force-unlock a PyMutex if held by a dead thread after fork.
+    /// Reset all parking_lot-based locks in the interpreter state after fork().
     ///
-    /// # Safety
-    /// Must only be called after fork() in the child process.
-    unsafe fn force_unlock_mutex_after_fork<T>(mutex: &crate::common::lock::PyMutex<T>) {
-        if mutex.try_lock().is_none() {
-            // SAFETY: Lock is held by a dead thread after fork.
-            unsafe { mutex.force_unlock() };
+    /// After fork(), only the calling thread survives. Any locks held by other
+    /// (now-dead) threads would cause deadlocks. We unconditionally reset them
+    /// to unlocked by zeroing the raw lock bytes.
+    #[cfg(all(unix, feature = "threading"))]
+    fn reinit_locks_after_fork(vm: &VirtualMachine) {
+        use rustpython_common::lock::reinit_mutex_after_fork;
+
+        unsafe {
+            // PyGlobalState PyMutex locks
+            reinit_mutex_after_fork(&vm.state.before_forkers);
+            reinit_mutex_after_fork(&vm.state.after_forkers_child);
+            reinit_mutex_after_fork(&vm.state.after_forkers_parent);
+            reinit_mutex_after_fork(&vm.state.atexit_funcs);
+            reinit_mutex_after_fork(&vm.state.global_trace_func);
+            reinit_mutex_after_fork(&vm.state.global_profile_func);
+
+            // PyGlobalState parking_lot::Mutex locks
+            reinit_mutex_after_fork(&vm.state.thread_frames);
+            reinit_mutex_after_fork(&vm.state.thread_handles);
+            reinit_mutex_after_fork(&vm.state.shutdown_handles);
+
+            // Context-level RwLock
+            vm.ctx.string_pool.reinit_after_fork();
+
+            // Codec registry RwLock
+            vm.state.codec_registry.reinit_after_fork();
+
+            // GC state (multiple Mutex + RwLock)
+            crate::gc_state::gc_state().reinit_after_fork();
+
+            // Import lock (RawReentrantMutex<RawMutex, RawThreadId>)
+            crate::stdlib::imp::reinit_imp_lock_after_fork();
         }
     }
 
@@ -1031,7 +1047,7 @@ pub mod module {
     fn _fchmod(fd: BorrowedFd<'_>, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         nix::sys::stat::fchmod(
             fd,
-            nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
+            nix::sys::stat::Mode::from_bits_truncate(mode as libc::mode_t),
         )
         .map_err(|err| err.into_pyexception(vm))
     }
@@ -1400,12 +1416,7 @@ pub mod module {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn setresgid(rgid: Gid, egid: Gid, sgid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         unistd::setresgid(rgid, egid, sgid).map_err(|err| err.into_pyexception(vm))
@@ -1419,12 +1430,7 @@ pub mod module {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn initgroups(user_name: PyUtf8StrRef, gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         let user = user_name.to_cstring(vm)?;

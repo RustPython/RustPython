@@ -134,6 +134,8 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
             if let Some(idx) = iterations {
                 scope
                     .locals
+                    .as_ref()
+                    .expect("new_scope_with_builtins always provides locals")
                     .as_object()
                     .set_item("ITERATIONS", vm.new_pyobj(idx), vm)
                     .expect("Error adding ITERATIONS local variable");

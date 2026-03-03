@@ -9,7 +9,7 @@ use super::{
 use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
 use crate::function::ArgMapping;
-use crate::object::{Traverse, TraverseFn};
+use crate::object::{PyAtomicRef, Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     bytecode,
@@ -61,7 +61,7 @@ fn format_missing_args(
 #[pyclass(module = false, name = "function", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyFunction {
-    code: PyMutex<PyRef<PyCode>>,
+    code: PyAtomicRef<PyCode>,
     globals: PyDictRef,
     builtins: PyObjectRef,
     closure: Option<PyRef<PyTuple<PyCellRef>>>,
@@ -192,7 +192,7 @@ impl PyFunction {
 
         let qualname = vm.ctx.new_str(code.qualname.as_str());
         let func = Self {
-            code: PyMutex::new(code.clone()),
+            code: PyAtomicRef::from(code.clone()),
             globals,
             builtins,
             closure: None,
@@ -217,7 +217,7 @@ impl PyFunction {
         func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let code = &*self.code.lock();
+        let code: &Py<PyCode> = &self.code;
         let nargs = func_args.args.len();
         let n_expected_args = code.arg_count as usize;
         let total_args = code.arg_count as usize + code.kwonlyarg_count as usize;
@@ -539,26 +539,28 @@ impl Py<PyFunction> {
                 Err(err) => info!(
                     "jit: function `{}` is falling back to being interpreted because of the \
                     error: {}",
-                    self.code.lock().obj_name,
-                    err
+                    self.code.obj_name, err
                 ),
             }
         }
 
-        let code = self.code.lock().clone();
+        let code: PyRef<PyCode> = (*self.code).to_owned();
 
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
-            ArgMapping::from_dict_exact(vm.ctx.new_dict())
+            None
         } else if let Some(locals) = locals {
-            locals
+            Some(locals)
         } else {
-            ArgMapping::from_dict_exact(self.globals.clone())
+            Some(ArgMapping::from_dict_exact(self.globals.clone()))
         };
+
+        let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
+        let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
 
         // Construct frame:
         let frame = Frame::new(
-            code.clone(),
-            Scope::new(Some(locals), self.globals.clone()),
+            code,
+            Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
@@ -567,10 +569,6 @@ impl Py<PyFunction> {
         .into_ref(&vm.ctx);
 
         self.fill_locals_from_args(&frame, func_args, vm)?;
-
-        // If we have a generator, create a new generator
-        let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
-        let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
         match (is_gen, is_coro) {
             (true, false) => {
                 let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
@@ -609,7 +607,7 @@ impl Py<PyFunction> {
     /// Returns true if: no VARARGS, no VARKEYWORDS, no kwonly args, not generator/coroutine,
     /// and effective_nargs matches co_argcount.
     pub(crate) fn can_specialize_call(&self, effective_nargs: u32) -> bool {
-        let code = self.code.lock();
+        let code: &Py<PyCode> = &self.code;
         let flags = code.flags;
         flags.contains(bytecode::CodeFlags::NEWLOCALS)
             && !flags.intersects(
@@ -627,13 +625,11 @@ impl Py<PyFunction> {
     /// Only valid when: no VARARGS, no VARKEYWORDS, no kwonlyargs, not generator/coroutine,
     /// and nargs == co_argcount.
     pub fn invoke_exact_args(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult {
-        let code = self.code.lock().clone();
-
-        let locals = ArgMapping::from_dict_exact(vm.ctx.new_dict());
+        let code: PyRef<PyCode> = (*self.code).to_owned();
 
         let frame = Frame::new(
             code.clone(),
-            Scope::new(Some(locals), self.globals.clone()),
+            Scope::new(None, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
@@ -676,12 +672,12 @@ impl PyPayload for PyFunction {
 impl PyFunction {
     #[pygetset]
     fn __code__(&self) -> PyRef<PyCode> {
-        self.code.lock().clone()
+        (*self.code).to_owned()
     }
 
     #[pygetset(setter)]
-    fn set___code__(&self, code: PyRef<PyCode>) {
-        *self.code.lock() = code;
+    fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) {
+        self.code.swap_to_temporary_refs(code, vm);
         self.func_version.store(0, Relaxed);
     }
 
@@ -923,7 +919,7 @@ impl PyFunction {
         }
         let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
         let ret_type = jit::jit_ret_type(&zelf, vm)?;
-        let code = zelf.code.lock();
+        let code: &Py<PyCode> = &zelf.code;
         let compiled = rustpython_jit::compile(&code.code, &arg_types, ret_type)
             .map_err(|err| jit::new_jit_error(err.to_string(), vm))?;
         let _ = zelf.jitted_code.set(compiled);
@@ -1223,7 +1219,7 @@ impl PyCell {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyFunction::extend_class(context, context.types.function_type);
     PyBoundMethod::extend_class(context, context.types.bound_method_type);
     PyCell::extend_class(context, context.types.cell_type);

@@ -52,9 +52,6 @@ where
     let paths = getpath::init_path_config(&settings);
     let config = PyConfig::new(settings, paths);
 
-    crate::types::TypeZoo::extend(&ctx);
-    crate::exceptions::ExceptionZoo::extend(&ctx);
-
     // Build module_defs map from builtin modules + additional modules
     let mut all_module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef> =
         crate::stdlib::builtin_module_defs(&ctx)

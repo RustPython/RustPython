@@ -57,3 +57,42 @@ pub type PyRwLockWriteGuard<'a, T> = RwLockWriteGuard<'a, RawRwLock, T>;
 pub type PyMappedRwLockWriteGuard<'a, T> = MappedRwLockWriteGuard<'a, RawRwLock, T>;
 
 // can add fn const_{mutex,rw_lock}() if necessary, but we probably won't need to
+
+/// Reset a `PyMutex` to its initial (unlocked) state after `fork()`.
+///
+/// After `fork()`, locks held by dead parent threads would deadlock in the
+/// child. This writes `RawMutex::INIT` via the `Mutex::raw()` accessor,
+/// bypassing the normal unlock path which may interact with parking_lot's
+/// internal waiter queues.
+///
+/// # Safety
+///
+/// Must only be called from the single-threaded child process immediately
+/// after `fork()`, before any other thread is created.
+#[cfg(unix)]
+pub unsafe fn reinit_mutex_after_fork<T: ?Sized>(mutex: &PyMutex<T>) {
+    // Use Mutex::raw() to access the underlying lock without layout assumptions.
+    // parking_lot::RawMutex (AtomicU8) and RawCellMutex (Cell<bool>) both
+    // represent the unlocked state as all-zero bytes.
+    unsafe {
+        let raw = mutex.raw() as *const RawMutex as *mut u8;
+        core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawMutex>());
+    }
+}
+
+/// Reset a `PyRwLock` to its initial (unlocked) state after `fork()`.
+///
+/// Same rationale as [`reinit_mutex_after_fork`] — dead threads' read or
+/// write locks would cause permanent deadlock in the child.
+///
+/// # Safety
+///
+/// Must only be called from the single-threaded child process immediately
+/// after `fork()`, before any other thread is created.
+#[cfg(unix)]
+pub unsafe fn reinit_rwlock_after_fork<T: ?Sized>(rwlock: &PyRwLock<T>) {
+    unsafe {
+        let raw = rwlock.raw() as *const RawRwLock as *mut u8;
+        core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawRwLock>());
+    }
+}

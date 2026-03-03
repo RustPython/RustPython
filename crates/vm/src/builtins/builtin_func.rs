@@ -224,7 +224,7 @@ impl fmt::Debug for PyNativeMethod {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyNativeFunction::extend_class(context, context.types.builtin_function_or_method_type);
 }
 

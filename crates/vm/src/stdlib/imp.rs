@@ -33,6 +33,34 @@ mod lock {
     fn lock_held(_vm: &VirtualMachine) -> bool {
         IMP_LOCK.is_locked()
     }
+
+    /// Reset import lock after fork() — only if held by a dead thread.
+    ///
+    /// `IMP_LOCK` is a reentrant mutex. If the *current* (surviving) thread
+    /// held it at fork time, the child must be able to release it normally.
+    /// Only reset if a now-dead thread was the owner.
+    ///
+    /// # Safety
+    ///
+    /// Must only be called from single-threaded child after fork().
+    #[cfg(unix)]
+    pub(crate) unsafe fn reinit_after_fork() {
+        if IMP_LOCK.is_locked() && !IMP_LOCK.is_owned_by_current_thread() {
+            // Held by a dead thread — reset to unlocked.
+            // Same pattern as RLock::_at_fork_reinit in thread.rs.
+            unsafe {
+                let old: &crossbeam_utils::atomic::AtomicCell<RawRMutex> =
+                    core::mem::transmute(&IMP_LOCK);
+                old.swap(RawRMutex::INIT);
+            }
+        }
+    }
+}
+
+/// Re-export for fork safety code in posix.rs
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) unsafe fn reinit_imp_lock_after_fork() {
+    unsafe { lock::reinit_after_fork() }
 }
 
 #[cfg(not(feature = "threading"))]
