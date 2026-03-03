@@ -132,13 +132,28 @@ unsafe impl<T: Send> Sync for FrameUnsafeCell<T> {}
 /// (niche optimization on NonNull / NonZeroUsize). The raw storage is
 /// `usize` to unify them; typed access is provided through methods.
 pub struct LocalsPlus {
-    /// Raw storage.  `0` represents `None` for both types.
-    data: Box<[usize]>,
+    /// Backing storage.
+    data: LocalsPlusData,
     /// Number of fastlocals slots (nlocals + ncells + nfrees).
     nlocalsplus: u32,
     /// Current evaluation stack depth.
     stack_top: u32,
 }
+
+enum LocalsPlusData {
+    /// Heap-allocated storage (generators, coroutines, exec/eval frames).
+    Heap(Box<[usize]>),
+    /// Data stack allocated storage (normal function calls).
+    /// The pointer is valid while the enclosing data stack frame is alive.
+    DataStack { ptr: *mut usize, capacity: usize },
+}
+
+// SAFETY: DataStack variant points to thread-local DataStack memory.
+// Frame execution is single-threaded (enforced by owner field).
+#[cfg(feature = "threading")]
+unsafe impl Send for LocalsPlusData {}
+#[cfg(feature = "threading")]
+unsafe impl Sync for LocalsPlusData {}
 
 const _: () = {
     assert!(core::mem::size_of::<Option<PyObjectRef>>() == core::mem::size_of::<usize>());
@@ -146,21 +161,89 @@ const _: () = {
 };
 
 impl LocalsPlus {
-    /// Create a new LocalsPlus with `nlocalsplus` fastlocals slots
-    /// and `stacksize` evaluation stack capacity.  All slots start as None (0).
+    /// Create a new heap-backed LocalsPlus.  All slots start as None (0).
     fn new(nlocalsplus: usize, stacksize: usize) -> Self {
         let capacity = nlocalsplus + stacksize;
         Self {
-            data: vec![0usize; capacity].into_boxed_slice(),
+            data: LocalsPlusData::Heap(vec![0usize; capacity].into_boxed_slice()),
             nlocalsplus: nlocalsplus as u32,
             stack_top: 0,
+        }
+    }
+
+    /// Create a new LocalsPlus backed by the thread data stack.
+    /// All slots are zero-initialized.
+    ///
+    /// The caller must call `release_datastack()` when the frame finishes
+    /// to drop values and return the base pointer for `DataStack::pop()`.
+    fn new_on_datastack(nlocalsplus: usize, stacksize: usize, vm: &VirtualMachine) -> Self {
+        let capacity = nlocalsplus + stacksize;
+        let byte_size = capacity * core::mem::size_of::<usize>();
+        let ptr = vm.datastack_push(byte_size) as *mut usize;
+        // Zero-initialize all slots (0 = None for both PyObjectRef and PyStackRef).
+        unsafe { core::ptr::write_bytes(ptr, 0, capacity) };
+        Self {
+            data: LocalsPlusData::DataStack { ptr, capacity },
+            nlocalsplus: nlocalsplus as u32,
+            stack_top: 0,
+        }
+    }
+
+    /// Migrate data-stack-backed storage to the heap, preserving all values.
+    /// Returns the data stack base pointer for `DataStack::pop()`.
+    /// Returns `None` if already heap-backed.
+    fn materialize_to_heap(&mut self) -> Option<*mut u8> {
+        if let LocalsPlusData::DataStack { ptr, capacity } = &self.data {
+            let base = *ptr as *mut u8;
+            // Copy all data to a heap allocation (preserves locals for tracebacks).
+            let heap_data = unsafe { core::slice::from_raw_parts(*ptr, *capacity) }
+                .to_vec()
+                .into_boxed_slice();
+            self.data = LocalsPlusData::Heap(heap_data);
+            Some(base)
+        } else {
+            None
+        }
+    }
+
+    /// Drop all contained values without freeing the backing storage.
+    fn drop_values(&mut self) {
+        self.stack_clear();
+        let fastlocals = self.fastlocals_mut();
+        for slot in fastlocals.iter_mut() {
+            let _ = slot.take();
+        }
+    }
+
+    // -- Data access helpers --
+
+    #[inline(always)]
+    fn data_as_slice(&self) -> &[usize] {
+        match &self.data {
+            LocalsPlusData::Heap(b) => b,
+            LocalsPlusData::DataStack { ptr, capacity } => unsafe {
+                core::slice::from_raw_parts(*ptr, *capacity)
+            },
+        }
+    }
+
+    #[inline(always)]
+    fn data_as_mut_slice(&mut self) -> &mut [usize] {
+        match &mut self.data {
+            LocalsPlusData::Heap(b) => b,
+            LocalsPlusData::DataStack { ptr, capacity } => unsafe {
+                core::slice::from_raw_parts_mut(*ptr, *capacity)
+            },
         }
     }
 
     /// Total capacity (fastlocals + stack).
     #[inline(always)]
     fn capacity(&self) -> usize {
-        self.data.len()
+        match &self.data {
+            LocalsPlusData::Heap(b) => b.len(),
+            LocalsPlusData::DataStack { capacity, .. } => *capacity,
+        }
     }
 
     /// Stack capacity (max stack depth).
@@ -174,15 +257,18 @@ impl LocalsPlus {
     /// Immutable access to fastlocals as `Option<PyObjectRef>` slice.
     #[inline(always)]
     fn fastlocals(&self) -> &[Option<PyObjectRef>] {
-        let ptr = self.data.as_ptr() as *const Option<PyObjectRef>;
+        let data = self.data_as_slice();
+        let ptr = data.as_ptr() as *const Option<PyObjectRef>;
         unsafe { core::slice::from_raw_parts(ptr, self.nlocalsplus as usize) }
     }
 
     /// Mutable access to fastlocals as `Option<PyObjectRef>` slice.
     #[inline(always)]
     fn fastlocals_mut(&mut self) -> &mut [Option<PyObjectRef>] {
-        let ptr = self.data.as_mut_ptr() as *mut Option<PyObjectRef>;
-        unsafe { core::slice::from_raw_parts_mut(ptr, self.nlocalsplus as usize) }
+        let nlocalsplus = self.nlocalsplus as usize;
+        let data = self.data_as_mut_slice();
+        let ptr = data.as_mut_ptr() as *mut Option<PyObjectRef>;
+        unsafe { core::slice::from_raw_parts_mut(ptr, nlocalsplus) }
     }
 
     // -- Stack access --
@@ -203,10 +289,14 @@ impl LocalsPlus {
     #[inline(always)]
     fn stack_push(&mut self, val: Option<PyStackRef>) {
         let idx = self.nlocalsplus as usize + self.stack_top as usize;
-        debug_assert!(idx < self.capacity(), "stack overflow: stack_top={}, capacity={}", self.stack_top, self.stack_capacity());
-        // SAFETY: Option<PyStackRef> is usize-sized.  We transfer ownership
-        // by writing the raw bits and forgetting the original value.
-        self.data[idx] = unsafe { core::mem::transmute::<Option<PyStackRef>, usize>(val) };
+        debug_assert!(
+            idx < self.capacity(),
+            "stack overflow: stack_top={}, capacity={}",
+            self.stack_top,
+            self.stack_capacity()
+        );
+        let data = self.data_as_mut_slice();
+        data[idx] = unsafe { core::mem::transmute::<Option<PyStackRef>, usize>(val) };
         self.stack_top += 1;
     }
 
@@ -217,7 +307,8 @@ impl LocalsPlus {
         if idx >= self.capacity() {
             return Err(val);
         }
-        self.data[idx] = unsafe { core::mem::transmute::<Option<PyStackRef>, usize>(val) };
+        let data = self.data_as_mut_slice();
+        data[idx] = unsafe { core::mem::transmute::<Option<PyStackRef>, usize>(val) };
         self.stack_top += 1;
         Ok(())
     }
@@ -228,15 +319,17 @@ impl LocalsPlus {
         debug_assert!(self.stack_top > 0, "stack underflow");
         self.stack_top -= 1;
         let idx = self.nlocalsplus as usize + self.stack_top as usize;
-        let raw = core::mem::replace(&mut self.data[idx], 0);
+        let data = self.data_as_mut_slice();
+        let raw = core::mem::replace(&mut data[idx], 0);
         unsafe { core::mem::transmute::<usize, Option<PyStackRef>>(raw) }
     }
 
     /// Immutable view of the active stack as `Option<PyStackRef>` slice.
     #[inline(always)]
     fn stack_as_slice(&self) -> &[Option<PyStackRef>] {
+        let data = self.data_as_slice();
         let base = self.nlocalsplus as usize;
-        let ptr = unsafe { (self.data.as_ptr().add(base)) as *const Option<PyStackRef> };
+        let ptr = unsafe { (data.as_ptr().add(base)) as *const Option<PyStackRef> };
         unsafe { core::slice::from_raw_parts(ptr, self.stack_top as usize) }
     }
 
@@ -244,8 +337,9 @@ impl LocalsPlus {
     #[inline(always)]
     fn stack_index(&self, idx: usize) -> &Option<PyStackRef> {
         debug_assert!(idx < self.stack_top as usize);
+        let data = self.data_as_slice();
         let raw_idx = self.nlocalsplus as usize + idx;
-        unsafe { &*(self.data.as_ptr().add(raw_idx) as *const Option<PyStackRef>) }
+        unsafe { &*(data.as_ptr().add(raw_idx) as *const Option<PyStackRef>) }
     }
 
     /// Get a mutable reference to a stack slot by index from the bottom.
@@ -253,7 +347,8 @@ impl LocalsPlus {
     fn stack_index_mut(&mut self, idx: usize) -> &mut Option<PyStackRef> {
         debug_assert!(idx < self.stack_top as usize);
         let raw_idx = self.nlocalsplus as usize + idx;
-        unsafe { &mut *(self.data.as_mut_ptr().add(raw_idx) as *mut Option<PyStackRef>) }
+        let data = self.data_as_mut_slice();
+        unsafe { &mut *(data.as_mut_ptr().add(raw_idx) as *mut Option<PyStackRef>) }
     }
 
     /// Get the last stack element (top of stack).
@@ -281,7 +376,8 @@ impl LocalsPlus {
     #[inline(always)]
     fn stack_swap(&mut self, a: usize, b: usize) {
         let base = self.nlocalsplus as usize;
-        self.data.swap(base + a, base + b);
+        let data = self.data_as_mut_slice();
+        data.swap(base + a, base + b);
     }
 
     /// Clear the stack, dropping all values.
@@ -293,7 +389,10 @@ impl LocalsPlus {
 
     /// Drain stack elements from `from` to the end, returning an iterator
     /// that yields `Option<PyStackRef>` in forward order and shrinks the stack.
-    fn stack_drain(&mut self, from: usize) -> impl ExactSizeIterator<Item = Option<PyStackRef>> + '_ {
+    fn stack_drain(
+        &mut self,
+        from: usize,
+    ) -> impl ExactSizeIterator<Item = Option<PyStackRef>> + '_ {
         let end = self.stack_top as usize;
         debug_assert!(from <= end);
         // Reduce stack_top now; the drain iterator owns the elements.
@@ -330,7 +429,8 @@ impl Iterator for LocalsPlusStackDrain<'_> {
             return None;
         }
         let idx = self.localsplus.nlocalsplus as usize + self.current;
-        let raw = core::mem::replace(&mut self.localsplus.data[idx], 0);
+        let data = self.localsplus.data_as_mut_slice();
+        let raw = core::mem::replace(&mut data[idx], 0);
         self.current += 1;
         Some(unsafe { core::mem::transmute::<usize, Option<PyStackRef>>(raw) })
     }
@@ -348,7 +448,8 @@ impl Drop for LocalsPlusStackDrain<'_> {
         // Drop any remaining elements that weren't consumed.
         while self.current < self.end {
             let idx = self.localsplus.nlocalsplus as usize + self.current;
-            let raw = core::mem::replace(&mut self.localsplus.data[idx], 0);
+            let data = self.localsplus.data_as_mut_slice();
+            let raw = core::mem::replace(&mut data[idx], 0);
             let _ = unsafe { core::mem::transmute::<usize, Option<PyStackRef>>(raw) };
             self.current += 1;
         }
@@ -357,13 +458,11 @@ impl Drop for LocalsPlusStackDrain<'_> {
 
 impl Drop for LocalsPlus {
     fn drop(&mut self) {
-        // Drop active stack entries as Option<PyStackRef>.
-        self.stack_clear();
-        // Drop fastlocals entries as Option<PyObjectRef>.
-        let fastlocals = self.fastlocals_mut();
-        for slot in fastlocals.iter_mut() {
-            let _ = slot.take();
-        }
+        // drop_values handles both stack and fastlocals.
+        // For DataStack-backed storage, the caller should have called
+        // release_datastack() before drop.  If not (e.g. panic), the
+        // DataStack memory is leaked but values are still dropped safely.
+        self.drop_values();
     }
 }
 
@@ -542,6 +641,7 @@ impl Frame {
         builtins: PyObjectRef,
         closure: &[PyCellRef],
         func_obj: Option<PyObjectRef>,
+        use_datastack: bool,
         vm: &VirtualMachine,
     ) -> Self {
         let nlocals = code.varnames.len();
@@ -557,7 +657,11 @@ impl Frame {
         // Create unified localsplus: varnames + cellvars + freevars + stack
         let nlocalsplus = nlocals + num_cells + nfrees;
         let max_stackdepth = code.max_stackdepth as usize;
-        let mut localsplus = LocalsPlus::new(nlocalsplus, max_stackdepth);
+        let mut localsplus = if use_datastack {
+            LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm)
+        } else {
+            LocalsPlus::new(nlocalsplus, max_stackdepth)
+        };
 
         // Store cell objects at cellvars and freevars positions
         for (i, cell) in cells_frees.iter().enumerate() {
@@ -611,6 +715,17 @@ impl Frame {
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn fastlocals_mut(&self) -> &mut [Option<PyObjectRef>] {
         unsafe { (*self.localsplus.get()).fastlocals_mut() }
+    }
+
+    /// Migrate data-stack-backed storage to the heap, preserving all values,
+    /// and return the data stack base pointer for `DataStack::pop()`.
+    /// Returns `None` if already heap-backed.
+    ///
+    /// # Safety
+    /// Caller must ensure the frame is not executing and the returned
+    /// pointer is passed to `VirtualMachine::datastack_pop()`.
+    pub(crate) unsafe fn materialize_localsplus(&self) -> Option<*mut u8> {
+        unsafe { (*self.localsplus.get()).materialize_to_heap() }
     }
 
     /// Clear evaluation stack and state-owned cell/free references.
@@ -4135,7 +4250,10 @@ impl ExecutingFrame<'_> {
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
                 let stack_len = self.localsplus.stack_len();
-                let self_or_null_is_some = self.localsplus.stack_index(stack_len - nargs as usize - 1).is_some();
+                let self_or_null_is_some = self
+                    .localsplus
+                    .stack_index(stack_len - nargs as usize - 1)
+                    .is_some();
                 let func = if cached_tag == callable_tag && self_or_null_is_some {
                     callable
                         .downcast_ref::<PyMethodDescriptor>()
@@ -4247,7 +4365,10 @@ impl ExecutingFrame<'_> {
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
                 let stack_len = self.localsplus.stack_len();
-                let self_or_null_is_some = self.localsplus.stack_index(stack_len - nargs as usize - 1).is_some();
+                let self_or_null_is_some = self
+                    .localsplus
+                    .stack_index(stack_len - nargs as usize - 1)
+                    .is_some();
                 let func = if cached_tag == callable_tag && self_or_null_is_some {
                     callable
                         .downcast_ref::<PyMethodDescriptor>()
@@ -7104,7 +7225,10 @@ impl ExecutingFrame<'_> {
         // callable is at position nargs + 1 from top
         // self_or_null is at position nargs from top
         let stack_len = self.localsplus.stack_len();
-        let self_or_null_is_some = self.localsplus.stack_index(stack_len - nargs as usize - 1).is_some();
+        let self_or_null_is_some = self
+            .localsplus
+            .stack_index(stack_len - nargs as usize - 1)
+            .is_some();
         let callable = self.nth_value(nargs + 1);
 
         if let Some(func) = callable.downcast_ref::<PyFunction>() {
@@ -7275,7 +7399,10 @@ impl ExecutingFrame<'_> {
         // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
         // callable is at position nargs + 2 from top
         let stack_len = self.localsplus.stack_len();
-        let self_or_null_is_some = self.localsplus.stack_index(stack_len - nargs as usize - 2).is_some();
+        let self_or_null_is_some = self
+            .localsplus
+            .stack_index(stack_len - nargs as usize - 2)
+            .is_some();
         let callable = self.nth_value(nargs + 2);
 
         if let Some(func) = callable.downcast_ref::<PyFunction>() {
@@ -8085,20 +8212,23 @@ impl fmt::Debug for Frame {
         // SAFETY: Debug is best-effort; concurrent mutation is unlikely
         // and would only affect debug output.
         let localsplus = unsafe { &*self.localsplus.get() };
-        let stack_str = localsplus.stack_as_slice().iter().fold(String::new(), |mut s, slot| {
-            match slot {
-                Some(elem) if elem.downcastable::<Self>() => {
-                    s.push_str("\n  > {frame}");
+        let stack_str = localsplus
+            .stack_as_slice()
+            .iter()
+            .fold(String::new(), |mut s, slot| {
+                match slot {
+                    Some(elem) if elem.downcastable::<Self>() => {
+                        s.push_str("\n  > {frame}");
+                    }
+                    Some(elem) => {
+                        core::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
+                    }
+                    None => {
+                        s.push_str("\n  > NULL");
+                    }
                 }
-                Some(elem) => {
-                    core::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
-                }
-                None => {
-                    s.push_str("\n  > NULL");
-                }
-            }
-            s
-        });
+                s
+            });
         // TODO: fix this up
         write!(
             f,

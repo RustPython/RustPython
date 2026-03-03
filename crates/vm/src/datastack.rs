@@ -101,7 +101,8 @@ impl DataStack {
     #[inline(never)]
     fn push_slow(&mut self, aligned_size: usize) -> *mut u8 {
         let mut chunk_size = MIN_CHUNK_SIZE;
-        let needed = aligned_size + MINIMUM_OVERHEAD + core::mem::size_of::<DataStackChunk>() + ALIGN;
+        let needed =
+            aligned_size + MINIMUM_OVERHEAD + core::mem::size_of::<DataStackChunk>() + ALIGN;
         while chunk_size < needed {
             chunk_size *= 2;
         }
@@ -142,10 +143,7 @@ impl DataStack {
     unsafe fn pop_slow(&mut self, base: *mut u8) {
         let old_chunk = self.chunk;
         let prev = unsafe { (*old_chunk).previous };
-        debug_assert!(
-            !prev.is_null(),
-            "tried to pop past the root chunk"
-        );
+        debug_assert!(!prev.is_null(), "tried to pop past the root chunk");
         unsafe { Self::free_chunk(old_chunk) };
         self.chunk = prev;
         self.top = base;

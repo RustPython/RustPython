@@ -562,6 +562,7 @@ impl Py<PyFunction> {
 
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
+        let use_datastack = !(is_gen || is_coro);
 
         // Construct frame:
         let frame = Frame::new(
@@ -570,6 +571,7 @@ impl Py<PyFunction> {
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
+            use_datastack,
             vm,
         )
         .into_ref(&vm.ctx);
@@ -594,7 +596,16 @@ impl Py<PyFunction> {
                 frame.set_generator(&obj);
                 Ok(obj)
             }
-            (false, false) => vm.run_frame(frame),
+            (false, false) => {
+                let result = vm.run_frame(frame.clone());
+                // Release data stack memory after frame execution completes.
+                unsafe {
+                    if let Some(base) = frame.materialize_localsplus() {
+                        vm.datastack_pop(base);
+                    }
+                }
+                result
+            }
         }
     }
 
@@ -665,6 +676,7 @@ impl Py<PyFunction> {
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
+            true, // Always use datastack (invoke_exact_args is never gen/coro)
             vm,
         )
         .into_ref(&vm.ctx);
@@ -686,7 +698,13 @@ impl Py<PyFunction> {
             }
         }
 
-        vm.run_frame(frame)
+        let result = vm.run_frame(frame.clone());
+        unsafe {
+            if let Some(base) = frame.materialize_localsplus() {
+                vm.datastack_pop(base);
+            }
+        }
+        result
     }
 }
 
