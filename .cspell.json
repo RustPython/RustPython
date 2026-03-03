@@ -77,6 +77,7 @@
     "kwonly",
     "lossily",
     "makeunicodedata",
+    "mcache",
     "microbenchmark",
     "microbenchmarks",
     "miri",

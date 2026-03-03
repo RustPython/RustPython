@@ -34,7 +34,7 @@ use core::{
     ops::Deref,
     pin::Pin,
     ptr::NonNull,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
@@ -60,6 +60,112 @@ pub struct PyType {
 /// entries but not invalidating correctness (cache misses fall back to the
 /// generic path).
 static NEXT_TYPE_VERSION: AtomicU32 = AtomicU32::new(1);
+
+// Method cache (type_cache / MCACHE): direct-mapped cache keyed by
+// (tp_version_tag, interned_name_ptr).
+//
+// Uses a lock-free SeqLock pattern:
+//  - version acts as both cache key AND sequence counter
+//  - Read: load version (Acquire), read value ptr, re-check version
+//  - Write: set version=0 (invalidate), store value, store version (Release)
+// No mutex needed on the hot path (cache hit).
+
+const TYPE_CACHE_SIZE_EXP: u32 = 12;
+const TYPE_CACHE_SIZE: usize = 1 << TYPE_CACHE_SIZE_EXP;
+const TYPE_CACHE_MASK: usize = TYPE_CACHE_SIZE - 1;
+
+struct TypeCacheEntry {
+    /// tp_version_tag at cache time. 0 = empty/invalid.
+    version: AtomicU32,
+    /// Interned attribute name pointer (pointer equality check).
+    name: AtomicPtr<PyStrInterned>,
+    /// Cached lookup result as raw pointer. null = empty.
+    /// The cache holds a strong reference (refcount incremented).
+    value: AtomicPtr<PyObject>,
+}
+
+// SAFETY: TypeCacheEntry is thread-safe:
+// - All fields use atomic operations
+// - Value pointer is valid as long as version matches (SeqLock pattern)
+// - PyObjectRef uses atomic reference counting
+unsafe impl Send for TypeCacheEntry {}
+unsafe impl Sync for TypeCacheEntry {}
+
+impl TypeCacheEntry {
+    fn new() -> Self {
+        Self {
+            version: AtomicU32::new(0),
+            name: AtomicPtr::new(core::ptr::null_mut()),
+            value: AtomicPtr::new(core::ptr::null_mut()),
+        }
+    }
+
+    /// Take the value out of this entry, returning the owned PyObjectRef.
+    /// Caller must ensure no concurrent reads can observe this entry
+    /// (version should be set to 0 first).
+    fn take_value(&self) -> Option<PyObjectRef> {
+        let ptr = self.value.swap(core::ptr::null_mut(), Ordering::Relaxed);
+        // SAFETY: non-null ptr was stored via PyObjectRef::into_raw
+        NonNull::new(ptr).map(|nn| unsafe { PyObjectRef::from_raw(nn) })
+    }
+}
+
+// std::sync::LazyLock is used here (not crate::common::lock::LazyLock)
+// because TYPE_CACHE is a global shared across test threads. The common
+// LazyLock delegates to LazyCell in non-threading mode, which is !Sync.
+static TYPE_CACHE: std::sync::LazyLock<Box<[TypeCacheEntry]>> = std::sync::LazyLock::new(|| {
+    (0..TYPE_CACHE_SIZE)
+        .map(|_| TypeCacheEntry::new())
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+});
+
+/// When true, find_name_in_mro skips populating the cache.
+/// Set during GC's type_cache_clear to prevent re-population from drops.
+static TYPE_CACHE_CLEARING: AtomicBool = AtomicBool::new(false);
+
+/// MCACHE_HASH: XOR of version and name pointer hash, masked to cache size.
+#[inline]
+fn type_cache_hash(version: u32, name: &'static PyStrInterned) -> usize {
+    let name_hash = (name as *const PyStrInterned as usize >> 3) as u32;
+    ((version ^ name_hash) as usize) & TYPE_CACHE_MASK
+}
+
+/// Invalidate cache entries for a specific version tag and release values.
+/// Called from modified() when a type is changed.
+fn type_cache_clear_version(version: u32) {
+    let mut to_drop = Vec::new();
+    for entry in TYPE_CACHE.iter() {
+        if entry.version.load(Ordering::Relaxed) == version {
+            entry.version.store(0, Ordering::Release);
+            if let Some(v) = entry.take_value() {
+                to_drop.push(v);
+            }
+        }
+    }
+    drop(to_drop);
+}
+
+/// Clear all method cache entries (_PyType_ClearCache).
+/// Called during GC collection to release strong references that might
+/// prevent cycle collection.
+///
+/// Sets TYPE_CACHE_CLEARING to suppress cache re-population during the
+/// entire operation, preventing concurrent lookups from repopulating
+/// entries while we're clearing them.
+pub fn type_cache_clear() {
+    TYPE_CACHE_CLEARING.store(true, Ordering::Release);
+    // Invalidate all entries and collect values.
+    let mut to_drop = Vec::new();
+    for entry in TYPE_CACHE.iter() {
+        entry.version.store(0, Ordering::Release);
+        if let Some(v) = entry.take_value() {
+            to_drop.push(v);
+        }
+    }
+    drop(to_drop);
+    TYPE_CACHE_CLEARING.store(false, Ordering::Release);
+}
 
 unsafe impl crate::object::Traverse for PyType {
     fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
@@ -206,6 +312,18 @@ impl PyType {
     /// Assign a fresh version tag. Returns 0 if the version counter has been
     /// exhausted, in which case no new cache entries can be created.
     pub fn assign_version_tag(&self) -> u32 {
+        let v = self.tp_version_tag.load(Ordering::Acquire);
+        if v != 0 {
+            return v;
+        }
+
+        // Assign versions to all direct bases first (MRO invariant).
+        for base in self.bases.read().iter() {
+            if base.assign_version_tag() == 0 {
+                return 0;
+            }
+        }
+
         loop {
             let current = NEXT_TYPE_VERSION.load(Ordering::Relaxed);
             let Some(next) = current.checked_add(1) else {
@@ -223,7 +341,17 @@ impl PyType {
 
     /// Invalidate this type's version tag and cascade to all subclasses.
     pub fn modified(&self) {
+        // If already invalidated, all subclasses must also be invalidated
+        // (guaranteed by the MRO invariant in assign_version_tag).
+        let old_version = self.tp_version_tag.load(Ordering::Acquire);
+        if old_version == 0 {
+            return;
+        }
         self.tp_version_tag.store(0, Ordering::Release);
+        // Release strong references held by cache entries for this version.
+        // We hold owned refs that would prevent GC of class attributes after
+        // type deletion.
+        type_cache_clear_version(old_version);
         let subclasses = self.subclasses.read();
         for weak_ref in subclasses.iter() {
             if let Some(sub) = weak_ref.upgrade() {
@@ -574,24 +702,104 @@ impl PyType {
 
     pub fn set_attr(&self, attr_name: &'static PyStrInterned, value: PyObjectRef) {
         self.attributes.write().insert(attr_name, value);
+        self.modified();
     }
 
-    /// This is the internal get_attr implementation for fast lookup on a class.
+    /// Internal get_attr implementation for fast lookup on a class.
+    /// Searches the full MRO (including self) with method cache acceleration.
     pub fn get_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        flame_guard!(format!("class_get_attr({:?})", attr_name));
-
-        self.get_direct_attr(attr_name)
-            .or_else(|| self.get_super_attr(attr_name))
+        self.find_name_in_mro(attr_name)
     }
 
     pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
         self.attributes.read().get(attr_name).cloned()
     }
 
-    /// Equivalent to CPython's find_name_in_mro
-    /// Look in tp_dict of types in MRO - bypasses descriptors and other attribute access machinery
+    /// find_name_in_mro with method cache (MCACHE).
+    /// Looks in tp_dict of types in MRO, bypasses descriptors.
+    ///
+    /// Uses a lock-free SeqLock pattern keyed by version:
+    ///   Read:  load version → check name → load value → clone → re-check version
+    ///   Write: version=0 → swap value → set name → version=assigned
     fn find_name_in_mro(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        // mro[0] is self, so we just iterate through the entire MRO
+        let version = self.tp_version_tag.load(Ordering::Acquire);
+        if version != 0 {
+            let idx = type_cache_hash(version, name);
+            let entry = &TYPE_CACHE[idx];
+            let v1 = entry.version.load(Ordering::Acquire);
+            if v1 == version
+                && core::ptr::eq(
+                    entry.name.load(Ordering::Relaxed),
+                    name as *const _ as *mut _,
+                )
+            {
+                let ptr = entry.value.load(Ordering::Acquire);
+                if !ptr.is_null() {
+                    // SAFETY: The value pointer was stored via PyObjectRef::into_raw
+                    // and is valid as long as the version hasn't changed. We create
+                    // a temporary reference (ManuallyDrop prevents decrement), clone
+                    // it to get our own strong reference, then re-check the version
+                    // to confirm the entry wasn't invalidated during our read.
+                    let cloned = unsafe {
+                        let tmp = core::mem::ManuallyDrop::new(PyObjectRef::from_raw(
+                            NonNull::new_unchecked(ptr),
+                        ));
+                        (*tmp).clone()
+                    };
+                    // SeqLock validation: if version changed, discard our clone
+                    let v2 = entry.version.load(Ordering::Acquire);
+                    if v2 == v1 {
+                        return Some(cloned);
+                    }
+                    drop(cloned);
+                }
+            }
+        }
+
+        // Assign version BEFORE the MRO walk so that any concurrent
+        // modified() call during the walk invalidates this version.
+        let assigned = if version == 0 {
+            self.assign_version_tag()
+        } else {
+            version
+        };
+
+        // MRO walk
+        let result = self.find_name_in_mro_uncached(name);
+
+        // Only cache positive results. Negative results are not cached to
+        // avoid stale entries from transient MRO walk failures during
+        // concurrent type modifications.
+        if let Some(ref found) = result
+            && assigned != 0
+            && !TYPE_CACHE_CLEARING.load(Ordering::Acquire)
+            && self.tp_version_tag.load(Ordering::Acquire) == assigned
+        {
+            let idx = type_cache_hash(assigned, name);
+            let entry = &TYPE_CACHE[idx];
+            // Invalidate first to prevent readers from seeing partial state
+            entry.version.store(0, Ordering::Release);
+            // Swap in new value (refcount held by cache)
+            let new_ptr = found.clone().into_raw().as_ptr();
+            let old_ptr = entry.value.swap(new_ptr, Ordering::Relaxed);
+            entry
+                .name
+                .store(name as *const _ as *mut _, Ordering::Relaxed);
+            // Activate entry — Release ensures value/name writes are visible
+            entry.version.store(assigned, Ordering::Release);
+            // Drop previous occupant (its version was already invalidated)
+            if !old_ptr.is_null() {
+                unsafe {
+                    drop(PyObjectRef::from_raw(NonNull::new_unchecked(old_ptr)));
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Raw MRO walk without cache.
+    fn find_name_in_mro_uncached(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
         for cls in self.mro.read().iter() {
             if let Some(value) = cls.attributes.read().get(name) {
                 return Some(value.clone());
@@ -600,14 +808,9 @@ impl PyType {
         None
     }
 
-    /// Equivalent to CPython's _PyType_LookupRef
-    /// Looks up a name through the MRO without setting an exception
+    /// _PyType_LookupRef: look up a name through the MRO without setting an exception.
     pub fn lookup_ref(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        // Get interned name for efficient lookup
         let interned_name = vm.ctx.interned_str(name)?;
-
-        // Use find_name_in_mro which matches CPython's behavior
-        // This bypasses descriptors and other attribute access machinery
         self.find_name_in_mro(interned_name)
     }
 
@@ -617,12 +820,37 @@ impl PyType {
             .find_map(|class| class.attributes.read().get(attr_name).cloned())
     }
 
-    // This is the internal has_attr implementation for fast lookup on a class.
+    /// Fast lookup for attribute existence on a class.
     pub fn has_attr(&self, attr_name: &'static PyStrInterned) -> bool {
-        self.attributes.read().contains_key(attr_name)
-            || self.mro.read()[1..]
-                .iter()
-                .any(|c| c.attributes.read().contains_key(attr_name))
+        self.has_name_in_mro(attr_name)
+    }
+
+    /// Check if attribute exists in MRO, using method cache for fast check.
+    /// Unlike find_name_in_mro, avoids cloning the value on cache hit.
+    fn has_name_in_mro(&self, name: &'static PyStrInterned) -> bool {
+        let version = self.tp_version_tag.load(Ordering::Acquire);
+        if version != 0 {
+            let idx = type_cache_hash(version, name);
+            let entry = &TYPE_CACHE[idx];
+            let v1 = entry.version.load(Ordering::Acquire);
+            if v1 == version
+                && core::ptr::eq(
+                    entry.name.load(Ordering::Relaxed),
+                    name as *const _ as *mut _,
+                )
+            {
+                let ptr = entry.value.load(Ordering::Acquire);
+                if !ptr.is_null() {
+                    let v2 = entry.version.load(Ordering::Acquire);
+                    if v2 == v1 {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Cache miss — use find_name_in_mro which populates cache
+        self.find_name_in_mro(name).is_some()
     }
 
     pub fn get_attributes(&self) -> PyAttributes {
@@ -1270,8 +1498,8 @@ impl PyType {
             PySetterValue::Assign(ref val) => {
                 let key = identifier!(vm, __type_params__);
                 self.check_set_special_type_attr(key, vm)?;
-                let mut attrs = self.attributes.write();
-                attrs.insert(key, val.clone().into());
+                self.attributes.write().insert(key, val.clone().into());
+                self.modified();
             }
             PySetterValue::Delete => {
                 // For delete, we still need to check if the type is immutable
@@ -1281,9 +1509,9 @@ impl PyType {
                         self.slot_name()
                     )));
                 }
-                let mut attrs = self.attributes.write();
                 let key = identifier!(vm, __type_params__);
-                attrs.shift_remove(&key);
+                self.attributes.write().shift_remove(&key);
+                self.modified();
             }
         }
         Ok(())
