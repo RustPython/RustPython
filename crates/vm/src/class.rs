@@ -206,16 +206,13 @@ pub trait PyClassImpl: PyClassDef {
         class.extend_methods(class.slots.methods, ctx);
     }
 
-    fn make_class(ctx: &Context) -> PyTypeRef
+    fn make_static_type() -> PyTypeRef
     where
         Self: StaticType + Sized,
     {
         (*Self::static_cell().get_or_init(|| {
             let typ = Self::create_static_type();
-            // SAFETY: Context is heap-allocated via PyRc and stored in a static cell
-            // (Context::genesis), so it lives for 'static.
-            let ctx: &'static Context = unsafe { &*(ctx as *const Context) };
-            Self::extend_class(ctx, unsafe {
+            Self::extend_class(Context::genesis(), unsafe {
                 // typ will be saved in static_cell
                 let r: &Py<PyType> = &typ;
                 let r: &'static Py<PyType> = core::mem::transmute(r);
