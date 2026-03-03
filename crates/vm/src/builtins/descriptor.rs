@@ -435,14 +435,14 @@ fn vectorcall_method_descriptor(
     vm: &VirtualMachine,
 ) -> PyResult {
     let zelf: &Py<PyMethodDescriptor> = zelf_obj.downcast_ref().unwrap();
-    let func_args = FuncArgs::from_vectorcall(&args, nargs, kwnames);
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
     (zelf.method.func)(vm, func_args)
 }
 
 /// Vectorcall for wrapper_descriptor: calls wrapped slot function
 fn vectorcall_wrapper(
     zelf_obj: &PyObject,
-    args: Vec<PyObjectRef>,
+    mut args: Vec<PyObjectRef>,
     nargs: usize,
     kwnames: Option<&[PyObjectRef]>,
     vm: &VirtualMachine,
@@ -456,7 +456,7 @@ fn vectorcall_wrapper(
             zelf.typ.name()
         )));
     }
-    let obj = args[0].clone();
+    let obj = args.remove(0);
     if !obj.fast_isinstance(zelf.typ) {
         return Err(vm.new_type_error(format!(
             "descriptor '{}' requires a '{}' object but received a '{}'",
@@ -465,7 +465,7 @@ fn vectorcall_wrapper(
             obj.class().name()
         )));
     }
-    let rest = FuncArgs::from_vectorcall(&args[1..], nargs - 1, kwnames);
+    let rest = FuncArgs::from_vectorcall_owned(args, nargs - 1, kwnames);
     zelf.wrapped.call(obj, rest, vm)
 }
 

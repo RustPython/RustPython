@@ -2359,7 +2359,7 @@ fn vectorcall_type(
     }
 
     // Fallback: construct FuncArgs and use standard call
-    let func_args = FuncArgs::from_vectorcall(&args, nargs, kwnames);
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
     PyType::call(zelf, func_args, vm)
 }
 

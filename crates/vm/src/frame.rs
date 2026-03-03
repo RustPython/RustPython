@@ -5603,6 +5603,10 @@ impl ExecutingFrame<'_> {
     fn execute_call_vectorcall(&mut self, nargs: u32, vm: &VirtualMachine) -> FrameResult {
         let nargs_usize = nargs as usize;
         let stack_len = self.state.stack.len();
+        debug_assert!(
+            stack_len >= nargs_usize + 2,
+            "CALL stack underflow: need callable + self_or_null + {nargs_usize} args, have {stack_len}"
+        );
         let callable_idx = stack_len - nargs_usize - 2;
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
@@ -5647,8 +5651,13 @@ impl ExecutingFrame<'_> {
             .downcast_ref::<PyTuple>()
             .expect("kwarg names should be tuple");
         let kw_count = kwarg_names_tuple.len();
+        debug_assert!(kw_count <= nargs_usize, "CALL_KW kw_count exceeds nargs");
 
         let stack_len = self.state.stack.len();
+        debug_assert!(
+            stack_len >= nargs_usize + 2,
+            "CALL_KW stack underflow: need callable + self_or_null + {nargs_usize} args, have {stack_len}"
+        );
         let callable_idx = stack_len - nargs_usize - 2;
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
