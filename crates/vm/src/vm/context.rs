@@ -287,8 +287,11 @@ impl Context {
         }
         CONTEXT.get_or_init(|| {
             let ctx = PyRc::new(Self::init_genesis());
-            crate::types::TypeZoo::extend(&ctx);
-            crate::exceptions::ExceptionZoo::extend(&ctx);
+            // SAFETY: ctx is heap-allocated via PyRc and will be stored in
+            // the CONTEXT static cell, so the Context lives for 'static.
+            let ctx_ref: &'static Context = unsafe { &*PyRc::as_ptr(&ctx) };
+            crate::types::TypeZoo::extend(ctx_ref);
+            crate::exceptions::ExceptionZoo::extend(ctx_ref);
             ctx
         })
     }

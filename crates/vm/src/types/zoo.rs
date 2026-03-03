@@ -216,7 +216,7 @@ impl TypeZoo {
 
     /// Fill attributes of builtin types.
     #[cold]
-    pub(crate) fn extend(context: &Context) {
+    pub(crate) fn extend(context: &'static Context) {
         // object must be initialized before type to set object.slots.init,
         // which type will inherit via inherit_slots()
         object::init(context);

@@ -943,7 +943,7 @@ impl ExceptionZoo {
         clippy::redundant_clone,
         reason = "temporary workaround until errno/winerror handling is fixed"
     )]
-    pub fn extend(ctx: &Context) {
+    pub fn extend(ctx: &'static Context) {
         use self::types::*;
 
         let excs = &ctx.exceptions;

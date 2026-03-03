@@ -696,7 +696,7 @@ impl IterNext for PyListReverseIterator {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 

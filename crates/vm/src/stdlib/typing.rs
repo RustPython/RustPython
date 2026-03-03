@@ -12,7 +12,7 @@ pub(crate) use decl::module_def;
 pub use decl::*;
 
 /// Initialize typing types (call extend_class)
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     NoDefault::extend_class(ctx, ctx.types.typing_no_default_type);
 }
 

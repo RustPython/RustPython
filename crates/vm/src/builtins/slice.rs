@@ -354,7 +354,7 @@ impl Representable for PyEllipsis {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PySlice::extend_class(ctx, ctx.types.slice_type);
     PyEllipsis::extend_class(ctx, ctx.types.ellipsis_type);
 }

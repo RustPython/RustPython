@@ -1219,7 +1219,7 @@ impl PyCell {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyFunction::extend_class(context, context.types.function_type);
     PyBoundMethod::extend_class(context, context.types.bound_method_type);
     PyCell::extend_class(context, context.types.cell_type);

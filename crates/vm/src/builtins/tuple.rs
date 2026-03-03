@@ -583,7 +583,7 @@ impl IterNext for PyTupleIterator {
     }
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyTuple::extend_class(context, context.types.tuple_type);
     PyTupleIterator::extend_class(context, context.types.tuple_iterator_type);
 }

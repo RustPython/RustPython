@@ -810,7 +810,7 @@ impl Drop for PyAsyncGen {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PyAsyncGen::extend_class(ctx, ctx.types.async_generator);
     PyAsyncGenASend::extend_class(ctx, ctx.types.async_generator_asend);
     PyAsyncGenAThrow::extend_class(ctx, ctx.types.async_generator_athrow);

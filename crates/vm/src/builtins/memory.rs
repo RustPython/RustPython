@@ -1127,7 +1127,7 @@ impl Representable for PyMemoryView {
     }
 }
 
-pub(crate) fn init(ctx: &Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyMemoryView::extend_class(ctx, ctx.types.memoryview_type);
     PyMemoryViewIterator::extend_class(ctx, ctx.types.memoryviewiterator_type);
 }
