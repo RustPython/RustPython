@@ -80,6 +80,14 @@ pub struct PyFunction {
 
 static FUNC_VERSION_COUNTER: AtomicU32 = AtomicU32::new(1);
 
+/// Atomically allocate the next function version, returning 0 if exhausted.
+/// Once the counter wraps to 0, it stays at 0 permanently.
+fn next_func_version() -> u32 {
+    FUNC_VERSION_COUNTER
+        .fetch_update(Relaxed, Relaxed, |v| (v != 0).then(|| v.wrapping_add(1)))
+        .unwrap_or(0)
+}
+
 unsafe impl Traverse for PyFunction {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.globals.traverse(tracer_fn);
@@ -204,7 +212,7 @@ impl PyFunction {
             annotate: PyMutex::new(None),
             module: PyMutex::new(module),
             doc: PyMutex::new(doc),
-            func_version: AtomicU32::new(FUNC_VERSION_COUNTER.fetch_add(1, Relaxed)),
+            func_version: AtomicU32::new(next_func_version()),
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
         };
@@ -603,6 +611,22 @@ impl Py<PyFunction> {
         self.func_version.load(Relaxed)
     }
 
+    /// Returns the current version, assigning a fresh one if previously invalidated.
+    /// Returns 0 if the version counter has overflowed.
+    /// `_PyFunction_GetVersionForCurrentState`
+    pub fn get_version_for_current_state(&self) -> u32 {
+        let v = self.func_version.load(Relaxed);
+        if v != 0 {
+            return v;
+        }
+        let new_v = next_func_version();
+        if new_v == 0 {
+            return 0;
+        }
+        self.func_version.store(new_v, Relaxed);
+        new_v
+    }
+
     /// Check if this function is eligible for exact-args call specialization.
     /// Returns true if: no VARARGS, no VARKEYWORDS, no kwonly args, not generator/coroutine,
     /// and effective_nargs matches co_argcount.
@@ -626,6 +650,16 @@ impl Py<PyFunction> {
     /// and nargs == co_argcount.
     pub fn invoke_exact_args(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult {
         let code: PyRef<PyCode> = (*self.code).to_owned();
+
+        debug_assert_eq!(args.len(), code.arg_count as usize);
+        debug_assert!(code.flags.contains(bytecode::CodeFlags::NEWLOCALS));
+        debug_assert!(!code.flags.intersects(
+            bytecode::CodeFlags::VARARGS
+                | bytecode::CodeFlags::VARKEYWORDS
+                | bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+        ));
+        debug_assert_eq!(code.kwonlyarg_count, 0);
 
         let frame = Frame::new(
             code.clone(),
