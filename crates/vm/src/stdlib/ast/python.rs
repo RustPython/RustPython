@@ -366,7 +366,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                 field_types.map(|ft| ft.downcast::<crate::builtins::PyDict>())
             {
                 let expr_ctx_type: PyObjectRef =
-                    super::super::pyast::NodeExprContext::make_class(&vm.ctx).into();
+                    super::super::pyast::NodeExprContext::make_static_type().into();
 
                 for field in &fields {
                     if set_fields.contains(field.as_str()) {
@@ -382,7 +382,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                         } else if ftype.is(&expr_ctx_type) {
                             // expr_context — default to Load()
                             let load_type =
-                                super::super::pyast::NodeExprContextLoad::make_class(&vm.ctx);
+                                super::super::pyast::NodeExprContextLoad::make_static_type();
                             let load_instance = load_type
                                 .get_attr(vm.ctx.intern_str("_instance"))
                                 .unwrap_or_else(|| {

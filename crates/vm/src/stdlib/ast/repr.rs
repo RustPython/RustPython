@@ -20,7 +20,7 @@ fn repr_ast_list(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) -> 
         if idx == 1 && items.len() == 1 {
             break;
         }
-        let repr = if item.fast_isinstance(&NodeAst::make_class(&vm.ctx)) {
+        let repr = if item.fast_isinstance(&NodeAst::make_static_type()) {
             repr_ast_node(vm, item, depth.saturating_sub(1))?
         } else {
             item.repr(vm)?.as_wtf8().to_owned()
@@ -62,7 +62,7 @@ fn repr_ast_tuple(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) ->
         if idx == 1 && items.len() == 1 {
             break;
         }
-        let repr = if item.fast_isinstance(&NodeAst::make_class(&vm.ctx)) {
+        let repr = if item.fast_isinstance(&NodeAst::make_static_type()) {
             repr_ast_node(vm, item, depth.saturating_sub(1))?
         } else {
             item.repr(vm)?.as_wtf8().to_owned()
@@ -136,7 +136,7 @@ pub(crate) fn repr_ast_node(
                 .downcast::<PyTuple>()
                 .expect("tuple type should downcast");
             repr_ast_tuple(vm, tuple.as_slice().to_vec(), depth)?
-        } else if value.fast_isinstance(&NodeAst::make_class(&vm.ctx)) {
+        } else if value.fast_isinstance(&NodeAst::make_static_type()) {
             repr_ast_node(vm, &value, depth.saturating_sub(1))?
         } else {
             value.repr(vm)?.as_wtf8().to_owned()
