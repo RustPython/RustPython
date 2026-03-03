@@ -126,7 +126,7 @@ impl Representable for PyNativeFunction {
 
 #[pyclass(
     with(Callable, Comparable, Representable),
-    flags(HAS_DICT, DISALLOW_INSTANTIATION)
+    flags(HAS_DICT, HAS_WEAKREF, DISALLOW_INSTANTIATION)
 )]
 impl PyNativeFunction {
     #[pygetset]
@@ -210,7 +210,7 @@ pub struct PyNativeMethod {
 // All Python-visible behavior (getters, slots) is registered by PyNativeFunction::extend_class.
 // PyNativeMethod only extends the Rust-side struct with the defining class reference.
 // The func field at offset 0 (#[repr(C)]) allows NativeFunctionOrMethod to read it safely.
-#[pyclass(flags(HAS_DICT, DISALLOW_INSTANTIATION))]
+#[pyclass(flags(HAS_DICT, HAS_WEAKREF, DISALLOW_INSTANTIATION))]
 impl PyNativeMethod {}
 
 impl fmt::Debug for PyNativeMethod {

@@ -549,7 +549,7 @@ impl Py<PyMemoryView> {
         Iterable,
         Representable
     ),
-    flags(SEQUENCE)
+    flags(SEQUENCE, HAS_WEAKREF)
 )]
 impl PyMemoryView {
     #[pyclassmethod]
