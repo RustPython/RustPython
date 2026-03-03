@@ -177,12 +177,12 @@ mod _browser {
     }
 
     #[pyattr]
-    fn document(vm: &VirtualMachine) -> PyRef<Document> {
+    fn document(_vm: &VirtualMachine) -> PyRef<Document> {
         PyRef::new_ref(
             Document {
                 doc: window().document().expect("Document missing from window"),
             },
-            Document::make_class(&vm.ctx),
+            Document::make_static_type(),
             None,
         )
     }

@@ -206,11 +206,10 @@ pub trait PyClassImpl: PyClassDef {
         class.extend_methods(class.slots.methods, ctx);
     }
 
-    fn make_class(ctx: &Context) -> PyTypeRef
+    fn make_static_type() -> PyTypeRef
     where
         Self: StaticType + Sized,
     {
-        let _ = ctx; // only used to ensure Context is initialized
         (*Self::static_cell().get_or_init(|| {
             let typ = Self::create_static_type();
             Self::extend_class(Context::genesis(), unsafe {

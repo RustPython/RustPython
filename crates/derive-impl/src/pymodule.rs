@@ -753,7 +753,7 @@ impl ModuleItem for ClassItem {
                 class_meta.class_name()?
             };
             let class_new = quote_spanned!(ident.span() =>
-                let new_class = <#ident as ::rustpython_vm::class::PyClassImpl>::make_class(ctx);
+                let new_class = <#ident as ::rustpython_vm::class::PyClassImpl>::make_static_type();
                 // Only set __module__ string if the class doesn't already have a
                 // getset descriptor for __module__ (which provides instance-level
                 // module resolution, e.g. TypeAliasType)
@@ -850,7 +850,7 @@ impl ModuleItem for StructSequenceItem {
 
         // Generate the class creation code
         let class_new = quote_spanned!(pytype_ident.span() =>
-            let new_class = <#pytype_ident as ::rustpython_vm::class::PyClassImpl>::make_class(ctx);
+            let new_class = <#pytype_ident as ::rustpython_vm::class::PyClassImpl>::make_static_type();
             {
                 let module_key = rustpython_vm::identifier!(ctx, __module__);
                 let has_module_getset = new_class.attributes.read()

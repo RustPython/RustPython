@@ -277,7 +277,7 @@ mod builtins {
 
             if args
                 .source
-                .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
+                .fast_isinstance(&ast::NodeAst::make_static_type())
             {
                 let flags: i32 = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
                 let is_ast_only = !(flags & ast::PY_CF_ONLY_AST).is_zero();
@@ -291,7 +291,7 @@ mod builtins {
 
                 // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
                 if is_ast_only {
-                    let (expected_type, expected_name) = ast::mode_type_and_name(&vm.ctx, mode_str)
+                    let (expected_type, expected_name) = ast::mode_type_and_name(mode_str)
                         .ok_or_else(|| {
                             vm.new_value_error(
                                 "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
@@ -1344,7 +1344,7 @@ mod builtins {
 pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
 
-    crate::protocol::VecBuffer::make_class(&vm.ctx);
+    crate::protocol::VecBuffer::make_static_type();
 
     module.__init_methods(vm).unwrap();
     builtins::module_exec(vm, module).unwrap();
