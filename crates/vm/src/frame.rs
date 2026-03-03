@@ -3931,12 +3931,11 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag && callable.downcast_ref::<PyType>().is_some() {
-                    return self.execute_call_vectorcall(nargs, vm);
+                if !(cached_tag == callable_tag && callable.downcast_ref::<PyType>().is_some()) {
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallAllocAndEnterInit => {
@@ -4078,12 +4077,11 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag {
-                    return self.execute_call_vectorcall(nargs, vm);
+                if cached_tag != callable_tag {
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallKwPy => {
@@ -4175,12 +4173,11 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 2);
                 let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag {
-                    return self.execute_call_kw_vectorcall(nargs, vm);
+                if cached_tag != callable_tag {
+                    self.deoptimize(Instruction::CallKw {
+                        argc: Arg::marker(),
+                    });
                 }
-                self.deoptimize(Instruction::CallKw {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_kw_vectorcall(nargs, vm)
             }
             Instruction::LoadSuperAttrAttr => {
@@ -5668,7 +5665,9 @@ impl ExecutingFrame<'_> {
             .map(|sr| sr.to_pyobj());
         let has_self = self_or_null.is_some();
 
-        let pos_count = nargs_usize - kw_count;
+        let pos_count = nargs_usize
+            .checked_sub(kw_count)
+            .expect("CALL_KW: kw_count exceeds nargs");
         let effective_nargs = if has_self { pos_count + 1 } else { pos_count };
 
         // Build the full args slice: positional (including self) + kwarg values
