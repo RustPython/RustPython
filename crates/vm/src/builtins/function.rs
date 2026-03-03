@@ -1253,8 +1253,112 @@ impl PyCell {
     }
 }
 
+/// Vectorcall implementation for PyFunction (PEP 590).
+/// Takes owned args to avoid cloning when filling fastlocals.
+fn vectorcall_function(
+    zelf_obj: &PyObject,
+    mut args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyFunction> = zelf_obj.downcast_ref().unwrap();
+    let code: &Py<PyCode> = &zelf.code;
+
+    let has_kwargs = kwnames.is_some_and(|kw| !kw.is_empty());
+    let is_simple = !has_kwargs
+        && !code.flags.contains(bytecode::CodeFlags::VARARGS)
+        && !code.flags.contains(bytecode::CodeFlags::VARKEYWORDS)
+        && code.kwonlyarg_count == 0
+        && !code
+            .flags
+            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE);
+
+    if is_simple && nargs == code.arg_count as usize {
+        // FAST PATH: simple positional-only call, exact arg count.
+        // Move owned args directly into fastlocals — no clone needed.
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            ArgMapping::from_dict_exact(vm.ctx.new_dict())
+        } else {
+            ArgMapping::from_dict_exact(zelf.globals.clone())
+        };
+
+        let frame = Frame::new(
+            code.to_owned(),
+            Scope::new(Some(locals), zelf.globals.clone()),
+            zelf.builtins.clone(),
+            zelf.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            Some(zelf.to_owned().into()),
+            vm,
+        )
+        .into_ref(&vm.ctx);
+
+        {
+            let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
+            for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..nargs)) {
+                *slot = Some(arg);
+            }
+        }
+
+        if let Some(cell2arg) = code.cell2arg.as_deref() {
+            let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
+            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
+                let x = fastlocals[*arg_idx as usize].take();
+                frame.set_cell_contents(cell_idx, x);
+            }
+        }
+
+        return vm.run_frame(frame);
+    }
+
+    // SLOW PATH: construct FuncArgs from owned Vec and delegate to invoke()
+    let func_args = if has_kwargs {
+        FuncArgs::from_vectorcall(&args, nargs, kwnames)
+    } else {
+        args.truncate(nargs);
+        FuncArgs::from(args)
+    };
+    zelf.invoke(func_args, vm)
+}
+
+/// Vectorcall implementation for PyBoundMethod (PEP 590).
+fn vectorcall_bound_method(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyBoundMethod> = zelf_obj.downcast_ref().unwrap();
+
+    // Build args with self prepended: [self.object, arg1, ..., argN, kw_val1, ..., kw_valK]
+    let kw_count = kwnames.map_or(0, |kw| kw.len());
+    let total = nargs + 1 + kw_count;
+    let mut full_args = Vec::with_capacity(total);
+    full_args.push(zelf.object.clone());
+    full_args.extend(args.into_iter().take(nargs + kw_count));
+
+    // Delegate to inner function's vectorcall if available
+    let new_nargs = nargs + 1;
+    zelf.function.vectorcall(full_args, new_nargs, kwnames, vm)
+}
+
 pub fn init(context: &'static Context) {
     PyFunction::extend_class(context, context.types.function_type);
+    context
+        .types
+        .function_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_function));
+
     PyBoundMethod::extend_class(context, context.types.bound_method_type);
+    context
+        .types
+        .bound_method_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_bound_method));
+
     PyCell::extend_class(context, context.types.cell_type);
 }

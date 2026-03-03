@@ -141,6 +141,7 @@ pub struct PyTypeSlots {
     // More standard operations (here for binary compatibility)
     pub hash: AtomicCell<Option<HashFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
+    pub vectorcall: AtomicCell<Option<VectorCallFunc>>,
     pub str: AtomicCell<Option<StringifyFunc>>,
     pub repr: AtomicCell<Option<StringifyFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
@@ -266,6 +267,17 @@ impl Default for PyTypeFlags {
 }
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
+/// Vectorcall function pointer (PEP 590).
+/// args: owned positional args followed by kwarg values.
+/// nargs: number of positional args (self prepended by caller if needed).
+/// kwnames: keyword argument names (last kwnames.len() entries in args are kwarg values).
+pub(crate) type VectorCallFunc = fn(
+    &PyObject,         // callable
+    Vec<PyObjectRef>,  // owned args (positional + kwarg values)
+    usize,             // nargs (positional count)
+    Option<&[PyObjectRef]>, // kwnames (keyword argument names)
+    &VirtualMachine,
+) -> PyResult;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyRef<PyStr>>;
@@ -767,7 +779,14 @@ impl PyType {
                     accessor.inherit_from_mro(self);
                 }
             }
-            SlotAccessor::TpCall => update_main_slot!(call, call_wrapper, Call),
+            SlotAccessor::TpCall => {
+                update_main_slot!(call, call_wrapper, Call);
+                // When __call__ is overridden in Python, clear vectorcall
+                // so the slow path through call_wrapper is used.
+                if ADD {
+                    self.slots.vectorcall.store(None);
+                }
+            }
             SlotAccessor::TpIter => update_main_slot!(iter, iter_wrapper, Iter),
             SlotAccessor::TpIternext => update_main_slot!(iternext, iternext_wrapper, IterNext),
             SlotAccessor::TpInit => update_main_slot!(init, init_wrapper, Init),

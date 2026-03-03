@@ -224,8 +224,54 @@ impl fmt::Debug for PyNativeMethod {
     }
 }
 
+/// Vectorcall for builtin functions (PEP 590).
+/// Avoids `prepend_arg` O(n) shift by building args with self at front.
+fn vectorcall_native_function(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyNativeFunction> = zelf_obj.downcast_ref().unwrap();
+
+    // Build FuncArgs with self already at position 0 (no insert(0) needed)
+    let needs_self = zelf
+        .zelf
+        .as_ref()
+        .is_some_and(|_| !zelf.value.flags.contains(PyMethodFlags::STATIC));
+
+    let func_args = if needs_self {
+        let self_obj = zelf.zelf.as_ref().unwrap().clone();
+        let total_pos = nargs + 1;
+        let mut pos_args = Vec::with_capacity(total_pos);
+        pos_args.push(self_obj);
+        pos_args.extend(args.into_iter().take(nargs));
+
+        if let Some(kwnames_slice) = kwnames {
+            let kwargs = FuncArgs::from_vectorcall(&pos_args, total_pos, Some(kwnames_slice)).kwargs;
+            FuncArgs {
+                args: pos_args,
+                kwargs,
+            }
+        } else {
+            FuncArgs::from(pos_args)
+        }
+    } else {
+        FuncArgs::from_vectorcall(&args, nargs, kwnames)
+    };
+
+    (zelf.value.func)(vm, func_args)
+}
+
 pub fn init(context: &'static Context) {
     PyNativeFunction::extend_class(context, context.types.builtin_function_or_method_type);
+    context
+        .types
+        .builtin_function_or_method_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_native_function));
 }
 
 /// Wrapper that provides access to the common PyNativeFunction data
