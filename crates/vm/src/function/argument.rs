@@ -144,6 +144,8 @@ impl FuncArgs {
         nargs: usize,
         kwnames: Option<&[PyObjectRef]>,
     ) -> Self {
+        debug_assert!(nargs <= args.len());
+        debug_assert!(kwnames.is_none_or(|kw| nargs + kw.len() <= args.len()));
         let pos_args = args[..nargs].to_vec();
         let kwargs = if let Some(names) = kwnames {
             names
@@ -173,6 +175,8 @@ impl FuncArgs {
         nargs: usize,
         kwnames: Option<&[PyObjectRef]>,
     ) -> Self {
+        debug_assert!(nargs <= args.len());
+        debug_assert!(kwnames.is_none_or(|kw| nargs + kw.len() <= args.len()));
         let kwargs = if let Some(names) = kwnames {
             let kw_count = names.len();
             names
