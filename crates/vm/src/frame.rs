@@ -2655,7 +2655,7 @@ impl ExecutingFrame<'_> {
                             .write_cache_u16(cache_base, counter - 1);
                     }
                 } else {
-                    self.specialize_store_attr(vm, idx.get(arg), instr_idx, cache_base);
+                    self.specialize_store_attr(vm, namei.get(arg), instr_idx, cache_base);
                 }
                 self.store_attr(vm, namei.get(arg))
             }
@@ -2903,7 +2903,7 @@ impl ExecutingFrame<'_> {
                     self.code.instructions.replace_op(
                         instr_idx,
                         Instruction::Send {
-                            target: Arg::marker(),
+                            delta: Arg::marker(),
                         },
                     );
                     self.code
@@ -3154,9 +3154,12 @@ impl ExecutingFrame<'_> {
                 }
                 // Deoptimize
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3185,9 +3188,12 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3230,9 +3236,12 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3263,9 +3272,12 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3296,9 +3308,12 @@ impl ExecutingFrame<'_> {
                     // Slot is None → AttributeError (fall through to slow path)
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3328,9 +3343,12 @@ impl ExecutingFrame<'_> {
                     }
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { idx: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3356,9 +3374,12 @@ impl ExecutingFrame<'_> {
                 }
                 // Deoptimize
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::StoreAttr { idx: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::StoreAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3385,9 +3406,12 @@ impl ExecutingFrame<'_> {
                 // Deoptimize
                 let attr_idx = u32::from(arg);
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::StoreAttr { idx: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::StoreAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -4344,7 +4368,9 @@ impl ExecutingFrame<'_> {
                 unsafe {
                     self.code.instructions.replace_op(
                         self.lasti() as usize - 1,
-                        Instruction::LoadSuperAttr { arg: Arg::marker() },
+                        Instruction::LoadSuperAttr {
+                            namei: Arg::marker(),
+                        },
                     );
                     let cache_base = self.lasti() as usize;
                     self.code
@@ -4422,7 +4448,9 @@ impl ExecutingFrame<'_> {
                 unsafe {
                     self.code.instructions.replace_op(
                         self.lasti() as usize - 1,
-                        Instruction::LoadSuperAttr { arg: Arg::marker() },
+                        Instruction::LoadSuperAttr {
+                            namei: Arg::marker(),
+                        },
                     );
                     let cache_base = self.lasti() as usize;
                     self.code
@@ -7021,9 +7049,12 @@ impl ExecutingFrame<'_> {
         let instr_idx = self.lasti() as usize - 1;
         let cache_base = instr_idx + 1;
         unsafe {
-            self.code
-                .instructions
-                .replace_op(instr_idx, Instruction::CompareOp { op: Arg::marker() });
+            self.code.instructions.replace_op(
+                instr_idx,
+                Instruction::CompareOp {
+                    opname: Arg::marker(),
+                },
+            );
             self.code
                 .instructions
                 .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -7221,9 +7252,12 @@ impl ExecutingFrame<'_> {
         let instr_idx = self.lasti() as usize - 1;
         let cache_base = instr_idx + 1;
         unsafe {
-            self.code
-                .instructions
-                .replace_op(instr_idx, Instruction::LoadGlobal(Arg::marker()));
+            self.code.instructions.replace_op(
+                instr_idx,
+                Instruction::LoadGlobal {
+                    namei: Arg::marker(),
+                },
+            );
             self.code
                 .instructions
                 .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
