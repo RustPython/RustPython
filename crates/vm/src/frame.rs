@@ -1413,8 +1413,21 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallKw { argc } => {
+                let nargs = argc.get(arg);
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let counter = self.code.instructions.read_cache_u16(cache_base);
+                if counter > 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u16(cache_base, counter - 1);
+                    }
+                } else {
+                    self.specialize_call_kw(vm, nargs, instr_idx, cache_base);
+                }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
-                let args = self.collect_keyword_args(argc.get(arg));
+                let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
             Instruction::CallFunctionEx => {
