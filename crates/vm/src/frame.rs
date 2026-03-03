@@ -3935,8 +3935,7 @@ impl ExecutingFrame<'_> {
                     && cached_version != 0
                 {
                     let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs_usize).collect();
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
                     let (args_vec, effective_nargs) = if let Some(self_val) = self_or_null {
@@ -3968,20 +3967,14 @@ impl ExecutingFrame<'_> {
                     && cached_version != 0
                 {
                     let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs_usize).collect();
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_val = self.pop_value();
                     let callable = self.pop_value();
                     let mut args_vec = Vec::with_capacity(nargs_usize + 1);
                     args_vec.push(self_val);
                     args_vec.extend(pos_args);
-                    let result = vectorcall_function(
-                        &callable,
-                        args_vec,
-                        nargs_usize + 1,
-                        None,
-                        vm,
-                    )?;
+                    let result =
+                        vectorcall_function(&callable, args_vec, nargs_usize + 1, None, vm)?;
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -4248,8 +4241,7 @@ impl ExecutingFrame<'_> {
                         .downcast_ref::<PyTuple>()
                         .expect("kwarg names should be tuple");
                     let kw_count = kwarg_names_tuple.len();
-                    let all_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs_usize).collect();
+                    let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
                     let pos_count = nargs_usize - kw_count;
@@ -4293,8 +4285,7 @@ impl ExecutingFrame<'_> {
                         .downcast_ref::<PyTuple>()
                         .expect("kwarg names should be tuple");
                     let kw_count = kwarg_names_tuple.len();
-                    let all_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs_usize).collect();
+                    let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_val = self.pop_value();
                     let callable = self.pop_value();
                     let pos_count = nargs_usize - kw_count;
@@ -4302,13 +4293,8 @@ impl ExecutingFrame<'_> {
                     args_vec.push(self_val);
                     args_vec.extend(all_args);
                     let kwnames = kwarg_names_tuple.as_slice();
-                    let result = vectorcall_function(
-                        &callable,
-                        args_vec,
-                        pos_count + 1,
-                        Some(kwnames),
-                        vm,
-                    )?;
+                    let result =
+                        vectorcall_function(&callable, args_vec, pos_count + 1, Some(kwnames), vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -5807,11 +5793,7 @@ impl ExecutingFrame<'_> {
         let has_self = self_or_null.is_some();
 
         let pos_count = nargs_usize - kw_count;
-        let effective_nargs = if has_self {
-            pos_count + 1
-        } else {
-            pos_count
-        };
+        let effective_nargs = if has_self { pos_count + 1 } else { pos_count };
 
         // Build the full args slice: positional (including self) + kwarg values
         let total_args = effective_nargs + kw_count;
@@ -5828,8 +5810,7 @@ impl ExecutingFrame<'_> {
         self.state.stack.truncate(callable_idx);
 
         let kwnames = kwarg_names_tuple.as_slice();
-        let result =
-            callable_obj.vectorcall(args_vec, effective_nargs, Some(kwnames), vm)?;
+        let result = callable_obj.vectorcall(args_vec, effective_nargs, Some(kwnames), vm)?;
         self.push_value(result);
         Ok(None)
     }

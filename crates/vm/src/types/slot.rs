@@ -272,9 +272,9 @@ pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyRe
 /// nargs: number of positional args (self prepended by caller if needed).
 /// kwnames: keyword argument names (last kwnames.len() entries in args are kwarg values).
 pub(crate) type VectorCallFunc = fn(
-    &PyObject,         // callable
-    Vec<PyObjectRef>,  // owned args (positional + kwarg values)
-    usize,             // nargs (positional count)
+    &PyObject,              // callable
+    Vec<PyObjectRef>,       // owned args (positional + kwarg values)
+    usize,                  // nargs (positional count)
     Option<&[PyObjectRef]>, // kwnames (keyword argument names)
     &VirtualMachine,
 ) -> PyResult;

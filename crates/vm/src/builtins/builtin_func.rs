@@ -249,7 +249,8 @@ fn vectorcall_native_function(
         pos_args.extend(args.into_iter().take(nargs));
 
         if let Some(kwnames_slice) = kwnames {
-            let kwargs = FuncArgs::from_vectorcall(&pos_args, total_pos, Some(kwnames_slice)).kwargs;
+            let kwargs =
+                FuncArgs::from_vectorcall(&pos_args, total_pos, Some(kwnames_slice)).kwargs;
             FuncArgs {
                 args: pos_args,
                 kwargs,
