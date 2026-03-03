@@ -197,6 +197,6 @@ impl Representable for PyStaticMethod {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyStaticMethod::extend_class(context, context.types.staticmethod_type);
 }

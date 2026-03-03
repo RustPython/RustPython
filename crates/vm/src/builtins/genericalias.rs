@@ -739,7 +739,7 @@ pub fn subscript_generic(type_params: PyObjectRef, vm: &VirtualMachine) -> PyRes
     generic_alias_class.call((generic_type, args.to_pyobject(vm)), vm)
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyGenericAlias::extend_class(context, context.types.generic_alias_type);
     PyGenericAliasIterator::extend_class(context, context.types.generic_alias_iterator_type);
 }

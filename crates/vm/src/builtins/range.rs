@@ -167,7 +167,7 @@ impl PyRange {
 //     obj.downcast_ref::<PyRange>().unwrap().clone()
 // }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyRange::extend_class(context, context.types.range_type);
     PyLongRangeIterator::extend_class(context, context.types.long_range_iterator_type);
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);

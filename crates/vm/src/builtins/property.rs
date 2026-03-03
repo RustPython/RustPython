@@ -395,7 +395,7 @@ impl Initializer for PyProperty {
     }
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyProperty::extend_class(context, context.types.property_type);
 
     // This is a bit unfortunate, but this instance attribute overlaps with the

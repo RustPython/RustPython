@@ -293,6 +293,6 @@ impl Representable for PyMappingProxy {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyMappingProxy::extend_class(context, context.types.mappingproxy_type)
 }

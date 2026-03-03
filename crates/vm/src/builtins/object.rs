@@ -560,7 +560,7 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
         .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     // Manually set init slot - derive macro doesn't generate extend_slots
     // for trait impl that overrides #[pyslot] method
     ctx.types

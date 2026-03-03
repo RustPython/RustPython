@@ -113,6 +113,6 @@ impl IterNext for PyZip {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PyZip::extend_class(ctx, ctx.types.zip_type);
 }

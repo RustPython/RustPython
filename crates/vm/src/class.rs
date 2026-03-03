@@ -131,7 +131,7 @@ pub trait PyClassDef {
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
-    fn extend_class(ctx: &Context, class: &'static Py<PyType>)
+    fn extend_class(ctx: &'static Context, class: &'static Py<PyType>)
     where
         Self: Sized,
     {
@@ -188,11 +188,9 @@ pub trait PyClassImpl: PyClassDef {
                 && object_new.is_some_and(|obj_new| slot_new as usize == obj_new as usize);
 
             if !is_inherited_from_object {
-                let bound_new = Context::genesis().slot_new_wrapper.build_bound_method(
-                    ctx,
-                    class.to_owned().into(),
-                    class,
-                );
+                let bound_new =
+                    ctx.slot_new_wrapper
+                        .build_bound_method(ctx, class.to_owned().into(), class);
                 class.set_attr(identifier!(ctx, __new__), bound_new.into());
             }
         }
@@ -214,6 +212,9 @@ pub trait PyClassImpl: PyClassDef {
     {
         (*Self::static_cell().get_or_init(|| {
             let typ = Self::create_static_type();
+            // SAFETY: Context is heap-allocated via PyRc and stored in a static cell
+            // (Context::genesis), so it lives for 'static.
+            let ctx: &'static Context = unsafe { &*(ctx as *const Context) };
             Self::extend_class(ctx, unsafe {
                 // typ will be saved in static_cell
                 let r: &Py<PyType> = &typ;
@@ -225,7 +226,7 @@ pub trait PyClassImpl: PyClassDef {
         .to_owned()
     }
 
-    fn impl_extend_class(ctx: &Context, class: &'static Py<PyType>);
+    fn impl_extend_class(ctx: &'static Context, class: &'static Py<PyType>);
     const METHOD_DEFS: &'static [PyMethodDef];
     fn extend_slots(slots: &mut PyTypeSlots);
 
