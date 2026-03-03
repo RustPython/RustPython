@@ -830,10 +830,16 @@ impl PyType {
                         }
                     }) {
                         self.slots.getattro.store(Some(func));
-                    } else {
-                        // __getattribute__ is a Python method somewhere in MRO;
+                    } else if self.attributes.read().contains_key(name) {
+                        // Self defines __getattribute__ as a non-native method;
                         // use the wrapper to dispatch through it.
                         self.slots.getattro.store(Some(getattro_wrapper));
+                    } else {
+                        // __getattribute__ not defined in self; inherit native
+                        // slot from base class. This handles the common case where
+                        // object.__getattribute__ is a method_descriptor alongside
+                        // the native getattro slot.
+                        accessor.inherit_from_mro(self);
                     }
                 } else {
                     accessor.inherit_from_mro(self);
@@ -848,7 +854,15 @@ impl PyType {
                     }) {
                         self.slots.setattro.store(Some(func));
                     } else {
-                        self.slots.setattro.store(Some(setattro_wrapper));
+                        let has_own = {
+                            let guard = self.attributes.read();
+                            guard.contains_key(identifier!(ctx, __setattr__))
+                                || guard.contains_key(identifier!(ctx, __delattr__))
+                        };
+                        if has_own {
+                            self.slots.setattro.store(Some(setattro_wrapper));
+                        }
+                        // If !has_own: slot already inherited from base during type creation
                     }
                 } else {
                     accessor.inherit_from_mro(self);
