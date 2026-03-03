@@ -85,16 +85,14 @@ impl GcGeneration {
         guard.uncollectable += uncollectable;
     }
 
-    /// Force-unlock the stats mutex after fork() in the child process.
+    /// Reset the stats mutex to unlocked state after fork().
     ///
     /// # Safety
     /// Must only be called after fork() in the child process when no other
     /// threads exist.
-    #[cfg(unix)]
-    unsafe fn force_unlock_stats_after_fork(&self) {
-        if self.stats.try_lock().is_none() {
-            unsafe { self.stats.force_unlock() };
-        }
+    #[cfg(all(unix, feature = "threading"))]
+    unsafe fn reinit_stats_after_fork(&self) {
+        unsafe { crate::common::lock::reinit_mutex_after_fork(&self.stats) };
     }
 }
 
@@ -793,65 +791,35 @@ impl GcState {
 
     /// Force-unlock all locks after fork() in the child process.
     ///
+    /// Reset all locks to unlocked state after fork().
+    ///
     /// After fork(), only the forking thread survives. Any lock held by another
-    /// thread is permanently stuck. This method releases all such stuck locks.
+    /// thread is permanently stuck. This resets them by zeroing the raw bytes.
     ///
     /// # Safety
     /// Must only be called after fork() in the child process when no other
     /// threads exist. The calling thread must NOT hold any of these locks.
-    #[cfg(unix)]
-    pub unsafe fn force_unlock_after_fork(&self) {
-        // Force-unlock the collecting mutex
-        if self.collecting.try_lock().is_none() {
-            unsafe { self.collecting.force_unlock() };
-        }
+    #[cfg(all(unix, feature = "threading"))]
+    pub unsafe fn reinit_after_fork(&self) {
+        use crate::common::lock::{reinit_mutex_after_fork, reinit_rwlock_after_fork};
 
-        // Force-unlock garbage and callbacks mutexes
-        if self.garbage.try_lock().is_none() {
-            unsafe { self.garbage.force_unlock() };
-        }
-        if self.callbacks.try_lock().is_none() {
-            unsafe { self.callbacks.force_unlock() };
-        }
+        unsafe {
+            reinit_mutex_after_fork(&self.collecting);
+            reinit_mutex_after_fork(&self.garbage);
+            reinit_mutex_after_fork(&self.callbacks);
 
-        // Force-unlock generation stats mutexes
-        for generation in &self.generations {
-            unsafe { generation.force_unlock_stats_after_fork() };
-        }
-        unsafe { self.permanent.force_unlock_stats_after_fork() };
-
-        // Force-unlock RwLocks
-        for rw in &self.generation_objects {
-            unsafe { force_unlock_rwlock_after_fork(rw) };
-        }
-        unsafe { force_unlock_rwlock_after_fork(&self.permanent_objects) };
-        unsafe { force_unlock_rwlock_after_fork(&self.tracked_objects) };
-        unsafe { force_unlock_rwlock_after_fork(&self.finalized_objects) };
-    }
-}
-
-/// Force-unlock a PyRwLock after fork() in the child process.
-///
-/// # Safety
-/// Must only be called after fork() in the child process when no other
-/// threads exist. The calling thread must NOT hold this lock.
-#[cfg(unix)]
-unsafe fn force_unlock_rwlock_after_fork<T>(lock: &PyRwLock<T>) {
-    if lock.try_write().is_some() {
-        return;
-    }
-    let is_shared = lock.try_read().is_some();
-    if is_shared {
-        loop {
-            // SAFETY: Lock is shared-locked by dead thread(s).
-            unsafe { lock.force_unlock_read() };
-            if lock.try_write().is_some() {
-                return;
+            for generation in &self.generations {
+                generation.reinit_stats_after_fork();
             }
+            self.permanent.reinit_stats_after_fork();
+
+            for rw in &self.generation_objects {
+                reinit_rwlock_after_fork(rw);
+            }
+            reinit_rwlock_after_fork(&self.permanent_objects);
+            reinit_rwlock_after_fork(&self.tracked_objects);
+            reinit_rwlock_after_fork(&self.finalized_objects);
         }
-    } else {
-        // SAFETY: Lock is exclusively locked by a dead thread.
-        unsafe { lock.force_unlock_write() };
     }
 }
 
