@@ -192,6 +192,20 @@ impl<L: Link> LinkedList<L, L::Target> {
     //     }
     // }
 
+    /// Removes the first element from the list and returns it, or None if empty.
+    pub fn pop_front(&mut self) -> Option<L::Handle> {
+        let head = self.head?;
+        unsafe {
+            self.head = L::pointers(head).as_ref().get_next();
+            if let Some(new_head) = self.head {
+                L::pointers(new_head).as_mut().set_prev(None);
+            }
+            L::pointers(head).as_mut().set_next(None);
+            L::pointers(head).as_mut().set_prev(None);
+            Some(L::from_raw(head))
+        }
+    }
+
     /// Returns whether the linked list does not contain any node
     pub const fn is_empty(&self) -> bool {
         self.head.is_none()

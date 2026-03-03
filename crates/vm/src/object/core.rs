@@ -169,20 +169,12 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     let vtable = obj_ref.0.vtable;
 
     // Untrack from GC BEFORE deallocation.
+    // Must happen before memory is freed because intrusive list removal
+    // reads the object's gc_pointers (prev/next).
     if obj_ref.is_gc_tracked() {
         let ptr = unsafe { NonNull::new_unchecked(obj) };
-        if T::HAS_FREELIST {
-            // Freelist types must untrack immediately to avoid race conditions:
-            // a deferred untrack could remove a re-tracked entry after reuse.
-            unsafe { crate::gc_state::gc_state().untrack_object(ptr) };
-        } else {
-            rustpython_common::refcount::try_defer_drop(move || {
-                // untrack_object only removes the pointer address from a HashSet.
-                // It does NOT dereference the pointer, so it's safe even after deallocation.
-                unsafe {
-                    crate::gc_state::gc_state().untrack_object(ptr);
-                }
-            });
+        unsafe {
+            crate::gc_state::gc_state().untrack_object(ptr);
         }
     }
 
@@ -257,6 +249,33 @@ bitflags::bitflags! {
     }
 }
 
+/// GC generation constants
+pub(crate) const GC_UNTRACKED: u8 = 0xFF;
+pub(crate) const GC_PERMANENT: u8 = 3;
+
+/// Link implementation for GC intrusive linked list tracking
+pub(crate) struct GcLink;
+
+// SAFETY: PyObject (PyInner<Erased>) is heap-allocated and pinned in memory
+// once created. gc_pointers is at a fixed offset in PyInner.
+unsafe impl Link for GcLink {
+    type Handle = NonNull<PyObject>;
+    type Target = PyObject;
+
+    fn as_raw(handle: &NonNull<PyObject>) -> NonNull<PyObject> {
+        *handle
+    }
+
+    unsafe fn from_raw(ptr: NonNull<PyObject>) -> NonNull<PyObject> {
+        ptr
+    }
+
+    unsafe fn pointers(target: NonNull<PyObject>) -> NonNull<Pointers<PyObject>> {
+        let inner_ptr = target.as_ptr() as *mut PyInner<Erased>;
+        unsafe { NonNull::new_unchecked(&raw mut (*inner_ptr).gc_pointers) }
+    }
+}
+
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
@@ -266,6 +285,11 @@ pub(super) struct PyInner<T> {
     pub(super) vtable: &'static PyObjVTable,
     /// GC bits for free-threading (like ob_gc_bits)
     pub(super) gc_bits: PyAtomic<u8>,
+    /// GC generation index (0-2=gen, GC_PERMANENT=permanent, GC_UNTRACKED=not tracked).
+    /// Uses PyAtomic for interior mutability (writes happen through &self under list locks).
+    pub(super) gc_generation: PyAtomic<u8>,
+    /// Intrusive linked list pointers for GC generational tracking
+    pub(super) gc_pointers: Pointers<PyObject>,
 
     pub(super) typ: PyAtomicRef<PyType>, // __class__ member
     pub(super) dict: Option<InstanceDict>,
@@ -810,6 +834,8 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             ref_count: RefCount::new(),
             vtable: PyObjVTable::of::<T>(),
             gc_bits: Radium::new(0),
+            gc_generation: Radium::new(GC_UNTRACKED),
+            gc_pointers: Pointers::new(),
             typ: PyAtomicRef::from(typ),
             dict: dict.map(InstanceDict::new),
             weak_list: WeakRefList::new(),
@@ -1199,7 +1225,7 @@ impl PyObject {
     /// Mark the object as finalized. Should be called before __del__.
     /// _PyGC_SET_FINALIZED in Py_GIL_DISABLED mode.
     #[inline]
-    fn set_gc_finalized(&self) {
+    pub(crate) fn set_gc_finalized(&self) {
         self.set_gc_bit(GcBits::FINALIZED);
     }
 
@@ -1207,6 +1233,19 @@ impl PyObject {
     #[inline]
     pub(crate) fn set_gc_bit(&self, bit: GcBits) {
         self.0.gc_bits.fetch_or(bit.bits(), Ordering::Relaxed);
+    }
+
+    /// Get the GC generation index for this object.
+    #[inline]
+    pub(crate) fn gc_generation(&self) -> u8 {
+        self.0.gc_generation.load(Ordering::Relaxed)
+    }
+
+    /// Set the GC generation index for this object.
+    /// Must only be called while holding the generation list's write lock.
+    #[inline]
+    pub(crate) fn set_gc_generation(&self, generation: u8) {
+        self.0.gc_generation.store(generation, Ordering::Relaxed);
     }
 
     /// _PyObject_GC_TRACK
@@ -2028,6 +2067,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 ref_count: RefCount::new(),
                 vtable: PyObjVTable::of::<PyType>(),
                 gc_bits: Radium::new(0),
+                gc_generation: Radium::new(GC_UNTRACKED),
+                gc_pointers: Pointers::new(),
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: type_payload,
@@ -2040,6 +2081,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 ref_count: RefCount::new(),
                 vtable: PyObjVTable::of::<PyType>(),
                 gc_bits: Radium::new(0),
+                gc_generation: Radium::new(GC_UNTRACKED),
+                gc_pointers: Pointers::new(),
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: object_payload,
