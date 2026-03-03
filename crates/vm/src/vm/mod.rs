@@ -74,6 +74,9 @@ pub struct VirtualMachine {
     pub sys_module: PyRef<PyModule>,
     pub ctx: PyRc<Context>,
     pub frames: RefCell<Vec<FramePtr>>,
+    /// Thread-local data stack for bump-allocating frame-local data
+    /// (localsplus arrays for non-generator frames).
+    pub datastack: crate::datastack::DataStack,
     pub wasm_id: Option<String>,
     exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
@@ -215,6 +218,7 @@ impl VirtualMachine {
             sys_module,
             ctx,
             frames: RefCell::new(vec![]),
+            datastack: crate::datastack::DataStack::new(),
             wasm_id: None,
             exceptions: RefCell::default(),
             import_func,

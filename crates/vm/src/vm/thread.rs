@@ -309,6 +309,7 @@ impl VirtualMachine {
             sys_module: self.sys_module.clone(),
             ctx: self.ctx.clone(),
             frames: RefCell::new(vec![]),
+            datastack: crate::datastack::DataStack::new(),
             wasm_id: self.wasm_id.clone(),
             exceptions: RefCell::default(),
             import_func: self.import_func.clone(),
