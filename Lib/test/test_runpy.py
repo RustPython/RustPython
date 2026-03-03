@@ -752,7 +752,6 @@ class RunPathTestCase(unittest.TestCase, CodeExecutionMixin):
             with infinite_recursion(25):
                 self.assertRaises(RecursionError, run_path, zip_name)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; detect encoding comments in files
     def test_encoding(self):
         with temp_dir() as script_dir:
             filename = os.path.join(script_dir, 'script.py')
