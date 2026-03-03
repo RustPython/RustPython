@@ -987,8 +987,8 @@ pub(crate) mod _thread {
     #[cfg(unix)]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
         unsafe {
-            let ptr = mutex as *const parking_lot::Mutex<T> as *mut u8;
-            core::ptr::write_bytes(ptr, 0, core::mem::size_of::<parking_lot::RawMutex>());
+            let raw = mutex.raw() as *const parking_lot::RawMutex as *mut u8;
+            core::ptr::write_bytes(raw, 0, core::mem::size_of::<parking_lot::RawMutex>());
         }
     }
 
