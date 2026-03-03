@@ -648,7 +648,7 @@ impl Py<PyFunction> {
     /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
     /// Only valid when: no VARARGS, no VARKEYWORDS, no kwonlyargs, not generator/coroutine,
     /// and nargs == co_argcount.
-    pub fn invoke_exact_args(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult {
+    pub fn invoke_exact_args(&self, mut args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
@@ -671,11 +671,11 @@ impl Py<PyFunction> {
         )
         .into_ref(&vm.ctx);
 
-        // Copy args directly into fastlocals
+        // Move args directly into fastlocals (no clone/refcount needed)
         {
             let fastlocals = unsafe { frame.fastlocals.borrow_mut() };
-            for (i, arg) in args.iter().enumerate() {
-                fastlocals[i] = Some(arg.clone());
+            for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..)) {
+                *slot = Some(arg);
             }
         }
 
@@ -1255,7 +1255,7 @@ impl PyCell {
 
 /// Vectorcall implementation for PyFunction (PEP 590).
 /// Takes owned args to avoid cloning when filling fastlocals.
-fn vectorcall_function(
+pub(crate) fn vectorcall_function(
     zelf_obj: &PyObject,
     mut args: Vec<PyObjectRef>,
     nargs: usize,
@@ -1324,23 +1324,18 @@ fn vectorcall_function(
 /// Vectorcall implementation for PyBoundMethod (PEP 590).
 fn vectorcall_bound_method(
     zelf_obj: &PyObject,
-    args: Vec<PyObjectRef>,
+    mut args: Vec<PyObjectRef>,
     nargs: usize,
     kwnames: Option<&[PyObjectRef]>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let zelf: &Py<PyBoundMethod> = zelf_obj.downcast_ref().unwrap();
 
-    // Build args with self prepended: [self.object, arg1, ..., argN, kw_val1, ..., kw_valK]
-    let kw_count = kwnames.map_or(0, |kw| kw.len());
-    let total = nargs + 1 + kw_count;
-    let mut full_args = Vec::with_capacity(total);
-    full_args.push(zelf.object.clone());
-    full_args.extend(args.into_iter().take(nargs + kw_count));
-
-    // Delegate to inner function's vectorcall if available
+    // Insert self at front of existing Vec (avoids 2nd allocation).
+    // O(n) memmove is cheaper than a 2nd heap alloc+dealloc for typical arg counts.
+    args.insert(0, zelf.object.clone());
     let new_nargs = nargs + 1;
-    zelf.function.vectorcall(full_args, new_nargs, kwnames, vm)
+    zelf.function.vectorcall(args, new_nargs, kwnames, vm)
 }
 
 pub fn init(context: &'static Context) {
