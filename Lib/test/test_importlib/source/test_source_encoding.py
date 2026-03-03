@@ -62,14 +62,12 @@ class EncodingTest:
         self.run_test(self.source_line.encode('utf-8'))
 
     # [encoding first line]
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 17
     def test_encoding_on_first_line(self):
         encoding = 'Latin-1'
         source = self.create_source(encoding)
         self.run_test(source)
 
     # [encoding second line]
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 34
     def test_encoding_on_second_line(self):
         source = b"#/usr/bin/python\n" + self.create_source('Latin-1')
         self.run_test(source)
@@ -84,7 +82,6 @@ class EncodingTest:
         self.run_test(source)
 
     # [BOM conflict]
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 20
     def test_bom_conflict(self):
         source = codecs.BOM_UTF8 + self.create_source('latin-1')
         with self.assertRaises(SyntaxError):
