@@ -135,6 +135,37 @@ impl FuncArgs {
         }
     }
 
+    /// Create FuncArgs from a vectorcall-style argument slice (PEP 590).
+    /// `args[..nargs]` are positional, and if `kwnames` is provided,
+    /// the last `kwnames.len()` entries in `args[nargs..]` are keyword values.
+    pub fn from_vectorcall(
+        args: &[PyObjectRef],
+        nargs: usize,
+        kwnames: Option<&[PyObjectRef]>,
+    ) -> Self {
+        let pos_args = args[..nargs].to_vec();
+        let kwargs = if let Some(names) = kwnames {
+            names
+                .iter()
+                .zip(&args[nargs..nargs + names.len()])
+                .map(|(name, val)| {
+                    let key = name
+                        .downcast_ref::<crate::builtins::PyUtf8Str>()
+                        .expect("kwnames must be strings")
+                        .as_str()
+                        .to_owned();
+                    (key, val.clone())
+                })
+                .collect()
+        } else {
+            IndexMap::new()
+        };
+        Self {
+            args: pos_args,
+            kwargs,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.args.is_empty() && self.kwargs.is_empty()
     }
