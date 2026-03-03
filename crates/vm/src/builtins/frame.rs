@@ -423,7 +423,7 @@ pub(crate) mod stack_analysis {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     Frame::extend_class(context, context.types.frame_type);
 }
 

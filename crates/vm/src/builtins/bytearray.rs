@@ -67,7 +67,7 @@ impl PyPayload for PyByteArray {
 }
 
 /// Fill bytearray class methods dictionary.
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyByteArray::extend_class(context, context.types.bytearray_type);
     PyByteArrayIterator::extend_class(context, context.types.bytearray_iterator_type);
 }

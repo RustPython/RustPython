@@ -2103,7 +2103,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
  * The magical type type
  */
 
-pub(crate) fn init(ctx: &Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyType::extend_class(ctx, ctx.types.type_type);
 }
 

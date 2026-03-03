@@ -452,7 +452,7 @@ impl Representable for PyModule {
     }
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyModule::extend_class(context, context.types.module_type);
 }
 

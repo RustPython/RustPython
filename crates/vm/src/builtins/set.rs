@@ -1421,7 +1421,7 @@ impl IterNext for PySetIterator {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PySet::extend_class(context, context.types.set_type);
     PyFrozenSet::extend_class(context, context.types.frozenset_type);
     PySetIterator::extend_class(context, context.types.set_iterator_type);

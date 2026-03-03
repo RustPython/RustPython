@@ -119,7 +119,7 @@ impl PyTracebackRef {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyTraceback::extend_class(context, context.types.traceback_type);
 }
 

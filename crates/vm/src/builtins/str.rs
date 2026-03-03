@@ -1761,7 +1761,7 @@ struct ReplaceArgs {
     count: isize,
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PyStr::extend_class(ctx, ctx.types.str_type);
 
     PyStrIterator::extend_class(ctx, ctx.types.str_iterator_type);

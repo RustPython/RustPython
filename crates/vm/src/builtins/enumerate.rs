@@ -144,7 +144,7 @@ impl IterNext for PyReverseSequenceIterator {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyEnumerate::extend_class(context, context.types.enumerate_type);
     PyReverseSequenceIterator::extend_class(context, context.types.reverse_iter_type);
 }

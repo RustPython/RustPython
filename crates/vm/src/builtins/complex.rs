@@ -89,7 +89,7 @@ impl PyObjectRef {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyComplex::extend_class(context, context.types.complex_type);
 }
 

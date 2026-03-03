@@ -289,7 +289,7 @@ impl IterNext for PyCallableIterator {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PySequenceIterator::extend_class(context, context.types.iter_type);
     PyCallableIterator::extend_class(context, context.types.callable_iterator);
 }

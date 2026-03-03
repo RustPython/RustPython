@@ -157,6 +157,6 @@ impl Representable for PyGetSet {
     }
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyGetSet::extend_class(context, context.types.getset_type);
 }

@@ -70,6 +70,6 @@ impl IterNext for PyMap {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyMap::extend_class(context, context.types.map_type);
 }

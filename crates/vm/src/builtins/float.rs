@@ -480,6 +480,6 @@ pub(crate) fn get_value(obj: &PyObject) -> f64 {
 }
 
 #[rustfmt::skip] // to avoid line splitting
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyFloat::extend_class(context, context.types.float_type);
 }

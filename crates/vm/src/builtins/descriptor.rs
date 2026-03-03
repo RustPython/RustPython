@@ -426,7 +426,7 @@ impl GetDescriptor for PyMemberDescriptor {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PyMemberDescriptor::extend_class(ctx, ctx.types.member_descriptor_type);
     PyMethodDescriptor::extend_class(ctx, ctx.types.method_descriptor_type);
     PyWrapper::extend_class(ctx, ctx.types.wrapper_descriptor_type);

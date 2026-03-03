@@ -238,7 +238,7 @@ impl Representable for PyWeakProxy {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyWeakProxy::extend_class(context, context.types.weakproxy_type);
 }
 

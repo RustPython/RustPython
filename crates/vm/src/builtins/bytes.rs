@@ -86,7 +86,7 @@ impl PyPayload for PyBytes {
     }
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyBytes::extend_class(context, context.types.bytes_type);
     PyBytesIterator::extend_class(context, context.types.bytes_iterator_type);
 }

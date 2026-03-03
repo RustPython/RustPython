@@ -744,6 +744,6 @@ pub fn try_to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
         .ok_or_else(|| vm.new_overflow_error("int too large to convert to float"))
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyInt::extend_class(context, context.types.int_type);
 }

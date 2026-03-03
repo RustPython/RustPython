@@ -28,6 +28,6 @@ impl Representable for PyCapsule {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyCapsule::extend_class(context, context.types.capsule_type);
 }

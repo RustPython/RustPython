@@ -182,7 +182,7 @@ impl Representable for PyBool {
     }
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyBool::extend_class(context, context.types.bool_type);
 }
 

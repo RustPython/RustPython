@@ -1362,7 +1362,7 @@ fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyRes
     set_inner_number_op(a, b, |a, b| a.union(b, vm), vm)
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyDict::extend_class(context, context.types.dict_type);
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);

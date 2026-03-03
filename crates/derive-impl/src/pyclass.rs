@@ -181,7 +181,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
                 parse_quote! {
                     fn __extend_py_class(
-                        ctx: &::rustpython_vm::Context,
+                        ctx: &'static ::rustpython_vm::Context,
                         class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
@@ -222,7 +222,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
 
                         fn impl_extend_class(
-                            ctx: &::rustpython_vm::Context,
+                            ctx: &'static ::rustpython_vm::Context,
                             class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                         ) {
                             #impl_ty::__extend_py_class(ctx, class);
@@ -284,7 +284,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
                 parse_quote! {
                     fn __extend_py_class(
-                        ctx: &::rustpython_vm::Context,
+                        ctx: &'static ::rustpython_vm::Context,
                         class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
