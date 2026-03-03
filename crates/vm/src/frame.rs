@@ -1,4 +1,4 @@
-use crate::anystr::AnyStr as _;
+use crate::anystr::AnyStr;
 #[cfg(feature = "flame")]
 use crate::bytecode::InstructionMetadata;
 use crate::{
