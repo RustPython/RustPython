@@ -1981,8 +1981,8 @@ impl Constructor for PyType {
                     let descriptor = vm.ctx.new_getset(
                         "__weakref__",
                         &typ,
-                        subtype_getweakref,
-                        subtype_setweakref,
+                        subtype_get_weakref,
+                        subtype_set_weakref,
                     );
                     typ.attributes
                         .write()
@@ -2426,15 +2426,15 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
     }
 }
 
-// subtype_getweakref
-fn subtype_getweakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+// subtype_get_weakref
+fn subtype_get_weakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // Return the first weakref in the weakref list, or None
     let weakref = obj.get_weakrefs();
     Ok(weakref.unwrap_or_else(|| vm.ctx.none()))
 }
 
-// subtype_setweakref: __weakref__ is read-only
-fn subtype_setweakref(obj: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+// subtype_set_weakref: __weakref__ is read-only
+fn subtype_set_weakref(obj: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     Err(vm.new_attribute_error(format!(
         "attribute '__weakref__' of '{}' objects is not writable",
         obj.class().name()

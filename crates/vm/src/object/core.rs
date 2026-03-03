@@ -292,7 +292,12 @@ unsafe impl Link for GcLink {
 /// Extension fields for objects that need dict, weakref list, or member slots.
 /// Allocated as a prefix before PyInner when needed (prefix allocation pattern).
 /// Access via `PyInner::ext_ref()` using negative offset from the object pointer.
-#[repr(C)]
+///
+/// align(8) ensures size_of::<ObjExt>() is always a multiple of 8,
+/// so the offset from Layout::extend equals size_of::<ObjExt>() for any
+/// PyInner<T> alignment (important on wasm32 where pointers are 4 bytes
+/// but some payloads like PyWeak have align 8 due to i64 fields).
+#[repr(C, align(8))]
 pub(super) struct ObjExt {
     pub(super) dict: Option<InstanceDict>,
     pub(super) weak_list: WeakRefList,
