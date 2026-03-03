@@ -597,7 +597,7 @@ impl Constructor for PyCode {
     }
 }
 
-#[pyclass(with(Representable, Constructor))]
+#[pyclass(with(Representable, Constructor), flags(HAS_WEAKREF))]
 impl PyCode {
     #[pygetset]
     const fn co_posonlyargcount(&self) -> usize {

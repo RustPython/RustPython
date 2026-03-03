@@ -257,8 +257,6 @@ bitflags::bitflags! {
         const SHARED_INLINE = 1 << 5;
         /// Use deferred reference counting
         const DEFERRED = 1 << 6;
-        /// Object has ObjExt prefix (dict, weak_list, slots)
-        const HAS_EXT = 1 << 7;
     }
 }
 
@@ -324,9 +322,15 @@ impl fmt::Debug for ObjExt {
 }
 
 /// Precomputed offset from PyInner pointer back to ObjExt prefix.
-/// Both ObjExt and PyInner are #[repr(C)] with 8-byte alignment,
-/// so the offset equals size_of::<ObjExt>() with no padding.
+/// ObjExt is #[repr(C, align(8))] and PyInner is #[repr(C)], so as long as
+/// ObjExt's alignment >= PyInner's alignment, Layout::extend adds no padding
+/// and the offset equals size_of::<ObjExt>().
 const EXT_OFFSET: usize = core::mem::size_of::<ObjExt>();
+// Guarantee: ObjExt size is a multiple of its alignment, and its alignment
+// is >= any PyInner alignment, so Layout::extend produces no inter-padding.
+const _: () =
+    assert!(core::mem::size_of::<ObjExt>().is_multiple_of(core::mem::align_of::<ObjExt>()));
+const _: () = assert!(core::mem::align_of::<ObjExt>() >= core::mem::align_of::<PyInner<()>>());
 
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
@@ -350,16 +354,39 @@ pub(super) struct PyInner<T> {
 pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<PyInner<()>>();
 
 impl<T> PyInner<T> {
+    /// Check if this object has an ObjExt prefix by examining type flags.
+    /// Equivalent to Py_TPFLAGS_PREHEADER (MANAGED_DICT | MANAGED_WEAKREF)
+    /// plus member slots.
+    ///
+    /// Uses raw pointer operations to read type flags without creating a
+    /// shared reference. This avoids Stacked Borrows violations during
+    /// bootstrap when type objects are mutated through raw pointers.
+    #[inline(always)]
+    fn has_ext(&self) -> bool {
+        use crate::types::PyTypeFlags;
+        let typ_ptr = self.typ.load_raw();
+        unsafe {
+            let inner_ptr = typ_ptr as *const PyInner<PyType>;
+            let flags = core::ptr::addr_of!((*inner_ptr).payload.slots.flags).read();
+            let member_count = core::ptr::addr_of!((*inner_ptr).payload.slots.member_count).read();
+            flags.has_feature(PyTypeFlags::HAS_DICT)
+                || flags.has_feature(PyTypeFlags::HAS_WEAKREF)
+                || member_count > 0
+        }
+    }
+
     /// Access the ObjExt prefix at a negative offset from this PyInner.
     /// Returns None if this object was allocated without the prefix.
+    ///
+    /// Uses type flags (HAS_DICT, HAS_WEAKREF, member_count) to determine
+    /// if the prefix exists, matching CPython's Py_TPFLAGS_PREHEADER approach.
     ///
     /// Uses exposed provenance to reconstruct a pointer covering the entire
     /// allocation (ObjExt prefix + PyInner). The allocation pointer's provenance
     /// is exposed at allocation time via `expose_provenance()`.
     #[inline(always)]
     pub(super) fn ext_ref(&self) -> Option<&ObjExt> {
-        if !GcBits::from_bits_retain(self.gc_bits.load(Ordering::Relaxed)).contains(GcBits::HAS_EXT)
-        {
+        if !self.has_ext() {
             return None;
         }
         let self_addr = (self as *const Self as *const u8).addr();
@@ -906,10 +933,7 @@ impl<T: PyPayload> PyInner<T> {
     /// `ptr` must be a valid pointer from `PyInner::new` and must not be used after this call.
     unsafe fn dealloc(ptr: *mut Self) {
         unsafe {
-            let has_ext = GcBits::from_bits_retain((*ptr).gc_bits.load(Ordering::Relaxed))
-                .contains(GcBits::HAS_EXT);
-
-            if has_ext {
+            if (*ptr).has_ext() {
                 let ext_layout = core::alloc::Layout::new::<ObjExt>();
                 let inner_layout = core::alloc::Layout::new::<Self>();
                 let (combined, inner_offset) = ext_layout.extend(inner_layout).unwrap();
@@ -934,7 +958,10 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
     /// For objects with ext, the allocation layout is: [ObjExt][PyInner<T>]
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> *mut Self {
         let member_count = typ.slots.member_count;
-        let needs_ext = dict.is_some()
+        let needs_ext = typ
+            .slots
+            .flags
+            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
             || typ
                 .slots
                 .flags
@@ -962,7 +989,7 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                 inner_ptr.write(Self {
                     ref_count: RefCount::new(),
                     vtable: PyObjVTable::of::<T>(),
-                    gc_bits: Radium::new(GcBits::HAS_EXT.bits()),
+                    gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_pointers: Pointers::new(),
                     typ: PyAtomicRef::from(typ),
@@ -1211,6 +1238,7 @@ impl PyObject {
     /// Returns the first weakref in the weakref list, if any.
     pub(crate) fn get_weakrefs(&self) -> Option<PyObjectRef> {
         let wrl = self.weak_ref_list()?;
+        let _lock = weakref_lock::lock(self as *const PyObject as usize);
         let head_ptr = wrl.head.load(Ordering::Relaxed);
         if head_ptr.is_null() {
             None
@@ -1642,8 +1670,12 @@ impl PyObject {
             unsafe { clear_fn(ptr, &mut result) };
         }
 
-        // 2. Clear member slots (subtype_clear)
+        // 2. Clear dict and member slots (subtype_clear)
         if let Some(ext) = obj.0.ext_ref() {
+            if let Some(dict) = ext.dict.as_ref() {
+                let dict_ref = dict.get();
+                result.push(dict_ref.into());
+            }
             for slot in ext.slots.iter() {
                 if let Some(val) = slot.write().take() {
                     result.push(val);
@@ -2312,7 +2344,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 PyInner::<PyType> {
                     ref_count: RefCount::new(),
                     vtable: PyObjVTable::of::<PyType>(),
-                    gc_bits: Radium::new(GcBits::HAS_EXT.bits()),
+                    gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_pointers: Pointers::new(),
                     payload: type_payload,
@@ -2327,7 +2359,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 PyInner::<PyType> {
                     ref_count: RefCount::new(),
                     vtable: PyObjVTable::of::<PyType>(),
-                    gc_bits: Radium::new(GcBits::HAS_EXT.bits()),
+                    gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_pointers: Pointers::new(),
                     payload: object_payload,
