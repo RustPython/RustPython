@@ -3408,7 +3408,7 @@ impl ExecutingFrame<'_> {
 
                 if version_match {
                     let slot_offset =
-                        self.code.instructions.read_cache_u32(cache_base + 3) as usize;
+                        self.code.instructions.read_cache_u16(cache_base + 3) as usize;
                     let owner = self.pop_value();
                     let value = self.pop_value();
                     owner.set_slot(slot_offset, Some(value));
@@ -7793,7 +7793,7 @@ impl ExecutingFrame<'_> {
                         .write_cache_u32(cache_base + 1, type_version);
                     self.code
                         .instructions
-                        .write_cache_u32(cache_base + 3, offset as u32);
+                        .write_cache_u16(cache_base + 3, offset as u16);
                     self.code
                         .instructions
                         .replace_op(instr_idx, Instruction::StoreAttrSlot);
