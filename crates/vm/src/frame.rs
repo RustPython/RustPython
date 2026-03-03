@@ -4214,7 +4214,7 @@ impl ExecutingFrame<'_> {
                         all_args.push(new_obj.clone());
                         all_args.extend(pos_args);
 
-                        let init_result = init_func.invoke_exact_args(&all_args, vm)?;
+                        let init_result = init_func.invoke_exact_args(all_args, vm)?;
 
                         // EXIT_INIT_CHECK: __init__ must return None
                         if !vm.is_none(&init_result) {
