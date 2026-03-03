@@ -426,10 +426,63 @@ impl GetDescriptor for PyMemberDescriptor {
     }
 }
 
+/// Vectorcall for method_descriptor: calls native method directly
+fn vectorcall_method_descriptor(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyMethodDescriptor> = zelf_obj.downcast_ref().unwrap();
+    let func_args = FuncArgs::from_vectorcall(&args, nargs, kwnames);
+    (zelf.method.func)(vm, func_args)
+}
+
+/// Vectorcall for wrapper_descriptor: calls wrapped slot function
+fn vectorcall_wrapper(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyWrapper> = zelf_obj.downcast_ref().unwrap();
+    // First positional arg is self
+    if nargs == 0 {
+        return Err(vm.new_type_error(format!(
+            "descriptor '{}' of '{}' object needs an argument",
+            zelf.name.as_str(),
+            zelf.typ.name()
+        )));
+    }
+    let obj = args[0].clone();
+    if !obj.fast_isinstance(zelf.typ) {
+        return Err(vm.new_type_error(format!(
+            "descriptor '{}' requires a '{}' object but received a '{}'",
+            zelf.name.as_str(),
+            zelf.typ.name(),
+            obj.class().name()
+        )));
+    }
+    let rest = FuncArgs::from_vectorcall(&args[1..], nargs - 1, kwnames);
+    zelf.wrapped.call(obj, rest, vm)
+}
+
 pub fn init(ctx: &'static Context) {
     PyMemberDescriptor::extend_class(ctx, ctx.types.member_descriptor_type);
     PyMethodDescriptor::extend_class(ctx, ctx.types.method_descriptor_type);
+    ctx.types
+        .method_descriptor_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_method_descriptor));
     PyWrapper::extend_class(ctx, ctx.types.wrapper_descriptor_type);
+    ctx.types
+        .wrapper_descriptor_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_wrapper));
     PyMethodWrapper::extend_class(ctx, ctx.types.method_wrapper_type);
 }
 
