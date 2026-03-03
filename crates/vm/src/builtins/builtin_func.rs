@@ -243,21 +243,10 @@ fn vectorcall_native_function(
 
     let func_args = if needs_self {
         let self_obj = zelf.zelf.as_ref().unwrap().clone();
-        let total_pos = nargs + 1;
-        let mut pos_args = Vec::with_capacity(total_pos);
-        pos_args.push(self_obj);
-        pos_args.extend(args.into_iter().take(nargs));
-
-        if let Some(kwnames_slice) = kwnames {
-            let kwargs =
-                FuncArgs::from_vectorcall(&pos_args, total_pos, Some(kwnames_slice)).kwargs;
-            FuncArgs {
-                args: pos_args,
-                kwargs,
-            }
-        } else {
-            FuncArgs::from(pos_args)
-        }
+        let mut all_args = Vec::with_capacity(args.len() + 1);
+        all_args.push(self_obj);
+        all_args.extend(args);
+        FuncArgs::from_vectorcall(&all_args, nargs + 1, kwnames)
     } else {
         FuncArgs::from_vectorcall(&args, nargs, kwnames)
     };
