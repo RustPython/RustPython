@@ -3672,7 +3672,6 @@ class TestSlots(unittest.TestCase):
         self.assertEqual(obj.a, 'a')
         self.assertEqual(obj.b, 'b')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slots_no_weakref(self):
         @dataclass(slots=True)
         class A:
@@ -3687,7 +3686,6 @@ class TestSlots(unittest.TestCase):
         with self.assertRaises(AttributeError):
             a.__weakref__
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slots_weakref(self):
         @dataclass(slots=True, weakref_slot=True)
         class A:
@@ -3748,7 +3746,6 @@ class TestSlots(unittest.TestCase):
                                     "weakref_slot is True but slots is False"):
             B = make_dataclass('B', [('a', int),], weakref_slot=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_weakref_slot_subclass_weakref_slot(self):
         @dataclass(slots=True, weakref_slot=True)
         class Base:
@@ -3767,7 +3764,6 @@ class TestSlots(unittest.TestCase):
         a_ref = weakref.ref(a)
         self.assertIs(a.__weakref__, a_ref)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_weakref_slot_subclass_no_weakref_slot(self):
         @dataclass(slots=True, weakref_slot=True)
         class Base:
@@ -3785,7 +3781,6 @@ class TestSlots(unittest.TestCase):
         a_ref = weakref.ref(a)
         self.assertIs(a.__weakref__, a_ref)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_weakref_slot_normal_base_weakref_slot(self):
         class Base:
             __slots__ = ('__weakref__',)
@@ -3830,7 +3825,6 @@ class TestSlots(unittest.TestCase):
         self.assertTrue(B.__weakref__)
         B()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dataclass_derived_generic_from_base(self):
         T = typing.TypeVar('T')
 
