@@ -41,6 +41,8 @@ thread_local! {
 }
 
 impl PyPayload for PyFloat {
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.float_type

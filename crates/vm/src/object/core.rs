@@ -171,13 +171,19 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     // Untrack from GC BEFORE deallocation.
     if obj_ref.is_gc_tracked() {
         let ptr = unsafe { NonNull::new_unchecked(obj) };
-        rustpython_common::refcount::try_defer_drop(move || {
-            // untrack_object only removes the pointer address from a HashSet.
-            // It does NOT dereference the pointer, so it's safe even after deallocation.
-            unsafe {
-                crate::gc_state::gc_state().untrack_object(ptr);
-            }
-        });
+        if T::HAS_FREELIST {
+            // Freelist types must untrack immediately to avoid race conditions:
+            // a deferred untrack could remove a re-tracked entry after reuse.
+            unsafe { crate::gc_state::gc_state().untrack_object(ptr) };
+        } else {
+            rustpython_common::refcount::try_defer_drop(move || {
+                // untrack_object only removes the pointer address from a HashSet.
+                // It does NOT dereference the pointer, so it's safe even after deallocation.
+                unsafe {
+                    crate::gc_state::gc_state().untrack_object(ptr);
+                }
+            });
+        }
     }
 
     // Extract child references before deallocation to break circular refs (tp_clear)
@@ -1733,24 +1739,27 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         let is_heaptype = typ.heaptype_ext.is_some();
 
         // Try to reuse from freelist (exact type only, no dict, no heaptype)
-        if !has_dict && !is_heaptype {
+        let ptr = if !has_dict && !is_heaptype {
             if let Some(cached) = unsafe { T::freelist_pop() } {
                 let inner = cached.as_ptr() as *mut PyInner<T>;
                 unsafe {
                     core::ptr::write(&mut (*inner).ref_count, RefCount::new());
                     (*inner).gc_bits.store(0, Ordering::Relaxed);
+                    core::ptr::drop_in_place(&mut (*inner).payload);
                     core::ptr::write(&mut (*inner).payload, payload);
                     // typ, vtable, dict(None), weak_list, slots are preserved
                 }
                 // Drop the caller's typ since the cached object already holds one
                 drop(typ);
-                let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
-                return Self { ptr };
+                unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
+            } else {
+                let inner = Box::into_raw(PyInner::new(payload, typ, dict));
+                unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
             }
-        }
-
-        let inner = Box::into_raw(PyInner::new(payload, typ, dict));
-        let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
+        } else {
+            let inner = Box::into_raw(PyInner::new(payload, typ, dict));
+            unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
+        };
 
         // Track object if:
         // - HAS_TRAVERSE is true (Rust payload implements Traverse), OR

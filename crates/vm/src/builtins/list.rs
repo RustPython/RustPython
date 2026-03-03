@@ -27,7 +27,9 @@ use crate::{
 use rustpython_common::wtf8::Wtf8Buf;
 
 use alloc::fmt;
+use core::cell::Cell;
 use core::ops::DerefMut;
+use core::ptr::NonNull;
 
 #[pyclass(module = false, name = "list", unhashable = true, traverse = "manual")]
 #[derive(Default)]
@@ -72,10 +74,43 @@ unsafe impl Traverse for PyList {
     }
 }
 
+const PYLIST_MAXFREELIST: usize = 80;
+
+thread_local! {
+    static LIST_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
+}
+
 impl PyPayload for PyList {
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.list_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        LIST_FREELIST.with(|fl| {
+            let mut list = fl.take();
+            let stored = if list.len() < PYLIST_MAXFREELIST {
+                list.push(obj);
+                true
+            } else {
+                false
+            };
+            fl.set(list);
+            stored
+        })
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        LIST_FREELIST.with(|fl| {
+            let mut list = fl.take();
+            let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+            fl.set(list);
+            result
+        })
     }
 }
 

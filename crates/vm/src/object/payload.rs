@@ -47,6 +47,11 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
 
     fn class(ctx: &Context) -> &'static Py<PyType>;
 
+    /// Whether this type has a freelist. Types with freelists require
+    /// immediate (non-deferred) GC untracking during dealloc to prevent
+    /// race conditions when the object is reused.
+    const HAS_FREELIST: bool = false;
+
     /// Try to push a dead object onto this type's freelist for reuse.
     /// Returns true if the object was stored (caller must NOT free the memory).
     ///
