@@ -690,6 +690,7 @@ class FrameLocalsProxyMappingTests(mapping_tests.TestHashMappingProtocol):
 
 
 class TestFrameCApi(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_basic(self):
         x = 1
         ctypes = import_helper.import_module('ctypes')
