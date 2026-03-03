@@ -261,7 +261,8 @@ impl GcState {
 
             let (list_lock, count) = if obj_gen <= 2 {
                 (
-                    &self.generation_lists[obj_gen as usize] as &PyRwLock<LinkedList<GcLink, PyObject>>,
+                    &self.generation_lists[obj_gen as usize]
+                        as &PyRwLock<LinkedList<GcLink, PyObject>>,
                     &self.generations[obj_gen as usize].count,
                 )
             } else if obj_gen == GC_PERMANENT {
