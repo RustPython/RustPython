@@ -72,6 +72,23 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
     }
 }
 
+impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
+    /// Reset this mutex to its initial (unlocked, unowned) state after `fork()`.
+    ///
+    /// # Safety
+    ///
+    /// Must only be called from the single-threaded child process immediately
+    /// after `fork()`, before any other thread is created.
+    #[cfg(unix)]
+    pub unsafe fn reinit_after_fork(&self) {
+        self.owner.store(0, Ordering::Relaxed);
+        unsafe {
+            let mutex_ptr = &self.mutex as *const R as *mut u8;
+            core::ptr::write_bytes(mutex_ptr, 0, core::mem::size_of::<R>());
+        }
+    }
+}
+
 unsafe impl<R: RawMutex + Send, G: GetThreadId + Send> Send for RawThreadMutex<R, G> {}
 unsafe impl<R: RawMutex + Sync, G: GetThreadId + Sync> Sync for RawThreadMutex<R, G> {}
 
@@ -103,6 +120,11 @@ impl<R: RawMutex, G: GetThreadId, T> From<T> for ThreadMutex<R, G, T> {
     }
 }
 impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
+    /// Access the underlying raw thread mutex.
+    pub fn raw(&self) -> &RawThreadMutex<R, G> {
+        &self.raw
+    }
+
     pub fn lock(&self) -> Option<ThreadMutexGuard<'_, R, G, T>> {
         if self.raw.lock() {
             Some(ThreadMutexGuard {

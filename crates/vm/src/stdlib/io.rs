@@ -2,6 +2,8 @@
  * I/O core tools.
  */
 pub(crate) use _io::module_def;
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) use _io::reinit_std_streams_after_fork;
 
 cfg_if::cfg_if! {
     if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
@@ -4982,6 +4984,49 @@ mod _io {
                 closefd: true,
                 opener: None,
             }
+        }
+    }
+
+    /// Reinit per-object IO buffer locks on std streams after `fork()`.
+    #[cfg(all(unix, feature = "threading"))]
+    pub fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
+        for name in ["stdin", "stdout", "stderr"] {
+            let Ok(stream) = vm.sys_module.get_attr(name, vm) else {
+                continue;
+            };
+            reinit_io_locks(&stream);
+        }
+    }
+
+    #[cfg(all(unix, feature = "threading"))]
+    fn reinit_io_locks(obj: &PyObject) {
+        use crate::common::lock::reinit_thread_mutex_after_fork;
+
+        if let Some(tio) = obj.downcast_ref::<TextIOWrapper>() {
+            unsafe { reinit_thread_mutex_after_fork(&tio.data) };
+            if let Some(guard) = tio.data.lock() {
+                if let Some(ref data) = *guard {
+                    reinit_io_locks(&data.buffer);
+                }
+            }
+            return;
+        }
+        if let Some(br) = obj.downcast_ref::<BufferedReader>() {
+            unsafe { reinit_thread_mutex_after_fork(&br.data) };
+            return;
+        }
+        if let Some(bw) = obj.downcast_ref::<BufferedWriter>() {
+            unsafe { reinit_thread_mutex_after_fork(&bw.data) };
+            return;
+        }
+        if let Some(brw) = obj.downcast_ref::<BufferedRandom>() {
+            unsafe { reinit_thread_mutex_after_fork(&brw.data) };
+            return;
+        }
+        if let Some(brw) = obj.downcast_ref::<BufferedRWPair>() {
+            unsafe { reinit_thread_mutex_after_fork(&brw.read.data) };
+            unsafe { reinit_thread_mutex_after_fork(&brw.write.data) };
+            return;
         }
     }
 

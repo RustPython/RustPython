@@ -719,6 +719,12 @@ pub mod module {
         #[cfg(feature = "threading")]
         reinit_locks_after_fork(vm);
 
+        // Reinit per-object IO buffer locks on std streams.
+        // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
+        // held by dead parent threads, causing deadlocks on any IO in the child.
+        #[cfg(feature = "threading")]
+        crate::stdlib::io::reinit_std_streams_after_fork(vm);
+
         // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
         crate::stdlib::signal::_signal::clear_wakeup_fd_after_fork();
