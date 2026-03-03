@@ -410,6 +410,10 @@ impl GcState {
         let generation = generation.min(2);
         let debug = self.get_debug();
 
+        // Clear the method cache to release strong references that
+        // might prevent cycle collection (_PyType_ClearCache).
+        crate::builtins::type_::type_cache_clear();
+
         // Step 1: Gather objects from generations 0..=generation
         // Hold read locks for the entire collection to prevent other threads
         // from untracking objects while we're iterating.
