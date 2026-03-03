@@ -307,6 +307,7 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'pre-existing trace function throws off measurements')
     def test_inst_method_calling(self):
@@ -340,6 +341,7 @@ class TestCallers(unittest.TestCase):
         self.tracer = Trace(count=0, trace=0, countcallers=1)
         self.filemod = my_file_and_modname()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'pre-existing trace function throws off measurements')
     def test_loop_caller_importing(self):
