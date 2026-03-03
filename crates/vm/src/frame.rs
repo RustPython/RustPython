@@ -5607,18 +5607,7 @@ impl ExecutingFrame<'_> {
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
 
-        // Check if callable has vectorcall slot
-        let has_vectorcall = self.state.stack[callable_idx]
-            .as_ref()
-            .is_some_and(|sr| sr.as_object().class().slots.vectorcall.load().is_some());
-
-        if !has_vectorcall {
-            // Fallback to existing FuncArgs path
-            let args = self.collect_positional_args(nargs);
-            return self.execute_call(args, vm);
-        }
-
-        // Build args slice: [self_or_null?, arg1, ..., argN]
+        // Build args: [self?, arg1, ..., argN]
         let self_or_null = self.state.stack[self_or_null_idx]
             .take()
             .map(|sr| sr.to_pyobj());
@@ -5641,6 +5630,7 @@ impl ExecutingFrame<'_> {
         let callable_obj = self.state.stack[callable_idx].take().unwrap().to_pyobj();
         self.state.stack.truncate(callable_idx);
 
+        // invoke_vectorcall falls back to FuncArgs if no vectorcall slot
         let result = callable_obj.vectorcall(args_vec, effective_nargs, None, vm)?;
         self.push_value(result);
         Ok(None)
@@ -5662,37 +5652,6 @@ impl ExecutingFrame<'_> {
         let callable_idx = stack_len - nargs_usize - 2;
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
-
-        // Check if callable has vectorcall slot
-        let has_vectorcall = self.state.stack[callable_idx]
-            .as_ref()
-            .is_some_and(|sr| sr.as_object().class().slots.vectorcall.load().is_some());
-
-        if !has_vectorcall {
-            // Fallback: reconstruct kwarg_names iterator and use existing path
-            let kwarg_names_iter = kwarg_names_tuple.as_slice().iter().map(|pyobj| {
-                pyobj
-                    .downcast_ref::<PyUtf8Str>()
-                    .unwrap()
-                    .as_str()
-                    .to_owned()
-            });
-            let args = self.pop_multiple(nargs_usize);
-            let func_args = FuncArgs::with_kwargs_names(args, kwarg_names_iter);
-            // pop self_or_null and callable
-            let self_or_null = self.pop_value_opt();
-            let callable = self.pop_value();
-            let final_args = if let Some(self_val) = self_or_null {
-                let mut args = func_args;
-                args.prepend_arg(self_val);
-                args
-            } else {
-                func_args
-            };
-            let value = callable.call(final_args, vm)?;
-            self.push_value(value);
-            return Ok(None);
-        }
 
         // Build args: [self?, pos_arg1, ..., pos_argM, kw_val1, ..., kw_valK]
         let self_or_null = self.state.stack[self_or_null_idx]
@@ -5717,6 +5676,7 @@ impl ExecutingFrame<'_> {
         let callable_obj = self.state.stack[callable_idx].take().unwrap().to_pyobj();
         self.state.stack.truncate(callable_idx);
 
+        // invoke_vectorcall falls back to FuncArgs if no vectorcall slot
         let kwnames = kwarg_names_tuple.as_slice();
         let result = callable_obj.vectorcall(args_vec, effective_nargs, Some(kwnames), vm)?;
         self.push_value(result);
