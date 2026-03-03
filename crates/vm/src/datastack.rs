@@ -6,7 +6,8 @@
 ///
 /// Normal function calls allocate from the data stack via `push()` (pointer
 /// bump).  Generators and coroutines use heap-allocated storage instead.
-use alloc::alloc::{Layout, alloc, dealloc};
+use alloc::alloc::{alloc, dealloc};
+use core::alloc::Layout;
 use core::ptr;
 
 /// Minimum chunk size in bytes (16 KB, matching CPython `_PY_DATA_STACK_CHUNK_SIZE`).
