@@ -750,36 +750,43 @@ impl ExecutingFrame<'_> {
             let bytecode::CodeUnit { op, arg } = instructions[idx];
             let arg = arg_state.extend(arg);
             let mut do_extend_arg = false;
+            let caches = op.cache_entries();
 
-            if !matches!(
-                op,
-                Instruction::Resume { .. }
-                    | Instruction::ExtendedArg
-                    | Instruction::InstrumentedLine
-            ) && let Some((loc, _)) = self.code.locations.get(idx)
-            {
-                self.state.prev_line = loc.line.get() as u32;
-            }
-
-            // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
-            // is set. Skip RESUME and ExtendedArg (matching CPython's exclusion
-            // of these in _Py_call_instrumentation_instruction).
-            if vm.use_tracing.get()
-                && !vm.is_none(&self.object.trace.lock())
-                && *self.object.trace_opcodes.lock()
-                && !matches!(
+            // Update prev_line only when tracing or monitoring is active.
+            // When neither is enabled, prev_line is stale but unused.
+            if vm.use_tracing.get() {
+                if !matches!(
                     op,
                     Instruction::Resume { .. }
-                        | Instruction::InstrumentedResume
                         | Instruction::ExtendedArg
-                )
-            {
-                vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
+                        | Instruction::InstrumentedLine
+                ) && let Some((loc, _)) = self.code.locations.get(idx)
+                {
+                    self.state.prev_line = loc.line.get() as u32;
+                }
+
+                // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
+                // is set. Skip RESUME and ExtendedArg (matching CPython's exclusion
+                // of these in _Py_call_instrumentation_instruction).
+                if !vm.is_none(&self.object.trace.lock())
+                    && *self.object.trace_opcodes.lock()
+                    && !matches!(
+                        op,
+                        Instruction::Resume { .. }
+                            | Instruction::InstrumentedResume
+                            | Instruction::ExtendedArg
+                    )
+                {
+                    vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
+                }
             }
 
             let lasti_before = self.lasti();
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
-            self.skip_caches_if_fallthrough(op, lasti_before);
+            // Skip inline cache entries if instruction fell through (no jump).
+            if caches > 0 && self.lasti() == lasti_before {
+                self.update_lasti(|i| *i += caches as u32);
+            }
             match result {
                 Ok(None) => {}
                 Ok(Some(value)) => {
@@ -3409,7 +3416,10 @@ impl ExecutingFrame<'_> {
                     let mut do_extend_arg = false;
                     self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
                 };
-                self.skip_caches_if_fallthrough(original_op, lasti_before_dispatch);
+                let orig_caches = original_op.to_base().unwrap_or(original_op).cache_entries();
+                if orig_caches > 0 && self.lasti() == lasti_before_dispatch {
+                    self.update_lasti(|i| *i += orig_caches as u32);
+                }
                 result
             }
             Instruction::InstrumentedInstruction => {
@@ -3441,7 +3451,10 @@ impl ExecutingFrame<'_> {
                     let mut do_extend_arg = false;
                     self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
                 };
-                self.skip_caches_if_fallthrough(original_op, lasti_before_dispatch);
+                let orig_caches = original_op.to_base().unwrap_or(original_op).cache_entries();
+                if orig_caches > 0 && self.lasti() == lasti_before_dispatch {
+                    self.update_lasti(|i| *i += orig_caches as u32);
+                }
                 result
             }
             _ => {
@@ -4104,19 +4117,6 @@ impl ExecutingFrame<'_> {
     fn jump_relative_backward(&mut self, delta: u32, caches: u32) {
         let target = self.lasti() + caches - delta;
         self.update_lasti(|i| *i = target);
-    }
-
-    /// Skip past CACHE code units after an instruction, but only if the
-    /// instruction did not modify lasti (i.e., it did not jump).
-    #[inline]
-    fn skip_caches_if_fallthrough(&mut self, op: Instruction, lasti_before: u32) {
-        if self.lasti() == lasti_before {
-            let base = op.to_base().unwrap_or(op);
-            let caches = base.cache_entries();
-            if caches > 0 {
-                self.update_lasti(|i| *i += caches as u32);
-            }
-        }
     }
 
     #[inline]
