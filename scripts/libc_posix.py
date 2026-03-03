@@ -5,12 +5,8 @@ import pathlib
 import re
 import subprocess
 import urllib.request
-from typing import TYPE_CHECKING
 
 import tomllib
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 CPYTHON_VERSION = "3.14"
 
@@ -162,7 +158,7 @@ def extract_consts(
 
 def consts_from_url(
     url: str, *, pattern: re.Pattern = CONSTS_PATTERN, exclude: frozenset[str] = EXCLUDE
-) -> str:
+) -> frozenset[str]:
     """
     Extract all consts from the contents found at the given URL.
 
