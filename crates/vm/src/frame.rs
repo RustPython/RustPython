@@ -3847,8 +3847,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorO => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -3885,8 +3884,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorFast => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -3924,8 +3922,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallBuiltinClass => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -3935,25 +3932,12 @@ impl ExecutingFrame<'_> {
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
                 if cached_tag == callable_tag && callable.downcast_ref::<PyType>().is_some() {
-                    let args = self.collect_positional_args(nargs);
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let final_args = if let Some(self_val) = self_or_null {
-                        let mut args = args;
-                        args.prepend_arg(self_val);
-                        args
-                    } else {
-                        args
-                    };
-                    let result = callable.call(final_args, vm)?;
-                    self.push_value(result);
-                    return Ok(None);
+                    return self.execute_call_vectorcall(nargs, vm);
                 }
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallAllocAndEnterInit => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4013,8 +3997,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
@@ -4053,8 +4036,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallBuiltinFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
@@ -4087,8 +4069,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallNonPyGeneral => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4098,14 +4079,12 @@ impl ExecutingFrame<'_> {
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
                 if cached_tag == callable_tag {
-                    let args = self.collect_positional_args(nargs);
-                    return self.execute_call(args, vm);
+                    return self.execute_call_vectorcall(nargs, vm);
                 }
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallKwPy => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4197,14 +4176,12 @@ impl ExecutingFrame<'_> {
                 let callable = self.nth_value(nargs + 2);
                 let callable_tag = callable as *const PyObject as u32;
                 if cached_tag == callable_tag {
-                    let args = self.collect_keyword_args(nargs);
-                    return self.execute_call(args, vm);
+                    return self.execute_call_kw_vectorcall(nargs, vm);
                 }
                 self.deoptimize(Instruction::CallKw {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_keyword_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_kw_vectorcall(nargs, vm)
             }
             Instruction::LoadSuperAttrAttr => {
                 let oparg = u32::from(arg);
