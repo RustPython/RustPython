@@ -6,8 +6,8 @@ use crate::{
     TryFromObject, VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine, PyDict, PyDictRef,
-        PyFloat, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty, PySet, PySlice,
-        PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
+        PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty,
+        PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
         builtin_func::PyNativeFunction,
         descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
@@ -2771,7 +2771,9 @@ impl ExecutingFrame<'_> {
                     unsafe {
                         self.code.instructions.replace_op(
                             instr_idx,
-                            Instruction::Send { delta: Arg::marker() },
+                            Instruction::Send {
+                                delta: Arg::marker(),
+                            },
                         );
                         self.code
                             .instructions
@@ -2888,7 +2890,11 @@ impl ExecutingFrame<'_> {
                     self.push_value(owner);
                     Ok(None)
                 } else {
-                    self.deoptimize_at(Instruction::LoadAttr { namei: Arg::marker() }, instr_idx, cache_base);
+                    self.deoptimize_at(
+                        Instruction::LoadAttr { namei: Arg::marker() },
+                        instr_idx,
+                        cache_base,
+                    );
                     self.load_attr_slow(vm, oparg)
                 }
             }
@@ -2935,7 +2941,11 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize_at(Instruction::LoadAttr { namei: Arg::marker() }, instr_idx, cache_base);
+                self.deoptimize_at(
+                    Instruction::LoadAttr { namei: Arg::marker() },
+                    instr_idx,
+                    cache_base,
+                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrInstanceValue => {
@@ -2959,7 +2969,11 @@ impl ExecutingFrame<'_> {
                     }
                     // Not in instance dict — fall through to class lookup via slow path
                 }
-                self.deoptimize_at(Instruction::LoadAttr { namei: Arg::marker() }, instr_idx, cache_base);
+                self.deoptimize_at(
+                    Instruction::LoadAttr { namei: Arg::marker() },
+                    instr_idx,
+                    cache_base,
+                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrModule => {
@@ -3187,7 +3201,11 @@ impl ExecutingFrame<'_> {
                     dict.set_item(attr_name, value, vm)?;
                     return Ok(None);
                 }
-                self.deoptimize_at(Instruction::StoreAttr { namei: Arg::marker() }, instr_idx, cache_base);
+                self.deoptimize_at(
+                    Instruction::StoreAttr { namei: Arg::marker() },
+                    instr_idx,
+                    cache_base,
+                );
                 self.store_attr(vm, attr_idx)
             }
             Instruction::StoreAttrSlot => {
@@ -3496,7 +3514,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3523,7 +3543,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(obj);
                     self.push_value(class_info);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3548,7 +3570,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3571,7 +3595,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3599,7 +3625,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3628,7 +3656,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3659,7 +3689,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3690,7 +3722,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
                 }
@@ -3717,7 +3751,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
                 }
@@ -3740,7 +3776,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(self_or_null);
                     self.push_value(item);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3775,7 +3813,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3811,7 +3851,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3848,7 +3890,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3874,7 +3918,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3933,7 +3979,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3971,7 +4019,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4003,7 +4053,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4018,7 +4070,9 @@ impl ExecutingFrame<'_> {
                     let args = self.collect_positional_args(nargs);
                     return self.execute_call(args, vm);
                 }
-                self.deoptimize(Instruction::Call { argc: Arg::marker() });
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4062,7 +4116,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::CallKw { argc: Arg::marker() });
+                self.deoptimize(Instruction::CallKw {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4096,7 +4152,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::CallKw { argc: Arg::marker() });
+                self.deoptimize(Instruction::CallKw {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4111,7 +4169,9 @@ impl ExecutingFrame<'_> {
                     let args = self.collect_keyword_args(nargs);
                     return self.execute_call(args, vm);
                 }
-                self.deoptimize(Instruction::CallKw { argc: Arg::marker() });
+                self.deoptimize(Instruction::CallKw {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4397,12 +4457,12 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ToBoolAlwaysTrue => {
                 // Objects without __bool__ or __len__ are always True.
-                // Guard: check the type hasn't gained these slots.
+                // Guard: check type version hasn't changed.
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
                 let obj = self.top_value();
-                let slots = &obj.class().slots;
-                if slots.as_number.boolean.load().is_none()
-                    && slots.as_mapping.length.load().is_none()
-                    && slots.as_sequence.length.load().is_none()
+                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                if cached_version != 0 && obj.class().tp_version_tag.load(Acquire) == cached_version
                 {
                     self.pop_value();
                     self.push_value(vm.ctx.new_bool(true).into());
@@ -4446,7 +4506,9 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ContainsOpSet => {
                 let b = self.top_value(); // haystack
-                if b.downcast_ref_if_exact::<PySet>(vm).is_some() {
+                if b.downcast_ref_if_exact::<PySet>(vm).is_some()
+                    || b.downcast_ref_if_exact::<PyFrozenSet>(vm).is_some()
+                {
                     let a = self.nth_value(1); // needle
                     let found = vm._contains(b, a)?;
                     self.pop_value();
@@ -4486,7 +4548,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::UnpackSequence { count: Arg::marker() });
+                self.deoptimize(Instruction::UnpackSequence {
+                    count: Arg::marker(),
+                });
                 let size = u32::from(arg);
                 self.unpack_sequence(size, vm)
             }
@@ -4504,7 +4568,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::UnpackSequence { count: Arg::marker() });
+                self.deoptimize(Instruction::UnpackSequence {
+                    count: Arg::marker(),
+                });
                 self.unpack_sequence(size as u32, vm)
             }
             Instruction::UnpackSequenceList => {
@@ -4522,7 +4588,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::UnpackSequence { count: Arg::marker() });
+                self.deoptimize(Instruction::UnpackSequence {
+                    count: Arg::marker(),
+                });
                 self.unpack_sequence(size as u32, vm)
             }
             Instruction::ForIterRange => {
@@ -4536,7 +4604,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter { delta: Arg::marker() });
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4552,7 +4622,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter { delta: Arg::marker() });
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4568,7 +4640,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter { delta: Arg::marker() });
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4588,7 +4662,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter { delta: Arg::marker() });
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4633,38 +4709,39 @@ impl ExecutingFrame<'_> {
                 let oparg = u32::from(arg);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
-                let current_version = self.globals.version() as u32;
-                if cached_version == current_version {
-                    // globals unchanged — name is NOT in globals, look up in builtins
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    if let Some(builtins_dict) = self.builtins.downcast_ref::<PyDict>()
-                        && let Some(x) = builtins_dict.get_item_opt(name, vm)?
-                    {
-                        self.push_value(x);
-                        if (oparg & 1) != 0 {
-                            self.push_value_opt(None);
+                let cached_globals_ver = self.code.instructions.read_cache_u32(cache_base + 1);
+                let cached_builtins_ver = self.code.instructions.read_cache_u32(cache_base + 2);
+                let current_globals_ver = self.globals.version() as u32;
+                if cached_globals_ver == current_globals_ver {
+                    // globals unchanged — name is NOT in globals, check builtins
+                    if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm) {
+                        let current_builtins_ver = builtins_dict.version() as u32;
+                        if cached_builtins_ver == current_builtins_ver {
+                            // Both versions match — safe to look up in builtins
+                            let name = self.code.names[(oparg >> 1) as usize];
+                            if let Some(x) = builtins_dict.get_item_opt(name, vm)? {
+                                self.push_value(x);
+                                if (oparg & 1) != 0 {
+                                    self.push_value_opt(None);
+                                }
+                                return Ok(None);
+                            }
                         }
-                        return Ok(None);
                     }
-                    // Fallback: name not found or builtins not a dict
-                    self.deoptimize(Instruction::LoadGlobal { namei: Arg::marker() });
-                    let x = self.load_global_or_builtin(name, vm)?;
-                    self.push_value(x);
-                    if (oparg & 1) != 0 {
-                        self.push_value_opt(None);
-                    }
-                    Ok(None)
-                } else {
-                    self.deoptimize(Instruction::LoadGlobal { namei: Arg::marker() });
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    let x = self.load_global_or_builtin(name, vm)?;
-                    self.push_value(x);
-                    if (oparg & 1) != 0 {
-                        self.push_value_opt(None);
-                    }
-                    Ok(None)
                 }
+                // Version mismatch or lookup failed — deoptimize
+                self.deoptimize_at(
+                    Instruction::LoadGlobal { namei: Arg::marker() },
+                    instr_idx,
+                    cache_base,
+                );
+                let name = self.code.names[(oparg >> 1) as usize];
+                let x = self.load_global_or_builtin(name, vm)?;
+                self.push_value(x);
+                if (oparg & 1) != 0 {
+                    self.push_value_opt(None);
+                }
+                Ok(None)
             }
             // All INSTRUMENTED_* opcodes delegate to a cold function to keep
             // the hot instruction loop free of monitoring overhead.
@@ -6723,7 +6800,7 @@ impl ExecutingFrame<'_> {
     }
 
     /// Execute a specialized binary op on two int operands.
-    /// Deoptimizes if either operand is not an exact int.
+    /// Deoptimize if either operand is not an exact int.
     #[inline]
     fn execute_binary_op_int(
         &mut self,
@@ -6749,7 +6826,7 @@ impl ExecutingFrame<'_> {
     }
 
     /// Execute a specialized binary op on two float operands.
-    /// Deoptimizes if either operand is not an exact float.
+    /// Deoptimize if either operand is not an exact float.
     #[inline]
     fn execute_binary_op_float(
         &mut self,
@@ -7109,7 +7186,6 @@ impl ExecutingFrame<'_> {
             .into()
     }
 
-
     fn specialize_to_bool(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
         if !matches!(
             self.code.instructions.read_op(instr_idx),
@@ -7134,14 +7210,34 @@ impl ExecutingFrame<'_> {
             && cls.slots.as_mapping.length.load().is_none()
             && cls.slots.as_sequence.length.load().is_none()
         {
-            Some(Instruction::ToBoolAlwaysTrue)
+            // Cache type version for ToBoolAlwaysTrue guard
+            let mut type_version = cls.tp_version_tag.load(Acquire);
+            if type_version == 0 {
+                type_version = cls.assign_version_tag();
+            }
+            if type_version != 0 {
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 1, type_version);
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::ToBoolAlwaysTrue);
+                }
+            } else {
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+            }
+            return;
         } else {
             None
         };
 
         self.commit_specialization(instr_idx, cache_base, new_op);
     }
-
 
     fn specialize_for_iter(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
         if !matches!(
@@ -7166,7 +7262,6 @@ impl ExecutingFrame<'_> {
 
         self.commit_specialization(instr_idx, cache_base, new_op);
     }
-
 
     /// Handle iterator exhaustion in specialized FOR_ITER handlers.
     /// Skips END_FOR if present at target and jumps.
@@ -7206,25 +7301,33 @@ impl ExecutingFrame<'_> {
 
         let globals_version = self.globals.version() as u32;
 
-        let new_op = if in_globals {
-            Some(Instruction::LoadGlobalModule)
-        } else if self
-            .builtins
-            .downcast_ref::<PyDict>()
-            .and_then(|b| b.get_item_opt(name, vm).ok().flatten())
-            .is_some()
-        {
-            Some(Instruction::LoadGlobalBuiltin)
-        } else {
-            None
-        };
-
-        if let Some(new_op) = new_op {
+        if in_globals {
             unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
+                self.code
+                    .instructions
+                    .replace_op(instr_idx, Instruction::LoadGlobalModule);
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, globals_version);
+            }
+        } else if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
+            && builtins_dict
+                .get_item_opt(name, vm)
+                .ok()
+                .flatten()
+                .is_some()
+        {
+            let builtins_version = builtins_dict.version() as u32;
+            unsafe {
+                self.code
+                    .instructions
+                    .replace_op(instr_idx, Instruction::LoadGlobalBuiltin);
+                self.code
+                    .instructions
+                    .write_cache_u32(cache_base + 1, globals_version);
+                self.code
+                    .instructions
+                    .write_cache_u32(cache_base + 2, builtins_version);
             }
         } else {
             unsafe {
@@ -7234,7 +7337,6 @@ impl ExecutingFrame<'_> {
             }
         }
     }
-
 
     fn specialize_store_subscr(
         &mut self,
@@ -7265,7 +7367,6 @@ impl ExecutingFrame<'_> {
         self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
-
     fn specialize_contains_op(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
         if !matches!(
             self.code.instructions.read_op(instr_idx),
@@ -7276,7 +7377,9 @@ impl ExecutingFrame<'_> {
         let haystack = self.top_value(); // b = TOS = haystack
         let new_op = if haystack.downcast_ref_if_exact::<PyDict>(vm).is_some() {
             Some(Instruction::ContainsOpDict)
-        } else if haystack.downcast_ref_if_exact::<PySet>(vm).is_some() {
+        } else if haystack.downcast_ref_if_exact::<PySet>(vm).is_some()
+            || haystack.downcast_ref_if_exact::<PyFrozenSet>(vm).is_some()
+        {
             Some(Instruction::ContainsOpSet)
         } else {
             None
@@ -7284,7 +7387,6 @@ impl ExecutingFrame<'_> {
 
         self.commit_specialization(instr_idx, cache_base, new_op);
     }
-
 
     fn specialize_unpack_sequence(
         &mut self,
@@ -7313,7 +7415,6 @@ impl ExecutingFrame<'_> {
 
         self.commit_specialization(instr_idx, cache_base, new_op);
     }
-
 
     fn specialize_store_attr(
         &mut self,
