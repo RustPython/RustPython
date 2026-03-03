@@ -79,28 +79,28 @@ pub enum Instruction {
     ///
     /// Stack: [value, expression_str, format_spec?] -> [interpolation]
     BuildInterpolation {
-        oparg: Arg<u32>,
+        format: Arg<u32>,
     } = 45,
     BuildList {
-        size: Arg<u32>,
+        count: Arg<u32>,
     } = 46,
     BuildMap {
-        size: Arg<u32>,
+        count: Arg<u32>,
     } = 47,
     BuildSet {
-        size: Arg<u32>,
+        count: Arg<u32>,
     } = 48,
     BuildSlice {
         argc: Arg<BuildSliceArgCount>,
     } = 49,
     BuildString {
-        size: Arg<u32>,
+        count: Arg<u32>,
     } = 50,
     BuildTuple {
-        size: Arg<u32>,
+        count: Arg<u32>,
     } = 51,
     Call {
-        nargs: Arg<u32>,
+        argc: Arg<u32>,
     } = 52,
     CallIntrinsic1 {
         func: Arg<IntrinsicFunction1>,
@@ -109,57 +109,69 @@ pub enum Instruction {
         func: Arg<IntrinsicFunction2>,
     } = 54,
     CallKw {
-        nargs: Arg<u32>,
+        argc: Arg<u32>,
     } = 55,
     CompareOp {
-        op: Arg<ComparisonOperator>,
+        opname: Arg<ComparisonOperator>,
     } = 56,
-    ContainsOp(Arg<Invert>) = 57,
+    ContainsOp {
+        invert: Arg<Invert>,
+    } = 57,
     ConvertValue {
         oparg: Arg<ConvertValueOparg>,
     } = 58,
     Copy {
-        index: Arg<u32>,
+        i: Arg<u32>,
     } = 59,
     CopyFreeVars {
-        count: Arg<u32>,
+        n: Arg<u32>,
     } = 60,
     DeleteAttr {
-        idx: Arg<NameIdx>,
+        namei: Arg<NameIdx>,
     } = 61,
-    DeleteDeref(Arg<NameIdx>) = 62,
-    DeleteFast(Arg<NameIdx>) = 63,
-    DeleteGlobal(Arg<NameIdx>) = 64,
-    DeleteName(Arg<NameIdx>) = 65,
+    DeleteDeref {
+        i: Arg<NameIdx>,
+    } = 62,
+    DeleteFast {
+        var_num: Arg<NameIdx>,
+    } = 63,
+    DeleteGlobal {
+        namei: Arg<NameIdx>,
+    } = 64,
+    DeleteName {
+        namei: Arg<NameIdx>,
+    } = 65,
     DictMerge {
-        index: Arg<u32>,
+        i: Arg<u32>,
     } = 66,
     DictUpdate {
-        index: Arg<u32>,
+        i: Arg<u32>,
     } = 67,
     EndAsyncFor = 68,
     ExtendedArg = 69,
     ForIter {
-        target: Arg<Label>,
+        delta: Arg<Label>,
     } = 70,
     GetAwaitable {
-        arg: Arg<u32>,
+        r#where: Arg<u32>,
     } = 71,
     ImportFrom {
-        idx: Arg<NameIdx>,
+        namei: Arg<NameIdx>,
     } = 72,
     ImportName {
-        idx: Arg<NameIdx>,
+        namei: Arg<NameIdx>,
     } = 73,
-    IsOp(Arg<Invert>) = 74,
+    IsOp {
+        invert: Arg<Invert>,
+    } = 74,
     JumpBackward {
-        target: Arg<Label>,
+        delta: Arg<Label>,
     } = 75,
     JumpBackwardNoInterrupt {
-        target: Arg<Label>,
+        delta: Arg<Label>,
     } = 76, // Placeholder
     JumpForward {
-        target: Arg<Label>,
+        delta: Arg<Label>,
     } = 77,
     ListAppend {
         i: Arg<u32>,
@@ -168,101 +180,131 @@ pub enum Instruction {
         i: Arg<u32>,
     } = 79,
     LoadAttr {
-        idx: Arg<LoadAttr>,
+        namei: Arg<LoadAttr>,
     } = 80,
     LoadCommonConstant {
         idx: Arg<CommonConstant>,
     } = 81,
     LoadConst {
-        idx: Arg<u32>,
+        consti: Arg<u32>,
     } = 82,
-    LoadDeref(Arg<NameIdx>) = 83,
-    LoadFast(Arg<NameIdx>) = 84,
-    LoadFastAndClear(Arg<NameIdx>) = 85,
-    LoadFastBorrow(Arg<NameIdx>) = 86,
+    LoadDeref {
+        i: Arg<NameIdx>,
+    } = 83,
+    LoadFast {
+        var_num: Arg<NameIdx>,
+    } = 84,
+    LoadFastAndClear {
+        var_num: Arg<NameIdx>,
+    } = 85,
+    LoadFastBorrow {
+        var_num: Arg<NameIdx>,
+    } = 86,
     LoadFastBorrowLoadFastBorrow {
-        arg: Arg<u32>,
+        var_nums: Arg<u32>,
     } = 87,
-    LoadFastCheck(Arg<NameIdx>) = 88,
+    LoadFastCheck {
+        var_num: Arg<NameIdx>,
+    } = 88,
     LoadFastLoadFast {
-        arg: Arg<u32>,
+        var_nums: Arg<u32>,
     } = 89,
-    LoadFromDictOrDeref(Arg<NameIdx>) = 90,
-    LoadFromDictOrGlobals(Arg<NameIdx>) = 91,
-    LoadGlobal(Arg<NameIdx>) = 92,
-    LoadName(Arg<NameIdx>) = 93,
+    LoadFromDictOrDeref {
+        i: Arg<NameIdx>,
+    } = 90,
+    LoadFromDictOrGlobals {
+        i: Arg<NameIdx>,
+    } = 91,
+    LoadGlobal {
+        namei: Arg<NameIdx>,
+    } = 92,
+    LoadName {
+        namei: Arg<NameIdx>,
+    } = 93,
     LoadSmallInt {
-        idx: Arg<u32>,
+        i: Arg<u32>,
     } = 94,
     LoadSpecial {
         method: Arg<SpecialMethod>,
     } = 95,
     LoadSuperAttr {
-        arg: Arg<LoadSuperAttr>,
+        namei: Arg<LoadSuperAttr>,
     } = 96,
-    MakeCell(Arg<NameIdx>) = 97,
+    MakeCell {
+        i: Arg<NameIdx>,
+    } = 97,
     MapAdd {
         i: Arg<u32>,
     } = 98,
-    MatchClass(Arg<u32>) = 99,
+    MatchClass {
+        count: Arg<u32>,
+    } = 99,
     PopJumpIfFalse {
-        target: Arg<Label>,
+        delta: Arg<Label>,
     } = 100,
     PopJumpIfNone {
-        target: Arg<Label>,
+        delta: Arg<Label>,
     } = 101,
     PopJumpIfNotNone {
-        target: Arg<Label>,
+        delta: Arg<Label>,
     } = 102,
     PopJumpIfTrue {
-        target: Arg<Label>,
+        delta: Arg<Label>,
     } = 103,
     RaiseVarargs {
-        kind: Arg<RaiseKind>,
+        argc: Arg<RaiseKind>,
     } = 104,
     Reraise {
         depth: Arg<u32>,
     } = 105,
     Send {
-        target: Arg<Label>,
+        delta: Arg<Label>,
     } = 106,
     SetAdd {
         i: Arg<u32>,
     } = 107,
     SetFunctionAttribute {
-        attr: Arg<MakeFunctionFlags>,
+        flag: Arg<MakeFunctionFlags>,
     } = 108,
     SetUpdate {
         i: Arg<u32>,
     } = 109,
     StoreAttr {
-        idx: Arg<NameIdx>,
+        namei: Arg<NameIdx>,
     } = 110,
-    StoreDeref(Arg<NameIdx>) = 111,
-    StoreFast(Arg<NameIdx>) = 112,
+    StoreDeref {
+        i: Arg<NameIdx>,
+    } = 111,
+    StoreFast {
+        var_num: Arg<NameIdx>,
+    } = 112,
     StoreFastLoadFast {
         var_nums: Arg<StoreFastLoadFast>,
     } = 113,
     StoreFastStoreFast {
-        arg: Arg<u32>,
+        var_nums: Arg<u32>,
     } = 114,
-    StoreGlobal(Arg<NameIdx>) = 115,
-    StoreName(Arg<NameIdx>) = 116,
+    StoreGlobal {
+        namei: Arg<NameIdx>,
+    } = 115,
+    StoreName {
+        namei: Arg<NameIdx>,
+    } = 116,
     Swap {
-        index: Arg<u32>,
+        i: Arg<u32>,
     } = 117,
     UnpackEx {
-        args: Arg<UnpackExArgs>,
+        counts: Arg<UnpackExArgs>,
     } = 118,
     UnpackSequence {
-        size: Arg<u32>,
+        count: Arg<u32>,
     } = 119,
     YieldValue {
         arg: Arg<u32>,
     } = 120,
     // CPython 3.14 RESUME (128)
     Resume {
-        arg: Arg<u32>,
+        context: Arg<u32>,
     } = 128,
     // CPython 3.14 specialized opcodes (129-211)
     BinaryOpAddFloat = 129,                     // Placeholder
@@ -349,28 +391,28 @@ pub enum Instruction {
     UnpackSequenceTuple = 210,                  // Placeholder
     UnpackSequenceTwoTuple = 211,               // Placeholder
     // CPython 3.14 instrumented opcodes (234-254)
-    InstrumentedEndFor = 234,      // Placeholder
-    InstrumentedPopIter = 235,     // Placeholder
-    InstrumentedEndSend = 236,     // Placeholder
-    InstrumentedForIter = 237,     // Placeholder
-    InstrumentedInstruction = 238, // Placeholder
-    InstrumentedJumpForward = 239, // Placeholder
+    InstrumentedEndFor = 234,
+    InstrumentedPopIter = 235,
+    InstrumentedEndSend = 236,
+    InstrumentedForIter = 237,
+    InstrumentedInstruction = 238,
+    InstrumentedJumpForward = 239,
     InstrumentedNotTaken = 240,
-    InstrumentedPopJumpIfTrue = 241,    // Placeholder
-    InstrumentedPopJumpIfFalse = 242,   // Placeholder
-    InstrumentedPopJumpIfNone = 243,    // Placeholder
-    InstrumentedPopJumpIfNotNone = 244, // Placeholder
-    InstrumentedResume = 245,           // Placeholder
-    InstrumentedReturnValue = 246,      // Placeholder
-    InstrumentedYieldValue = 247,       // Placeholder
-    InstrumentedEndAsyncFor = 248,      // Placeholder
-    InstrumentedLoadSuperAttr = 249,    // Placeholder
-    InstrumentedCall = 250,             // Placeholder
-    InstrumentedCallKw = 251,           // Placeholder
-    InstrumentedCallFunctionEx = 252,   // Placeholder
-    InstrumentedJumpBackward = 253,     // Placeholder
-    InstrumentedLine = 254,             // Placeholder
-    EnterExecutor = 255,                // Placeholder
+    InstrumentedPopJumpIfTrue = 241,
+    InstrumentedPopJumpIfFalse = 242,
+    InstrumentedPopJumpIfNone = 243,
+    InstrumentedPopJumpIfNotNone = 244,
+    InstrumentedResume = 245,
+    InstrumentedReturnValue = 246,
+    InstrumentedYieldValue = 247,
+    InstrumentedEndAsyncFor = 248,
+    InstrumentedLoadSuperAttr = 249,
+    InstrumentedCall = 250,
+    InstrumentedCallKw = 251,
+    InstrumentedCallFunctionEx = 252,
+    InstrumentedJumpBackward = 253,
+    InstrumentedLine = 254,
+    EnterExecutor = 255, // Placeholder
 }
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
@@ -393,7 +435,9 @@ impl TryFrom<u8> for Instruction {
         let cpython_end = u8::from(Self::YieldValue { arg: Arg::marker() });
 
         // Resume has a non-contiguous opcode (128)
-        let resume_id = u8::from(Self::Resume { arg: Arg::marker() });
+        let resume_id = u8::from(Self::Resume {
+            context: Arg::marker(),
+        });
         let enter_executor_id = u8::from(Self::EnterExecutor);
 
         let specialized_start = u8::from(Self::BinaryOpAddFloat);
@@ -471,39 +515,43 @@ impl Instruction {
     /// only the opcode byte matters since `replace_op` preserves the arg byte.
     pub fn to_base(self) -> Option<Self> {
         Some(match self {
-            Self::InstrumentedResume => Self::Resume { arg: Arg::marker() },
+            Self::InstrumentedResume => Self::Resume {
+                context: Arg::marker(),
+            },
             Self::InstrumentedReturnValue => Self::ReturnValue,
             Self::InstrumentedYieldValue => Self::YieldValue { arg: Arg::marker() },
             Self::InstrumentedCall => Self::Call {
-                nargs: Arg::marker(),
+                argc: Arg::marker(),
             },
             Self::InstrumentedCallKw => Self::CallKw {
-                nargs: Arg::marker(),
+                argc: Arg::marker(),
             },
             Self::InstrumentedCallFunctionEx => Self::CallFunctionEx,
-            Self::InstrumentedLoadSuperAttr => Self::LoadSuperAttr { arg: Arg::marker() },
+            Self::InstrumentedLoadSuperAttr => Self::LoadSuperAttr {
+                namei: Arg::marker(),
+            },
             Self::InstrumentedJumpForward => Self::JumpForward {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             },
             Self::InstrumentedJumpBackward => Self::JumpBackward {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             },
             Self::InstrumentedForIter => Self::ForIter {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             },
             Self::InstrumentedEndFor => Self::EndFor,
             Self::InstrumentedEndSend => Self::EndSend,
             Self::InstrumentedPopJumpIfTrue => Self::PopJumpIfTrue {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             },
             Self::InstrumentedPopJumpIfFalse => Self::PopJumpIfFalse {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             },
             Self::InstrumentedPopJumpIfNone => Self::PopJumpIfNone {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             },
             Self::InstrumentedPopJumpIfNotNone => Self::PopJumpIfNotNone {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             },
             Self::InstrumentedNotTaken => Self::NotTaken,
             Self::InstrumentedPopIter => Self::PopIter,
@@ -529,7 +577,9 @@ impl Instruction {
             | Self::LoadAttrNondescriptorWithValues
             | Self::LoadAttrProperty
             | Self::LoadAttrSlot
-            | Self::LoadAttrWithHint => Self::LoadAttr { idx: Arg::marker() },
+            | Self::LoadAttrWithHint => Self::LoadAttr {
+                namei: Arg::marker(),
+            },
             // BINARY_OP specializations
             Self::BinaryOpAddFloat
             | Self::BinaryOpAddInt
@@ -567,11 +617,11 @@ impl Instruction {
             | Self::CallStr1
             | Self::CallTuple1
             | Self::CallType1 => Self::Call {
-                nargs: Arg::marker(),
+                argc: Arg::marker(),
             },
             // CALL_KW specializations
             Self::CallKwBoundMethod | Self::CallKwNonPy | Self::CallKwPy => Self::CallKw {
-                nargs: Arg::marker(),
+                argc: Arg::marker(),
             },
             // TO_BOOL specializations
             Self::ToBoolAlwaysTrue
@@ -581,48 +631,56 @@ impl Instruction {
             | Self::ToBoolNone
             | Self::ToBoolStr => Self::ToBool,
             // COMPARE_OP specializations
-            Self::CompareOpFloat | Self::CompareOpInt | Self::CompareOpStr => {
-                Self::CompareOp { op: Arg::marker() }
-            }
+            Self::CompareOpFloat | Self::CompareOpInt | Self::CompareOpStr => Self::CompareOp {
+                opname: Arg::marker(),
+            },
             // CONTAINS_OP specializations
-            Self::ContainsOpDict | Self::ContainsOpSet => Self::ContainsOp(Arg::marker()),
+            Self::ContainsOpDict | Self::ContainsOpSet => Self::ContainsOp {
+                invert: Arg::marker(),
+            },
             // FOR_ITER specializations
             Self::ForIterGen | Self::ForIterList | Self::ForIterRange | Self::ForIterTuple => {
                 Self::ForIter {
-                    target: Arg::marker(),
+                    delta: Arg::marker(),
                 }
             }
             // LOAD_GLOBAL specializations
-            Self::LoadGlobalBuiltin | Self::LoadGlobalModule => Self::LoadGlobal(Arg::marker()),
+            Self::LoadGlobalBuiltin | Self::LoadGlobalModule => Self::LoadGlobal {
+                namei: Arg::marker(),
+            },
             // STORE_ATTR specializations
             Self::StoreAttrInstanceValue | Self::StoreAttrSlot | Self::StoreAttrWithHint => {
-                Self::StoreAttr { idx: Arg::marker() }
+                Self::StoreAttr {
+                    namei: Arg::marker(),
+                }
             }
             // LOAD_SUPER_ATTR specializations
-            Self::LoadSuperAttrAttr | Self::LoadSuperAttrMethod => {
-                Self::LoadSuperAttr { arg: Arg::marker() }
-            }
+            Self::LoadSuperAttrAttr | Self::LoadSuperAttrMethod => Self::LoadSuperAttr {
+                namei: Arg::marker(),
+            },
             // STORE_SUBSCR specializations
             Self::StoreSubscrDict | Self::StoreSubscrListInt => Self::StoreSubscr,
             // UNPACK_SEQUENCE specializations
             Self::UnpackSequenceList | Self::UnpackSequenceTuple | Self::UnpackSequenceTwoTuple => {
                 Self::UnpackSequence {
-                    size: Arg::marker(),
+                    count: Arg::marker(),
                 }
             }
             // SEND specializations
             Self::SendGen => Self::Send {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             },
             // LOAD_CONST specializations
-            Self::LoadConstImmortal | Self::LoadConstMortal => {
-                Self::LoadConst { idx: Arg::marker() }
-            }
+            Self::LoadConstImmortal | Self::LoadConstMortal => Self::LoadConst {
+                consti: Arg::marker(),
+            },
             // RESUME specializations
-            Self::ResumeCheck => Self::Resume { arg: Arg::marker() },
+            Self::ResumeCheck => Self::Resume {
+                context: Arg::marker(),
+            },
             // JUMP_BACKWARD specializations
             Self::JumpBackwardJit | Self::JumpBackwardNoJit => Self::JumpBackward {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             },
             // Instrumented opcodes map back to their base
             _ => match self.to_base() {
@@ -671,7 +729,7 @@ impl Instruction {
             | Self::BinaryOpSubtractInt => 5,
 
             // LOAD_GLOBAL / STORE_ATTR: 4 cache entries
-            Self::LoadGlobal(_)
+            Self::LoadGlobal { .. }
             | Self::LoadGlobalBuiltin
             | Self::LoadGlobalModule
             | Self::StoreAttr { .. }
@@ -718,7 +776,7 @@ impl Instruction {
             | Self::CompareOpFloat
             | Self::CompareOpInt
             | Self::CompareOpStr
-            | Self::ContainsOp(_)
+            | Self::ContainsOp { .. }
             | Self::ContainsOpDict
             | Self::ContainsOpSet
             | Self::ForIter { .. }
@@ -759,15 +817,15 @@ impl InstructionMetadata for Instruction {
     #[inline]
     fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
-            Self::JumpBackward { target: l }
-            | Self::JumpBackwardNoInterrupt { target: l }
-            | Self::JumpForward { target: l }
-            | Self::PopJumpIfTrue { target: l }
-            | Self::PopJumpIfFalse { target: l }
-            | Self::PopJumpIfNone { target: l }
-            | Self::PopJumpIfNotNone { target: l }
-            | Self::ForIter { target: l }
-            | Self::Send { target: l } => Some(*l),
+            Self::JumpBackward { delta: l }
+            | Self::JumpBackwardNoInterrupt { delta: l }
+            | Self::JumpForward { delta: l }
+            | Self::PopJumpIfTrue { delta: l }
+            | Self::PopJumpIfFalse { delta: l }
+            | Self::PopJumpIfNone { delta: l }
+            | Self::PopJumpIfNotNone { delta: l }
+            | Self::ForIter { delta: l }
+            | Self::Send { delta: l } => Some(*l),
             _ => None,
         }
     }
@@ -857,17 +915,17 @@ impl InstructionMetadata for Instruction {
             Self::CompareOpFloat => (1, 2),
             Self::CompareOpInt => (1, 2),
             Self::CompareOpStr => (1, 2),
-            Self::ContainsOp(_) => (1, 2),
+            Self::ContainsOp { .. } => (1, 2),
             Self::ContainsOpDict => (1, 2),
             Self::ContainsOpSet => (1, 2),
             Self::ConvertValue { .. } => (1, 1),
             Self::Copy { .. } => (2 + (oparg - 1), 1 + (oparg - 1)),
             Self::CopyFreeVars { .. } => (0, 0),
             Self::DeleteAttr { .. } => (0, 1),
-            Self::DeleteDeref(_) => (0, 0),
-            Self::DeleteFast(_) => (0, 0),
-            Self::DeleteGlobal(_) => (0, 0),
-            Self::DeleteName(_) => (0, 0),
+            Self::DeleteDeref { .. } => (0, 0),
+            Self::DeleteFast { .. } => (0, 0),
+            Self::DeleteGlobal { .. } => (0, 0),
+            Self::DeleteName { .. } => (0, 0),
             Self::DeleteSubscr => (0, 2),
             Self::DictMerge { .. } => (4 + (oparg - 1), 5 + (oparg - 1)),
             Self::DictUpdate { .. } => (1 + (oparg - 1), 2 + (oparg - 1)),
@@ -914,7 +972,7 @@ impl InstructionMetadata for Instruction {
             Self::InstrumentedReturnValue => (1, 1),
             Self::InstrumentedYieldValue => (1, 1),
             Self::InterpreterExit => (0, 1),
-            Self::IsOp(_) => (1, 2),
+            Self::IsOp { .. } => (1, 2),
             Self::JumpBackward { .. } => (0, 0),
             Self::JumpBackwardJit => (0, 0),
             Self::JumpBackwardNoInterrupt { .. } => (0, 0),
@@ -941,26 +999,26 @@ impl InstructionMetadata for Instruction {
             Self::LoadConst { .. } => (1, 0),
             Self::LoadConstImmortal => (1, 0),
             Self::LoadConstMortal => (1, 0),
-            Self::LoadDeref(_) => (1, 0),
-            Self::LoadFast(_) => (1, 0),
-            Self::LoadFastAndClear(_) => (1, 0),
-            Self::LoadFastBorrow(_) => (1, 0),
+            Self::LoadDeref { .. } => (1, 0),
+            Self::LoadFast { .. } => (1, 0),
+            Self::LoadFastAndClear { .. } => (1, 0),
+            Self::LoadFastBorrow { .. } => (1, 0),
             Self::LoadFastBorrowLoadFastBorrow { .. } => (2, 0),
-            Self::LoadFastCheck(_) => (1, 0),
+            Self::LoadFastCheck { .. } => (1, 0),
             Self::LoadFastLoadFast { .. } => (2, 0),
-            Self::LoadFromDictOrDeref(_) => (1, 1),
-            Self::LoadFromDictOrGlobals(_) => (1, 1),
-            Self::LoadGlobal(_) => (1 + (oparg & 1), 0),
+            Self::LoadFromDictOrDeref { .. } => (1, 1),
+            Self::LoadFromDictOrGlobals { .. } => (1, 1),
+            Self::LoadGlobal { .. } => (1 + (oparg & 1), 0),
             Self::LoadGlobalBuiltin => (1 + (oparg & 1), 0),
             Self::LoadGlobalModule => (1 + (oparg & 1), 0),
             Self::LoadLocals => (1, 0),
-            Self::LoadName(_) => (1, 0),
+            Self::LoadName { .. } => (1, 0),
             Self::LoadSmallInt { .. } => (1, 0),
             Self::LoadSpecial { .. } => (1, 1),
             Self::LoadSuperAttr { .. } => (1 + (oparg & 1), 3),
             Self::LoadSuperAttrAttr => (1, 3),
             Self::LoadSuperAttrMethod => (2, 3),
-            Self::MakeCell(_) => (0, 0),
+            Self::MakeCell { .. } => (0, 0),
             Self::MakeFunction { .. } => (1, 1),
             Self::MapAdd { .. } => (1 + (oparg - 1), 3 + (oparg - 1)),
             Self::MatchClass { .. } => (1, 3),
@@ -995,12 +1053,12 @@ impl InstructionMetadata for Instruction {
             Self::StoreAttrInstanceValue => (0, 2),
             Self::StoreAttrSlot => (0, 2),
             Self::StoreAttrWithHint => (0, 2),
-            Self::StoreDeref(_) => (0, 1),
-            Self::StoreFast(_) => (0, 1),
+            Self::StoreDeref { .. } => (0, 1),
+            Self::StoreFast { .. } => (0, 1),
             Self::StoreFastLoadFast { .. } => (1, 1),
             Self::StoreFastStoreFast { .. } => (0, 2),
-            Self::StoreGlobal(_) => (0, 1),
-            Self::StoreName(_) => (0, 1),
+            Self::StoreGlobal { .. } => (0, 1),
+            Self::StoreName { .. } => (0, 1),
             Self::StoreSlice => (0, 4),
             Self::StoreSubscr => (0, 3),
             Self::StoreSubscrDict => (0, 3),
@@ -1087,58 +1145,58 @@ impl InstructionMetadata for Instruction {
             Self::BinarySlice => w!(BINARY_SLICE),
             Self::BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
             Self::BinaryOpInplaceAddUnicode => w!(BINARY_OP_INPLACE_ADD_UNICODE),
-            Self::BuildList { size } => w!(BUILD_LIST, size),
-            Self::BuildMap { size } => w!(BUILD_MAP, size),
-            Self::BuildSet { size } => w!(BUILD_SET, size),
+            Self::BuildList { count } => w!(BUILD_LIST, count),
+            Self::BuildMap { count } => w!(BUILD_MAP, count),
+            Self::BuildSet { count } => w!(BUILD_SET, count),
             Self::BuildSlice { argc } => w!(BUILD_SLICE, ?argc),
-            Self::BuildString { size } => w!(BUILD_STRING, size),
-            Self::BuildTuple { size } => w!(BUILD_TUPLE, size),
-            Self::Call { nargs } => w!(CALL, nargs),
+            Self::BuildString { count } => w!(BUILD_STRING, count),
+            Self::BuildTuple { count } => w!(BUILD_TUPLE, count),
+            Self::Call { argc } => w!(CALL, argc),
             Self::CallFunctionEx => w!(CALL_FUNCTION_EX),
-            Self::CallKw { nargs } => w!(CALL_KW, nargs),
+            Self::CallKw { argc } => w!(CALL_KW, argc),
             Self::CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
             Self::CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
             Self::Cache => w!(CACHE),
             Self::CheckEgMatch => w!(CHECK_EG_MATCH),
             Self::CheckExcMatch => w!(CHECK_EXC_MATCH),
             Self::CleanupThrow => w!(CLEANUP_THROW),
-            Self::CompareOp { op } => w!(COMPARE_OP, ?op),
-            Self::ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
+            Self::CompareOp { opname } => w!(COMPARE_OP, ?opname),
+            Self::ContainsOp { invert } => w!(CONTAINS_OP, ?invert),
             Self::ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
-            Self::Copy { index } => w!(COPY, index),
-            Self::CopyFreeVars { count } => w!(COPY_FREE_VARS, count),
-            Self::DeleteAttr { idx } => w!(DELETE_ATTR, name = idx),
-            Self::DeleteDeref(idx) => w!(DELETE_DEREF, cell_name = idx),
-            Self::DeleteFast(idx) => w!(DELETE_FAST, varname = idx),
-            Self::DeleteGlobal(idx) => w!(DELETE_GLOBAL, name = idx),
-            Self::DeleteName(idx) => w!(DELETE_NAME, name = idx),
+            Self::Copy { i } => w!(COPY, i),
+            Self::CopyFreeVars { n } => w!(COPY_FREE_VARS, n),
+            Self::DeleteAttr { namei } => w!(DELETE_ATTR, name = namei),
+            Self::DeleteDeref { i } => w!(DELETE_DEREF, cell_name = i),
+            Self::DeleteFast { var_num } => w!(DELETE_FAST, varname = var_num),
+            Self::DeleteGlobal { namei } => w!(DELETE_GLOBAL, name = namei),
+            Self::DeleteName { namei } => w!(DELETE_NAME, name = namei),
             Self::DeleteSubscr => w!(DELETE_SUBSCR),
-            Self::DictMerge { index } => w!(DICT_MERGE, index),
-            Self::DictUpdate { index } => w!(DICT_UPDATE, index),
+            Self::DictMerge { i } => w!(DICT_MERGE, i),
+            Self::DictUpdate { i } => w!(DICT_UPDATE, i),
             Self::EndAsyncFor => w!(END_ASYNC_FOR),
             Self::EndSend => w!(END_SEND),
             Self::ExtendedArg => w!(EXTENDED_ARG, Arg::<u32>::marker()),
             Self::ExitInitCheck => w!(EXIT_INIT_CHECK),
-            Self::ForIter { target } => w!(FOR_ITER, target),
+            Self::ForIter { delta } => w!(FOR_ITER, delta),
             Self::FormatSimple => w!(FORMAT_SIMPLE),
             Self::FormatWithSpec => w!(FORMAT_WITH_SPEC),
             Self::GetAIter => w!(GET_AITER),
             Self::GetANext => w!(GET_ANEXT),
-            Self::GetAwaitable { arg } => w!(GET_AWAITABLE, arg),
+            Self::GetAwaitable { r#where } => w!(GET_AWAITABLE, r#where),
             Self::Reserved => w!(RESERVED),
             Self::GetIter => w!(GET_ITER),
             Self::GetLen => w!(GET_LEN),
-            Self::ImportFrom { idx } => w!(IMPORT_FROM, name = idx),
-            Self::ImportName { idx } => w!(IMPORT_NAME, name = idx),
+            Self::ImportFrom { namei } => w!(IMPORT_FROM, name = namei),
+            Self::ImportName { namei } => w!(IMPORT_NAME, name = namei),
             Self::InterpreterExit => w!(INTERPRETER_EXIT),
-            Self::IsOp(inv) => w!(IS_OP, ?inv),
-            Self::JumpBackward { target } => w!(JUMP_BACKWARD, target),
-            Self::JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
-            Self::JumpForward { target } => w!(JUMP_FORWARD, target),
+            Self::IsOp { invert } => w!(IS_OP, ?invert),
+            Self::JumpBackward { delta } => w!(JUMP_BACKWARD, delta),
+            Self::JumpBackwardNoInterrupt { delta } => w!(JUMP_BACKWARD_NO_INTERRUPT, delta),
+            Self::JumpForward { delta } => w!(JUMP_FORWARD, delta),
             Self::ListAppend { i } => w!(LIST_APPEND, i),
             Self::ListExtend { i } => w!(LIST_EXTEND, i),
-            Self::LoadAttr { idx } => {
-                let oparg = idx.get(arg);
+            Self::LoadAttr { namei } => {
+                let oparg = namei.get(arg);
                 let oparg_u32 = u32::from(oparg);
                 let attr_name = name(oparg.name_idx());
                 if oparg.is_method() {
@@ -1153,24 +1211,24 @@ impl InstructionMetadata for Instruction {
             }
             Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
             Self::LoadCommonConstant { idx } => w!(LOAD_COMMON_CONSTANT, ?idx),
-            Self::LoadFromDictOrDeref(i) => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
-            Self::LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
-            Self::LoadSmallInt { idx } => w!(LOAD_SMALL_INT, idx),
-            Self::LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
-            Self::LoadFast(idx) => w!(LOAD_FAST, varname = idx),
-            Self::LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
-            Self::LoadFastBorrow(idx) => w!(LOAD_FAST_BORROW, varname = idx),
-            Self::LoadFastCheck(idx) => w!(LOAD_FAST_CHECK, varname = idx),
-            Self::LoadFastLoadFast { arg: packed } => {
-                let oparg = packed.get(arg);
+            Self::LoadFromDictOrDeref { i } => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
+            Self::LoadConst { consti } => fmt_const("LOAD_CONST", arg, f, consti),
+            Self::LoadSmallInt { i } => w!(LOAD_SMALL_INT, i),
+            Self::LoadDeref { i } => w!(LOAD_DEREF, cell_name = i),
+            Self::LoadFast { var_num } => w!(LOAD_FAST, varname = var_num),
+            Self::LoadFastAndClear { var_num } => w!(LOAD_FAST_AND_CLEAR, varname = var_num),
+            Self::LoadFastBorrow { var_num } => w!(LOAD_FAST_BORROW, varname = var_num),
+            Self::LoadFastCheck { var_num } => w!(LOAD_FAST_CHECK, varname = var_num),
+            Self::LoadFastLoadFast { var_nums } => {
+                let oparg = var_nums.get(arg);
                 let idx1 = oparg >> 4;
                 let idx2 = oparg & 15;
                 let name1 = varname(idx1);
                 let name2 = varname(idx2);
                 write!(f, "{:pad$}({}, {})", "LOAD_FAST_LOAD_FAST", name1, name2)
             }
-            Self::LoadFastBorrowLoadFastBorrow { arg: packed } => {
-                let oparg = packed.get(arg);
+            Self::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                let oparg = var_nums.get(arg);
                 let idx1 = oparg >> 4;
                 let idx2 = oparg & 15;
                 let name1 = varname(idx1);
@@ -1181,9 +1239,9 @@ impl InstructionMetadata for Instruction {
                     "LOAD_FAST_BORROW_LOAD_FAST_BORROW", name1, name2
                 )
             }
-            Self::LoadFromDictOrGlobals(idx) => w!(LOAD_FROM_DICT_OR_GLOBALS, name = idx),
-            Self::LoadGlobal(idx) => {
-                let oparg = idx.get(arg);
+            Self::LoadFromDictOrGlobals { i } => w!(LOAD_FROM_DICT_OR_GLOBALS, name = i),
+            Self::LoadGlobal { namei } => {
+                let oparg = namei.get(arg);
                 let name_idx = oparg >> 1;
                 if (oparg & 1) != 0 {
                     write!(
@@ -1240,10 +1298,10 @@ impl InstructionMetadata for Instruction {
                 }
             }
             Self::LoadLocals => w!(LOAD_LOCALS),
-            Self::LoadName(idx) => w!(LOAD_NAME, name = idx),
+            Self::LoadName { namei } => w!(LOAD_NAME, name = namei),
             Self::LoadSpecial { method } => w!(LOAD_SPECIAL, method),
-            Self::LoadSuperAttr { arg: idx } => {
-                let oparg = idx.get(arg);
+            Self::LoadSuperAttr { namei } => {
+                let oparg = namei.get(arg);
                 write!(
                     f,
                     "{:pad$}({}, {}, method={}, class={})",
@@ -1254,38 +1312,38 @@ impl InstructionMetadata for Instruction {
                     oparg.has_class()
                 )
             }
-            Self::MakeCell(idx) => w!(MAKE_CELL, cell_name = idx),
+            Self::MakeCell { i } => w!(MAKE_CELL, cell_name = i),
             Self::MakeFunction => w!(MAKE_FUNCTION),
             Self::MapAdd { i } => w!(MAP_ADD, i),
-            Self::MatchClass(arg) => w!(MATCH_CLASS, arg),
+            Self::MatchClass { count } => w!(MATCH_CLASS, count),
             Self::MatchKeys => w!(MATCH_KEYS),
             Self::MatchMapping => w!(MATCH_MAPPING),
             Self::MatchSequence => w!(MATCH_SEQUENCE),
             Self::Nop => w!(NOP),
             Self::NotTaken => w!(NOT_TAKEN),
             Self::PopExcept => w!(POP_EXCEPT),
-            Self::PopJumpIfFalse { target } => w!(POP_JUMP_IF_FALSE, target),
-            Self::PopJumpIfNone { target } => w!(POP_JUMP_IF_NONE, target),
-            Self::PopJumpIfNotNone { target } => w!(POP_JUMP_IF_NOT_NONE, target),
-            Self::PopJumpIfTrue { target } => w!(POP_JUMP_IF_TRUE, target),
+            Self::PopJumpIfFalse { delta } => w!(POP_JUMP_IF_FALSE, delta),
+            Self::PopJumpIfNone { delta } => w!(POP_JUMP_IF_NONE, delta),
+            Self::PopJumpIfNotNone { delta } => w!(POP_JUMP_IF_NOT_NONE, delta),
+            Self::PopJumpIfTrue { delta } => w!(POP_JUMP_IF_TRUE, delta),
             Self::PopTop => w!(POP_TOP),
             Self::EndFor => w!(END_FOR),
             Self::PopIter => w!(POP_ITER),
             Self::PushExcInfo => w!(PUSH_EXC_INFO),
             Self::PushNull => w!(PUSH_NULL),
-            Self::RaiseVarargs { kind } => w!(RAISE_VARARGS, ?kind),
+            Self::RaiseVarargs { argc } => w!(RAISE_VARARGS, ?argc),
             Self::Reraise { depth } => w!(RERAISE, depth),
-            Self::Resume { arg } => w!(RESUME, arg),
+            Self::Resume { context } => w!(RESUME, context),
             Self::ReturnValue => w!(RETURN_VALUE),
             Self::ReturnGenerator => w!(RETURN_GENERATOR),
-            Self::Send { target } => w!(SEND, target),
+            Self::Send { delta } => w!(SEND, delta),
             Self::SetAdd { i } => w!(SET_ADD, i),
-            Self::SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
+            Self::SetFunctionAttribute { flag } => w!(SET_FUNCTION_ATTRIBUTE, ?flag),
             Self::SetupAnnotations => w!(SETUP_ANNOTATIONS),
             Self::SetUpdate { i } => w!(SET_UPDATE, i),
-            Self::StoreAttr { idx } => w!(STORE_ATTR, name = idx),
-            Self::StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
-            Self::StoreFast(idx) => w!(STORE_FAST, varname = idx),
+            Self::StoreAttr { namei } => w!(STORE_ATTR, name = namei),
+            Self::StoreDeref { i } => w!(STORE_DEREF, cell_name = i),
+            Self::StoreFast { var_num } => w!(STORE_FAST, varname = var_num),
             Self::StoreFastLoadFast { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let store_idx = oparg.store_idx();
@@ -1293,8 +1351,8 @@ impl InstructionMetadata for Instruction {
                 write!(f, "STORE_FAST_LOAD_FAST")?;
                 write!(f, " ({}, {})", store_idx, load_idx)
             }
-            Self::StoreFastStoreFast { arg: packed } => {
-                let oparg = packed.get(arg);
+            Self::StoreFastStoreFast { var_nums } => {
+                let oparg = var_nums.get(arg);
                 let idx1 = oparg >> 4;
                 let idx2 = oparg & 15;
                 write!(
@@ -1305,14 +1363,14 @@ impl InstructionMetadata for Instruction {
                     varname(idx2)
                 )
             }
-            Self::StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
-            Self::StoreName(idx) => w!(STORE_NAME, name = idx),
+            Self::StoreGlobal { namei } => w!(STORE_GLOBAL, name = namei),
+            Self::StoreName { namei } => w!(STORE_NAME, name = namei),
             Self::StoreSlice => w!(STORE_SLICE),
             Self::StoreSubscr => w!(STORE_SUBSCR),
-            Self::Swap { index } => w!(SWAP, index),
+            Self::Swap { i } => w!(SWAP, i),
             Self::ToBool => w!(TO_BOOL),
-            Self::UnpackEx { args } => w!(UNPACK_EX, args),
-            Self::UnpackSequence { size } => w!(UNPACK_SEQUENCE, size),
+            Self::UnpackEx { counts } => w!(UNPACK_EX, counts),
+            Self::UnpackSequence { count } => w!(UNPACK_SEQUENCE, count),
             Self::WithExceptStart => w!(WITH_EXCEPT_START),
             Self::UnaryInvert => w!(UNARY_INVERT),
             Self::UnaryNegative => w!(UNARY_NEGATIVE),
@@ -1320,7 +1378,7 @@ impl InstructionMetadata for Instruction {
             Self::YieldValue { arg } => w!(YIELD_VALUE, arg),
             Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
             Self::BuildTemplate => w!(BUILD_TEMPLATE),
-            Self::BuildInterpolation { oparg } => w!(BUILD_INTERPOLATION, oparg),
+            Self::BuildInterpolation { format } => w!(BUILD_INTERPOLATION, format),
             _ => w!(RUSTPYTHON_PLACEHOLDER),
         }
     }
@@ -1334,16 +1392,16 @@ impl InstructionMetadata for Instruction {
 pub enum PseudoInstruction {
     // CPython 3.14.2 pseudo instructions (256-266)
     AnnotationsPlaceholder = 256,
-    Jump { target: Arg<Label> } = 257,
-    JumpIfFalse { target: Arg<Label> } = 258,
-    JumpIfTrue { target: Arg<Label> } = 259,
-    JumpNoInterrupt { target: Arg<Label> } = 260,
-    LoadClosure(Arg<NameIdx>) = 261,
+    Jump { delta: Arg<Label> } = 257,
+    JumpIfFalse { delta: Arg<Label> } = 258,
+    JumpIfTrue { delta: Arg<Label> } = 259,
+    JumpNoInterrupt { delta: Arg<Label> } = 260,
+    LoadClosure { i: Arg<NameIdx> } = 261,
     PopBlock = 262,
-    SetupCleanup { target: Arg<Label> } = 263,
-    SetupFinally { target: Arg<Label> } = 264,
-    SetupWith { target: Arg<Label> } = 265,
-    StoreFastMaybeNull(Arg<NameIdx>) = 266,
+    SetupCleanup { delta: Arg<Label> } = 263,
+    SetupFinally { delta: Arg<Label> } = 264,
+    SetupWith { delta: Arg<Label> } = 265,
+    StoreFastMaybeNull { var_num: Arg<NameIdx> } = 266,
 }
 
 const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
@@ -1362,7 +1420,9 @@ impl TryFrom<u16> for PseudoInstruction {
     #[inline]
     fn try_from(value: u16) -> Result<Self, MarshalError> {
         let start = u16::from(Self::AnnotationsPlaceholder);
-        let end = u16::from(Self::StoreFastMaybeNull(Arg::marker()));
+        let end = u16::from(Self::StoreFastMaybeNull {
+            var_num: Arg::marker(),
+        });
 
         if (start..=end).contains(&value) {
             Ok(unsafe { mem::transmute::<u16, Self>(value) })
@@ -1386,13 +1446,13 @@ impl PseudoInstruction {
 impl InstructionMetadata for PseudoInstruction {
     fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
-            Self::Jump { target: l }
-            | Self::JumpIfFalse { target: l }
-            | Self::JumpIfTrue { target: l }
-            | Self::JumpNoInterrupt { target: l }
-            | Self::SetupCleanup { target: l }
-            | Self::SetupFinally { target: l }
-            | Self::SetupWith { target: l } => Some(*l),
+            Self::Jump { delta: l }
+            | Self::JumpIfFalse { delta: l }
+            | Self::JumpIfTrue { delta: l }
+            | Self::JumpNoInterrupt { delta: l }
+            | Self::SetupCleanup { delta: l }
+            | Self::SetupFinally { delta: l }
+            | Self::SetupWith { delta: l } => Some(*l),
             _ => None,
         }
     }
@@ -1414,14 +1474,14 @@ impl InstructionMetadata for PseudoInstruction {
             Self::JumpIfFalse { .. } => (1, 1),
             Self::JumpIfTrue { .. } => (1, 1),
             Self::JumpNoInterrupt { .. } => (0, 0),
-            Self::LoadClosure(_) => (1, 0),
+            Self::LoadClosure { .. } => (1, 0),
             Self::PopBlock => (0, 0),
             // Normal path effect is 0 (these are NOPs on fall-through).
             // Handler entry effects are computed directly in max_stackdepth().
             Self::SetupCleanup { .. } => (0, 0),
             Self::SetupFinally { .. } => (0, 0),
             Self::SetupWith { .. } => (0, 0),
-            Self::StoreFastMaybeNull(_) => (0, 1),
+            Self::StoreFastMaybeNull { .. } => (0, 1),
         };
 
         debug_assert!((0..=i32::MAX).contains(&pushed));

@@ -76,17 +76,17 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
         let (instruction, arg) = op_arg_state.get(word);
 
         match instruction {
-            Instruction::LoadConst { idx } => {
-                stack.push((true, idx.get(arg) as usize));
+            Instruction::LoadConst { consti } => {
+                stack.push((true, consti.get(arg) as usize));
             }
-            Instruction::LoadName(idx) => {
-                stack.push((false, idx.get(arg) as usize));
+            Instruction::LoadName { namei } => {
+                stack.push((false, namei.get(arg) as usize));
             }
-            Instruction::LoadGlobal(idx) => {
-                stack.push((false, (idx.get(arg) >> 1) as usize));
+            Instruction::LoadGlobal { namei } => {
+                stack.push((false, (namei.get(arg) >> 1) as usize));
             }
-            Instruction::BuildMap { size, .. } => {
-                let count = size.get(arg) as usize;
+            Instruction::BuildMap { count } => {
+                let count = count.get(arg) as usize;
                 // Stack has key-value pairs in order: k1, v1, k2, v2, ...
                 // So we need count * 2 items from the stack
                 let start = stack.len().saturating_sub(count * 2);
@@ -139,7 +139,7 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
                 return annotations;
             }
             Instruction::Resume { .. }
-            | Instruction::LoadFast(_)
+            | Instruction::LoadFast { .. }
             | Instruction::CompareOp { .. }
             | Instruction::ExtendedArg
             | Instruction::Cache
@@ -192,15 +192,15 @@ impl StackMachine {
             Instruction::Resume { .. } | Instruction::Cache | Instruction::NotTaken => {
                 // No-op for JIT tests
             }
-            Instruction::LoadConst { idx } => {
-                let idx = idx.get(arg);
+            Instruction::LoadConst { consti } => {
+                let idx = consti.get(arg);
                 self.stack.push(constants[idx as usize].clone().into())
             }
-            Instruction::LoadName(idx) => self
+            Instruction::LoadName { namei } => self
                 .stack
-                .push(StackValue::String(names[idx.get(arg) as usize].clone())),
-            Instruction::StoreName(idx) => {
-                let idx = idx.get(arg);
+                .push(StackValue::String(names[namei.get(arg) as usize].clone())),
+            Instruction::StoreName { namei } => {
+                let idx = namei.get(arg);
                 self.locals
                     .insert(names[idx as usize].clone(), self.stack.pop().unwrap());
             }
@@ -209,9 +209,9 @@ impl StackMachine {
                 self.stack.pop().unwrap();
                 self.stack.pop().unwrap();
             }
-            Instruction::BuildMap { size, .. } => {
+            Instruction::BuildMap { count } => {
                 let mut map = HashMap::new();
-                for _ in 0..size.get(arg) {
+                for _ in 0..count.get(arg) {
                     let value = self.stack.pop().unwrap();
                     let name = if let Some(StackValue::String(name)) = self.stack.pop() {
                         Wtf8Buf::from(name)
@@ -234,7 +234,7 @@ impl StackMachine {
                     annotations: HashMap::new(), // empty annotations, will be set later if needed
                 }));
             }
-            Instruction::SetFunctionAttribute { attr } => {
+            Instruction::SetFunctionAttribute { flag } => {
                 // Stack: [..., attr_value, func] -> [..., func]
                 let func = if let Some(StackValue::Function(func)) = self.stack.pop() {
                     func
@@ -243,7 +243,7 @@ impl StackMachine {
                 };
                 let attr_value = self.stack.pop().expect("Expected attribute value on stack");
 
-                let flags = attr.get(arg);
+                let flags = flag.get(arg);
 
                 // Handle ANNOTATE flag (PEP 649 style - Python 3.14+)
                 // The attr_value is a function that returns annotations when called

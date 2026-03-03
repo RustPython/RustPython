@@ -512,13 +512,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::BuildTuple { size } => {
-                let elements = self.pop_multiple(size.get(arg) as usize);
+            Instruction::BuildTuple { count } => {
+                let elements = self.pop_multiple(count.get(arg) as usize);
                 self.stack.push(JitValue::Tuple(elements));
                 Ok(())
             }
-            Instruction::Call { nargs } => {
-                let nargs = nargs.get(arg);
+            Instruction::Call { argc } => {
+                let nargs = argc.get(arg);
 
                 let mut args = Vec::new();
                 for _ in 0..nargs {
@@ -562,8 +562,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::CompareOp { op, .. } => {
-                let op = op.get(arg);
+            Instruction::CompareOp { opname } => {
+                let op = opname.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -627,20 +627,21 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.builder.ins().jump(target_block, &[]);
                 Ok(())
             }
-            Instruction::LoadConst { idx } => {
-                let val = self
-                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
+            Instruction::LoadConst { consti } => {
+                let val = self.prepare_const(
+                    bytecode.constants[consti.get(arg) as usize].borrow_constant(),
+                )?;
                 self.stack.push(val);
                 Ok(())
             }
-            Instruction::LoadSmallInt { idx } => {
-                let small_int = idx.get(arg) as i64;
+            Instruction::LoadSmallInt { i } => {
+                let small_int = i.get(arg) as i64;
                 let val = self.builder.ins().iconst(types::I64, small_int);
                 self.stack.push(JitValue::Int(val));
                 Ok(())
             }
-            Instruction::LoadFast(idx) | Instruction::LoadFastBorrow(idx) => {
-                let local = self.variables[idx.get(arg) as usize]
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let local = self.variables[var_num.get(arg) as usize]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.stack.push(JitValue::from_type_and_value(
@@ -649,9 +650,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 ));
                 Ok(())
             }
-            Instruction::LoadFastLoadFast { arg: packed }
-            | Instruction::LoadFastBorrowLoadFastBorrow { arg: packed } => {
-                let oparg = packed.get(arg);
+            Instruction::LoadFastLoadFast { var_nums }
+            | Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                let oparg = var_nums.get(arg);
                 let idx1 = oparg >> 4;
                 let idx2 = oparg & 0xF;
                 for idx in [idx1, idx2] {
@@ -665,8 +666,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 }
                 Ok(())
             }
-            Instruction::LoadGlobal(idx) => {
-                let oparg = idx.get(arg);
+            Instruction::LoadGlobal { namei } => {
+                let oparg = namei.get(arg);
                 let name = &bytecode.names[(oparg >> 1) as usize];
 
                 if name.as_ref() != bytecode.obj_name.as_ref() {
@@ -714,7 +715,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.pop();
                 Ok(())
             }
-            Instruction::Resume { arg: _resume_arg } => {
+            Instruction::Resume { .. } => {
                 // TODO: Implement the resume instruction
                 Ok(())
             }
@@ -722,11 +723,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.return_value(val)
             }
-            Instruction::StoreFast(idx) => {
+            Instruction::StoreFast { var_num } => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                self.store_variable(idx.get(arg), val)
+                self.store_variable(var_num.get(arg), val)
             }
-            Instruction::Swap { index } => {
+            Instruction::Swap { i: index } => {
                 let len = self.stack.len();
                 let i = len - 1;
                 let j = len - 1 - index.get(arg) as usize;
@@ -760,7 +761,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::UnpackSequence { size } => {
+            Instruction::UnpackSequence { count } => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
                 let elements = match val {
@@ -768,7 +769,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => return Err(JitCompileError::NotSupported),
                 };
 
-                if elements.len() != size.get(arg) as usize {
+                if elements.len() != count.get(arg) as usize {
                     return Err(JitCompileError::NotSupported);
                 }
 

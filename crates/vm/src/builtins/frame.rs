@@ -295,7 +295,7 @@ pub(crate) mod stack_analysis {
                             stacks[next_i] = next_stack;
                         }
                     }
-                    Instruction::LoadGlobal(_) => {
+                    Instruction::LoadGlobal { .. } => {
                         next_stack = push_value(next_stack, Kind::Object as i64);
                         if oparg & 1 != 0 {
                             next_stack = push_value(next_stack, Kind::Null as i64);
