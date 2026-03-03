@@ -15,6 +15,8 @@ use crate::{
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use core::cell::Cell;
+use core::ptr::NonNull;
 use malachite_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_traits::{Signed, ToPrimitive, Zero};
@@ -32,10 +34,41 @@ impl PyFloat {
     }
 }
 
+const PYFLOAT_MAXFREELIST: usize = 100;
+
+thread_local! {
+    static FLOAT_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
+}
+
 impl PyPayload for PyFloat {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.float_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        FLOAT_FREELIST.with(|fl| {
+            let mut list = fl.take();
+            let stored = if list.len() < PYFLOAT_MAXFREELIST {
+                list.push(obj);
+                true
+            } else {
+                false
+            };
+            fl.set(list);
+            stored
+        })
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        FLOAT_FREELIST.with(|fl| {
+            let mut list = fl.take();
+            let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+            fl.set(list);
+            result
+        })
     }
 }
 

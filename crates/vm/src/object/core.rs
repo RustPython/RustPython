@@ -186,8 +186,10 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         unsafe { clear_fn(obj, &mut edges) };
     }
 
-    // Deallocate the object memory
-    drop(unsafe { Box::from_raw(obj as *mut PyInner<T>) });
+    // Try to store in freelist for reuse; otherwise deallocate.
+    if !unsafe { T::freelist_push(obj) } {
+        drop(unsafe { Box::from_raw(obj as *mut PyInner<T>) });
+    }
 
     // Drop child references - may trigger recursive destruction.
     // The object is already deallocated, so circular refs are broken.
@@ -805,6 +807,15 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                 .into_boxed_slice(),
         })
     }
+}
+
+/// Drop a freelist-cached object, properly deallocating the `PyInner<T>`.
+///
+/// # Safety
+/// `ptr` must point to a valid `PyInner<T>` allocation that was stored in a freelist.
+#[allow(dead_code)]
+pub(crate) unsafe fn drop_freelist_object<T: PyPayload>(ptr: *mut PyObject) {
+    drop(unsafe { Box::from_raw(ptr as *mut PyInner<T>) });
 }
 
 /// The `PyObjectRef` is one of the most used types. It is a reference to a
@@ -1720,6 +1731,24 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
+
+        // Try to reuse from freelist (exact type only, no dict, no heaptype)
+        if !has_dict && !is_heaptype {
+            if let Some(cached) = unsafe { T::freelist_pop() } {
+                let inner = cached.as_ptr() as *mut PyInner<T>;
+                unsafe {
+                    core::ptr::write(&mut (*inner).ref_count, RefCount::new());
+                    (*inner).gc_bits.store(0, Ordering::Relaxed);
+                    core::ptr::write(&mut (*inner).payload, payload);
+                    // typ, vtable, dict(None), weak_list, slots are preserved
+                }
+                // Drop the caller's typ since the cached object already holds one
+                drop(typ);
+                let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
+                return Self { ptr };
+            }
+        }
+
         let inner = Box::into_raw(PyInner::new(payload, typ, dict));
         let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
 
