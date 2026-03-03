@@ -67,18 +67,8 @@ enum UnwindReason {
     Raising { exception: PyBaseExceptionRef },
 }
 
-#[derive(Debug)]
-struct FrameState {
-    // We need 1 stack per frame
-    /// The main data frame of the stack machine
-    stack: BoxVec<Option<PyStackRef>>,
-    /// Cell and free variable references (cellvars + freevars).
-    cells_frees: Box<[PyCellRef]>,
-    /// Previous line number for LINE event suppression.
-    /// Stored here (not on ExecutingFrame) so it persists across
-    /// generator/coroutine suspend and resume.
-    prev_line: u32,
-}
+// FrameState fields are stored directly on Frame as UnsafeCell.
+// See Frame.stack, Frame.cells_frees, Frame.prev_line.
 
 /// Tracks who owns a frame.
 // = `_PyFrameOwner`
@@ -104,19 +94,40 @@ impl FrameOwner {
     }
 }
 
-/// Lock-free storage for local variables (localsplus).
+/// Lock-free mutable storage for frame-internal data.
 ///
 /// # Safety
-/// Mutable access is serialized by the frame's state mutex in `with_exec()`.
-/// External readers (e.g. `f_locals`) must use `try_lock` on the state mutex:
-/// if acquired, the frame is not executing and access is exclusive; if not,
-/// the caller is on the same thread as `with_exec()` (trace callback) and
-/// access is safe because frame execution is single-threaded.
+/// Frame execution is single-threaded: only one thread at a time executes
+/// a given frame (enforced by the owner field and generator running flag).
+/// External readers (e.g. `f_locals`) are on the same thread as execution
+/// (trace callback) or the frame is not executing.
+struct FrameUnsafeCell<T>(UnsafeCell<T>);
+
+impl<T> FrameUnsafeCell<T> {
+    fn new(value: T) -> Self {
+        Self(UnsafeCell::new(value))
+    }
+
+    /// # Safety
+    /// Caller must ensure no concurrent mutable access.
+    #[inline(always)]
+    unsafe fn get(&self) -> *mut T {
+        self.0.get()
+    }
+}
+
+// SAFETY: Frame execution is single-threaded. See FrameUnsafeCell doc.
+#[cfg(feature = "threading")]
+unsafe impl<T: Send> Send for FrameUnsafeCell<T> {}
+#[cfg(feature = "threading")]
+unsafe impl<T: Send> Sync for FrameUnsafeCell<T> {}
+
+/// Lock-free storage for local variables (localsplus).
 pub struct FastLocals {
     inner: UnsafeCell<Box<[Option<PyObjectRef>]>>,
 }
 
-// SAFETY: Frame execution is serialized by the state mutex.
+// SAFETY: Frame execution is single-threaded. See FrameUnsafeCell doc.
 #[cfg(feature = "threading")]
 unsafe impl Send for FastLocals {}
 #[cfg(feature = "threading")]
@@ -248,7 +259,13 @@ pub struct Frame {
     pub lasti: PyAtomic<u32>,
     /// tracer function for this frame (usually is None)
     pub trace: PyMutex<PyObjectRef>,
-    state: PyMutex<FrameState>,
+
+    /// The main data frame of the stack machine.
+    stack: FrameUnsafeCell<BoxVec<Option<PyStackRef>>>,
+    /// Cell and free variable references (cellvars + freevars).
+    cells_frees: FrameUnsafeCell<Box<[PyCellRef]>>,
+    /// Previous line number for LINE event suppression.
+    prev_line: FrameUnsafeCell<u32>,
 
     // member
     pub trace_lines: PyMutex<bool>,
@@ -284,13 +301,6 @@ impl PyPayload for Frame {
     }
 }
 
-unsafe impl Traverse for FrameState {
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.stack.traverse(tracer_fn);
-        self.cells_frees.traverse(tracer_fn);
-    }
-}
-
 unsafe impl Traverse for Frame {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.code.traverse(tracer_fn);
@@ -300,7 +310,12 @@ unsafe impl Traverse for Frame {
         self.globals.traverse(tracer_fn);
         self.builtins.traverse(tracer_fn);
         self.trace.traverse(tracer_fn);
-        self.state.traverse(tracer_fn);
+        // SAFETY: GC traversal does not run concurrently with frame execution
+        // on the same frame.
+        unsafe {
+            (*self.stack.get()).traverse(tracer_fn);
+            (*self.cells_frees.get()).traverse(tracer_fn);
+        }
         self.temporary_refs.traverse(tracer_fn);
         // generator is a borrowed reference, not traversed
     }
@@ -343,12 +358,7 @@ impl Frame {
             fastlocals_vec[nlocals + i] = Some(cell.clone().into());
         }
 
-        let state = FrameState {
-            stack: BoxVec::new(code.max_stackdepth as usize),
-            cells_frees,
-            prev_line: 0,
-        };
-
+        let max_stackdepth = code.max_stackdepth as usize;
         Self {
             fastlocals: FastLocals::new(fastlocals_vec.into_boxed_slice()),
             locals: match scope.locals {
@@ -363,7 +373,9 @@ impl Frame {
             code,
             func_obj,
             lasti: Radium::new(0),
-            state: PyMutex::new(state),
+            stack: FrameUnsafeCell::new(BoxVec::new(max_stackdepth)),
+            cells_frees: FrameUnsafeCell::new(cells_frees),
+            prev_line: FrameUnsafeCell::new(0),
             trace: PyMutex::new(vm.ctx.none()),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
@@ -380,9 +392,11 @@ impl Frame {
     /// Clear evaluation stack and state-owned cell/free references.
     /// For full local/cell cleanup, call `clear_locals_and_stack()`.
     pub(crate) fn clear_stack_and_cells(&self) {
-        let mut state = self.state.lock();
-        state.stack.clear();
-        let _old = core::mem::take(&mut state.cells_frees);
+        // SAFETY: Called when frame is not executing (generator closed).
+        unsafe {
+            (*self.stack.get()).clear();
+            let _old = core::mem::take(&mut *self.cells_frees.get());
+        }
     }
 
     /// Clear locals and stack after generator/coroutine close.
@@ -410,7 +424,8 @@ impl Frame {
 
     /// Set cell contents by cell index. Only safe to call before frame execution starts.
     pub(crate) fn set_cell_contents(&self, cell_idx: usize, value: Option<PyObjectRef>) {
-        self.state.lock().cells_frees[cell_idx].set(value);
+        // SAFETY: Called before frame execution starts.
+        unsafe { (*self.cells_frees.get())[cell_idx].set(value) };
     }
 
     /// Store a borrowed back-reference to the owning generator/coroutine.
@@ -486,10 +501,9 @@ impl Frame {
     }
 
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
-        // Acquire the state mutex to synchronize with frame execution.
-        // If try_lock fails, the frame is executing on this thread (e.g.
-        // trace callback accessing f_locals), so fastlocals access is safe.
-        let _guard = self.state.try_lock();
+        // SAFETY: Either the frame is not executing (caller checked owner),
+        // or we're in a trace callback on the same thread that's executing.
+        // Same safety argument as FastLocals.
         let locals = &self.locals;
         let code = &**self.code;
         let map = &code.varnames;
@@ -534,7 +548,9 @@ impl Frame {
 impl Py<Frame> {
     #[inline(always)]
     fn with_exec<R>(&self, vm: &VirtualMachine, f: impl FnOnce(ExecutingFrame<'_>) -> R) -> R {
-        let mut state = self.state.lock();
+        // SAFETY: Frame execution is single-threaded. Only one thread at a time
+        // executes a given frame (enforced by the owner field and generator
+        // running flag). Same safety argument as FastLocals (UnsafeCell).
         let exec = ExecutingFrame {
             code: &self.code,
             fastlocals: &self.fastlocals,
@@ -551,7 +567,9 @@ impl Py<Frame> {
             },
             lasti: &self.lasti,
             object: self,
-            state: &mut state,
+            stack: unsafe { &mut *self.stack.get() },
+            cells_frees: unsafe { &mut *self.cells_frees.get() },
+            prev_line: unsafe { &mut *self.prev_line.get() },
             monitoring_mask: 0,
         };
         f(exec)
@@ -586,9 +604,13 @@ impl Py<Frame> {
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        // Use try_lock to avoid deadlock when the frame is currently executing.
-        // A running coroutine has no yield-from target.
-        let mut state = self.state.try_lock()?;
+        // If the frame is currently executing (owned by thread), it has no
+        // yield-from target to report.
+        let owner = FrameOwner::from_i8(self.owner.load(atomic::Ordering::Acquire));
+        if owner == FrameOwner::Thread {
+            return None;
+        }
+        // SAFETY: Frame is not executing, so UnsafeCell access is safe.
         let exec = ExecutingFrame {
             code: &self.code,
             fastlocals: &self.fastlocals,
@@ -598,7 +620,9 @@ impl Py<Frame> {
             builtins_dict: None,
             lasti: &self.lasti,
             object: self,
-            state: &mut state,
+            stack: unsafe { &mut *self.stack.get() },
+            cells_frees: unsafe { &mut *self.cells_frees.get() },
+            prev_line: unsafe { &mut *self.prev_line.get() },
             monitoring_mask: 0,
         };
         exec.yield_from_target().map(PyObject::to_owned)
@@ -638,7 +662,9 @@ struct ExecutingFrame<'a> {
     builtins_dict: Option<&'a PyExact<PyDict>>,
     object: &'a Py<Frame>,
     lasti: &'a PyAtomic<u32>,
-    state: &'a mut FrameState,
+    stack: &'a mut BoxVec<Option<PyStackRef>>,
+    cells_frees: &'a mut Box<[PyCellRef]>,
+    prev_line: &'a mut u32,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
 }
@@ -647,8 +673,7 @@ impl fmt::Debug for ExecutingFrame<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutingFrame")
             .field("code", self.code)
-            // .field("scope", self.scope)
-            .field("state", self.state)
+            .field("stack_len", &self.stack.len())
             .finish()
     }
 }
@@ -733,9 +758,9 @@ impl ExecutingFrame<'_> {
                     Instruction::Resume { .. } | Instruction::InstrumentedResume
                 )
                 && let Some((loc, _)) = self.code.locations.get(idx)
-                && loc.line.get() as u32 != self.state.prev_line
+                && loc.line.get() as u32 != *self.prev_line
             {
-                self.state.prev_line = loc.line.get() as u32;
+                *self.prev_line = loc.line.get() as u32;
                 vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
                 // Trace callback may have changed lasti via set_f_lineno.
                 // Re-read and restart the loop from the new position.
@@ -767,7 +792,7 @@ impl ExecutingFrame<'_> {
                         | Instruction::InstrumentedLine
                 ) && let Some((loc, _)) = self.code.locations.get(idx)
                 {
-                    self.state.prev_line = loc.line.get() as u32;
+                    *self.prev_line = loc.line.get() as u32;
                 }
 
                 // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
@@ -987,7 +1012,7 @@ impl ExecutingFrame<'_> {
         // 3. Stack top is the delegate (receiver)
         //
         // First check if stack is empty - if so, we can't be in yield-from
-        if self.state.stack.is_empty() {
+        if self.stack.is_empty() {
             return None;
         }
         let lasti = self.lasti() as usize;
@@ -1032,7 +1057,7 @@ impl ExecutingFrame<'_> {
         // In CPython, _Py_call_instrumentation_line has a special case
         // for RESUME: it fires LINE even when prev_line == current_line.
         // Since gen_throw bypasses RESUME, we reset prev_line instead.
-        self.state.prev_line = 0;
+        *self.prev_line = 0;
         if let Some(jen) = self.yield_from_target() {
             // Check if the exception is GeneratorExit (type or instance).
             // For GeneratorExit, close the sub-iterator instead of throwing.
@@ -1453,9 +1478,9 @@ impl ExecutingFrame<'_> {
                 // CopyItem { index: 2 } copies second from top
                 // This is 1-indexed to match CPython
                 let idx = index.get(arg) as usize;
-                let stack_len = self.state.stack.len();
+                let stack_len = self.stack.len();
                 debug_assert!(stack_len >= idx, "CopyItem: stack underflow");
-                let value = self.state.stack[stack_len - idx].clone();
+                let value = self.stack[stack_len - idx].clone();
                 self.push_stackref_opt(value);
                 Ok(None)
             }
@@ -1465,7 +1490,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::DeleteAttr { namei: idx } => self.delete_attr(vm, idx.get(arg)),
             Instruction::DeleteDeref { i } => {
-                self.state.cells_frees[i.get(arg) as usize].set(None);
+                self.cells_frees[i.get(arg) as usize].set(None);
                 Ok(None)
             }
             Instruction::DeleteFast { var_num: idx } => {
@@ -1645,7 +1670,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::GetANext => {
                 #[cfg(debug_assertions)] // remove when GetANext is fully implemented
-                let orig_stack_len = self.state.stack.len();
+                let orig_stack_len = self.stack.len();
 
                 let aiter = self.top_value();
                 let awaitable = if aiter.class().is(vm.ctx.types.async_generator) {
@@ -1685,7 +1710,7 @@ impl ExecutingFrame<'_> {
                 };
                 self.push_value(awaitable);
                 #[cfg(debug_assertions)]
-                debug_assert_eq!(orig_stack_len + 1, self.state.stack.len());
+                debug_assert_eq!(orig_stack_len + 1, self.stack.len());
                 Ok(None)
             }
             Instruction::GetAwaitable { r#where: oparg } => {
@@ -1900,7 +1925,7 @@ impl ExecutingFrame<'_> {
                 };
                 self.push_value(match value {
                     Some(v) => v,
-                    None => self.state.cells_frees[i]
+                    None => self.cells_frees[i]
                         .get()
                         .ok_or_else(|| self.unbound_cell_exception(i, vm))?,
                 });
@@ -1957,7 +1982,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadDeref { i } => {
                 let idx = i.get(arg) as usize;
-                let x = self.state.cells_frees[idx]
+                let x = self.cells_frees[idx]
                     .get()
                     .ok_or_else(|| self.unbound_cell_exception(idx, vm))?;
                 self.push_value(x);
@@ -2574,7 +2599,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::StoreDeref { i } => {
                 let value = self.pop_value();
-                self.state.cells_frees[i.get(arg) as usize].set(Some(value));
+                self.cells_frees[i.get(arg) as usize].set(Some(value));
                 Ok(None)
             }
             Instruction::StoreFast { var_num: idx } => {
@@ -2640,7 +2665,7 @@ impl ExecutingFrame<'_> {
                 self.execute_store_subscript(vm)
             }
             Instruction::Swap { i: index } => {
-                let len = self.state.stack.len();
+                let len = self.stack.len();
                 debug_assert!(len > 0, "stack underflow in SWAP");
                 let i = len - 1; // TOS index
                 let index_val = index.get(arg) as usize;
@@ -2653,7 +2678,7 @@ impl ExecutingFrame<'_> {
                     len
                 );
                 let j = len - index_val;
-                self.state.stack.swap(i, j);
+                self.stack.swap(i, j);
                 Ok(None)
             }
             Instruction::ToBool => {
@@ -2677,9 +2702,9 @@ impl ExecutingFrame<'_> {
                 // __exit__ is at TOS-3 (below lasti, prev_exc, and exc)
                 let exc = vm.current_exception();
 
-                let stack_len = self.state.stack.len();
+                let stack_len = self.stack.len();
                 let exit = expect_unchecked(
-                    self.state.stack[stack_len - 4].clone(),
+                    self.stack[stack_len - 4].clone(),
                     "WithExceptStart: __exit__ is NULL",
                 );
 
@@ -2696,8 +2721,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::YieldValue { arg: oparg } => {
                 debug_assert!(
-                    self.state
-                        .stack
+                    self.stack
                         .iter()
                         .flatten()
                         .all(|sr| !sr.is_borrowed()),
@@ -3820,7 +3844,7 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 if nargs == 0 {
                     // Stack: [callable, self_or_null] — peek to get func ptr
-                    let stack = &self.state.stack;
+                    let stack = &self.stack;
                     let stack_len = stack.len();
                     let self_or_null_is_some = stack[stack_len - 1].is_some();
                     let callable = self.nth_value(1);
@@ -3856,7 +3880,7 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     // Stack: [callable, self_or_null, arg1]
-                    let stack = &self.state.stack;
+                    let stack = &self.stack;
                     let stack_len = stack.len();
                     let self_or_null_is_some = stack[stack_len - 2].is_some();
                     let callable = self.nth_value(2);
@@ -3893,7 +3917,7 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
-                let stack = &self.state.stack;
+                let stack = &self.stack;
                 let stack_len = stack.len();
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
                 let func = if cached_tag == callable_tag && self_or_null_is_some {
@@ -4006,7 +4030,7 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
-                let stack = &self.state.stack;
+                let stack = &self.stack;
                 let stack_len = stack.len();
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
                 let func = if cached_tag == callable_tag && self_or_null_is_some {
@@ -4833,8 +4857,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedYieldValue => {
                 debug_assert!(
-                    self.state
-                        .stack
+                    self.stack
                         .iter()
                         .flatten()
                         .all(|sr| !sr.is_borrowed()),
@@ -5099,8 +5122,8 @@ impl ExecutingFrame<'_> {
                 // Fire LINE event only if line changed
                 if let Some((loc, _)) = self.code.locations.get(idx) {
                     let line = loc.line.get() as u32;
-                    if line != self.state.prev_line && line > 0 {
-                        self.state.prev_line = line;
+                    if line != *self.prev_line && line > 0 {
+                        *self.prev_line = line;
                         monitoring::fire_line(vm, self.code, offset, line)?;
                     }
                 }
@@ -5394,8 +5417,8 @@ impl ExecutingFrame<'_> {
                     }
 
                     // 1. Pop stack to entry.depth
-                    while self.state.stack.len() > entry.depth as usize {
-                        self.state.stack.pop();
+                    while self.stack.len() > entry.depth as usize {
+                        self.stack.pop();
                     }
 
                     // 2. If push_lasti=true (SETUP_CLEANUP), push lasti before exception
@@ -5599,7 +5622,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn execute_call_vectorcall(&mut self, nargs: u32, vm: &VirtualMachine) -> FrameResult {
         let nargs_usize = nargs as usize;
-        let stack_len = self.state.stack.len();
+        let stack_len = self.stack.len();
         debug_assert!(
             stack_len >= nargs_usize + 2,
             "CALL stack underflow: need callable + self_or_null + {nargs_usize} args, have {stack_len}"
@@ -5609,7 +5632,7 @@ impl ExecutingFrame<'_> {
         let args_start = stack_len - nargs_usize;
 
         // Build args: [self?, arg1, ..., argN]
-        let self_or_null = self.state.stack[self_or_null_idx]
+        let self_or_null = self.stack[self_or_null_idx]
             .take()
             .map(|sr| sr.to_pyobj());
         let has_self = self_or_null.is_some();
@@ -5624,12 +5647,12 @@ impl ExecutingFrame<'_> {
             args_vec.push(self_val);
         }
         for stack_idx in args_start..stack_len {
-            let val = self.state.stack[stack_idx].take().unwrap().to_pyobj();
+            let val = self.stack[stack_idx].take().unwrap().to_pyobj();
             args_vec.push(val);
         }
 
-        let callable_obj = self.state.stack[callable_idx].take().unwrap().to_pyobj();
-        self.state.stack.truncate(callable_idx);
+        let callable_obj = self.stack[callable_idx].take().unwrap().to_pyobj();
+        self.stack.truncate(callable_idx);
 
         // invoke_vectorcall falls back to FuncArgs if no vectorcall slot
         let result = callable_obj.vectorcall(args_vec, effective_nargs, None, vm)?;
@@ -5650,7 +5673,7 @@ impl ExecutingFrame<'_> {
         let kw_count = kwarg_names_tuple.len();
         debug_assert!(kw_count <= nargs_usize, "CALL_KW kw_count exceeds nargs");
 
-        let stack_len = self.state.stack.len();
+        let stack_len = self.stack.len();
         debug_assert!(
             stack_len >= nargs_usize + 2,
             "CALL_KW stack underflow: need callable + self_or_null + {nargs_usize} args, have {stack_len}"
@@ -5659,8 +5682,9 @@ impl ExecutingFrame<'_> {
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
 
+
         // Build args: [self?, pos_arg1, ..., pos_argM, kw_val1, ..., kw_valK]
-        let self_or_null = self.state.stack[self_or_null_idx]
+        let self_or_null = self.stack[self_or_null_idx]
             .take()
             .map(|sr| sr.to_pyobj());
         let has_self = self_or_null.is_some();
@@ -5677,12 +5701,12 @@ impl ExecutingFrame<'_> {
             args_vec.push(self_val);
         }
         for stack_idx in args_start..stack_len {
-            let val = self.state.stack[stack_idx].take().unwrap().to_pyobj();
+            let val = self.stack[stack_idx].take().unwrap().to_pyobj();
             args_vec.push(val);
         }
 
-        let callable_obj = self.state.stack[callable_idx].take().unwrap().to_pyobj();
-        self.state.stack.truncate(callable_idx);
+        let callable_obj = self.stack[callable_idx].take().unwrap().to_pyobj();
+        self.stack.truncate(callable_idx);
 
         // invoke_vectorcall falls back to FuncArgs if no vectorcall slot
         let kwnames = kwarg_names_tuple.as_slice();
@@ -5870,7 +5894,7 @@ impl ExecutingFrame<'_> {
 
         let mut elements = elements;
         // Elements on stack from right-to-left:
-        self.state.stack.extend(
+        self.stack.extend(
             elements
                 .drain(before + middle..)
                 .rev()
@@ -5882,7 +5906,7 @@ impl ExecutingFrame<'_> {
         self.push_value(t.into());
 
         // Lastly the first reversed values:
-        self.state.stack.extend(
+        self.stack.extend(
             elements
                 .into_iter()
                 .rev()
@@ -6214,7 +6238,7 @@ impl ExecutingFrame<'_> {
                 Err(vm.new_value_error(msg))
             }
             PyIterReturn::StopIteration(_) => {
-                self.state.stack.extend(
+                self.stack.extend(
                     elements
                         .into_iter()
                         .rev()
@@ -6863,7 +6887,7 @@ impl ExecutingFrame<'_> {
         // Stack: [callable, self_or_null, arg1, ..., argN]
         // callable is at position nargs + 1 from top
         // self_or_null is at position nargs from top
-        let stack = &self.state.stack;
+        let stack = &self.stack;
         let stack_len = stack.len();
         let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
         let callable = self.nth_value(nargs + 1);
@@ -7035,7 +7059,7 @@ impl ExecutingFrame<'_> {
         }
         // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
         // callable is at position nargs + 2 from top
-        let stack = &self.state.stack;
+        let stack = &self.stack;
         let stack_len = stack.len();
         let self_or_null_is_some = stack[stack_len - nargs as usize - 2].is_some();
         let callable = self.nth_value(nargs + 2);
@@ -7566,7 +7590,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     #[track_caller]
     fn push_stackref_opt(&mut self, obj: Option<PyStackRef>) {
-        match self.state.stack.try_push(obj) {
+        match self.stack.try_push(obj) {
             Ok(()) => {}
             Err(_e) => self.fatal("tried to push value onto stack but overflowed max_stackdepth"),
         }
@@ -7604,7 +7628,7 @@ impl ExecutingFrame<'_> {
     /// Pop a raw stackref from the stack, returning None if the stack slot is NULL.
     #[inline]
     fn pop_stackref_opt(&mut self) -> Option<PyStackRef> {
-        match self.state.stack.pop() {
+        match self.stack.pop() {
             Some(slot) => slot,
             None => self.fatal("tried to pop from empty stack"),
         }
@@ -7784,7 +7808,7 @@ impl ExecutingFrame<'_> {
 
     /// Pop multiple values from the stack. Panics if any slot is NULL.
     fn pop_multiple(&mut self, count: usize) -> impl ExactSizeIterator<Item = PyObjectRef> + '_ {
-        let stack_len = self.state.stack.len();
+        let stack_len = self.stack.len();
         if count > stack_len {
             let instr = self.code.instructions.get(self.lasti() as usize);
             let op_name = instr
@@ -7800,7 +7824,7 @@ impl ExecutingFrame<'_> {
                 self.code.source_path()
             );
         }
-        self.state.stack.drain(stack_len - count..).map(|obj| {
+        self.stack.drain(stack_len - count..).map(|obj| {
             expect_unchecked(obj, "pop_multiple but null found. This is a compiler bug.").to_pyobj()
         })
     }
@@ -7808,7 +7832,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn replace_top(&mut self, top: Option<PyObjectRef>) -> Option<PyObjectRef> {
         let mut slot = top.map(PyStackRef::new_owned);
-        let last = self.state.stack.last_mut().unwrap();
+        let last = self.stack.last_mut().unwrap();
         core::mem::swap(last, &mut slot);
         slot.map(|sr| sr.to_pyobj())
     }
@@ -7816,7 +7840,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     #[track_caller]
     fn top_value(&self) -> &PyObject {
-        match &*self.state.stack {
+        match &**self.stack {
             [.., Some(last)] => last.as_object(),
             [.., None] => self.fatal("tried to get top of stack but got NULL"),
             [] => self.fatal("tried to get top of stack but stack is empty"),
@@ -7826,7 +7850,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     #[track_caller]
     fn nth_value(&self, depth: u32) -> &PyObject {
-        let stack = &self.state.stack;
+        let stack = &self.stack;
         match &stack[stack.len() - depth as usize - 1] {
             Some(obj) => obj.as_object(),
             None => unsafe { core::hint::unreachable_unchecked() },
@@ -7844,8 +7868,10 @@ impl ExecutingFrame<'_> {
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let state = self.state.lock();
-        let stack_str = state.stack.iter().fold(String::new(), |mut s, slot| {
+        // SAFETY: Debug is best-effort; concurrent mutation is unlikely
+        // and would only affect debug output.
+        let stack = unsafe { &*self.stack.get() };
+        let stack_str = stack.iter().fold(String::new(), |mut s, slot| {
             match slot {
                 Some(elem) if elem.downcastable::<Self>() => {
                     s.push_str("\n  > {frame}");
