@@ -912,8 +912,9 @@ impl PyType {
                                 let attrs = cls.attributes.read();
                                 cmp_names.iter().any(|n| {
                                     if let Some(attr) = attrs.get(*n) {
-                                        // Check if it's a Python function (not wrapper_descriptor)
+                                        // Check if it's a Python function (not a native descriptor)
                                         !attr.class().is(ctx.types.wrapper_descriptor_type)
+                                            && !attr.class().is(ctx.types.method_descriptor_type)
                                     } else {
                                         false
                                     }
