@@ -893,10 +893,7 @@ impl<T: PyPayload> Drop for FreeList<T> {
         // MAX_FREELIST per type per thread.
         for ptr in self.items.drain(..) {
             unsafe {
-                alloc::alloc::dealloc(
-                    ptr as *mut u8,
-                    alloc::alloc::Layout::new::<PyInner<T>>(),
-                );
+                alloc::alloc::dealloc(ptr as *mut u8, alloc::alloc::Layout::new::<PyInner<T>>());
             }
         }
     }
