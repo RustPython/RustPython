@@ -63,7 +63,7 @@ impl fmt::Debug for PyDict {
 }
 
 thread_local! {
-    static DICT_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
+    static DICT_FREELIST: Cell<crate::object::FreeList<PyDict>> = const { Cell::new(crate::object::FreeList::new()) };
 }
 
 impl PyPayload for PyDict {

@@ -35,7 +35,7 @@ impl PyFloat {
 }
 
 thread_local! {
-    static FLOAT_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
+    static FLOAT_FREELIST: Cell<crate::object::FreeList<PyFloat>> = const { Cell::new(crate::object::FreeList::new()) };
 }
 
 impl PyPayload for PyFloat {

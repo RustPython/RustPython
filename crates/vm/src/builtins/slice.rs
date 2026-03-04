@@ -26,7 +26,7 @@ pub struct PySlice {
 }
 
 thread_local! {
-    static SLICE_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
+    static SLICE_FREELIST: Cell<crate::object::FreeList<PySlice>> = const { Cell::new(crate::object::FreeList::new()) };
 }
 
 impl PyPayload for PySlice {

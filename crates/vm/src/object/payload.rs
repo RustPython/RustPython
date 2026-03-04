@@ -71,7 +71,9 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// reinitialize `ref_count`, `gc_bits`, and `payload`.
     ///
     /// # Safety
-    /// The returned pointer (if Some) points to uninitialized/stale payload.
+    /// The returned pointer (if Some) must point to a valid `PyInner<Self>`
+    /// whose payload is still initialized from a previous allocation. The caller
+    /// will drop and overwrite `payload` before reuse.
     #[inline]
     unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
         None

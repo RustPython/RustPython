@@ -75,7 +75,7 @@ unsafe impl Traverse for PyList {
 }
 
 thread_local! {
-    static LIST_FREELIST: Cell<Vec<*mut PyObject>> = const { Cell::new(Vec::new()) };
+    static LIST_FREELIST: Cell<crate::object::FreeList<PyList>> = const { Cell::new(crate::object::FreeList::new()) };
 }
 
 impl PyPayload for PyList {

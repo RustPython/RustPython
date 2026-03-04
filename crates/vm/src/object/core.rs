@@ -822,13 +822,50 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
     }
 }
 
-/// Drop a freelist-cached object, properly deallocating the `PyInner<T>`.
+/// Thread-local freelist storage that properly deallocates cached objects
+/// on thread teardown.
 ///
-/// # Safety
-/// `ptr` must point to a valid `PyInner<T>` allocation that was stored in a freelist.
-#[allow(dead_code)]
-pub(crate) unsafe fn drop_freelist_object<T: PyPayload>(ptr: *mut PyObject) {
-    drop(unsafe { Box::from_raw(ptr as *mut PyInner<T>) });
+/// Wraps a `Vec<*mut PyObject>` and implements `Drop` to convert each
+/// raw pointer back into `Box<PyInner<T>>` for proper deallocation.
+pub(crate) struct FreeList<T: PyPayload> {
+    items: Vec<*mut PyObject>,
+    _marker: core::marker::PhantomData<T>,
+}
+
+impl<T: PyPayload> FreeList<T> {
+    pub(crate) const fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: PyPayload> Default for FreeList<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: PyPayload> Drop for FreeList<T> {
+    fn drop(&mut self) {
+        for ptr in self.items.drain(..) {
+            drop(unsafe { Box::from_raw(ptr as *mut PyInner<T>) });
+        }
+    }
+}
+
+impl<T: PyPayload> core::ops::Deref for FreeList<T> {
+    type Target = Vec<*mut PyObject>;
+    fn deref(&self) -> &Self::Target {
+        &self.items
+    }
+}
+
+impl<T: PyPayload> core::ops::DerefMut for FreeList<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.items
+    }
 }
 
 /// The `PyObjectRef` is one of the most used types. It is a reference to a
