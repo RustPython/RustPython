@@ -38,9 +38,34 @@ impl Drop for SignalHandlerGuard {
     }
 }
 
+// Reactivate EBR guard every N instructions to prevent epoch starvation.
+// This allows GC to advance epochs even during long-running operations.
+// 65536 instructions ≈ 1ms, much faster than CPython's 5ms GIL timeout
+#[cfg(all(feature = "threading", feature = "gc"))]
+const REACTIVATE_INTERVAL: u32 = 65536;
+
+#[cfg(all(feature = "threading", feature = "gc"))]
+thread_local! {
+    static INSTRUCTION_COUNTER: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
+
 #[cfg_attr(feature = "flame-it", flame)]
 #[inline(always)]
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
+    // Periodic EBR guard reactivation to prevent epoch starvation
+    #[cfg(all(feature = "threading", feature = "gc"))]
+    {
+        INSTRUCTION_COUNTER.with(|counter| {
+            let count = counter.get();
+            if count >= REACTIVATE_INTERVAL {
+                crate::vm::thread::reactivate_guard();
+                counter.set(0);
+            } else {
+                counter.set(count + 1);
+            }
+        });
+    }
+
     if vm.signal_handlers.get().is_none() {
         return Ok(());
     }

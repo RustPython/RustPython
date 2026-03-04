@@ -403,6 +403,12 @@ impl GcState {
             return (0, 0);
         };
 
+        // Enter EBR critical section for the entire collection.
+        // This ensures that any objects being freed by other threads won't have
+        // their memory actually deallocated until we exit this critical section.
+        // Other threads' deferred deallocations will wait for us to unpin.
+        let ebr_guard = rustpython_common::epoch::pin();
+
         // Memory barrier to ensure visibility of all reference count updates
         // from other threads before we start analyzing the object graph.
         core::sync::atomic::fence(Ordering::SeqCst);
@@ -683,7 +689,8 @@ impl GcState {
             // during __del__ (step 6d) can still be upgraded.
             //
             // Clear and destroy objects within a deferred drop context.
-            // This prevents deadlocks from untrack calls during destruction.
+            // The ebr_guard ensures deferred deallocations from other threads wait for us.
+            // The deferred drop context prevents deadlocks from untrack calls during destruction.
             rustpython_common::refcount::with_deferred_drops(|| {
                 for obj_ref in truly_dead.iter() {
                     if obj_ref.gc_has_clear() {
@@ -707,6 +714,10 @@ impl GcState {
         self.generations[0].count.store(0, Ordering::SeqCst);
 
         self.generations[generation].update_stats(collected, 0);
+
+        // Flush EBR deferred operations before exiting collection.
+        // This ensures any deferred deallocations from this collection are executed.
+        ebr_guard.flush();
 
         (collected, 0)
     }

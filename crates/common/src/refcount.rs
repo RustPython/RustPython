@@ -1,4 +1,8 @@
+//! Reference counting implementation based on EBR (Epoch-Based Reclamation).
+
 use crate::atomic::{Ordering, PyAtomic, Radium};
+
+pub use crate::epoch::Guard;
 
 // State layout (usize):
 //   [1 bit: destructed] [1 bit: reserved] [1 bit: leaked] [N bits: weak_count] [M bits: strong_count]

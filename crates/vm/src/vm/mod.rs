@@ -1131,6 +1131,11 @@ impl VirtualMachine {
             crate::vm::thread::pop_thread_frame();
 
             self.recursion_depth.update(|d| d - 1);
+
+            // Reactivate EBR guard at frame boundary (safe point)
+            // This allows GC to advance epochs and free deferred objects
+            #[cfg(feature = "threading")]
+            crate::vm::thread::reactivate_guard();
         }
 
         self.dispatch_traced_frame(frame, |frame| f(frame))
