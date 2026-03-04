@@ -17,7 +17,7 @@ use super::{
 };
 use crate::object::traverse_object::PyObjVTable;
 use crate::{
-    builtins::{PyDictRef, PyType, PyTypeRef},
+    builtins::{PyDict, PyDictRef, PyType, PyTypeRef},
     common::{
         atomic::{Ordering, PyAtomic, Radium},
         linked_list::{Link, Pointers},
@@ -257,8 +257,6 @@ bitflags::bitflags! {
         const SHARED_INLINE = 1 << 5;
         /// Use deferred reference counting
         const DEFERRED = 1 << 6;
-        /// Object has ObjExt prefix allocation
-        const HAS_EXT = 1 << 7;
     }
 }
 
@@ -356,11 +354,20 @@ pub(super) struct PyInner<T> {
 pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<PyInner<()>>();
 
 impl<T> PyInner<T> {
-    /// Check if this object has an ObjExt prefix.
-    /// Uses the per-instance HAS_EXT bit in gc_bits, set at allocation time.
+    /// Check if this object has an ObjExt prefix based on type flags.
+    /// Uses raw pointer reads to avoid Stacked Borrows violations during bootstrap,
+    /// where type objects have self-referential typ pointers that may be mutated.
     #[inline(always)]
     fn has_ext(&self) -> bool {
-        GcBits::from_bits_retain(self.gc_bits.load(Ordering::Relaxed)).contains(GcBits::HAS_EXT)
+        // Read slots via raw pointers only — creating a &Py<PyType> reference
+        // would retag the entire object, conflicting with &mut writes during bootstrap.
+        let typ_ptr = self.typ.load_raw();
+        let slots = unsafe { core::ptr::addr_of!((*typ_ptr).0.payload.slots) };
+        let flags = unsafe { core::ptr::addr_of!((*slots).flags).read() };
+        let member_count = unsafe { core::ptr::addr_of!((*slots).member_count).read() };
+        flags.has_feature(crate::types::PyTypeFlags::HAS_DICT)
+            || flags.has_feature(crate::types::PyTypeFlags::HAS_WEAKREF)
+            || member_count > 0
     }
 
     /// Access the ObjExt prefix at a negative offset from this PyInner.
@@ -943,16 +950,20 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
     /// For objects with ext, the allocation layout is: [ObjExt][PyInner<T>]
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> *mut Self {
         let member_count = typ.slots.member_count;
-        let needs_ext = dict.is_some()
-            || typ
-                .slots
-                .flags
-                .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+        let needs_ext = typ
+            .slots
+            .flags
+            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
             || typ
                 .slots
                 .flags
                 .has_feature(crate::types::PyTypeFlags::HAS_WEAKREF)
             || member_count > 0;
+        debug_assert!(
+            needs_ext || dict.is_none(),
+            "dict passed to type '{}' without HAS_DICT flag",
+            typ.name()
+        );
 
         if needs_ext {
             let ext_layout = core::alloc::Layout::new::<ObjExt>();
@@ -975,7 +986,7 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                 inner_ptr.write(Self {
                     ref_count: RefCount::new(),
                     vtable: PyObjVTable::of::<T>(),
-                    gc_bits: Radium::new(GcBits::HAS_EXT.bits()),
+                    gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_pointers: Pointers::new(),
                     typ: PyAtomicRef::from(typ),
@@ -1660,6 +1671,8 @@ impl PyObject {
         if let Some(ext) = obj.0.ext_ref() {
             if let Some(dict) = ext.dict.as_ref() {
                 let dict_ref = dict.get();
+                // Clear dict entries to break cycles, then collect the dict itself
+                PyDict::clear(&dict_ref);
                 result.push(dict_ref.into());
             }
             for slot in ext.slots.iter() {
@@ -2330,7 +2343,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 PyInner::<PyType> {
                     ref_count: RefCount::new(),
                     vtable: PyObjVTable::of::<PyType>(),
-                    gc_bits: Radium::new(GcBits::HAS_EXT.bits()),
+                    gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_pointers: Pointers::new(),
                     payload: type_payload,
@@ -2345,7 +2358,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 PyInner::<PyType> {
                     ref_count: RefCount::new(),
                     vtable: PyObjVTable::of::<PyType>(),
-                    gc_bits: Radium::new(GcBits::HAS_EXT.bits()),
+                    gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_pointers: Pointers::new(),
                     payload: object_payload,

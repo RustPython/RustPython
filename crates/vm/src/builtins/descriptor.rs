@@ -37,6 +37,8 @@ pub struct PyMethodDescriptor {
     pub method: &'static PyMethodDef,
     // vectorcall: vector_call_func,
     pub objclass: &'static Py<PyType>, // TODO: move to tp_members
+    /// Prevent HeapMethodDef from being freed while this descriptor references it
+    pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
 
 impl PyMethodDescriptor {
@@ -49,6 +51,7 @@ impl PyMethodDescriptor {
             },
             method,
             objclass: typ,
+            _method_def_owner: None,
         }
     }
 }

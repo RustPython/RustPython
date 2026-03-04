@@ -49,7 +49,15 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &Py<PyBaseException>) -> Js
                 serde_wasm_bindgen::to_value(&exceptions::SerializeException::new(vm, py_err));
             match res {
                 Ok(err_info) => PyError::new(err_info).into(),
-                Err(e) => e.into(),
+                Err(_) => {
+                    // Fallback: create a basic JS Error with the exception type and message
+                    let exc_type = py_err.class().name().to_string();
+                    let msg = match py_err.as_object().str(vm) {
+                        Ok(s) => format!("{exc_type}: {s}"),
+                        Err(_) => exc_type,
+                    };
+                    js_sys::Error::new(&msg).into()
+                }
             }
         }
     }

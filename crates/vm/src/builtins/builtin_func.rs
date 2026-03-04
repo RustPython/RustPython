@@ -16,6 +16,8 @@ pub struct PyNativeFunction {
     pub(crate) value: &'static PyMethodDef,
     pub(crate) zelf: Option<PyObjectRef>,
     pub(crate) module: Option<&'static PyStrInterned>, // None for bound method
+    /// Prevent HeapMethodDef from being freed while this function references it
+    pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
 
 impl PyPayload for PyNativeFunction {
