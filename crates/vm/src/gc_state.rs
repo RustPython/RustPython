@@ -99,13 +99,9 @@ impl GcGeneration {
 }
 
 /// Wrapper for NonNull<PyObject> to impl Hash/Eq for use in temporary collection sets.
-/// Only used during GC collection algorithm, not for persistent tracking.
+/// Only used within collect_inner, never shared across threads.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct GcPtr(NonNull<PyObject>);
-
-// SAFETY: We only use this for tracking objects, and proper synchronization is used
-unsafe impl Send for GcPtr {}
-unsafe impl Sync for GcPtr {}
 
 /// Global GC state
 pub struct GcState {
@@ -294,20 +290,6 @@ impl GcState {
             }
             return;
         }
-    }
-
-    /// Check if an object has been finalized (__del__ already called).
-    /// Uses the GcBits::FINALIZED flag on the object header.
-    pub fn is_finalized(&self, obj: NonNull<PyObject>) -> bool {
-        let obj_ref = unsafe { obj.as_ref() };
-        obj_ref.gc_finalized()
-    }
-
-    /// Mark an object as finalized.
-    /// Sets the GcBits::FINALIZED flag on the object header.
-    pub fn mark_finalized(&self, obj: NonNull<PyObject>) {
-        let obj_ref = unsafe { obj.as_ref() };
-        obj_ref.set_gc_finalized();
     }
 
     /// Get tracked objects (for gc.get_objects)
