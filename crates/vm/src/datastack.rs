@@ -128,8 +128,7 @@ impl DataStack {
     #[inline(always)]
     pub unsafe fn pop(&mut self, base: *mut u8) {
         debug_assert!(!base.is_null());
-        let chunk_start = unsafe { (*self.chunk).data_start() };
-        if base >= chunk_start {
+        if self.is_in_current_chunk(base) {
             // Common case: base is within the current chunk.
             self.top = base;
         } else {
@@ -138,23 +137,31 @@ impl DataStack {
         }
     }
 
+    /// Check if `ptr` falls within the current chunk's data area.
+    /// Both bounds are checked to handle non-monotonic allocation addresses
+    /// (e.g. on Windows where newer chunks may be at lower addresses).
+    #[inline(always)]
+    fn is_in_current_chunk(&self, ptr: *mut u8) -> bool {
+        let chunk_start = unsafe { (*self.chunk).data_start() };
+        ptr >= chunk_start && ptr <= self.limit
+    }
+
     /// Slow path: pop back to a previous chunk.
     #[cold]
     #[inline(never)]
     unsafe fn pop_slow(&mut self, base: *mut u8) {
-        let old_chunk = self.chunk;
-        let prev = unsafe { (*old_chunk).previous };
-        debug_assert!(!prev.is_null(), "tried to pop past the root chunk");
-        unsafe { Self::free_chunk(old_chunk) };
-        self.chunk = prev;
-        self.top = base;
-        // If the base is not within this previous chunk either, we have
-        // a logic error (LIFO violation).
-        debug_assert!(
-            base >= unsafe { (*prev).data_start() } && base <= unsafe { (*prev).data_limit() },
-            "pop base not in previous chunk (LIFO violation)"
-        );
-        self.limit = unsafe { (*prev).data_limit() };
+        loop {
+            let old_chunk = self.chunk;
+            let prev = unsafe { (*old_chunk).previous };
+            debug_assert!(!prev.is_null(), "tried to pop past the root chunk");
+            unsafe { Self::free_chunk(old_chunk) };
+            self.chunk = prev;
+            self.limit = unsafe { (*prev).data_limit() };
+            if self.is_in_current_chunk(base) {
+                self.top = base;
+                return;
+            }
+        }
     }
 
     /// Allocate a new chunk.
