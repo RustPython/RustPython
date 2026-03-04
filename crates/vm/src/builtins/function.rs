@@ -5,8 +5,6 @@ use super::{
     PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef, PyTuple,
     PyTupleRef, PyType,
 };
-#[cfg(feature = "jit")]
-use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
 use crate::function::ArgMapping;
 use crate::object::{PyAtomicRef, Traverse, TraverseFn};
@@ -75,7 +73,7 @@ pub struct PyFunction {
     doc: PyMutex<PyObjectRef>,
     func_version: AtomicU32,
     #[cfg(feature = "jit")]
-    jitted_code: OnceCell<CompiledCode>,
+    jitted_code: PyMutex<Option<CompiledCode>>,
 }
 
 static FUNC_VERSION_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -214,7 +212,7 @@ impl PyFunction {
             doc: PyMutex::new(doc),
             func_version: AtomicU32::new(next_func_version()),
             #[cfg(feature = "jit")]
-            jitted_code: OnceCell::new(),
+            jitted_code: PyMutex::new(None),
         };
         Ok(func)
     }
@@ -538,7 +536,7 @@ impl Py<PyFunction> {
         vm: &VirtualMachine,
     ) -> PyResult {
         #[cfg(feature = "jit")]
-        if let Some(jitted_code) = self.jitted_code.get() {
+        if let Some(jitted_code) = self.jitted_code.lock().as_ref() {
             use crate::convert::ToPyObject;
             match jit::get_jit_args(self, &func_args, jitted_code, vm) {
                 Ok(args) => {
@@ -712,6 +710,10 @@ impl PyFunction {
     #[pygetset(setter)]
     fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) {
         self.code.swap_to_temporary_refs(code, vm);
+        #[cfg(feature = "jit")]
+        {
+            *self.jitted_code.lock() = None;
+        }
         self.func_version.store(0, Relaxed);
     }
 
@@ -948,7 +950,7 @@ impl PyFunction {
     #[cfg(feature = "jit")]
     #[pymethod]
     fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        if zelf.jitted_code.get().is_some() {
+        if zelf.jitted_code.lock().is_some() {
             return Ok(());
         }
         let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
@@ -956,7 +958,7 @@ impl PyFunction {
         let code: &Py<PyCode> = &zelf.code;
         let compiled = rustpython_jit::compile(&code.code, &arg_types, ret_type)
             .map_err(|err| jit::new_jit_error(err.to_string(), vm))?;
-        let _ = zelf.jitted_code.set(compiled);
+        *zelf.jitted_code.lock() = Some(compiled);
         Ok(())
     }
 }
