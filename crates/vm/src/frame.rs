@@ -6,8 +6,8 @@ use crate::{
     TryFromObject, VirtualMachine,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine, PyDict, PyDictRef,
-        PyFloat, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty, PySet, PySlice,
-        PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
+        PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty,
+        PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
         asyncgenerator::PyAsyncGenWrappedValue,
         builtin_func::PyNativeFunction,
         descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
@@ -713,7 +713,6 @@ impl ExecutingFrame<'_> {
             obj_name = self.code.obj_name
         ));
         // Execute until return or exception:
-        let instructions = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
         loop {
             let idx = self.lasti() as usize;
@@ -730,8 +729,8 @@ impl ExecutingFrame<'_> {
             if vm.use_tracing.get()
                 && !vm.is_none(&self.object.trace.lock())
                 && !matches!(
-                    instructions.get(idx).map(|u| u.op),
-                    Some(Instruction::Resume { .. } | Instruction::InstrumentedResume)
+                    self.code.instructions.read_op(idx),
+                    Instruction::Resume { .. } | Instruction::InstrumentedResume
                 )
                 && let Some((loc, _)) = self.code.locations.get(idx)
                 && loc.line.get() as u32 != self.state.prev_line
@@ -753,8 +752,8 @@ impl ExecutingFrame<'_> {
                     continue;
                 }
             }
-            let bytecode::CodeUnit { op, arg } = instructions[idx];
-            let arg = arg_state.extend(arg);
+            let op = self.code.instructions.read_op(idx);
+            let arg = arg_state.extend(self.code.instructions.read_arg(idx));
             let mut do_extend_arg = false;
             let caches = op.cache_entries();
 
@@ -884,8 +883,8 @@ impl ExecutingFrame<'_> {
                     // new traceback entries.
                     // EndAsyncFor and CleanupThrow also re-raise non-matching exceptions.
                     let is_reraise = match op {
-                        Instruction::RaiseVarargs { argc } => matches!(
-                            argc.get(arg),
+                        Instruction::RaiseVarargs { argc: kind } => matches!(
+                            kind.get(arg),
                             bytecode::RaiseKind::BareRaise | bytecode::RaiseKind::ReraiseFromStack
                         ),
                         Instruction::Reraise { .. }
@@ -898,9 +897,9 @@ impl ExecutingFrame<'_> {
                     // need contextualization even if the exception has prior traceback
                     let is_new_raise = matches!(
                         op,
-                        Instruction::RaiseVarargs { argc }
+                        Instruction::RaiseVarargs { argc: kind }
                             if matches!(
-                                argc.get(arg),
+                                kind.get(arg),
                                 bytecode::RaiseKind::Raise | bytecode::RaiseKind::RaiseCause
                             )
                     );
@@ -1252,20 +1251,7 @@ impl ExecutingFrame<'_> {
         match instruction {
             Instruction::BinaryOp { op } => {
                 let op_val = op.get(arg);
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-
-                let counter = self.code.instructions.read_adaptive_counter(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_adaptive_counter(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_binary_op(vm, op_val, instr_idx, cache_base);
-                }
-
+                self.adaptive(|s, ii, cb| s.specialize_binary_op(vm, op_val, ii, cb));
                 self.execute_bin_op(vm, op_val)
             }
             // TODO: In CPython, this does in-place unicode concatenation when
@@ -1283,7 +1269,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(result.to_pyobject(vm));
                     Ok(None)
                 } else {
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::InplaceAdd);
+                    self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                     self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd)
                 }
             }
@@ -1303,17 +1289,17 @@ impl ExecutingFrame<'_> {
                 self.push_value(result);
                 Ok(None)
             }
-            Instruction::BuildList { count } => {
-                let sz = count.get(arg) as usize;
+            Instruction::BuildList { count: size } => {
+                let sz = size.get(arg) as usize;
                 let elements = self.pop_multiple(sz).collect();
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            Instruction::BuildMap { count } => self.execute_build_map(vm, count.get(arg)),
-            Instruction::BuildSet { count } => {
+            Instruction::BuildMap { count: size } => self.execute_build_map(vm, size.get(arg)),
+            Instruction::BuildSet { count: size } => {
                 let set = PySet::default().into_ref(&vm.ctx);
-                for element in self.pop_multiple(count.get(arg) as usize) {
+                for element in self.pop_multiple(size.get(arg) as usize) {
                     set.add(element, vm)?;
                 }
                 self.push_value(set.into());
@@ -1330,16 +1316,16 @@ impl ExecutingFrame<'_> {
                  Ok(None)
             }
             */
-            Instruction::BuildString { count } => {
+            Instruction::BuildString { count: size } => {
                 let s: Wtf8Buf = self
-                    .pop_multiple(count.get(arg) as usize)
+                    .pop_multiple(size.get(arg) as usize)
                     .map(|pyobj| pyobj.downcast::<PyStr>().unwrap())
                     .collect();
                 self.push_value(vm.ctx.new_str(s).into());
                 Ok(None)
             }
-            Instruction::BuildTuple { count } => {
-                let elements = self.pop_multiple(count.get(arg) as usize).collect();
+            Instruction::BuildTuple { count: size } => {
+                let elements = self.pop_multiple(size.get(arg) as usize).collect();
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
@@ -1360,10 +1346,10 @@ impl ExecutingFrame<'_> {
                 self.push_value(template.into_pyobject(vm));
                 Ok(None)
             }
-            Instruction::BuildInterpolation { format } => {
+            Instruction::BuildInterpolation { format: oparg } => {
                 // oparg encoding: (conversion << 2) | has_format_spec
                 // Stack: [value, expression_str, (format_spec)?] -> [interpolation]
-                let oparg_val = format.get(arg);
+                let oparg_val = oparg.get(arg);
                 let has_format_spec = (oparg_val & 1) != 0;
                 let conversion_code = oparg_val >> 2;
 
@@ -1394,37 +1380,15 @@ impl ExecutingFrame<'_> {
                 self.push_value(interpolation.into_pyobject(vm));
                 Ok(None)
             }
-            Instruction::Call { argc } => {
+            Instruction::Call { argc: nargs } => {
                 // Stack: [callable, self_or_null, arg1, ..., argN]
-                let nargs_val = argc.get(arg);
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_adaptive_counter(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_adaptive_counter(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_call(vm, nargs_val, instr_idx, cache_base);
-                }
+                let nargs_val = nargs.get(arg);
+                self.adaptive(|s, ii, cb| s.specialize_call(vm, nargs_val, ii, cb));
                 self.execute_call_vectorcall(nargs_val, vm)
             }
-            Instruction::CallKw { argc } => {
-                let nargs = argc.get(arg);
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_call_kw(vm, nargs, instr_idx, cache_base);
-                }
+            Instruction::CallKw { argc: nargs } => {
+                let nargs = nargs.get(arg);
+                self.adaptive(|s, ii, cb| s.specialize_call_kw(vm, nargs, ii, cb));
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 self.execute_call_kw_vectorcall(nargs, vm)
             }
@@ -1464,36 +1428,13 @@ impl ExecutingFrame<'_> {
                 self.push_value(matched);
                 Ok(None)
             }
-            Instruction::CompareOp { opname } => {
-                let op_val = opname.get(arg);
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_compare_op(vm, op_val, instr_idx, cache_base);
-                }
+            Instruction::CompareOp { opname: op } => {
+                let op_val = op.get(arg);
+                self.adaptive(|s, ii, cb| s.specialize_compare_op(vm, op_val, ii, cb));
                 self.execute_compare(vm, op_val)
             }
             Instruction::ContainsOp { invert } => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_contains_op(vm, instr_idx, cache_base);
-                }
-
+                self.adaptive(|s, ii, cb| s.specialize_contains_op(vm, ii, cb));
                 let b = self.pop_value();
                 let a = self.pop_value();
 
@@ -1504,12 +1445,14 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
             }
-            Instruction::ConvertValue { oparg } => self.convert_value(oparg.get(arg), vm),
-            Instruction::Copy { i } => {
+            Instruction::ConvertValue { oparg: conversion } => {
+                self.convert_value(conversion.get(arg), vm)
+            }
+            Instruction::Copy { i: index } => {
                 // CopyItem { index: 1 } copies TOS
                 // CopyItem { index: 2 } copies second from top
                 // This is 1-indexed to match CPython
-                let idx = i.get(arg) as usize;
+                let idx = index.get(arg) as usize;
                 let stack_len = self.state.stack.len();
                 debug_assert!(stack_len >= idx, "CopyItem: stack underflow");
                 let value = self.state.stack[stack_len - idx].clone();
@@ -1520,14 +1463,14 @@ impl ExecutingFrame<'_> {
                 // Free vars are already set up at frame creation time in RustPython
                 Ok(None)
             }
-            Instruction::DeleteAttr { namei } => self.delete_attr(vm, namei.get(arg)),
+            Instruction::DeleteAttr { namei: idx } => self.delete_attr(vm, idx.get(arg)),
             Instruction::DeleteDeref { i } => {
                 self.state.cells_frees[i.get(arg) as usize].set(None);
                 Ok(None)
             }
-            Instruction::DeleteFast { var_num } => {
+            Instruction::DeleteFast { var_num: idx } => {
                 let fastlocals = unsafe { self.fastlocals.borrow_mut() };
-                let idx = var_num.get(arg) as usize;
+                let idx = idx.get(arg) as usize;
                 if fastlocals[idx].is_none() {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
@@ -1541,8 +1484,8 @@ impl ExecutingFrame<'_> {
                 fastlocals[idx] = None;
                 Ok(None)
             }
-            Instruction::DeleteGlobal { namei } => {
-                let name = self.code.names[namei.get(arg) as usize];
+            Instruction::DeleteGlobal { namei: idx } => {
+                let name = self.code.names[idx.get(arg) as usize];
                 match self.globals.del_item(name, vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
@@ -1552,8 +1495,8 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            Instruction::DeleteName { namei } => {
-                let name = self.code.names[namei.get(arg) as usize];
+            Instruction::DeleteName { namei: idx } => {
+                let name = self.code.names[idx.get(arg) as usize];
                 let res = self.locals.mapping(vm).ass_subscript(name, None, vm);
 
                 match res {
@@ -1566,12 +1509,12 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::DeleteSubscr => self.execute_delete_subscript(vm),
-            Instruction::DictUpdate { i } => {
+            Instruction::DictUpdate { i: index } => {
                 // Stack before: [..., dict, ..., source]  (source at TOS)
                 // Stack after:  [..., dict, ...]  (source consumed)
                 // The dict to update is at position TOS-i (before popping source)
 
-                let idx = i.get(arg);
+                let idx = index.get(arg);
 
                 // Pop the source from TOS
                 let source = self.pop_value();
@@ -1602,9 +1545,9 @@ impl ExecutingFrame<'_> {
                 dict.merge_object(source, vm)?;
                 Ok(None)
             }
-            Instruction::DictMerge { i } => {
+            Instruction::DictMerge { i: index } => {
                 let source = self.pop_value();
-                let idx = i.get(arg);
+                let idx = index.get(arg);
 
                 // Get the dict to merge into (same logic as DICT_UPDATE)
                 let dict_ref = if idx <= 1 {
@@ -1675,18 +1618,7 @@ impl ExecutingFrame<'_> {
             Instruction::ForIter { .. } => {
                 // Relative forward jump: target = lasti + caches + delta
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_for_iter(vm, instr_idx, cache_base);
-                }
+                self.adaptive(|s, ii, cb| s.specialize_for_iter(vm, ii, cb));
                 self.execute_for_iter(vm, target)?;
                 Ok(None)
             }
@@ -1839,13 +1771,13 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_int(len).into());
                 Ok(None)
             }
-            Instruction::ImportFrom { namei } => {
-                let obj = self.import_from(vm, namei.get(arg))?;
+            Instruction::ImportFrom { namei: idx } => {
+                let obj = self.import_from(vm, idx.get(arg))?;
                 self.push_value(obj);
                 Ok(None)
             }
-            Instruction::ImportName { namei } => {
-                self.import(vm, Some(self.code.names[namei.get(arg) as usize]))?;
+            Instruction::ImportName { namei: idx } => {
+                self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
                 Ok(None)
             }
             Instruction::IsOp { invert } => {
@@ -1908,21 +1840,11 @@ impl ExecutingFrame<'_> {
                 })?;
                 Ok(None)
             }
-            Instruction::LoadAttr { namei } => self.load_attr(vm, namei.get(arg)),
-            Instruction::LoadSuperAttr { namei } => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_load_super_attr(vm, namei.get(arg), instr_idx, cache_base);
-                }
-                self.load_super_attr(vm, namei.get(arg))
+            Instruction::LoadAttr { namei: idx } => self.load_attr(vm, idx.get(arg)),
+            Instruction::LoadSuperAttr { namei: idx } => {
+                let idx_val = idx.get(arg);
+                self.adaptive(|s, ii, cb| s.specialize_load_super_attr(vm, idx_val, ii, cb));
+                self.load_super_attr(vm, idx_val)
             }
             Instruction::LoadBuildClass => {
                 let build_class = if let Some(builtins_dict) = self.builtins_dict {
@@ -1984,10 +1906,10 @@ impl ExecutingFrame<'_> {
                 });
                 Ok(None)
             }
-            Instruction::LoadFromDictOrGlobals { i } => {
+            Instruction::LoadFromDictOrGlobals { i: idx } => {
                 // PEP 649: Pop dict from stack (classdict), check there first, then globals
                 let dict = self.pop_value();
-                let name = self.code.names[i.get(arg) as usize];
+                let name = self.code.names[idx.get(arg) as usize];
 
                 // Only treat KeyError as "not found", propagate other exceptions
                 let value = if let Some(dict_obj) = dict.downcast_ref::<PyDict>() {
@@ -2007,8 +1929,8 @@ impl ExecutingFrame<'_> {
                 });
                 Ok(None)
             }
-            Instruction::LoadConst { consti } => {
-                self.push_value(self.code.constants[consti.get(arg) as usize].clone().into());
+            Instruction::LoadConst { consti: idx } => {
+                self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
                 Ok(None)
             }
             Instruction::LoadCommonConstant { idx } => {
@@ -2027,9 +1949,9 @@ impl ExecutingFrame<'_> {
                 self.push_value(value);
                 Ok(None)
             }
-            Instruction::LoadSmallInt { i } => {
+            Instruction::LoadSmallInt { i: idx } => {
                 // Push small integer (-5..=256) directly without constant table lookup
-                let value = vm.ctx.new_int(i.get(arg) as i32);
+                let value = vm.ctx.new_int(idx.get(arg) as i32);
                 self.push_value(value.into());
                 Ok(None)
             }
@@ -2041,7 +1963,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFast { var_num } => {
+            Instruction::LoadFast { var_num: idx } => {
                 #[cold]
                 fn reference_error(
                     varname: &'static PyStrInterned,
@@ -2052,27 +1974,27 @@ impl ExecutingFrame<'_> {
                         format!("local variable '{varname}' referenced before assignment").into(),
                     )
                 }
-                let idx = var_num.get(arg) as usize;
+                let idx = idx.get(arg) as usize;
                 let x = unsafe { self.fastlocals.borrow() }[idx]
                     .clone()
                     .ok_or_else(|| reference_error(self.code.varnames[idx], vm))?;
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFastAndClear { var_num } => {
+            Instruction::LoadFastAndClear { var_num: idx } => {
                 // Load value and clear the slot (for inlined comprehensions)
                 // If slot is empty, push None (not an error - variable may not exist yet)
-                let idx = var_num.get(arg) as usize;
+                let idx = idx.get(arg) as usize;
                 let x = unsafe { self.fastlocals.borrow_mut() }[idx]
                     .take()
                     .unwrap_or_else(|| vm.ctx.none());
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFastCheck { var_num } => {
+            Instruction::LoadFastCheck { var_num: idx } => {
                 // Same as LoadFast but explicitly checks for unbound locals
                 // (LoadFast in RustPython already does this check)
-                let idx = var_num.get(arg) as usize;
+                let idx = idx.get(arg) as usize;
                 let x = unsafe { self.fastlocals.borrow() }[idx]
                     .clone()
                     .ok_or_else(|| {
@@ -2088,10 +2010,10 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFastLoadFast { var_nums } => {
+            Instruction::LoadFastLoadFast { var_nums: packed } => {
                 // Load two local variables at once
                 // oparg encoding: (idx1 << 4) | idx2
-                let oparg = var_nums.get(arg);
+                let oparg = packed.get(arg);
                 let idx1 = (oparg >> 4) as usize;
                 let idx2 = (oparg & 15) as usize;
                 let fastlocals = unsafe { self.fastlocals.borrow() };
@@ -2122,8 +2044,8 @@ impl ExecutingFrame<'_> {
             // Borrow optimization not yet active; falls back to clone.
             // push_borrowed() is available but disabled until stack
             // lifetime issues at yield/exception points are resolved.
-            Instruction::LoadFastBorrow { var_num } => {
-                let idx = var_num.get(arg) as usize;
+            Instruction::LoadFastBorrow { var_num: idx } => {
+                let idx = idx.get(arg) as usize;
                 let x = unsafe { self.fastlocals.borrow() }[idx]
                     .clone()
                     .ok_or_else(|| {
@@ -2139,8 +2061,8 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
-                let oparg = var_nums.get(arg);
+            Instruction::LoadFastBorrowLoadFastBorrow { var_nums: packed } => {
+                let oparg = packed.get(arg);
                 let idx1 = (oparg >> 4) as usize;
                 let idx2 = (oparg & 15) as usize;
                 let fastlocals = unsafe { self.fastlocals.borrow() };
@@ -2168,20 +2090,9 @@ impl ExecutingFrame<'_> {
                 self.push_value(x2);
                 Ok(None)
             }
-            Instruction::LoadGlobal { namei } => {
-                let oparg = namei.get(arg);
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_load_global(vm, oparg, instr_idx, cache_base);
-                }
+            Instruction::LoadGlobal { namei: idx } => {
+                let oparg = idx.get(arg);
+                self.adaptive(|s, ii, cb| s.specialize_load_global(vm, oparg, ii, cb));
                 let name = &self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
@@ -2190,8 +2101,8 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            Instruction::LoadName { namei } => {
-                let name = self.code.names[namei.get(arg) as usize];
+            Instruction::LoadName { namei: idx } => {
+                let name = self.code.names[idx.get(arg) as usize];
                 let result = self.locals.mapping(vm).subscript(name, vm);
                 match result {
                     Ok(x) => self.push_value(x),
@@ -2247,14 +2158,14 @@ impl ExecutingFrame<'_> {
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
-            Instruction::MatchClass { count } => {
+            Instruction::MatchClass { count: nargs } => {
                 // STACK[-1] is a tuple of keyword attribute names, STACK[-2] is the class being matched against, and STACK[-3] is the match subject.
                 // nargs is the number of positional sub-patterns.
                 let kwd_attrs = self.pop_value();
                 let kwd_attrs = kwd_attrs.downcast_ref::<PyTuple>().unwrap();
                 let cls = self.pop_value();
                 let subject = self.pop_value();
-                let nargs_val = count.get(arg) as usize;
+                let nargs_val = nargs.get(arg) as usize;
 
                 // Check if subject is an instance of cls
                 if subject.is_instance(cls.as_ref(), vm)? {
@@ -2525,11 +2436,12 @@ impl ExecutingFrame<'_> {
                 self.push_null();
                 Ok(None)
             }
-            Instruction::RaiseVarargs { argc } => self.execute_raise(vm, argc.get(arg)),
+            Instruction::RaiseVarargs { argc: kind } => self.execute_raise(vm, kind.get(arg)),
             Instruction::Resume { .. } => {
                 // Lazy quickening: initialize adaptive counters on first execution
                 if !self.code.quickened.swap(true, atomic::Ordering::Relaxed) {
                     self.code.instructions.quicken();
+                    atomic::fence(atomic::Ordering::Release);
                 }
                 // Check if bytecode needs re-instrumentation
                 let global_ver = vm
@@ -2651,34 +2563,24 @@ impl ExecutingFrame<'_> {
                     Err(exc)
                 }
             }
-            Instruction::SetFunctionAttribute { flag } => {
-                self.execute_set_function_attribute(vm, flag.get(arg))
+            Instruction::SetFunctionAttribute { flag: attr } => {
+                self.execute_set_function_attribute(vm, attr.get(arg))
             }
             Instruction::SetupAnnotations => self.setup_annotations(vm),
-            Instruction::StoreAttr { namei } => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_store_attr(vm, namei.get(arg), instr_idx, cache_base);
-                }
-                self.store_attr(vm, namei.get(arg))
+            Instruction::StoreAttr { namei: idx } => {
+                let idx_val = idx.get(arg);
+                self.adaptive(|s, ii, cb| s.specialize_store_attr(vm, idx_val, ii, cb));
+                self.store_attr(vm, idx_val)
             }
             Instruction::StoreDeref { i } => {
                 let value = self.pop_value();
                 self.state.cells_frees[i.get(arg) as usize].set(Some(value));
                 Ok(None)
             }
-            Instruction::StoreFast { var_num } => {
+            Instruction::StoreFast { var_num: idx } => {
                 let value = self.pop_value();
                 let fastlocals = unsafe { self.fastlocals.borrow_mut() };
-                fastlocals[var_num.get(arg) as usize] = Some(value);
+                fastlocals[idx.get(arg) as usize] = Some(value);
                 Ok(None)
             }
             Instruction::StoreFastLoadFast { var_nums } => {
@@ -2692,8 +2594,8 @@ impl ExecutingFrame<'_> {
                 self.push_value(load_value);
                 Ok(None)
             }
-            Instruction::StoreFastStoreFast { var_nums } => {
-                let oparg = var_nums.get(arg);
+            Instruction::StoreFastStoreFast { var_nums: packed } => {
+                let oparg = packed.get(arg);
                 let idx1 = (oparg >> 4) as usize;
                 let idx2 = (oparg & 15) as usize;
                 let value1 = self.pop_value();
@@ -2703,14 +2605,14 @@ impl ExecutingFrame<'_> {
                 fastlocals[idx2] = Some(value2);
                 Ok(None)
             }
-            Instruction::StoreGlobal { namei } => {
+            Instruction::StoreGlobal { namei: idx } => {
                 let value = self.pop_value();
                 self.globals
-                    .set_item(self.code.names[namei.get(arg) as usize], value, vm)?;
+                    .set_item(self.code.names[idx.get(arg) as usize], value, vm)?;
                 Ok(None)
             }
-            Instruction::StoreName { namei } => {
-                let name = self.code.names[namei.get(arg) as usize];
+            Instruction::StoreName { namei: idx } => {
+                let name = self.code.names[idx.get(arg) as usize];
                 let value = self.pop_value();
                 self.locals
                     .mapping(vm)
@@ -2734,18 +2636,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::StoreSubscr => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_store_subscr(vm, instr_idx, cache_base);
-                }
+                self.adaptive(|s, ii, cb| s.specialize_store_subscr(vm, ii, cb));
                 self.execute_store_subscript(vm)
             }
             Instruction::Swap { i: index } => {
@@ -2766,41 +2657,19 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::ToBool => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_to_bool(vm, instr_idx, cache_base);
-                }
+                self.adaptive(|s, ii, cb| s.specialize_to_bool(vm, ii, cb));
                 let obj = self.pop_value();
                 let bool_val = obj.try_to_bool(vm)?;
                 self.push_value(vm.ctx.new_bool(bool_val).into());
                 Ok(None)
             }
-            Instruction::UnpackEx { counts } => {
-                let args = counts.get(arg);
+            Instruction::UnpackEx { counts: args } => {
+                let args = args.get(arg);
                 self.execute_unpack_ex(vm, args.before, args.after)
             }
-            Instruction::UnpackSequence { count } => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_unpack_sequence(vm, instr_idx, cache_base);
-                }
-                self.unpack_sequence(count.get(arg), vm)
+            Instruction::UnpackSequence { count: size } => {
+                self.adaptive(|s, ii, cb| s.specialize_unpack_sequence(vm, ii, cb));
+                self.unpack_sequence(size.get(arg), vm)
             }
             Instruction::WithExceptStart => {
                 // Stack: [..., __exit__, lasti, prev_exc, exc]
@@ -2847,18 +2716,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::Send { .. } => {
                 // (receiver, v -- receiver, retval)
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let counter = self.code.instructions.read_cache_u16(cache_base);
-                if counter > 0 {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u16(cache_base, counter - 1);
-                    }
-                } else {
-                    self.specialize_send(instr_idx, cache_base);
-                }
+                self.adaptive(|s, ii, cb| s.specialize_send(ii, cb));
                 let exit_label = bytecode::Label(self.lasti() + 1 + u32::from(arg));
                 let val = self.pop_value();
                 let receiver = self.top_value();
@@ -2907,19 +2765,20 @@ impl ExecutingFrame<'_> {
                         }
                     }
                 }
-                // Deoptimize
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::Send {
-                            delta: Arg::marker(),
-                        },
-                    );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                {
+                    let instr_idx = self.lasti() as usize - 1;
+                    let cache_base = instr_idx + 1;
+                    unsafe {
+                        self.code.instructions.replace_op(
+                            instr_idx,
+                            Instruction::Send {
+                                delta: Arg::marker(),
+                            },
+                        );
+                        self.code
+                            .instructions
+                            .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    }
                 }
                 match self._send(receiver, val, vm)? {
                     PyIterReturn::Return(value) => {
@@ -3031,18 +2890,13 @@ impl ExecutingFrame<'_> {
                     self.push_value(owner);
                     Ok(None)
                 } else {
-                    // De-optimize
-                    unsafe {
-                        self.code.instructions.replace_op(
-                            instr_idx,
-                            Instruction::LoadAttr {
-                                namei: Arg::marker(),
-                            },
-                        );
-                        self.code
-                            .instructions
-                            .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-                    }
+                    self.deoptimize_at(
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                        instr_idx,
+                        cache_base,
+                    );
                     self.load_attr_slow(vm, oparg)
                 }
             }
@@ -3091,18 +2945,13 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                // De-optimize
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-                }
+                self.deoptimize_at(
+                    Instruction::LoadAttr {
+                        namei: Arg::marker(),
+                    },
+                    instr_idx,
+                    cache_base,
+                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrInstanceValue => {
@@ -3126,18 +2975,13 @@ impl ExecutingFrame<'_> {
                     }
                     // Not in instance dict — fall through to class lookup via slow path
                 }
-                // De-optimize
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-                }
+                self.deoptimize_at(
+                    Instruction::LoadAttr {
+                        namei: Arg::marker(),
+                    },
+                    instr_idx,
+                    cache_base,
+                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrModule => {
@@ -3383,18 +3227,13 @@ impl ExecutingFrame<'_> {
                     dict.set_item(attr_name, value, vm)?;
                     return Ok(None);
                 }
-                // Deoptimize
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::StoreAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-                }
+                self.deoptimize_at(
+                    Instruction::StoreAttr {
+                        namei: Arg::marker(),
+                    },
+                    instr_idx,
+                    cache_base,
+                );
                 self.store_attr(vm, attr_idx)
             }
             Instruction::StoreAttrSlot => {
@@ -3408,7 +3247,7 @@ impl ExecutingFrame<'_> {
 
                 if version_match {
                     let slot_offset =
-                        self.code.instructions.read_cache_u32(cache_base + 3) as usize;
+                        self.code.instructions.read_cache_u16(cache_base + 3) as usize;
                     let owner = self.pop_value();
                     let value = self.pop_value();
                     owner.set_slot(slot_offset, Some(value));
@@ -3444,10 +3283,10 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                     drop(vec);
-                    self.deoptimize_store_subscr();
+                    self.deoptimize(Instruction::StoreSubscr);
                     return Err(vm.new_index_error("list assignment index out of range"));
                 }
-                self.deoptimize_store_subscr();
+                self.deoptimize(Instruction::StoreSubscr);
                 obj.set_item(&*idx, value, vm)?;
                 Ok(None)
             }
@@ -3460,113 +3299,29 @@ impl ExecutingFrame<'_> {
                     dict.set_item(&*idx, value, vm)?;
                     Ok(None)
                 } else {
-                    self.deoptimize_store_subscr();
+                    self.deoptimize(Instruction::StoreSubscr);
                     obj.set_item(&*idx, value, vm)?;
                     Ok(None)
                 }
             }
             // Specialized BINARY_OP opcodes
             Instruction::BinaryOpAddInt => {
-                let b = self.top_value();
-                let a = self.nth_value(1);
-                if let (Some(a_int), Some(b_int)) = (
-                    a.downcast_ref_if_exact::<PyInt>(vm),
-                    b.downcast_ref_if_exact::<PyInt>(vm),
-                ) {
-                    let result = a_int.as_bigint() + b_int.as_bigint();
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bigint(&result).into());
-                    Ok(None)
-                } else {
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::Add);
-                    self.execute_bin_op(vm, bytecode::BinaryOperator::Add)
-                }
+                self.execute_binary_op_int(vm, |a, b| a + b, bytecode::BinaryOperator::Add)
             }
             Instruction::BinaryOpSubtractInt => {
-                let b = self.top_value();
-                let a = self.nth_value(1);
-                if let (Some(a_int), Some(b_int)) = (
-                    a.downcast_ref_if_exact::<PyInt>(vm),
-                    b.downcast_ref_if_exact::<PyInt>(vm),
-                ) {
-                    let result = a_int.as_bigint() - b_int.as_bigint();
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bigint(&result).into());
-                    Ok(None)
-                } else {
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::Subtract);
-                    self.execute_bin_op(vm, bytecode::BinaryOperator::Subtract)
-                }
+                self.execute_binary_op_int(vm, |a, b| a - b, bytecode::BinaryOperator::Subtract)
             }
             Instruction::BinaryOpMultiplyInt => {
-                let b = self.top_value();
-                let a = self.nth_value(1);
-                if let (Some(a_int), Some(b_int)) = (
-                    a.downcast_ref_if_exact::<PyInt>(vm),
-                    b.downcast_ref_if_exact::<PyInt>(vm),
-                ) {
-                    let result = a_int.as_bigint() * b_int.as_bigint();
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bigint(&result).into());
-                    Ok(None)
-                } else {
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::Multiply);
-                    self.execute_bin_op(vm, bytecode::BinaryOperator::Multiply)
-                }
+                self.execute_binary_op_int(vm, |a, b| a * b, bytecode::BinaryOperator::Multiply)
             }
             Instruction::BinaryOpAddFloat => {
-                let b = self.top_value();
-                let a = self.nth_value(1);
-                if let (Some(a_f), Some(b_f)) = (
-                    a.downcast_ref_if_exact::<PyFloat>(vm),
-                    b.downcast_ref_if_exact::<PyFloat>(vm),
-                ) {
-                    let result = a_f.to_f64() + b_f.to_f64();
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_float(result).into());
-                    Ok(None)
-                } else {
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::Add);
-                    self.execute_bin_op(vm, bytecode::BinaryOperator::Add)
-                }
+                self.execute_binary_op_float(vm, |a, b| a + b, bytecode::BinaryOperator::Add)
             }
             Instruction::BinaryOpSubtractFloat => {
-                let b = self.top_value();
-                let a = self.nth_value(1);
-                if let (Some(a_f), Some(b_f)) = (
-                    a.downcast_ref_if_exact::<PyFloat>(vm),
-                    b.downcast_ref_if_exact::<PyFloat>(vm),
-                ) {
-                    let result = a_f.to_f64() - b_f.to_f64();
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_float(result).into());
-                    Ok(None)
-                } else {
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::Subtract);
-                    self.execute_bin_op(vm, bytecode::BinaryOperator::Subtract)
-                }
+                self.execute_binary_op_float(vm, |a, b| a - b, bytecode::BinaryOperator::Subtract)
             }
             Instruction::BinaryOpMultiplyFloat => {
-                let b = self.top_value();
-                let a = self.nth_value(1);
-                if let (Some(a_f), Some(b_f)) = (
-                    a.downcast_ref_if_exact::<PyFloat>(vm),
-                    b.downcast_ref_if_exact::<PyFloat>(vm),
-                ) {
-                    let result = a_f.to_f64() * b_f.to_f64();
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_float(result).into());
-                    Ok(None)
-                } else {
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::Multiply);
-                    self.execute_bin_op(vm, bytecode::BinaryOperator::Multiply)
-                }
+                self.execute_binary_op_float(vm, |a, b| a * b, bytecode::BinaryOperator::Multiply)
             }
             Instruction::BinaryOpAddUnicode => {
                 let b = self.top_value();
@@ -3581,7 +3336,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(result.to_pyobject(vm));
                     Ok(None)
                 } else {
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::Add);
+                    self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                     self.execute_bin_op(vm, bytecode::BinaryOperator::Add)
                 }
             }
@@ -3603,10 +3358,10 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                     drop(vec);
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                    self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                     return Err(vm.new_index_error("list index out of range"));
                 }
-                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::BinaryOpSubscrTupleInt => {
@@ -3625,10 +3380,10 @@ impl ExecutingFrame<'_> {
                         self.push_value(value);
                         return Ok(None);
                     }
-                    self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                    self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                     return Err(vm.new_index_error("tuple index out of range"));
                 }
-                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::BinaryOpSubscrDict => {
@@ -3643,18 +3398,18 @@ impl ExecutingFrame<'_> {
                             return Ok(None);
                         }
                         Ok(None) => {
-                            self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                             let key = self.pop_value();
                             self.pop_value();
                             return Err(vm.new_key_error(key));
                         }
                         Err(e) => {
-                            self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                             return Err(e);
                         }
                     }
                 }
-                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::BinaryOpSubscrStrInt => {
@@ -3673,12 +3428,12 @@ impl ExecutingFrame<'_> {
                             return Ok(None);
                         }
                         Err(e) => {
-                            self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                             return Err(e);
                         }
                     }
                 }
-                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::BinaryOpSubscrListSlice => {
@@ -3693,7 +3448,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize_binary_op(bytecode::BinaryOperator::Subscr);
+                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::CallPyExactArgs => {
@@ -3790,7 +3545,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3817,7 +3574,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(obj);
                     self.push_value(class_info);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3842,7 +3601,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3865,7 +3626,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3893,7 +3656,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3922,7 +3687,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(_null);
                     self.push_value(obj);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3953,7 +3720,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -3984,7 +3753,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    self.deoptimize_call();
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
                 }
@@ -4011,7 +3782,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    self.deoptimize_call();
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
                 }
@@ -4034,7 +3807,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(self_or_null);
                     self.push_value(item);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4069,7 +3844,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4105,7 +3882,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4142,7 +3921,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4168,7 +3949,70 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
+            }
+            Instruction::CallAllocAndEnterInit => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let nargs: u32 = arg.into();
+                let callable = self.nth_value(nargs + 1);
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
+                if !self_or_null_is_some
+                    && cached_version != 0
+                    && let Some(cls) = callable.downcast_ref::<PyType>()
+                    && cls.tp_version_tag.load(Acquire) == cached_version
+                {
+                    // Look up __init__ (guarded by type_version)
+                    if let Some(init) = cls.get_attr(identifier!(vm, __init__))
+                        && let Some(init_func) = init.downcast_ref::<PyFunction>()
+                    {
+                        // Allocate object directly (tp_new == object.__new__)
+                        let dict = if cls
+                            .slots
+                            .flags
+                            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+                        {
+                            Some(vm.ctx.new_dict())
+                        } else {
+                            None
+                        };
+                        let cls_ref = cls.to_owned();
+                        let new_obj: PyObjectRef =
+                            PyRef::new_ref(PyBaseObject, cls_ref, dict).into();
+
+                        // Build args: [new_obj, arg1, ..., argN]
+                        let pos_args: Vec<PyObjectRef> =
+                            self.pop_multiple(nargs as usize).collect();
+                        let _null = self.pop_value_opt(); // self_or_null (None)
+                        let _callable = self.pop_value(); // callable (type)
+
+                        let mut all_args = Vec::with_capacity(pos_args.len() + 1);
+                        all_args.push(new_obj.clone());
+                        all_args.extend(pos_args);
+
+                        let init_result = init_func.invoke_exact_args(all_args, vm)?;
+
+                        // EXIT_INIT_CHECK: __init__ must return None
+                        if !vm.is_none(&init_result) {
+                            return Err(
+                                vm.new_type_error("__init__() should return None".to_owned())
+                            );
+                        }
+
+                        self.push_value(new_obj);
+                        return Ok(None);
+                    }
+                }
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4206,7 +4050,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4238,7 +4084,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4253,7 +4101,9 @@ impl ExecutingFrame<'_> {
                     let args = self.collect_positional_args(nargs);
                     return self.execute_call(args, vm);
                 }
-                self.deoptimize_call();
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4297,7 +4147,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize_call_kw();
+                self.deoptimize(Instruction::CallKw {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4331,7 +4183,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize_call_kw();
+                self.deoptimize(Instruction::CallKw {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4346,7 +4200,9 @@ impl ExecutingFrame<'_> {
                     let args = self.collect_keyword_args(nargs);
                     return self.execute_call(args, vm);
                 }
-                self.deoptimize_call_kw();
+                self.deoptimize(Instruction::CallKw {
+                    argc: Arg::marker(),
+                });
                 let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4511,7 +4367,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_compare_op();
+                    self.deoptimize(Instruction::CompareOp {
+                        opname: Arg::marker(),
+                    });
                     let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
                         .unwrap_or(bytecode::ComparisonOperator::Equal);
                     self.execute_compare(vm, op)
@@ -4525,16 +4383,20 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyFloat>(vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
-                    let result = a_f
-                        .to_f64()
-                        .partial_cmp(&b_f.to_f64())
-                        .is_some_and(|ord| op.eval_ord(ord));
+                    let (a, b) = (a_f.to_f64(), b_f.to_f64());
+                    // Use Rust's IEEE 754 float comparison which handles NaN correctly
+                    let result = match a.partial_cmp(&b) {
+                        Some(ord) => op.eval_ord(ord),
+                        None => op == PyComparisonOp::Ne, // NaN != anything is true
+                    };
                     self.pop_value();
                     self.pop_value();
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_compare_op();
+                    self.deoptimize(Instruction::CompareOp {
+                        opname: Arg::marker(),
+                    });
                     let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
                         .unwrap_or(bytecode::ComparisonOperator::Equal);
                     self.execute_compare(vm, op)
@@ -4554,7 +4416,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_compare_op();
+                    self.deoptimize(Instruction::CompareOp {
+                        opname: Arg::marker(),
+                    });
                     let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
                         .unwrap_or(bytecode::ComparisonOperator::Equal);
                     self.execute_compare(vm, op)
@@ -4566,7 +4430,7 @@ impl ExecutingFrame<'_> {
                     // Already a bool, no-op
                     Ok(None)
                 } else {
-                    self.deoptimize_to_bool();
+                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4581,7 +4445,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_to_bool();
+                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4595,7 +4459,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(false).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_to_bool();
+                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4610,7 +4474,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_to_bool();
+                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4625,7 +4489,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_to_bool();
+                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4634,18 +4498,18 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ToBoolAlwaysTrue => {
                 // Objects without __bool__ or __len__ are always True.
-                // Guard: check the type hasn't gained these slots.
+                // Guard: check type version hasn't changed.
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
                 let obj = self.top_value();
-                let slots = &obj.class().slots;
-                if slots.as_number.boolean.load().is_none()
-                    && slots.as_mapping.length.load().is_none()
-                    && slots.as_sequence.length.load().is_none()
+                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                if cached_version != 0 && obj.class().tp_version_tag.load(Acquire) == cached_version
                 {
                     self.pop_value();
                     self.push_value(vm.ctx.new_bool(true).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_to_bool();
+                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4668,7 +4532,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(value).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_contains_op();
+                    self.deoptimize(Instruction::ContainsOp {
+                        invert: Arg::marker(),
+                    });
                     let b = self.pop_value();
                     let a = self.pop_value();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
@@ -4683,7 +4549,9 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ContainsOpSet => {
                 let b = self.top_value(); // haystack
-                if b.downcast_ref_if_exact::<PySet>(vm).is_some() {
+                if b.downcast_ref_if_exact::<PySet>(vm).is_some()
+                    || b.downcast_ref_if_exact::<PyFrozenSet>(vm).is_some()
+                {
                     let a = self.nth_value(1); // needle
                     let found = vm._contains(b, a)?;
                     self.pop_value();
@@ -4697,7 +4565,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(value).into());
                     Ok(None)
                 } else {
-                    self.deoptimize_contains_op();
+                    self.deoptimize(Instruction::ContainsOp {
+                        invert: Arg::marker(),
+                    });
                     let b = self.pop_value();
                     let a = self.pop_value();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
@@ -4723,7 +4593,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize_unpack_sequence();
+                self.deoptimize(Instruction::UnpackSequence {
+                    count: Arg::marker(),
+                });
                 let size = u32::from(arg);
                 self.unpack_sequence(size, vm)
             }
@@ -4741,7 +4613,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize_unpack_sequence();
+                self.deoptimize(Instruction::UnpackSequence {
+                    count: Arg::marker(),
+                });
                 self.unpack_sequence(size as u32, vm)
             }
             Instruction::UnpackSequenceList => {
@@ -4759,7 +4633,9 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize_unpack_sequence();
+                self.deoptimize(Instruction::UnpackSequence {
+                    count: Arg::marker(),
+                });
                 self.unpack_sequence(size as u32, vm)
             }
             Instruction::ForIterRange => {
@@ -4773,7 +4649,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize_for_iter();
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4789,7 +4667,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize_for_iter();
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4805,7 +4685,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize_for_iter();
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4825,7 +4707,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize_for_iter();
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4847,7 +4731,9 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     } else {
                         // Name was removed from globals
-                        self.deoptimize_load_global();
+                        self.deoptimize(Instruction::LoadGlobal {
+                            namei: Arg::marker(),
+                        });
                         let x = self.load_global_or_builtin(name, vm)?;
                         self.push_value(x);
                         if (oparg & 1) != 0 {
@@ -4856,7 +4742,9 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                 } else {
-                    self.deoptimize_load_global();
+                    self.deoptimize(Instruction::LoadGlobal {
+                        namei: Arg::marker(),
+                    });
                     let name = self.code.names[(oparg >> 1) as usize];
                     let x = self.load_global_or_builtin(name, vm)?;
                     self.push_value(x);
@@ -4870,38 +4758,41 @@ impl ExecutingFrame<'_> {
                 let oparg = u32::from(arg);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
-                let current_version = self.globals.version() as u32;
-                if cached_version == current_version {
-                    // globals unchanged — name is NOT in globals, look up in builtins
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    if let Some(builtins_dict) = self.builtins.downcast_ref::<PyDict>()
-                        && let Some(x) = builtins_dict.get_item_opt(name, vm)?
-                    {
-                        self.push_value(x);
-                        if (oparg & 1) != 0 {
-                            self.push_value_opt(None);
+                let cached_globals_ver = self.code.instructions.read_cache_u32(cache_base + 1);
+                let cached_builtins_ver = self.code.instructions.read_cache_u32(cache_base + 2);
+                let current_globals_ver = self.globals.version() as u32;
+                if cached_globals_ver == current_globals_ver {
+                    // globals unchanged — name is NOT in globals, check builtins
+                    if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm) {
+                        let current_builtins_ver = builtins_dict.version() as u32;
+                        if cached_builtins_ver == current_builtins_ver {
+                            // Both versions match — safe to look up in builtins
+                            let name = self.code.names[(oparg >> 1) as usize];
+                            if let Some(x) = builtins_dict.get_item_opt(name, vm)? {
+                                self.push_value(x);
+                                if (oparg & 1) != 0 {
+                                    self.push_value_opt(None);
+                                }
+                                return Ok(None);
+                            }
                         }
-                        return Ok(None);
                     }
-                    // Fallback: name not found or builtins not a dict
-                    self.deoptimize_load_global();
-                    let x = self.load_global_or_builtin(name, vm)?;
-                    self.push_value(x);
-                    if (oparg & 1) != 0 {
-                        self.push_value_opt(None);
-                    }
-                    Ok(None)
-                } else {
-                    self.deoptimize_load_global();
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    let x = self.load_global_or_builtin(name, vm)?;
-                    self.push_value(x);
-                    if (oparg & 1) != 0 {
-                        self.push_value_opt(None);
-                    }
-                    Ok(None)
                 }
+                // Version mismatch or lookup failed — deoptimize
+                self.deoptimize_at(
+                    Instruction::LoadGlobal {
+                        namei: Arg::marker(),
+                    },
+                    instr_idx,
+                    cache_base,
+                );
+                let name = self.code.names[(oparg >> 1) as usize];
+                let x = self.load_global_or_builtin(name, vm)?;
+                self.push_value(x);
+                if (oparg & 1) != 0 {
+                    self.push_value_opt(None);
+                }
+                Ok(None)
             }
             // All INSTRUMENTED_* opcodes delegate to a cold function to keep
             // the hot instruction loop free of monitoring overhead.
@@ -5167,7 +5058,10 @@ impl ExecutingFrame<'_> {
                     // Scan backwards past CACHE entries to find the branch instruction
                     let mut branch_idx = not_taken_idx.saturating_sub(1);
                     while branch_idx > 0
-                        && matches!(self.code.instructions[branch_idx].op, Instruction::Cache)
+                        && matches!(
+                            self.code.instructions.read_op(branch_idx),
+                            Instruction::Cache
+                        )
                     {
                         branch_idx -= 1;
                     }
@@ -6480,20 +6374,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn load_attr(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-
-        let counter = self.code.instructions.read_adaptive_counter(cache_base);
-        if counter > 0 {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, counter - 1);
-            }
-        } else {
-            self.specialize_load_attr(vm, oparg, instr_idx, cache_base);
-        }
-
+        self.adaptive(|s, ii, cb| s.specialize_load_attr(vm, oparg, ii, cb));
         self.load_attr_slow(vm, oparg)
     }
 
@@ -6504,6 +6385,13 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        // Pre-check: bail if already specialized by another thread
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::LoadAttr { .. }
+        ) {
+            return;
+        }
         let obj = self.top_value();
         let cls = obj.class();
 
@@ -6811,6 +6699,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::BinaryOp { .. }
+        ) {
+            return;
+        }
         let b = self.top_value();
         let a = self.nth_value(1);
 
@@ -6893,6 +6787,35 @@ impl ExecutingFrame<'_> {
             _ => None,
         };
 
+        self.commit_specialization(instr_idx, cache_base, new_op);
+    }
+
+    /// Adaptive counter: decrement the warmup counter, or call the specialize
+    /// function when it reaches zero.
+    #[inline]
+    fn adaptive(&mut self, specialize: impl FnOnce(&mut Self, usize, usize)) {
+        let instr_idx = self.lasti() as usize - 1;
+        let cache_base = instr_idx + 1;
+        let counter = self.code.instructions.read_adaptive_counter(cache_base);
+        if counter > 0 {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, counter - 1);
+            }
+        } else {
+            specialize(self, instr_idx, cache_base);
+        }
+    }
+
+    /// Commit a specialization result: replace op on success, backoff on failure.
+    #[inline]
+    fn commit_specialization(
+        &mut self,
+        instr_idx: usize,
+        cache_base: usize,
+        new_op: Option<Instruction>,
+    ) {
         if let Some(new_op) = new_op {
             unsafe {
                 self.code.instructions.replace_op(instr_idx, new_op);
@@ -6906,16 +6829,76 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn deoptimize_binary_op(&mut self, _op: bytecode::BinaryOperator) {
+    /// Deoptimize: replace specialized op with its base adaptive op and reset
+    /// the adaptive counter. Computes instr_idx/cache_base from lasti().
+    #[inline]
+    fn deoptimize(&mut self, base_op: Instruction) {
         let instr_idx = self.lasti() as usize - 1;
         let cache_base = instr_idx + 1;
+        self.deoptimize_at(base_op, instr_idx, cache_base);
+    }
+
+    /// Deoptimize with explicit indices (for specialized handlers that already
+    /// have instr_idx/cache_base in scope).
+    #[inline]
+    fn deoptimize_at(&mut self, base_op: Instruction, instr_idx: usize, cache_base: usize) {
         unsafe {
-            self.code
-                .instructions
-                .replace_op(instr_idx, Instruction::BinaryOp { op: Arg::marker() });
+            self.code.instructions.replace_op(instr_idx, base_op);
             self.code
                 .instructions
                 .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+        }
+    }
+
+    /// Execute a specialized binary op on two int operands.
+    /// Deoptimize if either operand is not an exact int.
+    #[inline]
+    fn execute_binary_op_int(
+        &mut self,
+        vm: &VirtualMachine,
+        op: impl FnOnce(&BigInt, &BigInt) -> BigInt,
+        deopt_op: bytecode::BinaryOperator,
+    ) -> FrameResult {
+        let b = self.top_value();
+        let a = self.nth_value(1);
+        if let (Some(a_int), Some(b_int)) = (
+            a.downcast_ref_if_exact::<PyInt>(vm),
+            b.downcast_ref_if_exact::<PyInt>(vm),
+        ) {
+            let result = op(a_int.as_bigint(), b_int.as_bigint());
+            self.pop_value();
+            self.pop_value();
+            self.push_value(vm.ctx.new_bigint(&result).into());
+            Ok(None)
+        } else {
+            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
+            self.execute_bin_op(vm, deopt_op)
+        }
+    }
+
+    /// Execute a specialized binary op on two float operands.
+    /// Deoptimize if either operand is not an exact float.
+    #[inline]
+    fn execute_binary_op_float(
+        &mut self,
+        vm: &VirtualMachine,
+        op: impl FnOnce(f64, f64) -> f64,
+        deopt_op: bytecode::BinaryOperator,
+    ) -> FrameResult {
+        let b = self.top_value();
+        let a = self.nth_value(1);
+        if let (Some(a_f), Some(b_f)) = (
+            a.downcast_ref_if_exact::<PyFloat>(vm),
+            b.downcast_ref_if_exact::<PyFloat>(vm),
+        ) {
+            let result = op(a_f.to_f64(), b_f.to_f64());
+            self.pop_value();
+            self.pop_value();
+            self.push_value(vm.ctx.new_float(result).into());
+            Ok(None)
+        } else {
+            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
+            self.execute_bin_op(vm, deopt_op)
         }
     }
 
@@ -6926,6 +6909,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::Call { .. }
+        ) {
+            return;
+        }
         // Stack: [callable, self_or_null, arg1, ..., argN]
         // callable is at position nargs + 1 from top
         // self_or_null is at position nargs from top
@@ -7034,6 +7023,32 @@ impl ExecutingFrame<'_> {
                         return;
                     }
                 }
+                // CallAllocAndEnterInit: heap type with default __new__
+                if let Some(cls) = callable.downcast_ref::<PyType>()
+                    && cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                {
+                    let object_new = vm.ctx.types.object_type.slots.new.load();
+                    let cls_new = cls.slots.new.load();
+                    if let (Some(cls_new_fn), Some(obj_new_fn)) = (cls_new, object_new)
+                        && cls_new_fn as usize == obj_new_fn as usize
+                        && let Some(init) = cls.get_attr(identifier!(vm, __init__))
+                        && let Some(init_func) = init.downcast_ref::<PyFunction>()
+                        && init_func.can_specialize_call(nargs + 1)
+                    {
+                        let version = cls.tp_version_tag.load(Acquire);
+                        if version != 0 {
+                            unsafe {
+                                self.code
+                                    .instructions
+                                    .replace_op(instr_idx, Instruction::CallAllocAndEnterInit);
+                                self.code
+                                    .instructions
+                                    .write_cache_u32(cache_base + 1, version);
+                            }
+                            return;
+                        }
+                    }
+                }
                 // General builtin class call (any type with Callable)
                 let callable_tag = callable as *const PyObject as u32;
                 unsafe {
@@ -7067,6 +7082,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::CallKw { .. }
+        ) {
+            return;
+        }
         // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
         // callable is at position nargs + 2 from top
         let stack = &self.state.stack;
@@ -7112,6 +7133,12 @@ impl ExecutingFrame<'_> {
     }
 
     fn specialize_send(&mut self, instr_idx: usize, cache_base: usize) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::Send { .. }
+        ) {
+            return;
+        }
         // Stack: [receiver, val] — receiver is at position 1
         let receiver = self.nth_value(1);
         if self.builtin_coro(receiver).is_some() {
@@ -7136,6 +7163,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::LoadSuperAttr { .. }
+        ) {
+            return;
+        }
         // Stack: [global_super, class, self]
         let global_super = self.nth_value(2);
         let class = self.nth_value(1);
@@ -7168,6 +7201,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::CompareOp { .. }
+        ) {
+            return;
+        }
         let b = self.top_value();
         let a = self.nth_value(1);
 
@@ -7187,17 +7226,7 @@ impl ExecutingFrame<'_> {
             None
         };
 
-        if let Some(new_op) = new_op {
-            unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
-            }
-        } else {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-            }
-        }
+        self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
     /// Recover the ComparisonOperator from the instruction arg byte.
@@ -7208,23 +7237,13 @@ impl ExecutingFrame<'_> {
             .into()
     }
 
-    fn deoptimize_compare_op(&mut self) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        unsafe {
-            self.code.instructions.replace_op(
-                instr_idx,
-                Instruction::CompareOp {
-                    opname: Arg::marker(),
-                },
-            );
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+    fn specialize_to_bool(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::ToBool
+        ) {
+            return;
         }
-    }
-
-    fn specialize_to_bool(&mut self, vm: &VirtualMachine, instr_idx: usize, _cache_base: usize) {
         let obj = self.top_value();
         let cls = obj.class();
 
@@ -7242,39 +7261,42 @@ impl ExecutingFrame<'_> {
             && cls.slots.as_mapping.length.load().is_none()
             && cls.slots.as_sequence.length.load().is_none()
         {
-            Some(Instruction::ToBoolAlwaysTrue)
+            // Cache type version for ToBoolAlwaysTrue guard
+            let mut type_version = cls.tp_version_tag.load(Acquire);
+            if type_version == 0 {
+                type_version = cls.assign_version_tag();
+            }
+            if type_version != 0 {
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 1, type_version);
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::ToBoolAlwaysTrue);
+                }
+            } else {
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+            }
+            return;
         } else {
             None
         };
 
-        if let Some(new_op) = new_op {
-            unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
-            }
-        } else {
-            let cache_base = instr_idx + 1;
-            unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-            }
-        }
-    }
-
-    fn deoptimize_to_bool(&mut self) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        unsafe {
-            self.code
-                .instructions
-                .replace_op(instr_idx, Instruction::ToBool);
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-        }
+        self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
     fn specialize_for_iter(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::ForIter { .. }
+        ) {
+            return;
+        }
         let iter = self.top_value();
 
         let new_op = if iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some() {
@@ -7289,65 +7311,7 @@ impl ExecutingFrame<'_> {
             None
         };
 
-        if let Some(new_op) = new_op {
-            unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
-            }
-        } else {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-            }
-        }
-    }
-
-    fn deoptimize_call(&mut self) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        unsafe {
-            self.code.instructions.replace_op(
-                instr_idx,
-                Instruction::Call {
-                    argc: Arg::marker(),
-                },
-            );
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-        }
-    }
-
-    fn deoptimize_call_kw(&mut self) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        unsafe {
-            self.code.instructions.replace_op(
-                instr_idx,
-                Instruction::CallKw {
-                    argc: Arg::marker(),
-                },
-            );
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-        }
-    }
-
-    fn deoptimize_for_iter(&mut self) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        unsafe {
-            self.code.instructions.replace_op(
-                instr_idx,
-                Instruction::ForIter {
-                    delta: Arg::marker(),
-                },
-            );
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-        }
+        self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
     /// Handle iterator exhaustion in specialized FOR_ITER handlers.
@@ -7376,31 +7340,45 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::LoadGlobal { .. }
+        ) {
+            return;
+        }
         let name = self.code.names[(oparg >> 1) as usize];
         // Check if name exists in globals
         let in_globals = self.globals.get_item_opt(name, vm).ok().flatten().is_some();
 
         let globals_version = self.globals.version() as u32;
 
-        let new_op = if in_globals {
-            Some(Instruction::LoadGlobalModule)
-        } else if self
-            .builtins
-            .downcast_ref::<PyDict>()
-            .and_then(|b| b.get_item_opt(name, vm).ok().flatten())
-            .is_some()
-        {
-            Some(Instruction::LoadGlobalBuiltin)
-        } else {
-            None
-        };
-
-        if let Some(new_op) = new_op {
+        if in_globals {
             unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
+                self.code
+                    .instructions
+                    .replace_op(instr_idx, Instruction::LoadGlobalModule);
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, globals_version);
+            }
+        } else if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
+            && builtins_dict
+                .get_item_opt(name, vm)
+                .ok()
+                .flatten()
+                .is_some()
+        {
+            let builtins_version = builtins_dict.version() as u32;
+            unsafe {
+                self.code
+                    .instructions
+                    .replace_op(instr_idx, Instruction::LoadGlobalBuiltin);
+                self.code
+                    .instructions
+                    .write_cache_u32(cache_base + 1, globals_version);
+                self.code
+                    .instructions
+                    .write_cache_u32(cache_base + 2, builtins_version);
             }
         } else {
             unsafe {
@@ -7411,28 +7389,18 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn deoptimize_load_global(&mut self) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        unsafe {
-            self.code.instructions.replace_op(
-                instr_idx,
-                Instruction::LoadGlobal {
-                    namei: Arg::marker(),
-                },
-            );
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-        }
-    }
-
     fn specialize_store_subscr(
         &mut self,
         vm: &VirtualMachine,
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::StoreSubscr
+        ) {
+            return;
+        }
         // Stack: [value, obj, idx] — obj is TOS-1
         let obj = self.nth_value(1);
         let idx = self.top_value();
@@ -7447,69 +7415,28 @@ impl ExecutingFrame<'_> {
             None
         };
 
-        if let Some(new_op) = new_op {
-            unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
-            }
-        } else {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-            }
-        }
-    }
-
-    fn deoptimize_store_subscr(&mut self) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        unsafe {
-            self.code
-                .instructions
-                .replace_op(instr_idx, Instruction::StoreSubscr);
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-        }
+        self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
     fn specialize_contains_op(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::ContainsOp { .. }
+        ) {
+            return;
+        }
         let haystack = self.top_value(); // b = TOS = haystack
         let new_op = if haystack.downcast_ref_if_exact::<PyDict>(vm).is_some() {
             Some(Instruction::ContainsOpDict)
-        } else if haystack.downcast_ref_if_exact::<PySet>(vm).is_some() {
+        } else if haystack.downcast_ref_if_exact::<PySet>(vm).is_some()
+            || haystack.downcast_ref_if_exact::<PyFrozenSet>(vm).is_some()
+        {
             Some(Instruction::ContainsOpSet)
         } else {
             None
         };
 
-        if let Some(new_op) = new_op {
-            unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
-            }
-        } else {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-            }
-        }
-    }
-
-    fn deoptimize_contains_op(&mut self) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        unsafe {
-            self.code.instructions.replace_op(
-                instr_idx,
-                Instruction::ContainsOp {
-                    invert: Arg::marker(),
-                },
-            );
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-        }
+        self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
     fn specialize_unpack_sequence(
@@ -7518,6 +7445,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::UnpackSequence { .. }
+        ) {
+            return;
+        }
         let obj = self.top_value();
         let new_op = if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
             if tuple.len() == 2 {
@@ -7531,33 +7464,7 @@ impl ExecutingFrame<'_> {
             None
         };
 
-        if let Some(new_op) = new_op {
-            unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
-            }
-        } else {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-            }
-        }
-    }
-
-    fn deoptimize_unpack_sequence(&mut self) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        unsafe {
-            self.code.instructions.replace_op(
-                instr_idx,
-                Instruction::UnpackSequence {
-                    count: Arg::marker(),
-                },
-            );
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
-        }
+        self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
     fn specialize_store_attr(
@@ -7567,6 +7474,12 @@ impl ExecutingFrame<'_> {
         instr_idx: usize,
         cache_base: usize,
     ) {
+        if !matches!(
+            self.code.instructions.read_op(instr_idx),
+            Instruction::StoreAttr { .. }
+        ) {
+            return;
+        }
         // TOS = owner (the object being assigned to)
         let owner = self.top_value();
         let cls = owner.class();
@@ -7620,7 +7533,7 @@ impl ExecutingFrame<'_> {
                         .write_cache_u32(cache_base + 1, type_version);
                     self.code
                         .instructions
-                        .write_cache_u32(cache_base + 3, offset as u32);
+                        .write_cache_u16(cache_base + 3, offset as u16);
                     self.code
                         .instructions
                         .replace_op(instr_idx, Instruction::StoreAttrSlot);

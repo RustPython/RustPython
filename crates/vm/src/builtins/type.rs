@@ -347,7 +347,7 @@ impl PyType {
         if old_version == 0 {
             return;
         }
-        self.tp_version_tag.store(0, Ordering::Release);
+        self.tp_version_tag.store(0, Ordering::SeqCst);
         // Release strong references held by cache entries for this version.
         // We hold owned refs that would prevent GC of class attributes after
         // type deletion.
@@ -2168,6 +2168,11 @@ impl SetAttr for PyType {
         }
         let assign = value.is_assign();
 
+        // Invalidate inline caches before modifying attributes.
+        // This ensures other threads see the version invalidation before
+        // any attribute changes, preventing use-after-free of cached descriptors.
+        zelf.modified();
+
         if let PySetterValue::Assign(value) = value {
             zelf.attributes.write().insert(attr_name, value);
         } else {
@@ -2180,8 +2185,6 @@ impl SetAttr for PyType {
                 )));
             }
         }
-        // Invalidate inline caches that depend on this type's attributes
-        zelf.modified();
 
         if attr_name.as_wtf8().starts_with("__") && attr_name.as_wtf8().ends_with("__") {
             if assign {

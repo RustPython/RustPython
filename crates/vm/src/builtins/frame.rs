@@ -182,8 +182,8 @@ pub(crate) mod stack_analysis {
                 }
                 oparg = (oparg << 8) | u32::from(u8::from(instructions[i].arg));
 
-                // De-instrument: get the underlying real instruction
-                let opcode = opcode.to_base().unwrap_or(opcode);
+                // De-instrument and de-specialize: get the underlying base instruction
+                let opcode = opcode.to_base().unwrap_or(opcode).deoptimize();
 
                 let caches = opcode.cache_entries();
                 let next_i = i + 1 + caches;
