@@ -4311,9 +4311,8 @@ impl ExecutingFrame<'_> {
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
-                let stack = &self.state.stack;
-                let stack_len = stack.len();
-                let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
+                let stack_len = self.localsplus.stack_len();
+                let self_or_null_is_some = self.localsplus.stack_index(stack_len - nargs as usize - 1).is_some();
                 if !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
