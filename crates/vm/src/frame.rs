@@ -3879,18 +3879,25 @@ impl ExecutingFrame<'_> {
             Instruction::CallBuiltinClass => {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
-                if callable.downcast_ref::<PyType>().is_some() {
-                    let args = self.collect_positional_args(nargs);
+                if let Some(cls) = callable.downcast_ref::<PyType>()
+                    && cls.slots.vectorcall.load().is_some()
+                {
+                    let nargs_usize = nargs as usize;
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    let final_args = if let Some(self_val) = self_or_null {
-                        let mut args = args;
-                        args.prepend_arg(self_val);
-                        args
-                    } else {
-                        args
-                    };
-                    let result = callable.call(final_args, vm)?;
+                    let self_is_some = self_or_null.is_some();
+                    let mut args_vec = Vec::with_capacity(nargs_usize + usize::from(self_is_some));
+                    if let Some(self_val) = self_or_null {
+                        args_vec.push(self_val);
+                    }
+                    args_vec.extend(pos_args);
+                    let result = callable.vectorcall(
+                        args_vec,
+                        nargs_usize + usize::from(self_is_some),
+                        None,
+                        vm,
+                    )?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -6962,7 +6969,9 @@ impl ExecutingFrame<'_> {
                     }
                 }
                 if let Some(cls) = callable.downcast_ref::<PyType>() {
-                    if cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+                    if cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE)
+                        && cls.slots.vectorcall.load().is_some()
+                    {
                         self.specialize_at(instr_idx, cache_base, Instruction::CallBuiltinClass);
                         return;
                     }
