@@ -2281,7 +2281,8 @@ impl ExecutingFrame<'_> {
                 };
                 self.push_value(match value {
                     Some(v) => v,
-                    None => self.cell_ref(i)
+                    None => self
+                        .cell_ref(i)
                         .get()
                         .ok_or_else(|| self.unbound_cell_exception(i, vm))?,
                 });
@@ -2338,7 +2339,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadDeref { i } => {
                 let idx = i.get(arg) as usize;
-                let x = self.cell_ref(idx)
+                let x = self
+                    .cell_ref(idx)
                     .get()
                     .ok_or_else(|| self.unbound_cell_exception(idx, vm))?;
                 self.push_value(x);
