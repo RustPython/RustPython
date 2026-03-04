@@ -363,12 +363,19 @@ impl<T: Clone> Dict<T> {
         key: &K,
         hint: usize,
     ) -> PyResult<Option<T>> {
-        let inner = self.read();
-        let Some(Some(entry)) = inner.entries.get(hint) else {
-            return Ok(None);
+        let (entry_key, entry_value) = {
+            let inner = self.read();
+            let Some(Some(entry)) = inner.entries.get(hint) else {
+                return Ok(None);
+            };
+            if key.key_is(&entry.key) {
+                return Ok(Some(entry.value.clone()));
+            }
+            (entry.key.clone(), entry.value.clone())
         };
-        if key.key_is(&entry.key) || key.key_eq(vm, &entry.key)? {
-            Ok(Some(entry.value.clone()))
+        // key_eq may run Python __eq__, so must be outside the lock.
+        if key.key_eq(vm, &entry_key)? {
+            Ok(Some(entry_value))
         } else {
             Ok(None)
         }
