@@ -6994,61 +6994,59 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        if !self_or_null_is_some {
-            // type/str/tuple(x) specialization
-            if callable.class().is(vm.ctx.types.type_type) {
-                if nargs == 1 {
-                    let new_op = if callable.is(&vm.ctx.types.type_type.as_object()) {
-                        Some(Instruction::CallType1)
-                    } else if callable.is(&vm.ctx.types.str_type.as_object()) {
-                        Some(Instruction::CallStr1)
-                    } else if callable.is(&vm.ctx.types.tuple_type.as_object()) {
-                        Some(Instruction::CallTuple1)
-                    } else {
-                        None
-                    };
-                    if let Some(new_op) = new_op {
-                        self.specialize_at(instr_idx, cache_base, new_op);
-                        return;
-                    }
-                }
-                if let Some(cls) = callable.downcast_ref::<PyType>() {
-                    if cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE)
-                        && cls.slots.vectorcall.load().is_some()
-                    {
-                        self.specialize_at(instr_idx, cache_base, Instruction::CallBuiltinClass);
-                        return;
-                    }
-                    // CallAllocAndEnterInit: heap type with default __new__
-                    if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-                        let object_new = vm.ctx.types.object_type.slots.new.load();
-                        let cls_new = cls.slots.new.load();
-                        if let (Some(cls_new_fn), Some(obj_new_fn)) = (cls_new, object_new)
-                            && cls_new_fn as usize == obj_new_fn as usize
-                            && let Some(init) = cls.get_attr(identifier!(vm, __init__))
-                            && let Some(init_func) = init.downcast_ref::<PyFunction>()
-                            && init_func.can_specialize_call(nargs + 1)
-                        {
-                            let version = cls.tp_version_tag.load(Acquire);
-                            if version != 0 {
-                                unsafe {
-                                    self.code
-                                        .instructions
-                                        .write_cache_u32(cache_base + 1, version);
-                                }
-                                self.specialize_at(
-                                    instr_idx,
-                                    cache_base,
-                                    Instruction::CallAllocAndEnterInit,
-                                );
-                                return;
-                            }
-                        }
-                    }
-                    self.specialize_at(instr_idx, cache_base, Instruction::CallNonPyGeneral);
+        // type/str/tuple(x) and class-call specializations
+        if callable.class().is(vm.ctx.types.type_type)
+            && let Some(cls) = callable.downcast_ref::<PyType>()
+        {
+            if !self_or_null_is_some && nargs == 1 {
+                let new_op = if callable.is(&vm.ctx.types.type_type.as_object()) {
+                    Some(Instruction::CallType1)
+                } else if callable.is(&vm.ctx.types.str_type.as_object()) {
+                    Some(Instruction::CallStr1)
+                } else if callable.is(&vm.ctx.types.tuple_type.as_object()) {
+                    Some(Instruction::CallTuple1)
+                } else {
+                    None
+                };
+                if let Some(new_op) = new_op {
+                    self.specialize_at(instr_idx, cache_base, new_op);
                     return;
                 }
             }
+            if cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE)
+                && cls.slots.vectorcall.load().is_some()
+            {
+                self.specialize_at(instr_idx, cache_base, Instruction::CallBuiltinClass);
+                return;
+            }
+            // CallAllocAndEnterInit: heap type with default __new__
+            if !self_or_null_is_some && cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+                let object_new = vm.ctx.types.object_type.slots.new.load();
+                let cls_new = cls.slots.new.load();
+                if let (Some(cls_new_fn), Some(obj_new_fn)) = (cls_new, object_new)
+                    && cls_new_fn as usize == obj_new_fn as usize
+                    && let Some(init) = cls.get_attr(identifier!(vm, __init__))
+                    && let Some(init_func) = init.downcast_ref::<PyFunction>()
+                    && init_func.can_specialize_call(nargs + 1)
+                {
+                    let version = cls.tp_version_tag.load(Acquire);
+                    if version != 0 {
+                        unsafe {
+                            self.code
+                                .instructions
+                                .write_cache_u32(cache_base + 1, version);
+                        }
+                        self.specialize_at(
+                            instr_idx,
+                            cache_base,
+                            Instruction::CallAllocAndEnterInit,
+                        );
+                        return;
+                    }
+                }
+            }
+            self.specialize_at(instr_idx, cache_base, Instruction::CallNonPyGeneral);
+            return;
         }
 
         // General fallback: specialized non-Python callable path
