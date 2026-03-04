@@ -3547,17 +3547,13 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallType1 => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     // Stack: [callable, null, arg]
                     let obj = self.pop_value();
                     let _null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    let callable_tag = &*callable as *const PyObject as u32;
-                    if cached_tag == callable_tag {
+                    if callable.is(vm.ctx.types.type_type.as_object()) {
                         let tp = obj.class().to_owned().into();
                         self.push_value(tp);
                         return Ok(None);
@@ -3571,16 +3567,12 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallStr1 => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     let obj = self.pop_value();
                     let _null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    let callable_tag = &*callable as *const PyObject as u32;
-                    if cached_tag == callable_tag {
+                    if callable.is(vm.ctx.types.str_type.as_object()) {
                         let result = obj.str(vm)?;
                         self.push_value(result.into());
                         return Ok(None);
@@ -3593,16 +3585,12 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallTuple1 => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     let obj = self.pop_value();
                     let _null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    let callable_tag = &*callable as *const PyObject as u32;
-                    if cached_tag == callable_tag {
+                    if callable.is(vm.ctx.types.tuple_type.as_object()) {
                         // tuple(x) returns x as-is when x is already an exact tuple
                         if let Ok(tuple) = obj.clone().downcast_exact::<PyTuple>(vm) {
                             self.push_value(tuple.into_pyref().into());
@@ -6949,12 +6937,6 @@ impl ExecutingFrame<'_> {
                         None
                     };
                     if let Some(new_op) = new_op {
-                        let callable_tag = callable as *const PyObject as u32;
-                        unsafe {
-                            self.code
-                                .instructions
-                                .write_cache_u32(cache_base + 1, callable_tag);
-                        }
                         self.specialize_at(instr_idx, cache_base, new_op);
                         return;
                     }
