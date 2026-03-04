@@ -3507,7 +3507,10 @@ impl ExecutingFrame<'_> {
                     let null = self.pop_value_opt();
                     let callable = self.pop_value();
                     let callable_tag = &*callable as *const PyObject as u32;
-                    if null.is_none() && cached_tag == callable_tag {
+                    let is_len_callable = callable
+                        .downcast_ref::<PyNativeFunction>()
+                        .is_some_and(|native| native.zelf.is_none() && native.value.name == "len");
+                    if null.is_none() && cached_tag == callable_tag && is_len_callable {
                         let len = obj.length(vm)?;
                         self.push_value(vm.ctx.new_int(len).into());
                         return Ok(None);
@@ -3532,7 +3535,12 @@ impl ExecutingFrame<'_> {
                 if effective_nargs == 2 {
                     let callable = self.nth_value(nargs + 1);
                     let callable_tag = callable as *const PyObject as u32;
-                    if cached_tag == callable_tag {
+                    let is_isinstance_callable = callable
+                        .downcast_ref::<PyNativeFunction>()
+                        .is_some_and(|native| {
+                            native.zelf.is_none() && native.value.name == "isinstance"
+                        });
+                    if cached_tag == callable_tag && is_isinstance_callable {
                         let nargs_usize = nargs as usize;
                         let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         let self_or_null = self.pop_value_opt();
@@ -6908,9 +6916,16 @@ impl ExecutingFrame<'_> {
         if let Some(native) = callable.downcast_ref::<PyNativeFunction>() {
             let effective_nargs = nargs + u32::from(self_or_null_is_some);
             let callable_tag = callable as *const PyObject as u32;
-            let new_op = if native.value.name == "len" && nargs == 1 && effective_nargs == 1 {
+            let new_op = if native.zelf.is_none()
+                && native.value.name == "len"
+                && nargs == 1
+                && effective_nargs == 1
+            {
                 Instruction::CallLen
-            } else if native.value.name == "isinstance" && effective_nargs == 2 {
+            } else if native.zelf.is_none()
+                && native.value.name == "isinstance"
+                && effective_nargs == 2
+            {
                 Instruction::CallIsinstance
             } else if effective_nargs == 1 {
                 Instruction::CallBuiltinO
