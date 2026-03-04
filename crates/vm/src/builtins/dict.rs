@@ -26,6 +26,8 @@ use crate::{
     vm::VirtualMachine,
 };
 use alloc::fmt;
+use core::cell::Cell;
+use core::ptr::NonNull;
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
 
@@ -60,10 +62,42 @@ impl fmt::Debug for PyDict {
     }
 }
 
+thread_local! {
+    static DICT_FREELIST: Cell<crate::object::FreeList<PyDict>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyDict {
+    const MAX_FREELIST: usize = 80;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.dict_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        DICT_FREELIST.with(|fl| {
+            let mut list = fl.take();
+            let stored = if list.len() < Self::MAX_FREELIST {
+                list.push(obj);
+                true
+            } else {
+                false
+            };
+            fl.set(list);
+            stored
+        })
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        DICT_FREELIST.with(|fl| {
+            let mut list = fl.take();
+            let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+            fl.set(list);
+            result
+        })
     }
 }
 

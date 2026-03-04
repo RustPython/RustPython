@@ -70,6 +70,7 @@ finalizers
 firsttraceable
 flowgraph
 formatfloat
+freelist
 freevar
 freevars
 fromlist
