@@ -3222,13 +3222,6 @@ impl ExecutingFrame<'_> {
                     dict.set_item(attr_name, value, vm)?;
                     return Ok(None);
                 }
-                self.deoptimize_at(
-                    Instruction::StoreAttr {
-                        namei: Arg::marker(),
-                    },
-                    instr_idx,
-                    cache_base,
-                );
                 self.store_attr(vm, attr_idx)
             }
             Instruction::StoreAttrWithHint => {
@@ -3248,13 +3241,6 @@ impl ExecutingFrame<'_> {
                     dict.set_item(attr_name, value, vm)?;
                     return Ok(None);
                 }
-                self.deoptimize_at(
-                    Instruction::StoreAttr {
-                        namei: Arg::marker(),
-                    },
-                    instr_idx,
-                    cache_base,
-                );
                 self.store_attr(vm, attr_idx)
             }
             Instruction::StoreAttrSlot => {
@@ -3274,22 +3260,7 @@ impl ExecutingFrame<'_> {
                     owner.set_slot(slot_offset, Some(value));
                     return Ok(None);
                 }
-                // Deoptimize
                 let attr_idx = u32::from(arg);
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::StoreAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
                 self.store_attr(vm, attr_idx)
             }
             Instruction::StoreSubscrListInt => {
@@ -3307,10 +3278,8 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                     drop(vec);
-                    self.deoptimize(Instruction::StoreSubscr);
                     return Err(vm.new_index_error("list assignment index out of range"));
                 }
-                self.deoptimize(Instruction::StoreSubscr);
                 obj.set_item(&*idx, value, vm)?;
                 Ok(None)
             }
@@ -3323,7 +3292,6 @@ impl ExecutingFrame<'_> {
                     dict.set_item(&*idx, value, vm)?;
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::StoreSubscr);
                     obj.set_item(&*idx, value, vm)?;
                     Ok(None)
                 }
