@@ -1269,7 +1269,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result.to_pyobject(vm));
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                     self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd)
                 }
             }
@@ -3328,14 +3327,12 @@ impl ExecutingFrame<'_> {
                     self.push_value(result.to_pyobject(vm));
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                     self.execute_bin_op(vm, bytecode::BinaryOperator::Add)
                 }
             }
             Instruction::BinaryOpSubscrGetitem | Instruction::BinaryOpExtend => {
                 let op = bytecode::BinaryOperator::try_from(u32::from(arg))
                     .unwrap_or(bytecode::BinaryOperator::Subscr);
-                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, op)
             }
             Instruction::BinaryOpSubscrListInt => {
@@ -3356,10 +3353,8 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                     drop(vec);
-                    self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                     return Err(vm.new_index_error("list index out of range"));
                 }
-                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::BinaryOpSubscrTupleInt => {
@@ -3378,10 +3373,8 @@ impl ExecutingFrame<'_> {
                         self.push_value(value);
                         return Ok(None);
                     }
-                    self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                     return Err(vm.new_index_error("tuple index out of range"));
                 }
-                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::BinaryOpSubscrDict => {
@@ -3396,18 +3389,15 @@ impl ExecutingFrame<'_> {
                             return Ok(None);
                         }
                         Ok(None) => {
-                            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                             let key = self.pop_value();
                             self.pop_value();
                             return Err(vm.new_key_error(key));
                         }
                         Err(e) => {
-                            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                             return Err(e);
                         }
                     }
                 }
-                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::BinaryOpSubscrStrInt => {
@@ -3426,12 +3416,10 @@ impl ExecutingFrame<'_> {
                             return Ok(None);
                         }
                         Err(e) => {
-                            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                             return Err(e);
                         }
                     }
                 }
-                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::BinaryOpSubscrListSlice => {
@@ -3446,7 +3434,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::CallPyExactArgs => {
@@ -4282,9 +4269,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::CompareOp {
-                        opname: Arg::marker(),
-                    });
                     let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
                         .unwrap_or(bytecode::ComparisonOperator::Equal);
                     self.execute_compare(vm, op)
@@ -4309,9 +4293,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::CompareOp {
-                        opname: Arg::marker(),
-                    });
                     let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
                         .unwrap_or(bytecode::ComparisonOperator::Equal);
                     self.execute_compare(vm, op)
@@ -4331,9 +4312,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::CompareOp {
-                        opname: Arg::marker(),
-                    });
                     let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
                         .unwrap_or(bytecode::ComparisonOperator::Equal);
                     self.execute_compare(vm, op)
@@ -4345,7 +4323,6 @@ impl ExecutingFrame<'_> {
                     // Already a bool, no-op
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4360,7 +4337,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4374,7 +4350,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(false).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4389,7 +4364,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4404,7 +4378,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4424,7 +4397,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(true).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ToBool);
                     let obj = self.pop_value();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -4447,9 +4419,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(value).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ContainsOp {
-                        invert: Arg::marker(),
-                    });
                     let b = self.pop_value();
                     let a = self.pop_value();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
@@ -4480,9 +4449,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(value).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ContainsOp {
-                        invert: Arg::marker(),
-                    });
                     let b = self.pop_value();
                     let a = self.pop_value();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
@@ -4508,9 +4474,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::UnpackSequence {
-                    count: Arg::marker(),
-                });
                 let size = u32::from(arg);
                 self.unpack_sequence(size, vm)
             }
@@ -4528,9 +4491,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::UnpackSequence {
-                    count: Arg::marker(),
-                });
                 self.unpack_sequence(size as u32, vm)
             }
             Instruction::UnpackSequenceList => {
@@ -4548,9 +4508,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::UnpackSequence {
-                    count: Arg::marker(),
-                });
                 self.unpack_sequence(size as u32, vm)
             }
             Instruction::ForIterRange => {
@@ -4564,9 +4521,6 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter {
-                        delta: Arg::marker(),
-                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4582,9 +4536,6 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter {
-                        delta: Arg::marker(),
-                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4600,9 +4551,6 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter {
-                        delta: Arg::marker(),
-                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -4622,9 +4570,6 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter {
-                        delta: Arg::marker(),
-                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -6810,32 +6755,8 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    /// Deoptimize: replace specialized op with its base adaptive op and reset
-    /// the adaptive counter. Computes instr_idx/cache_base from lasti().
-    #[inline]
-    fn deoptimize(&mut self, base_op: Instruction) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        self.deoptimize_at(base_op, instr_idx, cache_base);
-    }
-
-    /// Deoptimize with explicit indices (for specialized handlers that already
-    /// have instr_idx/cache_base in scope).
-    #[inline]
-    fn deoptimize_at(&mut self, base_op: Instruction, instr_idx: usize, cache_base: usize) {
-        unsafe {
-            self.code.instructions.replace_op(instr_idx, base_op);
-            self.code.instructions.write_adaptive_counter(
-                cache_base,
-                bytecode::adaptive_counter_backoff(
-                    self.code.instructions.read_adaptive_counter(cache_base),
-                ),
-            );
-        }
-    }
-
     /// Execute a specialized binary op on two int operands.
-    /// Deoptimize if either operand is not an exact int.
+    /// Fallback to generic binary op if either operand is not an exact int.
     #[inline]
     fn execute_binary_op_int(
         &mut self,
@@ -6855,13 +6776,12 @@ impl ExecutingFrame<'_> {
             self.push_value(vm.ctx.new_bigint(&result).into());
             Ok(None)
         } else {
-            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
             self.execute_bin_op(vm, deopt_op)
         }
     }
 
     /// Execute a specialized binary op on two float operands.
-    /// Deoptimize if either operand is not an exact float.
+    /// Fallback to generic binary op if either operand is not an exact float.
     #[inline]
     fn execute_binary_op_float(
         &mut self,
@@ -6881,7 +6801,6 @@ impl ExecutingFrame<'_> {
             self.push_value(vm.ctx.new_float(result).into());
             Ok(None)
         } else {
-            self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
             self.execute_bin_op(vm, deopt_op)
         }
     }
