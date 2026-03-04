@@ -3504,17 +3504,17 @@ impl ExecutingFrame<'_> {
                 if nargs == 1 {
                     // Stack: [callable, null, arg]
                     let obj = self.pop_value(); // arg
-                    let _null = self.pop_value_opt();
+                    let null = self.pop_value_opt();
                     let callable = self.pop_value();
                     let callable_tag = &*callable as *const PyObject as u32;
-                    if cached_tag == callable_tag {
+                    if null.is_none() && cached_tag == callable_tag {
                         let len = obj.length(vm)?;
                         self.push_value(vm.ctx.new_int(len).into());
                         return Ok(None);
                     }
                     // Guard failed — re-push and fallback
                     self.push_value(callable);
-                    self.push_value_opt(_null);
+                    self.push_value_opt(null);
                     self.push_value(obj);
                 }
                 let args = self.collect_positional_args(nargs);
@@ -3525,23 +3525,27 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
-                if nargs == 2 {
-                    // Stack: [callable, null, obj, class_info]
-                    let class_info = self.pop_value();
-                    let obj = self.pop_value();
-                    let _null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let callable_tag = &*callable as *const PyObject as u32;
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
+                let effective_nargs = nargs + u32::from(self_or_null_is_some);
+                if effective_nargs == 2 {
+                    let callable = self.nth_value(nargs + 1);
+                    let callable_tag = callable as *const PyObject as u32;
                     if cached_tag == callable_tag {
-                        let result = obj.is_instance(&class_info, vm)?;
+                        let nargs_usize = nargs as usize;
+                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                        let self_or_null = self.pop_value_opt();
+                        self.pop_value(); // callable
+                        let mut all_args = Vec::with_capacity(2);
+                        if let Some(self_val) = self_or_null {
+                            all_args.push(self_val);
+                        }
+                        all_args.extend(pos_args);
+                        let result = all_args[0].is_instance(&all_args[1], vm)?;
                         self.push_value(vm.ctx.new_bool(result).into());
                         return Ok(None);
                     }
-                    // Guard failed — re-push and fallback
-                    self.push_value(callable);
-                    self.push_value_opt(_null);
-                    self.push_value(obj);
-                    self.push_value(class_info);
                 }
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
@@ -3551,16 +3555,16 @@ impl ExecutingFrame<'_> {
                 if nargs == 1 {
                     // Stack: [callable, null, arg]
                     let obj = self.pop_value();
-                    let _null = self.pop_value_opt();
+                    let null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    if callable.is(vm.ctx.types.type_type.as_object()) {
+                    if null.is_none() && callable.is(vm.ctx.types.type_type.as_object()) {
                         let tp = obj.class().to_owned().into();
                         self.push_value(tp);
                         return Ok(None);
                     }
                     // Guard failed — re-push and fallback
                     self.push_value(callable);
-                    self.push_value_opt(_null);
+                    self.push_value_opt(null);
                     self.push_value(obj);
                 }
                 let args = self.collect_positional_args(nargs);
@@ -3570,15 +3574,15 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     let obj = self.pop_value();
-                    let _null = self.pop_value_opt();
+                    let null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    if callable.is(vm.ctx.types.str_type.as_object()) {
+                    if null.is_none() && callable.is(vm.ctx.types.str_type.as_object()) {
                         let result = obj.str(vm)?;
                         self.push_value(result.into());
                         return Ok(None);
                     }
                     self.push_value(callable);
-                    self.push_value_opt(_null);
+                    self.push_value_opt(null);
                     self.push_value(obj);
                 }
                 let args = self.collect_positional_args(nargs);
@@ -3588,9 +3592,9 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     let obj = self.pop_value();
-                    let _null = self.pop_value_opt();
+                    let null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    if callable.is(vm.ctx.types.tuple_type.as_object()) {
+                    if null.is_none() && callable.is(vm.ctx.types.tuple_type.as_object()) {
                         // tuple(x) returns x as-is when x is already an exact tuple
                         if let Ok(tuple) = obj.clone().downcast_exact::<PyTuple>(vm) {
                             self.push_value(tuple.into_pyref().into());
@@ -3601,7 +3605,7 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                     self.push_value(callable);
-                    self.push_value_opt(_null);
+                    self.push_value_opt(null);
                     self.push_value(obj);
                 }
                 let args = self.collect_positional_args(nargs);
@@ -3609,47 +3613,48 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallBuiltinO => {
                 let nargs: u32 = arg.into();
-                if nargs == 1 {
-                    let obj = self.pop_value();
-                    let _null = self.pop_value_opt();
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
+                let effective_nargs = nargs + u32::from(self_or_null_is_some);
+                let callable = self.nth_value(nargs + 1);
+                if callable.downcast_ref::<PyNativeFunction>().is_some() && effective_nargs == 1 {
+                    let nargs_usize = nargs as usize;
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                    let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    if let Some(native) = callable.downcast_ref::<PyNativeFunction>()
-                        && native.zelf.is_none()
-                    {
-                        let args = FuncArgs {
-                            args: vec![obj],
-                            kwargs: Default::default(),
-                        };
-                        let result = (native.value.func)(vm, args)?;
-                        self.push_value(result);
-                        return Ok(None);
+                    let mut args_vec = Vec::with_capacity(effective_nargs as usize);
+                    if let Some(self_val) = self_or_null {
+                        args_vec.push(self_val);
                     }
-                    self.push_value(callable);
-                    self.push_value_opt(_null);
-                    self.push_value(obj);
+                    args_vec.extend(pos_args);
+                    let result =
+                        callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
+                    self.push_value(result);
+                    return Ok(None);
                 }
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
             Instruction::CallBuiltinFast => {
                 let nargs: u32 = arg.into();
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
+                let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 let callable = self.nth_value(nargs + 1);
-                let func = {
-                    callable
-                        .downcast_ref::<PyNativeFunction>()
-                        .filter(|n| n.zelf.is_none())
-                        .map(|n| n.value.func)
-                };
-                if let Some(func) = func {
-                    let positional_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs as usize).collect();
-                    self.pop_value_opt(); // null (self_or_null)
-                    self.pop_value(); // callable
-                    let args = FuncArgs {
-                        args: positional_args,
-                        kwargs: Default::default(),
-                    };
-                    let result = func(vm, args)?;
+                if callable.downcast_ref::<PyNativeFunction>().is_some() {
+                    let nargs_usize = nargs as usize;
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                    let self_or_null = self.pop_value_opt();
+                    let callable = self.pop_value();
+                    let mut args_vec = Vec::with_capacity(effective_nargs as usize);
+                    if let Some(self_val) = self_or_null {
+                        args_vec.push(self_val);
+                    }
+                    args_vec.extend(pos_args);
+                    let result =
+                        callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -3978,23 +3983,23 @@ impl ExecutingFrame<'_> {
             Instruction::CallBuiltinFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
                 let nargs: u32 = arg.into();
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
+                let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 let callable = self.nth_value(nargs + 1);
-                let func = {
-                    callable
-                        .downcast_ref::<PyNativeFunction>()
-                        .filter(|n| n.zelf.is_none())
-                        .map(|n| n.value.func)
-                };
-                if let Some(func) = func {
-                    let positional_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs as usize).collect();
-                    self.pop_value_opt(); // null (self_or_null)
-                    self.pop_value(); // callable
-                    let args = FuncArgs {
-                        args: positional_args,
-                        kwargs: Default::default(),
-                    };
-                    let result = func(vm, args)?;
+                if callable.downcast_ref::<PyNativeFunction>().is_some() {
+                    let nargs_usize = nargs as usize;
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                    let self_or_null = self.pop_value_opt();
+                    let callable = self.pop_value();
+                    let mut args_vec = Vec::with_capacity(effective_nargs as usize);
+                    if let Some(self_val) = self_or_null {
+                        args_vec.push(self_val);
+                    }
+                    args_vec.extend(pos_args);
+                    let result =
+                        callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -6900,30 +6905,30 @@ impl ExecutingFrame<'_> {
         }
 
         // Try to specialize builtin calls
-        if !self_or_null_is_some {
-            if let Some(native) = callable.downcast_ref::<PyNativeFunction>()
-                && native.zelf.is_none()
-            {
-                let callable_tag = callable as *const PyObject as u32;
-                let new_op = match (native.value.name, nargs) {
-                    ("len", 1) => Instruction::CallLen,
-                    ("isinstance", 2) => Instruction::CallIsinstance,
-                    (_, 1) => Instruction::CallBuiltinO,
-                    _ => Instruction::CallBuiltinFast,
-                };
-                let new_op = Some(new_op);
-                if let Some(new_op) = new_op {
-                    if matches!(new_op, Instruction::CallLen | Instruction::CallIsinstance) {
-                        unsafe {
-                            self.code
-                                .instructions
-                                .write_cache_u32(cache_base + 1, callable_tag);
-                        }
-                    }
-                    self.specialize_at(instr_idx, cache_base, new_op);
-                    return;
+        if let Some(native) = callable.downcast_ref::<PyNativeFunction>() {
+            let effective_nargs = nargs + u32::from(self_or_null_is_some);
+            let callable_tag = callable as *const PyObject as u32;
+            let new_op = if native.value.name == "len" && nargs == 1 && effective_nargs == 1 {
+                Instruction::CallLen
+            } else if native.value.name == "isinstance" && effective_nargs == 2 {
+                Instruction::CallIsinstance
+            } else if effective_nargs == 1 {
+                Instruction::CallBuiltinO
+            } else {
+                Instruction::CallBuiltinFast
+            };
+            if matches!(new_op, Instruction::CallLen | Instruction::CallIsinstance) {
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 1, callable_tag);
                 }
             }
+            self.specialize_at(instr_idx, cache_base, new_op);
+            return;
+        }
+
+        if !self_or_null_is_some {
             // type/str/tuple(x) specialization
             if callable.class().is(vm.ctx.types.type_type) {
                 if nargs == 1 {
