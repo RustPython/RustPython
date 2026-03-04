@@ -723,7 +723,9 @@ pub mod module {
         // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
         // held by dead parent threads, causing deadlocks on any IO in the child.
         #[cfg(feature = "threading")]
-        unsafe { crate::stdlib::io::reinit_std_streams_after_fork(vm) };
+        unsafe {
+            crate::stdlib::io::reinit_std_streams_after_fork(vm)
+        };
 
         // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
