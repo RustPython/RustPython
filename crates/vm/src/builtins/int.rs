@@ -20,7 +20,9 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
+use core::cell::Cell;
 use core::ops::{Neg, Not};
+use core::ptr::NonNull;
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
@@ -48,7 +50,15 @@ where
     }
 }
 
+// spell-checker:ignore MAXFREELIST
+thread_local! {
+    static INT_FREELIST: Cell<crate::object::FreeList<PyInt>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyInt {
+    const MAX_FREELIST: usize = 100;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.int_type
@@ -56,6 +66,36 @@ impl PyPayload for PyInt {
 
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_int(self.value).into()
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        INT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        INT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 

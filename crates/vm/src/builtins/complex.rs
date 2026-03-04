@@ -10,7 +10,9 @@ use crate::{
     stdlib::warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use core::cell::Cell;
 use core::num::Wrapping;
+use core::ptr::NonNull;
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::hash;
@@ -24,10 +26,48 @@ pub struct PyComplex {
     value: Complex64,
 }
 
+// spell-checker:ignore MAXFREELIST
+thread_local! {
+    static COMPLEX_FREELIST: Cell<crate::object::FreeList<PyComplex>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyComplex {
+    const MAX_FREELIST: usize = 100;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.complex_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        COMPLEX_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        COMPLEX_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 

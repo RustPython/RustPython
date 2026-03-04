@@ -20,6 +20,8 @@ use crate::{
         Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp, Representable,
     },
 };
+use core::cell::Cell;
+use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
@@ -1205,10 +1207,48 @@ impl PyBoundMethod {
     }
 }
 
+// spell-checker:ignore MAXFREELIST
+thread_local! {
+    static BOUND_METHOD_FREELIST: Cell<crate::object::FreeList<PyBoundMethod>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyBoundMethod {
+    const MAX_FREELIST: usize = 20;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bound_method_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        BOUND_METHOD_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        BOUND_METHOD_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
