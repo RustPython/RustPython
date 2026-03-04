@@ -858,11 +858,11 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
     }
 }
 
-/// Thread-local freelist storage that properly deallocates cached objects
-/// on thread teardown.
+/// Thread-local freelist storage for reusing object allocations.
 ///
-/// Wraps a `Vec<*mut PyObject>` and implements `Drop` to convert each
-/// raw pointer back into `Box<PyInner<T>>` for proper deallocation.
+/// Wraps a `Vec<*mut PyObject>`. On thread teardown, `Drop` frees raw
+/// `PyInner<T>` allocations without running payload destructors to avoid
+/// accessing already-destroyed thread-local storage (GC state, other freelists).
 pub(crate) struct FreeList<T: PyPayload> {
     items: Vec<*mut PyObject>,
     _marker: core::marker::PhantomData<T>,

@@ -1084,7 +1084,7 @@ impl Constructor for PyFunction {
     }
 }
 
-#[pyclass(module = false, name = "method", traverse)]
+#[pyclass(module = false, name = "method", traverse, clear = false)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
     object: PyObjectRef,
