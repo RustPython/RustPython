@@ -5214,67 +5214,57 @@ impl ExecutingFrame<'_> {
                 let oparg = u32::from(arg);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
-                let current_version = self.globals.version() as u32;
-                if cached_version == current_version {
-                    // globals unchanged — name is in globals, look up only there
+                let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
+                let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
+                if let Ok(current_version) = u16::try_from(self.globals.version())
+                    && cached_version == current_version
+                {
                     let name = self.code.names[(oparg >> 1) as usize];
-                    if let Some(x) = self.globals.get_item_opt(name, vm)? {
+                    if let Some(x) = self.globals.get_item_opt_hint(name, cached_index, vm)? {
                         self.push_value(x);
                         if (oparg & 1) != 0 {
                             self.push_value_opt(None);
                         }
-                        Ok(None)
-                    } else {
-                        // Name was removed from globals
-                        self.deoptimize(Instruction::LoadGlobal {
-                            namei: Arg::marker(),
-                        });
-                        let x = self.load_global_or_builtin(name, vm)?;
-                        self.push_value(x);
-                        if (oparg & 1) != 0 {
-                            self.push_value_opt(None);
-                        }
-                        Ok(None)
+                        return Ok(None);
                     }
-                } else {
-                    self.deoptimize(Instruction::LoadGlobal {
-                        namei: Arg::marker(),
-                    });
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    let x = self.load_global_or_builtin(name, vm)?;
-                    self.push_value(x);
-                    if (oparg & 1) != 0 {
-                        self.push_value_opt(None);
-                    }
-                    Ok(None)
                 }
+                self.deoptimize_at(
+                    Instruction::LoadGlobal {
+                        namei: Arg::marker(),
+                    },
+                    instr_idx,
+                    cache_base,
+                );
+                let name = self.code.names[(oparg >> 1) as usize];
+                let x = self.load_global_or_builtin(name, vm)?;
+                self.push_value(x);
+                if (oparg & 1) != 0 {
+                    self.push_value_opt(None);
+                }
+                Ok(None)
             }
             Instruction::LoadGlobalBuiltin => {
                 let oparg = u32::from(arg);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let cached_globals_ver = self.code.instructions.read_cache_u32(cache_base + 1);
-                let cached_builtins_ver = self.code.instructions.read_cache_u32(cache_base + 2);
-                let current_globals_ver = self.globals.version() as u32;
-                if cached_globals_ver == current_globals_ver {
-                    // globals unchanged — name is NOT in globals, check builtins
-                    if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm) {
-                        let current_builtins_ver = builtins_dict.version() as u32;
-                        if cached_builtins_ver == current_builtins_ver {
-                            // Both versions match — safe to look up in builtins
-                            let name = self.code.names[(oparg >> 1) as usize];
-                            if let Some(x) = builtins_dict.get_item_opt(name, vm)? {
-                                self.push_value(x);
-                                if (oparg & 1) != 0 {
-                                    self.push_value_opt(None);
-                                }
-                                return Ok(None);
-                            }
+                let cached_globals_ver = self.code.instructions.read_cache_u16(cache_base + 1);
+                let cached_builtins_ver = self.code.instructions.read_cache_u16(cache_base + 2);
+                let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
+                if let Ok(current_globals_ver) = u16::try_from(self.globals.version())
+                    && cached_globals_ver == current_globals_ver
+                    && let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
+                    && let Ok(current_builtins_ver) = u16::try_from(builtins_dict.version())
+                    && cached_builtins_ver == current_builtins_ver
+                {
+                    let name = self.code.names[(oparg >> 1) as usize];
+                    if let Some(x) = builtins_dict.get_item_opt_hint(name, cached_index, vm)? {
+                        self.push_value(x);
+                        if (oparg & 1) != 0 {
+                            self.push_value_opt(None);
                         }
+                        return Ok(None);
                     }
                 }
-                // Version mismatch or lookup failed — deoptimize
                 self.deoptimize_at(
                     Instruction::LoadGlobal {
                         namei: Arg::marker(),
@@ -7888,45 +7878,56 @@ impl ExecutingFrame<'_> {
             return;
         }
         let name = self.code.names[(oparg >> 1) as usize];
-        // Check if name exists in globals
-        let in_globals = self.globals.get_item_opt(name, vm).ok().flatten().is_some();
+        let Ok(globals_version) = u16::try_from(self.globals.version()) else {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            }
+            return;
+        };
 
-        let globals_version = self.globals.version() as u32;
-
-        if in_globals {
+        if let Ok(Some(globals_hint)) = self.globals.hint_for_key(name, vm) {
             unsafe {
                 self.code
                     .instructions
                     .replace_op(instr_idx, Instruction::LoadGlobalModule);
                 self.code
                     .instructions
-                    .write_cache_u32(cache_base + 1, globals_version);
+                    .write_cache_u16(cache_base + 1, globals_version);
+                self.code.instructions.write_cache_u16(cache_base + 2, 0);
+                self.code
+                    .instructions
+                    .write_cache_u16(cache_base + 3, globals_hint);
             }
-        } else if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
-            && builtins_dict
-                .get_item_opt(name, vm)
-                .ok()
-                .flatten()
-                .is_some()
+            return;
+        }
+
+        if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
+            && let Ok(Some(builtins_hint)) = builtins_dict.hint_for_key(name, vm)
+            && let Ok(builtins_version) = u16::try_from(builtins_dict.version())
         {
-            let builtins_version = builtins_dict.version() as u32;
             unsafe {
                 self.code
                     .instructions
                     .replace_op(instr_idx, Instruction::LoadGlobalBuiltin);
                 self.code
                     .instructions
-                    .write_cache_u32(cache_base + 1, globals_version);
+                    .write_cache_u16(cache_base + 1, globals_version);
                 self.code
                     .instructions
-                    .write_cache_u32(cache_base + 2, builtins_version);
-            }
-        } else {
-            unsafe {
+                    .write_cache_u16(cache_base + 2, builtins_version);
                 self.code
                     .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    .write_cache_u16(cache_base + 3, builtins_hint);
             }
+            return;
+        }
+
+        unsafe {
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
         }
     }
 

@@ -668,6 +668,33 @@ impl Py<PyDict> {
         }
     }
 
+    /// Return a cached-entry hint for exact dict fast paths.
+    pub(crate) fn hint_for_key<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<u16>> {
+        if self.exact_dict(vm) {
+            self.entries.hint_for_key(vm, key)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Fast lookup using a cached entry index hint.
+    pub(crate) fn get_item_opt_hint<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        hint: u16,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if self.exact_dict(vm) {
+            self.entries.get_hint(vm, key, usize::from(hint))
+        } else {
+            self.get_item_opt(key, vm)
+        }
+    }
+
     pub fn get_item<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> PyResult {
         if self.exact_dict(vm) {
             self.inner_getitem(key, vm)

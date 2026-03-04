@@ -337,6 +337,43 @@ impl<T: Clone> Dict<T> {
         self._get_inner(vm, key, hash)
     }
 
+    /// Return a stable entry hint for `key` if present.
+    ///
+    /// The hint is the internal entry index and can be used with
+    /// [`Self::get_hint`]. It is invalidated by dict mutations.
+    pub fn hint_for_key<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<Option<u16>> {
+        let hash = key.key_hash(vm)?;
+        let (entry, _) = self.lookup(vm, key, hash, None)?;
+        let Some(index) = entry.index() else {
+            return Ok(None);
+        };
+        Ok(u16::try_from(index).ok())
+    }
+
+    /// Fast path lookup using a cached entry index (`hint`).
+    ///
+    /// Returns `None` if the hint is stale or the key no longer matches.
+    pub fn get_hint<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hint: usize,
+    ) -> PyResult<Option<T>> {
+        let inner = self.read();
+        let Some(Some(entry)) = inner.entries.get(hint) else {
+            return Ok(None);
+        };
+        if key.key_is(&entry.key) || key.key_eq(vm, &entry.key)? {
+            Ok(Some(entry.value.clone()))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn _get_inner<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
