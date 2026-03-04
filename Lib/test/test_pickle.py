@@ -86,10 +86,6 @@ class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
         return bytes(f.read())
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_bad_newobj_args(self):
-        return super().test_bad_newobj_args()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_buffer_callback_error(self):
         return super().test_buffer_callback_error()
 

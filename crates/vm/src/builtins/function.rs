@@ -727,10 +727,12 @@ impl PyFunction {
 
     #[pygetset(setter)]
     fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) {
+        #[cfg(feature = "jit")]
+        let mut jit_guard = self.jitted_code.lock();
         self.code.swap_to_temporary_refs(code, vm);
         #[cfg(feature = "jit")]
         {
-            *self.jitted_code.lock() = None;
+            *jit_guard = None;
         }
         self.func_version.store(0, Relaxed);
     }
@@ -968,7 +970,8 @@ impl PyFunction {
     #[cfg(feature = "jit")]
     #[pymethod]
     fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        if zelf.jitted_code.lock().is_some() {
+        let mut jit_guard = zelf.jitted_code.lock();
+        if jit_guard.is_some() {
             return Ok(());
         }
         let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
@@ -976,7 +979,7 @@ impl PyFunction {
         let code: &Py<PyCode> = &zelf.code;
         let compiled = rustpython_jit::compile(&code.code, &arg_types, ret_type)
             .map_err(|err| jit::new_jit_error(err.to_string(), vm))?;
-        *zelf.jitted_code.lock() = Some(compiled);
+        *jit_guard = Some(compiled);
         Ok(())
     }
 }
@@ -1147,6 +1150,16 @@ impl Constructor for PyBoundMethod {
 impl PyBoundMethod {
     pub const fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         Self { object, function }
+    }
+
+    #[inline]
+    pub(crate) fn function_obj(&self) -> &PyObjectRef {
+        &self.function
+    }
+
+    #[inline]
+    pub(crate) fn self_obj(&self) -> &PyObjectRef {
+        &self.object
     }
 
     #[deprecated(note = "Use `Self::new(object, function).into_ref(ctx)` instead")]

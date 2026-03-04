@@ -349,9 +349,47 @@ pub struct CodeUnit {
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
 /// Adaptive specialization: number of executions before attempting specialization.
-pub const ADAPTIVE_WARMUP_VALUE: u8 = 50;
-/// Adaptive specialization: backoff counter after de-optimization.
-pub const ADAPTIVE_BACKOFF_VALUE: u8 = 250;
+///
+/// Matches CPython's `_Py_BackoffCounter` encoding.
+pub const ADAPTIVE_WARMUP_VALUE: u16 = adaptive_counter_bits(1, 1);
+/// Adaptive specialization: cooldown counter after a successful specialization.
+///
+/// Value/backoff = (52, 0), matching CPython's ADAPTIVE_COOLDOWN bits.
+pub const ADAPTIVE_COOLDOWN_VALUE: u16 = adaptive_counter_bits(52, 0);
+/// Initial JUMP_BACKWARD counter bits (value/backoff = 4095/12).
+pub const JUMP_BACKWARD_INITIAL_VALUE: u16 = adaptive_counter_bits(4095, 12);
+
+const BACKOFF_BITS: u16 = 4;
+const MAX_BACKOFF: u16 = 12;
+const UNREACHABLE_BACKOFF: u16 = 15;
+
+/// Encode an adaptive counter as `(value << 4) | backoff`.
+pub const fn adaptive_counter_bits(value: u16, backoff: u16) -> u16 {
+    (value << BACKOFF_BITS) | backoff
+}
+
+/// True when the adaptive counter should trigger specialization.
+#[inline]
+pub const fn adaptive_counter_triggers(counter: u16) -> bool {
+    counter < UNREACHABLE_BACKOFF
+}
+
+/// Decrement adaptive counter by one countdown step.
+#[inline]
+pub const fn advance_adaptive_counter(counter: u16) -> u16 {
+    counter.wrapping_sub(1 << BACKOFF_BITS)
+}
+
+/// Reset adaptive counter with exponential backoff.
+#[inline]
+pub const fn adaptive_counter_backoff(counter: u16) -> u16 {
+    let backoff = counter & ((1 << BACKOFF_BITS) - 1);
+    if backoff < MAX_BACKOFF {
+        adaptive_counter_bits((1 << (backoff + 1)) - 1, backoff + 1)
+    } else {
+        adaptive_counter_bits((1 << MAX_BACKOFF) - 1, MAX_BACKOFF)
+    }
+}
 
 impl CodeUnit {
     pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
@@ -370,12 +408,15 @@ impl TryFrom<&[u8]> for CodeUnit {
     }
 }
 
-pub struct CodeUnits(UnsafeCell<Box<[CodeUnit]>>);
+pub struct CodeUnits {
+    units: UnsafeCell<Box<[CodeUnit]>>,
+    adaptive_counters: Box<[AtomicU16]>,
+}
 
 // SAFETY: All cache operations use atomic read/write instructions.
 // - replace_op / compare_exchange_op: AtomicU8 store/CAS (Release)
 // - cache read/write: AtomicU16 load/store (Relaxed)
-// - adaptive counter: AtomicU8 load/store (Relaxed)
+// - adaptive counter: AtomicU16 load/store (Relaxed)
 // Ordering is established by:
 // - replace_op (Release) ↔ dispatch loop read_op (Acquire) for cache data visibility
 // - tp_version_tag (Acquire) for descriptor pointer validity
@@ -385,15 +426,23 @@ impl Clone for CodeUnits {
     fn clone(&self) -> Self {
         // SAFETY: No concurrent mutation during clone — cloning is only done
         // during code object construction or marshaling, not while instrumented.
-        let inner = unsafe { &*self.0.get() };
-        Self(UnsafeCell::new(inner.clone()))
+        let units = unsafe { &*self.units.get() }.clone();
+        let adaptive_counters = self
+            .adaptive_counters
+            .iter()
+            .map(|c| AtomicU16::new(c.load(Ordering::Relaxed)))
+            .collect();
+        Self {
+            units: UnsafeCell::new(units),
+            adaptive_counters,
+        }
     }
 }
 
 impl fmt::Debug for CodeUnits {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // SAFETY: Debug formatting doesn't race with replace_op
-        let inner = unsafe { &*self.0.get() };
+        let inner = unsafe { &*self.units.get() };
         f.debug_tuple("CodeUnits").field(inner).finish()
     }
 }
@@ -406,29 +455,37 @@ impl TryFrom<&[u8]> for CodeUnits {
             return Err(Self::Error::InvalidBytecode);
         }
 
-        let units: Self = value
+        let units = value
             .chunks_exact(2)
             .map(CodeUnit::try_from)
-            .collect::<Result<_, _>>()?;
-        Ok(units)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(units.into())
     }
 }
 
 impl<const N: usize> From<[CodeUnit; N]> for CodeUnits {
     fn from(value: [CodeUnit; N]) -> Self {
-        Self(UnsafeCell::new(Box::from(value)))
+        Self::from(Vec::from(value))
     }
 }
 
 impl From<Vec<CodeUnit>> for CodeUnits {
     fn from(value: Vec<CodeUnit>) -> Self {
-        Self(UnsafeCell::new(value.into_boxed_slice()))
+        let units = value.into_boxed_slice();
+        let adaptive_counters = (0..units.len())
+            .map(|_| AtomicU16::new(0))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        Self {
+            units: UnsafeCell::new(units),
+            adaptive_counters,
+        }
     }
 }
 
 impl FromIterator<CodeUnit> for CodeUnits {
     fn from_iter<T: IntoIterator<Item = CodeUnit>>(iter: T) -> Self {
-        Self(UnsafeCell::new(iter.into_iter().collect()))
+        Self::from(iter.into_iter().collect::<Vec<_>>())
     }
 }
 
@@ -439,7 +496,7 @@ impl Deref for CodeUnits {
         // SAFETY: Shared references to the slice are valid even while replace_op
         // may update individual opcode bytes — readers tolerate stale opcodes
         // (they will re-read on the next iteration).
-        unsafe { &*self.0.get() }
+        unsafe { &*self.units.get() }
     }
 }
 
@@ -452,7 +509,7 @@ impl CodeUnits {
     /// - `index` must be in bounds.
     /// - `new_op` must have the same arg semantics as the original opcode.
     pub unsafe fn replace_op(&self, index: usize, new_op: Instruction) {
-        let units = unsafe { &*self.0.get() };
+        let units = unsafe { &*self.units.get() };
         let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU8;
         unsafe { &*ptr }.store(new_op.into(), Ordering::Release);
     }
@@ -468,7 +525,7 @@ impl CodeUnits {
         expected: Instruction,
         new_op: Instruction,
     ) -> bool {
-        let units = unsafe { &*self.0.get() };
+        let units = unsafe { &*self.units.get() };
         let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU8;
         unsafe { &*ptr }
             .compare_exchange(
@@ -483,7 +540,7 @@ impl CodeUnits {
     /// Atomically read the opcode at `index` with Acquire ordering.
     /// Pairs with `replace_op` (Release) to ensure cache data visibility.
     pub fn read_op(&self, index: usize) -> Instruction {
-        let units = unsafe { &*self.0.get() };
+        let units = unsafe { &*self.units.get() };
         let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU8;
         let byte = unsafe { &*ptr }.load(Ordering::Acquire);
         // SAFETY: Only valid Instruction values are stored via replace_op/compare_exchange_op.
@@ -492,7 +549,7 @@ impl CodeUnits {
 
     /// Atomically read the arg byte at `index` with Relaxed ordering.
     pub fn read_arg(&self, index: usize) -> OpArgByte {
-        let units = unsafe { &*self.0.get() };
+        let units = unsafe { &*self.units.get() };
         let ptr = units.as_ptr().wrapping_add(index) as *const u8;
         let arg_ptr = unsafe { ptr.add(1) } as *const AtomicU8;
         OpArgByte::from(unsafe { &*arg_ptr }.load(Ordering::Relaxed))
@@ -505,7 +562,7 @@ impl CodeUnits {
     /// # Safety
     /// - `index` must be in bounds and point to a CACHE entry.
     pub unsafe fn write_cache_u16(&self, index: usize, value: u16) {
-        let units = unsafe { &*self.0.get() };
+        let units = unsafe { &*self.units.get() };
         let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU16;
         unsafe { &*ptr }.store(value, Ordering::Relaxed);
     }
@@ -516,7 +573,7 @@ impl CodeUnits {
     /// # Panics
     /// Panics if `index` is out of bounds.
     pub fn read_cache_u16(&self, index: usize) -> u16 {
-        let units = unsafe { &*self.0.get() };
+        let units = unsafe { &*self.units.get() };
         assert!(index < units.len(), "read_cache_u16: index out of bounds");
         let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU16;
         unsafe { &*ptr }.load(Ordering::Relaxed)
@@ -564,25 +621,19 @@ impl CodeUnits {
         lo | (hi << 32)
     }
 
-    /// Read the adaptive counter from the CACHE entry's `arg` byte at `index`.
+    /// Read adaptive counter bits for instruction at `index`.
     /// Uses Relaxed atomic load.
-    pub fn read_adaptive_counter(&self, index: usize) -> u8 {
-        let units = unsafe { &*self.0.get() };
-        let ptr = units.as_ptr().wrapping_add(index) as *const u8;
-        let arg_ptr = unsafe { ptr.add(1) } as *const AtomicU8;
-        unsafe { &*arg_ptr }.load(Ordering::Relaxed)
+    pub fn read_adaptive_counter(&self, index: usize) -> u16 {
+        self.adaptive_counters[index].load(Ordering::Relaxed)
     }
 
-    /// Write the adaptive counter to the CACHE entry's `arg` byte at `index`.
+    /// Write adaptive counter bits for instruction at `index`.
     /// Uses Relaxed atomic store.
     ///
     /// # Safety
-    /// - `index` must be in bounds and point to a CACHE entry.
-    pub unsafe fn write_adaptive_counter(&self, index: usize, value: u8) {
-        let units = unsafe { &*self.0.get() };
-        let ptr = units.as_ptr().wrapping_add(index) as *const u8;
-        let arg_ptr = unsafe { ptr.add(1) } as *const AtomicU8;
-        unsafe { &*arg_ptr }.store(value, Ordering::Relaxed);
+    /// - `index` must be in bounds.
+    pub unsafe fn write_adaptive_counter(&self, index: usize, value: u16) {
+        self.adaptive_counters[index].store(value, Ordering::Relaxed);
     }
 
     /// Produce a clean copy of the bytecode suitable for serialization
@@ -611,7 +662,7 @@ impl CodeUnits {
 
     /// Initialize adaptive warmup counters for all cacheable instructions.
     /// Called lazily at RESUME (first execution of a code object).
-    /// Uses the `arg` byte of the first CACHE entry, preserving `op = Instruction::Cache`.
+    /// Counters are stored out-of-line to preserve `op = Instruction::Cache`.
     /// All writes are atomic (Relaxed) to avoid data races with concurrent readers.
     pub fn quicken(&self) {
         let len = self.len();
@@ -625,8 +676,13 @@ impl CodeUnits {
                 if !op.is_instrumented() {
                     let cache_base = i + 1;
                     if cache_base < len {
+                        let initial_counter = if matches!(op, Instruction::JumpBackward { .. }) {
+                            JUMP_BACKWARD_INITIAL_VALUE
+                        } else {
+                            ADAPTIVE_WARMUP_VALUE
+                        };
                         unsafe {
-                            self.write_adaptive_counter(cache_base, ADAPTIVE_WARMUP_VALUE);
+                            self.write_adaptive_counter(cache_base, initial_counter);
                         }
                     }
                 }

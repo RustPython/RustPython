@@ -327,7 +327,13 @@ impl PyTuple {
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "tuple")? {
-            SequenceIndex::Int(i) => self.elements.getitem_by_index(vm, i),
+            SequenceIndex::Int(i) => {
+                let index = self
+                    .elements
+                    .wrap_index(i)
+                    .ok_or_else(|| vm.new_index_error("tuple index out of range"))?;
+                Ok(self.elements[index].clone())
+            }
             SequenceIndex::Slice(slice) => self
                 .elements
                 .getitem_by_slice(vm, slice)
