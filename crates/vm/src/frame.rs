@@ -3465,21 +3465,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    // Deoptimize
-                    unsafe {
-                        self.code.instructions.replace_op(
-                            instr_idx,
-                            Instruction::Call {
-                                argc: Arg::marker(),
-                            },
-                        );
-                        self.code.instructions.write_adaptive_counter(
-                            cache_base,
-                            bytecode::adaptive_counter_backoff(
-                                self.code.instructions.read_adaptive_counter(cache_base),
-                            ),
-                        );
-                    }
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
                 }
@@ -3506,21 +3491,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    // Deoptimize
-                    unsafe {
-                        self.code.instructions.replace_op(
-                            instr_idx,
-                            Instruction::Call {
-                                argc: Arg::marker(),
-                            },
-                        );
-                        self.code.instructions.write_adaptive_counter(
-                            cache_base,
-                            bytecode::adaptive_counter_backoff(
-                                self.code.instructions.read_adaptive_counter(cache_base),
-                            ),
-                        );
-                    }
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
                 }
