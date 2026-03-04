@@ -18,7 +18,7 @@ use crate::{
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
     },
     bytecode::{
-        self, ADAPTIVE_BACKOFF_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
+        self, ADAPTIVE_COOLDOWN_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
     },
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
@@ -3157,9 +3157,12 @@ impl ExecutingFrame<'_> {
                                 delta: Arg::marker(),
                             },
                         );
-                        self.code
-                            .instructions
-                            .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
                     }
                 }
                 match self._send(receiver, val, vm)? {
@@ -3335,9 +3338,14 @@ impl ExecutingFrame<'_> {
                                             namei: Arg::marker(),
                                         },
                                     );
-                                    self.code
-                                        .instructions
-                                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                                    self.code.instructions.write_adaptive_counter(
+                                        cache_base,
+                                        bytecode::adaptive_counter_backoff(
+                                            self.code
+                                                .instructions
+                                                .read_adaptive_counter(cache_base),
+                                        ),
+                                    );
                                 }
                                 return self.load_attr_slow(vm, oparg);
                             }
@@ -3459,9 +3467,12 @@ impl ExecutingFrame<'_> {
                             namei: Arg::marker(),
                         },
                     );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 self.load_attr_slow(vm, oparg)
             }
@@ -3493,9 +3504,12 @@ impl ExecutingFrame<'_> {
                             namei: Arg::marker(),
                         },
                     );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 self.load_attr_slow(vm, oparg)
             }
@@ -3541,9 +3555,12 @@ impl ExecutingFrame<'_> {
                             namei: Arg::marker(),
                         },
                     );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 self.load_attr_slow(vm, oparg)
             }
@@ -3577,9 +3594,12 @@ impl ExecutingFrame<'_> {
                             namei: Arg::marker(),
                         },
                     );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 self.load_attr_slow(vm, oparg)
             }
@@ -3655,9 +3675,12 @@ impl ExecutingFrame<'_> {
                             namei: Arg::marker(),
                         },
                     );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 self.load_attr_slow(vm, oparg)
             }
@@ -3690,9 +3713,12 @@ impl ExecutingFrame<'_> {
                             namei: Arg::marker(),
                         },
                     );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 self.load_attr_slow(vm, oparg)
             }
@@ -3774,9 +3800,12 @@ impl ExecutingFrame<'_> {
                             namei: Arg::marker(),
                         },
                     );
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 self.store_attr(vm, attr_idx)
             }
@@ -3996,9 +4025,12 @@ impl ExecutingFrame<'_> {
                                 argc: Arg::marker(),
                             },
                         );
-                        self.code
-                            .instructions
-                            .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
                     }
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
@@ -4034,9 +4066,12 @@ impl ExecutingFrame<'_> {
                                 argc: Arg::marker(),
                             },
                         );
-                        self.code
-                            .instructions
-                            .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
                     }
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
@@ -4762,9 +4797,12 @@ impl ExecutingFrame<'_> {
                         },
                     );
                     let cache_base = self.lasti() as usize;
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 let oparg = LoadSuperAttr::new(oparg);
                 self.load_super_attr(vm, oparg)
@@ -4842,9 +4880,12 @@ impl ExecutingFrame<'_> {
                         },
                     );
                     let cache_base = self.lasti() as usize;
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 let oparg = LoadSuperAttr::new(oparg);
                 self.load_super_attr(vm, oparg)
@@ -6890,9 +6931,12 @@ impl ExecutingFrame<'_> {
             .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
         if !is_default_getattro {
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
             return;
         }
@@ -6905,9 +6949,12 @@ impl ExecutingFrame<'_> {
         if type_version == 0 {
             // Version counter overflow — backoff to avoid re-attempting every execution
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
             return;
         }
@@ -6964,9 +7011,12 @@ impl ExecutingFrame<'_> {
             }
             // Can't specialize this method call
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
         } else {
             // Regular attribute access
@@ -7014,17 +7064,23 @@ impl ExecutingFrame<'_> {
                     }
                 } else {
                     unsafe {
-                        self.code
-                            .instructions
-                            .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
                     }
                 }
             } else if has_descr_get {
                 // Non-data descriptor with __get__ — can't specialize
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
             } else if class_has_dict {
                 if let Some(ref descr) = cls_attr {
@@ -7049,9 +7105,14 @@ impl ExecutingFrame<'_> {
                             Ok(None) => false,
                             Err(_) => {
                                 unsafe {
-                                    self.code
-                                        .instructions
-                                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                                    self.code.instructions.write_adaptive_counter(
+                                        cache_base,
+                                        bytecode::adaptive_counter_backoff(
+                                            self.code
+                                                .instructions
+                                                .read_adaptive_counter(cache_base),
+                                        ),
+                                    );
                                 }
                                 return;
                             }
@@ -7090,9 +7151,12 @@ impl ExecutingFrame<'_> {
             } else {
                 // No dict, no class attr — can't specialize
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
             }
         }
@@ -7115,9 +7179,12 @@ impl ExecutingFrame<'_> {
         }
         if type_version == 0 {
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
             return;
         }
@@ -7132,9 +7199,12 @@ impl ExecutingFrame<'_> {
             if attr_class.slots.descr_set.load().is_some() {
                 // Data descriptor on metaclass — can't specialize
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 return;
             }
@@ -7147,9 +7217,12 @@ impl ExecutingFrame<'_> {
             }
             if metaclass_version == 0 {
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 return;
             }
@@ -7188,9 +7261,12 @@ impl ExecutingFrame<'_> {
 
         // Can't specialize
         unsafe {
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            self.code.instructions.write_adaptive_counter(
+                cache_base,
+                bytecode::adaptive_counter_backoff(
+                    self.code.instructions.read_adaptive_counter(cache_base),
+                ),
+            );
         }
     }
 
@@ -7317,21 +7393,21 @@ impl ExecutingFrame<'_> {
         self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
-    /// Adaptive counter: decrement the warmup counter, or call the specialize
-    /// function when it reaches zero.
+    /// Adaptive counter: trigger specialization at zero, otherwise advance countdown.
     #[inline]
     fn adaptive(&mut self, specialize: impl FnOnce(&mut Self, usize, usize)) {
         let instr_idx = self.lasti() as usize - 1;
         let cache_base = instr_idx + 1;
         let counter = self.code.instructions.read_adaptive_counter(cache_base);
-        if counter > 0 {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, counter - 1);
-            }
-        } else {
+        if bytecode::adaptive_counter_triggers(counter) {
             specialize(self, instr_idx, cache_base);
+        } else {
+            unsafe {
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::advance_adaptive_counter(counter),
+                );
+            }
         }
     }
 
@@ -7345,13 +7421,19 @@ impl ExecutingFrame<'_> {
     ) {
         if let Some(new_op) = new_op {
             unsafe {
+                self.code
+                    .instructions
+                    .write_adaptive_counter(cache_base, ADAPTIVE_COOLDOWN_VALUE);
                 self.code.instructions.replace_op(instr_idx, new_op);
             }
         } else {
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
         }
     }
@@ -7371,9 +7453,12 @@ impl ExecutingFrame<'_> {
     fn deoptimize_at(&mut self, base_op: Instruction, instr_idx: usize, cache_base: usize) {
         unsafe {
             self.code.instructions.replace_op(instr_idx, base_op);
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            self.code.instructions.write_adaptive_counter(
+                cache_base,
+                bytecode::adaptive_counter_backoff(
+                    self.code.instructions.read_adaptive_counter(cache_base),
+                ),
+            );
         }
     }
 
@@ -7456,9 +7541,12 @@ impl ExecutingFrame<'_> {
             let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 return;
             }
@@ -7630,9 +7718,12 @@ impl ExecutingFrame<'_> {
             let version = func.func_version();
             if version == 0 {
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
                 return;
             }
@@ -7680,9 +7771,12 @@ impl ExecutingFrame<'_> {
             }
         } else {
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
         }
     }
@@ -7708,9 +7802,12 @@ impl ExecutingFrame<'_> {
             || class.downcast_ref::<PyType>().is_none()
         {
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
             return;
         }
@@ -7808,9 +7905,12 @@ impl ExecutingFrame<'_> {
                 }
             } else {
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
             }
             return;
@@ -7880,9 +7980,12 @@ impl ExecutingFrame<'_> {
         let name = self.code.names[(oparg >> 1) as usize];
         let Ok(globals_version) = u16::try_from(self.globals.version()) else {
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
             return;
         };
@@ -7925,9 +8028,12 @@ impl ExecutingFrame<'_> {
         }
 
         unsafe {
-            self.code
-                .instructions
-                .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+            self.code.instructions.write_adaptive_counter(
+                cache_base,
+                bytecode::adaptive_counter_backoff(
+                    self.code.instructions.read_adaptive_counter(cache_base),
+                ),
+            );
         }
     }
 
@@ -8034,9 +8140,12 @@ impl ExecutingFrame<'_> {
             .is_some_and(|f| f as usize == PyBaseObject::slot_setattro as *const () as usize);
         if !is_default_setattr {
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
             return;
         }
@@ -8048,9 +8157,12 @@ impl ExecutingFrame<'_> {
         }
         if type_version == 0 {
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
             return;
         }
@@ -8082,9 +8194,12 @@ impl ExecutingFrame<'_> {
                 }
             } else {
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
                 }
             }
         } else if let Some(dict) = owner.dict() {
@@ -8093,9 +8208,12 @@ impl ExecutingFrame<'_> {
                 Ok(None) => false,
                 Err(_) => {
                     unsafe {
-                        self.code
-                            .instructions
-                            .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
                     }
                     return;
                 }
@@ -8115,9 +8233,12 @@ impl ExecutingFrame<'_> {
             }
         } else {
             unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
         }
     }
