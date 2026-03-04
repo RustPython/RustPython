@@ -43,6 +43,7 @@ CONVFUNC
 convparam
 copyslot
 cpucount
+datastack
 defaultdict
 denom
 deopt
@@ -118,6 +119,7 @@ mult
 multibytecodec
 nameobj
 nameop
+ncells
 nconsts
 newargs
 newfree
@@ -125,6 +127,7 @@ NEWLOCALS
 newsemlockobject
 nfrees
 nkwargs
+nlocalsplus
 nkwelts
 Nondescriptor
 noninteger
@@ -192,6 +195,7 @@ testconsole
 ticketer
 tmptype
 tok_oldval
+tstate
 tvars
 typeobject
 typeparam

@@ -134,10 +134,13 @@ pub struct GcState {
     finalized_objects: PyRwLock<HashSet<GcObjectPtr>>,
 }
 
-// SAFETY: All fields are either inherently Send/Sync (atomics, RwLock, Mutex) or protected by PyMutex.
-// PyMutex<Vec<PyObjectRef>> is safe to share/send across threads because access is synchronized.
-// PyObjectRef itself is Send, and interior mutability is guarded by the mutex.
+// SAFETY: GcObjectPtr wraps NonNull which is !Send/!Sync, but we only use it as an opaque
+// hash key. PyObjectRef is Send. In threading mode, PyRwLock/PyMutex are parking_lot based
+// and genuinely Sync. In non-threading mode, gc_state() is thread-local so neither Send
+// nor Sync is needed.
+#[cfg(feature = "threading")]
 unsafe impl Send for GcState {}
+#[cfg(feature = "threading")]
 unsafe impl Sync for GcState {}
 
 impl Default for GcState {
@@ -827,14 +830,15 @@ impl GcState {
     }
 }
 
-use std::sync::OnceLock;
-
-/// Global GC state instance
-/// Using a static because GC needs to be accessible from object allocation/deallocation
-static GC_STATE: OnceLock<GcState> = OnceLock::new();
-
-/// Get a reference to the global GC state
+/// Get a reference to the GC state.
+///
+/// In threading mode this is a true global (OnceLock).
+/// In non-threading mode this is thread-local, because PyRwLock/PyMutex
+/// use Cell-based locks that are not Sync.
 pub fn gc_state() -> &'static GcState {
+    rustpython_common::static_cell! {
+        static GC_STATE: GcState;
+    }
     GC_STATE.get_or_init(GcState::new)
 }
 

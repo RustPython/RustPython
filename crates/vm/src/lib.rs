@@ -51,6 +51,7 @@ mod codecs;
 pub mod compiler;
 pub mod convert;
 mod coroutine;
+pub mod datastack;
 mod dict_inner;
 
 #[cfg(feature = "rustpython-compiler")]

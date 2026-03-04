@@ -11,7 +11,7 @@ license.workspace = true
 [features]
 default = ["std"]
 std = []
-threading = ["parking_lot"]
+threading = ["parking_lot", "std"]
 wasm_js = ["getrandom/wasm_js"]
 
 [dependencies]
