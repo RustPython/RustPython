@@ -4129,9 +4129,13 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
-                // Stack: [callable, self_or_null(=self), arg1, ..., argN, kwarg_names]
+                // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 2].is_some();
                 let callable = self.nth_value(nargs + 2);
-                if let Some(func) = callable.downcast_ref::<PyFunction>()
+                if self_or_null_is_some
+                    && let Some(func) = callable.downcast_ref::<PyFunction>()
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
@@ -4153,6 +4157,39 @@ impl ExecutingFrame<'_> {
                         vectorcall_function(&callable, args_vec, pos_count + 1, Some(kwnames), vm)?;
                     self.push_value(result);
                     return Ok(None);
+                } else if !self_or_null_is_some
+                    && let Some(bound_method) = callable.downcast_ref::<PyBoundMethod>()
+                {
+                    let bound_function = bound_method.function_obj().clone();
+                    let bound_self = bound_method.self_obj().clone();
+                    if let Some(func) = bound_function.downcast_ref::<PyFunction>()
+                        && func.func_version() == cached_version
+                        && cached_version != 0
+                    {
+                        let nargs_usize = nargs as usize;
+                        let kwarg_names_obj = self.pop_value();
+                        let kwarg_names_tuple = kwarg_names_obj
+                            .downcast_ref::<PyTuple>()
+                            .expect("kwarg names should be tuple");
+                        let kw_count = kwarg_names_tuple.len();
+                        let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                        self.pop_value_opt(); // null (self_or_null)
+                        self.pop_value(); // callable (bound method)
+                        let pos_count = nargs_usize - kw_count;
+                        let mut args_vec = Vec::with_capacity(nargs_usize + 1);
+                        args_vec.push(bound_self);
+                        args_vec.extend(all_args);
+                        let kwnames = kwarg_names_tuple.as_slice();
+                        let result = vectorcall_function(
+                            &bound_function,
+                            args_vec,
+                            pos_count + 1,
+                            Some(kwnames),
+                            vm,
+                        )?;
+                        self.push_value(result);
+                        return Ok(None);
+                    }
                 }
                 let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
@@ -7108,6 +7145,31 @@ impl ExecutingFrame<'_> {
                     .write_cache_u32(cache_base + 1, version);
             }
             self.specialize_at(instr_idx, cache_base, new_op);
+            return;
+        }
+
+        if !self_or_null_is_some
+            && let Some(bound_method) = callable.downcast_ref::<PyBoundMethod>()
+            && let Some(func) = bound_method.function_obj().downcast_ref::<PyFunction>()
+        {
+            let version = func.get_version_for_current_state();
+            if version == 0 {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
+            unsafe {
+                self.code
+                    .instructions
+                    .write_cache_u32(cache_base + 1, version);
+            }
+            self.specialize_at(instr_idx, cache_base, Instruction::CallKwBoundMethod);
             return;
         }
 
