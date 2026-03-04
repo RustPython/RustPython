@@ -2891,7 +2891,9 @@ impl ExecutingFrame<'_> {
                     Ok(None)
                 } else {
                     self.deoptimize_at(
-                        Instruction::LoadAttr { namei: Arg::marker() },
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
                         instr_idx,
                         cache_base,
                     );
@@ -2918,7 +2920,9 @@ impl ExecutingFrame<'_> {
                                 unsafe {
                                     self.code.instructions.replace_op(
                                         instr_idx,
-                                        Instruction::LoadAttr { namei: Arg::marker() },
+                                        Instruction::LoadAttr {
+                                            namei: Arg::marker(),
+                                        },
                                     );
                                     self.code
                                         .instructions
@@ -2942,7 +2946,9 @@ impl ExecutingFrame<'_> {
                     }
                 }
                 self.deoptimize_at(
-                    Instruction::LoadAttr { namei: Arg::marker() },
+                    Instruction::LoadAttr {
+                        namei: Arg::marker(),
+                    },
                     instr_idx,
                     cache_base,
                 );
@@ -2970,7 +2976,9 @@ impl ExecutingFrame<'_> {
                     // Not in instance dict — fall through to class lookup via slow path
                 }
                 self.deoptimize_at(
-                    Instruction::LoadAttr { namei: Arg::marker() },
+                    Instruction::LoadAttr {
+                        namei: Arg::marker(),
+                    },
                     instr_idx,
                     cache_base,
                 );
@@ -3001,9 +3009,12 @@ impl ExecutingFrame<'_> {
                 }
                 // Deoptimize
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { namei: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3032,9 +3043,12 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { namei: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3077,9 +3091,12 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { namei: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3110,9 +3127,12 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { namei: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3143,9 +3163,12 @@ impl ExecutingFrame<'_> {
                     // Slot is None → AttributeError (fall through to slow path)
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { namei: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3175,9 +3198,12 @@ impl ExecutingFrame<'_> {
                     }
                 }
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttr { namei: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -3202,7 +3228,9 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
                 self.deoptimize_at(
-                    Instruction::StoreAttr { namei: Arg::marker() },
+                    Instruction::StoreAttr {
+                        namei: Arg::marker(),
+                    },
                     instr_idx,
                     cache_base,
                 );
@@ -3228,9 +3256,12 @@ impl ExecutingFrame<'_> {
                 // Deoptimize
                 let attr_idx = u32::from(arg);
                 unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::StoreAttr { namei: Arg::marker() });
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        Instruction::StoreAttr {
+                            namei: Arg::marker(),
+                        },
+                    );
                     self.code
                         .instructions
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
@@ -4230,7 +4261,9 @@ impl ExecutingFrame<'_> {
                 unsafe {
                     self.code.instructions.replace_op(
                         self.lasti() as usize - 1,
-                        Instruction::LoadSuperAttr { namei: Arg::marker() },
+                        Instruction::LoadSuperAttr {
+                            namei: Arg::marker(),
+                        },
                     );
                     let cache_base = self.lasti() as usize;
                     self.code
@@ -4308,7 +4341,9 @@ impl ExecutingFrame<'_> {
                 unsafe {
                     self.code.instructions.replace_op(
                         self.lasti() as usize - 1,
-                        Instruction::LoadSuperAttr { namei: Arg::marker() },
+                        Instruction::LoadSuperAttr {
+                            namei: Arg::marker(),
+                        },
                     );
                     let cache_base = self.lasti() as usize;
                     self.code
@@ -4332,7 +4367,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::CompareOp { opname: Arg::marker() });
+                    self.deoptimize(Instruction::CompareOp {
+                        opname: Arg::marker(),
+                    });
                     let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
                         .unwrap_or(bytecode::ComparisonOperator::Equal);
                     self.execute_compare(vm, op)
@@ -4357,7 +4394,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::CompareOp { opname: Arg::marker() });
+                    self.deoptimize(Instruction::CompareOp {
+                        opname: Arg::marker(),
+                    });
                     let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
                         .unwrap_or(bytecode::ComparisonOperator::Equal);
                     self.execute_compare(vm, op)
@@ -4377,7 +4416,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::CompareOp { opname: Arg::marker() });
+                    self.deoptimize(Instruction::CompareOp {
+                        opname: Arg::marker(),
+                    });
                     let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
                         .unwrap_or(bytecode::ComparisonOperator::Equal);
                     self.execute_compare(vm, op)
@@ -4491,7 +4532,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(value).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ContainsOp { invert: Arg::marker() });
+                    self.deoptimize(Instruction::ContainsOp {
+                        invert: Arg::marker(),
+                    });
                     let b = self.pop_value();
                     let a = self.pop_value();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
@@ -4522,7 +4565,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(value).into());
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ContainsOp { invert: Arg::marker() });
+                    self.deoptimize(Instruction::ContainsOp {
+                        invert: Arg::marker(),
+                    });
                     let b = self.pop_value();
                     let a = self.pop_value();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
@@ -4686,7 +4731,9 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     } else {
                         // Name was removed from globals
-                        self.deoptimize(Instruction::LoadGlobal { namei: Arg::marker() });
+                        self.deoptimize(Instruction::LoadGlobal {
+                            namei: Arg::marker(),
+                        });
                         let x = self.load_global_or_builtin(name, vm)?;
                         self.push_value(x);
                         if (oparg & 1) != 0 {
@@ -4695,7 +4742,9 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                 } else {
-                    self.deoptimize(Instruction::LoadGlobal { namei: Arg::marker() });
+                    self.deoptimize(Instruction::LoadGlobal {
+                        namei: Arg::marker(),
+                    });
                     let name = self.code.names[(oparg >> 1) as usize];
                     let x = self.load_global_or_builtin(name, vm)?;
                     self.push_value(x);
@@ -4731,7 +4780,9 @@ impl ExecutingFrame<'_> {
                 }
                 // Version mismatch or lookup failed — deoptimize
                 self.deoptimize_at(
-                    Instruction::LoadGlobal { namei: Arg::marker() },
+                    Instruction::LoadGlobal {
+                        namei: Arg::marker(),
+                    },
                     instr_idx,
                     cache_base,
                 );
