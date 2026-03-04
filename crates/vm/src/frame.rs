@@ -4612,12 +4612,27 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::ForIterGen => {
-                // ForIterGen is not faithfully implementable without inline
-                // generator frame resumption (as CPython does). Fall through
-                // to the generic path so the debugger sees StopIteration.
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
-                self.execute_for_iter(vm, target)?;
-                Ok(None)
+                let iter = self.top_value();
+                if let Some(generator) = iter.downcast_ref_if_exact::<PyGenerator>(vm) {
+                    match generator.as_coro().send(iter, vm.ctx.none(), vm) {
+                        Ok(PyIterReturn::Return(value)) => {
+                            self.push_value(value);
+                        }
+                        Ok(PyIterReturn::StopIteration(value)) => {
+                            if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                                let stop_exc = vm.new_stop_iteration(value);
+                                self.fire_exception_trace(&stop_exc, vm)?;
+                            }
+                            self.for_iter_jump_on_exhausted(target);
+                        }
+                        Err(e) => return Err(e),
+                    }
+                    Ok(None)
+                } else {
+                    self.execute_for_iter(vm, target)?;
+                    Ok(None)
+                }
             }
             Instruction::LoadGlobalModule => {
                 let oparg = u32::from(arg);
@@ -7299,6 +7314,8 @@ impl ExecutingFrame<'_> {
             Some(Instruction::ForIterList)
         } else if iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some() {
             Some(Instruction::ForIterTuple)
+        } else if iter.downcast_ref_if_exact::<PyGenerator>(vm).is_some() {
+            Some(Instruction::ForIterGen)
         } else {
             None
         };
