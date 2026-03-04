@@ -356,6 +356,8 @@ pub const ADAPTIVE_WARMUP_VALUE: u16 = adaptive_counter_bits(1, 1);
 ///
 /// Value/backoff = (52, 0), matching CPython's ADAPTIVE_COOLDOWN bits.
 pub const ADAPTIVE_COOLDOWN_VALUE: u16 = adaptive_counter_bits(52, 0);
+/// Initial JUMP_BACKWARD counter bits (value/backoff = 4095/12).
+pub const JUMP_BACKWARD_INITIAL_VALUE: u16 = adaptive_counter_bits(4095, 12);
 
 const BACKOFF_BITS: u16 = 4;
 const MAX_BACKOFF: u16 = 12;
@@ -674,8 +676,13 @@ impl CodeUnits {
                 if !op.is_instrumented() {
                     let cache_base = i + 1;
                     if cache_base < len {
+                        let initial_counter = if matches!(op, Instruction::JumpBackward { .. }) {
+                            JUMP_BACKWARD_INITIAL_VALUE
+                        } else {
+                            ADAPTIVE_WARMUP_VALUE
+                        };
                         unsafe {
-                            self.write_adaptive_counter(cache_base, ADAPTIVE_WARMUP_VALUE);
+                            self.write_adaptive_counter(cache_base, initial_counter);
                         }
                     }
                 }

@@ -1795,9 +1795,19 @@ impl ExecutingFrame<'_> {
                 self.jump_relative_forward(u32::from(arg), 0);
                 Ok(None)
             }
-            Instruction::JumpBackward { .. }
-            | Instruction::JumpBackwardJit
-            | Instruction::JumpBackwardNoJit => {
+            Instruction::JumpBackward { .. } => {
+                // CPython rewrites JUMP_BACKWARD to JUMP_BACKWARD_NO_JIT
+                // when JIT is unavailable.
+                let instr_idx = self.lasti() as usize - 1;
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::JumpBackwardNoJit);
+                }
+                self.jump_relative_backward(u32::from(arg), 1);
+                Ok(None)
+            }
+            Instruction::JumpBackwardJit | Instruction::JumpBackwardNoJit => {
                 self.jump_relative_backward(u32::from(arg), 1);
                 Ok(None)
             }
