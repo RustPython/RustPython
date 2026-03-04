@@ -12,6 +12,19 @@ use rustpython_literal::format::Case;
 
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
+/// Locale information for 'n' format specifier.
+/// Contains thousands separator, decimal point, and grouping pattern
+/// from the C library's `localeconv()`.
+#[derive(Clone, Debug)]
+pub struct LocaleInfo {
+    pub thousands_sep: String,
+    pub decimal_point: String,
+    /// Grouping pattern from `lconv.grouping`.
+    /// Each element is a group size. The last non-zero element repeats.
+    /// e.g. `[3, 0]` means groups of 3 repeating forever.
+    pub grouping: Vec<u8>,
+}
+
 trait FormatParse {
     fn parse(text: &Wtf8) -> (Option<Self>, &Wtf8)
     where
@@ -458,6 +471,223 @@ impl FormatSpec {
             }
             None => magnitude_str,
         }
+    }
+
+    /// Returns true if this format spec uses the locale-aware 'n' format type.
+    pub fn has_locale_format(&self) -> bool {
+        matches!(self.format_type, Some(FormatType::Number(Case::Lower)))
+    }
+
+    /// Insert locale-aware thousands separators into an integer string.
+    /// Follows CPython's GroupGenerator logic for variable-width grouping.
+    fn insert_locale_grouping(int_part: &str, locale: &LocaleInfo) -> String {
+        if locale.grouping.is_empty() || locale.thousands_sep.is_empty() || int_part.len() <= 1 {
+            return int_part.to_string();
+        }
+
+        let mut group_idx = 0;
+        let mut group_size = locale.grouping[0] as usize;
+
+        if group_size == 0 {
+            return int_part.to_string();
+        }
+
+        // Collect groups of digits from right to left
+        let len = int_part.len();
+        let mut groups: Vec<&str> = Vec::new();
+        let mut pos = len;
+
+        loop {
+            if pos <= group_size {
+                groups.push(&int_part[..pos]);
+                break;
+            }
+
+            groups.push(&int_part[pos - group_size..pos]);
+            pos -= group_size;
+
+            // Advance to next group size
+            if group_idx + 1 < locale.grouping.len() {
+                let next = locale.grouping[group_idx + 1] as usize;
+                if next != 0 {
+                    group_size = next;
+                    group_idx += 1;
+                }
+                // 0 means repeat previous group size forever
+            }
+        }
+
+        // Groups were collected right-to-left, reverse to get left-to-right
+        groups.reverse();
+        groups.join(&locale.thousands_sep)
+    }
+
+    /// Apply locale-aware grouping and decimal point replacement to a formatted number.
+    fn apply_locale_formatting(magnitude_str: String, locale: &LocaleInfo) -> String {
+        let mut parts = magnitude_str.splitn(2, '.');
+        let int_part = parts.next().unwrap();
+        let grouped = Self::insert_locale_grouping(int_part, locale);
+
+        if let Some(frac_part) = parts.next() {
+            format!("{grouped}{}{frac_part}", locale.decimal_point)
+        } else {
+            grouped
+        }
+    }
+
+    /// Format an integer with locale-aware 'n' format.
+    pub fn format_int_locale(
+        &self,
+        num: &BigInt,
+        locale: &LocaleInfo,
+    ) -> Result<String, FormatSpecError> {
+        self.validate_format(FormatType::Decimal)?;
+        let magnitude = num.abs();
+
+        let raw_magnitude_str = match self.format_type {
+            Some(FormatType::Number(Case::Lower)) => self.format_int_radix(magnitude, 10),
+            _ => return self.format_int(num),
+        }?;
+
+        let magnitude_str = Self::apply_locale_formatting(raw_magnitude_str, locale);
+
+        let format_sign = self.sign.unwrap_or(FormatSign::Minus);
+        let sign_str = match num.sign() {
+            Sign::Minus => "-",
+            _ => match format_sign {
+                FormatSign::Plus => "+",
+                FormatSign::Minus => "",
+                FormatSign::MinusOrSpace => " ",
+            },
+        };
+
+        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), sign_str, FormatAlign::Right)
+    }
+
+    /// Format a float with locale-aware 'n' format.
+    pub fn format_float_locale(
+        &self,
+        num: f64,
+        locale: &LocaleInfo,
+    ) -> Result<String, FormatSpecError> {
+        self.validate_format(FormatType::FixedPoint(Case::Lower))?;
+        let precision = self.precision.unwrap_or(6);
+        let magnitude = num.abs();
+
+        let raw_magnitude_str = match &self.format_type {
+            Some(FormatType::Number(case)) => {
+                let precision = if precision == 0 { 1 } else { precision };
+                Ok(float::format_general(
+                    precision,
+                    magnitude,
+                    *case,
+                    self.alternate_form,
+                    false,
+                ))
+            }
+            _ => return self.format_float(num),
+        }?;
+
+        let magnitude_str = Self::apply_locale_formatting(raw_magnitude_str, locale);
+
+        let format_sign = self.sign.unwrap_or(FormatSign::Minus);
+        let sign_str = if num.is_sign_negative() && !num.is_nan() {
+            "-"
+        } else {
+            match format_sign {
+                FormatSign::Plus => "+",
+                FormatSign::Minus => "",
+                FormatSign::MinusOrSpace => " ",
+            }
+        };
+
+        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), sign_str, FormatAlign::Right)
+    }
+
+    /// Format a complex number with locale-aware 'n' format.
+    pub fn format_complex_locale(
+        &self,
+        num: &Complex64,
+        locale: &LocaleInfo,
+    ) -> Result<String, FormatSpecError> {
+        // For complex, format real and imaginary parts separately with locale
+        if self.alternate_form {
+            return Err(FormatSpecError::NotAllowed("Alternate form (#)"));
+        }
+        if matches!(
+            self.format_type,
+            Some(
+                FormatType::String
+                    | FormatType::Binary
+                    | FormatType::Octal
+                    | FormatType::Hex(_)
+                    | FormatType::Character
+                    | FormatType::Decimal
+                    | FormatType::Number(Case::Upper)
+                    | FormatType::Unknown(_)
+            )
+        ) {
+            let ch = char::from(self.format_type.as_ref().unwrap());
+            return Err(FormatSpecError::UnknownFormatCode(ch, "complex"));
+        }
+
+        let precision = self.precision.unwrap_or(6);
+        let format_type = match self.format_type {
+            Some(FormatType::Number(case)) => FormatType::GeneralFormat(case),
+            _ => return self.format_complex(num),
+        };
+
+        let magnitude_format = FormatSpec {
+            format_type: Some(format_type),
+            precision: Some(if precision == 0 { 1 } else { precision }),
+            ..*self
+        };
+
+        let re_str = if num.re == 0.0 && !num.re.is_sign_negative() {
+            None
+        } else {
+            let re_sign = if num.re.is_sign_negative() && !num.re.is_nan() {
+                "-"
+            } else {
+                ""
+            };
+            let re_mag = magnitude_format.format_float(num.re.abs())?;
+            let re_grouped = Self::apply_locale_formatting(re_mag, locale);
+            Some(format!("{re_sign}{re_grouped}"))
+        };
+
+        let im_sign = if num.im.is_sign_negative() && !num.im.is_nan() {
+            "-"
+        } else {
+            ""
+        };
+        let im_mag = magnitude_format.format_float(num.im.abs())?;
+        let im_grouped = Self::apply_locale_formatting(im_mag, locale);
+
+        let has_re = re_str.is_some();
+        let formatted = if let Some(re_str) = re_str {
+            let sep = if num.im >= 0.0 || num.im.is_nan() {
+                "+"
+            } else {
+                ""
+            };
+            format!("({re_str}{sep}{im_sign}{im_grouped}j)")
+        } else {
+            format!("{im_sign}{im_grouped}j")
+        };
+
+        let format_sign = self.sign.unwrap_or(FormatSign::Minus);
+        let sign_str = match format_sign {
+            FormatSign::Plus => "+",
+            FormatSign::Minus => "",
+            FormatSign::MinusOrSpace => " ",
+        };
+
+        self.format_sign_and_align(
+            &AsciiStr::new(&formatted),
+            if has_re { "" } else { sign_str },
+            FormatAlign::Right,
+        )
     }
 
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
