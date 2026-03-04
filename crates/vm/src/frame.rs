@@ -18,7 +18,7 @@ use crate::{
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
     },
     bytecode::{
-        self, ADAPTIVE_COOLDOWN_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
+        self, ADAPTIVE_COOLDOWN_VALUE, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
     },
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
@@ -2786,24 +2786,6 @@ impl ExecutingFrame<'_> {
                             self.jump(exit_label);
                             return Ok(None);
                         }
-                    }
-                }
-                {
-                    let instr_idx = self.lasti() as usize - 1;
-                    let cache_base = instr_idx + 1;
-                    unsafe {
-                        self.code.instructions.replace_op(
-                            instr_idx,
-                            Instruction::Send {
-                                delta: Arg::marker(),
-                            },
-                        );
-                        self.code.instructions.write_adaptive_counter(
-                            cache_base,
-                            bytecode::adaptive_counter_backoff(
-                                self.code.instructions.read_adaptive_counter(cache_base),
-                            ),
-                        );
                     }
                 }
                 match self._send(receiver, val, vm)? {
