@@ -3439,10 +3439,18 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    let args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
-                    let _null = self.pop_value_opt(); // self_or_null (NULL)
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
+                    let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
                     let func = callable.downcast_ref::<PyFunction>().unwrap();
+                    let args = if let Some(self_val) = self_or_null {
+                        let mut all_args = Vec::with_capacity(pos_args.len() + 1);
+                        all_args.push(self_val);
+                        all_args.extend(pos_args);
+                        all_args
+                    } else {
+                        pos_args
+                    };
                     let result = func.invoke_exact_args(args, vm)?;
                     self.push_value(result);
                     Ok(None)
@@ -3456,27 +3464,12 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
-                // Stack: [callable, self_or_null, arg1, ..., argN]
+                // Stack: [callable, self_or_null(NULL), arg1, ..., argN]
                 let stack = &self.state.stack;
                 let stack_len = stack.len();
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
                 let callable = self.nth_value(nargs + 1);
-                if self_or_null_is_some
-                    && let Some(func) = callable.downcast_ref::<PyFunction>()
-                    && func.func_version() == cached_version
-                    && cached_version != 0
-                {
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
-                    let self_val = self.pop_value();
-                    let callable = self.pop_value();
-                    let func = callable.downcast_ref::<PyFunction>().unwrap();
-                    let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-                    all_args.push(self_val);
-                    all_args.extend(pos_args);
-                    let result = func.invoke_exact_args(all_args, vm)?;
-                    self.push_value(result);
-                    Ok(None)
-                } else if !self_or_null_is_some
+                if !self_or_null_is_some
                     && let Some(bound_method) = callable.downcast_ref::<PyBoundMethod>()
                 {
                     let bound_function = bound_method.function_obj().clone();
@@ -3724,23 +3717,7 @@ impl ExecutingFrame<'_> {
                 let stack_len = stack.len();
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
                 let callable = self.nth_value(nargs + 1);
-                if self_or_null_is_some
-                    && let Some(func) = callable.downcast_ref::<PyFunction>()
-                    && func.func_version() == cached_version
-                    && cached_version != 0
-                {
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_val = self.pop_value();
-                    let callable = self.pop_value();
-                    let mut args_vec = Vec::with_capacity(nargs_usize + 1);
-                    args_vec.push(self_val);
-                    args_vec.extend(pos_args);
-                    let result =
-                        vectorcall_function(&callable, args_vec, nargs_usize + 1, None, vm)?;
-                    self.push_value(result);
-                    Ok(None)
-                } else if !self_or_null_is_some
+                if !self_or_null_is_some
                     && let Some(bound_method) = callable.downcast_ref::<PyBoundMethod>()
                 {
                     let bound_function = bound_method.function_obj().clone();
@@ -4134,30 +4111,7 @@ impl ExecutingFrame<'_> {
                 let stack_len = stack.len();
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 2].is_some();
                 let callable = self.nth_value(nargs + 2);
-                if self_or_null_is_some
-                    && let Some(func) = callable.downcast_ref::<PyFunction>()
-                    && func.func_version() == cached_version
-                    && cached_version != 0
-                {
-                    let nargs_usize = nargs as usize;
-                    let kwarg_names_obj = self.pop_value();
-                    let kwarg_names_tuple = kwarg_names_obj
-                        .downcast_ref::<PyTuple>()
-                        .expect("kwarg names should be tuple");
-                    let kw_count = kwarg_names_tuple.len();
-                    let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_val = self.pop_value();
-                    let callable = self.pop_value();
-                    let pos_count = nargs_usize - kw_count;
-                    let mut args_vec = Vec::with_capacity(nargs_usize + 1);
-                    args_vec.push(self_val);
-                    args_vec.extend(all_args);
-                    let kwnames = kwarg_names_tuple.as_slice();
-                    let result =
-                        vectorcall_function(&callable, args_vec, pos_count + 1, Some(kwnames), vm)?;
-                    self.push_value(result);
-                    return Ok(None);
-                } else if !self_or_null_is_some
+                if !self_or_null_is_some
                     && let Some(bound_method) = callable.downcast_ref::<PyBoundMethod>()
                 {
                     let bound_function = bound_method.function_obj().clone();
@@ -6919,13 +6873,7 @@ impl ExecutingFrame<'_> {
             };
 
             let new_op = if func.can_specialize_call(effective_nargs) {
-                if self_or_null_is_some {
-                    Instruction::CallBoundMethodExactArgs
-                } else {
-                    Instruction::CallPyExactArgs
-                }
-            } else if self_or_null_is_some {
-                Instruction::CallBoundMethodGeneral
+                Instruction::CallPyExactArgs
             } else {
                 Instruction::CallPyGeneral
             };
@@ -7134,17 +7082,12 @@ impl ExecutingFrame<'_> {
                 return;
             }
 
-            let new_op = if self_or_null_is_some {
-                Instruction::CallKwBoundMethod
-            } else {
-                Instruction::CallKwPy
-            };
             unsafe {
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, version);
             }
-            self.specialize_at(instr_idx, cache_base, new_op);
+            self.specialize_at(instr_idx, cache_base, Instruction::CallKwPy);
             return;
         }
 
