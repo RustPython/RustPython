@@ -74,6 +74,9 @@ pub struct VirtualMachine {
     pub sys_module: PyRef<PyModule>,
     pub ctx: PyRc<Context>,
     pub frames: RefCell<Vec<FramePtr>>,
+    /// Thread-local data stack for bump-allocating frame-local data
+    /// (localsplus arrays for non-generator frames).
+    datastack: core::cell::UnsafeCell<crate::datastack::DataStack>,
     pub wasm_id: Option<String>,
     exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
@@ -172,6 +175,25 @@ pub fn process_hash_secret_seed() -> u32 {
 }
 
 impl VirtualMachine {
+    /// Bump-allocate `size` bytes from the thread data stack.
+    ///
+    /// # Safety
+    /// The returned pointer must be freed by calling `datastack_pop` in LIFO order.
+    #[inline(always)]
+    pub(crate) fn datastack_push(&self, size: usize) -> *mut u8 {
+        unsafe { (*self.datastack.get()).push(size) }
+    }
+
+    /// Pop a previous data stack allocation.
+    ///
+    /// # Safety
+    /// `base` must be a pointer returned by `datastack_push` on this VM,
+    /// and all allocations made after it must already have been popped.
+    #[inline(always)]
+    pub(crate) unsafe fn datastack_pop(&self, base: *mut u8) {
+        unsafe { (*self.datastack.get()).pop(base) }
+    }
+
     /// Check whether the current thread is the main thread.
     /// Mirrors `_Py_ThreadCanHandleSignals`.
     #[allow(dead_code)]
@@ -215,6 +237,7 @@ impl VirtualMachine {
             sys_module,
             ctx,
             frames: RefCell::new(vec![]),
+            datastack: core::cell::UnsafeCell::new(crate::datastack::DataStack::new()),
             wasm_id: None,
             exceptions: RefCell::default(),
             import_func,
@@ -591,7 +614,7 @@ impl VirtualMachine {
         };
 
         let frame =
-            Frame::new(code, scope, builtins, &[], Some(func_obj), self).into_ref(&self.ctx);
+            Frame::new(code, scope, builtins, &[], Some(func_obj), false, self).into_ref(&self.ctx);
         self.run_frame(frame)
     }
 
