@@ -3847,8 +3847,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorO => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -3885,8 +3884,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorFast => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -3924,8 +3922,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallBuiltinClass => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -3934,26 +3931,12 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag && callable.downcast_ref::<PyType>().is_some() {
-                    let args = self.collect_positional_args(nargs);
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let final_args = if let Some(self_val) = self_or_null {
-                        let mut args = args;
-                        args.prepend_arg(self_val);
-                        args
-                    } else {
-                        args
-                    };
-                    let result = callable.call(final_args, vm)?;
-                    self.push_value(result);
-                    return Ok(None);
+                if !(cached_tag == callable_tag && callable.downcast_ref::<PyType>().is_some()) {
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallAllocAndEnterInit => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4013,8 +3996,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
@@ -4053,8 +4035,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallBuiltinFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
@@ -4087,8 +4068,7 @@ impl ExecutingFrame<'_> {
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallNonPyGeneral => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4097,15 +4077,12 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag {
-                    let args = self.collect_positional_args(nargs);
-                    return self.execute_call(args, vm);
+                if cached_tag != callable_tag {
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallKwPy => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4196,15 +4173,12 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 2);
                 let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag {
-                    let args = self.collect_keyword_args(nargs);
-                    return self.execute_call(args, vm);
+                if cached_tag != callable_tag {
+                    self.deoptimize(Instruction::CallKw {
+                        argc: Arg::marker(),
+                    });
                 }
-                self.deoptimize(Instruction::CallKw {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_keyword_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_kw_vectorcall(nargs, vm)
             }
             Instruction::LoadSuperAttrAttr => {
                 let oparg = u32::from(arg);
@@ -5626,22 +5600,15 @@ impl ExecutingFrame<'_> {
     fn execute_call_vectorcall(&mut self, nargs: u32, vm: &VirtualMachine) -> FrameResult {
         let nargs_usize = nargs as usize;
         let stack_len = self.state.stack.len();
+        debug_assert!(
+            stack_len >= nargs_usize + 2,
+            "CALL stack underflow: need callable + self_or_null + {nargs_usize} args, have {stack_len}"
+        );
         let callable_idx = stack_len - nargs_usize - 2;
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
 
-        // Check if callable has vectorcall slot
-        let has_vectorcall = self.state.stack[callable_idx]
-            .as_ref()
-            .is_some_and(|sr| sr.as_object().class().slots.vectorcall.load().is_some());
-
-        if !has_vectorcall {
-            // Fallback to existing FuncArgs path
-            let args = self.collect_positional_args(nargs);
-            return self.execute_call(args, vm);
-        }
-
-        // Build args slice: [self_or_null?, arg1, ..., argN]
+        // Build args: [self?, arg1, ..., argN]
         let self_or_null = self.state.stack[self_or_null_idx]
             .take()
             .map(|sr| sr.to_pyobj());
@@ -5664,6 +5631,7 @@ impl ExecutingFrame<'_> {
         let callable_obj = self.state.stack[callable_idx].take().unwrap().to_pyobj();
         self.state.stack.truncate(callable_idx);
 
+        // invoke_vectorcall falls back to FuncArgs if no vectorcall slot
         let result = callable_obj.vectorcall(args_vec, effective_nargs, None, vm)?;
         self.push_value(result);
         Ok(None)
@@ -5680,42 +5648,16 @@ impl ExecutingFrame<'_> {
             .downcast_ref::<PyTuple>()
             .expect("kwarg names should be tuple");
         let kw_count = kwarg_names_tuple.len();
+        debug_assert!(kw_count <= nargs_usize, "CALL_KW kw_count exceeds nargs");
 
         let stack_len = self.state.stack.len();
+        debug_assert!(
+            stack_len >= nargs_usize + 2,
+            "CALL_KW stack underflow: need callable + self_or_null + {nargs_usize} args, have {stack_len}"
+        );
         let callable_idx = stack_len - nargs_usize - 2;
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
-
-        // Check if callable has vectorcall slot
-        let has_vectorcall = self.state.stack[callable_idx]
-            .as_ref()
-            .is_some_and(|sr| sr.as_object().class().slots.vectorcall.load().is_some());
-
-        if !has_vectorcall {
-            // Fallback: reconstruct kwarg_names iterator and use existing path
-            let kwarg_names_iter = kwarg_names_tuple.as_slice().iter().map(|pyobj| {
-                pyobj
-                    .downcast_ref::<PyUtf8Str>()
-                    .unwrap()
-                    .as_str()
-                    .to_owned()
-            });
-            let args = self.pop_multiple(nargs_usize);
-            let func_args = FuncArgs::with_kwargs_names(args, kwarg_names_iter);
-            // pop self_or_null and callable
-            let self_or_null = self.pop_value_opt();
-            let callable = self.pop_value();
-            let final_args = if let Some(self_val) = self_or_null {
-                let mut args = func_args;
-                args.prepend_arg(self_val);
-                args
-            } else {
-                func_args
-            };
-            let value = callable.call(final_args, vm)?;
-            self.push_value(value);
-            return Ok(None);
-        }
 
         // Build args: [self?, pos_arg1, ..., pos_argM, kw_val1, ..., kw_valK]
         let self_or_null = self.state.stack[self_or_null_idx]
@@ -5723,7 +5665,9 @@ impl ExecutingFrame<'_> {
             .map(|sr| sr.to_pyobj());
         let has_self = self_or_null.is_some();
 
-        let pos_count = nargs_usize - kw_count;
+        let pos_count = nargs_usize
+            .checked_sub(kw_count)
+            .expect("CALL_KW: kw_count exceeds nargs");
         let effective_nargs = if has_self { pos_count + 1 } else { pos_count };
 
         // Build the full args slice: positional (including self) + kwarg values
@@ -5740,6 +5684,7 @@ impl ExecutingFrame<'_> {
         let callable_obj = self.state.stack[callable_idx].take().unwrap().to_pyobj();
         self.state.stack.truncate(callable_idx);
 
+        // invoke_vectorcall falls back to FuncArgs if no vectorcall slot
         let kwnames = kwarg_names_tuple.as_slice();
         let result = callable_obj.vectorcall(args_vec, effective_nargs, Some(kwnames), vm)?;
         self.push_value(result);
