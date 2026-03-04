@@ -176,6 +176,16 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         unsafe {
             crate::gc_state::gc_state().untrack_object(ptr);
         }
+        // Verify untrack cleared the tracked flag and generation
+        debug_assert!(
+            !obj_ref.is_gc_tracked(),
+            "object still tracked after untrack_object"
+        );
+        debug_assert_eq!(
+            obj_ref.gc_generation(),
+            crate::object::GC_UNTRACKED,
+            "gc_generation not reset after untrack_object"
+        );
     }
 
     // Extract child references before deallocation to break circular refs (tp_clear)

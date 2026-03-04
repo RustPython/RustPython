@@ -281,6 +281,16 @@ impl GcState {
                 count.fetch_sub(1, Ordering::SeqCst);
                 obj_ref.clear_gc_tracked();
                 obj_ref.set_gc_generation(GC_UNTRACKED);
+            } else {
+                // Object claims to be in this generation but wasn't found in the list.
+                // This indicates a bug: the object was already removed from the list
+                // without updating gc_generation, or was never inserted.
+                eprintln!(
+                    "GC WARNING: untrack_object failed to remove obj={obj:p} from gen={obj_gen}, \
+                     tracked={}, gc_gen={}",
+                    obj_ref.is_gc_tracked(),
+                    obj_ref.gc_generation()
+                );
             }
             return;
         }
@@ -472,11 +482,23 @@ impl GcState {
             );
         }
 
-        // Create strong references to reachable objects while read locks are
-        // still held. After dropping gen_locks, other threads can untrack+free
-        // objects, making the raw pointers in `reachable` dangling.
-        // Strong refs keep objects alive for promote_survivors.
+        // Create strong references while read locks are still held.
+        // After dropping gen_locks, other threads can untrack+free objects,
+        // making the raw pointers in `reachable`/`unreachable` dangling.
+        // Strong refs keep objects alive for later phases.
         let survivor_refs: Vec<PyObjectRef> = reachable
+            .iter()
+            .filter_map(|ptr| {
+                let obj = unsafe { ptr.0.as_ref() };
+                if obj.strong_count() > 0 {
+                    Some(obj.to_owned())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let unreachable_refs: Vec<crate::PyObjectRef> = unreachable
             .iter()
             .filter_map(|ptr| {
                 let obj = unsafe { ptr.0.as_ref() };
@@ -500,19 +522,6 @@ impl GcState {
         drop(gen_locks);
 
         // Step 6: Finalize unreachable objects and handle resurrection
-
-        // 6a: Get references to all unreachable objects
-        let unreachable_refs: Vec<crate::PyObjectRef> = unreachable
-            .iter()
-            .filter_map(|ptr| {
-                let obj = unsafe { ptr.0.as_ref() };
-                if obj.strong_count() > 0 {
-                    Some(obj.to_owned())
-                } else {
-                    None
-                }
-            })
-            .collect();
 
         if unreachable_refs.is_empty() {
             self.promote_survivors(generation, &survivor_refs);

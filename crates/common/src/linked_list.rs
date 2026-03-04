@@ -157,6 +157,15 @@ impl<L: Link> LinkedList<L, L::Target> {
         let ptr = L::as_raw(&val);
         assert_ne!(self.head, Some(ptr));
         unsafe {
+            // Verify the node is not already in a list (pointers must be clean)
+            assert!(
+                L::pointers(ptr).as_ref().get_prev().is_none(),
+                "push_front: node already has prev pointer (double-insert?)"
+            );
+            assert!(
+                L::pointers(ptr).as_ref().get_next().is_none(),
+                "push_front: node already has next pointer (double-insert?)"
+            );
             L::pointers(ptr).as_mut().set_next(self.head);
             L::pointers(ptr).as_mut().set_prev(None);
 
@@ -226,7 +235,11 @@ impl<L: Link> LinkedList<L, L::Target> {
     pub unsafe fn remove(&mut self, node: NonNull<L::Target>) -> Option<L::Handle> {
         unsafe {
             if let Some(prev) = L::pointers(node).as_ref().get_prev() {
-                debug_assert_eq!(L::pointers(prev).as_ref().get_next(), Some(node));
+                assert_eq!(
+                    L::pointers(prev).as_ref().get_next(),
+                    Some(node),
+                    "linked list corruption: prev->next != node (prev={prev:p}, node={node:p})"
+                );
                 L::pointers(prev)
                     .as_mut()
                     .set_next(L::pointers(node).as_ref().get_next());
@@ -239,7 +252,11 @@ impl<L: Link> LinkedList<L, L::Target> {
             }
 
             if let Some(next) = L::pointers(node).as_ref().get_next() {
-                debug_assert_eq!(L::pointers(next).as_ref().get_prev(), Some(node));
+                assert_eq!(
+                    L::pointers(next).as_ref().get_prev(),
+                    Some(node),
+                    "linked list corruption: next->prev != node (next={next:p}, node={node:p})"
+                );
                 L::pointers(next)
                     .as_mut()
                     .set_prev(L::pointers(node).as_ref().get_prev());
