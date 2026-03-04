@@ -6965,10 +6965,8 @@ impl ExecutingFrame<'_> {
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, type_version);
-                self.code
-                    .instructions
-                    .replace_op(instr_idx, Instruction::LoadAttrModule);
             }
+            self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
             return;
         }
 
@@ -7004,9 +7002,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     Instruction::LoadAttrMethodWithValues
                 };
-                unsafe {
-                    self.code.instructions.replace_op(instr_idx, new_op);
-                }
+                self.specialize_at(instr_idx, cache_base, new_op);
                 return;
             }
             // Can't specialize this method call
@@ -7042,10 +7038,8 @@ impl ExecutingFrame<'_> {
                         self.code
                             .instructions
                             .write_cache_u32(cache_base + 3, offset as u32);
-                        self.code
-                            .instructions
-                            .replace_op(instr_idx, Instruction::LoadAttrSlot);
                     }
+                    self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrSlot);
                 } else if let Some(ref descr) = cls_attr
                     && descr.downcast_ref::<PyProperty>().is_some()
                 {
@@ -7058,10 +7052,8 @@ impl ExecutingFrame<'_> {
                         self.code
                             .instructions
                             .write_cache_u64(cache_base + 5, descr_ptr);
-                        self.code
-                            .instructions
-                            .replace_op(instr_idx, Instruction::LoadAttrProperty);
                     }
+                    self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrProperty);
                 } else {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
@@ -7093,10 +7085,12 @@ impl ExecutingFrame<'_> {
                         self.code
                             .instructions
                             .write_cache_u64(cache_base + 5, descr_ptr);
-                        self.code
-                            .instructions
-                            .replace_op(instr_idx, Instruction::LoadAttrNondescriptorWithValues);
                     }
+                    self.specialize_at(
+                        instr_idx,
+                        cache_base,
+                        Instruction::LoadAttrNondescriptorWithValues,
+                    );
                 } else {
                     // No class attr, must be in instance dict
                     let use_hint = if let Some(dict) = obj.dict() {
@@ -7124,15 +7118,16 @@ impl ExecutingFrame<'_> {
                         self.code
                             .instructions
                             .write_cache_u32(cache_base + 1, type_version);
-                        self.code.instructions.replace_op(
-                            instr_idx,
-                            if use_hint {
-                                Instruction::LoadAttrWithHint
-                            } else {
-                                Instruction::LoadAttrInstanceValue
-                            },
-                        );
                     }
+                    self.specialize_at(
+                        instr_idx,
+                        cache_base,
+                        if use_hint {
+                            Instruction::LoadAttrWithHint
+                        } else {
+                            Instruction::LoadAttrInstanceValue
+                        },
+                    );
                 }
             } else if let Some(ref descr) = cls_attr {
                 // No dict support, plain class attr — cache directly
@@ -7144,10 +7139,12 @@ impl ExecutingFrame<'_> {
                     self.code
                         .instructions
                         .write_cache_u64(cache_base + 5, descr_ptr);
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttrNondescriptorNoDict);
                 }
+                self.specialize_at(
+                    instr_idx,
+                    cache_base,
+                    Instruction::LoadAttrNondescriptorNoDict,
+                );
             } else {
                 // No dict, no class attr — can't specialize
                 unsafe {
@@ -7411,6 +7408,17 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    /// Install a specialized opcode and set adaptive cooldown bits.
+    #[inline]
+    fn specialize_at(&mut self, instr_idx: usize, cache_base: usize, new_op: Instruction) {
+        unsafe {
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_COOLDOWN_VALUE);
+            self.code.instructions.replace_op(instr_idx, new_op);
+        }
+    }
+
     /// Commit a specialization result: replace op on success, backoff on failure.
     #[inline]
     fn commit_specialization(
@@ -7420,12 +7428,7 @@ impl ExecutingFrame<'_> {
         new_op: Option<Instruction>,
     ) {
         if let Some(new_op) = new_op {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_adaptive_counter(cache_base, ADAPTIVE_COOLDOWN_VALUE);
-                self.code.instructions.replace_op(instr_idx, new_op);
-            }
+            self.specialize_at(instr_idx, cache_base, new_op);
         } else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
@@ -7569,11 +7572,11 @@ impl ExecutingFrame<'_> {
                 Instruction::CallPyGeneral
             };
             unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, version);
             }
+            self.specialize_at(instr_idx, cache_base, new_op);
             return;
         }
 
@@ -7586,11 +7589,11 @@ impl ExecutingFrame<'_> {
                 _ => Instruction::CallMethodDescriptorFast,
             };
             unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, callable_tag);
             }
+            self.specialize_at(instr_idx, cache_base, new_op);
             return;
         }
 
@@ -7609,11 +7612,11 @@ impl ExecutingFrame<'_> {
                 let new_op = Some(new_op);
                 if let Some(new_op) = new_op {
                     unsafe {
-                        self.code.instructions.replace_op(instr_idx, new_op);
                         self.code
                             .instructions
                             .write_cache_u32(cache_base + 1, callable_tag);
                     }
+                    self.specialize_at(instr_idx, cache_base, new_op);
                     return;
                 }
             }
@@ -7632,11 +7635,11 @@ impl ExecutingFrame<'_> {
                     if let Some(new_op) = new_op {
                         let callable_tag = callable as *const PyObject as u32;
                         unsafe {
-                            self.code.instructions.replace_op(instr_idx, new_op);
                             self.code
                                 .instructions
                                 .write_cache_u32(cache_base + 1, callable_tag);
                         }
+                        self.specialize_at(instr_idx, cache_base, new_op);
                         return;
                     }
                 }
@@ -7657,11 +7660,13 @@ impl ExecutingFrame<'_> {
                             unsafe {
                                 self.code
                                     .instructions
-                                    .replace_op(instr_idx, Instruction::CallAllocAndEnterInit);
-                                self.code
-                                    .instructions
                                     .write_cache_u32(cache_base + 1, version);
                             }
+                            self.specialize_at(
+                                instr_idx,
+                                cache_base,
+                                Instruction::CallAllocAndEnterInit,
+                            );
                             return;
                         }
                     }
@@ -7671,11 +7676,9 @@ impl ExecutingFrame<'_> {
                 unsafe {
                     self.code
                         .instructions
-                        .replace_op(instr_idx, Instruction::CallBuiltinClass);
-                    self.code
-                        .instructions
                         .write_cache_u32(cache_base + 1, callable_tag);
                 }
+                self.specialize_at(instr_idx, cache_base, Instruction::CallBuiltinClass);
                 return;
             }
         }
@@ -7685,11 +7688,9 @@ impl ExecutingFrame<'_> {
         unsafe {
             self.code
                 .instructions
-                .replace_op(instr_idx, Instruction::CallNonPyGeneral);
-            self.code
-                .instructions
                 .write_cache_u32(cache_base + 1, callable_tag);
         }
+        self.specialize_at(instr_idx, cache_base, Instruction::CallNonPyGeneral);
     }
 
     fn specialize_call_kw(
@@ -7734,11 +7735,11 @@ impl ExecutingFrame<'_> {
                 Instruction::CallKwPy
             };
             unsafe {
-                self.code.instructions.replace_op(instr_idx, new_op);
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, version);
             }
+            self.specialize_at(instr_idx, cache_base, new_op);
             return;
         }
 
@@ -7747,11 +7748,9 @@ impl ExecutingFrame<'_> {
         unsafe {
             self.code
                 .instructions
-                .replace_op(instr_idx, Instruction::CallKwNonPy);
-            self.code
-                .instructions
                 .write_cache_u32(cache_base + 1, callable_tag);
         }
+        self.specialize_at(instr_idx, cache_base, Instruction::CallKwNonPy);
     }
 
     fn specialize_send(&mut self, instr_idx: usize, cache_base: usize) {
@@ -7764,11 +7763,7 @@ impl ExecutingFrame<'_> {
         // Stack: [receiver, val] — receiver is at position 1
         let receiver = self.nth_value(1);
         if self.builtin_coro(receiver).is_some() {
-            unsafe {
-                self.code
-                    .instructions
-                    .replace_op(instr_idx, Instruction::SendGen);
-            }
+            self.specialize_at(instr_idx, cache_base, Instruction::SendGen);
         } else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
@@ -7817,9 +7812,7 @@ impl ExecutingFrame<'_> {
         } else {
             Instruction::LoadSuperAttrAttr
         };
-        unsafe {
-            self.code.instructions.replace_op(instr_idx, new_op);
-        }
+        self.specialize_at(instr_idx, cache_base, new_op);
     }
 
     fn specialize_compare_op(
@@ -7899,10 +7892,8 @@ impl ExecutingFrame<'_> {
                     self.code
                         .instructions
                         .write_cache_u32(cache_base + 1, type_version);
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::ToBoolAlwaysTrue);
                 }
+                self.specialize_at(instr_idx, cache_base, Instruction::ToBoolAlwaysTrue);
             } else {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
@@ -7994,15 +7985,13 @@ impl ExecutingFrame<'_> {
             unsafe {
                 self.code
                     .instructions
-                    .replace_op(instr_idx, Instruction::LoadGlobalModule);
-                self.code
-                    .instructions
                     .write_cache_u16(cache_base + 1, globals_version);
                 self.code.instructions.write_cache_u16(cache_base + 2, 0);
                 self.code
                     .instructions
                     .write_cache_u16(cache_base + 3, globals_hint);
             }
+            self.specialize_at(instr_idx, cache_base, Instruction::LoadGlobalModule);
             return;
         }
 
@@ -8013,9 +8002,6 @@ impl ExecutingFrame<'_> {
             unsafe {
                 self.code
                     .instructions
-                    .replace_op(instr_idx, Instruction::LoadGlobalBuiltin);
-                self.code
-                    .instructions
                     .write_cache_u16(cache_base + 1, globals_version);
                 self.code
                     .instructions
@@ -8024,6 +8010,7 @@ impl ExecutingFrame<'_> {
                     .instructions
                     .write_cache_u16(cache_base + 3, builtins_hint);
             }
+            self.specialize_at(instr_idx, cache_base, Instruction::LoadGlobalBuiltin);
             return;
         }
 
@@ -8188,10 +8175,8 @@ impl ExecutingFrame<'_> {
                     self.code
                         .instructions
                         .write_cache_u16(cache_base + 3, offset as u16);
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::StoreAttrSlot);
                 }
+                self.specialize_at(instr_idx, cache_base, Instruction::StoreAttrSlot);
             } else {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
@@ -8222,15 +8207,16 @@ impl ExecutingFrame<'_> {
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, type_version);
-                self.code.instructions.replace_op(
-                    instr_idx,
-                    if use_hint {
-                        Instruction::StoreAttrWithHint
-                    } else {
-                        Instruction::StoreAttrInstanceValue
-                    },
-                );
             }
+            self.specialize_at(
+                instr_idx,
+                cache_base,
+                if use_hint {
+                    Instruction::StoreAttrWithHint
+                } else {
+                    Instruction::StoreAttrInstanceValue
+                },
+            );
         } else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
