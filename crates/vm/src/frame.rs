@@ -163,10 +163,13 @@ const _: () = {
 impl LocalsPlus {
     /// Create a new heap-backed LocalsPlus.  All slots start as None (0).
     fn new(nlocalsplus: usize, stacksize: usize) -> Self {
-        let capacity = nlocalsplus + stacksize;
+        let capacity = nlocalsplus
+            .checked_add(stacksize)
+            .expect("LocalsPlus capacity overflow");
+        let nlocalsplus_u32 = u32::try_from(nlocalsplus).expect("nlocalsplus exceeds u32");
         Self {
             data: LocalsPlusData::Heap(vec![0usize; capacity].into_boxed_slice()),
-            nlocalsplus: nlocalsplus as u32,
+            nlocalsplus: nlocalsplus_u32,
             stack_top: 0,
         }
     }
@@ -177,14 +180,19 @@ impl LocalsPlus {
     /// The caller must call `materialize_localsplus()` when the frame finishes
     /// to migrate data to the heap, then `datastack_pop()` to free the memory.
     fn new_on_datastack(nlocalsplus: usize, stacksize: usize, vm: &VirtualMachine) -> Self {
-        let capacity = nlocalsplus + stacksize;
-        let byte_size = capacity * core::mem::size_of::<usize>();
+        let capacity = nlocalsplus
+            .checked_add(stacksize)
+            .expect("LocalsPlus capacity overflow");
+        let byte_size = capacity
+            .checked_mul(core::mem::size_of::<usize>())
+            .expect("LocalsPlus byte size overflow");
+        let nlocalsplus_u32 = u32::try_from(nlocalsplus).expect("nlocalsplus exceeds u32");
         let ptr = vm.datastack_push(byte_size) as *mut usize;
         // Zero-initialize all slots (0 = None for both PyObjectRef and PyStackRef).
         unsafe { core::ptr::write_bytes(ptr, 0, capacity) };
         Self {
             data: LocalsPlusData::DataStack { ptr, capacity },
-            nlocalsplus: nlocalsplus as u32,
+            nlocalsplus: nlocalsplus_u32,
             stack_top: 0,
         }
     }
@@ -2362,18 +2370,16 @@ impl ExecutingFrame<'_> {
                 // Same as LoadFast but explicitly checks for unbound locals
                 // (LoadFast in RustPython already does this check)
                 let idx = idx.get(arg) as usize;
-                let x = self.localsplus.fastlocals()[idx]
-                    .clone()
-                    .ok_or_else(|| {
-                        vm.new_exception_msg(
-                            vm.ctx.exceptions.unbound_local_error.to_owned(),
-                            format!(
-                                "local variable '{}' referenced before assignment",
-                                self.code.varnames[idx]
-                            )
-                            .into(),
+                let x = self.localsplus.fastlocals()[idx].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx]
                         )
-                    })?;
+                        .into(),
+                    )
+                })?;
                 self.push_value(x);
                 Ok(None)
             }
@@ -2413,18 +2419,16 @@ impl ExecutingFrame<'_> {
             // lifetime issues at yield/exception points are resolved.
             Instruction::LoadFastBorrow { var_num: idx } => {
                 let idx = idx.get(arg) as usize;
-                let x = self.localsplus.fastlocals()[idx]
-                    .clone()
-                    .ok_or_else(|| {
-                        vm.new_exception_msg(
-                            vm.ctx.exceptions.unbound_local_error.to_owned(),
-                            format!(
-                                "local variable '{}' referenced before assignment",
-                                self.code.varnames[idx]
-                            )
-                            .into(),
+                let x = self.localsplus.fastlocals()[idx].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx]
                         )
-                    })?;
+                        .into(),
+                    )
+                })?;
                 self.push_value(x);
                 Ok(None)
             }
@@ -4312,7 +4316,10 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 let stack_len = self.localsplus.stack_len();
-                let self_or_null_is_some = self.localsplus.stack_index(stack_len - nargs as usize - 1).is_some();
+                let self_or_null_is_some = self
+                    .localsplus
+                    .stack_index(stack_len - nargs as usize - 1)
+                    .is_some();
                 if !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
@@ -5994,11 +6001,21 @@ impl ExecutingFrame<'_> {
             args_vec.push(self_val);
         }
         for stack_idx in args_start..stack_len {
-            let val = self.localsplus.stack_index_mut(stack_idx).take().unwrap().to_pyobj();
+            let val = self
+                .localsplus
+                .stack_index_mut(stack_idx)
+                .take()
+                .unwrap()
+                .to_pyobj();
             args_vec.push(val);
         }
 
-        let callable_obj = self.localsplus.stack_index_mut(callable_idx).take().unwrap().to_pyobj();
+        let callable_obj = self
+            .localsplus
+            .stack_index_mut(callable_idx)
+            .take()
+            .unwrap()
+            .to_pyobj();
         self.localsplus.stack_truncate(callable_idx);
 
         // invoke_vectorcall falls back to FuncArgs if no vectorcall slot
@@ -6049,11 +6066,21 @@ impl ExecutingFrame<'_> {
             args_vec.push(self_val);
         }
         for stack_idx in args_start..stack_len {
-            let val = self.localsplus.stack_index_mut(stack_idx).take().unwrap().to_pyobj();
+            let val = self
+                .localsplus
+                .stack_index_mut(stack_idx)
+                .take()
+                .unwrap()
+                .to_pyobj();
             args_vec.push(val);
         }
 
-        let callable_obj = self.localsplus.stack_index_mut(callable_idx).take().unwrap().to_pyobj();
+        let callable_obj = self
+            .localsplus
+            .stack_index_mut(callable_idx)
+            .take()
+            .unwrap()
+            .to_pyobj();
         self.localsplus.stack_truncate(callable_idx);
 
         // invoke_vectorcall falls back to FuncArgs if no vectorcall slot

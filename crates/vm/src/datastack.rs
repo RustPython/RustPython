@@ -102,10 +102,15 @@ impl DataStack {
     #[inline(never)]
     fn push_slow(&mut self, aligned_size: usize) -> *mut u8 {
         let mut chunk_size = MIN_CHUNK_SIZE;
-        let needed =
-            aligned_size + MINIMUM_OVERHEAD + core::mem::size_of::<DataStackChunk>() + ALIGN;
+        let needed = aligned_size
+            .checked_add(MINIMUM_OVERHEAD)
+            .and_then(|v| v.checked_add(core::mem::size_of::<DataStackChunk>()))
+            .and_then(|v| v.checked_add(ALIGN))
+            .expect("DataStack chunk size overflow");
         while chunk_size < needed {
-            chunk_size *= 2;
+            chunk_size = chunk_size
+                .checked_mul(2)
+                .expect("DataStack chunk size overflow");
         }
         // Save current position in old chunk.
         unsafe {

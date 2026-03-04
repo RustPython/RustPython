@@ -29,7 +29,10 @@ cfg_if::cfg_if! {
         pub use std::sync::LazyLock;
     } else {
         pub struct LazyLock<T, F = fn() -> T>(core::cell::LazyCell<T, F>);
-        // SAFETY: Without std, there can be no threads.
+        // SAFETY: This branch is only active when both "std" and "threading"
+        // features are absent — i.e., truly single-threaded no_std environments
+        // (e.g., embedded or bare-metal WASM). Without std, the Rust runtime
+        // cannot spawn threads, so Sync is trivially satisfied.
         unsafe impl<T, F> Sync for LazyLock<T, F> {}
 
         impl<T, F: FnOnce() -> T> LazyLock<T, F> {
