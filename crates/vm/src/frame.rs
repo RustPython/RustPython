@@ -3620,17 +3620,13 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallBuiltinO => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     let obj = self.pop_value();
                     let _null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    let callable_tag = &*callable as *const PyObject as u32;
-                    if cached_tag == callable_tag
-                        && let Some(native) = callable.downcast_ref::<PyNativeFunction>()
+                    if let Some(native) = callable.downcast_ref::<PyNativeFunction>()
+                        && native.zelf.is_none()
                     {
                         let args = FuncArgs {
                             args: vec![obj],
@@ -3648,18 +3644,13 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallBuiltinFast => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
-                let callable_tag = callable as *const PyObject as u32;
-                let func = if cached_tag == callable_tag {
+                let func = {
                     callable
                         .downcast_ref::<PyNativeFunction>()
+                        .filter(|n| n.zelf.is_none())
                         .map(|n| n.value.func)
-                } else {
-                    None
                 };
                 if let Some(func) = func {
                     let positional_args: Vec<PyObjectRef> =
@@ -3751,9 +3742,6 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::CallListAppend => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     // Stack: [callable, self_or_null, item]
@@ -3761,11 +3749,17 @@ impl ExecutingFrame<'_> {
                     let stack_len = stack.len();
                     let self_or_null_is_some = stack[stack_len - 2].is_some();
                     let callable = self.nth_value(2);
-                    let callable_tag = callable as *const PyObject as u32;
                     let self_is_list = stack[stack_len - 2]
                         .as_ref()
                         .is_some_and(|obj| obj.downcast_ref::<PyList>().is_some());
-                    if cached_tag == callable_tag && self_or_null_is_some && self_is_list {
+                    let is_list_append =
+                        callable
+                            .downcast_ref::<PyMethodDescriptor>()
+                            .is_some_and(|descr| {
+                                descr.method.name == "append"
+                                    && descr.objclass.is(vm.ctx.types.list_type)
+                            });
+                    if is_list_append && self_or_null_is_some && self_is_list {
                         let item = self.pop_value();
                         let self_or_null = self.pop_value_opt();
                         let callable = self.pop_value();
@@ -3789,9 +3783,6 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallMethodDescriptorNoargs => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 0 {
                     // Stack: [callable, self_or_null] — peek to get func ptr
@@ -3799,8 +3790,7 @@ impl ExecutingFrame<'_> {
                     let stack_len = stack.len();
                     let self_or_null_is_some = stack[stack_len - 1].is_some();
                     let callable = self.nth_value(1);
-                    let callable_tag = callable as *const PyObject as u32;
-                    let func = if cached_tag == callable_tag && self_or_null_is_some {
+                    let func = if self_or_null_is_some {
                         callable
                             .downcast_ref::<PyMethodDescriptor>()
                             .map(|d| d.method.func)
@@ -3823,9 +3813,6 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallMethodDescriptorO => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     // Stack: [callable, self_or_null, arg1]
@@ -3833,8 +3820,7 @@ impl ExecutingFrame<'_> {
                     let stack_len = stack.len();
                     let self_or_null_is_some = stack[stack_len - 2].is_some();
                     let callable = self.nth_value(2);
-                    let callable_tag = callable as *const PyObject as u32;
-                    let func = if cached_tag == callable_tag && self_or_null_is_some {
+                    let func = if self_or_null_is_some {
                         callable
                             .downcast_ref::<PyMethodDescriptor>()
                             .map(|d| d.method.func)
@@ -3858,16 +3844,12 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallMethodDescriptorFast => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
-                let callable_tag = callable as *const PyObject as u32;
                 let stack = &self.state.stack;
                 let stack_len = stack.len();
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
-                let func = if cached_tag == callable_tag && self_or_null_is_some {
+                let func = if self_or_null_is_some {
                     callable
                         .downcast_ref::<PyMethodDescriptor>()
                         .map(|d| d.method.func)
@@ -3894,13 +3876,9 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallBuiltinClass => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
-                let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag && callable.downcast_ref::<PyType>().is_some() {
+                if callable.downcast_ref::<PyType>().is_some() {
                     let args = self.collect_positional_args(nargs);
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
@@ -3978,16 +3956,12 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallMethodDescriptorFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
-                let callable_tag = callable as *const PyObject as u32;
                 let stack = &self.state.stack;
                 let stack_len = stack.len();
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
-                let func = if cached_tag == callable_tag && self_or_null_is_some {
+                let func = if self_or_null_is_some {
                     callable
                         .downcast_ref::<PyMethodDescriptor>()
                         .map(|d| d.method.func)
@@ -4015,18 +3989,13 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallBuiltinFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
-                let callable_tag = callable as *const PyObject as u32;
-                let func = if cached_tag == callable_tag {
+                let func = {
                     callable
                         .downcast_ref::<PyNativeFunction>()
+                        .filter(|n| n.zelf.is_none())
                         .map(|n| n.value.func)
-                } else {
-                    None
                 };
                 if let Some(func) = func {
                     let positional_args: Vec<PyObjectRef> =
@@ -4045,13 +4014,11 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallNonPyGeneral => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
-                let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag {
+                if callable.downcast_ref::<PyFunction>().is_some()
+                    || callable.downcast_ref::<PyBoundMethod>().is_some()
+                {
                     let args = self.collect_positional_args(nargs);
                     return self.execute_call(args, vm);
                 }
@@ -4149,13 +4116,11 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallKwNonPy => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 2);
-                let callable_tag = callable as *const PyObject as u32;
-                if cached_tag == callable_tag {
+                if callable.downcast_ref::<PyFunction>().is_some()
+                    || callable.downcast_ref::<PyBoundMethod>().is_some()
+                {
                     let args = self.collect_keyword_args(nargs);
                     return self.execute_call(args, vm);
                 }
@@ -6920,7 +6885,6 @@ impl ExecutingFrame<'_> {
 
         // Try to specialize method descriptor calls
         if self_or_null_is_some && let Some(descr) = callable.downcast_ref::<PyMethodDescriptor>() {
-            let callable_tag = callable as *const PyObject as u32;
             let call_cache_entries = Instruction::CallListAppend.cache_entries();
             let next_idx = cache_base + call_cache_entries;
             let next_is_pop_top = if next_idx < self.code.instructions.len() {
@@ -6943,11 +6907,6 @@ impl ExecutingFrame<'_> {
                     _ => Instruction::CallMethodDescriptorFast,
                 }
             };
-            unsafe {
-                self.code
-                    .instructions
-                    .write_cache_u32(cache_base + 1, callable_tag);
-            }
             self.specialize_at(instr_idx, cache_base, new_op);
             return;
         }
@@ -6966,10 +6925,12 @@ impl ExecutingFrame<'_> {
                 };
                 let new_op = Some(new_op);
                 if let Some(new_op) = new_op {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u32(cache_base + 1, callable_tag);
+                    if matches!(new_op, Instruction::CallLen | Instruction::CallIsinstance) {
+                        unsafe {
+                            self.code
+                                .instructions
+                                .write_cache_u32(cache_base + 1, callable_tag);
+                        }
                     }
                     self.specialize_at(instr_idx, cache_base, new_op);
                     return;
@@ -7027,24 +6988,12 @@ impl ExecutingFrame<'_> {
                     }
                 }
                 // General builtin class call (any type with Callable)
-                let callable_tag = callable as *const PyObject as u32;
-                unsafe {
-                    self.code
-                        .instructions
-                        .write_cache_u32(cache_base + 1, callable_tag);
-                }
                 self.specialize_at(instr_idx, cache_base, Instruction::CallBuiltinClass);
                 return;
             }
         }
 
-        // General fallback: cache callable identity to skip re-specialization
-        let callable_tag = callable as *const PyObject as u32;
-        unsafe {
-            self.code
-                .instructions
-                .write_cache_u32(cache_base + 1, callable_tag);
-        }
+        // General fallback: specialized non-Python callable path
         self.specialize_at(instr_idx, cache_base, Instruction::CallNonPyGeneral);
     }
 
@@ -7116,13 +7065,7 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // General fallback
-        let callable_tag = callable as *const PyObject as u32;
-        unsafe {
-            self.code
-                .instructions
-                .write_cache_u32(cache_base + 1, callable_tag);
-        }
+        // General fallback: specialized non-Python callable path
         self.specialize_at(instr_idx, cache_base, Instruction::CallKwNonPy);
     }
 
