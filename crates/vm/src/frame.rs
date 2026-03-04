@@ -3508,7 +3508,7 @@ impl ExecutingFrame<'_> {
                     let callable = self.pop_value();
                     let callable_tag = &*callable as *const PyObject as u32;
                     let is_len_callable = callable
-                        .downcast_ref::<PyNativeFunction>()
+                        .downcast_ref_if_exact::<PyNativeFunction>(vm)
                         .is_some_and(|native| native.zelf.is_none() && native.value.name == "len");
                     if null.is_none() && cached_tag == callable_tag && is_len_callable {
                         let len = obj.length(vm)?;
@@ -3536,7 +3536,7 @@ impl ExecutingFrame<'_> {
                     let callable = self.nth_value(nargs + 1);
                     let callable_tag = callable as *const PyObject as u32;
                     let is_isinstance_callable = callable
-                        .downcast_ref::<PyNativeFunction>()
+                        .downcast_ref_if_exact::<PyNativeFunction>(vm)
                         .is_some_and(|native| {
                             native.zelf.is_none() && native.value.name == "isinstance"
                         });
@@ -3626,7 +3626,11 @@ impl ExecutingFrame<'_> {
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
                 let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 let callable = self.nth_value(nargs + 1);
-                if callable.downcast_ref::<PyNativeFunction>().is_some() && effective_nargs == 1 {
+                if callable
+                    .downcast_ref_if_exact::<PyNativeFunction>(vm)
+                    .is_some()
+                    && effective_nargs == 1
+                {
                     let nargs_usize = nargs as usize;
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
@@ -3651,7 +3655,10 @@ impl ExecutingFrame<'_> {
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
                 let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 let callable = self.nth_value(nargs + 1);
-                if callable.downcast_ref::<PyNativeFunction>().is_some() {
+                if callable
+                    .downcast_ref_if_exact::<PyNativeFunction>(vm)
+                    .is_some()
+                {
                     let nargs_usize = nargs as usize;
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
@@ -3921,6 +3928,7 @@ impl ExecutingFrame<'_> {
                     // Look up __init__ (guarded by type_version)
                     if let Some(init) = cls.get_attr(identifier!(vm, __init__))
                         && let Some(init_func) = init.downcast_ref::<PyFunction>()
+                        && init_func.can_specialize_call(nargs + 1)
                     {
                         // Allocate object directly (tp_new == object.__new__)
                         let dict = if cls
@@ -4003,7 +4011,10 @@ impl ExecutingFrame<'_> {
                 let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
                 let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 let callable = self.nth_value(nargs + 1);
-                if callable.downcast_ref::<PyNativeFunction>().is_some() {
+                if callable
+                    .downcast_ref_if_exact::<PyNativeFunction>(vm)
+                    .is_some()
+                {
                     let nargs_usize = nargs as usize;
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
@@ -4601,23 +4612,12 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::ForIterGen => {
+                // ForIterGen is not faithfully implementable without inline
+                // generator frame resumption (as CPython does). Fall through
+                // to the generic path so the debugger sees StopIteration.
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
-                if let Some(generator) = iter.downcast_ref_if_exact::<PyGenerator>(vm) {
-                    match generator.as_coro().send(iter, vm.ctx.none(), vm) {
-                        Ok(PyIterReturn::Return(value)) => {
-                            self.push_value(value);
-                        }
-                        Ok(PyIterReturn::StopIteration(_)) => {
-                            self.for_iter_jump_on_exhausted(target);
-                        }
-                        Err(e) => return Err(e),
-                    }
-                    Ok(None)
-                } else {
-                    self.execute_for_iter(vm, target)?;
-                    Ok(None)
-                }
+                self.execute_for_iter(vm, target)?;
+                Ok(None)
             }
             Instruction::LoadGlobalModule => {
                 let oparg = u32::from(arg);
@@ -6964,7 +6964,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Try to specialize builtin calls
-        if let Some(native) = callable.downcast_ref::<PyNativeFunction>() {
+        if let Some(native) = callable.downcast_ref_if_exact::<PyNativeFunction>(vm) {
             let effective_nargs = nargs + u32::from(self_or_null_is_some);
             let callable_tag = callable as *const PyObject as u32;
             let new_op = if native.zelf.is_none()
@@ -7299,8 +7299,6 @@ impl ExecutingFrame<'_> {
             Some(Instruction::ForIterList)
         } else if iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some() {
             Some(Instruction::ForIterTuple)
-        } else if iter.downcast_ref_if_exact::<PyGenerator>(vm).is_some() {
-            Some(Instruction::ForIterGen)
         } else {
             None
         };
