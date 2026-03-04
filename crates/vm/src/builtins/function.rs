@@ -1152,6 +1152,16 @@ impl PyBoundMethod {
         Self { object, function }
     }
 
+    #[inline]
+    pub(crate) fn function_obj(&self) -> &PyObjectRef {
+        &self.function
+    }
+
+    #[inline]
+    pub(crate) fn self_obj(&self) -> &PyObjectRef {
+        &self.object
+    }
+
     #[deprecated(note = "Use `Self::new(object, function).into_ref(ctx)` instead")]
     pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &Context) -> PyRef<Self> {
         Self::new(object, function).into_ref(ctx)
