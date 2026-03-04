@@ -3716,22 +3716,39 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::CallListAppend => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
-                    // Stack: [list.append (bound method), self_or_null (list), item]
-                    let item = self.pop_value();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    if let Some(list_obj) = self_or_null.as_ref()
-                        && let Some(list) = list_obj.downcast_ref_if_exact::<PyList>(vm)
-                    {
-                        list.append(item);
-                        self.push_value(vm.ctx.none());
-                        return Ok(None);
+                    // Stack: [callable, self_or_null, item]
+                    let stack = &self.state.stack;
+                    let stack_len = stack.len();
+                    let self_or_null_is_some = stack[stack_len - 2].is_some();
+                    let callable = self.nth_value(2);
+                    let callable_tag = callable as *const PyObject as u32;
+                    let self_is_list = stack[stack_len - 2]
+                        .as_ref()
+                        .is_some_and(|obj| obj.downcast_ref::<PyList>().is_some());
+                    if cached_tag == callable_tag && self_or_null_is_some && self_is_list {
+                        let item = self.pop_value();
+                        let self_or_null = self.pop_value_opt();
+                        let callable = self.pop_value();
+                        if let Some(list_obj) = self_or_null.as_ref()
+                            && let Some(list) = list_obj.downcast_ref::<PyList>()
+                        {
+                            list.append(item);
+                            // CALL_LIST_APPEND fuses the following POP_TOP.
+                            self.jump_relative_forward(
+                                1,
+                                Instruction::CallListAppend.cache_entries() as u32,
+                            );
+                            return Ok(None);
+                        }
+                        self.push_value(callable);
+                        self.push_value_opt(self_or_null);
+                        self.push_value(item);
                     }
-                    self.push_value(callable);
-                    self.push_value_opt(self_or_null);
-                    self.push_value(item);
                 }
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
@@ -6829,12 +6846,29 @@ impl ExecutingFrame<'_> {
         }
 
         // Try to specialize method descriptor calls
-        if self_or_null_is_some && callable.downcast_ref::<PyMethodDescriptor>().is_some() {
+        if self_or_null_is_some && let Some(descr) = callable.downcast_ref::<PyMethodDescriptor>() {
             let callable_tag = callable as *const PyObject as u32;
-            let new_op = match nargs {
-                0 => Instruction::CallMethodDescriptorNoargs,
-                1 => Instruction::CallMethodDescriptorO,
-                _ => Instruction::CallMethodDescriptorFast,
+            let call_cache_entries = Instruction::CallListAppend.cache_entries();
+            let next_idx = cache_base + call_cache_entries;
+            let next_is_pop_top = if next_idx < self.code.instructions.len() {
+                let next_op = self.code.instructions.read_op(next_idx);
+                matches!(next_op.to_base().unwrap_or(next_op), Instruction::PopTop)
+            } else {
+                false
+            };
+
+            let new_op = if nargs == 1
+                && descr.method.name == "append"
+                && descr.objclass.is(vm.ctx.types.list_type)
+                && next_is_pop_top
+            {
+                Instruction::CallListAppend
+            } else {
+                match nargs {
+                    0 => Instruction::CallMethodDescriptorNoargs,
+                    1 => Instruction::CallMethodDescriptorO,
+                    _ => Instruction::CallMethodDescriptorFast,
+                }
             };
             unsafe {
                 self.code
