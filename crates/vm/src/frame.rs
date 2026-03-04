@@ -3742,9 +3742,9 @@ impl ExecutingFrame<'_> {
                     let stack_len = stack.len();
                     let self_or_null_is_some = stack[stack_len - 2].is_some();
                     let callable = self.nth_value(2);
-                    let self_is_list = stack[stack_len - 2]
+                    let self_is_exact_list = stack[stack_len - 2]
                         .as_ref()
-                        .is_some_and(|obj| obj.downcast_ref::<PyList>().is_some());
+                        .is_some_and(|obj| obj.class().is(vm.ctx.types.list_type));
                     let is_list_append =
                         callable
                             .downcast_ref::<PyMethodDescriptor>()
@@ -3752,12 +3752,12 @@ impl ExecutingFrame<'_> {
                                 descr.method.name == "append"
                                     && descr.objclass.is(vm.ctx.types.list_type)
                             });
-                    if is_list_append && self_or_null_is_some && self_is_list {
+                    if is_list_append && self_or_null_is_some && self_is_exact_list {
                         let item = self.pop_value();
                         let self_or_null = self.pop_value_opt();
                         let callable = self.pop_value();
                         if let Some(list_obj) = self_or_null.as_ref()
-                            && let Some(list) = list_obj.downcast_ref::<PyList>()
+                            && let Some(list) = list_obj.downcast_ref_if_exact::<PyList>(vm)
                         {
                             list.append(item);
                             // CALL_LIST_APPEND fuses the following POP_TOP.
