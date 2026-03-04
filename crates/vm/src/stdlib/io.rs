@@ -4988,8 +4988,13 @@ mod _io {
     }
 
     /// Reinit per-object IO buffer locks on std streams after `fork()`.
+    ///
+    /// # Safety
+    ///
+    /// Must only be called from the single-threaded child process immediately
+    /// after `fork()`, before any other thread is created.
     #[cfg(all(unix, feature = "threading"))]
-    pub fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
+    pub unsafe fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
         for name in ["stdin", "stdout", "stderr"] {
             let Ok(stream) = vm.sys_module.get_attr(name, vm) else {
                 continue;
@@ -5006,9 +5011,16 @@ mod _io {
             unsafe { reinit_thread_mutex_after_fork(&tio.data) };
             if let Some(guard) = tio.data.lock() {
                 if let Some(ref data) = *guard {
+                    if let Some(ref decoder) = data.decoder {
+                        reinit_io_locks(decoder);
+                    }
                     reinit_io_locks(&data.buffer);
                 }
             }
+            return;
+        }
+        if let Some(nl) = obj.downcast_ref::<IncrementalNewlineDecoder>() {
+            unsafe { reinit_thread_mutex_after_fork(&nl.data) };
             return;
         }
         if let Some(br) = obj.downcast_ref::<BufferedReader>() {
