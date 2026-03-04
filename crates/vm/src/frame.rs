@@ -4023,6 +4023,9 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallNonPyGeneral => {
                 let nargs: u32 = arg.into();
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 1].is_some();
                 let callable = self.nth_value(nargs + 1);
                 if callable.downcast_ref::<PyFunction>().is_some()
                     || callable.downcast_ref::<PyBoundMethod>().is_some()
@@ -4030,8 +4033,24 @@ impl ExecutingFrame<'_> {
                     let args = self.collect_positional_args(nargs);
                     return self.execute_call(args, vm);
                 }
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                let nargs_usize = nargs as usize;
+                let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                let self_or_null = self.pop_value_opt();
+                let callable = self.pop_value();
+                let mut args_vec =
+                    Vec::with_capacity(nargs_usize + usize::from(self_or_null_is_some));
+                if let Some(self_val) = self_or_null {
+                    args_vec.push(self_val);
+                }
+                args_vec.extend(pos_args);
+                let result = callable.vectorcall(
+                    args_vec,
+                    nargs_usize + usize::from(self_or_null_is_some),
+                    None,
+                    vm,
+                )?;
+                self.push_value(result);
+                Ok(None)
             }
             Instruction::CallKwPy => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4125,6 +4144,9 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallKwNonPy => {
                 let nargs: u32 = arg.into();
+                let stack = &self.state.stack;
+                let stack_len = stack.len();
+                let self_or_null_is_some = stack[stack_len - nargs as usize - 2].is_some();
                 let callable = self.nth_value(nargs + 2);
                 if callable.downcast_ref::<PyFunction>().is_some()
                     || callable.downcast_ref::<PyBoundMethod>().is_some()
@@ -4132,8 +4154,30 @@ impl ExecutingFrame<'_> {
                     let args = self.collect_keyword_args(nargs);
                     return self.execute_call(args, vm);
                 }
-                let args = self.collect_keyword_args(nargs);
-                self.execute_call(args, vm)
+                let nargs_usize = nargs as usize;
+                let kwarg_names_obj = self.pop_value();
+                let kwarg_names_tuple = kwarg_names_obj
+                    .downcast_ref::<PyTuple>()
+                    .expect("kwarg names should be tuple");
+                let kw_count = kwarg_names_tuple.len();
+                let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                let self_or_null = self.pop_value_opt();
+                let callable = self.pop_value();
+                let pos_count = nargs_usize - kw_count;
+                let mut args_vec =
+                    Vec::with_capacity(nargs_usize + usize::from(self_or_null_is_some));
+                if let Some(self_val) = self_or_null {
+                    args_vec.push(self_val);
+                }
+                args_vec.extend(all_args);
+                let result = callable.vectorcall(
+                    args_vec,
+                    pos_count + usize::from(self_or_null_is_some),
+                    Some(kwarg_names_tuple.as_slice()),
+                    vm,
+                )?;
+                self.push_value(result);
+                Ok(None)
             }
             Instruction::LoadSuperAttrAttr => {
                 let oparg = u32::from(arg);
