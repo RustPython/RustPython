@@ -6526,6 +6526,11 @@ impl ExecutingFrame<'_> {
             if !has_descr_get {
                 // METHOD or NON_DESCRIPTOR — can cache directly
                 let descr_ptr = &**descr as *const PyObject as u64;
+                let new_op = if metaclass_version == 0 {
+                    Instruction::LoadAttrClass
+                } else {
+                    Instruction::LoadAttrClassWithMetaclassCheck
+                };
                 unsafe {
                     self.code
                         .instructions
@@ -6536,15 +6541,8 @@ impl ExecutingFrame<'_> {
                     self.code
                         .instructions
                         .write_cache_u64(cache_base + 5, descr_ptr);
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        if metaclass_version == 0 {
-                            Instruction::LoadAttrClass
-                        } else {
-                            Instruction::LoadAttrClassWithMetaclassCheck
-                        },
-                    );
                 }
+                self.specialize_at(instr_idx, cache_base, new_op);
                 return;
             }
         }
