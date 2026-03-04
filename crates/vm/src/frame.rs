@@ -2168,7 +2168,9 @@ impl ExecutingFrame<'_> {
                 self.jump_relative_forward(u32::from(arg), 0);
                 Ok(None)
             }
-            Instruction::JumpBackward { .. } => {
+            Instruction::JumpBackward { .. }
+            | Instruction::JumpBackwardJit
+            | Instruction::JumpBackwardNoJit => {
                 self.jump_relative_backward(u32::from(arg), 1);
                 Ok(None)
             }
@@ -2303,6 +2305,18 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadConst { consti: idx } => {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
+                // Mirror CPython's LOAD_CONST family transition. RustPython does
+                // not currently distinguish immortal constants at runtime.
+                let instr_idx = self.lasti() as usize - 1;
+                unsafe {
+                    self.code
+                        .instructions
+                        .replace_op(instr_idx, Instruction::LoadConstMortal);
+                }
+                Ok(None)
+            }
+            Instruction::LoadConstMortal | Instruction::LoadConstImmortal => {
+                self.push_value(self.code.constants[u32::from(arg) as usize].clone().into());
                 Ok(None)
             }
             Instruction::LoadCommonConstant { idx } => {
@@ -2805,7 +2819,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::RaiseVarargs { argc: kind } => self.execute_raise(vm, kind.get(arg)),
-            Instruction::Resume { .. } => {
+            Instruction::Resume { .. } | Instruction::ResumeCheck => {
                 // Lazy quickening: initialize adaptive counters on first execution
                 if !self.code.quickened.swap(true, atomic::Ordering::Relaxed) {
                     self.code.instructions.quicken();
@@ -3268,6 +3282,35 @@ impl ExecutingFrame<'_> {
                     self.load_attr_slow(vm, oparg)
                 }
             }
+            Instruction::LoadAttrMethodLazyDict => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if type_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.dict().is_none()
+                {
+                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
+                    let func = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                    let owner = self.pop_value();
+                    self.push_value(func);
+                    self.push_value(owner);
+                    Ok(None)
+                } else {
+                    self.deoptimize_at(
+                        Instruction::LoadAttr {
+                            namei: Arg::marker(),
+                        },
+                        instr_idx,
+                        cache_base,
+                    );
+                    self.load_attr_slow(vm, oparg)
+                }
+            }
             Instruction::LoadAttrMethodWithValues => {
                 let oparg = LoadAttr::new(u32::from(arg));
                 let instr_idx = self.lasti() as usize - 1;
@@ -3343,6 +3386,39 @@ impl ExecutingFrame<'_> {
                     }
                     // Not in instance dict — fall through to class lookup via slow path
                 }
+                self.deoptimize_at(
+                    Instruction::LoadAttr {
+                        namei: Arg::marker(),
+                    },
+                    instr_idx,
+                    cache_base,
+                );
+                self.load_attr_slow(vm, oparg)
+            }
+            Instruction::LoadAttrWithHint => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let attr_name = self.code.names[oparg.name_idx() as usize];
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if type_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && let Some(dict) = owner.dict()
+                    && let Some(value) = dict.get_item_opt(attr_name, vm)?
+                {
+                    self.pop_value();
+                    if oparg.is_method() {
+                        self.push_value(value);
+                        self.push_value_opt(None);
+                    } else {
+                        self.push_value(value);
+                    }
+                    return Ok(None);
+                }
+
                 self.deoptimize_at(
                     Instruction::LoadAttr {
                         namei: Arg::marker(),
@@ -3507,6 +3583,48 @@ impl ExecutingFrame<'_> {
                 }
                 self.load_attr_slow(vm, oparg)
             }
+            Instruction::LoadAttrClassWithMetaclassCheck => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let metaclass_version = self.code.instructions.read_cache_u32(cache_base + 3);
+
+                if type_version != 0
+                    && metaclass_version != 0
+                    && let Some(owner_type) = owner.downcast_ref::<PyType>()
+                    && owner_type.tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag.load(Acquire) == metaclass_version
+                {
+                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
+                    let attr = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                    self.pop_value();
+                    if oparg.is_method() {
+                        self.push_value(attr);
+                        self.push_value_opt(None);
+                    } else {
+                        self.push_value(attr);
+                    }
+                    return Ok(None);
+                }
+                self.deoptimize_at(
+                    Instruction::LoadAttr {
+                        namei: Arg::marker(),
+                    },
+                    instr_idx,
+                    cache_base,
+                );
+                self.load_attr_slow(vm, oparg)
+            }
+            Instruction::LoadAttrGetattributeOverridden => {
+                let oparg = LoadAttr::new(u32::from(arg));
+                self.deoptimize(Instruction::LoadAttr {
+                    namei: Arg::marker(),
+                });
+                self.load_attr_slow(vm, oparg)
+            }
             Instruction::LoadAttrSlot => {
                 let oparg = LoadAttr::new(u32::from(arg));
                 let instr_idx = self.lasti() as usize - 1;
@@ -3579,6 +3697,32 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::StoreAttrInstanceValue => {
+                let attr_idx = u32::from(arg);
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let attr_name = self.code.names[attr_idx as usize];
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+
+                if type_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && let Some(dict) = owner.dict()
+                {
+                    self.pop_value(); // owner
+                    let value = self.pop_value();
+                    dict.set_item(attr_name, value, vm)?;
+                    return Ok(None);
+                }
+                self.deoptimize_at(
+                    Instruction::StoreAttr {
+                        namei: Arg::marker(),
+                    },
+                    instr_idx,
+                    cache_base,
+                );
+                self.store_attr(vm, attr_idx)
+            }
+            Instruction::StoreAttrWithHint => {
                 let attr_idx = u32::from(arg);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
@@ -3707,6 +3851,12 @@ impl ExecutingFrame<'_> {
                     self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
                     self.execute_bin_op(vm, bytecode::BinaryOperator::Add)
                 }
+            }
+            Instruction::BinaryOpSubscrGetitem | Instruction::BinaryOpExtend => {
+                let op = bytecode::BinaryOperator::try_from(u32::from(arg))
+                    .unwrap_or(bytecode::BinaryOperator::Subscr);
+                self.deoptimize(Instruction::BinaryOp { op: Arg::marker() });
+                self.execute_bin_op(vm, op)
             }
             Instruction::BinaryOpSubscrListInt => {
                 let b = self.top_value();
@@ -6812,6 +6962,8 @@ impl ExecutingFrame<'_> {
 
                 let new_op = if !class_has_dict {
                     Instruction::LoadAttrMethodNoDict
+                } else if obj.dict().is_none() {
+                    Instruction::LoadAttrMethodLazyDict
                 } else {
                     Instruction::LoadAttrMethodWithValues
                 };
@@ -6901,13 +7053,34 @@ impl ExecutingFrame<'_> {
                     }
                 } else {
                     // No class attr, must be in instance dict
+                    let use_hint = if let Some(dict) = obj.dict() {
+                        match dict.get_item_opt(attr_name, _vm) {
+                            Ok(Some(_)) => true,
+                            Ok(None) => false,
+                            Err(_) => {
+                                unsafe {
+                                    self.code
+                                        .instructions
+                                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                                }
+                                return;
+                            }
+                        }
+                    } else {
+                        false
+                    };
                     unsafe {
                         self.code
                             .instructions
                             .write_cache_u32(cache_base + 1, type_version);
-                        self.code
-                            .instructions
-                            .replace_op(instr_idx, Instruction::LoadAttrInstanceValue);
+                        self.code.instructions.replace_op(
+                            instr_idx,
+                            if use_hint {
+                                Instruction::LoadAttrWithHint
+                            } else {
+                                Instruction::LoadAttrInstanceValue
+                            },
+                        );
                     }
                 }
             } else if let Some(ref descr) = cls_attr {
@@ -6976,6 +7149,21 @@ impl ExecutingFrame<'_> {
                 return;
             }
         }
+        let mut metaclass_version = 0;
+        if !mcl.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            metaclass_version = mcl.tp_version_tag.load(Acquire);
+            if metaclass_version == 0 {
+                metaclass_version = mcl.assign_version_tag();
+            }
+            if metaclass_version == 0 {
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                }
+                return;
+            }
+        }
 
         // Look up attr in the type's own MRO
         let cls_attr = owner_type.get_attr(attr_name);
@@ -6991,10 +7179,18 @@ impl ExecutingFrame<'_> {
                         .write_cache_u32(cache_base + 1, type_version);
                     self.code
                         .instructions
-                        .write_cache_u64(cache_base + 5, descr_ptr);
+                        .write_cache_u32(cache_base + 3, metaclass_version);
                     self.code
                         .instructions
-                        .replace_op(instr_idx, Instruction::LoadAttrClass);
+                        .write_cache_u64(cache_base + 5, descr_ptr);
+                    self.code.instructions.replace_op(
+                        instr_idx,
+                        if metaclass_version == 0 {
+                            Instruction::LoadAttrClass
+                        } else {
+                            Instruction::LoadAttrClassWithMetaclassCheck
+                        },
+                    );
                 }
                 return;
             }
@@ -7814,7 +8010,7 @@ impl ExecutingFrame<'_> {
 
     fn specialize_store_attr(
         &mut self,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         attr_idx: bytecode::NameIdx,
         instr_idx: usize,
         cache_base: usize,
@@ -7890,14 +8086,31 @@ impl ExecutingFrame<'_> {
                         .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
                 }
             }
-        } else if owner.dict().is_some() {
+        } else if let Some(dict) = owner.dict() {
+            let use_hint = match dict.get_item_opt(attr_name, vm) {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(_) => {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_adaptive_counter(cache_base, ADAPTIVE_BACKOFF_VALUE);
+                    }
+                    return;
+                }
+            };
             unsafe {
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, type_version);
-                self.code
-                    .instructions
-                    .replace_op(instr_idx, Instruction::StoreAttrInstanceValue);
+                self.code.instructions.replace_op(
+                    instr_idx,
+                    if use_hint {
+                        Instruction::StoreAttrWithHint
+                    } else {
+                        Instruction::StoreAttrInstanceValue
+                    },
+                );
             }
         } else {
             unsafe {
