@@ -136,7 +136,9 @@ pub struct GcState {
 
 // SAFETY: GcObjectPtr wraps NonNull which is !Send/!Sync, but we only use it as an opaque
 // hash key. PyObjectRef is Send. In threading mode, PyRwLock/PyMutex are parking_lot based
-// and genuinely Sync. In non-threading mode, gc_state() is thread-local so Sync is not needed.
+// and genuinely Sync. In non-threading mode, gc_state() is thread-local so neither Send
+// nor Sync is needed.
+#[cfg(feature = "threading")]
 unsafe impl Send for GcState {}
 #[cfg(feature = "threading")]
 unsafe impl Sync for GcState {}

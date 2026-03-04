@@ -672,7 +672,10 @@ impl Frame {
                 .collect();
 
         // Create unified localsplus: varnames + cellvars + freevars + stack
-        let nlocalsplus = nlocals + num_cells + nfrees;
+        let nlocalsplus = nlocals
+            .checked_add(num_cells)
+            .and_then(|v| v.checked_add(nfrees))
+            .expect("Frame::new: nlocalsplus overflow");
         let max_stackdepth = code.max_stackdepth as usize;
         let mut localsplus = if use_datastack {
             LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm)
