@@ -5253,8 +5253,9 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadGlobalModule => {
                 let oparg = u32::from(arg);
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
+                // Keep specialized opcode on guard miss, matching CPython's
+                // JUMP_TO_PREDICTED(LOAD_GLOBAL) behavior.
                 let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
                 if let Ok(current_version) = u16::try_from(self.globals.version())
@@ -5269,13 +5270,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize_at(
-                    Instruction::LoadGlobal {
-                        namei: Arg::marker(),
-                    },
-                    instr_idx,
-                    cache_base,
-                );
                 let name = self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
@@ -5286,8 +5280,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadGlobalBuiltin => {
                 let oparg = u32::from(arg);
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
                 let cached_globals_ver = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_builtins_ver = self.code.instructions.read_cache_u16(cache_base + 2);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
@@ -5306,13 +5299,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize_at(
-                    Instruction::LoadGlobal {
-                        namei: Arg::marker(),
-                    },
-                    instr_idx,
-                    cache_base,
-                );
                 let name = self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
