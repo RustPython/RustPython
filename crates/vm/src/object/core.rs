@@ -257,6 +257,8 @@ bitflags::bitflags! {
         const SHARED_INLINE = 1 << 5;
         /// Use deferred reference counting
         const DEFERRED = 1 << 6;
+        /// Object has ObjExt prefix allocation
+        const HAS_EXT = 1 << 7;
     }
 }
 
@@ -354,32 +356,15 @@ pub(super) struct PyInner<T> {
 pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<PyInner<()>>();
 
 impl<T> PyInner<T> {
-    /// Check if this object has an ObjExt prefix by examining type flags.
-    /// Equivalent to Py_TPFLAGS_PREHEADER (MANAGED_DICT | MANAGED_WEAKREF)
-    /// plus member slots.
-    ///
-    /// Uses raw pointer operations to read type flags without creating a
-    /// shared reference. This avoids Stacked Borrows violations during
-    /// bootstrap when type objects are mutated through raw pointers.
+    /// Check if this object has an ObjExt prefix.
+    /// Uses the per-instance HAS_EXT bit in gc_bits, set at allocation time.
     #[inline(always)]
     fn has_ext(&self) -> bool {
-        use crate::types::PyTypeFlags;
-        let typ_ptr = self.typ.load_raw();
-        unsafe {
-            let inner_ptr = typ_ptr as *const PyInner<PyType>;
-            let flags = core::ptr::addr_of!((*inner_ptr).payload.slots.flags).read();
-            let member_count = core::ptr::addr_of!((*inner_ptr).payload.slots.member_count).read();
-            flags.has_feature(PyTypeFlags::HAS_DICT)
-                || flags.has_feature(PyTypeFlags::HAS_WEAKREF)
-                || member_count > 0
-        }
+        GcBits::from_bits_retain(self.gc_bits.load(Ordering::Relaxed)).contains(GcBits::HAS_EXT)
     }
 
     /// Access the ObjExt prefix at a negative offset from this PyInner.
     /// Returns None if this object was allocated without the prefix.
-    ///
-    /// Uses type flags (HAS_DICT, HAS_WEAKREF, member_count) to determine
-    /// if the prefix exists, matching CPython's Py_TPFLAGS_PREHEADER approach.
     ///
     /// Uses exposed provenance to reconstruct a pointer covering the entire
     /// allocation (ObjExt prefix + PyInner). The allocation pointer's provenance
@@ -958,10 +943,11 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
     /// For objects with ext, the allocation layout is: [ObjExt][PyInner<T>]
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> *mut Self {
         let member_count = typ.slots.member_count;
-        let needs_ext = typ
-            .slots
-            .flags
-            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+        let needs_ext = dict.is_some()
+            || typ
+                .slots
+                .flags
+                .has_feature(crate::types::PyTypeFlags::HAS_DICT)
             || typ
                 .slots
                 .flags
@@ -989,7 +975,7 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                 inner_ptr.write(Self {
                     ref_count: RefCount::new(),
                     vtable: PyObjVTable::of::<T>(),
-                    gc_bits: Radium::new(0),
+                    gc_bits: Radium::new(GcBits::HAS_EXT.bits()),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_pointers: Pointers::new(),
                     typ: PyAtomicRef::from(typ),
@@ -2344,7 +2330,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 PyInner::<PyType> {
                     ref_count: RefCount::new(),
                     vtable: PyObjVTable::of::<PyType>(),
-                    gc_bits: Radium::new(0),
+                    gc_bits: Radium::new(GcBits::HAS_EXT.bits()),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_pointers: Pointers::new(),
                     payload: type_payload,
@@ -2359,7 +2345,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 PyInner::<PyType> {
                     ref_count: RefCount::new(),
                     vtable: PyObjVTable::of::<PyType>(),
-                    gc_bits: Radium::new(0),
+                    gc_bits: Radium::new(GcBits::HAS_EXT.bits()),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_pointers: Pointers::new(),
                     payload: object_payload,

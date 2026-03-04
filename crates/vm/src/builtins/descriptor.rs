@@ -88,13 +88,12 @@ impl GetDescriptor for PyMethodDescriptor {
                 } else if descr.method.flags.contains(PyMethodFlags::CLASS) {
                     obj.class().to_owned().into()
                 } else {
-                    unimplemented!()
+                    obj
                 }
             }
             None if descr.method.flags.contains(PyMethodFlags::CLASS) => cls.unwrap(),
             None => return Ok(zelf),
         };
-        // Ok(descr.method.build_bound_method(&vm.ctx, bound, class).into())
         Ok(descr.bind(bound, &vm.ctx).into())
     }
 }

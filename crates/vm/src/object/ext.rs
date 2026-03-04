@@ -315,15 +315,6 @@ impl<T: PyPayload> Deref for PyAtomicRef<T> {
 }
 
 impl<T: PyPayload> PyAtomicRef<T> {
-    /// Load the raw pointer without creating a reference.
-    /// Uses exposed provenance to avoid Stacked Borrows violations
-    /// when the pointed-to object may have been mutated through raw pointers.
-    #[inline(always)]
-    pub(crate) fn load_raw(&self) -> *const Py<T> {
-        let addr = self.inner.load(Ordering::Relaxed).addr();
-        core::ptr::with_exposed_provenance(addr)
-    }
-
     /// # Safety
     /// The caller is responsible to keep the returned PyRef alive
     /// until no more reference can be used via PyAtomicRef::deref()

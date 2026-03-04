@@ -1094,7 +1094,7 @@ impl Py<PyType> {
         AsNumber,
         Representable
     ),
-    flags(BASETYPE, HAS_WEAKREF)
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl PyType {
     #[pygetset]
