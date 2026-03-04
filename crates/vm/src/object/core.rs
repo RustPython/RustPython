@@ -885,8 +885,19 @@ impl<T: PyPayload> Default for FreeList<T> {
 
 impl<T: PyPayload> Drop for FreeList<T> {
     fn drop(&mut self) {
+        // During thread teardown, we cannot safely run destructors on cached
+        // objects because their Drop impls may access thread-local storage
+        // (GC state, other freelists) that is already destroyed.
+        // Instead, free just the raw allocation. The payload's heap fields
+        // (BigInt, PyObjectRef, etc.) are leaked, but this is bounded by
+        // MAX_FREELIST per type per thread.
         for ptr in self.items.drain(..) {
-            drop(unsafe { Box::from_raw(ptr as *mut PyInner<T>) });
+            unsafe {
+                alloc::alloc::dealloc(
+                    ptr as *mut u8,
+                    alloc::alloc::Layout::new::<PyInner<T>>(),
+                );
+            }
         }
     }
 }
