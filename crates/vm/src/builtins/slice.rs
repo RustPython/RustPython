@@ -17,12 +17,32 @@ use crate::{
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass(module = false, name = "slice", unhashable = true, traverse)]
+#[pyclass(module = false, name = "slice", unhashable = true, traverse = "manual")]
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
     pub stop: PyObjectRef,
     pub step: Option<PyObjectRef>,
+}
+
+// SAFETY: Traverse properly visits all owned PyObjectRefs
+unsafe impl crate::object::Traverse for PySlice {
+    fn traverse(&self, traverse_fn: &mut crate::object::TraverseFn<'_>) {
+        self.start.traverse(traverse_fn);
+        self.stop.traverse(traverse_fn);
+        self.step.traverse(traverse_fn);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        if let Some(start) = self.start.take() {
+            out.push(start);
+        }
+        // stop is not Option, so it will be freed when payload is dropped
+        // (via drop_in_place on freelist pop, or Box::from_raw on dealloc)
+        if let Some(step) = self.step.take() {
+            out.push(step);
+        }
+    }
 }
 
 thread_local! {

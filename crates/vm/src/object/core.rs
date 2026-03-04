@@ -1791,7 +1791,8 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
                     (*inner).gc_bits.store(0, Ordering::Relaxed);
                     core::ptr::drop_in_place(&mut (*inner).payload);
                     core::ptr::write(&mut (*inner).payload, payload);
-                    // typ, vtable, dict(None), weak_list, slots are preserved
+                    // typ, vtable, slots are preserved; dict is None, weak_list was
+                    // cleared by drop_slow_inner before freelist push
                 }
                 // Drop the caller's typ since the cached object already holds one
                 drop(typ);
