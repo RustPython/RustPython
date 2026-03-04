@@ -210,9 +210,18 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
     ) -> Result<(), JitCompileError> {
+        // JIT should consume a stable instruction stream: de-specialized opcodes
+        // with zeroed CACHE entries, not runtime-mutated quickened code.
+        let clean_instructions: bytecode::CodeUnits = bytecode
+            .instructions
+            .original_bytes()
+            .as_slice()
+            .try_into()
+            .map_err(|_| JitCompileError::BadBytecode)?;
+
         let mut label_targets = BTreeSet::new();
         let mut target_arg_state = OpArgState::default();
-        for (offset, &raw_instr) in bytecode.instructions.iter().enumerate() {
+        for (offset, &raw_instr) in clean_instructions.iter().enumerate() {
             let (instruction, arg) = target_arg_state.get(raw_instr);
             if let Some(target) = Self::instruction_target(offset as u32, instruction, arg)? {
                 label_targets.insert(target);
@@ -223,7 +232,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         // Track whether we have "returned" in the current block
         let mut in_unreachable_code = false;
 
-        for (offset, &raw_instr) in bytecode.instructions.iter().enumerate() {
+        for (offset, &raw_instr) in clean_instructions.iter().enumerate() {
             let label = Label(offset as u32);
             let (instruction, arg) = arg_state.get(raw_instr);
 

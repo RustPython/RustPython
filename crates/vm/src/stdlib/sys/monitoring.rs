@@ -322,7 +322,7 @@ pub fn instrument_code(code: &PyCode, events: u32) {
         .code
         .instructions
         .iter()
-        .position(|u| matches!(u.op, Instruction::Resume { .. }))
+        .position(|u| matches!(u.op, Instruction::Resume { .. } | Instruction::ResumeCheck))
         .unwrap_or(0);
 
     // Phase 4: Place regular INSTRUMENTED_* opcodes
