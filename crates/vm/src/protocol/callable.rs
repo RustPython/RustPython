@@ -126,15 +126,8 @@ impl<'a> PyCallable<'a> {
                 result
             }
         } else {
-            // Fallback: convert owned Vec to FuncArgs
-            let func_args = FuncArgs {
-                args: args[..nargs].to_vec(),
-                kwargs: if let Some(kwn) = kwnames {
-                    FuncArgs::from_vectorcall(&args, nargs, Some(kwn)).kwargs
-                } else {
-                    indexmap::IndexMap::new()
-                },
-            };
+            // Fallback: convert owned Vec to FuncArgs (move, no clone)
+            let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
             self.invoke(func_args, vm)
         }
     }

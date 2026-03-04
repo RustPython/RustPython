@@ -1280,14 +1280,14 @@ pub(crate) fn vectorcall_function(
         // FAST PATH: simple positional-only call, exact arg count.
         // Move owned args directly into fastlocals — no clone needed.
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
-            ArgMapping::from_dict_exact(vm.ctx.new_dict())
+            None // lazy allocation — most frames never access locals dict
         } else {
-            ArgMapping::from_dict_exact(zelf.globals.clone())
+            Some(ArgMapping::from_dict_exact(zelf.globals.clone()))
         };
 
         let frame = Frame::new(
             code.to_owned(),
-            Scope::new(Some(locals), zelf.globals.clone()),
+            Scope::new(locals, zelf.globals.clone()),
             zelf.builtins.clone(),
             zelf.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(zelf.to_owned().into()),

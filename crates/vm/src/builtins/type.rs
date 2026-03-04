@@ -2339,8 +2339,37 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
  * The magical type type
  */
 
+/// Vectorcall for PyType (PEP 590).
+/// Fast path: type(x) returns x.__class__ without constructing FuncArgs.
+fn vectorcall_type(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+
+    // type(x) fast path: single positional arg, no kwargs
+    if zelf.is(vm.ctx.types.type_type) {
+        let no_kwargs = kwnames.is_none_or(|kw| kw.is_empty());
+        if nargs == 1 && no_kwargs {
+            return Ok(args[0].obj_type());
+        }
+    }
+
+    // Fallback: construct FuncArgs and use standard call
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PyType::call(zelf, func_args, vm)
+}
+
 pub(crate) fn init(ctx: &'static Context) {
     PyType::extend_class(ctx, ctx.types.type_type);
+    ctx.types
+        .type_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_type));
 }
 
 pub(crate) fn call_slot_new(
