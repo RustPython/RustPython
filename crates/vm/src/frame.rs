@@ -67,7 +67,7 @@ enum UnwindReason {
 }
 
 // FrameState fields are stored directly on Frame as UnsafeCell.
-// See Frame.stack, Frame.cells_frees, Frame.prev_line.
+// See Frame.localsplus, Frame.cells_frees, Frame.prev_line.
 
 /// Tracks who owns a frame.
 // = `_PyFrameOwner`
@@ -174,8 +174,8 @@ impl LocalsPlus {
     /// Create a new LocalsPlus backed by the thread data stack.
     /// All slots are zero-initialized.
     ///
-    /// The caller must call `release_datastack()` when the frame finishes
-    /// to drop values and return the base pointer for `DataStack::pop()`.
+    /// The caller must call `materialize_localsplus()` when the frame finishes
+    /// to migrate data to the heap, then `datastack_pop()` to free the memory.
     fn new_on_datastack(nlocalsplus: usize, stacksize: usize, vm: &VirtualMachine) -> Self {
         let capacity = nlocalsplus + stacksize;
         let byte_size = capacity * core::mem::size_of::<usize>();
@@ -468,8 +468,9 @@ impl Drop for LocalsPlus {
     fn drop(&mut self) {
         // drop_values handles both stack and fastlocals.
         // For DataStack-backed storage, the caller should have called
-        // release_datastack() before drop.  If not (e.g. panic), the
-        // DataStack memory is leaked but values are still dropped safely.
+        // materialize_localsplus() + datastack_pop() before drop.
+        // If not (e.g. panic), the DataStack memory is leaked but
+        // values are still dropped safely.
         self.drop_values();
     }
 }
