@@ -171,13 +171,19 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     // Untrack from GC BEFORE deallocation.
     if obj_ref.is_gc_tracked() {
         let ptr = unsafe { NonNull::new_unchecked(obj) };
-        rustpython_common::refcount::try_defer_drop(move || {
-            // untrack_object only removes the pointer address from a HashSet.
-            // It does NOT dereference the pointer, so it's safe even after deallocation.
-            unsafe {
-                crate::gc_state::gc_state().untrack_object(ptr);
-            }
-        });
+        if T::HAS_FREELIST {
+            // Freelist types must untrack immediately to avoid race conditions:
+            // a deferred untrack could remove a re-tracked entry after reuse.
+            unsafe { crate::gc_state::gc_state().untrack_object(ptr) };
+        } else {
+            rustpython_common::refcount::try_defer_drop(move || {
+                // untrack_object only removes the pointer address from a HashSet.
+                // It does NOT dereference the pointer, so it's safe even after deallocation.
+                unsafe {
+                    crate::gc_state::gc_state().untrack_object(ptr);
+                }
+            });
+        }
     }
 
     // Extract child references before deallocation to break circular refs (tp_clear)
@@ -186,8 +192,17 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         unsafe { clear_fn(obj, &mut edges) };
     }
 
-    // Deallocate the object memory
-    drop(unsafe { Box::from_raw(obj as *mut PyInner<T>) });
+    // Try to store in freelist for reuse; otherwise deallocate.
+    // Only exact types (not heaptype subclasses) go into the freelist,
+    // because the pop site assumes the cached typ matches the base type.
+    let pushed = if T::HAS_FREELIST && obj_ref.class().heaptype_ext.is_none() {
+        unsafe { T::freelist_push(obj) }
+    } else {
+        false
+    };
+    if !pushed {
+        drop(unsafe { Box::from_raw(obj as *mut PyInner<T>) });
+    }
 
     // Drop child references - may trigger recursive destruction.
     // The object is already deallocated, so circular refs are broken.
@@ -804,6 +819,52 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                 .collect_vec()
                 .into_boxed_slice(),
         })
+    }
+}
+
+/// Thread-local freelist storage that properly deallocates cached objects
+/// on thread teardown.
+///
+/// Wraps a `Vec<*mut PyObject>` and implements `Drop` to convert each
+/// raw pointer back into `Box<PyInner<T>>` for proper deallocation.
+pub(crate) struct FreeList<T: PyPayload> {
+    items: Vec<*mut PyObject>,
+    _marker: core::marker::PhantomData<T>,
+}
+
+impl<T: PyPayload> FreeList<T> {
+    pub(crate) const fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: PyPayload> Default for FreeList<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: PyPayload> Drop for FreeList<T> {
+    fn drop(&mut self) {
+        for ptr in self.items.drain(..) {
+            drop(unsafe { Box::from_raw(ptr as *mut PyInner<T>) });
+        }
+    }
+}
+
+impl<T: PyPayload> core::ops::Deref for FreeList<T> {
+    type Target = Vec<*mut PyObject>;
+    fn deref(&self) -> &Self::Target {
+        &self.items
+    }
+}
+
+impl<T: PyPayload> core::ops::DerefMut for FreeList<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.items
     }
 }
 
@@ -1720,8 +1781,31 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
-        let inner = Box::into_raw(PyInner::new(payload, typ, dict));
-        let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
+
+        // Try to reuse from freelist (exact type only, no dict, no heaptype)
+        let cached = if !has_dict && !is_heaptype {
+            unsafe { T::freelist_pop() }
+        } else {
+            None
+        };
+
+        let ptr = if let Some(cached) = cached {
+            let inner = cached.as_ptr() as *mut PyInner<T>;
+            unsafe {
+                core::ptr::write(&mut (*inner).ref_count, RefCount::new());
+                (*inner).gc_bits.store(0, Ordering::Relaxed);
+                core::ptr::drop_in_place(&mut (*inner).payload);
+                core::ptr::write(&mut (*inner).payload, payload);
+                // typ, vtable, slots are preserved; dict is None, weak_list was
+                // cleared by drop_slow_inner before freelist push
+            }
+            // Drop the caller's typ since the cached object already holds one
+            drop(typ);
+            unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
+        } else {
+            let inner = Box::into_raw(PyInner::new(payload, typ, dict));
+            unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
+        };
 
         // Track object if:
         // - HAS_TRAVERSE is true (Rust payload implements Traverse), OR
