@@ -1,16 +1,14 @@
-/// Thread data stack for interpreter frames.
+/// Thread data stack for interpreter frames (`_PyStackChunk` /
+/// `tstate->datastack_*`).
 ///
 /// A linked list of chunks providing bump allocation for frame-local data
-/// (localsplus arrays). Mirrors `_PyStackChunk` / `tstate->datastack_*`
-/// from CPython.
-///
-/// Normal function calls allocate from the data stack via `push()` (pointer
-/// bump).  Generators and coroutines use heap-allocated storage instead.
+/// (localsplus arrays).  Normal function calls allocate via `push()`
+/// (pointer bump).  Generators and coroutines use heap-allocated storage.
 use alloc::alloc::{alloc, dealloc};
 use core::alloc::Layout;
 use core::ptr;
 
-/// Minimum chunk size in bytes (16 KB, matching CPython `_PY_DATA_STACK_CHUNK_SIZE`).
+/// Minimum chunk size in bytes (`_PY_DATA_STACK_CHUNK_SIZE`).
 const MIN_CHUNK_SIZE: usize = 16 * 1024;
 
 /// Extra headroom (in bytes) to avoid allocating a new chunk for the next
@@ -66,7 +64,7 @@ impl DataStack {
         let top = unsafe { (*chunk).data_start() };
         let limit = unsafe { (*chunk).data_limit() };
         // Skip one ALIGN-sized slot in the root chunk so that `pop()` never
-        // frees it (same trick as CPython's `push_chunk`).
+        // frees it (`push_chunk` convention).
         let top = unsafe { top.add(ALIGN) };
         Self { chunk, top, limit }
     }

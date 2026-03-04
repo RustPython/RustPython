@@ -66,9 +66,6 @@ enum UnwindReason {
     Raising { exception: PyBaseExceptionRef },
 }
 
-// FrameState fields are stored directly on Frame as UnsafeCell.
-// See Frame.localsplus, Frame.cells_frees, Frame.prev_line.
-
 /// Tracks who owns a frame.
 // = `_PyFrameOwner`
 #[repr(i8)]
@@ -203,7 +200,6 @@ impl LocalsPlus {
     fn materialize_to_heap(&mut self) -> Option<*mut u8> {
         if let LocalsPlusData::DataStack { ptr, capacity } = &self.data {
             let base = *ptr as *mut u8;
-            // Copy all data to a heap allocation (preserves locals for tracebacks).
             let heap_data = unsafe { core::slice::from_raw_parts(*ptr, *capacity) }
                 .to_vec()
                 .into_boxed_slice();
@@ -461,7 +457,6 @@ impl ExactSizeIterator for LocalsPlusStackDrain<'_> {}
 
 impl Drop for LocalsPlusStackDrain<'_> {
     fn drop(&mut self) {
-        // Drop any remaining elements that weren't consumed.
         while self.current < self.end {
             let idx = self.localsplus.nlocalsplus as usize + self.current;
             let data = self.localsplus.data_as_mut_slice();
@@ -671,7 +666,6 @@ impl Frame {
                 .chain(closure.iter().cloned())
                 .collect();
 
-        // Create unified localsplus: varnames + cellvars + freevars + stack
         let nlocalsplus = nlocals
             .checked_add(num_cells)
             .and_then(|v| v.checked_add(nfrees))
@@ -1001,8 +995,8 @@ impl Py<Frame> {
     }
 }
 
-/// An executing frame; essentially just a struct to combine the immutable data outside the mutex
-/// with the mutable data inside
+/// An executing frame; borrows mutable frame-internal data for the duration
+/// of bytecode execution.
 struct ExecutingFrame<'a> {
     code: &'a PyRef<PyCode>,
     localsplus: &'a mut LocalsPlus,

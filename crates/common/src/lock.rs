@@ -20,10 +20,9 @@ cfg_if::cfg_if! {
     }
 }
 
-// LazyLock: thread-safe lazy initialization for `static` items.
-// In non-threading mode with std, use std::sync::LazyLock for safety
-// (Rust test runner uses parallel threads even without the threading feature).
-// Without std, use a LazyCell wrapper (truly single-threaded environments only).
+// LazyLock: uses std::sync::LazyLock when std is available (even without
+// threading, because Rust test runner uses parallel threads).
+// Without std, uses a LazyCell wrapper (truly single-threaded only).
 cfg_if::cfg_if! {
     if #[cfg(any(feature = "threading", feature = "std"))] {
         pub use std::sync::LazyLock;
