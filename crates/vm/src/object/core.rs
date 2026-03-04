@@ -1783,24 +1783,25 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         let is_heaptype = typ.heaptype_ext.is_some();
 
         // Try to reuse from freelist (exact type only, no dict, no heaptype)
-        let ptr = if !has_dict && !is_heaptype {
-            if let Some(cached) = unsafe { T::freelist_pop() } {
-                let inner = cached.as_ptr() as *mut PyInner<T>;
-                unsafe {
-                    core::ptr::write(&mut (*inner).ref_count, RefCount::new());
-                    (*inner).gc_bits.store(0, Ordering::Relaxed);
-                    core::ptr::drop_in_place(&mut (*inner).payload);
-                    core::ptr::write(&mut (*inner).payload, payload);
-                    // typ, vtable, slots are preserved; dict is None, weak_list was
-                    // cleared by drop_slow_inner before freelist push
-                }
-                // Drop the caller's typ since the cached object already holds one
-                drop(typ);
-                unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
-            } else {
-                let inner = Box::into_raw(PyInner::new(payload, typ, dict));
-                unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
+        let cached = if !has_dict && !is_heaptype {
+            unsafe { T::freelist_pop() }
+        } else {
+            None
+        };
+
+        let ptr = if let Some(cached) = cached {
+            let inner = cached.as_ptr() as *mut PyInner<T>;
+            unsafe {
+                core::ptr::write(&mut (*inner).ref_count, RefCount::new());
+                (*inner).gc_bits.store(0, Ordering::Relaxed);
+                core::ptr::drop_in_place(&mut (*inner).payload);
+                core::ptr::write(&mut (*inner).payload, payload);
+                // typ, vtable, slots are preserved; dict is None, weak_list was
+                // cleared by drop_slow_inner before freelist push
             }
+            // Drop the caller's typ since the cached object already holds one
+            drop(typ);
+            unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
         } else {
             let inner = Box::into_raw(PyInner::new(payload, typ, dict));
             unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
