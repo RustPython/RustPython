@@ -3579,7 +3579,6 @@ impl ExecutingFrame<'_> {
 
                 if !oparg.is_method()
                     && !self.specialization_eval_frame_active(vm)
-                    && !vm.reached_c_stack_limit()
                     && type_version != 0
                     && func_version != 0
                     && owner.class().tp_version_tag.load(Acquire) == type_version
@@ -3588,6 +3587,7 @@ impl ExecutingFrame<'_> {
                     && let Some(func) = func_obj.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == func_version
                     && func.can_specialize_call(2)
+                    && self.specialization_has_datastack_space_for_func(vm, func)
                 {
                     let owner = self.pop_value();
                     let attr_name = self.code.names[oparg.name_idx() as usize].to_owned().into();
@@ -3630,12 +3630,12 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0
                     && !self.specialization_eval_frame_active(vm)
-                    && !vm.reached_c_stack_limit()
                     && owner.class().tp_version_tag.load(Acquire) == type_version
                     && let Some(fget_obj) =
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = fget_obj.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.can_specialize_call(1)
+                    && self.specialization_has_datastack_space_for_func(vm, func)
                 {
                     let owner = self.pop_value();
                     let result = func.invoke_exact_args(vec![owner], vm)?;
@@ -3884,7 +3884,7 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
+                if self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
                 // Stack: [callable, self_or_null, arg1, ..., argN]
@@ -3900,6 +3900,9 @@ impl ExecutingFrame<'_> {
                 {
                     let effective_nargs = nargs + u32::from(self_or_null_is_some);
                     if !func.can_specialize_call(effective_nargs) {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
+                    if !self.specialization_has_datastack_space_for_func(vm, func) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
@@ -3929,7 +3932,7 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
+                if self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
                 // Stack: [callable, self_or_null(NULL), arg1, ..., argN]
@@ -3949,6 +3952,9 @@ impl ExecutingFrame<'_> {
                         && cached_version != 0
                     {
                         if !func.can_specialize_call(nargs + 1) {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
+                        if !self.specialization_has_datastack_space_for_func(vm, func) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         let pos_args: Vec<PyObjectRef> =
@@ -4159,7 +4165,7 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
+                if self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
                 let callable = self.nth_value(nargs + 1);
@@ -4195,7 +4201,7 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
+                if self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
                 let stack_len = self.localsplus.stack_len();
@@ -4472,7 +4478,7 @@ impl ExecutingFrame<'_> {
                         (cls.slots.alloc.load(), object_alloc)
                     && cls_alloc as usize == object_alloc_fn as usize
                 {
-                    if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
+                    if !self.specialization_has_datastack_space_for_func(vm, &init_func) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     // Allocate object directly (tp_new == object.__new__, tp_alloc == generic).
@@ -4636,7 +4642,7 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_kw_vectorcall(nargs, vm);
                 }
-                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
+                if self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_kw_vectorcall(nargs, vm);
                 }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
@@ -4682,9 +4688,6 @@ impl ExecutingFrame<'_> {
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if self.specialization_eval_frame_active(vm) {
-                    return self.execute_call_kw_vectorcall(nargs, vm);
-                }
-                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_kw_vectorcall(nargs, vm);
                 }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
@@ -8215,6 +8218,18 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn specialization_eval_frame_active(&self, vm: &VirtualMachine) -> bool {
         vm.use_tracing.get()
+    }
+
+    #[inline]
+    fn specialization_has_datastack_space_for_func(
+        &self,
+        vm: &VirtualMachine,
+        func: &Py<PyFunction>,
+    ) -> bool {
+        match func.datastack_frame_size_bytes() {
+            Some(frame_size) => vm.datastack_has_space(frame_size),
+            None => true,
+        }
     }
 
     #[inline]

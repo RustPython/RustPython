@@ -653,6 +653,12 @@ impl VirtualMachine {
         unsafe { (*self.datastack.get()).push(size) }
     }
 
+    /// Check whether the thread data stack currently has room for `size` bytes.
+    #[inline(always)]
+    pub(crate) fn datastack_has_space(&self, size: usize) -> bool {
+        unsafe { (*self.datastack.get()).has_space(size) }
+    }
+
     /// Pop a previous data stack allocation.
     ///
     /// # Safety
