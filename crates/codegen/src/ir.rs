@@ -693,6 +693,33 @@ impl CodeInfo {
                                 None
                             }
                         }
+                        (Instruction::LoadConst { consti }, Instruction::ToBool) => {
+                            let consti = consti.get(curr.arg);
+                            let constant = &self.metadata.consts[consti as usize];
+                            if let ConstantData::Boolean { .. } = constant {
+                                Some((curr_instr, OpArg::from(consti)))
+                            } else {
+                                None
+                            }
+                        }
+                        (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
+                            let constant = &self.metadata.consts[consti.get(curr.arg) as usize];
+                            match constant {
+                                ConstantData::Boolean { value } => {
+                                    let (const_idx, _) = self
+                                        .metadata
+                                        .consts
+                                        .insert_full(ConstantData::Boolean { value: !value });
+                                    Some((
+                                        (Instruction::LoadConst {
+                                            consti: Arg::marker(),
+                                        }),
+                                        OpArg::new(const_idx as u32),
+                                    ))
+                                }
+                                _ => None,
+                            }
+                        }
                         _ => None,
                     }
                 };
