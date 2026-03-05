@@ -188,6 +188,15 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         );
     }
 
+    // Capture freelist bucket hint before tp_clear empties the payload.
+    // Size-based freelists (e.g. PyTuple) need the element count for bucket selection,
+    // but clear() replaces elements with an empty slice.
+    let freelist_hint = if T::HAS_FREELIST {
+        unsafe { T::freelist_hint(obj) }
+    } else {
+        0
+    };
+
     // Extract child references before deallocation to break circular refs (tp_clear)
     let mut edges = Vec::new();
     if let Some(clear_fn) = vtable.clear {
@@ -195,10 +204,12 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     }
 
     // Try to store in freelist for reuse; otherwise deallocate.
-    // Only exact types (not heaptype subclasses) go into the freelist,
-    // because the pop site assumes the cached typ matches the base type.
-    let pushed = if T::HAS_FREELIST && obj_ref.class().heaptype_ext.is_none() {
-        unsafe { T::freelist_push(obj) }
+    // Only exact types (not heaptype subclasses) go into the freelist.
+    // The runtime type is passed to freelist_push for Py_IS_TYPE-style
+    // exact type checking (e.g. reject structseq subtypes of PyTuple).
+    let typ = obj_ref.class();
+    let pushed = if T::HAS_FREELIST && typ.heaptype_ext.is_none() {
+        unsafe { T::freelist_push(obj, freelist_hint, typ) }
     } else {
         false
     };
@@ -1006,6 +1017,11 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             }))
         }
     }
+}
+
+/// Returns the allocation layout for `PyInner<T>`, for use in freelist Drop impls.
+pub(crate) const fn pyinner_layout<T: PyPayload>() -> core::alloc::Layout {
+    core::alloc::Layout::new::<PyInner<T>>()
 }
 
 /// Thread-local freelist storage for reusing object allocations.
@@ -2076,24 +2092,32 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
 
         // Try to reuse from freelist (exact type only, no dict, no heaptype)
         let cached = if !has_dict && !is_heaptype {
-            unsafe { T::freelist_pop() }
+            unsafe { T::freelist_pop(&payload) }
         } else {
             None
         };
 
         let ptr = if let Some(cached) = cached {
             let inner = cached.as_ptr() as *mut PyInner<T>;
-            unsafe {
-                core::ptr::write(&mut (*inner).ref_count, RefCount::new());
-                (*inner).gc_bits.store(0, Ordering::Relaxed);
-                core::ptr::drop_in_place(&mut (*inner).payload);
-                core::ptr::write(&mut (*inner).payload, payload);
-                // typ, vtable, slots are preserved; dict is None, weak_list was
-                // cleared by drop_slow_inner before freelist push
+            // Push-side exact type check filters subtypes, but subtypes
+            // sharing the same Rust payload (e.g. structseq) may still
+            // call freelist_pop. Verify typ matches; if not, deallocate.
+            let cached_typ = unsafe { (*inner).typ.load_raw() };
+            if !core::ptr::eq(cached_typ, &*typ as *const Py<PyType>) {
+                unsafe { PyInner::dealloc(inner) };
+                let inner = PyInner::new(payload, typ, dict);
+                unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
+            } else {
+                unsafe {
+                    core::ptr::write(&mut (*inner).ref_count, RefCount::new());
+                    (*inner).gc_bits.store(0, Ordering::Relaxed);
+                    core::ptr::drop_in_place(&mut (*inner).payload);
+                    core::ptr::write(&mut (*inner).payload, payload);
+                }
+                // Drop the caller's typ since the cached object already holds one
+                drop(typ);
+                unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
             }
-            // Drop the caller's typ since the cached object already holds one
-            drop(typ);
-            unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
         } else {
             let inner = PyInner::new(payload, typ, dict);
             unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
