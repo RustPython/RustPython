@@ -4045,8 +4045,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    let args = self.collect_positional_args(nargs);
-                    self.execute_call(args, vm)
+                    self.execute_call_vectorcall(nargs, vm)
                 }
             }
             Instruction::CallBoundMethodExactArgs => {
@@ -4082,8 +4081,7 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallLen => {
                 let nargs: u32 = arg.into();
@@ -4298,8 +4296,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    let args = self.collect_positional_args(nargs);
-                    self.execute_call(args, vm)
+                    self.execute_call_vectorcall(nargs, vm)
                 }
             }
             Instruction::CallBoundMethodGeneral => {
@@ -4782,8 +4779,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                let args = self.collect_keyword_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_kw_vectorcall(nargs, vm)
             }
             Instruction::CallKwBoundMethod => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4831,8 +4827,7 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                let args = self.collect_keyword_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_kw_vectorcall(nargs, vm)
             }
             Instruction::CallKwNonPy => {
                 let nargs: u32 = arg.into();
