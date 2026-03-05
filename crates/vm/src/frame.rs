@@ -3321,8 +3321,7 @@ impl ExecutingFrame<'_> {
             // Specialized LOAD_ATTR opcodes
             Instruction::LoadAttrMethodNoDict => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -3336,20 +3335,12 @@ impl ExecutingFrame<'_> {
                     self.push_value(owner);
                     Ok(None)
                 } else {
-                    self.deoptimize_at(
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                        instr_idx,
-                        cache_base,
-                    );
                     self.load_attr_slow(vm, oparg)
                 }
             }
             Instruction::LoadAttrMethodLazyDict => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -3364,20 +3355,12 @@ impl ExecutingFrame<'_> {
                     self.push_value(owner);
                     Ok(None)
                 } else {
-                    self.deoptimize_at(
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                        instr_idx,
-                        cache_base,
-                    );
                     self.load_attr_slow(vm, oparg)
                 }
             }
             Instruction::LoadAttrMethodWithValues => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
                 let owner = self.top_value();
@@ -3390,23 +3373,7 @@ impl ExecutingFrame<'_> {
                             Ok(Some(_)) => true,
                             Ok(None) => false,
                             Err(_) => {
-                                // Dict lookup error → deoptimize to safe path
-                                unsafe {
-                                    self.code.instructions.replace_op(
-                                        instr_idx,
-                                        Instruction::LoadAttr {
-                                            namei: Arg::marker(),
-                                        },
-                                    );
-                                    self.code.instructions.write_adaptive_counter(
-                                        cache_base,
-                                        bytecode::adaptive_counter_backoff(
-                                            self.code
-                                                .instructions
-                                                .read_adaptive_counter(cache_base),
-                                        ),
-                                    );
-                                }
+                                // Dict lookup error -> use safe path.
                                 return self.load_attr_slow(vm, oparg);
                             }
                         }
@@ -3424,19 +3391,11 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize_at(
-                    Instruction::LoadAttr {
-                        namei: Arg::marker(),
-                    },
-                    instr_idx,
-                    cache_base,
-                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrInstanceValue => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
                 let owner = self.top_value();
@@ -3454,19 +3413,11 @@ impl ExecutingFrame<'_> {
                     }
                     // Not in instance dict — fall through to class lookup via slow path
                 }
-                self.deoptimize_at(
-                    Instruction::LoadAttr {
-                        namei: Arg::marker(),
-                    },
-                    instr_idx,
-                    cache_base,
-                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrWithHint => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
                 let owner = self.top_value();
@@ -3487,19 +3438,11 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
 
-                self.deoptimize_at(
-                    Instruction::LoadAttr {
-                        namei: Arg::marker(),
-                    },
-                    instr_idx,
-                    cache_base,
-                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrModule => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
                 let owner = self.top_value();
@@ -3519,27 +3462,11 @@ impl ExecutingFrame<'_> {
                     }
                     return Ok(None);
                 }
-                // Deoptimize
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrNondescriptorNoDict => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -3557,26 +3484,11 @@ impl ExecutingFrame<'_> {
                     }
                     return Ok(None);
                 }
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrNondescriptorWithValues => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
                 let owner = self.top_value();
@@ -3599,13 +3511,6 @@ impl ExecutingFrame<'_> {
                     // Not in instance dict — use cached class attr
                     let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                     else {
-                        self.deoptimize_at(
-                            Instruction::LoadAttr {
-                                namei: Arg::marker(),
-                            },
-                            instr_idx,
-                            cache_base,
-                        );
                         return self.load_attr_slow(vm, oparg);
                     };
                     self.pop_value();
@@ -3617,26 +3522,11 @@ impl ExecutingFrame<'_> {
                     }
                     return Ok(None);
                 }
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrClass => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -3655,26 +3545,11 @@ impl ExecutingFrame<'_> {
                     }
                     return Ok(None);
                 }
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrClassWithMetaclassCheck => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -3696,13 +3571,6 @@ impl ExecutingFrame<'_> {
                     }
                     return Ok(None);
                 }
-                self.deoptimize_at(
-                    Instruction::LoadAttr {
-                        namei: Arg::marker(),
-                    },
-                    instr_idx,
-                    cache_base,
-                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrGetattributeOverridden => {
@@ -3734,8 +3602,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadAttrSlot => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -3754,20 +3621,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                     // Slot is None → AttributeError (fall through to slow path)
-                }
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
                 }
                 self.load_attr_slow(vm, oparg)
             }
