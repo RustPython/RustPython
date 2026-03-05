@@ -12,11 +12,11 @@ bitflags::bitflags! {
     // METH_XXX flags in CPython
     #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct PyMethodFlags: u32 {
-        // const VARARGS = 0x0001;
-        // const KEYWORDS = 0x0002;
+        const VARARGS = 0x0001;
+        const KEYWORDS = 0x0002;
         // METH_NOARGS and METH_O must not be combined with the flags above.
-        // const NOARGS = 0x0004;
-        // const O = 0x0008;
+        const NOARGS = 0x0004;
+        const O = 0x0008;
 
         // METH_CLASS and METH_STATIC are a little different; these control
         // the construction of methods for a class.  These cannot be used for
@@ -31,7 +31,7 @@ bitflags::bitflags! {
         // const COEXIST = 0x0040;
 
         // if not Py_LIMITED_API
-        // const FASTCALL = 0x0080;
+        const FASTCALL = 0x0080;
 
         // This bit is preserved for Stackless Python
         // const STACKLESS = 0x0100;
