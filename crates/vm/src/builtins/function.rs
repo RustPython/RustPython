@@ -636,6 +636,16 @@ impl Py<PyFunction> {
         new_v
     }
 
+    /// CPython function_kind(SIMPLE_FUNCTION) equivalent for CALL specialization.
+    /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args.
+    pub(crate) fn is_simple_for_call_specialization(&self) -> bool {
+        let code: &Py<PyCode> = &self.code;
+        let flags = code.flags;
+        flags.contains(bytecode::CodeFlags::OPTIMIZED)
+            && !flags.intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
+            && code.kwonlyarg_count == 0
+    }
+
     /// Check if this function is eligible for exact-args call specialization.
     /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args,
     /// not generator/coroutine, and effective_nargs matches co_argcount.

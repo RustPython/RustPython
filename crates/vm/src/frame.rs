@@ -4599,7 +4599,15 @@ impl ExecutingFrame<'_> {
                     all_args.push(new_obj.clone());
                     all_args.extend(pos_args);
 
-                    let init_result = init_func.invoke_exact_args(all_args, vm)?;
+                    let init_result = if init_func.can_specialize_call(all_args.len() as u32) {
+                        init_func.invoke_exact_args(all_args, vm)?
+                    } else {
+                        let args = FuncArgs {
+                            args: all_args,
+                            kwargs: Default::default(),
+                        };
+                        init_func.invoke(args, vm)?
+                    };
 
                     // EXIT_INIT_CHECK: __init__ must return None
                     if !vm.is_none(&init_result) {
@@ -7962,7 +7970,7 @@ impl ExecutingFrame<'_> {
                     && cls_new_fn as usize == obj_new_fn as usize
                     && let Some(init) = cls.get_attr(identifier!(vm, __init__))
                     && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
-                    && init_func.can_specialize_call(nargs + 1)
+                    && init_func.is_simple_for_call_specialization()
                 {
                     let version = cls.tp_version_tag.load(Acquire);
                     if version != 0
