@@ -973,7 +973,7 @@ impl PyObject {
     /// Like [`try_to_owned`](Self::try_to_owned), but from a raw pointer.
     ///
     /// Uses `addr_of!` to access `ref_count` without forming `&PyObject`,
-    /// minimising the borrow scope when the pointer may be stale
+    /// minimizing the borrow scope when the pointer may be stale
     /// (e.g. cache-hit paths protected by version guards).
     ///
     /// # Safety
