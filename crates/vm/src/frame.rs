@@ -4418,17 +4418,17 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallMethodDescriptorNoargs => {
                 let nargs: u32 = arg.into();
-                if nargs == 0 {
-                    // Stack: [callable, self_or_null] — peek to get func ptr
-                    let stack_len = self.localsplus.stack_len();
-                    let self_or_null_is_some = self.localsplus.stack_index(stack_len - 1).is_some();
-                    let callable = self.nth_value(1);
-                    let descr = if self_or_null_is_some {
-                        callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    } else {
-                        None
-                    };
-                    if let Some(descr) = descr
+                let stack_len = self.localsplus.stack_len();
+                let self_or_null_is_some = self
+                    .localsplus
+                    .stack_index(stack_len - nargs as usize - 1)
+                    .is_some();
+                let total_nargs = nargs + u32::from(self_or_null_is_some);
+                if total_nargs == 1 {
+                    let callable = self.nth_value(nargs + 1);
+                    let self_index =
+                        stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
+                    if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
                         && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && (descr.method.flags
                             & (PyMethodFlags::VARARGS
@@ -4439,15 +4439,22 @@ impl ExecutingFrame<'_> {
                             == PyMethodFlags::NOARGS
                         && self
                             .localsplus
-                            .stack_index(stack_len - 1)
+                            .stack_index(self_index)
                             .as_ref()
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
                         let func = descr.method.func;
-                        let self_val = self.pop_value_opt().unwrap();
+                        let positional_args: Vec<PyObjectRef> =
+                            self.pop_multiple(nargs as usize).collect();
+                        let self_or_null = self.pop_value_opt();
                         self.pop_value(); // callable
+                        let mut all_args = Vec::with_capacity(total_nargs as usize);
+                        if let Some(self_val) = self_or_null {
+                            all_args.push(self_val);
+                        }
+                        all_args.extend(positional_args);
                         let args = FuncArgs {
-                            args: vec![self_val],
+                            args: all_args,
                             kwargs: Default::default(),
                         };
                         let result = func(vm, args)?;
@@ -4459,17 +4466,17 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallMethodDescriptorO => {
                 let nargs: u32 = arg.into();
-                if nargs == 1 {
-                    // Stack: [callable, self_or_null, arg1]
-                    let stack_len = self.localsplus.stack_len();
-                    let self_or_null_is_some = self.localsplus.stack_index(stack_len - 2).is_some();
-                    let callable = self.nth_value(2);
-                    let descr = if self_or_null_is_some {
-                        callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    } else {
-                        None
-                    };
-                    if let Some(descr) = descr
+                let stack_len = self.localsplus.stack_len();
+                let self_or_null_is_some = self
+                    .localsplus
+                    .stack_index(stack_len - nargs as usize - 1)
+                    .is_some();
+                let total_nargs = nargs + u32::from(self_or_null_is_some);
+                if total_nargs == 2 {
+                    let callable = self.nth_value(nargs + 1);
+                    let self_index =
+                        stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
+                    if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
                         && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && (descr.method.flags
                             & (PyMethodFlags::VARARGS
@@ -4480,16 +4487,22 @@ impl ExecutingFrame<'_> {
                             == PyMethodFlags::O
                         && self
                             .localsplus
-                            .stack_index(stack_len - 2)
+                            .stack_index(self_index)
                             .as_ref()
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
                         let func = descr.method.func;
-                        let obj = self.pop_value();
-                        let self_val = self.pop_value_opt().unwrap();
+                        let positional_args: Vec<PyObjectRef> =
+                            self.pop_multiple(nargs as usize).collect();
+                        let self_or_null = self.pop_value_opt();
                         self.pop_value(); // callable
+                        let mut all_args = Vec::with_capacity(total_nargs as usize);
+                        if let Some(self_val) = self_or_null {
+                            all_args.push(self_val);
+                        }
+                        all_args.extend(positional_args);
                         let args = FuncArgs {
-                            args: vec![self_val, obj],
+                            args: all_args,
                             kwargs: Default::default(),
                         };
                         let result = func(vm, args)?;
@@ -4501,18 +4514,17 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallMethodDescriptorFast => {
                 let nargs: u32 = arg.into();
-                let callable = self.nth_value(nargs + 1);
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                let descr = if self_or_null_is_some {
-                    callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                } else {
-                    None
-                };
-                if let Some(descr) = descr
+                let total_nargs = nargs + u32::from(self_or_null_is_some);
+                let callable = self.nth_value(nargs + 1);
+                let self_index =
+                    stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
+                if total_nargs > 0
+                    && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
                     && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && (descr.method.flags
                         & (PyMethodFlags::VARARGS
@@ -4523,17 +4535,19 @@ impl ExecutingFrame<'_> {
                         == PyMethodFlags::FASTCALL
                     && self
                         .localsplus
-                        .stack_index(stack_len - nargs as usize - 1)
+                        .stack_index(self_index)
                         .as_ref()
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
                     let positional_args: Vec<PyObjectRef> =
                         self.pop_multiple(nargs as usize).collect();
-                    let self_val = self.pop_value_opt().unwrap();
+                    let self_or_null = self.pop_value_opt();
                     self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(nargs as usize + 1);
-                    all_args.push(self_val);
+                    let mut all_args = Vec::with_capacity(total_nargs as usize);
+                    if let Some(self_val) = self_or_null {
+                        all_args.push(self_val);
+                    }
                     all_args.extend(positional_args);
                     let args = FuncArgs {
                         args: all_args,
@@ -4639,18 +4653,17 @@ impl ExecutingFrame<'_> {
             Instruction::CallMethodDescriptorFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
                 let nargs: u32 = arg.into();
-                let callable = self.nth_value(nargs + 1);
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                let descr = if self_or_null_is_some {
-                    callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                } else {
-                    None
-                };
-                if let Some(descr) = descr
+                let total_nargs = nargs + u32::from(self_or_null_is_some);
+                let callable = self.nth_value(nargs + 1);
+                let self_index =
+                    stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
+                if total_nargs > 0
+                    && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
                     && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && (descr.method.flags
                         & (PyMethodFlags::VARARGS
@@ -4661,17 +4674,19 @@ impl ExecutingFrame<'_> {
                         == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS)
                     && self
                         .localsplus
-                        .stack_index(stack_len - nargs as usize - 1)
+                        .stack_index(self_index)
                         .as_ref()
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
                     let positional_args: Vec<PyObjectRef> =
                         self.pop_multiple(nargs as usize).collect();
-                    let self_val = self.pop_value_opt().unwrap();
+                    let self_or_null = self.pop_value_opt();
                     self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(nargs as usize + 1);
-                    all_args.push(self_val);
+                    let mut all_args = Vec::with_capacity(total_nargs as usize);
+                    if let Some(self_val) = self_or_null {
+                        all_args.push(self_val);
+                    }
                     all_args.extend(positional_args);
                     let args = FuncArgs {
                         args: all_args,
@@ -7827,8 +7842,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Try to specialize method descriptor calls
-        if self_or_null_is_some
-            && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
+        if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
             && descr.method.flags.contains(PyMethodFlags::METHOD)
         {
             let call_cache_entries = Instruction::CallListAppend.cache_entries();
@@ -7846,9 +7860,10 @@ impl ExecutingFrame<'_> {
                     | PyMethodFlags::NOARGS
                     | PyMethodFlags::O
                     | PyMethodFlags::KEYWORDS);
+            let total_nargs = nargs + u32::from(self_or_null_is_some);
 
             let new_op = if call_conv == PyMethodFlags::NOARGS {
-                if nargs != 0 {
+                if total_nargs != 1 {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -7861,7 +7876,7 @@ impl ExecutingFrame<'_> {
                 }
                 Instruction::CallMethodDescriptorNoargs
             } else if call_conv == PyMethodFlags::O {
-                if nargs != 1 {
+                if total_nargs != 2 {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -7872,7 +7887,9 @@ impl ExecutingFrame<'_> {
                     }
                     return;
                 }
-                if next_is_pop_top
+                if self_or_null_is_some
+                    && nargs == 1
+                    && next_is_pop_top
                     && vm
                         .callable_cache
                         .list_append
