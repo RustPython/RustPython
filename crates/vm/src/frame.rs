@@ -7711,6 +7711,17 @@ impl ExecutingFrame<'_> {
                 }
                 return;
             }
+            if !func.is_optimized_for_call_specialization() {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
             let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
@@ -7753,6 +7764,17 @@ impl ExecutingFrame<'_> {
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
                 if self.specialization_eval_frame_active(vm) {
+                    unsafe {
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
+                    }
+                    return;
+                }
+                if !func.is_optimized_for_call_specialization() {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -8030,6 +8052,17 @@ impl ExecutingFrame<'_> {
                 }
                 return;
             }
+            if !func.is_optimized_for_call_specialization() {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
             let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
@@ -8060,6 +8093,17 @@ impl ExecutingFrame<'_> {
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
                 if self.specialization_eval_frame_active(vm) {
+                    unsafe {
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
+                    }
+                    return;
+                }
+                if !func.is_optimized_for_call_specialization() {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,

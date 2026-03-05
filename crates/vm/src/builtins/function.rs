@@ -529,6 +529,10 @@ impl PyFunction {
 }
 
 impl Py<PyFunction> {
+    pub(crate) fn is_optimized_for_call_specialization(&self) -> bool {
+        self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
+    }
+
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
