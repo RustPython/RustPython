@@ -4499,7 +4499,10 @@ impl ExecutingFrame<'_> {
                     all_args.push(new_obj.clone());
                     all_args.extend(pos_args);
 
-                    let init_result = init_func.invoke_exact_args(all_args, vm)?;
+                    let init_callable: PyObjectRef = init_func.into();
+                    let effective_nargs = all_args.len();
+                    let init_result =
+                        vectorcall_function(&init_callable, all_args, effective_nargs, None, vm)?;
 
                     // EXIT_INIT_CHECK: __init__ must return None
                     if !vm.is_none(&init_result) {
