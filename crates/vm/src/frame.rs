@@ -4100,14 +4100,7 @@ impl ExecutingFrame<'_> {
                     let null = self.pop_value_opt();
                     let callable = self.pop_value();
                     let callable_ptr = &*callable as *const PyObject as usize;
-                    let is_len_callable = callable
-                        .downcast_ref_if_exact::<PyNativeFunction>(vm)
-                        .is_some_and(|native| {
-                            native.zelf.is_none()
-                                && native.value.name == "len"
-                                && native.module.is_some_and(|m| m.as_str() == "builtins")
-                        });
-                    if null.is_none() && cached_ptr == callable_ptr && is_len_callable {
+                    if null.is_none() && cached_ptr == callable_ptr {
                         let len = obj.length(vm)?;
                         self.push_value(vm.ctx.new_int(len).into());
                         return Ok(None);
@@ -4137,14 +4130,7 @@ impl ExecutingFrame<'_> {
                 if effective_nargs == 2 {
                     let callable = self.nth_value(nargs + 1);
                     let callable_ptr = callable as *const PyObject as usize;
-                    let is_isinstance_callable = callable
-                        .downcast_ref_if_exact::<PyNativeFunction>(vm)
-                        .is_some_and(|native| {
-                            native.zelf.is_none()
-                                && native.value.name == "isinstance"
-                                && native.module.is_some_and(|m| m.as_str() == "builtins")
-                        });
-                    if cached_ptr == callable_ptr && is_isinstance_callable {
+                    if cached_ptr == callable_ptr {
                         let nargs_usize = nargs as usize;
                         let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         let self_or_null = self.pop_value_opt();
