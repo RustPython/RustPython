@@ -3770,7 +3770,32 @@ impl ExecutingFrame<'_> {
                     self.execute_bin_op(vm, bytecode::BinaryOperator::Add)
                 }
             }
-            Instruction::BinaryOpSubscrGetitem | Instruction::BinaryOpExtend => {
+            Instruction::BinaryOpSubscrGetitem => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let owner = self.nth_value(1);
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let func_version = self.code.instructions.read_cache_u32(cache_base + 3);
+                if !self.specialization_eval_frame_active(vm)
+                    && type_version != 0
+                    && func_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && let Some(func_obj) =
+                        self.try_read_cached_descriptor(cache_base, type_version)
+                    && let Some(func) = func_obj.downcast_ref_if_exact::<PyFunction>(vm)
+                    && func.func_version() == func_version
+                    && func.has_exact_argcount(2)
+                    && self.specialization_has_datastack_space_for_func(vm, func)
+                {
+                    let sub = self.pop_value();
+                    let owner = self.pop_value();
+                    let result = func.invoke_exact_args(vec![owner, sub], vm)?;
+                    self.push_value(result);
+                    return Ok(None);
+                }
+                self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
+            }
+            Instruction::BinaryOpExtend => {
                 let op = bytecode::BinaryOperator::try_from(u32::from(arg))
                     .unwrap_or(bytecode::BinaryOperator::Subscr);
                 self.execute_bin_op(vm, op)
@@ -7402,7 +7427,41 @@ impl ExecutingFrame<'_> {
                 {
                     Some(Instruction::BinaryOpSubscrListSlice)
                 } else {
-                    None
+                    let cls = a.class();
+                    if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                        && !self.specialization_eval_frame_active(vm)
+                        && let Some(getitem) = cls.get_attr(identifier!(vm, __getitem__))
+                        && let Some(func) = getitem.downcast_ref_if_exact::<PyFunction>(vm)
+                        && func.can_specialize_call(2)
+                    {
+                        let mut type_version = cls.tp_version_tag.load(Acquire);
+                        if type_version == 0 {
+                            type_version = cls.assign_version_tag();
+                        }
+                        if type_version != 0 {
+                            let func_version = func.get_version_for_current_state();
+                            if func_version != 0 {
+                                let func_ptr = &*getitem as *const PyObject as usize;
+                                unsafe {
+                                    self.code
+                                        .instructions
+                                        .write_cache_u32(cache_base + 3, func_version);
+                                    self.write_cached_descriptor(
+                                        cache_base,
+                                        type_version,
+                                        func_ptr,
+                                    );
+                                }
+                                Some(Instruction::BinaryOpSubscrGetitem)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 }
             }
             bytecode::BinaryOperator::InplaceAdd => {
