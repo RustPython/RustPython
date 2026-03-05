@@ -4481,16 +4481,13 @@ impl ExecutingFrame<'_> {
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                let object_alloc = vm.ctx.types.object_type.slots.alloc.load();
                 if !self.specialization_eval_frame_active(vm)
                     && !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
                     && cls.tp_version_tag.load(Acquire) == cached_version
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
-                    && let (Some(cls_alloc), Some(object_alloc_fn)) =
-                        (cls.slots.alloc.load(), object_alloc)
-                    && cls_alloc as usize == object_alloc_fn as usize
+                    && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
                     // CPython guards with code->co_framesize + _Py_InitCleanup.co_framesize.
                     // RustPython does not materialize frame-specials on datastack, so use
