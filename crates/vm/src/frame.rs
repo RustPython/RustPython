@@ -4171,14 +4171,14 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_vectorcall(nargs, vm);
-                }
                 let callable = self.nth_value(nargs + 1);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if self.specialization_call_recursion_guard(vm) {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     let nargs_usize = nargs as usize;
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
@@ -4207,9 +4207,6 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_vectorcall(nargs, vm);
-                }
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
                     .localsplus
@@ -4225,6 +4222,9 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if self.specialization_call_recursion_guard(vm) {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let nargs_usize = nargs as usize;
                         let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         self.pop_value_opt(); // null (self_or_null)
@@ -4639,15 +4639,15 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_kw_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_kw_vectorcall(nargs, vm);
-                }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 let callable = self.nth_value(nargs + 2);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if self.specialization_call_recursion_guard(vm) {
+                        return self.execute_call_kw_vectorcall(nargs, vm);
+                    }
                     let nargs_usize = nargs as usize;
                     let kwarg_names_obj = self.pop_value();
                     let kwarg_names_tuple = kwarg_names_obj
