@@ -4045,9 +4045,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::Call {
-                        argc: Arg::marker(),
-                    });
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
                 }
@@ -4085,9 +4082,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 let args = self.collect_positional_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4324,9 +4318,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::Call {
-                        argc: Arg::marker(),
-                    });
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
                 }
@@ -4810,9 +4801,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::CallKw {
-                    argc: Arg::marker(),
-                });
                 let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
@@ -4862,9 +4850,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::CallKw {
-                    argc: Arg::marker(),
-                });
                 let args = self.collect_keyword_args(nargs);
                 self.execute_call(args, vm)
             }
