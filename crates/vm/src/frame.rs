@@ -4230,30 +4230,30 @@ impl ExecutingFrame<'_> {
                     .is_some();
                 let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 let callable = self.nth_value(nargs + 1);
-                if callable
-                    .downcast_ref_if_exact::<PyNativeFunction>(vm)
-                    .is_some()
-                    && effective_nargs == 1
-                {
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                    if let Some(self_val) = self_or_null {
-                        args_vec.push(self_val);
+                if let Some(native) = callable.downcast_ref_if_exact::<PyNativeFunction>(vm) {
+                    let call_conv = native.value.flags
+                        & (PyMethodFlags::VARARGS
+                            | PyMethodFlags::FASTCALL
+                            | PyMethodFlags::NOARGS
+                            | PyMethodFlags::O
+                            | PyMethodFlags::KEYWORDS);
+                    if call_conv == PyMethodFlags::O && effective_nargs == 1 {
+                        let nargs_usize = nargs as usize;
+                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                        let self_or_null = self.pop_value_opt();
+                        let callable = self.pop_value();
+                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
+                        if let Some(self_val) = self_or_null {
+                            args_vec.push(self_val);
+                        }
+                        args_vec.extend(pos_args);
+                        let result =
+                            callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
+                        self.push_value(result);
+                        return Ok(None);
                     }
-                    args_vec.extend(pos_args);
-                    let result =
-                        callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
-                    self.push_value(result);
-                    return Ok(None);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallBuiltinFast => {
                 let nargs: u32 = arg.into();
@@ -4264,29 +4264,33 @@ impl ExecutingFrame<'_> {
                     .is_some();
                 let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 let callable = self.nth_value(nargs + 1);
-                if callable
-                    .downcast_ref_if_exact::<PyNativeFunction>(vm)
-                    .is_some()
-                {
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                    if let Some(self_val) = self_or_null {
-                        args_vec.push(self_val);
+                if let Some(native) = callable.downcast_ref_if_exact::<PyNativeFunction>(vm) {
+                    let call_conv = native.value.flags
+                        & (PyMethodFlags::VARARGS
+                            | PyMethodFlags::FASTCALL
+                            | PyMethodFlags::NOARGS
+                            | PyMethodFlags::O
+                            | PyMethodFlags::KEYWORDS);
+                    if call_conv == PyMethodFlags::FASTCALL {
+                        let nargs_usize = nargs as usize;
+                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                        let self_or_null = self.pop_value_opt();
+                        let callable = self.pop_value();
+                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
+                        if let Some(self_val) = self_or_null {
+                            args_vec.push(self_val);
+                        }
+                        args_vec.extend(pos_args);
+                        let result =
+                            callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
+                        self.push_value(result);
+                        return Ok(None);
                     }
-                    args_vec.extend(pos_args);
-                    let result =
-                        callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
-                    self.push_value(result);
-                    return Ok(None);
                 }
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
                 });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallPyGeneral => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4418,6 +4422,13 @@ impl ExecutingFrame<'_> {
                     };
                     if let Some(descr) = descr
                         && descr.method.flags.contains(PyMethodFlags::METHOD)
+                        && (descr.method.flags
+                            & (PyMethodFlags::VARARGS
+                                | PyMethodFlags::FASTCALL
+                                | PyMethodFlags::NOARGS
+                                | PyMethodFlags::O
+                                | PyMethodFlags::KEYWORDS))
+                            == PyMethodFlags::NOARGS
                         && self
                             .localsplus
                             .stack_index(stack_len - 1)
@@ -4452,6 +4463,13 @@ impl ExecutingFrame<'_> {
                     };
                     if let Some(descr) = descr
                         && descr.method.flags.contains(PyMethodFlags::METHOD)
+                        && (descr.method.flags
+                            & (PyMethodFlags::VARARGS
+                                | PyMethodFlags::FASTCALL
+                                | PyMethodFlags::NOARGS
+                                | PyMethodFlags::O
+                                | PyMethodFlags::KEYWORDS))
+                            == PyMethodFlags::O
                         && self
                             .localsplus
                             .stack_index(stack_len - 2)
@@ -4488,6 +4506,13 @@ impl ExecutingFrame<'_> {
                 };
                 if let Some(descr) = descr
                     && descr.method.flags.contains(PyMethodFlags::METHOD)
+                    && (descr.method.flags
+                        & (PyMethodFlags::VARARGS
+                            | PyMethodFlags::FASTCALL
+                            | PyMethodFlags::NOARGS
+                            | PyMethodFlags::O
+                            | PyMethodFlags::KEYWORDS))
+                        == PyMethodFlags::FASTCALL
                     && self
                         .localsplus
                         .stack_index(stack_len - nargs as usize - 1)
@@ -4621,6 +4646,13 @@ impl ExecutingFrame<'_> {
                 };
                 if let Some(descr) = descr
                     && descr.method.flags.contains(PyMethodFlags::METHOD)
+                    && (descr.method.flags
+                        & (PyMethodFlags::VARARGS
+                            | PyMethodFlags::FASTCALL
+                            | PyMethodFlags::NOARGS
+                            | PyMethodFlags::O
+                            | PyMethodFlags::KEYWORDS))
+                        == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS)
                     && self
                         .localsplus
                         .stack_index(stack_len - nargs as usize - 1)
@@ -4655,23 +4687,28 @@ impl ExecutingFrame<'_> {
                     .is_some();
                 let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 let callable = self.nth_value(nargs + 1);
-                if callable
-                    .downcast_ref_if_exact::<PyNativeFunction>(vm)
-                    .is_some()
-                {
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                    if let Some(self_val) = self_or_null {
-                        args_vec.push(self_val);
+                if let Some(native) = callable.downcast_ref_if_exact::<PyNativeFunction>(vm) {
+                    let call_conv = native.value.flags
+                        & (PyMethodFlags::VARARGS
+                            | PyMethodFlags::FASTCALL
+                            | PyMethodFlags::NOARGS
+                            | PyMethodFlags::O
+                            | PyMethodFlags::KEYWORDS);
+                    if call_conv == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS) {
+                        let nargs_usize = nargs as usize;
+                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
+                        let self_or_null = self.pop_value_opt();
+                        let callable = self.pop_value();
+                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
+                        if let Some(self_val) = self_or_null {
+                            args_vec.push(self_val);
+                        }
+                        args_vec.extend(pos_args);
+                        let result =
+                            callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
+                        self.push_value(result);
+                        return Ok(None);
                     }
-                    args_vec.extend(pos_args);
-                    let result =
-                        callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
-                    self.push_value(result);
-                    return Ok(None);
                 }
                 self.deoptimize(Instruction::Call {
                     argc: Arg::marker(),
@@ -7785,24 +7822,58 @@ impl ExecutingFrame<'_> {
                 false
             };
 
-            let new_op = if nargs == 1
-                && descr.method.name == "append"
-                && descr.objclass.is(vm.ctx.types.list_type)
-                && next_is_pop_top
-            {
-                let callable_ptr = callable as *const PyObject as usize;
-                unsafe {
-                    self.code
-                        .instructions
-                        .write_cache_ptr(cache_base + 1, callable_ptr);
+            let call_conv = descr.method.flags
+                & (PyMethodFlags::VARARGS
+                    | PyMethodFlags::FASTCALL
+                    | PyMethodFlags::NOARGS
+                    | PyMethodFlags::O
+                    | PyMethodFlags::KEYWORDS);
+
+            let new_op = if call_conv == PyMethodFlags::NOARGS {
+                if nargs != 0 {
+                    unsafe {
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
+                    }
+                    return;
                 }
-                Instruction::CallListAppend
+                Instruction::CallMethodDescriptorNoargs
+            } else if call_conv == PyMethodFlags::O {
+                if nargs != 1 {
+                    unsafe {
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
+                    }
+                    return;
+                }
+                if descr.method.name == "append"
+                    && descr.objclass.is(vm.ctx.types.list_type)
+                    && next_is_pop_top
+                {
+                    let callable_ptr = callable as *const PyObject as usize;
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_ptr(cache_base + 1, callable_ptr);
+                    }
+                    Instruction::CallListAppend
+                } else {
+                    Instruction::CallMethodDescriptorO
+                }
+            } else if call_conv == PyMethodFlags::FASTCALL {
+                Instruction::CallMethodDescriptorFast
+            } else if call_conv == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS) {
+                Instruction::CallMethodDescriptorFastWithKeywords
             } else {
-                match nargs {
-                    0 => Instruction::CallMethodDescriptorNoargs,
-                    1 => Instruction::CallMethodDescriptorO,
-                    _ => Instruction::CallMethodDescriptorFast,
-                }
+                Instruction::CallNonPyGeneral
             };
             self.specialize_at(instr_idx, cache_base, new_op);
             return;
@@ -7812,23 +7883,47 @@ impl ExecutingFrame<'_> {
         if let Some(native) = callable.downcast_ref_if_exact::<PyNativeFunction>(vm) {
             let effective_nargs = nargs + u32::from(self_or_null_is_some);
             let callable_ptr = callable as *const PyObject as usize;
-            let new_op = if native.zelf.is_none()
-                && native.value.name == "len"
-                && native.module.is_some_and(|m| m.as_str() == "builtins")
-                && nargs == 1
-                && effective_nargs == 1
-            {
-                Instruction::CallLen
-            } else if native.zelf.is_none()
-                && native.value.name == "isinstance"
-                && native.module.is_some_and(|m| m.as_str() == "builtins")
-                && effective_nargs == 2
-            {
-                Instruction::CallIsinstance
-            } else if effective_nargs == 1 {
-                Instruction::CallBuiltinO
+            let call_conv = native.value.flags
+                & (PyMethodFlags::VARARGS
+                    | PyMethodFlags::FASTCALL
+                    | PyMethodFlags::NOARGS
+                    | PyMethodFlags::O
+                    | PyMethodFlags::KEYWORDS);
+            let new_op = if call_conv == PyMethodFlags::O {
+                if effective_nargs != 1 {
+                    unsafe {
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
+                    }
+                    return;
+                }
+                if native.zelf.is_none()
+                    && native.value.name == "len"
+                    && native.module.is_some_and(|m| m.as_str() == "builtins")
+                    && nargs == 1
+                {
+                    Instruction::CallLen
+                } else {
+                    Instruction::CallBuiltinO
+                }
+            } else if call_conv == PyMethodFlags::FASTCALL {
+                if native.zelf.is_none()
+                    && native.value.name == "isinstance"
+                    && native.module.is_some_and(|m| m.as_str() == "builtins")
+                    && effective_nargs == 2
+                {
+                    Instruction::CallIsinstance
+                } else {
+                    Instruction::CallBuiltinFast
+                }
+            } else if call_conv == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS) {
+                Instruction::CallBuiltinFastWithKeywords
             } else {
-                Instruction::CallBuiltinFast
+                Instruction::CallNonPyGeneral
             };
             if matches!(new_op, Instruction::CallLen | Instruction::CallIsinstance) {
                 unsafe {

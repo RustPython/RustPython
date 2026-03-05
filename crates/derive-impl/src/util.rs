@@ -732,6 +732,77 @@ pub(crate) fn text_signature(sig: &Signature, name: &str) -> String {
     }
 }
 
+pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) -> TokenStream {
+    // Best-effort mapping of Rust function signatures to CPython-style
+    // METH_* calling convention flags used by CALL specialization.
+    let mut typed_args = Vec::new();
+    for arg in &sig.inputs {
+        let syn::FnArg::Typed(typed) = arg else {
+            continue;
+        };
+        let ty_tokens = &typed.ty;
+        let ty = quote!(#ty_tokens).to_string().replace(' ', "");
+        // `vm: &VirtualMachine` is not a Python-level argument.
+        if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
+            continue;
+        }
+        typed_args.push(ty);
+    }
+
+    let mut user_args = typed_args.into_iter();
+    for _ in 0..drop_first_typed {
+        if user_args.next().is_none() {
+            break;
+        }
+    }
+
+    let mut has_keywords = false;
+    let mut variable_arity = false;
+    let mut fixed_positional = 0usize;
+
+    for ty in user_args {
+        let is_named = |name: &str| {
+            ty == name
+                || ty.starts_with(&format!("{name}<"))
+                || ty.contains(&format!("::{name}<"))
+                || ty.ends_with(&format!("::{name}"))
+        };
+
+        if is_named("FuncArgs") {
+            has_keywords = true;
+            variable_arity = true;
+            continue;
+        }
+        if is_named("KwArgs") {
+            has_keywords = true;
+            variable_arity = true;
+            continue;
+        }
+        if is_named("PosArgs") || is_named("OptionalArg") || is_named("OptionalOption") {
+            variable_arity = true;
+            continue;
+        }
+        fixed_positional += 1;
+    }
+
+    if has_keywords {
+        quote! {
+            rustpython_vm::function::PyMethodFlags::from_bits_retain(
+                rustpython_vm::function::PyMethodFlags::FASTCALL.bits()
+                    | rustpython_vm::function::PyMethodFlags::KEYWORDS.bits()
+            )
+        }
+    } else if variable_arity {
+        quote! { rustpython_vm::function::PyMethodFlags::FASTCALL }
+    } else {
+        match fixed_positional {
+            0 => quote! { rustpython_vm::function::PyMethodFlags::NOARGS },
+            1 => quote! { rustpython_vm::function::PyMethodFlags::O },
+            _ => quote! { rustpython_vm::function::PyMethodFlags::FASTCALL },
+        }
+    }
+}
+
 fn func_sig(sig: &Signature) -> String {
     sig.inputs
         .iter()
