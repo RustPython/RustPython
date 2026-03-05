@@ -4217,6 +4217,9 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == PyMethodFlags::O && effective_nargs == 1 {
+                        if vm.reached_c_stack_limit() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let nargs_usize = nargs as usize;
                         let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         let self_or_null = self.pop_value_opt();
@@ -4226,9 +4229,6 @@ impl ExecutingFrame<'_> {
                             args_vec.push(self_val);
                         }
                         args_vec.extend(pos_args);
-                        if vm.reached_c_stack_limit() {
-                            return Err(vm.new_recursion_error(String::new()));
-                        }
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -4410,6 +4410,9 @@ impl ExecutingFrame<'_> {
                             .as_ref()
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
+                        if vm.reached_c_stack_limit() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let func = descr.method.func;
                         let positional_args: Vec<PyObjectRef> =
                             self.pop_multiple(nargs as usize).collect();
@@ -4424,9 +4427,6 @@ impl ExecutingFrame<'_> {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        if vm.reached_c_stack_limit() {
-                            return Err(vm.new_recursion_error(String::new()));
-                        }
                         let result = func(vm, args)?;
                         self.push_value(result);
                         return Ok(None);
@@ -4461,6 +4461,9 @@ impl ExecutingFrame<'_> {
                             .as_ref()
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
+                        if vm.reached_c_stack_limit() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let func = descr.method.func;
                         let positional_args: Vec<PyObjectRef> =
                             self.pop_multiple(nargs as usize).collect();
@@ -4475,9 +4478,6 @@ impl ExecutingFrame<'_> {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        if vm.reached_c_stack_limit() {
-                            return Err(vm.new_recursion_error(String::new()));
-                        }
                         let result = func(vm, args)?;
                         self.push_value(result);
                         return Ok(None);
