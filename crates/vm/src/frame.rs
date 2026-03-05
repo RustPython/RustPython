@@ -6981,6 +6981,7 @@ impl ExecutingFrame<'_> {
             if type_version != 0
                 && !oparg.is_method()
                 && !self.specialization_eval_frame_active(_vm)
+                && cls.get_attr(identifier!(_vm, __getattr__)).is_none()
                 && let Some(getattribute) = cls.get_attr(identifier!(_vm, __getattribute__))
                 && let Some(func) = getattribute.downcast_ref_if_exact::<PyFunction>(_vm)
                 && func.can_specialize_call(2)
