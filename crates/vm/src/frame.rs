@@ -4030,11 +4030,20 @@ impl ExecutingFrame<'_> {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
                 // Stack: [callable, self_or_null, arg1, ..., argN]
+                let stack_len = self.localsplus.stack_len();
+                let self_or_null_is_some = self
+                    .localsplus
+                    .stack_index(stack_len - nargs as usize - 1)
+                    .is_some();
                 let callable = self.nth_value(nargs + 1);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    let effective_nargs = nargs + u32::from(self_or_null_is_some);
+                    if !func.can_specialize_call(effective_nargs) {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
@@ -4081,6 +4090,9 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if !func.can_specialize_call(nargs + 1) {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let pos_args: Vec<PyObjectRef> =
                             self.pop_multiple(nargs as usize).collect();
                         self.pop_value_opt(); // null (self_or_null)
