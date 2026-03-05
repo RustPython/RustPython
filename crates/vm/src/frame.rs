@@ -4377,11 +4377,11 @@ impl ExecutingFrame<'_> {
                     let stack_len = self.localsplus.stack_len();
                     let self_or_null_is_some = self.localsplus.stack_index(stack_len - 2).is_some();
                     let callable = self.nth_value(2);
-                    let self_is_exact_list = self
+                    let self_is_list = self
                         .localsplus
                         .stack_index(stack_len - 2)
                         .as_ref()
-                        .is_some_and(|obj| obj.class().is(vm.ctx.types.list_type));
+                        .is_some_and(|obj| obj.downcast_ref::<PyList>().is_some());
                     let is_list_append =
                         callable
                             .downcast_ref::<PyMethodDescriptor>()
@@ -4389,12 +4389,12 @@ impl ExecutingFrame<'_> {
                                 descr.method.name == "append"
                                     && descr.objclass.is(vm.ctx.types.list_type)
                             });
-                    if is_list_append && self_or_null_is_some && self_is_exact_list {
+                    if is_list_append && self_or_null_is_some && self_is_list {
                         let item = self.pop_value();
                         let self_or_null = self.pop_value_opt();
                         let callable = self.pop_value();
                         if let Some(list_obj) = self_or_null.as_ref()
-                            && let Some(list) = list_obj.downcast_ref_if_exact::<PyList>(vm)
+                            && let Some(list) = list_obj.downcast_ref::<PyList>()
                         {
                             list.append(item);
                             // CALL_LIST_APPEND fuses the following POP_TOP.
@@ -4422,14 +4422,19 @@ impl ExecutingFrame<'_> {
                     let stack_len = self.localsplus.stack_len();
                     let self_or_null_is_some = self.localsplus.stack_index(stack_len - 1).is_some();
                     let callable = self.nth_value(1);
-                    let func = if self_or_null_is_some {
-                        callable
-                            .downcast_ref::<PyMethodDescriptor>()
-                            .map(|d| d.method.func)
+                    let descr = if self_or_null_is_some {
+                        callable.downcast_ref::<PyMethodDescriptor>()
                     } else {
                         None
                     };
-                    if let Some(func) = func {
+                    if let Some(descr) = descr
+                        && self
+                            .localsplus
+                            .stack_index(stack_len - 1)
+                            .as_ref()
+                            .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                    {
+                        let func = descr.method.func;
                         let self_val = self.pop_value_opt().unwrap();
                         self.pop_value(); // callable
                         let args = FuncArgs {
@@ -4453,14 +4458,19 @@ impl ExecutingFrame<'_> {
                     let stack_len = self.localsplus.stack_len();
                     let self_or_null_is_some = self.localsplus.stack_index(stack_len - 2).is_some();
                     let callable = self.nth_value(2);
-                    let func = if self_or_null_is_some {
-                        callable
-                            .downcast_ref::<PyMethodDescriptor>()
-                            .map(|d| d.method.func)
+                    let descr = if self_or_null_is_some {
+                        callable.downcast_ref::<PyMethodDescriptor>()
                     } else {
                         None
                     };
-                    if let Some(func) = func {
+                    if let Some(descr) = descr
+                        && self
+                            .localsplus
+                            .stack_index(stack_len - 2)
+                            .as_ref()
+                            .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                    {
+                        let func = descr.method.func;
                         let obj = self.pop_value();
                         let self_val = self.pop_value_opt().unwrap();
                         self.pop_value(); // callable
@@ -4486,14 +4496,19 @@ impl ExecutingFrame<'_> {
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                let func = if self_or_null_is_some {
-                    callable
-                        .downcast_ref::<PyMethodDescriptor>()
-                        .map(|d| d.method.func)
+                let descr = if self_or_null_is_some {
+                    callable.downcast_ref::<PyMethodDescriptor>()
                 } else {
                     None
                 };
-                if let Some(func) = func {
+                if let Some(descr) = descr
+                    && self
+                        .localsplus
+                        .stack_index(stack_len - nargs as usize - 1)
+                        .as_ref()
+                        .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                {
+                    let func = descr.method.func;
                     let positional_args: Vec<PyObjectRef> =
                         self.pop_multiple(nargs as usize).collect();
                     let self_val = self.pop_value_opt().unwrap();
@@ -4613,14 +4628,19 @@ impl ExecutingFrame<'_> {
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                let func = if self_or_null_is_some {
-                    callable
-                        .downcast_ref::<PyMethodDescriptor>()
-                        .map(|d| d.method.func)
+                let descr = if self_or_null_is_some {
+                    callable.downcast_ref::<PyMethodDescriptor>()
                 } else {
                     None
                 };
-                if let Some(func) = func {
+                if let Some(descr) = descr
+                    && self
+                        .localsplus
+                        .stack_index(stack_len - nargs as usize - 1)
+                        .as_ref()
+                        .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                {
+                    let func = descr.method.func;
                     let positional_args: Vec<PyObjectRef> =
                         self.pop_multiple(nargs as usize).collect();
                     let self_val = self.pop_value_opt().unwrap();
