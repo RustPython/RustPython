@@ -3163,7 +3163,11 @@ impl ExecutingFrame<'_> {
                 let receiver = self.top_value();
                 let ret = if can_fast_send {
                     let coro = self.builtin_coro(receiver).unwrap();
-                    coro.send(receiver, val, vm)?
+                    if vm.is_none(&val) {
+                        coro.send_none(receiver, vm)?
+                    } else {
+                        coro.send(receiver, val, vm)?
+                    }
                 } else {
                     self._send(receiver, val, vm)?
                 };
@@ -5344,7 +5348,7 @@ impl ExecutingFrame<'_> {
                         self.execute_for_iter(vm, target)?;
                         return Ok(None);
                     }
-                    match generator.as_coro().send(iter, vm.ctx.none(), vm) {
+                    match generator.as_coro().send_none(iter, vm) {
                         Ok(PyIterReturn::Return(value)) => {
                             self.push_value(value);
                         }
