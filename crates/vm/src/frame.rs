@@ -4600,54 +4600,48 @@ impl ExecutingFrame<'_> {
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                if !self_or_null_is_some
+                if !self.specialization_eval_frame_active(vm)
+                    && !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
                     && cls.tp_version_tag.load(Acquire) == cached_version
+                    && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
                 {
-                    // Look up __init__ (guarded by type_version)
-                    if let Some(init) = cls.get_attr(identifier!(vm, __init__))
-                        && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
-                        && init_func.can_specialize_call(nargs + 1)
+                    // Allocate object directly (tp_new == object.__new__)
+                    let dict = if cls
+                        .slots
+                        .flags
+                        .has_feature(crate::types::PyTypeFlags::HAS_DICT)
                     {
-                        // Allocate object directly (tp_new == object.__new__)
-                        let dict = if cls
-                            .slots
-                            .flags
-                            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
-                        {
-                            Some(vm.ctx.new_dict())
-                        } else {
-                            None
-                        };
-                        let cls_ref = cls.to_owned();
-                        let new_obj: PyObjectRef =
-                            PyRef::new_ref(PyBaseObject, cls_ref, dict).into();
+                        Some(vm.ctx.new_dict())
+                    } else {
+                        None
+                    };
+                    let cls_ref = cls.to_owned();
+                    let new_obj: PyObjectRef = PyRef::new_ref(PyBaseObject, cls_ref, dict).into();
 
-                        // Build args: [new_obj, arg1, ..., argN]
-                        let pos_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
-                        let _null = self.pop_value_opt(); // self_or_null (None)
-                        let _callable = self.pop_value(); // callable (type)
+                    // Build args: [new_obj, arg1, ..., argN]
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
+                    let _null = self.pop_value_opt(); // self_or_null (None)
+                    let _callable = self.pop_value(); // callable (type)
 
-                        let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-                        all_args.push(new_obj.clone());
-                        all_args.extend(pos_args);
+                    let mut all_args = Vec::with_capacity(pos_args.len() + 1);
+                    all_args.push(new_obj.clone());
+                    all_args.extend(pos_args);
 
-                        let init_result = init_func.invoke_exact_args(all_args, vm)?;
+                    let init_result = init_func.invoke_exact_args(all_args, vm)?;
 
-                        // EXIT_INIT_CHECK: __init__ must return None
-                        if !vm.is_none(&init_result) {
-                            return Err(vm.new_type_error("__init__() should return None"));
-                        }
-
-                        self.push_value(new_obj);
-                        return Ok(None);
+                    // EXIT_INIT_CHECK: __init__ must return None
+                    if !vm.is_none(&init_result) {
+                        return Err(vm.new_type_error(format!(
+                            "__init__() should return None, not '{}'",
+                            init_result.class().name()
+                        )));
                     }
+
+                    self.push_value(new_obj);
+                    return Ok(None);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorFastWithKeywords => {
@@ -8004,7 +7998,9 @@ impl ExecutingFrame<'_> {
                     && init_func.can_specialize_call(nargs + 1)
                 {
                     let version = cls.tp_version_tag.load(Acquire);
-                    if version != 0 {
+                    if version != 0
+                        && cls.cache_init_for_specialization(init_func.to_owned(), version)
+                    {
                         unsafe {
                             self.code
                                 .instructions

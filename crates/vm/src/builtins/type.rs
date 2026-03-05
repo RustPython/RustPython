@@ -11,7 +11,7 @@ use crate::{
             MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMemberDef,
             PyMemberDescriptor,
         },
-        function::PyCellRef,
+        function::{PyCellRef, PyFunction},
         tuple::{IntoPyTuple, PyTuple},
     },
     class::{PyClassImpl, StaticType},
@@ -269,6 +269,7 @@ pub struct HeapTypeExt {
     pub qualname: PyRwLock<PyStrRef>,
     pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
     pub type_data: PyRwLock<Option<TypeDataSlot>>,
+    pub specialization_init: PyRwLock<Option<PyRef<PyFunction>>>,
 }
 
 pub struct PointerSlot<T>(NonNull<T>);
@@ -396,6 +397,9 @@ impl PyType {
 
     /// Invalidate this type's version tag and cascade to all subclasses.
     pub fn modified(&self) {
+        if let Some(ext) = self.heaptype_ext.as_ref() {
+            *ext.specialization_init.write() = None;
+        }
         // If already invalidated, all subclasses must also be invalidated
         // (guaranteed by the MRO invariant in assign_version_tag).
         let old_version = self.tp_version_tag.load(Ordering::Acquire);
@@ -450,6 +454,7 @@ impl PyType {
             qualname: PyRwLock::new(name),
             slots: None,
             type_data: PyRwLock::new(None),
+            specialization_init: PyRwLock::new(None),
         };
         let base = bases[0].clone();
 
@@ -778,6 +783,38 @@ impl PyType {
     /// Searches the full MRO (including self) with method cache acceleration.
     pub fn get_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
         self.find_name_in_mro(attr_name)
+    }
+
+    /// Cache __init__ for CALL_ALLOC_AND_ENTER_INIT specialization.
+    /// The cache is valid only when guarded by the type version check.
+    pub(crate) fn cache_init_for_specialization(
+        &self,
+        init: PyRef<PyFunction>,
+        tp_version: u32,
+    ) -> bool {
+        let Some(ext) = self.heaptype_ext.as_ref() else {
+            return false;
+        };
+        if tp_version == 0 || self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+            return false;
+        }
+        *ext.specialization_init.write() = Some(init);
+        true
+    }
+
+    /// Read cached __init__ for CALL_ALLOC_AND_ENTER_INIT specialization.
+    pub(crate) fn get_cached_init_for_specialization(
+        &self,
+        tp_version: u32,
+    ) -> Option<PyRef<PyFunction>> {
+        let ext = self.heaptype_ext.as_ref()?;
+        if tp_version == 0 || self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+            return None;
+        }
+        ext.specialization_init
+            .read()
+            .as_ref()
+            .map(|init| init.to_owned())
     }
 
     pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
@@ -1882,6 +1919,7 @@ impl Constructor for PyType {
                 qualname: PyRwLock::new(qualname),
                 slots: heaptype_slots.clone(),
                 type_data: PyRwLock::new(None),
+                specialization_init: PyRwLock::new(None),
             };
             (slots, heaptype_ext)
         };
