@@ -803,9 +803,8 @@ impl PyType {
                     continue;
                 }
                 // _Py_TryIncrefCompare-style validation:
-                // safe_inc, then ensure the source pointer is unchanged.
-                let obj: &PyObject = unsafe { &*ptr };
-                if let Some(cloned) = obj.try_to_owned() {
+                // safe_inc via raw pointer, then ensure source is unchanged.
+                if let Some(cloned) = unsafe { PyObject::try_to_owned_from_ptr(ptr) } {
                     let same_ptr = core::ptr::eq(entry.value.load(Ordering::Relaxed), ptr);
                     if same_ptr && entry.end_read(seq1) {
                         return Some(cloned);

@@ -6896,8 +6896,7 @@ impl ExecutingFrame<'_> {
         if descr_ptr == 0 {
             return None;
         }
-        let descr = unsafe { &*(descr_ptr as *const PyObject) };
-        let cloned = descr.try_to_owned()?;
+        let cloned = unsafe { PyObject::try_to_owned_from_ptr(descr_ptr as *mut PyObject) }?;
         if self.code.instructions.read_cache_u32(cache_base + 1) == expected_type_version
             && self.code.instructions.read_cache_ptr(cache_base + 5) == descr_ptr
         {

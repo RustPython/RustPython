@@ -969,6 +969,29 @@ impl PyObject {
             None
         }
     }
+
+    /// Like [`try_to_owned`](Self::try_to_owned), but from a raw pointer.
+    ///
+    /// Uses `addr_of!` to access `ref_count` without forming `&PyObject`,
+    /// minimising the borrow scope when the pointer may be stale
+    /// (e.g. cache-hit paths protected by version guards).
+    ///
+    /// # Safety
+    /// `ptr` must point to a live (not yet deallocated) `PyObject`, or to
+    /// memory whose `ref_count` field is still atomically readable
+    /// (same guarantee as `_Py_TryIncRefShared`).
+    #[inline]
+    pub unsafe fn try_to_owned_from_ptr(ptr: *mut Self) -> Option<PyObjectRef> {
+        let inner = ptr.cast::<PyInner<Erased>>();
+        let ref_count = unsafe { &*core::ptr::addr_of!((*inner).ref_count) };
+        if ref_count.safe_inc() {
+            Some(PyObjectRef {
+                ptr: unsafe { NonNull::new_unchecked(ptr) },
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl PyObjectRef {
