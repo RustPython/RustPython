@@ -3158,7 +3158,7 @@ impl ExecutingFrame<'_> {
                         || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some())
                     && self
                         .builtin_coro(receiver)
-                        .is_some_and(|coro| !coro.running());
+                        .is_some_and(|coro| !coro.running() && !coro.closed());
                 let val = self.pop_value();
                 let receiver = self.top_value();
                 let ret = if can_fast_send {
@@ -3197,7 +3197,7 @@ impl ExecutingFrame<'_> {
                         || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some())
                     && self
                         .builtin_coro(receiver)
-                        .is_some_and(|coro| !coro.running());
+                        .is_some_and(|coro| !coro.running() && !coro.closed());
                 let val = self.pop_value();
 
                 if can_fast_send {
@@ -5355,7 +5355,7 @@ impl ExecutingFrame<'_> {
                     return Ok(None);
                 }
                 if let Some(generator) = iter.downcast_ref_if_exact::<PyGenerator>(vm) {
-                    if generator.as_coro().running() {
+                    if generator.as_coro().running() || generator.as_coro().closed() {
                         self.deoptimize(Instruction::ForIter {
                             delta: Arg::marker(),
                         });
