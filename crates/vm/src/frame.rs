@@ -2030,7 +2030,7 @@ impl ExecutingFrame<'_> {
             Instruction::ForIter { .. } => {
                 // Relative forward jump: target = lasti + caches + delta
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
-                self.adaptive(|s, ii, cb| s.specialize_for_iter(vm, ii, cb));
+                self.adaptive(|s, ii, cb| s.specialize_for_iter(vm, u32::from(arg), ii, cb));
                 self.execute_for_iter(vm, target)?;
                 Ok(None)
             }
@@ -3150,12 +3150,24 @@ impl ExecutingFrame<'_> {
             }
             Instruction::Send { .. } => {
                 // (receiver, v -- receiver, retval)
-                self.adaptive(|s, ii, cb| s.specialize_send(ii, cb));
+                self.adaptive(|s, ii, cb| s.specialize_send(vm, ii, cb));
                 let exit_label = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let receiver = self.nth_value(1);
+                let can_fast_send = !self.specialization_eval_frame_active(vm)
+                    && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
+                        || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some())
+                    && self
+                        .builtin_coro(receiver)
+                        .is_some_and(|coro| !coro.running());
                 let val = self.pop_value();
                 let receiver = self.top_value();
-
-                match self._send(receiver, val, vm)? {
+                let ret = if can_fast_send {
+                    let coro = self.builtin_coro(receiver).unwrap();
+                    coro.send(receiver, val, vm)?
+                } else {
+                    self._send(receiver, val, vm)?
+                };
+                match ret {
                     PyIterReturn::Return(value) => {
                         self.push_value(value);
                         Ok(None)
@@ -3176,11 +3188,16 @@ impl ExecutingFrame<'_> {
                 let exit_label = bytecode::Label(self.lasti() + 1 + u32::from(arg));
                 // Stack: [receiver, val] — peek receiver before popping
                 let receiver = self.nth_value(1);
-                let is_coro = self.builtin_coro(receiver).is_some();
+                let can_fast_send = !self.specialization_eval_frame_active(vm)
+                    && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
+                        || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some())
+                    && self
+                        .builtin_coro(receiver)
+                        .is_some_and(|coro| !coro.running());
                 let val = self.pop_value();
-                let receiver = self.top_value();
 
-                if is_coro {
+                if can_fast_send {
+                    let receiver = self.top_value();
                     let coro = self.builtin_coro(receiver).unwrap();
                     match coro.send(receiver, val, vm)? {
                         PyIterReturn::Return(value) => {
@@ -3199,6 +3216,10 @@ impl ExecutingFrame<'_> {
                         }
                     }
                 }
+                self.deoptimize(Instruction::Send {
+                    delta: Arg::marker(),
+                });
+                let receiver = self.top_value();
                 match self._send(receiver, val, vm)? {
                     PyIterReturn::Return(value) => {
                         self.push_value(value);
@@ -5242,6 +5263,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -5257,6 +5281,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -5272,6 +5299,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -5279,7 +5309,21 @@ impl ExecutingFrame<'_> {
             Instruction::ForIterGen => {
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
+                if self.specialization_eval_frame_active(vm) {
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
+                    self.execute_for_iter(vm, target)?;
+                    return Ok(None);
+                }
                 if let Some(generator) = iter.downcast_ref_if_exact::<PyGenerator>(vm) {
+                    if generator.as_coro().running() {
+                        self.deoptimize(Instruction::ForIter {
+                            delta: Arg::marker(),
+                        });
+                        self.execute_for_iter(vm, target)?;
+                        return Ok(None);
+                    }
                     match generator.as_coro().send(iter, vm.ctx.none(), vm) {
                         Ok(PyIterReturn::Return(value)) => {
                             self.push_value(value);
@@ -5295,6 +5339,9 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
+                    self.deoptimize(Instruction::ForIter {
+                        delta: Arg::marker(),
+                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -7616,6 +7663,17 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 1);
 
         if let Some(func) = callable.downcast_ref::<PyFunction>() {
+            if self.specialization_eval_frame_active(vm) {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
             let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
@@ -7654,6 +7712,17 @@ impl ExecutingFrame<'_> {
             && let Some(bound_method) = callable.downcast_ref::<PyBoundMethod>()
             && let Some(func) = bound_method.function_obj().downcast_ref::<PyFunction>()
         {
+            if self.specialization_eval_frame_active(vm) {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
             let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
@@ -7702,7 +7771,7 @@ impl ExecutingFrame<'_> {
                 match nargs {
                     0 => Instruction::CallMethodDescriptorNoargs,
                     1 => Instruction::CallMethodDescriptorO,
-                    _ => Instruction::CallMethodDescriptorFast,
+                    _ => Instruction::CallMethodDescriptorFastWithKeywords,
                 }
             };
             self.specialize_at(instr_idx, cache_base, new_op);
@@ -7726,6 +7795,8 @@ impl ExecutingFrame<'_> {
                 Instruction::CallIsinstance
             } else if effective_nargs == 1 {
                 Instruction::CallBuiltinO
+            } else if effective_nargs > 1 {
+                Instruction::CallBuiltinFastWithKeywords
             } else {
                 Instruction::CallBuiltinFast
             };
@@ -7801,7 +7872,7 @@ impl ExecutingFrame<'_> {
 
     fn specialize_call_kw(
         &mut self,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         nargs: u32,
         instr_idx: usize,
         cache_base: usize,
@@ -7822,6 +7893,17 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 2);
 
         if let Some(func) = callable.downcast_ref::<PyFunction>() {
+            if self.specialization_eval_frame_active(vm) {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
             let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
@@ -7848,6 +7930,17 @@ impl ExecutingFrame<'_> {
             && let Some(bound_method) = callable.downcast_ref::<PyBoundMethod>()
             && let Some(func) = bound_method.function_obj().downcast_ref::<PyFunction>()
         {
+            if self.specialization_eval_frame_active(vm) {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
             let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
@@ -7873,7 +7966,7 @@ impl ExecutingFrame<'_> {
         self.specialize_at(instr_idx, cache_base, Instruction::CallKwNonPy);
     }
 
-    fn specialize_send(&mut self, instr_idx: usize, cache_base: usize) {
+    fn specialize_send(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
         if !matches!(
             self.code.instructions.read_op(instr_idx),
             Instruction::Send { .. }
@@ -7882,7 +7975,9 @@ impl ExecutingFrame<'_> {
         }
         // Stack: [receiver, val] — receiver is at position 1
         let receiver = self.nth_value(1);
-        if self.builtin_coro(receiver).is_some() {
+        let is_exact_gen_or_coro = receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
+            || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some();
+        if is_exact_gen_or_coro && !self.specialization_eval_frame_active(vm) {
             self.specialize_at(instr_idx, cache_base, Instruction::SendGen);
         } else {
             unsafe {
@@ -8032,7 +8127,13 @@ impl ExecutingFrame<'_> {
         self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
-    fn specialize_for_iter(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
+    fn specialize_for_iter(
+        &mut self,
+        vm: &VirtualMachine,
+        jump_delta: u32,
+        instr_idx: usize,
+        cache_base: usize,
+    ) {
         if !matches!(
             self.code.instructions.read_op(instr_idx),
             Instruction::ForIter { .. }
@@ -8047,13 +8148,39 @@ impl ExecutingFrame<'_> {
             Some(Instruction::ForIterList)
         } else if iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some() {
             Some(Instruction::ForIterTuple)
-        } else if iter.downcast_ref_if_exact::<PyGenerator>(vm).is_some() {
+        } else if iter.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
+            && jump_delta <= i16::MAX as u32
+            && self.for_iter_has_end_for_shape(instr_idx, jump_delta)
+            && !self.specialization_eval_frame_active(vm)
+        {
             Some(Instruction::ForIterGen)
         } else {
             None
         };
 
         self.commit_specialization(instr_idx, cache_base, new_op);
+    }
+
+    #[inline]
+    fn specialization_eval_frame_active(&self, _vm: &VirtualMachine) -> bool {
+        false
+    }
+
+    #[inline]
+    fn for_iter_has_end_for_shape(&self, instr_idx: usize, jump_delta: u32) -> bool {
+        let target_idx = instr_idx
+            + 1
+            + Instruction::ForIter {
+                delta: Arg::marker(),
+            }
+            .cache_entries()
+            + jump_delta as usize;
+        self.code.instructions.get(target_idx).is_some_and(|unit| {
+            matches!(
+                unit.op,
+                Instruction::EndFor | Instruction::InstrumentedEndFor
+            )
+        })
     }
 
     /// Handle iterator exhaustion in specialized FOR_ITER handlers.
