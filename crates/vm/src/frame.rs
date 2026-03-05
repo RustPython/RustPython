@@ -3203,7 +3203,12 @@ impl ExecutingFrame<'_> {
                 if can_fast_send {
                     let receiver = self.top_value();
                     let coro = self.builtin_coro(receiver).unwrap();
-                    match coro.send(receiver, val, vm)? {
+                    let ret = if vm.is_none(&val) {
+                        coro.send_none(receiver, vm)?
+                    } else {
+                        coro.send(receiver, val, vm)?
+                    };
+                    match ret {
                         PyIterReturn::Return(value) => {
                             self.push_value(value);
                             return Ok(None);
@@ -8310,8 +8315,8 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn specialization_eval_frame_active(&self, _vm: &VirtualMachine) -> bool {
-        false
+    fn specialization_eval_frame_active(&self, vm: &VirtualMachine) -> bool {
+        vm.use_tracing.get()
     }
 
     #[inline]
