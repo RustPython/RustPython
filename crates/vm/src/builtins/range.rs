@@ -15,7 +15,9 @@ use crate::{
         Representable, SelfIter,
     },
 };
+use core::cell::Cell;
 use core::cmp::max;
+use core::ptr::NonNull;
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
@@ -67,10 +69,48 @@ pub struct PyRange {
     pub step: PyIntRef,
 }
 
+// spell-checker:ignore MAXFREELIST
+thread_local! {
+    static RANGE_FREELIST: Cell<crate::object::FreeList<PyRange>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyRange {
+    const MAX_FREELIST: usize = 6;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.range_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        RANGE_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        RANGE_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 

@@ -49,27 +49,32 @@ impl PyPayload for PyFloat {
 
     #[inline]
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
-        FLOAT_FREELIST.with(|fl| {
-            let mut list = fl.take();
-            let stored = if list.len() < Self::MAX_FREELIST {
-                list.push(obj);
-                true
-            } else {
-                false
-            };
-            fl.set(list);
-            stored
-        })
+        FLOAT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
     }
 
     #[inline]
     unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
-        FLOAT_FREELIST.with(|fl| {
-            let mut list = fl.take();
-            let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
-            fl.set(list);
-            result
-        })
+        FLOAT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
