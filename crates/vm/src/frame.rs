@@ -4102,7 +4102,11 @@ impl ExecutingFrame<'_> {
                     let callable_tag = &*callable as *const PyObject as u32;
                     let is_len_callable = callable
                         .downcast_ref_if_exact::<PyNativeFunction>(vm)
-                        .is_some_and(|native| native.zelf.is_none() && native.value.name == "len");
+                        .is_some_and(|native| {
+                            native.zelf.is_none()
+                                && native.value.name == "len"
+                                && native.module.is_some_and(|m| m.as_str() == "builtins")
+                        });
                     if null.is_none() && cached_tag == callable_tag && is_len_callable {
                         let len = obj.length(vm)?;
                         self.push_value(vm.ctx.new_int(len).into());
@@ -4136,7 +4140,9 @@ impl ExecutingFrame<'_> {
                     let is_isinstance_callable = callable
                         .downcast_ref_if_exact::<PyNativeFunction>(vm)
                         .is_some_and(|native| {
-                            native.zelf.is_none() && native.value.name == "isinstance"
+                            native.zelf.is_none()
+                                && native.value.name == "isinstance"
+                                && native.module.is_some_and(|m| m.as_str() == "builtins")
                         });
                     if cached_tag == callable_tag && is_isinstance_callable {
                         let nargs_usize = nargs as usize;
@@ -7825,12 +7831,14 @@ impl ExecutingFrame<'_> {
             let callable_tag = callable as *const PyObject as u32;
             let new_op = if native.zelf.is_none()
                 && native.value.name == "len"
+                && native.module.is_some_and(|m| m.as_str() == "builtins")
                 && nargs == 1
                 && effective_nargs == 1
             {
                 Instruction::CallLen
             } else if native.zelf.is_none()
                 && native.value.name == "isinstance"
+                && native.module.is_some_and(|m| m.as_str() == "builtins")
                 && effective_nargs == 2
             {
                 Instruction::CallIsinstance
