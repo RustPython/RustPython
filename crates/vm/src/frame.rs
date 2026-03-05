@@ -3107,8 +3107,9 @@ impl ExecutingFrame<'_> {
                 self.execute_unpack_ex(vm, args.before, args.after)
             }
             Instruction::UnpackSequence { count: size } => {
-                self.adaptive(|s, ii, cb| s.specialize_unpack_sequence(vm, ii, cb));
-                self.unpack_sequence(size.get(arg), vm)
+                let expected = size.get(arg);
+                self.adaptive(|s, ii, cb| s.specialize_unpack_sequence(vm, expected, ii, cb));
+                self.unpack_sequence(expected, vm)
             }
             Instruction::WithExceptStart => {
                 // Stack: [..., __exit__, lasti, prev_exc, exc]
@@ -8794,6 +8795,7 @@ impl ExecutingFrame<'_> {
     fn specialize_unpack_sequence(
         &mut self,
         vm: &VirtualMachine,
+        expected_count: u32,
         instr_idx: usize,
         cache_base: usize,
     ) {
@@ -8805,13 +8807,19 @@ impl ExecutingFrame<'_> {
         }
         let obj = self.top_value();
         let new_op = if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
-            if tuple.len() == 2 {
+            if tuple.len() != expected_count as usize {
+                None
+            } else if expected_count == 2 {
                 Some(Instruction::UnpackSequenceTwoTuple)
             } else {
                 Some(Instruction::UnpackSequenceTuple)
             }
-        } else if obj.downcast_ref_if_exact::<PyList>(vm).is_some() {
-            Some(Instruction::UnpackSequenceList)
+        } else if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
+            if list.borrow_vec().len() == expected_count as usize {
+                Some(Instruction::UnpackSequenceList)
+            } else {
+                None
+            }
         } else {
             None
         };
