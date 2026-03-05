@@ -562,12 +562,12 @@ impl PyType {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
 
-        // Inherit HAS_WEAKREF from any base in MRO that has it
+        // Inherit HAS_WEAKREF/MANAGED_WEAKREF from any base in MRO that has it
         if mro
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF))
         {
-            slots.flags |= PyTypeFlags::HAS_WEAKREF
+            slots.flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF
         }
 
         // Inherit SEQUENCE and MAPPING flags from base classes
@@ -632,7 +632,7 @@ impl PyType {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
         if base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
-            slots.flags |= PyTypeFlags::HAS_WEAKREF
+            slots.flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF
         }
 
         // Inherit SEQUENCE and MAPPING flags from base class
@@ -1867,7 +1867,7 @@ impl Constructor for PyType {
         // 2. __weakref__ is in __slots__
         let may_add_weakref = !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
         if (heaptype_slots.is_none() && may_add_weakref) || add_weakref {
-            flags |= PyTypeFlags::HAS_WEAKREF;
+            flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF;
         }
 
         let (slots, heaptype_ext) = {

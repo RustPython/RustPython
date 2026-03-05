@@ -68,7 +68,6 @@ unsafe impl Traverse for PyInner<Erased> {
         // Traverse ObjExt prefix fields (dict and slots) if present
         if let Some(ext) = self.ext_ref() {
             ext.dict.traverse(tracer_fn);
-            // weak_list is atomic pointers, no trace needed
             ext.slots.traverse(tracer_fn);
         }
 
