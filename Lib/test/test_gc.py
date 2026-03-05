@@ -236,6 +236,8 @@ class GCTests(unittest.TestCase):
         # is 3 because it includes f's code object.
         self.assertIn(gc.collect(), (2, 3))
 
+    # TODO: RUSTPYTHON - weakref clear ordering differs from 3.15+
+    @unittest.expectedFailure
     def test_function_tp_clear_leaves_consistent_state(self):
         # https://github.com/python/cpython/issues/91636
         code = """if 1:
@@ -309,6 +311,8 @@ class GCTests(unittest.TestCase):
         self.assertRegex(stdout, rb"""\A\s*func=None""")
         self.assertFalse(stderr)
 
+    # TODO: RUSTPYTHON - _datetime module not available
+    @unittest.expectedFailure
     def test_datetime_weakref_cycle(self):
         # https://github.com/python/cpython/issues/132413
         # If the weakref used by the datetime extension gets cleared by the GC (due to being

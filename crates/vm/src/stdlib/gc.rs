@@ -277,6 +277,8 @@ mod gc {
             vm.ctx.new_int(result.uncollectable).into(),
             vm,
         );
+        let _ = info.set_item("candidates", vm.ctx.new_int(result.candidates).into(), vm);
+        let _ = info.set_item("duration", vm.ctx.new_float(result.duration).into(), vm);
 
         for callback in callbacks {
             let _ = callback.call((phase_str.clone(), info.clone()), vm);
