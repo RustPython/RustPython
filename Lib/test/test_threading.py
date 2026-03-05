@@ -2141,9 +2141,6 @@ class CRLockTests(lock_tests.RLockTests):
             CustomRLock(1, b=2)
         self.assertEqual(warnings_log, [])
 
-    def test_release_save_unacquired(self):
-        return super().test_release_save_unacquired()
-
     @unittest.skip('TODO: RUSTPYTHON; flaky test')
     def test_different_thread(self):
         return super().test_different_thread()

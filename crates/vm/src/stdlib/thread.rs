@@ -221,10 +221,16 @@ pub(crate) mod _thread {
         #[pymethod(name = "acquire_lock")]
         #[pymethod(name = "__enter__")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            let result = acquire_lock_impl!(&self.mu, args, vm)?;
-            if result {
+            if self.mu.is_owned_by_current_thread() {
+                // Re-entrant acquisition: just increment our count.
+                // parking_lot stays at 1 level; we track recursion ourselves.
                 self.count
                     .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                return Ok(true);
+            }
+            let result = acquire_lock_impl!(&self.mu, args, vm)?;
+            if result {
+                self.count.store(1, core::sync::atomic::Ordering::Relaxed);
             }
             Ok(result)
         }
@@ -234,13 +240,13 @@ pub(crate) mod _thread {
             if !self.mu.is_owned_by_current_thread() {
                 return Err(vm.new_runtime_error("cannot release un-acquired lock"));
             }
-            debug_assert!(
-                self.count.load(core::sync::atomic::Ordering::Relaxed) > 0,
-                "RLock count underflow"
-            );
-            self.count
+            let prev = self
+                .count
                 .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
-            unsafe { self.mu.unlock() };
+            debug_assert!(prev > 0, "RLock count underflow");
+            if prev == 1 {
+                unsafe { self.mu.unlock() };
+            }
             Ok(())
         }
 
@@ -285,9 +291,7 @@ pub(crate) mod _thread {
             }
             let count = self.count.swap(0, core::sync::atomic::Ordering::Relaxed);
             debug_assert!(count > 0, "RLock count underflow");
-            for _ in 0..count {
-                unsafe { self.mu.unlock() };
-            }
+            unsafe { self.mu.unlock() };
             Ok((count, current_thread_id()))
         }
 
@@ -303,9 +307,7 @@ pub(crate) mod _thread {
             if count == 0 {
                 return Ok(());
             }
-            for _ in 0..count {
-                self.mu.lock();
-            }
+            self.mu.lock();
             self.count
                 .store(count, core::sync::atomic::Ordering::Relaxed);
             Ok(())
