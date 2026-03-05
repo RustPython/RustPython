@@ -531,7 +531,7 @@ fn reduce_set(
         AsNumber,
         Representable
     ),
-    flags(BASETYPE, _MATCH_SELF)
+    flags(BASETYPE, _MATCH_SELF, HAS_WEAKREF)
 )]
 impl PySet {
     fn __len__(&self) -> usize {
@@ -996,7 +996,7 @@ impl Constructor for PyFrozenSet {
 }
 
 #[pyclass(
-    flags(BASETYPE, _MATCH_SELF),
+    flags(BASETYPE, _MATCH_SELF, HAS_WEAKREF),
     with(
         Constructor,
         AsSequence,

@@ -228,6 +228,7 @@ bitflags! {
         // This is not a stable API
         const _MATCH_SELF = 1 << 22;
         const HAS_DICT = 1 << 40;
+        const HAS_WEAKREF = 1 << 41;
 
         #[cfg(debug_assertions)]
         const _CREATED_WITH_FLAGS = 1 << 63;

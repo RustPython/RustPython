@@ -413,7 +413,10 @@ mod _io {
     #[derive(Debug, Default, PyPayload)]
     pub struct _IOBase;
 
-    #[pyclass(with(IterNext, Iterable, Destructor), flags(BASETYPE, HAS_DICT))]
+    #[pyclass(
+        with(IterNext, Iterable, Destructor),
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+    )]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -634,7 +637,7 @@ mod _io {
     #[repr(transparent)]
     pub(super) struct _RawIOBase(_IOBase);
 
-    #[pyclass(flags(BASETYPE, HAS_DICT))]
+    #[pyclass(flags(BASETYPE, HAS_DICT, HAS_WEAKREF))]
     impl _RawIOBase {
         #[pymethod]
         fn read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
@@ -720,7 +723,7 @@ mod _io {
     #[repr(transparent)]
     struct _BufferedIOBase(_IOBase);
 
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE, HAS_WEAKREF))]
     impl _BufferedIOBase {
         #[pymethod]
         fn read(zelf: PyObjectRef, _size: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -785,7 +788,7 @@ mod _io {
     #[repr(transparent)]
     struct _TextIOBase(_IOBase);
 
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE, HAS_WEAKREF))]
     impl _TextIOBase {
         #[pygetset]
         fn encoding(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
@@ -1981,7 +1984,7 @@ mod _io {
 
     #[pyclass(
         with(Constructor, BufferedMixin, BufferedReadable, Destructor),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedReader {}
 
@@ -2085,7 +2088,7 @@ mod _io {
 
     #[pyclass(
         with(Constructor, BufferedMixin, BufferedWritable, Destructor),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedWriter {}
 
@@ -2159,7 +2162,7 @@ mod _io {
             BufferedWritable,
             Destructor
         ),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedRandom {}
 
@@ -2229,7 +2232,7 @@ mod _io {
             BufferedWritable,
             Destructor
         ),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedRWPair {
         #[pymethod]
@@ -3015,7 +3018,7 @@ mod _io {
             IterNext,
             Representable
         ),
-        flags(BASETYPE)
+        flags(BASETYPE, HAS_WEAKREF)
     )]
     impl TextIOWrapper {
         #[pymethod]
@@ -4376,7 +4379,7 @@ mod _io {
         }
     }
 
-    #[pyclass(flags(BASETYPE, HAS_DICT), with(Constructor, Initializer))]
+    #[pyclass(flags(BASETYPE, HAS_DICT, HAS_WEAKREF), with(Constructor, Initializer))]
     impl StringIO {
         #[pymethod]
         const fn readable(&self) -> bool {
@@ -4593,7 +4596,10 @@ mod _io {
         }
     }
 
-    #[pyclass(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor, Initializer))]
+    #[pyclass(
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
+        with(PyRef, Constructor, Initializer)
+    )]
     impl BytesIO {
         #[pymethod]
         const fn readable(&self) -> bool {
@@ -5634,7 +5640,7 @@ mod fileio {
 
     #[pyclass(
         with(Constructor, Initializer, Representable, Destructor),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl FileIO {
         fn io_error(
@@ -6390,7 +6396,7 @@ mod winconsoleio {
 
     #[pyclass(
         with(Constructor, Initializer, Representable, Destructor),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl WindowsConsoleIO {
         #[allow(dead_code)]

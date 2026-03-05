@@ -464,6 +464,8 @@ impl PyBaseObject {
                 if both_mutable || both_module {
                     let has_dict =
                         |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+                    let has_weakref =
+                        |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
                     // Compare slots tuples
                     let slots_equal = match (
                         current_cls
@@ -484,6 +486,8 @@ impl PyBaseObject {
                     if current_cls.slots.basicsize != cls.slots.basicsize
                         || !slots_equal
                         || has_dict(current_cls) != has_dict(&cls)
+                        || has_weakref(current_cls) != has_weakref(&cls)
+                        || current_cls.slots.member_count != cls.slots.member_count
                     {
                         return Err(vm.new_type_error(format!(
                             "__class__ assignment: '{}' object layout differs from '{}'",

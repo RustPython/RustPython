@@ -289,8 +289,12 @@ impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
 impl<T: PyPayload> From<PyRef<T>> for PyAtomicRef<T> {
     fn from(pyref: PyRef<T>) -> Self {
         let py = PyRef::leak(pyref);
+        let ptr = py as *const _ as *mut u8;
+        // Expose provenance so we can re-derive via with_exposed_provenance
+        // without Stacked Borrows tag restrictions during bootstrap
+        ptr.expose_provenance();
         Self {
-            inner: Radium::new(py as *const _ as *mut _),
+            inner: Radium::new(ptr),
             _phantom: Default::default(),
         }
     }
@@ -311,6 +315,14 @@ impl<T: PyPayload> Deref for PyAtomicRef<T> {
 }
 
 impl<T: PyPayload> PyAtomicRef<T> {
+    /// Load the raw pointer without creating a reference.
+    /// Avoids Stacked Borrows retag, safe for use during bootstrap
+    /// when type objects have self-referential pointers being mutated.
+    #[inline(always)]
+    pub(super) fn load_raw(&self) -> *const Py<T> {
+        self.inner.load(Ordering::Relaxed).cast::<Py<T>>()
+    }
+
     /// # Safety
     /// The caller is responsible to keep the returned PyRef alive
     /// until no more reference can be used via PyAtomicRef::deref()

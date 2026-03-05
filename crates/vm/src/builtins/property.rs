@@ -65,7 +65,10 @@ impl GetDescriptor for PyProperty {
     }
 }
 
-#[pyclass(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
+#[pyclass(
+    with(Constructor, Initializer, GetDescriptor),
+    flags(BASETYPE, HAS_WEAKREF)
+)]
 impl PyProperty {
     // Helper method to get property name
     // Returns the name if available, None if not found, or propagates errors

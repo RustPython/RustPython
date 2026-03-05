@@ -160,7 +160,7 @@ pub(crate) mod _asyncio {
     }
 
     #[pyclass(
-        flags(BASETYPE, HAS_DICT),
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
         with(Constructor, Initializer, Destructor, Representable, Iterable)
     )]
     impl PyFuture {
@@ -1169,7 +1169,7 @@ pub(crate) mod _asyncio {
     }
 
     #[pyclass(
-        flags(BASETYPE, HAS_DICT),
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
         with(Constructor, Initializer, Destructor, Representable, Iterable)
     )]
     impl PyTask {

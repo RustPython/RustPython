@@ -212,7 +212,7 @@ mod _sre {
         };
     }
 
-    #[pyclass(with(Hashable, Comparable, Representable))]
+    #[pyclass(with(Hashable, Comparable, Representable), flags(HAS_WEAKREF))]
     impl Pattern {
         fn with_str<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
         where

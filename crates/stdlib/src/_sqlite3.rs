@@ -976,7 +976,7 @@ mod _sqlite3 {
         }
     }
 
-    #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl Connection {
         fn drop_db(&self) {
             self.db.lock().take();
@@ -1629,7 +1629,10 @@ mod _sqlite3 {
         size: Option<c_int>,
     }
 
-    #[pyclass(with(Constructor, Initializer, IterNext, Iterable), flags(BASETYPE))]
+    #[pyclass(
+        with(Constructor, Initializer, IterNext, Iterable),
+        flags(BASETYPE, HAS_WEAKREF)
+    )]
     impl Cursor {
         fn new(
             connection: PyRef<Connection>,
