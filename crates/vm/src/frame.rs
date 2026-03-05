@@ -1674,14 +1674,39 @@ impl ExecutingFrame<'_> {
             Instruction::BinaryOpInplaceAddUnicode => {
                 let b = self.top_value();
                 let a = self.nth_value(1);
-                if let (Some(a_str), Some(b_str)) = (
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let next_idx = cache_base + Instruction::BinaryOpInplaceAddUnicode.cache_entries();
+                let target_local = self.code.instructions.get(next_idx).and_then(|unit| {
+                    let next_op = unit.op.to_base().unwrap_or(unit.op);
+                    if matches!(next_op, Instruction::StoreFast { .. }) {
+                        Some(usize::from(u8::from(unit.arg)))
+                    } else {
+                        None
+                    }
+                });
+                if let (Some(a_str), Some(b_str), Some(target_local)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyStr>(vm),
+                    target_local,
                 ) {
+                    if !self
+                        .localsplus
+                        .fastlocals()
+                        .get(target_local)
+                        .and_then(|slot| slot.as_ref())
+                        .is_some_and(|local| local.is(a))
+                    {
+                        return self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd);
+                    }
                     let result = a_str.as_wtf8().py_add(b_str.as_wtf8());
                     self.pop_value();
                     self.pop_value();
-                    self.push_value(result.to_pyobject(vm));
+                    self.localsplus.fastlocals_mut()[target_local] = Some(result.to_pyobject(vm));
+                    self.jump_relative_forward(
+                        1,
+                        Instruction::BinaryOpInplaceAddUnicode.cache_entries() as u32,
+                    );
                     Ok(None)
                 } else {
                     self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd)
