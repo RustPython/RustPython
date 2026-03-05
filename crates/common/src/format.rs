@@ -610,84 +610,47 @@ impl FormatSpec {
         num: &Complex64,
         locale: &LocaleInfo,
     ) -> Result<String, FormatSpecError> {
-        // For complex, format real and imaginary parts separately with locale
-        if self.alternate_form {
-            return Err(FormatSpecError::NotAllowed("Alternate form (#)"));
-        }
-        if matches!(
-            self.format_type,
-            Some(
-                FormatType::String
-                    | FormatType::Binary
-                    | FormatType::Octal
-                    | FormatType::Hex(_)
-                    | FormatType::Character
-                    | FormatType::Decimal
-                    | FormatType::Number(Case::Upper)
-                    | FormatType::Unknown(_)
-            )
-        ) {
-            let ch = char::from(self.format_type.as_ref().unwrap());
-            return Err(FormatSpecError::UnknownFormatCode(ch, "complex"));
-        }
-
-        let precision = self.precision.unwrap_or(6);
-        let format_type = match self.format_type {
-            Some(FormatType::Number(case)) => FormatType::GeneralFormat(case),
-            _ => return self.format_complex(num),
-        };
-
-        let magnitude_format = FormatSpec {
-            format_type: Some(format_type),
-            precision: Some(if precision == 0 { 1 } else { precision }),
+        // Reuse format_complex_re_im with 'g' type to get the base formatted parts,
+        // then apply locale grouping. This matches CPython's format_complex_internal:
+        // 'n' → 'g', add_parens=0, skip_re=0.
+        let locale_spec = FormatSpec {
+            format_type: Some(FormatType::GeneralFormat(Case::Lower)),
             ..*self
         };
+        let (formatted_re, formatted_im) = locale_spec.format_complex_re_im(num)?;
 
-        let re_str = if num.re == 0.0 && !num.re.is_sign_negative() {
-            None
+        // Apply locale grouping to both parts
+        let grouped_re = if formatted_re.is_empty() {
+            formatted_re
         } else {
-            let re_sign = if num.re.is_sign_negative() && !num.re.is_nan() {
-                "-"
+            // Split sign from magnitude, apply grouping, recombine
+            let (sign, mag) = if formatted_re.starts_with('-')
+                || formatted_re.starts_with('+')
+                || formatted_re.starts_with(' ')
+            {
+                formatted_re.split_at(1)
             } else {
-                ""
+                ("", formatted_re.as_str())
             };
-            let re_mag = magnitude_format.format_float(num.re.abs())?;
-            let re_grouped = Self::apply_locale_formatting(re_mag, locale);
-            Some(format!("{re_sign}{re_grouped}"))
+            format!("{sign}{}", Self::apply_locale_formatting(mag.to_string(), locale))
         };
 
-        let im_sign = if num.im.is_sign_negative() && !num.im.is_nan() {
-            "-"
+        // formatted_im is like "+1234j" or "-1234j" or "1234j"
+        // Split sign, magnitude, and 'j' suffix
+        let im_str = &formatted_im;
+        let (im_sign, im_rest) = if im_str.starts_with('+') || im_str.starts_with('-') {
+            im_str.split_at(1)
         } else {
-            ""
+            ("", im_str.as_str())
         };
-        let im_mag = magnitude_format.format_float(num.im.abs())?;
-        let im_grouped = Self::apply_locale_formatting(im_mag, locale);
+        let im_mag = im_rest.strip_suffix('j').unwrap_or(im_rest);
+        let im_grouped = Self::apply_locale_formatting(im_mag.to_string(), locale);
+        let grouped_im = format!("{im_sign}{im_grouped}j");
 
-        let has_re = re_str.is_some();
-        let formatted = if let Some(re_str) = re_str {
-            let sep = if num.im >= 0.0 || num.im.is_nan() {
-                "+"
-            } else {
-                ""
-            };
-            format!("({re_str}{sep}{im_sign}{im_grouped}j)")
-        } else {
-            format!("{im_sign}{im_grouped}j")
-        };
+        // No parentheses for 'n' format (CPython: add_parens=0)
+        let magnitude_str = format!("{grouped_re}{grouped_im}");
 
-        let format_sign = self.sign.unwrap_or(FormatSign::Minus);
-        let sign_str = match format_sign {
-            FormatSign::Plus => "+",
-            FormatSign::Minus => "",
-            FormatSign::MinusOrSpace => " ",
-        };
-
-        self.format_sign_and_align(
-            &AsciiStr::new(&formatted),
-            if has_re { "" } else { sign_str },
-            FormatAlign::Right,
-        )
+        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right)
     }
 
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
