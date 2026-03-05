@@ -874,12 +874,9 @@ impl PyType {
     }
 
     /// Read cached __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
-    pub(crate) fn get_cached_getitem_for_specialization(
-        &self,
-        tp_version: u32,
-    ) -> Option<(PyRef<PyFunction>, u32)> {
+    pub(crate) fn get_cached_getitem_for_specialization(&self) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
-        if tp_version == 0 || self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+        if self.tp_version_tag.load(Ordering::Acquire) == 0 {
             return None;
         }
         let cached_version = ext.specialization_getitem_version.load(Ordering::Acquire);

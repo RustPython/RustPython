@@ -3771,16 +3771,10 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::BinaryOpSubscrGetitem => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
                 let owner = self.nth_value(1);
-                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 if !self.specialization_eval_frame_active(vm)
-                    && type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
-                    && let Some((func, func_version)) = owner
-                        .class()
-                        .get_cached_getitem_for_specialization(type_version)
+                    && let Some((func, func_version)) =
+                        owner.class().get_cached_getitem_for_specialization()
                     && func.func_version() == func_version
                     && func.has_exact_argcount(2)
                     && self.specialization_has_datastack_space_for_func(vm, &func)
@@ -7433,11 +7427,6 @@ impl ExecutingFrame<'_> {
                         }
                         if type_version != 0 {
                             if cls.cache_getitem_for_specialization(func.to_owned(), type_version) {
-                                unsafe {
-                                    self.code
-                                        .instructions
-                                        .write_cache_u32(cache_base + 1, type_version);
-                                }
                                 Some(Instruction::BinaryOpSubscrGetitem)
                             } else {
                                 None
