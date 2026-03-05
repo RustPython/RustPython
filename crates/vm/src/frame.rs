@@ -2324,7 +2324,8 @@ impl ExecutingFrame<'_> {
                 };
                 self.push_value(match value {
                     Some(v) => v,
-                    None => self.cell_ref(i)
+                    None => self
+                        .cell_ref(i)
                         .get()
                         .ok_or_else(|| self.unbound_cell_exception(i, vm))?,
                 });
@@ -2393,7 +2394,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadDeref { i } => {
                 let idx = i.get(arg) as usize;
-                let x = self.cell_ref(idx)
+                let x = self
+                    .cell_ref(idx)
                     .get()
                     .ok_or_else(|| self.unbound_cell_exception(idx, vm))?;
                 self.push_value(x);
@@ -8686,23 +8688,25 @@ impl fmt::Debug for Frame {
         // SAFETY: Debug is best-effort; concurrent mutation is unlikely
         // and would only affect debug output.
         let iframe = unsafe { &*self.iframe.get() };
-        let stack_str = iframe.localsplus
-            .stack_as_slice()
-            .iter()
-            .fold(String::new(), |mut s, slot| {
-                match slot {
-                    Some(elem) if elem.downcastable::<Self>() => {
-                        s.push_str("\n  > {frame}");
+        let stack_str =
+            iframe
+                .localsplus
+                .stack_as_slice()
+                .iter()
+                .fold(String::new(), |mut s, slot| {
+                    match slot {
+                        Some(elem) if elem.downcastable::<Self>() => {
+                            s.push_str("\n  > {frame}");
+                        }
+                        Some(elem) => {
+                            core::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
+                        }
+                        None => {
+                            s.push_str("\n  > NULL");
+                        }
                     }
-                    Some(elem) => {
-                        core::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
-                    }
-                    None => {
-                        s.push_str("\n  > NULL");
-                    }
-                }
-                s
-            });
+                    s
+                });
         // TODO: fix this up
         write!(
             f,
