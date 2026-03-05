@@ -4023,6 +4023,9 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
                 // Stack: [callable, self_or_null, arg1, ..., argN]
                 let callable = self.nth_value(nargs + 1);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
@@ -4053,6 +4056,9 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
                 // Stack: [callable, self_or_null(NULL), arg1, ..., argN]
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
@@ -4274,6 +4280,9 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
                 let callable = self.nth_value(nargs + 1);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == cached_version
@@ -4304,6 +4313,9 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
                     .localsplus
@@ -4744,6 +4756,9 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_kw_vectorcall(nargs, vm);
+                }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 let callable = self.nth_value(nargs + 2);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
@@ -4786,6 +4801,9 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_kw_vectorcall(nargs, vm);
+                }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
