@@ -4381,12 +4381,16 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallListAppend => {
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let cached_tag = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     // Stack: [callable, self_or_null, item]
                     let stack_len = self.localsplus.stack_len();
                     let self_or_null_is_some = self.localsplus.stack_index(stack_len - 2).is_some();
                     let callable = self.nth_value(2);
+                    let callable_tag = callable as *const PyObject as u32;
                     let self_is_list = self
                         .localsplus
                         .stack_index(stack_len - 2)
@@ -4399,7 +4403,11 @@ impl ExecutingFrame<'_> {
                                 && descr.method.name == "append"
                                 && descr.objclass.is(vm.ctx.types.list_type)
                         });
-                    if is_list_append && self_or_null_is_some && self_is_list {
+                    if cached_tag == callable_tag
+                        && is_list_append
+                        && self_or_null_is_some
+                        && self_is_list
+                    {
                         let item = self.pop_value();
                         let self_or_null = self.pop_value_opt();
                         let callable = self.pop_value();
@@ -7818,6 +7826,12 @@ impl ExecutingFrame<'_> {
                 && descr.objclass.is(vm.ctx.types.list_type)
                 && next_is_pop_top
             {
+                let callable_tag = callable as *const PyObject as u32;
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_u32(cache_base + 1, callable_tag);
+                }
                 Instruction::CallListAppend
             } else {
                 match nargs {
