@@ -637,12 +637,12 @@ impl Py<PyFunction> {
     }
 
     /// Check if this function is eligible for exact-args call specialization.
-    /// Returns true if: no VARARGS, no VARKEYWORDS, no kwonly args, not generator/coroutine,
-    /// and effective_nargs matches co_argcount.
+    /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args,
+    /// not generator/coroutine, and effective_nargs matches co_argcount.
     pub(crate) fn can_specialize_call(&self, effective_nargs: u32) -> bool {
         let code: &Py<PyCode> = &self.code;
         let flags = code.flags;
-        flags.contains(bytecode::CodeFlags::NEWLOCALS)
+        flags.contains(bytecode::CodeFlags::OPTIMIZED)
             && !flags.intersects(
                 bytecode::CodeFlags::VARARGS
                     | bytecode::CodeFlags::VARKEYWORDS
@@ -655,13 +655,13 @@ impl Py<PyFunction> {
 
     /// Fast path for calling a simple function with exact positional args.
     /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
-    /// Only valid when: no VARARGS, no VARKEYWORDS, no kwonlyargs, not generator/coroutine,
-    /// and nargs == co_argcount.
+    /// Only valid when: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonlyargs,
+    /// not generator/coroutine, and nargs == co_argcount.
     pub fn invoke_exact_args(&self, mut args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
-        debug_assert!(code.flags.contains(bytecode::CodeFlags::NEWLOCALS));
+        debug_assert!(code.flags.contains(bytecode::CodeFlags::OPTIMIZED));
         debug_assert!(!code.flags.intersects(
             bytecode::CodeFlags::VARARGS
                 | bytecode::CodeFlags::VARKEYWORDS
@@ -670,9 +670,15 @@ impl Py<PyFunction> {
         ));
         debug_assert_eq!(code.kwonlyarg_count, 0);
 
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            None
+        } else {
+            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+        };
+
         let frame = Frame::new(
             code.clone(),
-            Scope::new(None, self.globals.clone()),
+            Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
