@@ -3222,9 +3222,6 @@ impl ExecutingFrame<'_> {
                         }
                     }
                 }
-                self.deoptimize(Instruction::Send {
-                    delta: Arg::marker(),
-                });
                 let receiver = self.top_value();
                 match self._send(receiver, val, vm)? {
                     PyIterReturn::Return(value) => {
@@ -7514,30 +7511,6 @@ impl ExecutingFrame<'_> {
                     ),
                 );
             }
-        }
-    }
-
-    /// Deoptimize: replace specialized op with its base adaptive op and reset
-    /// the adaptive counter. Computes instr_idx/cache_base from lasti().
-    #[inline]
-    fn deoptimize(&mut self, base_op: Instruction) {
-        let instr_idx = self.lasti() as usize - 1;
-        let cache_base = instr_idx + 1;
-        self.deoptimize_at(base_op, instr_idx, cache_base);
-    }
-
-    /// Deoptimize with explicit indices (for specialized handlers that already
-    /// have instr_idx/cache_base in scope).
-    #[inline]
-    fn deoptimize_at(&mut self, base_op: Instruction, instr_idx: usize, cache_base: usize) {
-        unsafe {
-            self.code.instructions.replace_op(instr_idx, base_op);
-            self.code.instructions.write_adaptive_counter(
-                cache_base,
-                bytecode::adaptive_counter_backoff(
-                    self.code.instructions.read_adaptive_counter(cache_base),
-                ),
-            );
         }
     }
 
