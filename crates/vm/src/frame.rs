@@ -4396,18 +4396,7 @@ impl ExecutingFrame<'_> {
                         .stack_index(stack_len - 2)
                         .as_ref()
                         .is_some_and(|obj| obj.downcast_ref::<PyList>().is_some());
-                    let is_list_append = callable
-                        .downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                        .is_some_and(|descr| {
-                            descr.method.flags.contains(PyMethodFlags::METHOD)
-                                && descr.method.name == "append"
-                                && descr.objclass.is(vm.ctx.types.list_type)
-                        });
-                    if cached_tag == callable_tag
-                        && is_list_append
-                        && self_or_null_is_some
-                        && self_is_list
-                    {
+                    if cached_tag == callable_tag && self_or_null_is_some && self_is_list {
                         let item = self.pop_value();
                         let self_or_null = self.pop_value_opt();
                         let callable = self.pop_value();
