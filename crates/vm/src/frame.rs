@@ -3586,7 +3586,7 @@ impl ExecutingFrame<'_> {
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = func_obj.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == func_version
-                    && func.can_specialize_call(2)
+                    && func.has_exact_argcount(2)
                     && self.specialization_has_datastack_space_for_func(vm, func)
                 {
                     let owner = self.pop_value();
