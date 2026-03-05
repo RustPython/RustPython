@@ -856,15 +856,15 @@ impl PyType {
         &self,
         getitem: PyRef<PyFunction>,
         tp_version: u32,
-        func_version: u32,
     ) -> bool {
         let Some(ext) = self.heaptype_ext.as_ref() else {
             return false;
         };
-        if tp_version == 0
-            || func_version == 0
-            || self.tp_version_tag.load(Ordering::Acquire) != tp_version
-        {
+        if tp_version == 0 || self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+            return false;
+        }
+        let func_version = getitem.get_version_for_current_state();
+        if func_version == 0 {
             return false;
         }
         *ext.specialization_getitem.write() = Some(getitem);

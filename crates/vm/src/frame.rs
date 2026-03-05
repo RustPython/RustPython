@@ -7443,12 +7443,7 @@ impl ExecutingFrame<'_> {
                             type_version = cls.assign_version_tag();
                         }
                         if type_version != 0 {
-                            let func_version = func.get_version_for_current_state();
-                            if cls.cache_getitem_for_specialization(
-                                func.to_owned(),
-                                type_version,
-                                func_version,
-                            ) {
+                            if cls.cache_getitem_for_specialization(func.to_owned(), type_version) {
                                 unsafe {
                                     self.code
                                         .instructions
