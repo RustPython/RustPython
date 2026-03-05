@@ -7823,7 +7823,7 @@ impl ExecutingFrame<'_> {
                 match nargs {
                     0 => Instruction::CallMethodDescriptorNoargs,
                     1 => Instruction::CallMethodDescriptorO,
-                    _ => Instruction::CallMethodDescriptorFastWithKeywords,
+                    _ => Instruction::CallMethodDescriptorFast,
                 }
             };
             self.specialize_at(instr_idx, cache_base, new_op);
@@ -7849,8 +7849,6 @@ impl ExecutingFrame<'_> {
                 Instruction::CallIsinstance
             } else if effective_nargs == 1 {
                 Instruction::CallBuiltinO
-            } else if effective_nargs > 1 {
-                Instruction::CallBuiltinFastWithKeywords
             } else {
                 Instruction::CallBuiltinFast
             };
