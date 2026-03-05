@@ -623,6 +623,10 @@ impl CodeUnits {
     ///
     /// # Safety
     /// - `index` must be in bounds.
+    /// - `value` must be `0` or a valid `*const PyObject` encoded as `usize`.
+    /// - Callers must follow the cache invalidation/upgrade protocol:
+    ///   invalidate the version guard before writing and publish the new
+    ///   version after writing.
     pub unsafe fn write_cache_ptr(&self, index: usize, value: usize) {
         self.pointer_cache[index].store(value, Ordering::Relaxed);
     }

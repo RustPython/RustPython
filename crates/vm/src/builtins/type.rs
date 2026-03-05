@@ -104,7 +104,28 @@ impl TypeCacheEntry {
 
     #[inline]
     fn begin_write(&self) {
-        self.sequence.fetch_add(1, Ordering::AcqRel);
+        let mut seq = self.sequence.load(Ordering::Acquire);
+        loop {
+            while (seq & 1) != 0 {
+                core::hint::spin_loop();
+                seq = self.sequence.load(Ordering::Acquire);
+            }
+            match self.sequence.compare_exchange_weak(
+                seq,
+                seq.wrapping_add(1),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    core::sync::atomic::fence(Ordering::Release);
+                    break;
+                }
+                Err(observed) => {
+                    core::hint::spin_loop();
+                    seq = observed;
+                }
+            }
+        }
     }
 
     #[inline]
