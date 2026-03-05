@@ -1676,29 +1676,12 @@ impl ExecutingFrame<'_> {
                 let a = self.nth_value(1);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let next_idx = cache_base + Instruction::BinaryOpInplaceAddUnicode.cache_entries();
-                let target_local = self.code.instructions.get(next_idx).and_then(|unit| {
-                    let next_op = unit.op.to_base().unwrap_or(unit.op);
-                    if matches!(next_op, Instruction::StoreFast { .. }) {
-                        Some(usize::from(u8::from(unit.arg)))
-                    } else {
-                        None
-                    }
-                });
+                let target_local = self.binary_op_inplace_unicode_target_local(cache_base, a);
                 if let (Some(a_str), Some(b_str), Some(target_local)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyStr>(vm),
                     target_local,
                 ) {
-                    if !self
-                        .localsplus
-                        .fastlocals()
-                        .get(target_local)
-                        .and_then(|slot| slot.as_ref())
-                        .is_some_and(|local| local.is(a))
-                    {
-                        return self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd);
-                    }
                     let result = a_str.as_wtf8().py_add(b_str.as_wtf8());
                     self.pop_value();
                     self.pop_value();
@@ -7527,7 +7510,14 @@ impl ExecutingFrame<'_> {
                 } else if a.downcast_ref_if_exact::<PyStr>(vm).is_some()
                     && b.downcast_ref_if_exact::<PyStr>(vm).is_some()
                 {
-                    Some(Instruction::BinaryOpAddUnicode)
+                    if self
+                        .binary_op_inplace_unicode_target_local(cache_base, a)
+                        .is_some()
+                    {
+                        Some(Instruction::BinaryOpInplaceAddUnicode)
+                    } else {
+                        Some(Instruction::BinaryOpAddUnicode)
+                    }
                 } else if let (Some(a_float), Some(b_int)) = (
                     a.downcast_ref_if_exact::<PyFloat>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
@@ -7698,22 +7688,10 @@ impl ExecutingFrame<'_> {
                 if a.downcast_ref_if_exact::<PyStr>(vm).is_some()
                     && b.downcast_ref_if_exact::<PyStr>(vm).is_some()
                 {
-                    let next_idx =
-                        cache_base + Instruction::BinaryOp { op: Arg::marker() }.cache_entries();
-                    let to_store = self.code.instructions.get(next_idx).is_some_and(|unit| {
-                        let next_op = unit.op.to_base().unwrap_or(unit.op);
-                        if matches!(next_op, Instruction::StoreFast { .. }) {
-                            let local_idx = usize::from(u8::from(unit.arg));
-                            self.localsplus
-                                .fastlocals()
-                                .get(local_idx)
-                                .and_then(|slot| slot.as_ref())
-                                .is_some_and(|local| local.is(a))
-                        } else {
-                            false
-                        }
-                    });
-                    if to_store {
+                    if self
+                        .binary_op_inplace_unicode_target_local(cache_base, a)
+                        .is_some()
+                    {
                         Some(Instruction::BinaryOpInplaceAddUnicode)
                     } else {
                         Some(Instruction::BinaryOpAddUnicode)
@@ -7781,6 +7759,27 @@ impl ExecutingFrame<'_> {
         };
 
         self.commit_specialization(instr_idx, cache_base, new_op);
+    }
+
+    #[inline]
+    fn binary_op_inplace_unicode_target_local(
+        &self,
+        cache_base: usize,
+        left: &PyObject,
+    ) -> Option<usize> {
+        let next_idx = cache_base + Instruction::BinaryOp { op: Arg::marker() }.cache_entries();
+        let unit = self.code.instructions.get(next_idx)?;
+        let next_op = unit.op.to_base().unwrap_or(unit.op);
+        if !matches!(next_op, Instruction::StoreFast { .. }) {
+            return None;
+        }
+        let local_idx = usize::from(u8::from(unit.arg));
+        self.localsplus
+            .fastlocals()
+            .get(local_idx)
+            .and_then(|slot| slot.as_ref())
+            .filter(|local| local.is(left))
+            .map(|_| local_idx)
     }
 
     /// Adaptive counter: trigger specialization at zero, otherwise advance countdown.
