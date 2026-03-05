@@ -9069,6 +9069,18 @@ mod tests {
 
     fn compile_exec(source: &str) -> CodeObject {
         let opts = CompileOpts::default();
+        compile_exec_with_options(source, opts)
+    }
+
+    fn compile_exec_optimized(source: &str) -> CodeObject {
+        let opts = CompileOpts {
+            optimize: 1,
+            ..CompileOpts::default()
+        };
+        compile_exec_with_options(source, opts)
+    }
+
+    fn compile_exec_with_options(source: &str, opts: CompileOpts) -> CodeObject {
         let source_file = SourceFileBuilder::new("source_path", source).finish();
         let parsed = ruff_python_parser::parse(
             source_file.source_text(),
@@ -9133,6 +9145,15 @@ if (True and False) or (False and True):
         assert_dis_snapshot!(compile_exec(
             "\
 x = Test() and False or False
+"
+        ));
+    }
+
+    #[test]
+    fn test_const_bool_not_op() {
+        assert_dis_snapshot!(compile_exec_optimized(
+            "\
+x = not True
 "
         ));
     }
