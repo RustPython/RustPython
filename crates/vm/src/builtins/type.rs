@@ -233,6 +233,9 @@ unsafe impl crate::object::Traverse for PyType {
             .iter()
             .map(|(_, v)| v.traverse(tracer_fn))
             .count();
+        if let Some(ext) = self.heaptype_ext.as_ref() {
+            ext.specialization_init.read().traverse(tracer_fn);
+        }
     }
 
     /// type_clear: break reference cycles in type objects
@@ -260,6 +263,12 @@ unsafe impl crate::object::Traverse for PyType {
                 out.push(val);
             }
         }
+        if let Some(ext) = self.heaptype_ext.as_ref()
+            && let Some(mut guard) = ext.specialization_init.try_write()
+            && let Some(init) = guard.take()
+        {
+            out.push(init.into());
+        }
     }
 }
 
@@ -270,6 +279,8 @@ pub struct HeapTypeExt {
     pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
     pub type_data: PyRwLock<Option<TypeDataSlot>>,
     pub specialization_init: PyRwLock<Option<PyRef<PyFunction>>>,
+    pub specialization_getitem: PyRwLock<Option<PyRef<PyFunction>>>,
+    pub specialization_getitem_version: AtomicU32,
 }
 
 pub struct PointerSlot<T>(NonNull<T>);
@@ -399,6 +410,9 @@ impl PyType {
     pub fn modified(&self) {
         if let Some(ext) = self.heaptype_ext.as_ref() {
             *ext.specialization_init.write() = None;
+            *ext.specialization_getitem.write() = None;
+            ext.specialization_getitem_version
+                .store(0, Ordering::Release);
         }
         // If already invalidated, all subclasses must also be invalidated
         // (guaranteed by the MRO invariant in assign_version_tag).
@@ -455,6 +469,8 @@ impl PyType {
             slots: None,
             type_data: PyRwLock::new(None),
             specialization_init: PyRwLock::new(None),
+            specialization_getitem: PyRwLock::new(None),
+            specialization_getitem_version: AtomicU32::new(0),
         };
         let base = bases[0].clone();
 
@@ -807,10 +823,14 @@ impl PyType {
         let Some(ext) = self.heaptype_ext.as_ref() else {
             return false;
         };
-        if tp_version == 0 || self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+        if tp_version == 0 {
             return false;
         }
-        *ext.specialization_init.write() = Some(init);
+        let mut guard = ext.specialization_init.write();
+        if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+            return false;
+        }
+        *guard = Some(init);
         true
     }
 
@@ -820,13 +840,58 @@ impl PyType {
         tp_version: u32,
     ) -> Option<PyRef<PyFunction>> {
         let ext = self.heaptype_ext.as_ref()?;
+        if tp_version == 0 {
+            return None;
+        }
+        let guard = ext.specialization_init.read();
+        if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+            return None;
+        }
+        guard
+            .as_ref()
+            .map(|init| init.to_owned())
+    }
+
+    /// Cache __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
+    /// The cache is valid only when guarded by the type version check.
+    pub(crate) fn cache_getitem_for_specialization(
+        &self,
+        getitem: PyRef<PyFunction>,
+        tp_version: u32,
+        func_version: u32,
+    ) -> bool {
+        let Some(ext) = self.heaptype_ext.as_ref() else {
+            return false;
+        };
+        if tp_version == 0
+            || func_version == 0
+            || self.tp_version_tag.load(Ordering::Acquire) != tp_version
+        {
+            return false;
+        }
+        *ext.specialization_getitem.write() = Some(getitem);
+        ext.specialization_getitem_version
+            .store(func_version, Ordering::Release);
+        true
+    }
+
+    /// Read cached __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
+    pub(crate) fn get_cached_getitem_for_specialization(
+        &self,
+        tp_version: u32,
+    ) -> Option<(PyRef<PyFunction>, u32)> {
+        let ext = self.heaptype_ext.as_ref()?;
         if tp_version == 0 || self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return None;
         }
-        ext.specialization_init
+        let cached_version = ext.specialization_getitem_version.load(Ordering::Acquire);
+        if cached_version == 0 {
+            return None;
+        }
+        ext.specialization_getitem
             .read()
             .as_ref()
-            .map(|init| init.to_owned())
+            .map(|getitem| (getitem.to_owned(), cached_version))
     }
 
     pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
@@ -1932,6 +1997,8 @@ impl Constructor for PyType {
                 slots: heaptype_slots.clone(),
                 type_data: PyRwLock::new(None),
                 specialization_init: PyRwLock::new(None),
+                specialization_getitem: PyRwLock::new(None),
+                specialization_getitem_version: AtomicU32::new(0),
             };
             (slots, heaptype_ext)
         };
