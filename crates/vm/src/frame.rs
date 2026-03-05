@@ -4374,8 +4374,7 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallListAppend => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4706,8 +4705,7 @@ impl ExecutingFrame<'_> {
                         .downcast_ref_if_exact::<PyBoundMethod>(vm)
                         .is_some()
                 {
-                    let args = self.collect_positional_args(nargs);
-                    return self.execute_call(args, vm);
+                    return self.execute_call_vectorcall(nargs, vm);
                 }
                 let nargs_usize = nargs as usize;
                 let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
@@ -4839,8 +4837,7 @@ impl ExecutingFrame<'_> {
                         .downcast_ref_if_exact::<PyBoundMethod>(vm)
                         .is_some()
                 {
-                    let args = self.collect_keyword_args(nargs);
-                    return self.execute_call(args, vm);
+                    return self.execute_call_kw_vectorcall(nargs, vm);
                 }
                 let nargs_usize = nargs as usize;
                 let kwarg_names_obj = self.pop_value();
