@@ -3804,19 +3804,17 @@ impl ExecutingFrame<'_> {
                 if let (Some(list), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyList>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Ok(i) = idx.try_to_primitive::<isize>(vm)
+                ) && let Ok(i) = idx.try_to_primitive::<usize>(vm)
                 {
                     let vec = list.borrow_vec();
-                    if let Some(pos) = vec.wrap_index(i) {
-                        let value = vec.do_get(pos);
+                    if i < vec.len() {
+                        let value = vec.do_get(i);
                         drop(vec);
                         self.pop_value();
                         self.pop_value();
                         self.push_value(value);
                         return Ok(None);
                     }
-                    drop(vec);
-                    return Err(vm.new_index_error("list index out of range"));
                 }
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
@@ -3826,17 +3824,16 @@ impl ExecutingFrame<'_> {
                 if let (Some(tuple), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyTuple>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Ok(i) = idx.try_to_primitive::<isize>(vm)
+                ) && let Ok(i) = idx.try_to_primitive::<usize>(vm)
                 {
                     let elements = tuple.as_slice();
-                    if let Some(pos) = elements.wrap_index(i) {
-                        let value = elements[pos].clone();
+                    if i < elements.len() {
+                        let value = elements[i].clone();
                         self.pop_value();
                         self.pop_value();
                         self.push_value(value);
                         return Ok(None);
                     }
-                    return Err(vm.new_index_error("tuple index out of range"));
                 }
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
@@ -3869,19 +3866,14 @@ impl ExecutingFrame<'_> {
                 if let (Some(a_str), Some(b_int)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Ok(i) = b_int.try_to_primitive::<isize>(vm)
+                ) && let Ok(i) = b_int.try_to_primitive::<usize>(vm)
+                    && let Ok(ch) = a_str.getitem_by_index(vm, i as isize)
+                    && ch.is_ascii()
                 {
-                    match a_str.getitem_by_index(vm, i) {
-                        Ok(ch) => {
-                            self.pop_value();
-                            self.pop_value();
-                            self.push_value(PyStr::from(ch).into_pyobject(vm));
-                            return Ok(None);
-                        }
-                        Err(e) => {
-                            return Err(e);
-                        }
-                    }
+                    self.pop_value();
+                    self.pop_value();
+                    self.push_value(PyStr::from(ch).into_pyobject(vm));
+                    return Ok(None);
                 }
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
@@ -7412,19 +7404,16 @@ impl ExecutingFrame<'_> {
                 }
             }
             bytecode::BinaryOperator::Subscr => {
-                if a.downcast_ref_if_exact::<PyList>(vm).is_some()
-                    && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
-                {
+                let b_is_nonnegative_int = b
+                    .downcast_ref_if_exact::<PyInt>(vm)
+                    .is_some_and(|i| i.try_to_primitive::<usize>(vm).is_ok());
+                if a.downcast_ref_if_exact::<PyList>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrListInt)
-                } else if a.downcast_ref_if_exact::<PyTuple>(vm).is_some()
-                    && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
-                {
+                } else if a.downcast_ref_if_exact::<PyTuple>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrTupleInt)
                 } else if a.downcast_ref_if_exact::<PyDict>(vm).is_some() {
                     Some(Instruction::BinaryOpSubscrDict)
-                } else if a.downcast_ref_if_exact::<PyStr>(vm).is_some()
-                    && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
-                {
+                } else if a.downcast_ref_if_exact::<PyStr>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrStrInt)
                 } else if a.downcast_ref_if_exact::<PyList>(vm).is_some()
                     && b.downcast_ref::<PySlice>().is_some()
