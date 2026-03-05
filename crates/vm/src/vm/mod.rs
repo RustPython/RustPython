@@ -1479,6 +1479,13 @@ impl VirtualMachine {
     /// Checks for triggered signals and calls the appropriate handlers. A no-op on
     /// platforms where signals are not supported.
     pub fn check_signals(&self) -> PyResult<()> {
+        #[cfg(feature = "threading")]
+        if self.state.finalizing.load(Ordering::Acquire) && !self.is_main_thread() {
+            // once finalization starts,
+            // non-main Python threads should stop running bytecode.
+            return Err(self.new_exception(self.ctx.exceptions.system_exit.to_owned(), vec![]));
+        }
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             crate::signal::check_signals(self)
