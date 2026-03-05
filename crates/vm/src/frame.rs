@@ -3707,8 +3707,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadAttrGetattributeOverridden => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let func_version = self.code.instructions.read_cache_u32(cache_base + 3);
@@ -3731,13 +3730,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize_at(
-                    Instruction::LoadAttr {
-                        namei: Arg::marker(),
-                    },
-                    instr_idx,
-                    cache_base,
-                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrSlot => {
@@ -3781,8 +3773,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadAttrProperty => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
+                let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -3800,20 +3791,6 @@ impl ExecutingFrame<'_> {
                     let result = func.invoke_exact_args(vec![owner], vm)?;
                     self.push_value(result);
                     return Ok(None);
-                }
-                unsafe {
-                    self.code.instructions.replace_op(
-                        instr_idx,
-                        Instruction::LoadAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
                 }
                 self.load_attr_slow(vm, oparg)
             }
@@ -8099,7 +8076,10 @@ impl ExecutingFrame<'_> {
                     && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
                     && init_func.is_simple_for_call_specialization()
                 {
-                    let version = cls.tp_version_tag.load(Acquire);
+                    let mut version = cls.tp_version_tag.load(Acquire);
+                    if version == 0 {
+                        version = cls.assign_version_tag();
+                    }
                     if version != 0
                         && cls.cache_init_for_specialization(init_func.to_owned(), version)
                     {
