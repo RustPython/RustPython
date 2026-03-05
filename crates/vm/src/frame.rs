@@ -4634,28 +4634,23 @@ impl ExecutingFrame<'_> {
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
+                let object_alloc = vm.ctx.types.object_type.slots.alloc.load();
                 if !self.specialization_eval_frame_active(vm)
                     && !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
                     && cls.tp_version_tag.load(Acquire) == cached_version
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
+                    && let (Some(cls_alloc), Some(object_alloc_fn)) =
+                        (cls.slots.alloc.load(), object_alloc)
+                    && cls_alloc as usize == object_alloc_fn as usize
                 {
-                    if vm.reached_c_stack_limit() {
+                    if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    // Allocate object directly (tp_new == object.__new__)
-                    let dict = if cls
-                        .slots
-                        .flags
-                        .has_feature(crate::types::PyTypeFlags::HAS_DICT)
-                    {
-                        Some(vm.ctx.new_dict())
-                    } else {
-                        None
-                    };
+                    // Allocate object directly (tp_new == object.__new__, tp_alloc == generic).
                     let cls_ref = cls.to_owned();
-                    let new_obj: PyObjectRef = PyRef::new_ref(PyBaseObject, cls_ref, dict).into();
+                    let new_obj = cls_alloc(cls_ref, 0, vm)?;
 
                     // Build args: [new_obj, arg1, ..., argN]
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
@@ -8094,8 +8089,12 @@ impl ExecutingFrame<'_> {
             if !self_or_null_is_some && cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
                 let object_new = vm.ctx.types.object_type.slots.new.load();
                 let cls_new = cls.slots.new.load();
-                if let (Some(cls_new_fn), Some(obj_new_fn)) = (cls_new, object_new)
+                let object_alloc = vm.ctx.types.object_type.slots.alloc.load();
+                let cls_alloc = cls.slots.alloc.load();
+                if let (Some(cls_new_fn), Some(obj_new_fn), Some(cls_alloc_fn), Some(obj_alloc_fn)) =
+                    (cls_new, object_new, cls_alloc, object_alloc)
                     && cls_new_fn as usize == obj_new_fn as usize
+                    && cls_alloc_fn as usize == obj_alloc_fn as usize
                     && let Some(init) = cls.get_attr(identifier!(vm, __init__))
                     && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
                     && init_func.is_simple_for_call_specialization()

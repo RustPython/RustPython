@@ -682,6 +682,7 @@ impl PyType {
         // slots are fully initialized by make_slots()
 
         Self::set_new(&new_type.slots, &new_type.base);
+        Self::set_alloc(&new_type.slots, &new_type.base);
 
         let weakref_type = super::PyWeak::static_type();
         for base in new_type.bases.read().iter() {
@@ -728,6 +729,7 @@ impl PyType {
         }
 
         Self::set_new(&self.slots, &self.base);
+        Self::set_alloc(&self.slots, &self.base);
     }
 
     fn set_new(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
@@ -739,6 +741,16 @@ impl PyType {
                     .map(|base| base.slots.new.load())
                     .unwrap_or(None),
             )
+        }
+    }
+
+    fn set_alloc(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
+        if slots.alloc.load().is_none() {
+            slots.alloc.store(
+                base.as_ref()
+                    .map(|base| base.slots.alloc.load())
+                    .unwrap_or(None),
+            );
         }
     }
 
