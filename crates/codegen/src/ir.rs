@@ -693,6 +693,15 @@ impl CodeInfo {
                                 None
                             }
                         }
+                        (Instruction::LoadConst { consti }, Instruction::ToBool) => {
+                            let consti = consti.get(curr.arg);
+                            let constant = &self.metadata.consts[consti as usize];
+                            if let ConstantData::Boolean { .. } = constant {
+                                Some((curr_instr, OpArg::from(consti)))
+                            } else {
+                                None
+                            }
+                        }
                         (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
                             let constant = &self.metadata.consts[consti.get(curr.arg) as usize];
                             match constant {
