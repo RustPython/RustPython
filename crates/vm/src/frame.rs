@@ -4818,22 +4818,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                // Deoptimize
-                unsafe {
-                    self.code.instructions.replace_op(
-                        self.lasti() as usize - 1,
-                        Instruction::LoadSuperAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    let cache_base = self.lasti() as usize;
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
                 let oparg = LoadSuperAttr::new(oparg);
                 self.load_super_attr(vm, oparg)
             }
@@ -4900,22 +4884,6 @@ impl ExecutingFrame<'_> {
                         }
                         return Ok(None);
                     }
-                }
-                // Deoptimize
-                unsafe {
-                    self.code.instructions.replace_op(
-                        self.lasti() as usize - 1,
-                        Instruction::LoadSuperAttr {
-                            namei: Arg::marker(),
-                        },
-                    );
-                    let cache_base = self.lasti() as usize;
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
                 }
                 let oparg = LoadSuperAttr::new(oparg);
                 self.load_super_attr(vm, oparg)
