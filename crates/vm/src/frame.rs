@@ -3586,9 +3586,9 @@ impl ExecutingFrame<'_> {
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = func_obj.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == func_version
-                    && func.has_exact_argcount(2)
                     && self.specialization_has_datastack_space_for_func(vm, func)
                 {
+                    debug_assert!(func.has_exact_argcount(2));
                     let owner = self.pop_value();
                     let attr_name = self.code.names[oparg.name_idx() as usize].to_owned().into();
                     let result = func.invoke_exact_args(vec![owner, attr_name], vm)?;
@@ -3776,9 +3776,9 @@ impl ExecutingFrame<'_> {
                     && let Some((func, func_version)) =
                         owner.class().get_cached_getitem_for_specialization()
                     && func.func_version() == func_version
-                    && func.has_exact_argcount(2)
                     && self.specialization_has_datastack_space_for_func(vm, &func)
                 {
+                    debug_assert!(func.has_exact_argcount(2));
                     let sub = self.pop_value();
                     let owner = self.pop_value();
                     let result = func.invoke_exact_args(vec![owner, sub], vm)?;
