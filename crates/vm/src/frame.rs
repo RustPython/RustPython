@@ -4108,11 +4108,7 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallIsinstance => {
                 let nargs: u32 = arg.into();
@@ -4144,11 +4140,7 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallType1 => {
                 let nargs: u32 = arg.into();
@@ -4167,11 +4159,7 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallStr1 => {
                 let nargs: u32 = arg.into();
@@ -4188,11 +4176,7 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallTuple1 => {
                 let nargs: u32 = arg.into();
@@ -4214,11 +4198,7 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallBuiltinO => {
                 let nargs: u32 = arg.into();
@@ -4289,9 +4269,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallPyGeneral => {
@@ -4404,11 +4381,7 @@ impl ExecutingFrame<'_> {
                         self.push_value(item);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorNoargs => {
                 let nargs: u32 = arg.into();
@@ -4584,9 +4557,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallAllocAndEnterInit => {
@@ -4725,9 +4695,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallNonPyGeneral => {
