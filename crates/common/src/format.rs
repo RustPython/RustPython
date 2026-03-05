@@ -632,7 +632,10 @@ impl FormatSpec {
             } else {
                 ("", formatted_re.as_str())
             };
-            format!("{sign}{}", Self::apply_locale_formatting(mag.to_string(), locale))
+            format!(
+                "{sign}{}",
+                Self::apply_locale_formatting(mag.to_string(), locale)
+            )
         };
 
         // formatted_im is like "+1234j" or "-1234j" or "1234j"
