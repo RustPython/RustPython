@@ -662,6 +662,13 @@ impl Py<PyFunction> {
             && code.arg_count == effective_nargs
     }
 
+    /// Runtime guard for CALL_*_EXACT_ARGS specialization: check only argcount.
+    /// Other invariants are guaranteed by function versioning and specialization-time checks.
+    #[inline]
+    pub(crate) fn has_exact_argcount(&self, effective_nargs: u32) -> bool {
+        self.code.arg_count == effective_nargs
+    }
+
     /// Bytes required for this function's frame on RustPython's thread datastack.
     /// Returns `None` for generator/coroutine code paths that do not push a
     /// regular datastack-backed frame in the fast call path.

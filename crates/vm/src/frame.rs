@@ -3899,7 +3899,7 @@ impl ExecutingFrame<'_> {
                     && cached_version != 0
                 {
                     let effective_nargs = nargs + u32::from(self_or_null_is_some);
-                    if !func.can_specialize_call(effective_nargs) {
+                    if !func.has_exact_argcount(effective_nargs) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     if !self.specialization_has_datastack_space_for_func(vm, func) {
@@ -3951,7 +3951,7 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
-                        if !func.can_specialize_call(nargs + 1) {
+                        if !func.has_exact_argcount(nargs + 1) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         if !self.specialization_has_datastack_space_for_func(vm, func) {
@@ -4485,15 +4485,7 @@ impl ExecutingFrame<'_> {
                     all_args.push(new_obj.clone());
                     all_args.extend(pos_args);
 
-                    let init_result = if init_func.can_specialize_call(all_args.len() as u32) {
-                        init_func.invoke_exact_args(all_args, vm)?
-                    } else {
-                        let args = FuncArgs {
-                            args: all_args,
-                            kwargs: Default::default(),
-                        };
-                        init_func.invoke(args, vm)?
-                    };
+                    let init_result = init_func.invoke_exact_args(all_args, vm)?;
 
                     // EXIT_INIT_CHECK: __init__ must return None
                     if !vm.is_none(&init_result) {
