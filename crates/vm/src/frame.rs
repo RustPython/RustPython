@@ -3709,15 +3709,13 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm)
                     && let Some(int_idx) = idx.downcast_ref_if_exact::<PyInt>(vm)
-                    && let Ok(i) = int_idx.try_to_primitive::<isize>(vm)
+                    && let Some(i) = Self::specialization_nonnegative_compact_index(int_idx, vm)
                 {
                     let mut vec = list.borrow_vec_mut();
-                    if let Some(pos) = vec.wrap_index(i) {
-                        vec[pos] = value;
+                    if i < vec.len() {
+                        vec[i] = value;
                         return Ok(None);
                     }
-                    drop(vec);
-                    return Err(vm.new_index_error("list assignment index out of range"));
                 }
                 obj.set_item(&*idx, value, vm)?;
                 Ok(None)
@@ -8402,10 +8400,18 @@ impl ExecutingFrame<'_> {
         let obj = self.nth_value(1);
         let idx = self.top_value();
 
-        let new_op = if obj.downcast_ref_if_exact::<PyList>(vm).is_some()
-            && idx.downcast_ref_if_exact::<PyInt>(vm).is_some()
-        {
-            Some(Instruction::StoreSubscrListInt)
+        let new_op = if let (Some(list), Some(int_idx)) = (
+            obj.downcast_ref_if_exact::<PyList>(vm),
+            idx.downcast_ref_if_exact::<PyInt>(vm),
+        ) {
+            let list_len = list.borrow_vec().len();
+            if Self::specialization_nonnegative_compact_index(int_idx, vm)
+                .is_some_and(|i| i < list_len)
+            {
+                Some(Instruction::StoreSubscrListInt)
+            } else {
+                None
+            }
         } else if obj.downcast_ref_if_exact::<PyDict>(vm).is_some() {
             Some(Instruction::StoreSubscrDict)
         } else {
