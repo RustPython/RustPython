@@ -5189,9 +5189,6 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter {
-                        delta: Arg::marker(),
-                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -5207,9 +5204,6 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter {
-                        delta: Arg::marker(),
-                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -5225,9 +5219,6 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter {
-                        delta: Arg::marker(),
-                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
@@ -5236,17 +5227,11 @@ impl ExecutingFrame<'_> {
                 let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
                 if self.specialization_eval_frame_active(vm) {
-                    self.deoptimize(Instruction::ForIter {
-                        delta: Arg::marker(),
-                    });
                     self.execute_for_iter(vm, target)?;
                     return Ok(None);
                 }
                 if let Some(generator) = iter.downcast_ref_if_exact::<PyGenerator>(vm) {
                     if generator.as_coro().running() || generator.as_coro().closed() {
-                        self.deoptimize(Instruction::ForIter {
-                            delta: Arg::marker(),
-                        });
                         self.execute_for_iter(vm, target)?;
                         return Ok(None);
                     }
@@ -5265,9 +5250,6 @@ impl ExecutingFrame<'_> {
                     }
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::ForIter {
-                        delta: Arg::marker(),
-                    });
                     self.execute_for_iter(vm, target)?;
                     Ok(None)
                 }
