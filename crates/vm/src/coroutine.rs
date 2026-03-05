@@ -115,6 +115,48 @@ impl Coro {
         result
     }
 
+    fn finalize_send_result(
+        &self,
+        jen: &PyObject,
+        result: PyResult<ExecutionResult>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyIterReturn> {
+        self.maybe_close(&result);
+        match result {
+            Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
+            Err(e) => {
+                if e.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
+                    let err =
+                        vm.new_runtime_error(format!("{} raised StopIteration", gen_name(jen, vm)));
+                    err.set___cause__(Some(e));
+                    Err(err)
+                } else if jen.class().is(vm.ctx.types.async_generator)
+                    && e.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
+                {
+                    let err = vm.new_runtime_error("async generator raised StopAsyncIteration");
+                    err.set___cause__(Some(e));
+                    Err(err)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    pub(crate) fn send_none(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        if self.closed.load() {
+            return Ok(PyIterReturn::StopIteration(None));
+        }
+        self.frame.locals_to_fast(vm)?;
+        let value = if self.frame.lasti() > 0 {
+            Some(vm.ctx.none())
+        } else {
+            None
+        };
+        let result = self.run_with_context(jen, vm, |f| f.resume(value, vm));
+        self.finalize_send_result(jen, result, vm)
+    }
+
     pub fn send(
         &self,
         jen: &PyObject,
@@ -136,26 +178,7 @@ impl Coro {
             None
         };
         let result = self.run_with_context(jen, vm, |f| f.resume(value, vm));
-        self.maybe_close(&result);
-        match result {
-            Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
-            Err(e) => {
-                if e.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
-                    let err =
-                        vm.new_runtime_error(format!("{} raised StopIteration", gen_name(jen, vm)));
-                    err.set___cause__(Some(e));
-                    Err(err)
-                } else if jen.class().is(vm.ctx.types.async_generator)
-                    && e.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
-                {
-                    let err = vm.new_runtime_error("async generator raised StopAsyncIteration");
-                    err.set___cause__(Some(e));
-                    Err(err)
-                } else {
-                    Err(e)
-                }
-            }
-        }
+        self.finalize_send_result(jen, result, vm)
     }
 
     pub fn throw(
