@@ -10,6 +10,16 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::collections::HashSet;
 
+#[cfg(not(target_arch = "wasm32"))]
+fn elapsed_secs(start: &std::time::Instant) -> f64 {
+    start.elapsed().as_secs_f64()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn elapsed_secs(_start: &()) -> f64 {
+    0.0
+}
+
 bitflags::bitflags! {
     /// GC debug flags (see Include/internal/pycore_gc.h)
     #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -381,7 +391,10 @@ impl GcState {
             return CollectResult::default();
         };
 
+        #[cfg(not(target_arch = "wasm32"))]
         let start_time = std::time::Instant::now();
+        #[cfg(target_arch = "wasm32")]
+        let start_time = ();
 
         // Memory barrier to ensure visibility of all reference count updates
         // from other threads before we start analyzing the object graph.
@@ -416,7 +429,7 @@ impl GcState {
             for i in 0..reset_end {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
-            let duration = start_time.elapsed().as_secs_f64();
+            let duration = elapsed_secs(&start_time);
             self.generations[generation].update_stats(0, 0, 0, duration);
             return CollectResult {
                 collected: 0,
@@ -526,7 +539,7 @@ impl GcState {
             for i in 0..generation {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
-            let duration = start_time.elapsed().as_secs_f64();
+            let duration = elapsed_secs(&start_time);
             self.generations[generation].update_stats(0, 0, candidates, duration);
             return CollectResult {
                 collected: 0,
@@ -546,7 +559,7 @@ impl GcState {
             for i in 0..generation {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
-            let duration = start_time.elapsed().as_secs_f64();
+            let duration = elapsed_secs(&start_time);
             self.generations[generation].update_stats(0, 0, candidates, duration);
             return CollectResult {
                 collected: 0,
@@ -694,7 +707,7 @@ impl GcState {
             self.generations[i].count.store(0, Ordering::SeqCst);
         }
 
-        let duration = start_time.elapsed().as_secs_f64();
+        let duration = elapsed_secs(&start_time);
         self.generations[generation].update_stats(collected, 0, candidates, duration);
 
         CollectResult {
